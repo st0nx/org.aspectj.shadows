@@ -95,7 +95,16 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 			}
 		}
 	} else {
-		codeStream.invokestatic(syntheticAccessor);
+		// AspectJ extension
+		// Although all JDT based accessors are static, that is not true of
+		// AspectJ accessors.  For example: ajc$privMethod for accessing private
+		// methods on types from a privileged aspect.
+		if (syntheticAccessor.isStatic()) {
+			codeStream.invokestatic(syntheticAccessor);
+		} else {
+			codeStream.invokevirtual(syntheticAccessor);
+		}
+		// End AspectJ extension
 	}
 	// operation on the returned value
 	if (valueRequired){
@@ -134,6 +143,20 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo f
 	if (!flowInfo.isReachable()) return;
 	if (binding.isPrivate()){
 
+		// AspectJ extension
+		// Ok, it is a private method call - check if this has been allowed through
+		// the compiler because of privilege?
+		IPrivilegedHandler iph = Scope.findPrivilegedHandler(currentScope.invocationType());
+		if (iph != null) { 
+			// ??? Should getPriviligedAccessMethod() provide a flag to indicate
+			// if you *want* to build a new accessor or if you just want to see if
+			// one already exists?
+			MethodBinding privAccessor = iph.getPrivilegedAccessMethod(binding,null);
+			syntheticAccessor = privAccessor;
+			return;
+		}
+		// End AspectJ extension
+		
 		// depth is set for both implicit and explicit access (see MethodBinding#canBeSeenBy)		
 		if (currentScope.enclosingSourceType() != binding.declaringClass){
 		
