@@ -81,7 +81,7 @@
     </target>
 	
 	<target name="transformProjectToORGASPECTJ"
-		description="Transforms the contents of all source folders to remove the use of an 'org.aspectj' prefix">
+		description="Transforms the contents of all source folders to use of an 'org.aspectj' prefix">
 		<antcall target="transformOneFolderToAJ"><param name="srcfolder" value="antadapter"/></antcall>
 		<antcall target="transformOneFolderToAJ"><param name="srcfolder" value="batch"/></antcall>
 		<antcall target="transformOneFolderToAJ"><param name="srcfolder" value="codeassist"/></antcall>
@@ -94,7 +94,7 @@
 	</target>
 	
 	<target name="transformProjectFromORGASPECTJ"
-		description="Transforms the contents of all source folders to use an 'org.aspectj' prefix on package names">
+		description="Transforms the contents of all source folders to remove 'org.aspectj' prefix on package names">
 		<antcall target="transformOneFolderFromAJ"><param name="srcfolder" value="antadapter"/></antcall>
 		<antcall target="transformOneFolderFromAJ"><param name="srcfolder" value="batch"/></antcall>
 		<antcall target="transformOneFolderFromAJ"><param name="srcfolder" value="codeassist"/></antcall>
