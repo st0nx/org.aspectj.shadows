@@ -210,14 +210,14 @@ public final class CharOperation {
 	}
 
 	/**
-	 * Compare the contents of the two arrays array and prefix and answers:
+	 * Compares the contents of the two arrays array and prefix. Returns
 	 * <ul>
 	 * <li>zero if the array starts with the prefix contents</li>
 	 * <li>the difference between the first two characters that are not equal </li>
 	 * <li>one if array length is lower than the prefix length and that the prefix starts with the 
 	 * array contents.</li>
 	 * </ul>
-	 * <br>
+	 * <p>
 	 * For example:
 	 * <ol>
 	 * <li><pre>
@@ -257,6 +257,7 @@ public final class CharOperation {
 	 * </pre>
 	 * </li>
 	 * </ol>
+	 * </p>
 	 * 
 	 * @param array the given array
 	 * @param prefix the given prefix
@@ -465,39 +466,59 @@ public final class CharOperation {
 	 * It answers null if the three arrays are null.
 	 * If the first array is null, then it answers the concatenation of second and third inserting
 	 * the sep2 character between them.
-	 * If the second array is null, then the first array is returned.
+	 * If the second array is null, then it answers the concatenation of first and third inserting
+	 * the sep1 character between them.
+	 * If the third array is null, then it answers the concatenation of first and second inserting
+	 * the sep1 character between them.
 	 * <br>
 	 * <br>
 	 * For example:
 	 * <ol>
 	 * <li><pre>
 	 *    first = null
+	 *    sep1 = '/'
 	 *    second = { 'a' }
-	 *    separator = '/'
-	 *    => result = { ' a' }
+	 *    sep2 = ':'
+	 *    third = { 'b' }
+	 *    => result = { ' a' , ':', 'b' }
 	 * </pre>
 	 * </li>
 	 * <li><pre>
-	 *    first = { ' a' }
+	 *    first = { 'a' }
+	 *    sep1 = '/'
 	 *    second = null
-	 *    separator = '/'
-	 *    => result = { ' a' }
+	 *    sep2 = ':'
+	 *    third = { 'b' }
+	 *    => result = { ' a' , '/', 'b' }
 	 * </pre>
 	 * </li>
 	 * <li><pre>
-	 *    first = { ' a' }
-	 *    second = { ' b' }
-	 *    separator = '/'
+	 *    first = { 'a' }
+	 *    sep1 = '/'
+	 *    second = { 'b' }
+	 *    sep2 = ':'
+	 *    third = null
 	 *    => result = { ' a' , '/', 'b' }
+	 * </pre>
+	 * </li>
+	 * <li><pre>
+	 *    first = { 'a' }
+	 *    sep1 = '/'
+	 *    second = { 'b' }
+	 *    sep2 = ':'
+	 *    third = { 'c' }
+	 *    => result = { ' a' , '/', 'b' , ':', 'c' }
 	 * </pre>
 	 * </li>
 	 * </ol>
 	 * 
 	 * @param first the first array to concatenate
+	 * @param sep1 the character to insert
 	 * @param second the second array to concatenate
-	 * @param separator the character to insert
-	 * @return the concatenation of the two arrays inserting the separator character 
-	 * between the two arrays , or null if the two arrays are null.
+	 * @param sep2 the character to insert
+	 * @param third the second array to concatenate
+	 * @return the concatenation of the three arrays inserting the sep1 character between the 
+	 * two arrays and sep2 between the last two.
 	 */
 	public static final char[] concat(
 		char[] first,
@@ -773,9 +794,8 @@ public final class CharOperation {
 	 * 
 	 * @param character the character to search
 	 * @param array the array in which the search is done
-	 * @exception NullPointerException if array is null.
-	 * 
 	 * @return true if the array contains an occurrence of character, false otherwise.
+	 * @exception NullPointerException if array is null.
 	 */
 	public static final boolean contains(char character, char[][] array) {
 		for (int i = array.length; --i >= 0;) {
@@ -810,9 +830,8 @@ public final class CharOperation {
 	 * 
 	 * @param character the character to search
 	 * @param array the array in which the search is done
-	 * @exception NullPointerException if array is null.
-	 * 
 	 * @return true if the array contains an occurrence of character, false otherwise.
+	 * @exception NullPointerException if array is null.
 	 */
 	public static final boolean contains(char character, char[] array) {
 		for (int i = array.length; --i >= 0;)
@@ -863,9 +882,9 @@ public final class CharOperation {
 	 * 
 	 * @param array the array to check
 	 * @param toBeFound the array to find
-	 * @exception NullPointerException if array is null or toBeFound is null
 	 * @return true if array ends with the sequence of characters contained in toBeFound, 
 	 * otherwise false.
+	 * @exception NullPointerException if array is null or toBeFound is null
 	 */
 	public static final boolean endsWith(char[] array, char[] toBeFound) {
 		int i = toBeFound.length;

@@ -114,9 +114,9 @@ public final class JavaConventions {
 	}
 
 	/**
-	 * Returns the current identifier extracted by the scanner (ie. without unicodes)
-	 * from the given id.
-	 * Returns <code>null</code> if the id was not valid.
+	 * Returns the current identifier extracted by the scanner (without unicode
+	 * escapes) from the given id.
+	 * Returns <code>null</code> if the id was not valid
 	 */
 	private static synchronized char[] scannedIdentifier(String id) {
 		if (id == null) {
@@ -250,7 +250,7 @@ public final class JavaConventions {
 
 	/**
 	 * Validate the given Java identifier.
-	 * The identifier must have the same spelling as a Java keyword,
+	 * The identifier must not have the same spelling as a Java keyword,
 	 * boolean literal (<code>"true"</code>, <code>"false"</code>), or null literal (<code>"null"</code>).
 	 * See section 3.8 of the <em>Java Language Specification, Second Edition</em> (JLS2).
 	 * A valid identifier can act as a simple type name, method name or field name.
@@ -371,7 +371,7 @@ public final class JavaConventions {
 	 * The syntax of a package name corresponds to PackageName as
 	 * defined by PackageDeclaration (JLS2 7.4). For example, <code>"java.lang"</code>.
 	 * <p>
-	 * Note that the given name must be a non-empty package name (ie. attempting to
+	 * Note that the given name must be a non-empty package name (that is, attempting to
 	 * validate the default package will return an error status.)
 	 * Also it must not contain any characters or substrings that are not valid 
 	 * on the file system on which workspace root is located.
@@ -427,10 +427,10 @@ public final class JavaConventions {
 	/**
 	 * Validate a given classpath and output location for a project, using the following rules:
 	 * <ul>
-	 *   <li> Classpath entries cannot collide with each other, i.e. all entry paths must be unique.
+	 *   <li> Classpath entries cannot collide with each other; that is, all entry paths must be unique.
 	 *   <li> The project output location path cannot be null, must be absolute and located inside the project.
 	 *   <li> Specific output locations (specified on source entries) can be null, if not they must be located inside the project,
-	 *   <li> A project entry cannot refer to itself directly (i.e. a project cannot prerequisite itself).
+	 *   <li> A project entry cannot refer to itself directly (that is, a project cannot prerequisite itself).
      *   <li> Classpath entries or output locations cannot coincidate or be nested in each other, except for the following scenarii listed below:
 	 *      <ul><li> A source folder can coincidate with its own output location, in which case this output can then contain library archives. 
 	 *                     However, an output location cannot coincidate with any library or a distinct source folder than the one referring to it. </li> 
@@ -643,7 +643,7 @@ public final class JavaConventions {
 		}
 		// ensure that no output is coincidating with another source folder (only allowed if matching current source folder)
 		// perform one separate iteration so as to not take precedence over previously checked scenarii (in particular should
-		// diagnose nesting source folder issue before this one, e.g. [src]"Project/", [src]"Project/source/" and output="Project/" should
+		// diagnose nesting source folder issue before this one, for example, [src]"Project/", [src]"Project/source/" and output="Project/" should
 		// first complain about missing exclusion pattern
 		for (int i = 0 ; i < length; i++) {
 			IClasspathEntry entry = classpath[i];
@@ -675,9 +675,9 @@ public final class JavaConventions {
 	}
 	
 	/**
-	 * Returns a java model status describing the problem related to this classpath entry if any, 
-	 * a status object with code <code>IStatus.OK</code> if the entry is fine.
-	 * (i.e. if the given classpath entry denotes a valid element to be referenced onto a classpath).
+	 * Returns a Java model status describing the problem related to this classpath entry if any, 
+	 * a status object with code <code>IStatus.OK</code> if the entry is fine (that is, if the
+	 * given classpath entry denotes a valid element to be referenced onto a classpath).
 	 * 
 	 * @param javaProject the given java project
 	 * @param entry the given classpath entry

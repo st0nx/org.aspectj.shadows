@@ -32,7 +32,7 @@ public interface IScanner {
 	/**
 	 * Answers the current identifier source, after unicode escape sequences have
 	 * been translated into unicode characters.
-	 * e.g. if original source was <code>\\u0061bc</code> then it will answer <code>abc</code>.
+	 * For example, if original source was <code>\\u0061bc</code> then it will answer <code>abc</code>.
 	 * 
 	 * @return the current identifier source, after unicode escape sequences have
 	 * been translated into unicode characters
@@ -42,7 +42,7 @@ public interface IScanner {
 	/**
 	 * Answers the current identifier source, before unicode escape sequences have
 	 * been translated into unicode characters.
-	 * e.g. if original source was <code>\\u0061bc</code> then it will answer <code>\\u0061bc</code>.
+	 * For example, if original source was <code>\\u0061bc</code> then it will answer <code>\\u0061bc</code>.
 	 * 
 	 * @return the current identifier source, before unicode escape sequences have
 	 * been translated into unicode characters
@@ -72,7 +72,7 @@ public interface IScanner {
 
 	/**
 	 * Answers the starting position of a given line number. This line has to have been encountered
-	 * already in the tokenization process (i.e. it cannot be used to compute positions of lines beyond
+	 * already in the tokenization process (in other words, it cannot be used to compute positions of lines beyond
 	 * current token). Once the entire source has been processed, it can be used without any limit.
 	 * Line starting positions are zero-based, and start immediately after the previous line separator (if any).
 	 * 
@@ -83,7 +83,7 @@ public interface IScanner {
 
 	/**
 	 * Answers the ending position of a given line number. This line has to have been encountered
-	 * already in the tokenization process (i.e. it cannot be used to compute positions of lines beyond
+	 * already in the tokenization process (in other words, it cannot be used to compute positions of lines beyond
 	 * current token). Once the entire source has been processed, it can be used without any limit.
 	 * Line ending positions are zero-based, and correspond to the last character of the line separator 
 	 * (in case multi-character line separators).	 
@@ -114,7 +114,7 @@ public interface IScanner {
 	/**
 	 * Read the next token in the source, and answers its ID as specified by <code>ITerminalSymbols</code>.
 	 * Note that the actual token ID values are subject to change if new keywords were added to the language
-	 * (i.e. 'assert' keyword in 1.4).
+	 * (for instance, 'assert' is a keyword in 1.4).
 	 * 
 	 * @throws InvalidInputException in case a lexical error was detected while reading the current token
 	 */

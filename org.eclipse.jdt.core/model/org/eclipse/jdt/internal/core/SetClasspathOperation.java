@@ -264,8 +264,8 @@ public class SetClasspathOperation extends JavaModelOperation {
 
 	/**
 	 * Generates the delta of removed/added/reordered roots.
-	 * Use three deltas in case the same root is removed/added/reordered (i.e. changed from
-	 * K_SOURCE to K_BINARY or visa versa)
+	 * Use three deltas in case the same root is removed/added/reordered (for
+	 * instance, if it is changed from K_SOURCE to K_BINARY or vice versa)
 	 */
 	protected void generateClasspathChangeDeltas(
 		IClasspathEntry[] oldResolvedPath,
@@ -676,9 +676,8 @@ public class SetClasspathOperation extends JavaModelOperation {
 	/**
 	 * Sets the output location of the pre-specified project.
 	 *
-	 * <p>This can cause changes in package fragments - i.e. if the
-	 * old and new output location folder could be considered as
-	 * a package fragment.
+	 * <p>This can cause changes in package fragments, in case either  the
+	 * old or new output location folder are considered as a package fragment.
 	 */
 	protected void updateOutputLocation() throws JavaModelException {
 		

@@ -295,7 +295,9 @@ public class SourceMapper
 	
 	private void computeAllRootPaths(IType type) {
 		IPackageFragmentRoot root = (IPackageFragmentRoot) type.getPackageFragment().getParent();
-		this.rootPaths = new HashSet();
+		if (this.rootPaths == null) {
+			this.rootPaths = new HashSet();
+		}
 		long time = 0;
 		if (VERBOSE) {
 			System.out.println("compute all root paths for " + root.getElementName()); //$NON-NLS-1$
@@ -315,7 +317,7 @@ public class SourceMapper
 					String entryName = entry.getName();
 					if (!entry.isDirectory()) {
 						int index = entryName.indexOf('/');
-						if (index != -1) {
+						if (index != -1 && Util.isClassFileName(entryName)) {
 							String firstLevelPackageName = entryName.substring(0, index);
 							if (JavaConventions.validatePackageName(firstLevelPackageName).isOK()) {
 								firstLevelPackageNames.add(firstLevelPackageName);
@@ -818,7 +820,7 @@ public class SourceMapper
 	}
 
 	/*
-	 * Finds the source file name (i.e. the simple .java file name) for the given IBinaryType.
+	 * Finds the source file name (using the simple .java file name) for the given IBinaryType.
 	 * Returns null if not found.
 	 */
 	public String findSourceFileName(IType type, IBinaryType info) {

@@ -88,7 +88,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	public static final String NATURE_ID = PLUGIN_ID + ".javanature" ; //$NON-NLS-1$
 
 	/**
-	 * Name of the handle id attribute in a Java marker
+	 * Name of the handle id attribute in a Java marker.
 	 */
 	protected static final String ATT_HANDLE_ID =
 		"org.eclipse.jdt.internal.core.JavaModelManager.handleId" ; //$NON-NLS-1$
@@ -1122,7 +1122,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 *     - default:           "generate"
 	 *    
 	 * COMPILER / Preserving Unused Local Variables
-	 *    Unless requested to preserve unused local variables (i.e. never read), the 
+	 *    Unless requested to preserve unused local variables (that is, never read), the 
 	 *    compiler will optimize them out, potentially altering debugging
 	 *     - option id:         "org.eclipse.jdt.core.compiler.codegen.unusedLocal"
 	 *     - possible values:   { "preserve", "optimize out" }
@@ -1180,7 +1180,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 *     - default:           "disabled"
 	 *
 	 * COMPILER / Reporting Hidden Catch Block
-	 *    Locally to a try statement, some catch blocks may hide others , e.g.
+	 *    Locally to a try statement, some catch blocks may hide others . For example,
 	 *      try {  throw new java.io.CharConversionException();
 	 *      } catch (java.io.CharConversionException e) {
 	 *      } catch (java.io.IOException e) {}. 
@@ -1192,14 +1192,14 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 *
 	 * COMPILER / Reporting Unused Local
 	 *    When enabled, the compiler will issue an error or a warning for unused local 
-	 *    variables (i.e. variables never read from)
+	 *    variables (that is, variables never read from)
 	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.unusedLocal"
 	 *     - possible values:   { "error", "warning", "ignore" }
 	 *     - default:           "ignore"
 	 *
 	 * COMPILER / Reporting Unused Parameter
 	 *    When enabled, the compiler will issue an error or a warning for unused method 
-	 *    parameters (i.e. parameters never read from)
+	 *    parameters (that is, parameters never read from)
 	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.unusedParameter"
 	 *     - possible values:   { "error", "warning", "ignore" }
 	 *     - default:           "ignore"
@@ -1242,7 +1242,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 *
 	 * COMPILER / Reporting Non-Externalized String Literal
 	 *    When enabled, the compiler will issue an error or a warning for non externalized 
-	 *    String literal (i.e. non tagged with //$NON-NLS-<n>$). 
+	 *    String literal (that is, not tagged with //$NON-NLS-<n>$). 
 	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.nonExternalizedStringLiteral"
 	 *     - possible values:   { "error", "warning", "ignore" }
 	 *     - default:           "ignore"
@@ -1256,7 +1256,8 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 * 
 	 * COMPILER / Reporting Non-Static Reference to a Static Member
 	 *    When enabled, the compiler will issue an error or a warning whenever a static field
-	 *    or method is accessed with an expression receiver.
+	 *    or method is accessed with an expression receiver. A reference to a static member should
+	 *    be qualified with a type name.
 	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.staticAccessReceiver"
 	 *     - possible values:   { "error", "warning", "ignore" }
 	 *     - default:           "warning"
@@ -1270,14 +1271,18 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 * 
 	 * COMPILER / Reporting Interface Method not Compatible with non-Inherited Methods
 	 *    When enabled, the compiler will issue an error or a warning whenever an interface
-	 *    defines a method incompatible with a non-inherited Object one.
+	 *    defines a method incompatible with a non-inherited Object method. Until this conflict
+	 *    is resolved, such an interface cannot be implemented, For example, 
+	 *      interface I { 
+	 *         int clone();
+	 *      } 
 	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.incompatibleNonInheritedInterfaceMethod"
 	 *     - possible values:   { "error", "warning", "ignore" }
 	 *     - default:           "warning"
 	 * 
 	 * COMPILER / Reporting Usage of char[] Expressions in String Concatenations
 	 *    When enabled, the compiler will issue an error or a warning whenever a char[] expression
-	 *    is used in String concatenations (e.g. "hello" + new char[]{'w','o','r','l','d'}).
+	 *    is used in String concatenations (for example, "hello" + new char[]{'w','o','r','l','d'}).
 	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.noImplicitStringConversion"
 	 *     - possible values:   { "error", "warning", "ignore" }
 	 *     - default:           "warning"
@@ -1304,11 +1309,12 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 *     - default:           "100"
 	 * 
 	 * COMPILER / Define the Automatic Task Tags
-	 *    When the tag is non empty, the compiler will issue a task marker whenever it encounters
+	 *    When the tag list is not empty, the compiler will issue a task marker whenever it encounters
 	 *    one of the corresponding tag inside any comment in Java source code.
-	 *    Generated task messages will include the tag, and range until the next line separator or comment ending, and will be trimmed.
+	 *    Generated task messages will include the tag, and range until the next line separator or comment ending.
+	 *    Note that tasks messages are trimmed.
 	 *     - option id:         "org.eclipse.jdt.core.compiler.taskTags"
-	 *     - possible values:   { "<tag>[,<tag>]*" } where <tag> is a String without any wild-card 
+	 *     - possible values:   { "<tag>[,<tag>]*" } where <tag> is a String without any wild-card or leading/trailing spaces 
 	 *     - default:           ""
 	 * 
 	 * COMPILER / Define the Automatic Task Priorities
@@ -1330,7 +1336,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 *    Allow to toggle the builder to abort if the classpath is invalid
 	 *     - option id:         "org.eclipse.jdt.core.builder.invalidClasspath"
 	 *     - possible values:   { "abort", "ignore" }
-	 *     - default:           "ignore"
+	 *     - default:           "abort"
 	 * 
 	 * BUILDER / Cleaning Output Folder(s)
 	 *    Indicate whether the JavaBuilder is allowed to clean the output folders
@@ -1338,6 +1344,13 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 *     - option id:         "org.eclipse.jdt.core.builder.cleanOutputFolder"
 	 *     - possible values:   { "clean", "ignore" }
 	 *     - default:           "clean"
+	 * 
+	 * BUILDER / Reporting Duplicate Resources
+	 *    Indicate the severity of the problem reported when more than one occurrence
+	 *    of a resource is to be copied into the output location.
+	 *     - option id:         "org.eclipse.jdt.core.builder.duplicateResourceTask"
+	 *     - possible values:   { "error", "warning" }
+	 *     - default:           "warning"
 	 * 
 	 * JAVACORE / Computing Project Build Order
 	 *    Indicate whether JavaCore should enforce the project build order to be based on
@@ -1355,8 +1368,8 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 *     - default:           <platform default>
 	 * 
 	 * JAVACORE / Reporting Incomplete Classpath
-	 *    Indicate the severity of the problem reported when an entry on the classpath doesn't exist 
-	 *    is not legite or is not visible (e.g. a referenced project is closed).
+	 *    Indicate the severity of the problem reported when an entry on the classpath does not exist, 
+	 *    is not legite or is not visible (for example, a referenced project is closed).
 	 *     - option id:         "org.eclipse.jdt.core.incompleteClasspath"
 	 *     - possible values:   { "error", "warning"}
 	 *     - default:           "error"
@@ -1368,14 +1381,14 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 *     - default:           "error"
 	 * 
 	 * JAVACORE / Enabling Usage of Classpath Exclusion Patterns
-	 *    When set to "disabled", no entry on a project classpath can be associated with
+	 *    When disabled, no entry on a project classpath can be associated with
 	 *    an exclusion pattern.
 	 *     - option id:         "org.eclipse.jdt.core.classpath.exclusionPatterns"
 	 *     - possible values:   { "enabled", "disabled" }
 	 *     - default:           "enabled"
 	 * 
 	 * JAVACORE / Enabling Usage of Classpath Multiple Output Locations
-	 *    When set to "disabled", no entry on a project classpath can be associated with
+	 *    When disabled, no entry on a project classpath can be associated with
 	 *    a specific output location, preventing thus usage of multiple output locations.
 	 *     - option id:         "org.eclipse.jdt.core.classpath.multipleOutputLocations"
 	 *     - possible values:   { "enabled", "disabled" }
@@ -1424,7 +1437,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 *     - default:           "80"
 	 * 
 	 *	FORMATTER / Compacting Assignment
-	 *    Assignments can be formatted asymmetrically, e.g. 'int x= 2;', when Normal, a space
+	 *    Assignments can be formatted asymmetrically, for example 'int x= 2;', when Normal, a space
 	 *    is inserted before the assignment operator
 	 *     - option id:         "org.eclipse.jdt.core.formatter.style.assignment"
 	 *     - possible values:   { "compact", "normal" }
@@ -1451,7 +1464,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 * 
 	 *	CODEASSIST / Activate Visibility Sensitive Completion
 	 *    When active, completion doesn't show that you can not see
-	 *    (e.g. you can not see private methods of a super class).
+	 *    (for example, you can not see private methods of a super class).
 	 *     - option id:         "org.eclipse.jdt.core.codeComplete.visibilityCheck"
 	 *     - possible values:   { "enabled", "disabled" }
 	 *     - default:           "disabled"
@@ -1736,7 +1749,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 
 
 	/**
-	 * Resolve a variable path (helper method)
+	 * Resolve a variable path (helper method).
 	 * 
 	 * @param variablePath the given variable path
 	 * @return the resolved variable path or <code>null</code> if none
@@ -1765,7 +1778,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	/**
 	 * Answers the shared working copies currently registered for this buffer factory. 
 	 * Working copies can be shared by several clients using the same buffer factory,see 
-	 * <code>IWorkingCopy##getSharedWorkingCopy</code>.
+	 * <code>IWorkingCopy.getSharedWorkingCopy</code>.
 	 * 
 	 * @param factory the given buffer factory
 	 * @return the list of shared working copies for a given buffer factory
@@ -2073,8 +2086,8 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 * <p>
 	 * A container entry allows to express indirect references to a set of libraries, projects and variable entries,
 	 * which can be interpreted differently for each Java project where it is used.
-	 * A classpath container entry can be resolved using <code>JavaCore#getResolvedClasspathContainer</code>,
-	 * and updated with <code>JavaCore#classpathContainerChanged</code>
+	 * A classpath container entry can be resolved using <code>JavaCore.getResolvedClasspathContainer</code>,
+	 * and updated with <code>JavaCore.classpathContainerChanged</code>
 	 * <p>
 	 * A container is exclusively resolved by a <code>ClasspathContainerInitializer</code> registered onto the
 	 * extension point "org.eclipse.jdt.core.classpathContainerInitializer".
@@ -2122,8 +2135,8 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 * <p>
 	 * A container entry allows to express indirect references to a set of libraries, projects and variable entries,
 	 * which can be interpreted differently for each Java project where it is used.
-	 * A classpath container entry can be resolved using <code>JavaCore#getResolvedClasspathContainer</code>,
-	 * and updated with <code>JavaCore#classpathContainerChanged</code>
+	 * A classpath container entry can be resolved using <code>JavaCore.getResolvedClasspathContainer</code>,
+	 * and updated with <code>JavaCore.classpathContainerChanged</code>
 	 * <p>
 	 * A container is exclusively resolved by a <code>ClasspathContainerInitializer</code> registered onto the
 	 * extension point "org.eclipse.jdt.core.classpathContainerInitializer".
@@ -2427,7 +2440,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	 * for the project's source folder identified by the given absolute 
 	 * workspace-relative path but excluding all source files with paths
 	 * matching any of the given patterns, and associated with a specific output location
-	 * (i.e. ".class" files are not going to the project default output location). 
+	 * (that is, ".class" files are not going to the project default output location). 
 	 * All package fragments within the root will have children of type 
 	 * <code>ICompilationUnit</code>.
 	 * <p>
@@ -2662,9 +2675,9 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 		JavaModelManager.getJavaModelManager().removeElementChangedListener(listener);
 	}
 	/**
-	 * Runs the given action as an atomic java model operation.
+	 * Runs the given action as an atomic Java model operation.
 	 * <p>
-	 * After running a method that modifies java elements,
+	 * After running a method that modifies Java elements,
 	 * registered listeners receive after-the-fact notification of
 	 * what just transpired, in the form of a element changed event.
 	 * This method allows clients to call a number of
@@ -2988,7 +3001,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	}
 	
 	/**
-	 * Shutdown the JavaCore plugin
+	 * Shutdown the JavaCore plug-in.
 	 * <p>
 	 * De-registers the JavaModelManager as a resource changed listener and save participant.
 	 * <p>
@@ -3014,7 +3027,7 @@ public final class JavaCore extends Plugin implements IExecutableExtension {
 	}
 
 	/**
-	 * Startup of the JavaCore plugin
+	 * Startup of the JavaCore plug-in.
 	 * <p>
 	 * Registers the JavaModelManager as a resource changed listener and save participant.
 	 * Starts the background indexing, and restore saved classpath variable values.

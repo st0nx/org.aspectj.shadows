@@ -106,7 +106,7 @@ public interface IJavaSearchConstants {
 	/**
 	 * When searching for field matches, it will exclusively find read accesses, as
 	 * opposed to write accesses. Note that some expressions are considered both
-	 * as field read/write accesses: e.g. x++; x+= 1;
+	 * as field read/write accesses: for example, x++; x+= 1;
 	 * 
 	 * @since 2.0
 	 */
@@ -115,7 +115,7 @@ public interface IJavaSearchConstants {
 	/**
 	 * When searching for field matches, it will exclusively find write accesses, as
 	 * opposed to read accesses. Note that some expressions are considered both
-	 * as field read/write accesses: e.g. x++; x+= 1;
+	 * as field read/write accesses: for example,  x++; x+= 1;
 	 * 
 	 * @since 2.0
 	 */
@@ -125,7 +125,7 @@ public interface IJavaSearchConstants {
 	
 	/**
 	 * The search pattern matches exactly the search result,
-	 * i.e. the source of the search result equals the search pattern.
+	 * that is, the source of the search result equals the search pattern.
 	 */
 	int EXACT_MATCH = 0;
 	/**
