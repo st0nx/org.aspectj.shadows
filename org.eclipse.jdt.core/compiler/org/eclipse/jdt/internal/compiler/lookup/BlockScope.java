@@ -1252,12 +1252,23 @@ public class BlockScope extends Scope {
 					selector,
 					argumentTypes,
 					NotFound);
-			if (!methodBinding.canBeSeenBy(currentType, invocationSite, this))
+			if (!methodBinding.canBeSeenBy(currentType, invocationSite, this)) {
+				// GCH - patch for pr 42711
+				IPrivilegedHandler handler = 
+					 findPrivilegedHandler(invocationType()); 
+				   if (handler != null) { 
+					 return invocationType() 
+					   .privilegedHandler 
+					   .getPrivilegedAccessMethod( 
+					   methodBinding, 
+					   (AstNode) invocationSite); 
+				   }
 				return new ProblemMethodBinding(
 					methodBinding,
 					selector,
 					methodBinding.parameters,
 					NotVisible);
+			}
 		}
 		return methodBinding;
 	}
