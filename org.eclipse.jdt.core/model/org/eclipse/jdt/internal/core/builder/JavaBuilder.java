@@ -209,10 +209,19 @@ private void buildAll() {
 	if (DEBUG && lastState != null)
 		System.out.println("Clearing last state : " + lastState); //$NON-NLS-1$
 	clearLastState();
-	BatchImageBuilder imageBuilder = new BatchImageBuilder(this);
+	// AspectJ Extension
+//	BatchImageBuilder imageBuilder = new BatchImageBuilder(this);
+	BatchImageBuilder imageBuilder = getBatchImageBuilder();
+	// End AspectJ Extension
 	imageBuilder.build();
 	recordNewState(imageBuilder.newState);
 }
+
+// AspectJ Extension
+protected BatchImageBuilder getBatchImageBuilder() {
+	return new BatchImageBuilder(this);
+}
+// End AspectJ Extension
 
 private void buildDeltas(SimpleLookupTable deltas) {
 	notifier.checkCancel();
@@ -220,12 +229,22 @@ private void buildDeltas(SimpleLookupTable deltas) {
 	if (DEBUG && lastState != null)
 		System.out.println("Clearing last state : " + lastState); //$NON-NLS-1$
 	clearLastState(); // clear the previously built state so if the build fails, a full build will occur next time
-	IncrementalImageBuilder imageBuilder = new IncrementalImageBuilder(this);
+	// AspectJ Extension
+//	IncrementalImageBuilder imageBuilder = new IncrementalImageBuilder(this);
+	IncrementalImageBuilder imageBuilder = getIncrementalImageBuilder();
+	// End AspectJ Extension
 	if (imageBuilder.build(deltas))
 		recordNewState(imageBuilder.newState);
 	else
 		buildAll();
 }
+
+// AspectJ Extension
+protected IncrementalImageBuilder getIncrementalImageBuilder() {
+	return new IncrementalImageBuilder(this);
+}
+// End AspectJ Extension
+
 
 private void cleanup() {
 	this.nameEnvironment = null;
