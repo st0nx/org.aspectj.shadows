@@ -105,7 +105,8 @@ public BinaryTypeBinding(PackageBinding packageBinding, IBinaryType binaryType, 
 	this.compoundName = CharOperation.splitOn('/', binaryType.getName());
 	computeId();
 
-	this.tagBits |= IsBinaryBinding;
+	this.tagBits |= IsBinaryBinding
+				 |  AnnotationResolved; // AspectJ extension - ensure we think we are resolved for getAnnotationTagBits() calls
 	this.environment = environment;
 	this.fPackage = packageBinding;
 	this.fileName = binaryType.getFileName();
