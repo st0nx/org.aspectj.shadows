@@ -1,21 +1,17 @@
+<!-- This will checkout a tagged version of jdt.core from the main eclipse repository
+    and move it over the local version of jdt.core.  You must specify the tagged
+    version you desire to use with -Dtag=DESIRED_TAG.
+-->
 <project name="ShadowJdtCore" basedir="." default="get.tag">
-    <property name="tag" value="R2_0"/>
+    <property name="temp.dir" value="/temp/jdtcore"/>
 
+    <property name="shadows.dir" value="."/>
     <property name="package" value="org.eclipse.jdt.core"/>
-
     <property name="eclipse.root" value=":pserver:anonymous@dev.eclipse.org:/home/eclipse"/>
-    <property name="temp.dir" value="/temp"/>
-    <property name="new.dir" value="."/>
-
-    <target name="get.aspectj">
-        <cvs cvsRoot=":extssh:jhugunin@dev.eclipse.org:/home/technology" package="org.aspectj" dest="."/>
-    </target>
-
- 
 
     <target name="get.tag">
         <delete>
-             <fileset dir="${new.dir}/${package}"/>
+             <fileset dir="${shadows.dir}/${package}"/>
         </delete>
         <delete>
              <fileset dir="${temp.dir}" defaultexcludes="no"/>
@@ -23,13 +19,8 @@
 
         <cvs cvsRoot="${eclipse.root}" package="${package}" dest="${temp.dir}" tag="${tag}"/>
 
-        <copy todir="${new.dir}">
+        <copy todir="${shadows.dir}">
              <fileset dir="${temp.dir}"/>
         </copy>
-    </target>
-
-    <target name="commit.tag">
-        <cvs dest="${new.dir}" command="commit"/>
-        <cvs dest="${new.dir}" command="tag ${tag}"/>
     </target>
 </project>
