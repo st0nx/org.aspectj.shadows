@@ -280,6 +280,10 @@ public class Parser extends TheOriginalJDTParserClass {
 			lastIgnoredToken = -1;
 		}
 
+        // Grab the javadoc
+        aspectDecl.javadoc = this.javadoc;
+        this.javadoc = null;
+
 		this.display();
 	}
 
@@ -325,7 +329,11 @@ public class Parser extends TheOriginalJDTParserClass {
 		ret.sourceStart = (int) (pos >>> 32);
 		ret.selector = identifierStack[identifierPtr--];
 		identifierLengthPtr--;
-		
+        
+        // Grab the javadoc
+		ret.javadoc = this.javadoc;
+        this.javadoc = null;
+        
 		// pop the 'pointcut' keyword
 		eatIdentifier();
 
@@ -356,7 +364,10 @@ public class Parser extends TheOriginalJDTParserClass {
 		// skip the name of the advice
 		long pos = eatIdentifier();
 		adviceDecl.sourceStart = (int) (pos >>> 32);
-		
+        
+		// but put in a placeholder name
+        adviceDecl.selector = new char[] {'a','j','c','$','a','d','v','i','c','e'};
+
 		TypeReference returnType = getTypeReference(intStack[intPtr--]);
 		
 		//modifiers
@@ -364,6 +375,10 @@ public class Parser extends TheOriginalJDTParserClass {
 		adviceDecl.modifiers = intStack[intPtr--];
 
 		adviceDecl.returnType = returnType;
+        
+        // Grab the javadoc
+        adviceDecl.javadoc = this.javadoc;
+        this.javadoc = null;
 		
 		//XXX get some locations right
 		
@@ -409,16 +424,19 @@ public class Parser extends TheOriginalJDTParserClass {
 			(isAfter ? declarationFactory.createAfterAdviceDeclaration(compilationUnit.compilationResult) :
 					  declarationFactory.createBeforeAdviceDeclaration(compilationUnit.compilationResult));
 		
-		// skip the name of the advice
+        // skip the name of the advice
 		long pos = eatIdentifier();
 		// but give a placeholder selector name
 		adviceDecl.selector = new char[] {'a','j','c','$','a','d','v','i','c','e'};
-		adviceDecl.sourceStart = (int) (pos >>> 32);
+        adviceDecl.sourceStart = (int) (pos >>> 32);
 		
 		//modifiers
 		adviceDecl.declarationSourceStart = intStack[intPtr--];
 		adviceDecl.modifiers = intStack[intPtr--];
 		
+        // Grab the javadoc
+        adviceDecl.javadoc = this.javadoc;
+        this.javadoc = null;
 		
 		//??? get more locations right
 		
@@ -539,6 +557,10 @@ public class Parser extends TheOriginalJDTParserClass {
 		dec.bodyEnd = endPosition;
 		dec.declarationSourceEnd = flushCommentsDefinedPriorTo(endStatementPosition);
 
+		// Grab the javadoc
+        dec.javadoc = this.javadoc;
+        this.javadoc = null;
+        
 		pushOnAstStack(dec);
 		println("consumed field: " + dec);
 		this.display();
@@ -590,6 +612,10 @@ public class Parser extends TheOriginalJDTParserClass {
 		declarationFactory.setSelector(md,name);
 		listLength = 0;
 		// initialize listLength before reading parameters/throws
+ 
+ 		// Grab the javadoc
+        md.javadoc = this.javadoc;
+        this.javadoc = null;
 
 		// recovery
 		if (currentElement != null) {

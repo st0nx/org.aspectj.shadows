@@ -251,7 +251,25 @@ public class Javadoc extends ASTNode {
 			if (reportMissing) {
 				for (int i = 0; i < argumentsSize; i++) {
 					Argument arg = md.arguments[i];
-					methScope.problemReporter().javadocMissingParamTag(arg, md.binding.modifiers);
+                    // AspectJ extension
+                    // PR71076
+                    // Crude but effective - only hurts performance when asking for missing jdoc tags
+                    boolean reportIt = true;
+                    if (md.selector.length>4 &&
+                        md.selector[0] == 'a' &&
+                        md.selector[1] == 'j' &&
+                        md.selector[2] == 'c' &&
+                        md.selector[3] == '$') {
+                        String stringArgName = new String(arg.name);
+                        if (stringArgName.equals("thisJoinPoint")) reportIt = false;
+                        if (stringArgName.equals("thisJoinPointStaticPart")) reportIt = false;
+                        if (stringArgName.equals("thisEnclosingJoinPointStaticPart")) reportIt = false;
+                        if (stringArgName.startsWith("ajc$")) reportIt = false;
+                        if (arg.type.toString().indexOf("AroundClosure")!=-1) reportIt = false;
+                    }
+					if (reportIt) 
+                    // End AspectJ Extension
+                        methScope.problemReporter().javadocMissingParamTag(arg, md.binding.modifiers);
 				}
 			}
 		} else {
