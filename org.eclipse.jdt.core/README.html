@@ -7,48 +7,26 @@
   <body>
     <h2>Modified JDT Core for AspectJ</h2>
 
-    <p>The following instructions are for updating to a new version of the official 
-      JDT from eclipse.org.  We assume that new version is labeled as <b>TAG</b>.  You should
-      expect this process to take from 4-24 hours depending on the degree of changes that
-      have occurred in the official JDT system since the last time this synchronization was
-      performed.</p>
-
-    <p>General advice.  Set team properties to ignore whitespace and
-    to compare actual contents of files.<p>
-
-    <h3>Add the new <b>TAG</b> to the HEAD of org.aspectj/shadows</h3>
+    <p>There are four kinds of changes made to the jdt.core sources.</p>
+    
     <ol>
-      <li>Check out org.aspectj/shadows from HEAD</li>
+      <li>Things that are completely broken from an extensibility point of view.
+	Serious design work is needed on these before we'd even want to propose changes to 
+	the jdt.core main branch.
+	<pre>
+Auto-generated constants
+org.eclipse.jdt.internal.compiler.parser.TerminalTokens
+org.eclipse.jdt.internal.compiler.parser.ParserBasicInformation
 
-      <li>Use <code>ant get.tag -Dtag=<b>TAG</b></code> in this directory to overwrite
-	  contents with the desired new <b>TAG</b></li>
-
-      <li>Commit those changes to head using synchronize and examining changes for plausibility</li>
-
-      <li>Tag this tree with <b>TAG</b> -- matching the official JDT tree exactly</li>
-
-      <li>Make a branch in the tree called aj_<b>TAG</b> off of HEAD</li>
-   </ol>
-
-    <h3>Merge the AspectJ changes into the new version of jdt.core</h3>
-
-    <p>This task is where the hard work happens.  The other two tasks are just book-keeping.
-      </p>
-
-    <ol>
-      <li>Check out this new branch into an active AspectJ set of modules instead of the 
-	.jar file version in modules.</li>
-      <li>HARD: Working in this new branch, merge in the changes from the previous version.  This 
-	will take some careful work by hand.</li>
-      <li>HARD: Fix compile errors, and then run the full test suite and fix any problems that arise.</li>      
-      <li>Commit these working changes to the new branch</li>
-      <li>Build jdtcore.jar using build.xml</li>
+Static dependencies might be solved for all but above
+org.eclipse.jdt.internal.compiler.parser.Parser
+org.eclipse.jdt.internal.compiler.parser.Scanner
+	</pre>
+      </li>
+      <li>Visibility, finalness of methods/fields changed for extensibility.</li>
+      <li>Additional extension hooks added to several classes.  Need to ensure there is no major performance hit, and that these designs are fairly clean.</li>
+      <li>Whole question of what is the API of the compiler.  Currently, many internal classes are used and extended.  It would sure be nice to solve the practical problems in 1-3 before addressing this important question.</li>
     </ol>
-
-    <h3>Move the new jdtcore.jar into modules</h3>    
-    <ol>
-      <li>Move the jdtcore.jar you juyst made that into the modules version of org.eclipse.jdt.core</li>
-      <li>Run the tests one more time, and if nothing went wrong you're done.</li>
-    </ol>
+    
   </body>
 </html>

@@ -502,7 +502,7 @@ void recordSimpleReference(char[] simpleName) {
 	if (!simpleNameReferences.contains(simpleName))
 		simpleNameReferences.add(simpleName);
 }
-void recordTypeReference(TypeBinding type) {
+public void recordTypeReference(TypeBinding type) {
 	if (referencedTypes == null) return; // not recording dependencies
 
 	if (type.isArrayType())
