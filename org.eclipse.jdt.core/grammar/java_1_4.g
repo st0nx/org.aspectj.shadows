@@ -101,6 +101,8 @@ $Terminals
 	COMMA
 	DOT
 	EQUAL
+	AT
+	ELLIPSIS
 
 --    BodyMarker
 
@@ -153,7 +155,9 @@ $Alias
 	','    ::= COMMA
 	'.'    ::= DOT
 	'='    ::= EQUAL
-	
+	'@'	   ::= AT
+	'...'  ::= ELLIPSIS
+		
 $Start
 	Goal
 
@@ -617,6 +621,11 @@ PseudoToken ::= '['
 PseudoToken ::= ']'
 /.$putCase consumePseudoToken("]"); $break ./
 
+PseudoToken ::= '@'
+/.$putCase consumePseudoToken("@"); $break ./
+
+PseudoToken ::= '...'
+/.$putCase consumePseudoToken("..."); $break ./
 
 
 PseudoToken ::= PrimitiveType
