@@ -14,9 +14,9 @@ import java.util.ArrayList;
 
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
-import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
@@ -95,8 +95,8 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 			if (statements != null) {
 				boolean didAlreadyComplain = false;
 				for (int i = 0, count = statements.length; i < count; i++) {
-					Statement stat;
-					if (!flowInfo.complainIfUnreachable(stat = statements[i], scope, didAlreadyComplain)) {
+					Statement stat = statements[i];
+					if (!stat.complainIfUnreachable(flowInfo, scope, didAlreadyComplain)) {
 						flowInfo = stat.analyseCode(scope, constructorContext, flowInfo);
 					} else {
 						didAlreadyComplain = true;
@@ -118,10 +118,12 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 						&& (!flowInfo.isDefinitelyAssigned(fields[i]))) {
 						scope.problemReporter().uninitializedBlankFinalField(
 							field,
-							isDefaultConstructor ? (AstNode) scope.referenceType() : this);
+							isDefaultConstructor ? (ASTNode) scope.referenceType() : this);
 					}
 				}
 			}
+			// check unreachable catch blocks
+			constructorContext.complainIfUnusedExceptionHandlers(this);
 		} catch (AbortMethod e) {
 			this.ignoreFurtherInvestigation = true;
 		}
@@ -182,7 +184,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 	}
 
 	public void generateSyntheticFieldInitializationsIfNecessary(
-		MethodScope scope,
+		MethodScope methodScope,
 		CodeStream codeStream,
 		ReferenceBinding declaringClass) {
 			
@@ -261,7 +263,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 			boolean needFieldInitializations = constructorCall == null || constructorCall.accessMode != ExplicitConstructorCall.This;
 
 			// post 1.4 source level, synthetic initializations occur prior to explicit constructor call
-			boolean preInitSyntheticFields = scope.environment().options.targetJDK >= CompilerOptions.JDK1_4;
+			boolean preInitSyntheticFields = scope.environment().options.targetJDK >= ClassFileConstants.JDK1_4;
 
 			if (needFieldInitializations && preInitSyntheticFields){
 				generateSyntheticFieldInitializationsIfNecessary(scope, codeStream, declaringClass);
@@ -315,7 +317,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 
 	public boolean isDefaultConstructor() {
 
-		return isDefaultConstructor;
+		return this.isDefaultConstructor;
 	}
 
 	public boolean isInitializationMethod() {
@@ -327,6 +329,9 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 	 * Returns true if the constructor is directly involved in a cycle.
 	 * Given most constructors aren't, we only allocate the visited list
 	 * lazily.
+	 * 
+	 * @param visited
+	 * @return
 	 */
 	public boolean isRecursive(ArrayList visited) {
 
@@ -368,6 +373,33 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 
 	}
 
+	public StringBuffer printBody(int indent, StringBuffer output) {
+
+		output.append(" {"); //$NON-NLS-1$
+		if (constructorCall != null) {
+			output.append('\n');
+			constructorCall.printStatement(indent, output); //$NON-NLS-1$ //$NON-NLS-2$
+		}
+		if (statements != null) {
+			for (int i = 0; i < statements.length; i++) {
+				output.append('\n');
+				statements[i].printStatement(indent, output); //$NON-NLS-1$
+			}
+		}
+		output.append('\n');
+		printIndent(indent == 0 ? 0 : indent - 1, output).append('}');
+		return output;
+	}
+	
+	public void resolveJavadoc() {
+		
+		if (this.binding == null || this.javadoc != null) {
+			super.resolveJavadoc();
+		} else if (!isDefaultConstructor) {
+			this.scope.problemReporter().javadocMissing(this.sourceStart, this.sourceEnd, this.binding.modifiers);
+		}
+	}
+
 	/*
 	 * Type checking for constructor, just another method, except for special check
 	 * for recursive constructor invocations.
@@ -396,27 +428,8 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		super.resolveStatements();
 	}
 
-	public String toStringStatements(int tab) {
-
-		String s = " {"; //$NON-NLS-1$
-		if (constructorCall != null) {
-			s = s + "\n" + constructorCall.toString(tab) + ";"; //$NON-NLS-1$ //$NON-NLS-2$
-		}
-		if (statements != null) {
-			for (int i = 0; i < statements.length; i++) {
-				s = s + "\n" + statements[i].toString(tab); //$NON-NLS-1$
-				if (!(statements[i] instanceof Block)) {
-					s += ";"; //$NON-NLS-1$
-				}
-			}
-		}
-		s += "\n" + tabString(tab == 0 ? 0 : tab - 1) + "}"; //$NON-NLS-1$ //$NON-NLS-2$
-		//$NON-NLS-2$ //$NON-NLS-1$
-		return s;
-	}
-
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		ClassScope classScope) {
 
 		if (visitor.visit(this, classScope)) {

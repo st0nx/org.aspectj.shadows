@@ -17,13 +17,14 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.*;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
 
 import java.io.*;
 import java.util.*;
 
-public class NameEnvironment implements INameEnvironment {
+public class NameEnvironment implements INameEnvironment, SuffixConstants {
 
 boolean isIncrementalBuild;
 ClasspathMultiDirectory[] sourceLocations;
@@ -77,7 +78,7 @@ private void computeClasspathLocations(
 	SimpleLookupTable binaryLocationsPerProject) throws CoreException {
 
 	/* Update incomplete classpath marker */
-	IClasspathEntry[] classpathEntries = javaProject.getExpandedClasspath(true, true);
+	IClasspathEntry[] classpathEntries = javaProject.getExpandedClasspath(true/*ignore unresolved variable*/, true/*create markers*/, null/*preferred cp*/, null/*preferred output*/);
 
 	/* Update cycle marker */
 	IMarker cycleMarker = javaProject.getCycleMarker();
@@ -124,7 +125,7 @@ private void computeClasspathLocations(
 				IClasspathEntry[] prereqClasspathEntries = prereqJavaProject.getRawClasspath();
 				ArrayList seen = new ArrayList();
 				nextPrereqEntry: for (int j = 0, m = prereqClasspathEntries.length; j < m; j++) {
-					IClasspathEntry prereqEntry = (IClasspathEntry) prereqClasspathEntries[j];
+					IClasspathEntry prereqEntry = prereqClasspathEntries[j];
 					if (prereqEntry.getEntryKind() == IClasspathEntry.CPE_SOURCE) {
 						Object prereqTarget = JavaModel.getTarget(root, prereqEntry.getPath(), true);
 						if (!(prereqTarget instanceof IContainer)) continue nextPrereqEntry;
@@ -159,7 +160,7 @@ private void computeClasspathLocations(
 					IResource resource = (IResource) target;
 					ClasspathLocation bLocation = null;
 					if (resource instanceof IFile) {
-						if (!(Util.isArchiveFileName(path.lastSegment())))
+						if (!(org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(path.lastSegment())))
 							continue nextEntry;
 						bLocation = ClasspathLocation.forLibrary((IFile) resource);
 					} else if (resource instanceof IContainer) {
@@ -179,7 +180,7 @@ private void computeClasspathLocations(
 						binaryLocationsPerProject.put(p, existingLocations);
 					}
 				} else if (target instanceof File) {
-					if (!(Util.isArchiveFileName(path.lastSegment())))
+					if (!(org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(path.lastSegment())))
 						continue nextEntry;
 					bLocations.add(ClasspathLocation.forLibrary(path.toString()));
 				}
@@ -254,7 +255,7 @@ private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeNam
 		// if an additional source file is waiting to be compiled, answer it BUT not if this is a secondary type search
 		// if we answer X.java & it no longer defines Y then the binary type looking for Y will think the class path is wrong
 		// let the recompile loop fix up dependents when the secondary type Y has been deleted from X.java
-		IPath qSourceFilePath = new Path(qualifiedTypeName + ".java"); //$NON-NLS-1$
+		IPath qSourceFilePath = new Path(qualifiedTypeName + SUFFIX_STRING_java);
 		int qSegmentCount = qSourceFilePath.segmentCount();
 		next : for (int i = 0, l = additionalUnits.length; i < l; i++) {
 			SourceFile additionalUnit = additionalUnits[i];
@@ -269,7 +270,7 @@ private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeNam
 		}
 	}
 
-	String qBinaryFileName = qualifiedTypeName + ".class"; //$NON-NLS-1$
+	String qBinaryFileName = qualifiedTypeName + SUFFIX_STRING_class;
 	String binaryFileName = qBinaryFileName;
 	String qPackageName =  ""; //$NON-NLS-1$
 	if (qualifiedTypeName.length() > typeName.length) {

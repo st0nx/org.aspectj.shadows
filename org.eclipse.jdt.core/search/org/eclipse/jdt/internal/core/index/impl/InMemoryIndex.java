@@ -13,7 +13,8 @@ package org.eclipse.jdt.internal.core.index.impl;
 import java.io.File;
 import java.io.IOException;
 
-import org.eclipse.jdt.internal.core.index.IDocument;
+import org.eclipse.jdt.core.search.SearchDocument;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * This index stores the document names in an <code>ObjectVector</code>, and the words in
@@ -43,7 +44,7 @@ public class InMemoryIndex {
 		init();
 	}
 
-	public IndexedFile addDocument(IDocument document) {
+	public IndexedFile addDocument(SearchDocument document) {
 		IndexedFile indexedFile= this.files.add(document);
 		this.footprint += indexedFile.footprint() + 4;
 		this.sortedFiles = null;
@@ -66,7 +67,7 @@ public class InMemoryIndex {
 	 * If the word does not exist, it adds it in the index.
 	 */
 	protected void addRef(char[] word, int fileNum) {
-		WordEntry entry= (WordEntry) this.words.get(word);
+		WordEntry entry= this.words.get(word);
 		if (entry == null) {
 			entry= new WordEntry(word);
 			entry.addRef(fileNum);
@@ -130,9 +131,9 @@ public class InMemoryIndex {
 	 */
 	protected WordEntry[] getSortedWordEntries() {
 		if (this.sortedWordEntries == null) {
-			WordEntry[] words= this.words.asArray();
-			Util.sort(words);
-			this.sortedWordEntries= words;
+			WordEntry[] wordEntries= this.words.asArray();
+			Util.sort(wordEntries);
+			this.sortedWordEntries= wordEntries;
 		}
 		return this.sortedWordEntries;
 	}
@@ -140,7 +141,7 @@ public class InMemoryIndex {
 	 * Returns the word entry corresponding to the given word.
 	 */
 	protected WordEntry getWordEntry(char[] word) {
-		return (WordEntry) words.get(word);
+		return words.get(word);
 	}
 	/**
 	 * Initialises the fields of the index

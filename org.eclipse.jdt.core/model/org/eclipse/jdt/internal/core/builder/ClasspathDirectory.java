@@ -15,7 +15,6 @@ import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
-import org.eclipse.jdt.internal.core.Util;
 import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
 
 class ClasspathDirectory extends ClasspathLocation {
@@ -46,13 +45,13 @@ String[] directoryList(String qualifiedPackageName) {
 
 	try {
 		IResource container = binaryFolder.findMember(qualifiedPackageName); // this is a case-sensitive check
-		if (container instanceof IContainer) {
+		if (container instanceof IContainer && !isExcluded(container)) {
 			IResource[] members = ((IContainer) container).members();
 			dirList = new String[members.length];
 			int index = 0;
 			for (int i = 0, l = members.length; i < l; i++) {
 				IResource m = members[i];
-				if (m.getType() == IResource.FILE && Util.isClassFileName(m.getName()))
+				if (m.getType() == IResource.FILE && org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(m.getName()))
 					// add exclusion pattern check here if we want to hide .class files
 					dirList[index++] = m.getName();
 			}
@@ -62,6 +61,7 @@ String[] directoryList(String qualifiedPackageName) {
 			return dirList;
 		}
 	} catch(CoreException ignored) {
+		// ignore
 	}
 	directoryCache.put(qualifiedPackageName, missingPackageHolder);
 	return null;
@@ -90,12 +90,31 @@ public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPa
 	try {
 		ClassFileReader reader = ClassFileReader.read(binaryLocation + qualifiedBinaryFileName);
 		if (reader != null) return new NameEnvironmentAnswer(reader);
-	} catch (Exception e) {} // treat as if class file is missing
+	} catch (Exception e) {
+		// handle the case when the project is the output folder and the top-level package is a linked folder
+		if (binaryFolder instanceof IProject) {
+			IResource file = binaryFolder.findMember(qualifiedBinaryFileName);
+			if (file instanceof IFile) {
+				IPath location = file.getLocation();
+				if (location != null) {
+					try {
+						ClassFileReader reader = ClassFileReader.read(location.toString());
+						if (reader != null) return new NameEnvironmentAnswer(reader);
+					} catch (Exception ignored) { // treat as if class file is missing
+					}
+				}
+			}
+		}
+	}
 	return null;
 }
 
 public IPath getProjectRelativePath() {
 	return binaryFolder.getProjectRelativePath();
+}
+
+protected boolean isExcluded(IResource resource) {
+	return false;
 }
 
 public boolean isOutputFolder() {

@@ -29,6 +29,7 @@ public abstract class ClasspathVariableInitializer {
      * Creates a new classpath variable initializer.
      */
     public ClasspathVariableInitializer() {
+    	// a classpath variable initializer must have a public 0-argument constructor
     }
 
     /**
@@ -44,8 +45,8 @@ public abstract class ClasspathVariableInitializer {
      *    that requires a binding
      * 
      * @see JavaCore#getClasspathVariable(String)
-     * @see JavaCore#setClasspathVariable(String, IPath, IProgressMonitor)
-     * @see JavaCore#setClasspathVariables(String[], IPath[], IProgressMonitor)
+     * @see JavaCore#setClasspathVariable(String, org.eclipse.core.runtime.IPath, org.eclipse.core.runtime.IProgressMonitor)
+     * @see JavaCore#setClasspathVariables(String[], org.eclipse.core.runtime.IPath[], org.eclipse.core.runtime.IProgressMonitor)
      */
     public abstract void initialize(String variable);
 }

@@ -11,32 +11,33 @@
 package org.eclipse.jdt.internal.codeassist.complete;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.lookup.MethodScope;
 
 public class CompletionOnFieldName extends FieldDeclaration {
 	private static final char[] FAKENAMESUFFIX = " ".toCharArray(); //$NON-NLS-1$
 	public char[] realName;
-	public CompletionOnFieldName(Expression initialization, char[] name, int sourceStart, int sourceEnd) {
-		super(initialization, CharOperation.concat(name, FAKENAMESUFFIX), sourceStart, sourceEnd); //$NON-NLS-1$
+	public CompletionOnFieldName(char[] name, int sourceStart, int sourceEnd) {
+		super(CharOperation.concat(name, FAKENAMESUFFIX), sourceStart, sourceEnd); //$NON-NLS-1$
 		this.realName = name;
 	}
 	
+	public StringBuffer printStatement(int tab, StringBuffer output) {
+		
+		printIndent(tab, output).append("<CompleteOnFieldName:"); //$NON-NLS-1$
+		if (type != null) type.print(0, output).append(' ');
+		output.append(realName);
+		if (initialization != null) {
+			output.append(" = "); //$NON-NLS-1$
+			initialization.printExpression(0, output); 
+		}
+		return output.append(">;"); //$NON-NLS-1$
+	}	
+
 	public void resolve(MethodScope initializationScope) {
 		super.resolve(initializationScope);
 		
 		throw new CompletionNodeFound(this, initializationScope);
 	}
-	
-	public String toString(int tab) {
-		String s = tabString(tab);
-		s += "<CompleteOnFieldName:"; //$NON-NLS-1$
-		if (type != null) s += type.toString() + " "; //$NON-NLS-1$
-		s += new String(realName);
-		if (initialization != null) s += " = " + initialization.toStringExpression(); //$NON-NLS-1$
-		s += ">"; //$NON-NLS-1$
-		return s;
-	}	
 }
 

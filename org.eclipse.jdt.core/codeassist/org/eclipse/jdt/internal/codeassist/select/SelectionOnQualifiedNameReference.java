@@ -41,13 +41,22 @@ import org.eclipse.jdt.internal.compiler.lookup.ProblemReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 
 public class SelectionOnQualifiedNameReference extends QualifiedNameReference {
-	public long[] sourcePositions; // positions of each token, the last one being the positions of the completion identifier
+
 public SelectionOnQualifiedNameReference(char[][] previousIdentifiers, char[] selectionIdentifier, long[] positions) {
 	super(
 		CharOperation.arrayConcat(previousIdentifiers, selectionIdentifier),
+		positions,
 		(int) (positions[0] >>> 32),
 		(int) positions[positions.length - 1]);
-	this.sourcePositions = positions;
+}
+public StringBuffer printExpression(int indent, StringBuffer output) {
+
+	output.append("<SelectOnName:"); //$NON-NLS-1$
+	for (int i = 0, length = tokens.length; i < length; i++) {
+		if (i > 0) output.append('.');
+		output.append(tokens[i]);
+	}
+	return output.append('>'); 
 }
 public TypeBinding resolveType(BlockScope scope) {
 	// it can be a package, type, member type, local variable or field
@@ -74,16 +83,5 @@ public TypeBinding resolveType(BlockScope scope) {
 		throw new SelectionNodeFound();
 	}
 	throw new SelectionNodeFound(binding);
-}
-public String toStringExpression() {
-
-	StringBuffer buffer = new StringBuffer("<SelectOnName:"); //$NON-NLS-1$
-	for (int i = 0, length = tokens.length; i < length; i++) {
-		buffer.append(tokens[i]);
-		if (i != length - 1)
-			buffer.append("."); //$NON-NLS-1$
-	}
-	buffer.append(">"); //$NON-NLS-1$
-	return buffer.toString();
 }
 }

@@ -27,6 +27,65 @@ import org.eclipse.core.runtime.IProgressMonitor;
  */
 public interface ICompilationUnit extends IJavaElement, ISourceReference, IParent, IOpenable, IWorkingCopy, ISourceManipulation, ICodeAssist {
 /**
+ * Changes this compilation unit handle into a working copy. A new <code>IBuffer</code> is
+ * created using this compilation unit handle's owner. Uses the primary owner is none was
+ * specified when this compilation unit handle was created.
+ * <p>
+ * When switching to working copy mode, problems are reported to given 
+ * <code>IProblemRequestor</code>.
+ * </p>
+ * <p>
+ * Once in working copy mode, changes to this compilation unit or its children are done in memory.
+ * Only the new buffer is affected. Using <code>commitWorkingCopy(boolean, IProgressMonitor)</code>
+ * will bring the underlying resource in sync with this compilation unit.
+ * </p>
+ * <p>
+ * If this compilation unit was already in working copy mode, an internal counter is incremented and no
+ * other action is taken on this compilation unit. To bring this compilation unit back into the original mode 
+ * (where it reflects the underlying resource), <code>discardWorkingCopy</code> must be call as many 
+ * times as <code>becomeWorkingCopy</code>.
+ * </p>
+ * 
+ * @param problemRequestor a requestor which will get notified of problems detected during
+ * 	reconciling as they are discovered. The requestor can be set to <code>null</code> indicating
+ * 	that the client is not interested in problems.
+ * @param monitor a progress monitor used to report progress while opening this compilation unit
+ * 	or <code>null</code> if no progress should be reported 
+ * @throws JavaModelException if this compilation unit could not become a working copy.
+ * @see #discardWorkingCopy()
+ * @since 3.0
+ */
+void becomeWorkingCopy(IProblemRequestor problemRequestor, IProgressMonitor monitor) throws JavaModelException;
+/**
+ * Commits the contents of this working copy to its underlying resource.
+ *
+ * <p>It is possible that the contents of the original resource have changed
+ * since this working copy was created, in which case there is an update conflict.
+ * The value of the <code>force</code> parameter effects the resolution of
+ * such a conflict:<ul>
+ * <li> <code>true</code> - in this case the contents of this working copy are applied to
+ * 	the underlying resource even though this working copy was created before
+ *		a subsequent change in the resource</li>
+ * <li> <code>false</code> - in this case a <code>JavaModelException</code> is thrown</li>
+ * </ul>
+ * <p>
+ * Since 2.1, a working copy can be created on a not-yet existing compilation
+ * unit. In particular, such a working copy can then be committed in order to create
+ * the corresponding compilation unit.
+ * </p>
+ * @param force a flag to handle the cases when the contents of the original resource have changed
+ * since this working copy was created
+ * @param monitor the given progress monitor
+ * @throws JavaModelException if this working copy could not commit. Reasons include:
+ * <ul>
+ * <li> A <code>CoreException</code> occurred while updating an underlying resource
+ * <li> This element is not a working copy (INVALID_ELEMENT_TYPES)
+ * <li> A update conflict (described above) (UPDATE_CONFLICT)
+ * </ul>
+ * @since 3.0
+ */
+void commitWorkingCopy(boolean force, IProgressMonitor monitor) throws JavaModelException;
+/**
  * Creates and returns an import declaration in this compilation unit
  * with the given name.
  * <p>
@@ -51,7 +110,7 @@ public interface ICompilationUnit extends IJavaElement, ISourceReference, IParen
  * @param monitor the progress monitor to notify
  * @return the newly inserted import declaration (or the previously existing one in case attempting to create a duplicate)
  *
- * @exception JavaModelException if the element could not be created. Reasons include:
+ * @throws JavaModelException if the element could not be created. Reasons include:
  * <ul>
  * <li> This Java element does not exist or the specified sibling does not exist (ELEMENT_DOES_NOT_EXIST)</li>
  * <li> A <code>CoreException</code> occurred while updating an underlying resource
@@ -71,7 +130,7 @@ IImportDeclaration createImport(String name, IJavaElement sibling, IProgressMoni
  * @param monitor the progress monitor to notify
  * @return the newly inserted package declaration (or the previously existing one in case attempting to create a duplicate)
  *
- * @exception JavaModelException if the element could not be created. Reasons include:
+ * @throws JavaModelException if the element could not be created. Reasons include:
  * <ul>
  * <li>This Java element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
  * <li> A <code>CoreException</code> occurred while updating an underlying resource
@@ -102,7 +161,7 @@ IImportDeclaration createImport(String name, IJavaElement sibling, IProgressMoni
  * @param monitor the progress monitor to notify
  * @return the newly inserted type
  *
- * @exception JavaModelException if the element could not be created. Reasons include:
+ * @throws JavaModelException if the element could not be created. Reasons include:
  * <ul>
  * <li>The specified sibling element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
  * <li> A <code>CoreException</code> occurred while updating an underlying resource
@@ -113,13 +172,70 @@ IImportDeclaration createImport(String name, IJavaElement sibling, IProgressMoni
  */
 IType createType(String contents, IJavaElement sibling, boolean force, IProgressMonitor monitor) throws JavaModelException;
 /**
+ * Changes this compilation unit in working copy mode back to its original mode.
+ * <p>
+ * This has no effect if this compilation unit was not in working copy mode.
+ * </p>
+ * <p>
+ * If <code>becomeWorkingCopy</code> was called several times on this
+ * compilation unit, <code>discardWorkingCopy</code> must be called as 
+ * many times before it switches back to the original mode.
+ * </p>
+ * 
+ * @throws JavaModelException if this working copy could not return in its original mode.
+ * @see #becomeWorkingCopy(IProblemRequestor, IProgressMonitor)
+ * @since 3.0
+ */
+void discardWorkingCopy() throws JavaModelException;
+/** 
+ * Finds the elements in this compilation unit that correspond to
+ * the given element.
+ * An element A corresponds to an element B if:
+ * <ul>
+ * <li>A has the same element name as B.
+ * <li>If A is a method, A must have the same number of arguments as
+ *     B and the simple names of the argument types must be equals.
+ * <li>The parent of A corresponds to the parent of B recursively up to
+ *     their respective compilation units.
+ * <li>A exists.
+ * </ul>
+ * Returns <code>null</code> if no such java elements can be found
+ * or if the given element is not included in a compilation unit.
+ * 
+ * @param element the given element
+ * @return the found elements in this compilation unit that correspond to the given element
+ * @since 3.0 
+ */
+IJavaElement[] findElements(IJavaElement element);
+/**
+ * Finds the primary type of this compilation unit (that is, the type with the same name as the
+ * compilation unit), or <code>null</code> if no such a type exists.
+ * 
+ * @return the found primary type of this compilation unit, or <code>null</code> if no such a type exists
+ * @since 3.0
+ */
+IType findPrimaryType();
+/**
+ * Finds the working copy for this compilation unit, given a <code>WorkingCopyOwner</code>. 
+ * If no working copy has been created for this compilation unit associated with this
+ * working copy owner, returns <code>null</code>.
+ * <p>
+ * Users of this method must not destroy the resulting working copy. 
+ * 
+ * @param owner the given <code>WorkingCopyOwner</code>
+ * @return the found working copy for this compilation unit, <code>null</code> if none
+ * @see WorkingCopyOwner
+ * @since 3.0
+ */
+ICompilationUnit findWorkingCopy(WorkingCopyOwner owner);
+/**
  * Returns all types declared in this compilation unit in the order
  * in which they appear in the source. 
  * This includes all top-level types and nested member types.
  * It does NOT include local types (types defined in methods).
  *
  * @return the array of top-level and member types defined in a compilation unit, in declaration order.
- * @exception JavaModelException if this element does not exist or if an
+ * @throws JavaModelException if this element does not exist or if an
  *		exception occurs while accessing its corresponding resource
  */
 IType[] getAllTypes() throws JavaModelException;
@@ -133,7 +249,7 @@ IType[] getAllTypes() throws JavaModelException;
  * @param position a source position inside the compilation unit
  * @return the innermost Java element enclosing a given source position or <code>null</code>
  *	if none (excluding the compilation unit).
- * @exception JavaModelException if the compilation unit does not exist or if an
+ * @throws JavaModelException if the compilation unit does not exist or if an
  *		exception occurs while accessing its corresponding resource
  */
 IJavaElement getElementAt(int position) throws JavaModelException;
@@ -163,16 +279,39 @@ IImportContainer getImportContainer();
  * a convenience method - import declarations can also be
  * accessed from a compilation unit's import container.
  *
- * @exception JavaModelException if this element does not exist or if an
+ * @return the import declarations in this compilation unit
+ * @throws JavaModelException if this element does not exist or if an
  *		exception occurs while accessing its corresponding resource
  */
 IImportDeclaration[] getImports() throws JavaModelException;
+/**
+ * Returns the primary compilation unit (whose owner is the primary owner)
+ * this working copy was created from, or this compilation unit if this a primary
+ * compilation unit.
+ * <p>
+ * Note that the returned primary compilation unit can be in working copy mode.
+ * </p>
+ * 
+ * @return the primary compilation unit this working copy was created from,
+ * or this compilation unit if it is primary
+ * @since 3.0
+ */
+ICompilationUnit getPrimary();
+/**
+ * Returns the working copy owner of this working copy.
+ * Returns null if it is not a working copy or if it has no owner.
+ * 
+ * @return WorkingCopyOwner the owner of this working copy or <code>null</code>
+ * @since 3.0
+ */
+WorkingCopyOwner getOwner();
 /**
  * Returns the first package declaration in this compilation unit with the given package name
  * (there normally is at most one package declaration).
  * This is a handle-only method. The package declaration may or may not exist.
  *
  * @param name the name of the package declaration as defined by JLS2 7.4. (For example, <code>"java.lang"</code>)
+ * @return the first package declaration in this compilation unit with the given package name
  */
 IPackageDeclaration getPackageDeclaration(String name);
 /**
@@ -182,7 +321,7 @@ IPackageDeclaration getPackageDeclaration(String name);
  *
  * @return an array of package declaration (normally of size one)
  *
- * @exception JavaModelException if this element does not exist or if an
+ * @throws JavaModelException if this element does not exist or if an
  *		exception occurs while accessing its corresponding resource
  */
 IPackageDeclaration[] getPackageDeclarations() throws JavaModelException;
@@ -200,9 +339,178 @@ IType getType(String name);
  * Returns the top-level types declared in this compilation unit
  * in the order in which they appear in the source.
  *
- * @exception JavaModelException if this element does not exist or if an
+ * @return the top-level types declared in this compilation unit
+ * @throws JavaModelException if this element does not exist or if an
  *		exception occurs while accessing its corresponding resource
  */
 IType[] getTypes() throws JavaModelException;
+/**
+ * Returns a new working copy of this compilation unit if it is a primary compilation unit, 
+ * or this compilation unit if it is already a non-primary working copy.
+ * <p>
+ * Note: if intending to share a working copy amongst several clients, then 
+ * <code>#getWorkingCopy(WorkingCopyOwner, IProblemRequestor, IProgressMonitor)</code> 
+ * should be used instead.
+ * </p><p>
+ * When the working copy instance is created, an ADDED IJavaElementDelta is 
+ * reported on this working copy.
+ * </p><p>
+ * Since 2.1, a working copy can be created on a not-yet existing compilation
+ * unit. In particular, such a working copy can then be committed in order to create
+ * the corresponding compilation unit.
+ * </p>
+* @param monitor a progress monitor used to report progress while opening this compilation unit
+ *                 or <code>null</code> if no progress should be reported 
+ * @throws JavaModelException if the contents of this element can
+ *   not be determined. 
+ * @return a new working copy of this element if this element is not
+ * a working copy, or this element if this element is already a working copy
+ * @since 3.0
+ */
+ICompilationUnit getWorkingCopy(IProgressMonitor monitor) throws JavaModelException;
+/**
+ * Returns a shared working copy on this compilation unit using the given working copy owner to create
+ * the buffer, or this compilation unit if it is already a non-primary working copy.
+ * This API can only answer an already existing working copy if it is based on the same
+ * original compilation unit AND was using the same working copy owner (that is, as defined by <code>Object.equals</code>).	 
+ * <p>
+ * The life time of a shared working copy is as follows:
+ * <ul>
+ * <li>The first call to <code>getWorkingCopy(WorkingCopyOwner, IProblemRequestor, IProgressMonitor)</code> 
+ * 	creates a new working copy for this element</li>
+ * <li>Subsequent calls increment an internal counter.</li>
+ * <li>A call to <code>discardWorkingCopy()</code> decrements the internal counter.</li>
+ * <li>When this counter is 0, the working copy is discarded.
+ * </ul>
+ * So users of this method must discard exactly once the working copy.
+ * <p>
+ * Note that the working copy owner will be used for the life time of this working copy, that is if the 
+ * working copy is closed then reopened, this owner will be used.
+ * The buffer will be automatically initialized with the original's compilation unit content
+ * upon creation.
+ * <p>
+ * When the shared working copy instance is created, an ADDED IJavaElementDelta is reported on this
+ * working copy.
+ * </p><p>
+ * Since 2.1, a working copy can be created on a not-yet existing compilation
+ * unit. In particular, such a working copy can then be committed in order to create
+ * the corresponding compilation unit.
+ * </p>
+ * @param owner the working copy owner that creates a buffer that is used to get the content 
+ * 				of the working copy
+ * @param problemRequestor a requestor which will get notified of problems detected during
+ * 	reconciling as they are discovered. The requestor can be set to <code>null</code> indicating
+ * 	that the client is not interested in problems.
+ * @param monitor a progress monitor used to report progress while opening this compilation unit
+ *                 or <code>null</code> if no progress should be reported 
+ * @throws JavaModelException if the contents of this element can
+ *   not be determined. 
+ * @return a new working copy of this element using the given factory to create
+ * the buffer, or this element if this element is already a working copy
+ * @since 3.0
+ */
+ICompilationUnit getWorkingCopy(WorkingCopyOwner owner, IProblemRequestor problemRequestor, IProgressMonitor monitor) throws JavaModelException;
+/**
+ * Returns whether the resource of this working copy has changed since the
+ * inception of this working copy.
+ * Returns <code>false</code> if this compilation unit is not in working copy mode.
+ * 
+ * @return whether the resource has changed
+ * @since 3.0
+ */
+public boolean hasResourceChanged();
+/**
+ * Returns whether this element is a working copy.
+ * 
+ * @return true if this element is a working copy, false otherwise
+ * @since 3.0
+ */
+boolean isWorkingCopy();
 
+/**
+ * Reconciles the contents of this working copy, and sends out a Java delta
+ * notification indicating the nature of the change of the working copy since
+ * the last time it was either reconciled or made consistent 
+ * (see <code>IOpenable#makeConsistent()</code>).
+ * .<p>
+ * It performs the reconciliation by locally caching the contents of 
+ * the working copy, updating the contents, then creating a delta 
+ * over the cached contents and the new contents, and finally firing
+ * this delta.
+ * <p>
+ * The boolean argument allows to force problem detection even if the
+ * working copy is already consistent.</p>
+ * <p>
+ * Compilation problems found in the new contents are notified through the
+ * <code>IProblemRequestor</code> interface which was passed at
+ * creation, and no longer as transient markers. Therefore this API answers
+ * nothing.</p>
+ * <p>
+ * Note: Since 3.0 added/removed/changed inner types generate change deltas.</p>
+ * <p>
+ * @param forceProblemDetection boolean indicating whether problem should be recomputed
+ *   even if the source hasn't changed.
+ * @param monitor a progress monitor
+ * @throws JavaModelException if the contents of the original element
+ *		cannot be accessed. Reasons include:
+ * <ul>
+ * <li> The original Java element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
+ * </ul>
+ * @since 3.0
+ */
+void reconcile(boolean forceProblemDetection, IProgressMonitor monitor) throws JavaModelException;
+/**
+ * Reconciles the contents of this working copy, and sends out a Java delta
+ * notification indicating the nature of the change of the working copy since
+ * the last time it was either reconciled or made consistent 
+ * (see <code>IOpenable#makeConsistent()</code>).
+ * .<p>.
+ * It performs the reconciliation by locally caching the contents of 
+ * the working copy, updating the contents, then creating a delta 
+ * over the cached contents and the new contents, and finally firing
+ * this delta.
+ * <p>
+ * The boolean argument allows to force problem detection even if the
+ * working copy is already consistent.
+ * </p><p>
+ * This functionality allows to specify a working copy owner which is used during problem detection.
+ * All references contained in the working copy are resolved against other units; for which corresponding 
+ * owned working copies are going to take precedence over their original compilation units. 
+ * </p><p>
+ * Compilation problems found in the new contents are notified through the
+ * <code>IProblemRequestor</code> interface which was passed at
+ * creation, and no longer as transient markers. Therefore this API answers
+ * nothing.
+ * </p><p>
+ * Note: Since 3.0 added/removed/changed inner types generate change deltas.</p>
+ * </p>
+ *
+ * @param forceProblemDetection boolean indicating whether problem should be recomputed
+ *   even if the source hasn't changed.
+ * @param owner the owner of working copies that take precedence over the original compilation units
+ * @param monitor a progress monitor
+ * @throws JavaModelException if the contents of the original element
+ *		cannot be accessed. Reasons include:
+ * <ul>
+ * <li> The original Java element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
+ * </ul>
+ * @since 3.0
+ */
+void reconcile(boolean forceProblemDetection, WorkingCopyOwner owner, IProgressMonitor monitor) throws JavaModelException;
+/**
+ * Restores the contents of this working copy to the current contents of
+ * this working copy's original element. Has no effect if this element
+ * is not a working copy.
+ *
+ * <p>Note: This is the inverse of committing the content of the
+ * working copy to the original element with <code>commit(boolean, IProgressMonitor)</code>.
+ *
+ * @throws JavaModelException if the contents of the original element
+ *		cannot be accessed.  Reasons include:
+ * <ul>
+ * <li> The original Java element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
+ * </ul>
+ * @since 3.0
+ */
+void restore() throws JavaModelException;
 }

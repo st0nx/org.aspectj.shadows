@@ -11,11 +11,13 @@
 package org.eclipse.jdt.internal.core.eval;
 
 import java.util.Locale;
+import java.util.Map;
 
 import org.eclipse.core.resources.IMarker;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.ICompletionRequestor;
 import org.eclipse.jdt.core.IImportDeclaration;
@@ -31,6 +33,8 @@ import org.eclipse.jdt.core.eval.IEvaluationContext;
 import org.eclipse.jdt.core.eval.IGlobalVariable;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
+import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.BinaryType;
 import org.eclipse.jdt.internal.core.ClassFile;
 import org.eclipse.jdt.internal.core.CompletionRequestorWrapper;
@@ -74,7 +78,7 @@ public IGlobalVariable[] allVariables() {
 /**
  * Checks to ensure that there is a previously built state.
  */
-protected void checkBuilderState() throws JavaModelException {
+protected void checkBuilderState() {
 	
 	return;
 }
@@ -82,29 +86,69 @@ protected void checkBuilderState() throws JavaModelException {
  * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, ICompletionRequestor)
  */
 public void codeComplete(String codeSnippet, int position, ICompletionRequestor requestor) throws JavaModelException {
-	this.context.complete(
-		codeSnippet.toCharArray(),
-		position,
-		this.project.getSearchableNameEnvironment(),
-		new CompletionRequestorWrapper(requestor,this.project.getNameLookup()),
-		this.project.getOptions(true),
-		this.project
-	);
+	codeComplete(codeSnippet, position, requestor, DefaultWorkingCopyOwner.PRIMARY);
+}
+/**
+ * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, ICompletionRequestor, WorkingCopyOwner)
+ */
+public void codeComplete(String codeSnippet, int position, ICompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
+	NameLookup lookup = null;
+	try {
+		// set the units to look inside
+		lookup = this.project.getNameLookup();
+		JavaModelManager manager = JavaModelManager.getJavaModelManager();
+		ICompilationUnit[] workingCopies = manager.getWorkingCopies(owner, true/*add primary WCs*/);
+		lookup.setUnitsToLookInside(workingCopies);
+
+		// code complete
+		this.context.complete(
+			codeSnippet.toCharArray(),
+			position,
+			this.project.getSearchableNameEnvironment(),
+			new CompletionRequestorWrapper(requestor, lookup),
+			this.project.getOptions(true),
+			this.project
+		);
+	} finally {
+		if (lookup != null) {
+			lookup.setUnitsToLookInside(null);
+		}
+	}
 }
 /**
  * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeSelect(String, int, int)
  */
 public IJavaElement[] codeSelect(String codeSnippet, int offset, int length) throws JavaModelException {
-	SelectionRequestor requestor= new SelectionRequestor(this.project.getNameLookup(), null); // null because there is no need to look inside the code snippet itself
-	this.context.select(
-		codeSnippet.toCharArray(),
-		offset,
-		offset + length - 1,
-		this.project.getSearchableNameEnvironment(),
-		requestor,
-		this.project.getOptions(true)
-	);
-	return requestor.getElements();
+	return codeSelect(codeSnippet, offset, length, DefaultWorkingCopyOwner.PRIMARY);
+}
+/**
+ * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeSelect(String, int, int, WorkingCopyOwner)
+ */
+public IJavaElement[] codeSelect(String codeSnippet, int offset, int length, WorkingCopyOwner owner) throws JavaModelException {
+	NameLookup lookup = null;
+	try {
+		// set the units to look inside
+		lookup = this.project.getNameLookup();
+		JavaModelManager manager = JavaModelManager.getJavaModelManager();
+		ICompilationUnit[] workingCopies = manager.getWorkingCopies(owner, true/*add primary WCs*/);
+		lookup.setUnitsToLookInside(workingCopies);
+
+		// code select
+		SelectionRequestor requestor= new SelectionRequestor(lookup, null); // null because there is no need to look inside the code snippet itself
+		this.context.select(
+			codeSnippet.toCharArray(),
+			offset,
+			offset + length - 1,
+			this.project.getSearchableNameEnvironment(),
+			requestor,
+			this.project.getOptions(true)
+		);
+		return requestor.getElements();
+	} finally {
+		if (lookup != null) {
+			lookup.setUnitsToLookInside(null);
+		}
+	}
 }
 /**
  * @see org.eclipse.jdt.core.eval.IEvaluationContext#deleteVariable(IGlobalVariable)
@@ -145,6 +189,7 @@ public void evaluateCodeSnippet(
 		varNames[i] = localVariableNames[i].toCharArray();
 	}
 
+	Map options = this.project.getOptions(true);
 	// transfer the imports of the IType to the evaluation context
 	if (declaringType != null) {
 		// retrieves the package statement 
@@ -160,6 +205,8 @@ public void evaluateCodeSnippet(
 					importsNames[i] = imports[i].getElementName().toCharArray();
 				}
 				this.context.setImports(importsNames);
+				// turn off import complaints for implicitly added ones
+				options.put(CompilerOptions.OPTION_ReportUnusedImport, CompilerOptions.IGNORE);
 			}
 		} else {
 			// try to retrieve imports from the source
@@ -168,6 +215,8 @@ public void evaluateCodeSnippet(
 				char[][] imports = sourceMapper.getImports((BinaryType) declaringType);
 				if (imports != null) {
 					this.context.setImports(imports);
+					// turn off import complaints for implicitly added ones
+					options.put(CompilerOptions.OPTION_ReportUnusedImport, CompilerOptions.IGNORE);
 				}
 			}
 		}
@@ -183,7 +232,7 @@ public void evaluateCodeSnippet(
 			isStatic,
 			isConstructorCall,
 			environment = getBuildNameEnvironment(), 
-			this.project.getOptions(true), 
+			options, 
 			getInfrastructureEvaluationRequestor(requestor), 
 			getProblemFactory());
 	} catch (InstallException e) {
@@ -235,7 +284,7 @@ public void evaluateVariable(IGlobalVariable variable, ICodeSnippetRequestor req
 /**
  * Returns a name environment for the last built state.
  */
-protected INameEnvironment getBuildNameEnvironment() throws JavaModelException {
+protected INameEnvironment getBuildNameEnvironment() {
 	return new NameEnvironment(getProject());
 }
 
@@ -272,7 +321,7 @@ public String getPackageName() {
 /**
  * Returns the problem factory to be used during evaluation.
  */
-protected IProblemFactory getProblemFactory() throws JavaModelException {
+protected IProblemFactory getProblemFactory() {
 	return ProblemFactory.getProblemFactory(Locale.getDefault());
 }
 /**
@@ -320,7 +369,7 @@ public void setPackageName(String packageName) {
 /**
  * @see IEvaluationContext#validateImports(ICodeSnippetRequestor)
  */
-public void validateImports(ICodeSnippetRequestor requestor) throws JavaModelException {
+public void validateImports(ICodeSnippetRequestor requestor) {
 	
 	checkBuilderState();
 	INameEnvironment environment = null;
@@ -348,6 +397,7 @@ public void codeComplete(String codeSnippet, int position, final org.eclipse.jdt
 		position,
 		new ICompletionRequestor(){
 			public void acceptAnonymousType(char[] superTypePackageName,char[] superTypeName,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {
+				// implements interface method
 			}
 			public void acceptClass(char[] packageName, char[] className, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
 				requestor.acceptClass(packageName, className, completionName, modifiers, completionStart, completionEnd);
@@ -365,6 +415,7 @@ public void codeComplete(String codeSnippet, int position, final org.eclipse.jdt
 					marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
 					requestor.acceptError(marker);
 				} catch(CoreException e){
+					// ignore
 				}
 			}
 			public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] name, char[] typePackageName, char[] typeName, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {

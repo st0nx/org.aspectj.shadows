@@ -10,14 +10,17 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import org.eclipse.core.resources.*;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.IOpenable;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * This operation deletes a collection of resources and all of their children.
@@ -41,7 +44,7 @@ protected DeleteResourceElementsOperation(IJavaElement[] elementsToProcess, bool
 private void deletePackageFragment(IPackageFragment frag)
 	throws JavaModelException {
 	IResource res = frag.getResource();
-	if (res != null && res.getType() == IResource.FOLDER) {
+	if (res != null) {
 		// collect the children to remove
 		IJavaElement[] childrenOfInterest = frag.getChildren();
 		if (childrenOfInterest.length > 0) {
@@ -50,7 +53,7 @@ private void deletePackageFragment(IPackageFragment frag)
 			for (int i = 0; i < childrenOfInterest.length; i++) {
 				resources[i] = childrenOfInterest[i].getCorrespondingResource();
 			}
-			deleteResources(resources, fForce);
+			deleteResources(resources, force);
 		}
 
 		// Discard non-java resources
@@ -63,25 +66,25 @@ private void deletePackageFragment(IPackageFragment frag)
 		for (int i = 0, max = nonJavaResources.length, index = 0; i < max; i++){
 			if (nonJavaResources[i] instanceof IResource) actualNonJavaResources[index++] = (IResource)nonJavaResources[i];
 		}
-		deleteResources(actualNonJavaResources, fForce);
+		deleteResources(actualNonJavaResources, force);
 		
 		// delete remaining files in this package (.class file in the case where Proj=src=bin)
 		IResource[] remainingFiles;
 		try {
-			remainingFiles = ((IFolder) res).members();
+			remainingFiles = ((IContainer) res).members();
 		} catch (CoreException ce) {
 			throw new JavaModelException(ce);
 		}
 		boolean isEmpty = true;
 		for (int i = 0, length = remainingFiles.length; i < length; i++) {
 			IResource file = remainingFiles[i];
-			if (file instanceof IFile) {
+			if (file instanceof IFile && org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(file.getName())) {
 				this.deleteResource(file, IResource.FORCE | IResource.KEEP_HISTORY);
 			} else {
 				isEmpty = false;
 			}
 		}
-		if (isEmpty) {
+		if (isEmpty && !frag.isDefaultPackage()/*don't delete default package's folder: see https://bugs.eclipse.org/bugs/show_bug.cgi?id=38450*/) {
 			// delete recursively empty folders
 			IResource fragResource =  frag.getResource();
 			if (fragResource != null) {
@@ -104,13 +107,13 @@ protected void processElement(IJavaElement element) throws JavaModelException {
 	switch (element.getElementType()) {
 		case IJavaElement.CLASS_FILE :
 		case IJavaElement.COMPILATION_UNIT :
-			deleteResource(element.getResource(), fForce ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY);
+			deleteResource(element.getResource(), force ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY);
 			break;
 		case IJavaElement.PACKAGE_FRAGMENT :
 			deletePackageFragment((IPackageFragment) element);
 			break;
 		default :
-			throw new JavaModelException(new JavaModelStatus(JavaModelStatus.INVALID_ELEMENT_TYPES, element));
+			throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element));
 	}
 	// ensure the element is closed
 	if (element instanceof IOpenable) {
@@ -122,17 +125,17 @@ protected void processElement(IJavaElement element) throws JavaModelException {
  */
 protected void verify(IJavaElement element) throws JavaModelException {
 	if (element == null || !element.exists())
-		error(JavaModelStatus.ELEMENT_DOES_NOT_EXIST, element);
+		error(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, element);
 
 	int type = element.getElementType();
 	if (type <= IJavaElement.PACKAGE_FRAGMENT_ROOT || type > IJavaElement.COMPILATION_UNIT)
-		error(JavaModelStatus.INVALID_ELEMENT_TYPES, element);
+		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
 	else if (type == IJavaElement.PACKAGE_FRAGMENT && element instanceof JarPackageFragment)
-		error(JavaModelStatus.INVALID_ELEMENT_TYPES, element);
+		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
 	IResource resource = element.getResource();
 	if (resource instanceof IFolder) {
 		if (resource.isLinked()) {
-			error(JavaModelStatus.INVALID_RESOURCE, element);
+			error(IJavaModelStatusConstants.INVALID_RESOURCE, element);
 		}
 	}
 }

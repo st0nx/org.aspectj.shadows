@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
@@ -32,6 +32,8 @@ public class DoStatement extends Statement {
 		this.sourceEnd = e;
 		this.condition = condition;
 		this.action = action;
+		// remember useful empty statement
+		if (action instanceof EmptyStatement) action.bits |= IsUsefulEmptyStatementMASK;
 	}
 
 	public FlowInfo analyseCode(
@@ -83,22 +85,14 @@ public class DoStatement extends Statement {
 			loopingContext.complainOnFinalAssignmentsInLoop(currentScope, flowInfo);
 		}
 
-		// infinite loop
-		FlowInfo mergedInfo;
-		if (isConditionTrue) {
-			mergedInfo = loopingContext.initsOnBreak;
-			if (!mergedInfo.isReachable()) mergedInfo.addPotentialInitializationsFrom(flowInfo.initsWhenFalse());
-		} else {
-			// end of loop: either condition false or break
-			mergedInfo =
-				flowInfo.initsWhenFalse().unconditionalInits().mergedWith(
-					loopingContext.initsOnBreak);
-			if (isConditionOptimizedTrue && !loopingContext.initsOnBreak.isReachable()) {
-				mergedInfo.setReachMode(FlowInfo.UNREACHABLE);
-			}
-		}
-		mergedInitStateIndex =
-			currentScope.methodScope().recordInitializationStates(mergedInfo);
+		// end of loop
+		FlowInfo mergedInfo = FlowInfo.mergedOptimizedBranches(
+				loopingContext.initsOnBreak, 
+				isConditionOptimizedTrue, 
+				flowInfo.initsWhenFalse(), 
+				false, // never consider opt false case for DO loop, since break can always occur (47776)
+				!isConditionTrue /*do{}while(true); unreachable(); */);
+		mergedInitStateIndex = currentScope.methodScope().recordInitializationStates(mergedInfo);
 		return mergedInfo;
 	}
 
@@ -147,6 +141,19 @@ public class DoStatement extends Statement {
 
 	}
 
+	public StringBuffer printStatement(int indent, StringBuffer output) {
+
+		printIndent(indent, output).append("do"); //$NON-NLS-1$
+		if (action == null)
+			output.append(" ;\n"); //$NON-NLS-1$
+		else {
+			output.append('\n');
+			action.printStatement(indent + 1, output).append('\n');
+		}
+		output.append("while ("); //$NON-NLS-1$
+		return condition.printExpression(0, output).append(");"); //$NON-NLS-1$
+	}
+
 	public void resetStateForCodeGeneration() {
 		if (this.breakLabel != null) {
 			this.breakLabel.resetStateForCodeGeneration();
@@ -164,22 +171,7 @@ public class DoStatement extends Statement {
 			action.resolve(scope);
 	}
 
-	public String toString(int tab) {
-
-		String inFront, s = tabString(tab);
-		inFront = s;
-		s = s + "do"; //$NON-NLS-1$
-		if (action == null)
-			s = s + " {}\n"; //$NON-NLS-1$
-		else if (action instanceof Block)
-			s = s + "\n" + action.toString(tab + 1) + "\n"; //$NON-NLS-2$ //$NON-NLS-1$
-		else
-			s = s + " {\n" + action.toString(tab + 1) + ";}\n"; //$NON-NLS-1$ //$NON-NLS-2$
-		s = s + inFront + "while (" + condition.toStringExpression() + ")"; //$NON-NLS-1$ //$NON-NLS-2$
-		return s;
-	}
-
-	public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope scope) {
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
 
 		if (visitor.visit(this, scope)) {
 			if (action != null) {

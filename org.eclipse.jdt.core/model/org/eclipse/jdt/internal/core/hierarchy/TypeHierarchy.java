@@ -23,6 +23,7 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.ISafeRunnable;
+import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.jdt.core.*;
@@ -41,21 +42,21 @@ import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.core.search.SearchEngine;
+import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.CompilationUnit;
-import org.eclipse.jdt.internal.core.ImportContainer;
 import org.eclipse.jdt.internal.core.JavaElement;
-import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.JavaModelStatus;
 import org.eclipse.jdt.internal.core.JavaProject;
 import org.eclipse.jdt.internal.core.Openable;
 import org.eclipse.jdt.internal.core.Region;
 import org.eclipse.jdt.internal.core.TypeVector;
-import org.eclipse.jdt.internal.core.Util;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * @see ITypeHierarchy
  */
 public class TypeHierarchy implements ITypeHierarchy, IElementChangedListener {
+
 	public static boolean DEBUG = false;
 	
 	static final byte VERSION = 0x0000;
@@ -87,7 +88,12 @@ public class TypeHierarchy implements ITypeHierarchy, IElementChangedListener {
 	 * The type the hierarchy was specifically computed for,
 	 * possibly null.
 	 */
-	protected IType type;
+	protected IType focusType;
+	
+	/*
+	 * The working copies that take precedence over original compilation units
+	 */
+	protected ICompilationUnit[] workingCopies;
 
 	protected Map classToSuperclass;
 	protected Map typeToSuperInterfaces;
@@ -109,12 +115,10 @@ public class TypeHierarchy implements ITypeHierarchy, IElementChangedListener {
 	 */
 	protected ArrayList changeListeners = null;
 
-	/**
-	 * A set of the compilation units and class
-	 * files that are considered in this hierarchy. Null if
-	 * not activated.
+	/*
+	 * A map from Openables to ArrayLists of ITypes
 	 */
-	protected Map files = null;
+	public Map files = null;
 
 	/**
 	 * A region describing the packages considered by this
@@ -123,29 +127,10 @@ public class TypeHierarchy implements ITypeHierarchy, IElementChangedListener {
 	protected Region packageRegion = null;
 
 	/**
-	 * A region describing the package fragment roots considered by this
-	 * hierarchy. Null if not activated.
-	 */
-	protected Region rootRegion = null;
-	
-	/**
 	 * A region describing the projects considered by this
 	 * hierarchy. Null if not activated.
 	 */
 	protected Region projectRegion = null;
-
-	/**
-	 * A boolean indicating if this hierarchy is actively tracking changes
-	 * in the Java Model.
-	 */
-	protected boolean isActivated = false;
-
-	/**
-	 * A boolean indicating if the hierarchy exists
-	 *
-	 * fix for 1FW67PA
-	 */
-	protected boolean exists = true;
 	
 	/**
 	 * Whether this hierarchy should contains subtypes.
@@ -156,55 +141,64 @@ public class TypeHierarchy implements ITypeHierarchy, IElementChangedListener {
 	 * The scope this hierarchy should restrain itsef in.
 	 */
 	IJavaSearchScope scope;
+	
+	/*
+	 * Whether this hierarchy needs refresh
+	 */
+	public boolean needsRefresh = true;
+	
+	/*
+	 * Collects changes to types
+	 */
+	protected ChangeCollector changeCollector;
 
 /**
  * Creates an empty TypeHierarchy
  */
-public TypeHierarchy() throws JavaModelException {
+public TypeHierarchy() {
+	// Creates an empty TypeHierarchy
 }
 /**
  * Creates a TypeHierarchy on the given type.
  */
-public TypeHierarchy(IType type, IJavaProject project, boolean computeSubtypes) throws JavaModelException {
-	this(type, SearchEngine.createJavaSearchScope(new IJavaElement[] {project}), computeSubtypes);
+public TypeHierarchy(IType type, ICompilationUnit[] workingCopies, IJavaProject project, boolean computeSubtypes) {
+	this(type, workingCopies, SearchEngine.createJavaSearchScope(new IJavaElement[] {project}), computeSubtypes);
 	this.project = project;
 }
 /**
  * Creates a TypeHierarchy on the given type.
  */
-public TypeHierarchy(IType type, IJavaSearchScope scope, boolean computeSubtypes) throws JavaModelException {
-	this.type = type;
+public TypeHierarchy(IType type, ICompilationUnit[] workingCopies, IJavaSearchScope scope, boolean computeSubtypes) {
+	this.focusType = type;
+	this.workingCopies = workingCopies;
 	this.computeSubtypes = computeSubtypes;
 	this.scope = scope;
 }
 /**
- * Activates this hierarchy for change listeners
+ * Initializes the file, package and project regions
  */
-protected void activate() {
+protected void initializeRegions() {
 
-	// determine my file, package, root, & project regions.
-	this.files = new HashMap(5);
-	this.projectRegion = new Region();
-	this.packageRegion = new Region();
-	this.rootRegion = new Region();
-	IType[] types = getAllTypes();
-	for (int i = 0; i < types.length; i++) {
-		IType type = types[i];
+	IType[] allTypes = getAllTypes();
+	for (int i = 0; i < allTypes.length; i++) {
+		IType type = allTypes[i];
 		Openable o = (Openable) ((JavaElement) type).getOpenableParent();
 		if (o != null) {
-			this.files.put(o, o);
+			ArrayList types = (ArrayList)this.files.get(o);
+			if (types == null) {
+				types = new ArrayList();
+				this.files.put(o, types);
+			}
+			types.add(type);
 		}
 		IPackageFragment pkg = type.getPackageFragment();
 		this.packageRegion.add(pkg);
-		this.rootRegion.add(pkg.getParent());
-		IJavaProject project = type.getJavaProject();
-		if (project != null) {
-			this.projectRegion.add(project);
+		IJavaProject declaringProject = type.getJavaProject();
+		if (declaringProject != null) {
+			this.projectRegion.add(declaringProject);
 		}
 		checkCanceled();
 	}
-	JavaCore.addElementChangedListener(this);
-	this.isActivated = true;
 }
 /**
  * Adds all of the elements in the collection to the list if the
@@ -248,17 +242,20 @@ protected void addSubtype(IType type, IType subtype) {
 /**
  * @see ITypeHierarchy
  */
-public void addTypeHierarchyChangedListener(ITypeHierarchyChangedListener listener) {
-	if (this.changeListeners == null) {
-		this.changeListeners = new ArrayList();
-		// fix for 1FW67PA
-		if (this.exists) {
-			activate();
-		}
+public synchronized void addTypeHierarchyChangedListener(ITypeHierarchyChangedListener listener) {
+	ArrayList listeners = this.changeListeners;
+	if (listeners == null) {
+		this.changeListeners = listeners = new ArrayList();
 	}
+	
+	// register with JavaCore to get Java element delta on first listener added
+	if (listeners.size() == 0) {
+		JavaCore.addElementChangedListener(this);
+	}
+	
 	// add listener only if it is not already present
-	if (this.changeListeners.indexOf(listener) == -1) {
-		this.changeListeners.add(listener);
+	if (listeners.indexOf(listener) == -1) {
+		listeners.add(listener);
 	}
 }
 private static Integer bytesToFlags(byte[] bytes){
@@ -314,7 +311,7 @@ protected void checkCanceled() {
  * Compute this type hierarchy.
  */
 protected void compute() throws JavaModelException, CoreException {
-	if (this.type != null) {
+	if (this.focusType != null) {
 		HierarchyBuilder builder = 
 			new IndexBasedHierarchyBuilder(
 				this, 
@@ -340,98 +337,54 @@ public boolean contains(IType type) {
 	return false;
 }
 /**
- * Deactivates this hierarchy for change listeners
- */
-protected void deactivate() {
-	JavaModelManager.getJavaModelManager().removeElementChangedListener(this);
-	this.files= null;
-	this.packageRegion= null;
-	this.rootRegion= null;
-	this.projectRegion= null;
-	this.changeListeners= null;
-	this.isActivated= false;
-}
-/**
- * Empties this hierarchy.
- *
- * fix for 1FW67PA
- */
-protected void destroy() {
-	this.exists = false;
-	this.classToSuperclass = new HashMap(1);
-	this.files = new HashMap(5);
-	this.interfaces = new ArrayList(0);
-	this.packageRegion = new Region();
-	this.projectRegion = new Region();
-	this.rootClasses = new TypeVector();
-	this.rootRegion = new Region();
-	this.typeToSubtypes = new HashMap(1);
-	this.typeFlags = new HashMap(1);
-	this.typeToSuperInterfaces = new HashMap(1);
-	this.missingTypes = new ArrayList(4);
-	JavaModelManager.getJavaModelManager().removeElementChangedListener(this);
-}
-/**
  * Determines if the change effects this hierarchy, and fires
  * change notification if required.
  */
 public void elementChanged(ElementChangedEvent event) {
-	// fix for 1FW67PA
-	if (this.exists && this.isActivated()) {
-		if (exists()) {
-			if (isAffected(event.getDelta())) {
-				fireChange();
-			}
-		} else {
-			destroy();
-			fireChange();
-		}
+	// type hierarchy change has already been fired
+	if (this.needsRefresh) return;
+	
+	if (isAffected(event.getDelta())) {
+		this.needsRefresh = true;
+		fireChange();
 	}
-
 }
 /**
  * @see ITypeHierarchy
- *
- * fix for 1FW67PA
  */
 public boolean exists() {
-	if (this.exists) {
-		this.exists = (this.type == null || (this.type != null && this.type.exists())) && this.javaProject().exists();
-		if (!this.exists) {
-			destroy();
-		}
-	}
-	return this.exists;
+	if (!this.needsRefresh) return true;
+	
+	return (this.focusType == null || this.focusType.exists()) && this.javaProject().exists();
 }
 /**
  * Notifies listeners that this hierarchy has changed and needs
  * refreshing. Note that listeners can be removed as we iterate
  * through the list.
  */
-protected void fireChange() {
-	if (this.changeListeners == null) {
+public void fireChange() {
+	ArrayList listeners = this.changeListeners;
+	if (listeners == null) {
 		return;
 	}
 	if (DEBUG) {
 		System.out.println("FIRING hierarchy change ["+Thread.currentThread()+"]"); //$NON-NLS-1$ //$NON-NLS-2$
-		if (this.type != null) {
-			System.out.println("    for hierarchy focused on " + ((JavaElement)this.type).toStringWithAncestors()); //$NON-NLS-1$
+		if (this.focusType != null) {
+			System.out.println("    for hierarchy focused on " + ((JavaElement)this.focusType).toStringWithAncestors()); //$NON-NLS-1$
 		}
 	}
-	ArrayList listeners= (ArrayList)this.changeListeners.clone();
+	// clone so that a listener cannot have a side-effect on this list when being notified
+	listeners = (ArrayList)listeners.clone();
 	for (int i= 0; i < listeners.size(); i++) {
 		final ITypeHierarchyChangedListener listener= (ITypeHierarchyChangedListener)listeners.get(i);
-		// ensure the listener is still a listener
-		if (this.changeListeners != null  && this.changeListeners.indexOf(listener) >= 0) {
-			Platform.run(new ISafeRunnable() {
-				public void handleException(Throwable exception) {
-					Util.log(exception, "Exception occurred in listener of Type hierarchy change notification"); //$NON-NLS-1$
-				}
-				public void run() throws Exception {
-					listener.typeHierarchyChanged(TypeHierarchy.this);
-				}
-			});
-		}
+		Platform.run(new ISafeRunnable() {
+			public void handleException(Throwable exception) {
+				Util.log(exception, "Exception occurred in listener of Type hierarchy change notification"); //$NON-NLS-1$
+			}
+			public void run() throws Exception {
+				listener.typeHierarchyChanged(TypeHierarchy.this);
+			}
+		});
 	}
 }
 private static byte[] flagsToBytes(Integer flags){
@@ -559,11 +512,11 @@ private void getAllSupertypes0(IType type, ArrayList supers) {
 public IType[] getAllTypes() {
 	IType[] classes = getAllClasses();
 	int classesLength = classes.length;
-	IType[] interfaces = getAllInterfaces();
-	int interfacesLength = interfaces.length;
+	IType[] allInterfaces = getAllInterfaces();
+	int interfacesLength = allInterfaces.length;
 	IType[] all = new IType[classesLength + interfacesLength];
 	System.arraycopy(classes, 0, all, 0, classesLength);
-	System.arraycopy(interfaces, 0, all, classesLength, interfacesLength);
+	System.arraycopy(allInterfaces, 0, all, classesLength, interfacesLength);
 	return all;
 }
 
@@ -582,54 +535,40 @@ public int getCachedFlags(IType type) {
  * @see ITypeHierarchy
  */
 public IType[] getExtendingInterfaces(IType type) {
-	try {
-		if (!this.isInterface(type)) {
-			return new IType[] {};
-		}
-	} catch (JavaModelException npe) {
-		return new IType[] {};
-	}
+	if (!this.isInterface(type)) return NO_TYPE;
 	return getExtendingInterfaces0(type);
 }
 /**
  * Assumes that the type is an interface
  * @see getExtendingInterfaces
  */
-private IType[] getExtendingInterfaces0(IType interfce) {
+private IType[] getExtendingInterfaces0(IType extendedInterface) {
 	Iterator iter = this.typeToSuperInterfaces.keySet().iterator();
-	ArrayList xers = new ArrayList();
+	ArrayList interfaceList = new ArrayList();
 	while (iter.hasNext()) {
 		IType type = (IType) iter.next();
-		try {
-			if (!this.isInterface(type)) {
-				continue;
-			}
-		} catch (JavaModelException npe) {
+		if (!this.isInterface(type)) {
 			continue;
 		}
-		IType[] interfaces = (IType[]) this.typeToSuperInterfaces.get(type);
-		if (interfaces != null) {
-			for (int i = 0; i < interfaces.length; i++) {
-				IType iFace = interfaces[i];
-				if (iFace.equals(interfce)) {
-					xers.add(type);
+		IType[] superInterfaces = (IType[]) this.typeToSuperInterfaces.get(type);
+		if (superInterfaces != null) {
+			for (int i = 0; i < superInterfaces.length; i++) {
+				IType superInterface = superInterfaces[i];
+				if (superInterface.equals(extendedInterface)) {
+					interfaceList.add(type);
 				}
 			}
 		}
 	}
-	IType[] extenders = new IType[xers.size()];
-	xers.toArray(extenders);
-	return extenders;
+	IType[] extendingInterfaces = new IType[interfaceList.size()];
+	interfaceList.toArray(extendingInterfaces);
+	return extendingInterfaces;
 }
 /**
  * @see ITypeHierarchy
  */
 public IType[] getImplementingClasses(IType type) {
-	try {
-		if (!this.isInterface(type)) {
-			return NO_TYPE;
-		}
-	} catch (JavaModelException npe) {
+	if (!this.isInterface(type)) {
 		return NO_TYPE;
 	}
 	return getImplementingClasses0(type);
@@ -644,16 +583,12 @@ private IType[] getImplementingClasses0(IType interfce) {
 	ArrayList iMenters = new ArrayList();
 	while (iter.hasNext()) {
 		IType type = (IType) iter.next();
-		try {
-			if (this.isInterface(type)) {
-				continue;
-			}
-		} catch (JavaModelException npe) {
+		if (this.isInterface(type)) {
 			continue;
 		}
-		IType[] interfaces = (IType[]) this.typeToSuperInterfaces.get(type);
-		for (int i = 0; i < interfaces.length; i++) {
-			IType iFace = interfaces[i];
+		IType[] types = (IType[]) this.typeToSuperInterfaces.get(type);
+		for (int i = 0; i < types.length; i++) {
+			IType iFace = types[i];
 			if (iFace.equals(interfce)) {
 				iMenters.add(type);
 			}
@@ -692,12 +627,8 @@ public IType[] getRootInterfaces() {
  * @see ITypeHierarchy
  */
 public IType[] getSubclasses(IType type) {
-	try {
-		if (this.isInterface(type)) {
-			return NO_TYPE;
-		}
-	} catch (JavaModelException npe) {
-		return new IType[] {};
+	if (this.isInterface(type)) {
+		return NO_TYPE;
 	}
 	TypeVector vector = (TypeVector)this.typeToSubtypes.get(type);
 	if (vector == null)
@@ -725,25 +656,20 @@ private IType[] getSubtypesForType(IType type) {
  * @see ITypeHierarchy
  */
 public IType getSuperclass(IType type) {
-	try {
-		if (this.isInterface(type)) {
-			return null;
-		}
-		return (IType) this.classToSuperclass.get(type);
-
-	} catch (JavaModelException npe) {
+	if (this.isInterface(type)) {
 		return null;
 	}
+	return (IType) this.classToSuperclass.get(type);
 }
 /**
  * @see ITypeHierarchy
  */
 public IType[] getSuperInterfaces(IType type) {
-	IType[] interfaces = (IType[]) this.typeToSuperInterfaces.get(type);
-	if (interfaces == null) {
+	IType[] types = (IType[]) this.typeToSuperInterfaces.get(type);
+	if (types == null) {
 		return NO_TYPE;
 	}
-	return interfaces;
+	return types;
 }
 /**
  * @see ITypeHierarchy
@@ -762,7 +688,7 @@ public IType[] getSupertypes(IType type) {
  * @see ITypeHierarchy
  */
 public IType getType() {
-	return this.type;
+	return this.focusType;
 }
 /**
  * Adds the new elements to a new array that contains all of the elements of the old array.
@@ -792,15 +718,22 @@ protected IType[] growAndAddToArray(IType[] array, IType addition) {
 	array[old.length] = addition;
 	return array;
 }
+/*
+ * Whether fine-grained deltas where collected and affects this hierarchy.
+ */
+public boolean hasFineGrainChanges() {
+    ChangeCollector collector = this.changeCollector;
+	return collector != null && collector.needsRefresh();
+}
 /**
  * Returns whether one of the subtypes in this hierarchy has the given simple name
  * or this type has the given simple name.
  */
 private boolean hasSubtypeNamed(String simpleName) {
-	if (this.type.getElementName().equals(simpleName)) {
+	if (this.focusType != null && this.focusType.getElementName().equals(simpleName)) {
 		return true;
 	}
-	IType[] types = this.getAllSubtypes(this.type);
+	IType[] types = this.getAllSubtypes(this.focusType);
 	for (int i = 0, length = types.length; i < length; i++) {
 		if (types[i].getElementName().equals(simpleName)) {
 			return true;
@@ -826,7 +759,7 @@ private boolean hasTypeNamed(String simpleName) {
  * Returns whether the simple name of the given type or one of its supertypes is 
  * the simple name of one of the types in this hierarchy.
  */
-private boolean includesTypeOrSupertype(IType type) {
+boolean includesTypeOrSupertype(IType type) {
 	try {
 		// check type
 		if (hasTypeNamed(type.getElementName())) return true;
@@ -850,6 +783,7 @@ private boolean includesTypeOrSupertype(IType type) {
 			}
 		}
 	} catch (JavaModelException e) {
+		// ignore
 	}
 	return false;
 }
@@ -868,18 +802,15 @@ protected void initialize(int size) {
 	this.typeToSubtypes = new HashMap(smallSize);
 	this.typeToSuperInterfaces = new HashMap(smallSize);
 	this.typeFlags = new HashMap(smallSize);
-}
-/**
- * Returns true if this hierarchy is actively tracking changes
- * in the Java Model.
- */
-protected boolean isActivated() {
-	return this.isActivated;
+	
+	this.projectRegion = new Region();
+	this.packageRegion = new Region();
+	this.files = new HashMap(5);
 }
 /**
  * Returns true if the given delta could change this type hierarchy
  */
-public boolean isAffected(IJavaElementDelta delta) {
+public synchronized boolean isAffected(IJavaElementDelta delta) {
 	IJavaElement element= delta.getElement();
 	switch (element.getElementType()) {
 		case IJavaElement.JAVA_MODEL:
@@ -949,8 +880,8 @@ private boolean isAffectedByJavaProject(IJavaElementDelta delta, IJavaElement el
 			// then the type hierarchy has changed
 			IJavaElement[] pkgs = this.packageRegion.getElements();
 			for (int i = 0; i < pkgs.length; i++) {
-				IJavaProject project = pkgs[i].getJavaProject();
-				if (project != null && project.equals(element)) {
+				IJavaProject javaProject = pkgs[i].getJavaProject();
+				if (javaProject != null && javaProject.equals(element)) {
 					return true;
 				}
 			}
@@ -995,9 +926,9 @@ private boolean isAffectedByPackageFragmentRoot(IJavaElementDelta delta, IJavaEl
 					IPath rootPath = root.getPath();
 					IJavaElement[] elements = this.projectRegion.getElements();
 					for (int i = 0; i < elements.length; i++) {
-						IJavaProject project = (IJavaProject)elements[i];
+						IJavaProject javaProject = (IJavaProject)elements[i];
 						try {
-							IClasspathEntry[] classpath = project.getResolvedClasspath(true);
+							IClasspathEntry[] classpath = javaProject.getResolvedClasspath(true);
 							for (int j = 0; j < classpath.length; j++) {
 								IClasspathEntry entry = classpath[j];
 								if (entry.getPath().equals(rootPath)) {
@@ -1031,129 +962,66 @@ private boolean isAffectedByPackageFragmentRoot(IJavaElementDelta delta, IJavaEl
  * could affect this type hierarchy.
  */
 protected boolean isAffectedByOpenable(IJavaElementDelta delta, IJavaElement element) {
-	// ignore changes to working copies
-	if (element instanceof CompilationUnit && ((CompilationUnit)element).isWorkingCopy()) {
-		return false;
-	}
-		
-	int kind = delta.getKind();
-	switch (kind) {
-		case IJavaElementDelta.REMOVED:
-			return this.files.get(element) != null;
-		case IJavaElementDelta.ADDED:
-			IType[] types = null;
-			try {
-				types = (element instanceof CompilationUnit) ?
-					((CompilationUnit)element).getAllTypes() :
-					new IType[] {((org.eclipse.jdt.internal.core.ClassFile)element).getType()};
-			} catch (JavaModelException e) {
-				e.printStackTrace();
-				return false;
-			}
-			for (int i = 0, length = types.length; i < length; i++) {
-				IType type = types[i];
-				if (typeHasSupertype(type) 
+	if (element instanceof CompilationUnit) {
+		CompilationUnit cu = (CompilationUnit)element;
+		ChangeCollector collector = this.changeCollector;
+		if (collector == null) {
+		    collector = new ChangeCollector(this);
+		}
+		try {
+			collector.addChange(cu, delta);
+		} catch (JavaModelException e) {
+			e.printStackTrace();
+		}
+		if (cu.isWorkingCopy()) {
+			// changes to working copies are batched
+			this.changeCollector = collector;
+			return false;
+		} else {
+			return collector.needsRefresh();
+		}
+	} else if (element instanceof ClassFile) {
+		switch (delta.getKind()) {
+			case IJavaElementDelta.REMOVED:
+				return this.files.get(element) != null;
+			case IJavaElementDelta.ADDED:
+				IType type = ((ClassFile)element).getType();
+				String typeName = type.getElementName();
+				if (hasSupertype(typeName) 
 					|| subtypesIncludeSupertypeOf(type)
-					|| this.missingTypes.contains(type.getElementName())) {
+					|| this.missingTypes.contains(typeName)) {
 						
 					return true;
 				}
-			}
-			break;
-		case IJavaElementDelta.CHANGED:
-			boolean hasImportChange = false;
-			IJavaElementDelta[] children = delta.getAffectedChildren();
-			for (int i = 0, length = children.length; i < length; i++) {
-				IJavaElementDelta child = children[i];
-				IJavaElement childElement = child.getElement();
-				if (childElement instanceof IType) {
-					// NB: rely on the fact that import statements are before type declarations
-					if (this.isAffectedByType(child, (IType)childElement, hasImportChange)) {
-						return true;
-					}
-				} else if (childElement instanceof ImportContainer) {
-					if (!hasImportChange) {
-						hasImportChange = true;
-						types = null;
-						try {
-							types = (element instanceof CompilationUnit) ?
-								((CompilationUnit)element).getAllTypes() :
-								new IType[] {((org.eclipse.jdt.internal.core.ClassFile)element).getType()};
-						} catch (JavaModelException e) {
-							e.printStackTrace();
-							return false;
-						}
-						for (int j = 0, typesLength = types.length; j < typesLength; j++) {
-							if (includesTypeOrSupertype(types[j])) {
-								return true;
-							}
+				break;
+			case IJavaElementDelta.CHANGED:
+				IJavaElementDelta[] children = delta.getAffectedChildren();
+				for (int i = 0, length = children.length; i < length; i++) {
+					IJavaElementDelta child = children[i];
+					IJavaElement childElement = child.getElement();
+					if (childElement instanceof IType) {
+						type = (IType)childElement;
+						boolean hasVisibilityChange = (delta.getFlags() & IJavaElementDelta.F_MODIFIERS) > 0;
+						boolean hasSupertypeChange = (delta.getFlags() & IJavaElementDelta.F_SUPER_TYPES) > 0;
+						if ((hasVisibilityChange && hasSupertype(type.getElementName()))
+								|| (hasSupertypeChange && includesTypeOrSupertype(type))) {
+							return true;
 						}
 					}
 				}
-			}
-			break;
-		
-	}
-	return false;
-}
-/*
- * The rules are:
- * - if the delta is an added type X, then the hierarchy is changed 
- *   . if one of the types in this hierarchy has a supertype whose simple name is the
- *     simple name of X
- *   . if the simple name of a supertype of X is the simple name of one of
- *     the subtypes in this hierarchy (X will be added as one of the subtypes)
- * - if the delta is a changed type X, then the hierarchy is changed
- *   . if the visibility of X has changed and if one of the types in this hierarchy has a 
- *	   supertype whose simple name is the simple name of X
- *   . if one of the supertypes of X has changed or one of the imports has changed,
- *     and if the simple name of a supertype of X is the simple name of one of 
- *     the types in this hierarchy
- * - if the delta is a removed type X, then the hierarchy is changed
- *   . if the given element is part of this hierarchy (note we cannot acces the types 
- *     because the element has been removed)
- */
-protected boolean isAffectedByType(IJavaElementDelta delta, IType type, boolean hasImportChange) {
-	switch (delta.getKind()) {
-		case IJavaElementDelta.ADDED:
-			if (typeHasSupertype(type) 
-				|| subtypesIncludeSupertypeOf(type) 
-				|| this.missingTypes.contains(type.getElementName())) {
-				
-				return true;
-			}
-			break;
-		case IJavaElementDelta.CHANGED:
-			boolean hasVisibilityChange = (delta.getFlags() & IJavaElementDelta.F_MODIFIERS) > 0;
-			boolean hasSupertypeChange = (delta.getFlags() & IJavaElementDelta.F_SUPER_TYPES) > 0;
-			if ((hasVisibilityChange && typeHasSupertype(type))
-					|| ((hasImportChange || hasSupertypeChange) 
-						&& includesTypeOrSupertype(type))) {
-				return true;
-			}
-			break;
-		case IJavaElementDelta.REMOVED:
-			if (this.contains(type)) {
-				return true;
-			}
-			break;
-	}
-	IJavaElementDelta[] children = delta.getAffectedChildren();
-	for (int i = 0, length = children.length; i < length; i++) {
-		IJavaElementDelta child = children[i];
-		IJavaElement childElement = child.getElement();
-		if (childElement instanceof IType) {
-			if (this.isAffectedByType(child, (IType)childElement, hasImportChange)) {
-				return true;
-			}
+				break;
 		}
 	}
 	return false;
-} 
-private boolean isInterface(IType type) throws JavaModelException {
+}
+private boolean isInterface(IType type) {
 	int flags = this.getCachedFlags(type);
 	if (flags == -1) {
-		return type.isInterface();
+		try {
+			return type.isInterface();
+		} catch (JavaModelException e) {
+			return false;
+		}
 	} else {
 		return Flags.isInterface(flags);
 	}
@@ -1162,7 +1030,7 @@ private boolean isInterface(IType type) throws JavaModelException {
  * Returns the java project this hierarchy was created in.
  */
 public IJavaProject javaProject() {
-	return this.type.getJavaProject();
+	return this.focusType.getJavaProject();
 }
 protected static byte[] readUntil(InputStream input, byte separator) throws JavaModelException, IOException{
 	return readUntil(input, separator, 0);
@@ -1173,17 +1041,17 @@ protected static byte[] readUntil(InputStream input, byte separator, int offset)
 	byte b;
 	while((b = (byte)input.read()) != separator && b != -1) {
 		if(bytes.length == length) {
-			System.arraycopy(bytes, 0, bytes = new byte[length*2], 0, length);;
+			System.arraycopy(bytes, 0, bytes = new byte[length*2], 0, length);
 		}
-		bytes[length++]=(byte)b;
+		bytes[length++] = b;
 	}
 	if(b == -1) {
-		throw new JavaModelException(new JavaModelStatus(IJavaModelStatus.ERROR));
+		throw new JavaModelException(new JavaModelStatus(IStatus.ERROR));
 	}
 	System.arraycopy(bytes, 0, bytes = new byte[length + offset], offset, length);
 	return bytes;
 }
-public static ITypeHierarchy load(IType type, InputStream input) throws JavaModelException {
+public static ITypeHierarchy load(IType type, InputStream input, WorkingCopyOwner owner) throws JavaModelException {
 	try {
 		TypeHierarchy typeHierarchy = new TypeHierarchy();
 		typeHierarchy.initialize(1);
@@ -1194,7 +1062,7 @@ public static ITypeHierarchy load(IType type, InputStream input) throws JavaMode
 		byte version = (byte)input.read();
 	
 		if(version != VERSION) {
-			throw new JavaModelException(new JavaModelStatus(IJavaModelStatus.ERROR));
+			throw new JavaModelException(new JavaModelStatus(IStatus.ERROR));
 		}
 		byte generalInfo = (byte)input.read();
 		if((generalInfo & COMPUTE_SUBTYPES) != 0) {
@@ -1237,7 +1105,7 @@ public static ITypeHierarchy load(IType type, InputStream input) throws JavaMode
 		while((b = (byte)input.read()) != SEPARATOR1 && b != -1) {
 			bytes = readUntil(input, SEPARATOR4, 1);
 			bytes[0] = b;
-			IType element = (IType)JavaCore.create(new String(bytes));
+			IType element = (IType)JavaCore.create(new String(bytes), owner);
 			
 			if(types.length == typeCount) {
 				System.arraycopy(types, 0, types = new IType[typeCount * 2], 0, typeCount);
@@ -1259,9 +1127,9 @@ public static ITypeHierarchy load(IType type, InputStream input) throws JavaMode
 			}
 			if((info & COMPUTED_FOR) != 0) {
 				if(!element.equals(type)) {
-					throw new JavaModelException(new JavaModelStatus(IJavaModelStatus.ERROR)); 
+					throw new JavaModelException(new JavaModelStatus(IStatus.ERROR)); 
 				}
-				typeHierarchy.type = element;
+				typeHierarchy.focusType = element;
 			}
 			if((info & ROOT) != 0) {
 				typeHierarchy.addRootClass(element);
@@ -1314,7 +1182,7 @@ public static ITypeHierarchy load(IType type, InputStream input) throws JavaMode
 				superInterfaces);
 		}
 		if(b == -1) {
-			throw new JavaModelException(new JavaModelStatus(IJavaModelStatus.ERROR));
+			throw new JavaModelException(new JavaModelStatus(IStatus.ERROR));
 		}
 		return typeHierarchy;
 	} catch(IOException e){
@@ -1337,18 +1205,15 @@ protected boolean packageRegionContainsSamePackageFragment(IJavaElement element)
 
 /**
  * @see ITypeHierarchy
+ * TODO (jerome) should use a PerThreadObject to build the hierarchy instead of synchronizing
+ * (see also isAffected(IJavaElementDelta))
  */
-public void refresh(IProgressMonitor monitor) throws JavaModelException {
+public synchronized void refresh(IProgressMonitor monitor) throws JavaModelException {
 	try {
-		boolean reactivate = isActivated();
-		ArrayList listeners = this.changeListeners;
-		if (reactivate) {
-			deactivate();
-		}
 		this.progressMonitor = monitor;
 		if (monitor != null) {
-			if (this.type != null) {
-				monitor.beginTask(Util.bind("hierarchy.creatingOnType", type.getFullyQualifiedName()), 100); //$NON-NLS-1$
+			if (this.focusType != null) {
+				monitor.beginTask(Util.bind("hierarchy.creatingOnType", focusType.getFullyQualifiedName()), 100); //$NON-NLS-1$
 			} else {
 				monitor.beginTask(Util.bind("hierarchy.creating"), 100); //$NON-NLS-1$
 			}
@@ -1361,15 +1226,16 @@ public void refresh(IProgressMonitor monitor) throws JavaModelException {
 			} else {
 				System.out.println("CREATING SUPER TYPE HIERARCHY [" + Thread.currentThread() + "]"); //$NON-NLS-1$ //$NON-NLS-2$
 			}
-			if (this.type != null) {
-				System.out.println("  on type " + ((JavaElement)this.type).toStringWithAncestors()); //$NON-NLS-1$
+			if (this.focusType != null) {
+				System.out.println("  on type " + ((JavaElement)this.focusType).toStringWithAncestors()); //$NON-NLS-1$
 			}
 		}
+
 		compute();
-		if (reactivate) {
-			activate();
-			this.changeListeners = listeners;
-		}
+		initializeRegions();
+		this.needsRefresh = false;
+		this.changeCollector = null;
+
 		if (DEBUG) {
 			if (this.computeSubtypes) {
 				System.out.println("CREATED TYPE HIERARCHY in " + (System.currentTimeMillis() - start) + "ms"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -1379,13 +1245,9 @@ public void refresh(IProgressMonitor monitor) throws JavaModelException {
 			System.out.println(this.toString());
 		}
 	} catch (JavaModelException e) {
-		this.progressMonitor = null;
 		throw e;
 	} catch (CoreException e) {
-		this.progressMonitor = null;
 		throw new JavaModelException(e);
-	} catch (OperationCanceledException oce) {
-		refreshCancelled(oce);
 	} finally {
 		if (monitor != null) {
 			monitor.done();
@@ -1393,26 +1255,20 @@ public void refresh(IProgressMonitor monitor) throws JavaModelException {
 		this.progressMonitor = null;
 	}
 }
-/**
- * The refresh of this type hierarchy has been cancelled.
- * Cleanup the state of this now invalid type hierarchy.
- */
-protected void refreshCancelled(OperationCanceledException oce) throws JavaModelException {
-	destroy();
-	this.progressMonitor = null;
-	throw oce;
-}
 
 /**
  * @see ITypeHierarchy
  */
-public void removeTypeHierarchyChangedListener(ITypeHierarchyChangedListener listener) {
-	if (this.changeListeners == null) {
+public synchronized void removeTypeHierarchyChangedListener(ITypeHierarchyChangedListener listener) {
+	ArrayList listeners = this.changeListeners;
+	if (listeners == null) {
 		return;
 	}
-	this.changeListeners.remove(listener);
-	if (this.changeListeners.isEmpty()) {
-		deactivate();
+	listeners.remove(listener);
+
+	// deregister from JavaCore on last listener removed
+	if (listeners.isEmpty()) {
+		JavaCore.removeElementChangedListener(this);
 	}
 }
 /**
@@ -1425,10 +1281,10 @@ public void store(OutputStream output, IProgressMonitor monitor) throws JavaMode
 		Hashtable hashtable2 = new Hashtable();
 		int count = 0;
 		
-		if(type != null) {
+		if(focusType != null) {
 			Integer index = new Integer(count++);
-			hashtable.put(type, index);
-			hashtable2.put(index, type);
+			hashtable.put(focusType, index);
+			hashtable2.put(index, focusType);
 		}
 		Object[] types = classToSuperclass.keySet().toArray();
 		for (int i = 0; i < types.length; i++) {
@@ -1501,7 +1357,7 @@ public void store(OutputStream output, IProgressMonitor monitor) throws JavaMode
 			output.write(flagsToBytes((Integer)typeFlags.get(t)));
 			output.write(SEPARATOR4);
 			byte info = CLASS;
-			if(type != null && type.equals(t)) {
+			if(focusType != null && focusType.equals(t)) {
 				info |= COMPUTED_FOR;
 			}
 			if(interfaces.contains(t)) {
@@ -1554,13 +1410,15 @@ public void store(OutputStream output, IProgressMonitor monitor) throws JavaMode
  * the simple name of one of the subtypes in this hierarchy or the
  * simple name of this type.
  */
-private boolean subtypesIncludeSupertypeOf(IType type) {
+boolean subtypesIncludeSupertypeOf(IType type) {
 	// look for superclass
 	String superclassName = null;
 	try {
 		superclassName = type.getSuperclassName();
 	} catch (JavaModelException e) {
-		e.printStackTrace();
+		if (DEBUG) {
+			e.printStackTrace();
+		}
 		return false;
 	}
 	if (superclassName == null) {
@@ -1601,14 +1459,14 @@ private boolean subtypesIncludeSupertypeOf(IType type) {
 public String toString() {
 	StringBuffer buffer = new StringBuffer();
 	buffer.append("Focus: "); //$NON-NLS-1$
-	buffer.append(this.type == null ? "<NONE>" : this.type.getFullyQualifiedName()); //$NON-NLS-1$
+	buffer.append(this.focusType == null ? "<NONE>" : ((JavaElement)this.focusType).toStringWithAncestors()); //$NON-NLS-1$
 	buffer.append("\n"); //$NON-NLS-1$
 	if (exists()) {
-		if (this.type != null) {
+		if (this.focusType != null) {
 			buffer.append("Super types:\n"); //$NON-NLS-1$
-			toString(buffer, this.type, 1, true);
+			toString(buffer, this.focusType, 1, true);
 			buffer.append("Sub types:\n"); //$NON-NLS-1$
-			toString(buffer, this.type, 1, false);
+			toString(buffer, this.focusType, 1, false);
 		} else {
 			buffer.append("Sub types of root classes:\n"); //$NON-NLS-1$
 			IType[] roots= getRootClasses();
@@ -1638,25 +1496,22 @@ public String toString() {
  * If ascendant, shows the super types, otherwise show the sub types.
  */
 private void toString(StringBuffer buffer, IType type, int indent, boolean ascendant) {
-	for (int i= 0; i < indent; i++) {
-		buffer.append("  "); //$NON-NLS-1$
-	}
-	JavaElement element = (JavaElement)type;
-	buffer.append(element.toStringWithAncestors());
-	buffer.append('\n');
-
 	IType[] types= ascendant ? getSupertypes(type) : getSubtypes(type);
 	for (int i= 0; i < types.length; i++) {
+		for (int j= 0; j < indent; j++) {
+			buffer.append("  "); //$NON-NLS-1$
+		}
+		JavaElement element = (JavaElement)types[i];
+		buffer.append(element.toStringWithAncestors());
+		buffer.append('\n');
 		toString(buffer, types[i], indent + 1, ascendant);
 	}
-
 }
 /**
  * Returns whether one of the types in this hierarchy has a supertype whose simple 
- * name is the simple name of the given type.
+ * name is the given simple name.
  */
-private boolean typeHasSupertype(IType type) {
-	String simpleName = type.getElementName();
+boolean hasSupertype(String simpleName) {
 	for(Iterator iter = this.classToSuperclass.values().iterator(); iter.hasNext();){
 		IType superType = (IType)iter.next();
 		if (superType.getElementName().equals(simpleName)) {

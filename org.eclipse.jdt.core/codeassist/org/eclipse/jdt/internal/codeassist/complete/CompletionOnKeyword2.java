@@ -14,12 +14,10 @@ import org.eclipse.jdt.internal.compiler.ast.ImportReference;
 
 public class CompletionOnKeyword2 extends ImportReference implements CompletionOnKeyword {
 	private char[] token;
-	private long pos;
 	private char[][] possibleKeywords;
 	public CompletionOnKeyword2(char[] token, long pos, char[][] possibleKeywords) {
-		super(new char[][]{token}, new long[]{pos}, false);
+		super(new char[][]{token}, new long[]{pos}, false, AccDefault);
 		this.token = token;
-		this.pos = pos;
 		this.possibleKeywords = possibleKeywords;
 	}
 	public char[] getToken() {
@@ -28,7 +26,8 @@ public class CompletionOnKeyword2 extends ImportReference implements CompletionO
 	public char[][] getPossibleKeywords() {
 		return possibleKeywords;
 	}
-	public String toString(int tab, boolean withOnDemand) {
-		return "<CompleteOnKeyword:" + new String(token) + ">"; //$NON-NLS-1$ //$NON-NLS-2$
+	public StringBuffer print(int indent, StringBuffer output, boolean withOnDemand) {
+		
+		return printIndent(indent, output).append("<CompleteOnKeyword:").append(token).append('>'); //$NON-NLS-1$
 	}
 }

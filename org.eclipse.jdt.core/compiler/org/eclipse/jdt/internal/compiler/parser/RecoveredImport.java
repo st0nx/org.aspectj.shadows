@@ -13,7 +13,7 @@ package org.eclipse.jdt.internal.compiler.parser;
 /**
  * Internal import structure for parsing recovery 
  */
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.ImportReference;
 
 public class RecoveredImport extends RecoveredElement {
@@ -26,7 +26,7 @@ public RecoveredImport(ImportReference importReference, RecoveredElement parent,
 /* 
  * Answer the associated parsed structure
  */
-public AstNode parseTree(){
+public ASTNode parseTree(){
 	return importReference;
 }
 /*
@@ -48,10 +48,10 @@ public void updateParseTree(){
 /*
  * Update the declarationSourceEnd of the corresponding parse node
  */
-public void updateSourceEndIfNecessary(int sourceEnd){
+public void updateSourceEndIfNecessary(int bodyStart, int bodyEnd){
 	if (this.importReference.declarationSourceEnd == 0) {
-		this.importReference.declarationSourceEnd = sourceEnd;
-		this.importReference.declarationEnd = sourceEnd;
+		this.importReference.declarationSourceEnd = bodyEnd;
+		this.importReference.declarationEnd = bodyEnd;
 	}
 }
 }

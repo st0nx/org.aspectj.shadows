@@ -22,41 +22,41 @@ class PackageFragmentInfo extends OpenableElementInfo {
 	/**
 	 * A array with all the non-java resources contained by this PackageFragment
 	 */
-	protected Object[] fNonJavaResources;
+	protected Object[] nonJavaResources;
 
 /**
  * Create and initialize a new instance of the receiver
  */
 public PackageFragmentInfo() {
-	fNonJavaResources = null;
+	this.nonJavaResources = null;
 }
 /**
  */
 boolean containsJavaResources() {
-	return fChildren.length != 0;
+	return this.children.length != 0;
 }
 /**
  * Returns an array of non-java resources contained in the receiver.
  */
 Object[] getNonJavaResources(IResource underlyingResource, PackageFragmentRoot rootHandle) {
-	Object[] nonJavaResources = fNonJavaResources;
-	if (nonJavaResources == null) {
+	if (this.nonJavaResources == null) {
 		try {
-			nonJavaResources = 
+			this.nonJavaResources = 
 				PackageFragmentRootInfo.computeFolderNonJavaResources(
 					(JavaProject)rootHandle.getJavaProject(), 
 					(IContainer)underlyingResource, 
 					rootHandle.fullExclusionPatternChars());
 		} catch (JavaModelException e) {
+			// root doesn't exist: consider package has no nonJavaResources
+			this.nonJavaResources = NO_NON_JAVA_RESOURCES;
 		}
-		fNonJavaResources = nonJavaResources;
 	}
-	return nonJavaResources;
+	return this.nonJavaResources;
 }
 /**
- * Set the fNonJavaResources to res value
+ * Set the nonJavaResources to res value
  */
-synchronized void setNonJavaResources(Object[] resources) {
-	fNonJavaResources = resources;
+void setNonJavaResources(Object[] resources) {
+	this.nonJavaResources = resources;
 }
 }

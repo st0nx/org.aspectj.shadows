@@ -10,66 +10,53 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
-import java.io.IOException;
-
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.core.search.*;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
-import org.eclipse.jdt.internal.core.index.IEntryResult;
+import org.eclipse.jdt.core.search.SearchParticipant;
 import org.eclipse.jdt.internal.core.index.impl.IndexInput;
-import org.eclipse.jdt.internal.core.search.IIndexSearchRequestor;
+import org.eclipse.jdt.internal.core.search.IndexQueryRequestor;
 
 public class PackageDeclarationPattern extends SearchPattern {
-	char[] pkgName;
-public PackageDeclarationPattern(char[] pkgName, int matchMode, boolean isCaseSensitive) {
-	super(matchMode, isCaseSensitive);
+
+protected char[] pkgName;
+
+public PackageDeclarationPattern(char[] pkgName, int matchRule) {
+	super(PKG_DECL_PATTERN, matchRule);
 	this.pkgName = pkgName;
 }
-/**
- * @see SearchPattern#decodeIndexEntry
- */
-protected void decodeIndexEntry(IEntryResult entryResult) {
-	// not used
-}
-/**
- * @see SearchPattern#feedIndexRequestor
- */
-public void feedIndexRequestor(IIndexSearchRequestor requestor, int detailLevel, int[] references, IndexInput input, IJavaSearchScope scope) throws java.io.IOException {
-	// not used
-}
-/**
- * see SearchPattern#findMatches
- */
-public void findIndexMatches(IndexInput input, IIndexSearchRequestor requestor, int detailLevel, IProgressMonitor progressMonitor, IJavaSearchScope scope) throws IOException {
+public void decodeIndexKey(char[] key) {
 	// package declarations are not indexed
 }
-/**
- * @see SearchPattern#indexEntryPrefix
- */
-public char[] indexEntryPrefix() {
-	// not used
+public char[] encodeIndexKey() {
+	// package declarations are not indexed
 	return null;
 }
-/**
- * @see SearchPattern#matchContainer
- */
-protected int matchContainer() {
-	// used only in the case of a OrPattern
-	return 0;
+public void findIndexMatches(IndexInput input, IndexQueryRequestor requestor, SearchParticipant participant, IJavaSearchScope scope, IProgressMonitor progressMonitor) /* throws IOException */ {
+	// package declarations are not indexed
 }
-/**
- * @see SearchPattern#matchIndexEntry
- */
-protected boolean matchIndexEntry() {
-	// used only in the case of a OrPattern
-	return true;
+public SearchPattern getIndexRecord() {
+	// package declarations are not indexed
+	return null;
 }
-public String toString(){
+public char[][] getMatchCategories() {
+	// package declarations are not indexed
+	return CharOperation.NO_CHAR_CHAR;
+}
+public boolean isMatchingIndexRecord() {
+	// package declarations are not indexed
+	return false;
+}
+public String toString() {
 	StringBuffer buffer = new StringBuffer(20);
 	buffer.append("PackageDeclarationPattern: <"); //$NON-NLS-1$
-	if (this.pkgName != null) buffer.append(this.pkgName);
+	if (this.pkgName != null) 
+		buffer.append(this.pkgName);
+	else
+		buffer.append("*"); //$NON-NLS-1$
 	buffer.append(">, "); //$NON-NLS-1$
-	switch(matchMode){
+	switch(matchMode()){
 		case EXACT_MATCH : 
 			buffer.append("exact match, "); //$NON-NLS-1$
 			break;
@@ -80,18 +67,10 @@ public String toString(){
 			buffer.append("pattern match, "); //$NON-NLS-1$
 			break;
 	}
-	if (isCaseSensitive)
+	if (isCaseSensitive())
 		buffer.append("case sensitive"); //$NON-NLS-1$
 	else
 		buffer.append("case insensitive"); //$NON-NLS-1$
 	return buffer.toString();
-}
-
-/**
- * @see SearchPattern#matchLevel(AstNode, boolean)
- */
-public int matchLevel(AstNode node, boolean resolve) {
-	// used only in the case of a OrPattern
-	return ACCURATE_MATCH;
 }
 }

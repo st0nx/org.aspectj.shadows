@@ -47,7 +47,7 @@ public BinaryTypeBinding(PackageBinding packageBinding, IBinaryType binaryType, 
 	this.tagBits |= IsBinaryBinding;
 	this.environment = environment;
 	this.fPackage = packageBinding;
-	this.	fileName = binaryType.getFileName();
+	this.fileName = binaryType.getFileName();
 
 	// source name must be one name without "$".
 	char[] possibleSourceName = this.compoundName[this.compoundName.length - 1];
@@ -62,6 +62,14 @@ public BinaryTypeBinding(PackageBinding packageBinding, IBinaryType binaryType, 
 	this.modifiers = binaryType.getModifiers();
 	if (binaryType.isInterface())
 		this.modifiers |= AccInterface;
+		
+	if (binaryType.isAnonymous()) {
+		this.tagBits |= AnonymousTypeMask;
+	} else if (binaryType.isLocal()) {
+		this.tagBits |= LocalTypeMask;
+	} else if (binaryType.isMember()) {
+		this.tagBits |= MemberTypeMask;
+	}
 }
 
 public FieldBinding[] availableFields() {
@@ -73,6 +81,7 @@ public FieldBinding[] availableFields() {
 			availableFields[count] = resolveTypeFor(fields[i]);
 			count++;
 		} catch (AbortCompilation a){
+			// silent abort
 		}
 	}
 	
@@ -92,6 +101,7 @@ public MethodBinding[] availableMethods() {
 			availableMethods[count] = resolveTypesFor(methods[i]);
 			count++;
 		} catch (AbortCompilation a){
+			// silent abort
 		}
 	}
 	System.arraycopy(availableMethods, 0, availableMethods = new MethodBinding[count], 0, count);
@@ -138,9 +148,12 @@ void cachePartsFrom(IBinaryType binaryType, boolean needFieldsAndMethods) {
 				this.superInterfaces[i] = environment.getTypeFromConstantPoolName(interfaceNames[i], 0, -1);
 		}
 	}
-	if (needFieldsAndMethods){
+	if (needFieldsAndMethods) {
 		createFields(binaryType.getFields());
 		createMethods(binaryType.getMethods());
+	} else { // protect against incorrect use of the needFieldsAndMethods flag, see 48459
+		this.fields = NoFields;
+		this.methods = NoMethods;
 	}
 }
 private void createFields(IBinaryField[] iFields) {
@@ -155,7 +168,7 @@ private void createFields(IBinaryField[] iFields) {
 					new FieldBinding(
 						field.getName(),
 						environment.getTypeFromSignature(field.getTypeName(), 0, -1),
-						field.getModifiers(),
+						field.getModifiers() | AccUnresolved,
 						this,
 						field.getConstant());
 			}
@@ -163,7 +176,7 @@ private void createFields(IBinaryField[] iFields) {
 	}
 }
 private MethodBinding createMethod(IBinaryMethod method) {
-	int modifiers = method.getModifiers() | AccUnresolved;
+	int methodModifiers = method.getModifiers() | AccUnresolved;
 
 	ReferenceBinding[] exceptions = NoExceptions;
 	char[][] exceptionTypes = method.getExceptionTypeNames();
@@ -177,15 +190,15 @@ private MethodBinding createMethod(IBinaryMethod method) {
 	}
 
 	TypeBinding[] parameters = NoParameters;
-	char[] signature = method.getMethodDescriptor();   // of the form (I[Ljava/jang/String;)V
+	char[] methodSignature = method.getMethodDescriptor();   // of the form (I[Ljava/jang/String;)V
 	int numOfParams = 0;
 	char nextChar;
 	int index = 0;   // first character is always '(' so skip it
-	while ((nextChar = signature[++index]) != ')') {
+	while ((nextChar = methodSignature[++index]) != ')') {
 		if (nextChar != '[') {
 			numOfParams++;
 			if (nextChar == 'L')
-				while ((nextChar = signature[++index]) != ';');
+				while ((nextChar = methodSignature[++index]) != ';');
 		}
 	}
 
@@ -197,24 +210,24 @@ private MethodBinding createMethod(IBinaryMethod method) {
 		index = 1;
 		int end = 0;   // first character is always '(' so skip it
 		for (int i = 0; i < numOfParams; i++) {
-			while ((nextChar = signature[++end]) == '[');
+			while ((nextChar = methodSignature[++end]) == '[');
 			if (nextChar == 'L')
-				while ((nextChar = signature[++end]) != ';');
+				while ((nextChar = methodSignature[++end]) != ';');
 
 			if (i >= startIndex)   // skip the synthetic arg if necessary
-				parameters[i - startIndex] = environment.getTypeFromSignature(signature, index, end);
+				parameters[i - startIndex] = environment.getTypeFromSignature(methodSignature, index, end);
 			index = end + 1;
 		}
 	}
 
 	MethodBinding binding = null;
 	if (method.isConstructor())
-		binding = new MethodBinding(modifiers, parameters, exceptions, this);
+		binding = new MethodBinding(methodModifiers, parameters, exceptions, this);
 	else
 		binding = new MethodBinding(
-			modifiers,
+			methodModifiers,
 			method.getSelector(),
-			environment.getTypeFromSignature(signature, index + 1, -1),   // index is currently pointing at the ')'
+			environment.getTypeFromSignature(methodSignature, index + 1, -1),   // index is currently pointing at the ')'
 			parameters,
 			exceptions,
 			this);
@@ -331,12 +344,12 @@ public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes
 }
 // NOTE: the type of a field of a binary type is resolved when needed
 
-public FieldBinding getField(char[] fieldName) {
+public FieldBinding getField(char[] fieldName, boolean needResolve) {
 	int fieldLength = fieldName.length;
 	for (int f = fields.length; --f >= 0;) {
 		char[] name = fields[f].name;
 		if (name.length == fieldLength && CharOperation.prefixEquals(name, fieldName))
-			return resolveTypeFor(fields[f]);
+			return needResolve ? resolveTypeFor(fields[f]) : fields[f];
 	}
 	return null;
 }
@@ -387,7 +400,7 @@ public MethodBinding[] methods() {
 	modifiers ^= AccUnresolved;
 	return methods;
 }
-private TypeBinding resolveType(TypeBinding type) {
+TypeBinding resolveType(TypeBinding type) {
 	if (type instanceof UnresolvedReferenceBinding)
 		return ((UnresolvedReferenceBinding) type).resolve(environment);
 	if (type instanceof ArrayBinding) {
@@ -398,7 +411,10 @@ private TypeBinding resolveType(TypeBinding type) {
 	return type;
 }
 private FieldBinding resolveTypeFor(FieldBinding field) {
-	field.type = resolveType(field.type);
+	if ((field.modifiers & AccUnresolved) != 0) {
+		field.type = resolveType(field.type);
+		field.modifiers ^= AccUnresolved;
+	}
 	return field;
 }
 private MethodBinding resolveTypesFor(MethodBinding method) {
@@ -434,6 +450,9 @@ public ReferenceBinding[] superInterfaces() {
 		if (superInterfaces[i] instanceof UnresolvedReferenceBinding)
 			superInterfaces[i] = ((UnresolvedReferenceBinding) superInterfaces[i]).resolve(environment);
 	return superInterfaces;
+}
+MethodBinding[] unResolvedMethods() { // for the MethodVerifier so it doesn't resolve types
+	return methods;
 }
 public String toString() {
 	String s = ""; //$NON-NLS-1$

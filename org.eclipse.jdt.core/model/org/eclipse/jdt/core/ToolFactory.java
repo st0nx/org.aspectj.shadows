@@ -18,21 +18,21 @@ import java.util.zip.ZipFile;
 
 import org.eclipse.core.runtime.*;
 import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IConfigurationElement;
-import org.eclipse.core.runtime.IExtension;
-import org.eclipse.core.runtime.IExtensionPoint;
-import org.eclipse.core.runtime.Plugin;
 import org.eclipse.jdt.core.compiler.IScanner;
+import org.eclipse.jdt.core.formatter.CodeFormatter;
 import org.eclipse.jdt.core.util.ClassFileBytesDisassembler;
 import org.eclipse.jdt.core.util.ClassFormatException;
 import org.eclipse.jdt.core.util.IClassFileReader;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.JarPackageFragmentRoot;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.util.ClassFileReader;
 import org.eclipse.jdt.internal.core.util.Disassembler;
 import org.eclipse.jdt.internal.core.util.PublicScanner;
-import org.eclipse.jdt.internal.formatter.CodeFormatter;
+import org.eclipse.jdt.internal.formatter.DefaultCodeFormatter;
 
 /**
  * Factory for creating various compiler tools, such as scanners, parsers and compilers.
@@ -52,6 +52,7 @@ public class ToolFactory {
 	 * @return an instance of a code formatter
 	 * @see ICodeFormatter
 	 * @see ToolFactory#createDefaultCodeFormatter(Map)
+	 * @deprecated - should use #createCodeFormatter(Map) instead. Extension point is discontinued
 	 */
 	public static ICodeFormatter createCodeFormatter(){
 		
@@ -71,12 +72,28 @@ public class ToolFactory {
 								return (ICodeFormatter)execExt;
 							}
 						} catch(CoreException e){
+							// unable to instantiate extension, will answer default formatter instead
 						}
 					}
 				}	
 			}
 		// no proper contribution found, use default formatter			
 		return createDefaultCodeFormatter(null);
+	}
+
+	/**
+	 * Create an instance of the built-in code formatter. 
+	 * @param options - the options map to use for formatting with the default code formatter. Recognized options
+	 * 	are documented on <code>JavaCore#getDefaultOptions()</code>. If set to <code>null</code>, then use 
+	 * 	the current settings from <code>JavaCore#getOptions</code>.
+	 * @return an instance of the built-in code formatter
+	 * @see CodeFormatter
+	 * @see JavaCore#getOptions()
+	 * @since 3.0
+	 */
+	public static CodeFormatter createCodeFormatter(Map options){
+		if (options == null) options = JavaCore.getOptions();
+		return new DefaultCodeFormatter(options);
 	}
 
 	/**
@@ -91,11 +108,11 @@ public class ToolFactory {
 	 * @see ICodeFormatter
 	 * @see ToolFactory#createCodeFormatter()
 	 * @see JavaCore#getOptions()
+	 * @deprecated - use #createCodeFormatter(Map) instead
 	 */
 	public static ICodeFormatter createDefaultCodeFormatter(Map options){
-
 		if (options == null) options = JavaCore.getOptions();
-		return new CodeFormatter(options);
+		return new org.eclipse.jdt.internal.formatter.CodeFormatter(options);
 	}
 	
 	/**
@@ -106,7 +123,9 @@ public class ToolFactory {
 	 * @deprecated - should use factory method creating ClassFileBytesDisassembler instead 
 	 */
 	public static org.eclipse.jdt.core.util.IClassFileDisassembler createDefaultClassFileDisassembler(){
-		class DeprecatedDisassembler extends Disassembler implements org.eclipse.jdt.core.util.IClassFileDisassembler {};
+		class DeprecatedDisassembler extends Disassembler implements org.eclipse.jdt.core.util.IClassFileDisassembler {
+			// for backward compatibility, defines a disassembler which implements IClassFileDisassembler
+		}
 		return new DeprecatedDisassembler();
 	}
 	
@@ -181,6 +200,7 @@ public class ToolFactory {
 					return createDefaultClassFileReader(location.toOSString(), decodingFlag);
 				}
 			} catch(CoreException e){
+				// unable to read
 			}
 		}
 		return null;
@@ -202,16 +222,17 @@ public class ToolFactory {
 	 * @see IClassFileReader
 	 */
 	public static IClassFileReader createDefaultClassFileReader(String zipFileName, String zipEntryName, int decodingFlag){
+		ZipFile zipFile = null;
 		try {
 			if (JavaModelManager.ZIP_ACCESS_VERBOSE) {
 				System.out.println("(" + Thread.currentThread() + ") [ToolFactory.createDefaultClassFileReader()] Creating ZipFile on " + zipFileName); //$NON-NLS-1$	//$NON-NLS-2$
 			}
-			ZipFile zipFile = new ZipFile(zipFileName);
+			zipFile = new ZipFile(zipFileName);
 			ZipEntry zipEntry = zipFile.getEntry(zipEntryName);
 			if (zipEntry == null) {
 				return null;
 			}
-			if (!zipEntryName.toLowerCase().endsWith(".class")) {//$NON-NLS-1$
+			if (!zipEntryName.toLowerCase().endsWith(SuffixConstants.SUFFIX_STRING_class)) {
 				return null;
 			}
 			byte classFileBytes[] = Util.getZipEntryByteContent(zipEntry, zipFile);
@@ -220,6 +241,14 @@ public class ToolFactory {
 			return null;
 		} catch(IOException e) {
 			return null;
+		} finally {
+			if (zipFile != null) {
+				try {
+					zipFile.close();
+				} catch(IOException e) {
+					// ignore
+				}
+			}
 		}
 	}	
 	
@@ -246,7 +275,7 @@ public class ToolFactory {
 	 * <p>
 	 * @param tokenizeComments if set to <code>false</code>, comments will be silently consumed
 	 * @param tokenizeWhiteSpace if set to <code>false</code>, white spaces will be silently consumed,
-	 * @param assertKeyword if set to <code>false</code>, occurrences of 'assert' will be reported as identifiers
+	 * @param assertMode if set to <code>false</code>, occurrences of 'assert' will be reported as identifiers
 	 * (<code>ITerminalSymbols#TokenNameIdentifier</code>), whereas if set to <code>true</code>, it
 	 * would report assert keywords (<code>ITerminalSymbols#TokenNameassert</code>). Java 1.4 has introduced
 	 * a new 'assert' keyword.
@@ -259,8 +288,51 @@ public class ToolFactory {
 	 */
 	public static IScanner createScanner(boolean tokenizeComments, boolean tokenizeWhiteSpace, boolean assertMode, boolean recordLineSeparator){
 
-		PublicScanner scanner = new PublicScanner(tokenizeComments, tokenizeWhiteSpace, false/*nls*/, assertMode /*assert*/, null/*taskTags*/, null/*taskPriorities*/);
+		PublicScanner scanner = new PublicScanner(tokenizeComments, tokenizeWhiteSpace, false/*nls*/, assertMode ? ClassFileConstants.JDK1_4 : ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/);
 		scanner.recordLineSeparator = recordLineSeparator;
 		return scanner;
 	}
+	
+	/**
+	 * Create a scanner, indicating the level of detail requested for tokenizing. The scanner can then be
+	 * used to tokenize some source in a Java aware way.
+	 * Here is a typical scanning loop:
+	 * 
+	 * <code>
+	 * <pre>
+	 *   IScanner scanner = ToolFactory.createScanner(false, false, false, false);
+	 *   scanner.setSource("int i = 0;".toCharArray());
+	 *   while (true) {
+	 *     int token = scanner.getNextToken();
+	 *     if (token == ITerminalSymbols.TokenNameEOF) break;
+	 *     System.out.println(token + " : " + new String(scanner.getCurrentTokenSource()));
+	 *   }
+	 * </pre>
+	 * </code>
+	 * 
+	 * <p>
+	 * The returned scanner will tolerate unterminated line comments (missing line separator). It can be made stricter
+	 * by using API with extra boolean parameter (<code>strictCommentMode</code>).
+	 * <p>
+	 * @param tokenizeComments if set to <code>false</code>, comments will be silently consumed
+	 * @param tokenizeWhiteSpace if set to <code>false</code>, white spaces will be silently consumed,
+	 * @param recordLineSeparator if set to <code>true</code>, the scanner will record positions of encountered line 
+	 * separator ends. In case of multi-character line separators, the last character position is considered. These positions
+	 * can then be extracted using <code>IScanner#getLineEnds</code>. Only non-unicode escape sequences are 
+	 * considered as valid line separators.
+	 * @param sourceLevel if set to <code>&quot;1.3&quot;</code> or <code>null</code>, occurrences of 'assert' will be reported as identifiers
+	 * (<code>ITerminalSymbols#TokenNameIdentifier</code>), whereas if set to <code>&quot;1.4&quot;</code>, it
+	 * would report assert keywords (<code>ITerminalSymbols#TokenNameassert</code>). Java 1.4 has introduced
+	 * a new 'assert' keyword.
+  	 * @return a scanner
+	 * @see org.eclipse.jdt.core.compiler.IScanner
+	 */
+	public static IScanner createScanner(boolean tokenizeComments, boolean tokenizeWhiteSpace, boolean recordLineSeparator, String sourceLevel) {
+		PublicScanner scanner = null;
+		long level = CompilerOptions.versionToJdkLevel(sourceLevel);
+		if (level == 0) level = ClassFileConstants.JDK1_3; // fault-tolerance
+		scanner = new PublicScanner(tokenizeComments, tokenizeWhiteSpace, false/*nls*/,level /*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/);
+		scanner.recordLineSeparator = recordLineSeparator;
+		return scanner;
+	}	
 }

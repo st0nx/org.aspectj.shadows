@@ -13,8 +13,6 @@ package org.eclipse.jdt.internal.core.builder;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 
-import java.util.*;
-
 public class ReferenceCollection {
 
 char[][][] qualifiedNameReferences; // contains no simple names as in just 'a' which is kept in simpleNameReferences instead
@@ -109,25 +107,27 @@ static final char[][] EmptySimpleNames = CharOperation.NO_CHAR_CHAR;
 
 // each array contains qualified char[][], one for size 2, 3, 4, 5, 6, 7 & the rest
 static final int MaxQualifiedNames = 7;
-static ArrayList[] InternedQualifiedNames = new ArrayList[MaxQualifiedNames];
+static QualifiedNameSet[] InternedQualifiedNames = new QualifiedNameSet[MaxQualifiedNames];
 // each array contains simple char[], one for size 1 to 29 & the rest
 static final int MaxSimpleNames = 30;
-static ArrayList[] InternedSimpleNames = new ArrayList[MaxSimpleNames];
+static NameSet[] InternedSimpleNames = new NameSet[MaxSimpleNames];
 static {
 	for (int i = 0; i < MaxQualifiedNames; i++)
-		InternedQualifiedNames[i] = new ArrayList(37);
+		InternedQualifiedNames[i] = new QualifiedNameSet(37);
 	for (int i = 0; i < MaxSimpleNames; i++)
-		InternedSimpleNames[i] = new ArrayList(11);
+		InternedSimpleNames[i] = new NameSet(37);
 }
 
-static char[][][] internQualifiedNames(ArrayList qualifiedStrings) {
+static char[][][] internQualifiedNames(StringSet qualifiedStrings) {
 	if (qualifiedStrings == null) return EmptyQualifiedNames;
-	int length = qualifiedStrings.size();
+	int length = qualifiedStrings.elementSize;
 	if (length == 0) return EmptyQualifiedNames;
 
 	char[][][] result = new char[length][][];
-	for (int i = 0; i < length; i++)
-		result[i] = CharOperation.splitOn('/', ((String) qualifiedStrings.get(i)).toCharArray());
+	String[] strings = qualifiedStrings.values;
+	for (int i = 0, l = strings.length; i < l; i++)
+		if (strings[i] != null)
+			result[--length] = CharOperation.splitOn('/', strings[i].toCharArray());
 	return internQualifiedNames(result);
 }
 
@@ -152,17 +152,9 @@ static char[][][] internQualifiedNames(char[][][] qualifiedNames) {
 		// InternedQualifiedNames[0] is for the rest (> 7 & 1)
 		// InternedQualifiedNames[1] is for size 2...
 		// InternedQualifiedNames[6] is for size 7
-		ArrayList internedNames = InternedQualifiedNames[qLength <= MaxQualifiedNames ? qLength - 1 : 0];
-		for (int j = 0, m = internedNames.size(); j < m; j++) {
-			char[][] internedName = (char[][]) internedNames.get(j);
-			if (CharOperation.equals(qualifiedName, internedName)) {
-				keepers[index++] = internedName;
-				continue next;
-			}
-		}
+		QualifiedNameSet internedNames = InternedQualifiedNames[qLength <= MaxQualifiedNames ? qLength - 1 : 0];
 		qualifiedName = internSimpleNames(qualifiedName, false);
-		internedNames.add(qualifiedName);
-		keepers[index++] = qualifiedName;
+		keepers[index++] = internedNames.add(qualifiedName);
 	}
 	if (length > index) {
 		if (length == 0) return EmptyQualifiedNames;
@@ -171,14 +163,16 @@ static char[][][] internQualifiedNames(char[][][] qualifiedNames) {
 	return keepers;
 }
 
-static char[][] internSimpleNames(ArrayList simpleStrings) {
+static char[][] internSimpleNames(StringSet simpleStrings) {
 	if (simpleStrings == null) return EmptySimpleNames;
-	int length = simpleStrings.size();
+	int length = simpleStrings.elementSize;
 	if (length == 0) return EmptySimpleNames;
 
 	char[][] result = new char[length][];
-	for (int i = 0; i < length; i++)
-		result[i] = ((String) simpleStrings.get(i)).toCharArray();
+	String[] strings = simpleStrings.values;
+	for (int i = 0, l = strings.length; i < l; i++)
+		if (strings[i] != null)
+			result[--length] = strings[i].toCharArray();
 	return internSimpleNames(result, true);
 }
 
@@ -206,16 +200,8 @@ static char[][] internSimpleNames(char[][] simpleNames, boolean removeWellKnown)
 		// InternedSimpleNames[0] is for the rest (> 29)
 		// InternedSimpleNames[1] is for size 1...
 		// InternedSimpleNames[29] is for size 29
-		ArrayList internedNames = InternedSimpleNames[sLength < MaxSimpleNames ? sLength : 0];
-		for (int j = 0, m = internedNames.size(); j < m; j++) {
-			char[] internedName = (char[]) internedNames.get(j);
-			if (CharOperation.equals(name, internedName)) {
-				keepers[index++] = internedName;
-				continue next;
-			}
-		}
-		internedNames.add(name);
-		keepers[index++] = name;
+		NameSet internedNames = InternedSimpleNames[sLength < MaxSimpleNames ? sLength : 0];
+		keepers[index++] = internedNames.add(name);
 	}
 	if (length > index) {
 		if (index == 0) return EmptySimpleNames;

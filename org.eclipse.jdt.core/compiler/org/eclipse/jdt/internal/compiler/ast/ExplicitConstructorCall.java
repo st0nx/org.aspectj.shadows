@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -71,13 +71,13 @@ public class ExplicitConstructorCall
 				flowContext.checkExceptionHandlers(
 					thrownExceptions,
 					(accessMode == ImplicitSuper)
-						? (AstNode) currentScope.methodScope().referenceContext
-						: (AstNode) this,
+						? (ASTNode) currentScope.methodScope().referenceContext
+						: (ASTNode) this,
 					flowInfo,
 					currentScope);
 			}
-			manageEnclosingInstanceAccessIfNecessary(currentScope);
-			manageSyntheticAccessIfNecessary(currentScope);
+			manageEnclosingInstanceAccessIfNecessary(currentScope, flowInfo);
+			manageSyntheticAccessIfNecessary(currentScope, flowInfo);
 			return flowInfo;
 		} finally {
 			((MethodScope) currentScope).isConstructorCall = false;
@@ -165,9 +165,10 @@ public class ExplicitConstructorCall
 	 * types, since by the time we reach them, we might not yet know their
 	 * exact need.
 	 */
-	void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope) {
+	void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 		ReferenceBinding superType;
 
+		if (!flowInfo.isReachable()) return;
 		// perform some emulation work in case there is some and we are inside a local type only
 		if ((superType = binding.declaringClass).isNestedType()
 			&& currentScope.enclosingSourceType().isLocalType()) {
@@ -181,8 +182,9 @@ public class ExplicitConstructorCall
 		}
 	}
 
-	public void manageSyntheticAccessIfNecessary(BlockScope currentScope) {
+	public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 
+		if (!flowInfo.isReachable()) return;
 		// perform some emulation work in case there is some and we are inside a local type only
 		if (binding.isPrivate() && (accessMode != This)) {
 
@@ -200,14 +202,40 @@ public class ExplicitConstructorCall
 		}
 	}
 
+	public StringBuffer printStatement(int indent, StringBuffer output) {
+
+		printIndent(indent, output);
+		if (qualification != null) qualification.printExpression(0, output).append('.');
+		if (accessMode == This) {
+			output.append("this("); //$NON-NLS-1$
+		} else {
+			output.append("super("); //$NON-NLS-1$
+		}
+		if (arguments != null) {
+			for (int i = 0; i < arguments.length; i++) {
+				if (i > 0) output.append(", "); //$NON-NLS-1$
+				arguments[i].printExpression(0, output);
+			}
+		}
+		return output.append(");"); //$NON-NLS-1$
+	}
+	
 	public void resolve(BlockScope scope) {
 		// the return type should be void for a constructor.
 		// the test is made into getConstructor
 
 		// mark the fact that we are in a constructor call.....
 		// unmark at all returns
+		MethodScope methodScope = scope.methodScope();
 		try {
-			((MethodScope) scope).isConstructorCall = true;
+			AbstractMethodDeclaration methodDeclaration = methodScope.referenceMethod();
+			if (methodDeclaration == null 
+					|| !methodDeclaration.isConstructor()
+					|| ((ConstructorDeclaration) methodDeclaration).constructorCall != this) {
+				scope.problemReporter().invalidExplicitConstructorCall(this);
+				return;
+			}
+			methodScope.isConstructorCall = true;
 			ReferenceBinding receiverType = scope.enclosingSourceType();
 			if (accessMode != This)
 				receiverType = receiverType.superclass();
@@ -236,19 +264,27 @@ public class ExplicitConstructorCall
 			}
 
 			// arguments buffering for the method lookup
-			TypeBinding[] argTypes = NoParameters;
+			TypeBinding[] argumentTypes = NoParameters;
+			boolean argsContainCast = false;
 			if (arguments != null) {
 				boolean argHasError = false; // typeChecks all arguments
 				int length = arguments.length;
-				argTypes = new TypeBinding[length];
-				for (int i = 0; i < length; i++)
-					if ((argTypes[i] = arguments[i].resolveType(scope)) == null)
+				argumentTypes = new TypeBinding[length];
+				for (int i = 0; i < length; i++) {
+					Expression argument = this.arguments[i];
+					if (argument instanceof CastExpression) {
+						argument.bits |= IgnoreNeedForCastCheckMASK; // will check later on
+						argsContainCast = true;
+					}
+					if ((argumentTypes[i] = argument.resolveType(scope)) == null) {
 						argHasError = true;
-				if (argHasError)
+					}
+				}
+				if (argHasError) {
 					return;
+				}
 			}
-			if ((binding = scope.getConstructor(receiverType, argTypes, this))
-				.isValidBinding()) {
+			if ((binding = scope.getConstructor(receiverType, argumentTypes, this)).isValidBinding()) {
 				if (isMethodUseDeprecated(binding, scope))
 					scope.problemReporter().deprecatedMethod(binding, this);
 
@@ -256,8 +292,12 @@ public class ExplicitConstructorCall
 				if (arguments != null) {
 					int length = arguments.length;
 					TypeBinding[] paramTypes = binding.parameters;
-					for (int i = 0; i < length; i++)
-						arguments[i].implicitWidening(paramTypes[i], argTypes[i]);
+					for (int i = 0; i < length; i++) {
+						arguments[i].implicitWidening(paramTypes[i], argumentTypes[i]);
+					}
+					if (argsContainCast) {
+						CastExpression.checkNeedForArgumentCasts(scope, null, receiverType, binding, this.arguments, argumentTypes, this);
+					}
 				}
 				if (binding.isPrivate()) {
 					binding.modifiers |= AccPrivateUsed;
@@ -268,7 +308,7 @@ public class ExplicitConstructorCall
 				scope.problemReporter().invalidConstructor(this, binding);
 			}
 		} finally {
-			((MethodScope) scope).isConstructorCall = false;
+			methodScope.isConstructorCall = false;
 		}
 	}
 
@@ -284,36 +324,15 @@ public class ExplicitConstructorCall
 		// ignore for here
 	}
 
-	public String toString(int tab) {
-
-		String s = tabString(tab);
-		if (qualification != null)
-			s = s + qualification.toStringExpression() + "."; //$NON-NLS-1$
-		if (accessMode == This) {
-			s = s + "this("; //$NON-NLS-1$
-		} else {
-			s = s + "super("; //$NON-NLS-1$
-		}
-		if (arguments != null)
-			for (int i = 0; i < arguments.length; i++) {
-				s = s + arguments[i].toStringExpression();
-				if (i != arguments.length - 1)
-					s = s + ", "; //$NON-NLS-1$
-			}
-		s = s + ")"; //$NON-NLS-1$
-		return s;
-	}
-
-	public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope scope) {
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
 
 		if (visitor.visit(this, scope)) {
-			if (qualification != null) {
-				qualification.traverse(visitor, scope);
+			if (this.qualification != null) {
+				this.qualification.traverse(visitor, scope);
 			}
-			if (arguments != null) {
-				int argumentLength = arguments.length;
-				for (int i = 0; i < argumentLength; i++)
-					arguments[i].traverse(visitor, scope);
+			if (this.arguments != null) {
+				for (int i = 0, argumentLength = this.arguments.length; i < argumentLength; i++)
+					this.arguments[i].traverse(visitor, scope);
 			}
 		}
 		visitor.endVisit(this, scope);

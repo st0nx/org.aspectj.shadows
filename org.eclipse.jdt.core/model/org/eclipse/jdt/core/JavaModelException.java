@@ -10,6 +10,9 @@
  *******************************************************************************/
 package org.eclipse.jdt.core;
 
+import java.io.PrintStream;
+import java.io.PrintWriter;
+
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IStatus;
 
@@ -35,7 +38,7 @@ public class JavaModelException extends CoreException {
  * The exception contains a Java-specific status object with severity
  * <code>IStatus.ERROR</code> and the given status code.
  *
- * @param exception the <code>Throwable</code>
+ * @param e the <code>Throwable</code>
  * @param code one of the Java-specific status codes declared in
  *   <code>IJavaModelStatusConstants</code>
  * @see IJavaModelStatusConstants
@@ -100,14 +103,34 @@ public IJavaModelStatus getJavaModelStatus() {
  *
  * @return <code>true</code> if this exception indicates that a Java model
  *   element does not exist
- * @see IJavaModelStatus#isDoesNotExist
+ * @see IJavaModelStatus#isDoesNotExist()
  * @see IJavaModelStatusConstants#ELEMENT_DOES_NOT_EXIST
  */
 public boolean isDoesNotExist() {
 	IJavaModelStatus javaModelStatus = getJavaModelStatus();
 	return javaModelStatus != null && javaModelStatus.isDoesNotExist();
 }
-/**
+public void printStackTrace(PrintStream output) {
+	synchronized(output) {
+		super.printStackTrace(output);
+		Throwable throwable = getException();
+		if (throwable != null) {
+			output.print("Caused by: "); //$NON-NLS-1$
+			throwable.printStackTrace(output);
+		}
+	}
+}
+public void printStackTrace(PrintWriter output) {
+	synchronized(output) {
+		super.printStackTrace(output);
+		Throwable throwable = getException();
+		if (throwable != null) {
+			output.print("Caused by: "); //$NON-NLS-1$
+			throwable.printStackTrace(output);
+		}
+	}
+}
+/*
  * Returns a printable representation of this exception suitable for debugging
  * purposes only.
  */

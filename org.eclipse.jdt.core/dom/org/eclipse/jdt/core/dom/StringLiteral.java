@@ -13,6 +13,7 @@ package org.eclipse.jdt.core.dom;
 
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
+import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 
 /**
  * String literal nodes.
@@ -103,7 +104,7 @@ public class StringLiteral extends Expression {
 	 */ 
 	public void setEscapedValue(String token) {
 		if (token == null) {
-			throw new IllegalArgumentException();
+			throw new IllegalArgumentException("Token cannot be null"); //$NON-NLS-1$
 		}
 		Scanner scanner = getAST().scanner;
 		char[] source = token.toCharArray();
@@ -112,13 +113,13 @@ public class StringLiteral extends Expression {
 		try {
 			int tokenType = scanner.getNextToken();
 			switch(tokenType) {
-				case Scanner.TokenNameStringLiteral:
+				case TerminalTokens.TokenNameStringLiteral:
 					break;
 				default:
-					throw new IllegalArgumentException();
+					throw new IllegalArgumentException("Invalid string literal : >" + token + "<"); //$NON-NLS-1$//$NON-NLS-2$
 			}
 		} catch(InvalidInputException e) {
-			throw new IllegalArgumentException();
+			throw new IllegalArgumentException("Invalid string literal : >" + token + "<");//$NON-NLS-1$//$NON-NLS-2$
 		}
 		modifying();
 		this.escapedValue = token;
@@ -158,7 +159,7 @@ public class StringLiteral extends Expression {
 		try {
 			int tokenType = scanner.getNextToken();
 			switch(tokenType) {
-				case Scanner.TokenNameStringLiteral:
+				case TerminalTokens.TokenNameStringLiteral:
 					return new String(scanner.getCurrentTokenSourceString());
 				default:
 					throw new IllegalArgumentException();

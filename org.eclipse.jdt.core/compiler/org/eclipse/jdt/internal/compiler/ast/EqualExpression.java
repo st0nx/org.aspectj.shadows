@@ -10,7 +10,8 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
@@ -177,7 +178,7 @@ public final boolean areTypesCastCompatible(BlockScope scope, TypeBinding castTy
 				int expressionTbMethodsLength = expressionTbMethods.length;
 				for (int i = 0; i < castTbMethodsLength; i++) {
 					for (int j = 0; j < expressionTbMethodsLength; j++) {
-						if (castTbMethods[i].selector == expressionTbMethods[j].selector) {
+						if (CharOperation.equals(castTbMethods[i].selector, expressionTbMethods[j].selector)) {
 							if (castTbMethods[i].returnType != expressionTbMethods[j].returnType) {
 								if (castTbMethods[i].areParametersEqual(expressionTbMethods[j])) {
 									return false;
@@ -498,9 +499,15 @@ public boolean isCompactableOperation() {
 	return false;
 }
 public TypeBinding resolveType(BlockScope scope) {
+
+		boolean leftIsCast, rightIsCast;
+		if ((leftIsCast = left instanceof CastExpression) == true) left.bits |= IgnoreNeedForCastCheckMASK; // will check later on
+		TypeBinding leftType = left.resolveType(scope);
+
+		if ((rightIsCast = right instanceof CastExpression) == true) right.bits |= IgnoreNeedForCastCheckMASK; // will check later on
+		TypeBinding rightType = right.resolveType(scope);
+
 	// always return BooleanBinding
-	TypeBinding leftType = left.resolveType(scope);
-	TypeBinding rightType = right.resolveType(scope);
 	if (leftType == null || rightType == null){
 		constant = NotAConstant;		
 		return null;
@@ -509,43 +516,60 @@ public TypeBinding resolveType(BlockScope scope) {
 	// both base type
 	if (leftType.isBaseType() && rightType.isBaseType()) {
 		// the code is an int
-		// (cast)  left   == (cast)  rigth --> result
+		// (cast)  left   == (cast)  right --> result
 		//  0000   0000       0000   0000      0000
 		//  <<16   <<12       <<8    <<4       <<0
-		int result = ResolveTypeTables[EQUAL_EQUAL][ (leftType.id << 4) + rightType.id];
-		left.implicitConversion = result >>> 12;
-		right.implicitConversion = (result >>> 4) & 0x000FF;
-		bits |= result & 0xF;		
-		if ((result & 0x0000F) == T_undefined) {
+		int operatorSignature = OperatorSignatures[EQUAL_EQUAL][ (leftType.id << 4) + rightType.id];
+		left.implicitConversion = operatorSignature >>> 12;
+		right.implicitConversion = (operatorSignature >>> 4) & 0x000FF;
+		bits |= operatorSignature & 0xF;		
+		if ((operatorSignature & 0x0000F) == T_undefined) {
 			constant = Constant.NotAConstant;
 			scope.problemReporter().invalidOperator(this, leftType, rightType);
 			return null;
 		}
+		// check need for operand cast
+		if (leftIsCast || rightIsCast) {
+			CastExpression.checkNeedForArgumentCasts(scope, EQUAL_EQUAL, operatorSignature, left, leftType.id, leftIsCast, right, rightType.id, rightIsCast);
+		}
 		computeConstant(leftType, rightType);
-		this.resolvedType = BooleanBinding;
-		return BooleanBinding;
+		return this.resolvedType = BooleanBinding;
 	}
 
 	// Object references 
 	// spec 15.20.3
 	if (areTypesCastCompatible(scope, rightType, leftType) || areTypesCastCompatible(scope, leftType, rightType)) {
 		// (special case for String)
-		if ((rightType.id == T_String) && (leftType.id == T_String))
+		if ((rightType.id == T_String) && (leftType.id == T_String)) {
 			computeConstant(leftType, rightType);
-		else
+		} else {
 			constant = NotAConstant;
-		if (rightType.id == T_String)
+		}
+		if (rightType.id == T_String) {
 			right.implicitConversion = String2String;
-		if (leftType.id == T_String)
+		}
+		if (leftType.id == T_String) {
 			left.implicitConversion = String2String;
-		this.resolvedType = BooleanBinding;
-		return BooleanBinding;
+		}
+		// check need for operand cast
+		boolean unnecessaryLeftCast = (left.bits & UnnecessaryCastMask) != 0;
+		boolean unnecessaryRightCast = (right.bits & UnnecessaryCastMask) != 0;
+		if (unnecessaryLeftCast || unnecessaryRightCast) {
+			TypeBinding alternateLeftType = unnecessaryLeftCast ? ((CastExpression)left).expression.resolvedType : leftType;
+			TypeBinding alternateRightType = unnecessaryRightCast ? ((CastExpression)right).expression.resolvedType : rightType;
+			if (areTypesCastCompatible(scope, alternateLeftType, alternateRightType)
+					|| areTypesCastCompatible(scope, alternateRightType, alternateLeftType)) {
+				if (unnecessaryLeftCast) scope.problemReporter().unnecessaryCast((CastExpression)left); 
+				if (unnecessaryRightCast) scope.problemReporter().unnecessaryCast((CastExpression)right);
+			}
+		}
+		return this.resolvedType = BooleanBinding;
 	}
 	constant = NotAConstant;
 	scope.problemReporter().notCompatibleTypesError(this, leftType, rightType);
 	return null;
 }
-public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope scope) {
+public void traverse(ASTVisitor visitor, BlockScope scope) {
 	if (visitor.visit(this, scope)) {
 		left.traverse(visitor, scope);
 		right.traverse(visitor, scope);

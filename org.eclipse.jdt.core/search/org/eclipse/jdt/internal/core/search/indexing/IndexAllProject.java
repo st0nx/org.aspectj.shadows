@@ -23,15 +23,14 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.IClasspathEntry;
-import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.internal.core.ClasspathEntry;
-import org.eclipse.jdt.internal.core.Util;
+import org.eclipse.jdt.internal.core.JavaProject;
 import org.eclipse.jdt.internal.core.index.IIndex;
-import org.eclipse.jdt.internal.core.index.IQueryResult;
-import org.eclipse.jdt.internal.core.index.impl.IFileDocument;
+import org.eclipse.jdt.internal.core.search.JavaSearchDocument;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
 import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class IndexAllProject extends IndexRequest {
 	IProject project;
@@ -52,10 +51,10 @@ public class IndexAllProject extends IndexRequest {
 	 */
 	public boolean execute(IProgressMonitor progressMonitor) {
 
-		if (progressMonitor != null && progressMonitor.isCanceled()) return true;
+		if (this.isCancelled || progressMonitor != null && progressMonitor.isCanceled()) return true;
 		if (!project.isAccessible()) return true; // nothing to do
 
-		IIndex index = this.manager.getIndex(this.indexPath, true, /*reuse index file*/ true /*create if none*/);
+		IIndex index = this.manager.getIndexForUpdate(this.containerPath, true, /*reuse index file*/ true /*create if none*/);
 		if (index == null) return true;
 		ReadWriteMonitor monitor = this.manager.getMonitorFor(index);
 		if (monitor == null) return true; // index got deleted since acquired
@@ -64,17 +63,18 @@ public class IndexAllProject extends IndexRequest {
 			monitor.enterRead(); // ask permission to read
 			saveIfNecessary(index, monitor);
 
-			IQueryResult[] results = index.queryInDocumentNames(""); // all file names //$NON-NLS-1$
-			int max = results == null ? 0 : results.length;
+			String[] paths = index.queryInDocumentNames(""); // all file names //$NON-NLS-1$
+			int max = paths == null ? 0 : paths.length;
 			final SimpleLookupTable indexedFileNames = new SimpleLookupTable(max == 0 ? 33 : max + 11);
 			final String OK = "OK"; //$NON-NLS-1$
 			final String DELETED = "DELETED"; //$NON-NLS-1$
 			for (int i = 0; i < max; i++)
-				indexedFileNames.put(results[i].getPath(), DELETED);
+				indexedFileNames.put(paths[i], DELETED);
 			final long indexLastModified = max == 0 ? 0L : index.getIndexFile().lastModified();
 
-			IJavaProject javaProject = JavaCore.create(this.project);
-			IClasspathEntry[] entries = javaProject.getRawClasspath();
+			JavaProject javaProject = (JavaProject)JavaCore.create(this.project);
+			// Do not create marker nor log problems while getting raw classpath (see bug 41859)
+			IClasspathEntry[] entries = javaProject.getRawClasspath(false, false);
 			IWorkspaceRoot root = this.project.getWorkspace().getRoot();
 			for (int i = 0, length = entries.length; i < length; i++) {
 				if (this.isCancelled) return false;
@@ -87,7 +87,8 @@ public class IndexAllProject extends IndexRequest {
 						// collect output locations if source is project (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=32041)
 						final HashSet outputs = new HashSet();
 						if (sourceFolder.getType() == IResource.PROJECT) {
-							outputs.add(javaProject.getOutputLocation());
+							// Do not create marker nor log problems while getting output location (see bug 41859)
+							outputs.add(javaProject.getOutputLocation(false, false));
 							for (int j = 0; j < length; j++) {
 								IPath output = entries[j].getOutputLocation();
 								if (output != null) {
@@ -105,12 +106,10 @@ public class IndexAllProject extends IndexRequest {
 										if (isCancelled) return false;
 										switch(proxy.getType()) {
 											case IResource.FILE :
-												if (Util.isJavaFileName(proxy.getName())) {
-													IResource resource = proxy.requestResource();
-													if (resource.getLocation() != null && (patterns == null || !Util.isExcluded(resource, patterns))) {
-														String name = new IFileDocument((IFile) resource).getName();
-														indexedFileNames.put(name, resource);
-													}
+												if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName())) {
+													IFile file = (IFile) proxy.requestResource();
+													if (file.getLocation() != null && (patterns == null || !Util.isExcluded(file, patterns)))
+														indexedFileNames.put(new JavaSearchDocument(file, null).getPath(), file);
 												}
 												return false;
 											case IResource.FOLDER :
@@ -132,14 +131,14 @@ public class IndexAllProject extends IndexRequest {
 										if (isCancelled) return false;
 										switch(proxy.getType()) {
 											case IResource.FILE :
-												if (Util.isJavaFileName(proxy.getName())) {
-													IResource resource = proxy.requestResource();
-													IPath path = resource.getLocation();
-													if (path != null && (patterns == null || !Util.isExcluded(resource, patterns))) {
-														String name = new IFileDocument((IFile) resource).getName();
-														indexedFileNames.put(name,
-															indexedFileNames.get(name) == null || indexLastModified < path.toFile().lastModified()
-																? (Object) resource
+												if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName())) {
+													IFile file = (IFile) proxy.requestResource();
+													IPath location = file.getLocation();
+													if (location != null && (patterns == null || !Util.isExcluded(file, patterns))) {
+														String path = new JavaSearchDocument(file, null).getPath();
+														indexedFileNames.put(path,
+															indexedFileNames.get(path) == null || indexLastModified < location.toFile().lastModified()
+																? (Object) file
 																: (Object) OK);
 													}
 												}
@@ -163,7 +162,6 @@ public class IndexAllProject extends IndexRequest {
 
 			Object[] names = indexedFileNames.keyTable;
 			Object[] values = indexedFileNames.valueTable;
-			boolean shouldSave = false;
 			for (int i = 0, length = names.length; i < length; i++) {
 				String name = (String) names[i];
 				if (name != null) {
@@ -171,32 +169,29 @@ public class IndexAllProject extends IndexRequest {
 
 					Object value = values[i];
 					if (value != OK) {
-						shouldSave = true;
 						if (value == DELETED)
-							this.manager.remove(name, this.indexPath);
+							this.manager.remove(name, this.containerPath);
 						else
-							this.manager.addSource((IFile) value, this.indexPath);
+							this.manager.addSource((IFile) value, this.containerPath);
 					}
 				}
 			}
 
-			// request to save index when all cus have been indexed
-			if (shouldSave)
-				this.manager.request(new SaveIndex(this.indexPath, this.manager));
-
+			// request to save index when all cus have been indexed... also sets state to SAVED_STATE
+			this.manager.request(new SaveIndex(this.containerPath, this.manager));
 		} catch (CoreException e) {
 			if (JobManager.VERBOSE) {
 				JobManager.verbose("-> failed to index " + this.project + " because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
 				e.printStackTrace();
 			}
-			this.manager.removeIndex(this.indexPath);
+			this.manager.removeIndex(this.containerPath);
 			return false;
 		} catch (IOException e) {
 			if (JobManager.VERBOSE) {
 				JobManager.verbose("-> failed to index " + this.project + " because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
 				e.printStackTrace();
 			}
-			this.manager.removeIndex(this.indexPath);
+			this.manager.removeIndex(this.containerPath);
 			return false;
 		} finally {
 			monitor.exitRead(); // free read lock

@@ -14,9 +14,10 @@ import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ImportReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
-import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.CompoundNameVector;
+import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfType;
 import org.eclipse.jdt.internal.compiler.util.ObjectVector;
 import org.eclipse.jdt.internal.compiler.util.SimpleNameVector;
@@ -28,6 +29,7 @@ public class CompilationUnitScope extends Scope {
 	public char[][] currentPackageName;
 	public PackageBinding fPackage;
 	public ImportBinding[] imports;
+	public HashtableOfObject resolvedSingeTypeImports;
 	
 	public SourceTypeBinding[] topLevelTypes;
 
@@ -129,20 +131,8 @@ void buildTypeBindings() {
 		System.arraycopy(topLevelTypes, 0, topLevelTypes = new SourceTypeBinding[count], 0, count);
 }
 void checkAndSetImports() {
-	// initialize the default imports if necessary... share the default java.lang.* import
-	if (environment.defaultImports == null) {
-		Binding importBinding = environment.getTopLevelPackage(JAVA);
-		if (importBinding != null)
-			importBinding = ((PackageBinding) importBinding).getTypeOrPackage(JAVA_LANG[1]);
-
-		// abort if java.lang cannot be found...
-		if (importBinding == null || !importBinding.isValidBinding())
-			problemReporter().isClassPathCorrect(JAVA_LANG_OBJECT, referenceCompilationUnit());
-
-		environment.defaultImports = new ImportBinding[] {new ImportBinding(JAVA_LANG, true, importBinding, null)};
-	}
 	if (referenceContext.imports == null) {
-		imports = environment.defaultImports;
+		imports = getDefaultImports();
 		return;
 	}
 
@@ -157,7 +147,7 @@ void checkAndSetImports() {
 		}
 	}
 	ImportBinding[] resolvedImports = new ImportBinding[numberOfImports];
-	resolvedImports[0] = environment.defaultImports[0];
+	resolvedImports[0] = getDefaultImports()[0];
 	int index = 1;
 
 	nextImport : for (int i = 0; i < numberOfStatements; i++) {
@@ -277,7 +267,7 @@ void faultInImports() {
 		}
 	}
 	ImportBinding[] resolvedImports = new ImportBinding[numberOfImports];
-	resolvedImports[0] = environment.defaultImports[0];
+	resolvedImports[0] = getDefaultImports()[0];
 	int index = 1;
 
 	nextImport : for (int i = 0; i < numberOfStatements; i++) {
@@ -344,6 +334,14 @@ void faultInImports() {
 	if (resolvedImports.length > index)
 		System.arraycopy(resolvedImports, 0, resolvedImports = new ImportBinding[index], 0, index);
 	imports = resolvedImports;
+
+	int length = imports.length;
+	resolvedSingeTypeImports = new HashtableOfObject(length);
+	for (int i = 0; i < length; i++) {
+		ImportBinding binding = imports[i];
+		if (!binding.onDemand)
+			resolvedSingeTypeImports.put(binding.compoundName[binding.compoundName.length - 1], binding);
+	}
 }
 public void faultInTypes() {
 	faultInImports();
@@ -376,7 +374,7 @@ private Binding findOnDemandImport(char[][] compoundName) {
 	ReferenceBinding type;
 	if (binding == null) {
 		if (environment.defaultPackage == null
-				|| environment.options.complianceLevel >= CompilerOptions.JDK1_4){
+				|| environment.options.complianceLevel >= ClassFileConstants.JDK1_4){
 			return new ProblemReferenceBinding(
 				CharOperation.subarray(compoundName, 0, i),
 				NotFound);
@@ -411,7 +409,7 @@ private Binding findSingleTypeImport(char[][] compoundName) {
 		// findType records the reference
 		// the name cannot be a package
 		if (environment.defaultPackage == null 
-			|| environment.options.complianceLevel >= CompilerOptions.JDK1_4)
+			|| environment.options.complianceLevel >= ClassFileConstants.JDK1_4)
 			return new ProblemReferenceBinding(compoundName, NotFound);
 		ReferenceBinding typeBinding = findType(compoundName[0], environment.defaultPackage, fPackage);
 		if (typeBinding == null)
@@ -420,6 +418,20 @@ private Binding findSingleTypeImport(char[][] compoundName) {
 			return typeBinding;
 	}
 	return findOnDemandImport(compoundName);
+}
+ImportBinding[] getDefaultImports() {
+	// initialize the default imports if necessary... share the default java.lang.* import
+	if (environment.defaultImports != null) return environment.defaultImports;
+
+	Binding importBinding = environment.getTopLevelPackage(JAVA);
+	if (importBinding != null)
+		importBinding = ((PackageBinding) importBinding).getTypeOrPackage(JAVA_LANG[1]);
+
+	// abort if java.lang cannot be found...
+	if (importBinding == null || !importBinding.isValidBinding())
+		problemReporter().isClassPathCorrect(JAVA_LANG_OBJECT, referenceCompilationUnit());
+
+	return environment.defaultImports = new ImportBinding[] {new ImportBinding(JAVA_LANG, true, importBinding, null)};
 }
 /* Answer the problem reporter to use for raising new problems.
 *

@@ -62,14 +62,14 @@ public DocumentElementParser(
 			requestor.acceptProblem(problem);
 		}
 	},
-	false,
-	options.sourceLevel >= CompilerOptions.JDK1_4);
+	false);
 	this.requestor = requestor;
 	intArrayStack = new int[30][];
 	this.options = options;
+	this.javadocParser.checkJavadoc = false;
 }
 
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -83,33 +83,30 @@ protected void adjustInterfaceModifiers() {
  * Additionally, before investigating for @deprecated, retrieve the positions
  * of the JavaDoc comments so as to notify requestor with them.
  */
-public void checkAnnotation() {
+public void checkComment() {
 
 	/* persisting javadoc positions */
 	pushOnIntArrayStack(this.getJavaDocPositions());
 	boolean deprecated = false;
-	int lastAnnotationIndex = -1;
+	int lastCommentIndex = -1;
 	int commentPtr = scanner.commentPtr;
 
 	//since jdk1.2 look only in the last java doc comment...
-	nextComment : for (lastAnnotationIndex = scanner.commentPtr; lastAnnotationIndex >= 0; lastAnnotationIndex--){
+	nextComment : for (lastCommentIndex = scanner.commentPtr; lastCommentIndex >= 0; lastCommentIndex--){
 		//look for @deprecated into the first javadoc comment preceeding the declaration
-		int commentSourceStart = scanner.commentStarts[lastAnnotationIndex];
+		int commentSourceStart = scanner.commentStarts[lastCommentIndex];
 		// javadoc only (non javadoc comment have negative end positions.)
 		if (modifiersSourceStart != -1 && modifiersSourceStart < commentSourceStart) {
 			continue nextComment;
 		}
-		if (scanner.commentStops[lastAnnotationIndex] < 0) {
+		if (scanner.commentStops[lastCommentIndex] < 0) {
 			continue nextComment;
 		}
-		int commentSourceEnd = scanner.commentStops[lastAnnotationIndex] - 1; //stop is one over
-		char[] comment = scanner.source;
-
+		int commentSourceEnd = scanner.commentStops[lastCommentIndex] - 1; //stop is one over
 		deprecated =
-			checkDeprecation(
+			this.javadocParser.checkDeprecation(
 				commentSourceStart,
-				commentSourceEnd,
-				comment);
+				commentSourceEnd);
 		break nextComment;
 	}
 	if (deprecated) {
@@ -120,7 +117,7 @@ public void checkAnnotation() {
 		declarationSourceStart = scanner.commentStarts[0];
 	}
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -140,7 +137,7 @@ protected void consumeClassBodyDeclaration() {
 		initializer.block.sourceStart,
 		initializer.block.sourceEnd);
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -154,7 +151,7 @@ protected void consumeClassDeclaration() {
 	requestor.exitClass(endStatementPosition, // '}' is the end of the body 
 	 ((TypeDeclaration) astStack[astPtr]).declarationSourceEnd);
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -225,16 +222,14 @@ protected void consumeClassHeader() {
 }
 protected void consumeClassHeaderName() {
 	// ClassHeaderName ::= Modifiersopt 'class' 'Identifier'
-	TypeDeclaration typeDecl;
+	TypeDeclaration typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
 	if (nestedMethod[nestedType] == 0) {
 		if (nestedType != 0) {
-			typeDecl = new MemberTypeDeclaration(this.compilationUnit.compilationResult);
-		} else {
-			typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
+			typeDecl.bits |= ASTNode.IsMemberTypeMASK;
 		}
 	} else {
 		// Record that the block has a declaration for local types
-		typeDecl = new LocalTypeDeclaration(this.compilationUnit.compilationResult);
+		typeDecl.bits |= ASTNode.IsLocalTypeMASK;
 		markEnclosingMemberWithLocalType();
 		blockReal();
 	}
@@ -250,16 +245,19 @@ protected void consumeClassHeaderName() {
 	// 'class' and 'interface' push an int position
 	typeStartPosition = typeDecl.declarationSourceStart = intStack[intPtr--];
 	intPtr--;
-	int declarationSourceStart = intStack[intPtr--];
+	int declSourceStart = intStack[intPtr--];
 	typeDecl.modifiersSourceStart = intStack[intPtr--];
 	typeDecl.modifiers = intStack[intPtr--];
-	if (typeDecl.declarationSourceStart > declarationSourceStart) {
-		typeDecl.declarationSourceStart = declarationSourceStart;
+	if (typeDecl.declarationSourceStart > declSourceStart) {
+		typeDecl.declarationSourceStart = declSourceStart;
 	}
 	typeDecl.bodyStart = typeDecl.sourceEnd + 1;
 	pushOnAstStack(typeDecl);
+	// javadoc
+	typeDecl.javadoc = this.javadoc;
+	this.javadoc = null;
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -267,7 +265,7 @@ protected void consumeCompilationUnit() {
 	// CompilationUnit ::= EnterCompilationUnit PackageDeclarationopt ImportDeclarationsopt
 	requestor.exitCompilationUnit(scanner.source.length - 1);
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -281,7 +279,7 @@ protected void consumeConstructorDeclaration() {
 	ConstructorDeclaration cd = (ConstructorDeclaration) astStack[astPtr];
 	requestor.exitConstructor(endStatementPosition, cd.declarationSourceEnd);
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -372,6 +370,9 @@ protected void consumeConstructorHeaderName() {
 	cd.declarationSourceStart = intStack[intPtr--];
 	cd.modifiersSourceStart = intStack[intPtr--];
 	cd.modifiers = intStack[intPtr--];
+	// javadoc
+	cd.javadoc = this.javadoc;
+	this.javadoc = null;
 
 	//highlight starts at the selector starts
 	cd.sourceStart = (int) (selectorSourcePositions >>> 32);
@@ -381,7 +382,7 @@ protected void consumeConstructorHeaderName() {
 	cd.bodyStart = lParenPos + 1;
 }
 protected void consumeDefaultModifiers() {
-	checkAnnotation(); // might update modifiers with AccDeprecated
+	checkComment(); // might update modifiers with AccDeprecated
 	pushOnIntStack(modifiers); // modifiers
 	pushOnIntStack(-1);
 	pushOnIntStack(
@@ -396,7 +397,7 @@ protected void consumeDiet() {
 	 */
 	pushOnIntArrayStack(this.getJavaDocPositions());	
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -404,7 +405,7 @@ protected void consumeEnterCompilationUnit() {
 	// EnterCompilationUnit ::= $empty
 	requestor.enterCompilationUnit();
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -414,7 +415,7 @@ protected void consumeEnterVariable() {
 	if (!isLocalDeclaration && (variablesCounter[nestedType] != 0)) {
 		requestor.exitField(lastFieldBodyEndPosition, lastFieldEndPosition);
 	}
-	char[] name = identifierStack[identifierPtr];
+	char[] varName = identifierStack[identifierPtr];
 	long namePosition = identifierPositionStack[identifierPtr--];
 	int extendedTypeDimension = intStack[intPtr--];
 
@@ -422,11 +423,11 @@ protected void consumeEnterVariable() {
 	if (nestedMethod[nestedType] != 0) {
 		// create the local variable declarations
 		declaration = 
-			new LocalDeclaration(null, name, (int) (namePosition >>> 32), (int) namePosition); 
+			new LocalDeclaration(varName, (int) (namePosition >>> 32), (int) namePosition); 
 	} else {
 		// create the field declaration
 		declaration = 
-			new FieldDeclaration(null, name, (int) (namePosition >>> 32), (int) namePosition); 
+			new FieldDeclaration(varName, (int) (namePosition >>> 32), (int) namePosition); 
 	}
 	identifierLengthPtr--;
 	TypeReference type;
@@ -492,14 +493,14 @@ protected void consumeEnterVariable() {
 				type.sourceStart, 
 				type.sourceEnd, 
 				typeDims, 
-				name, 
+				varName, 
 				(int) (namePosition >>> 32), 
 				(int) namePosition, 
 				extendedTypeDimension, 
 				extendedTypeDimension == 0 ? -1 : endPosition); 
 	}
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -520,7 +521,7 @@ protected void consumeExitVariableWithoutInitialization() {
 	lastFieldEndPosition = scanner.currentPosition - 1;
 	lastFieldBodyEndPosition = scanner.startPosition - 1;
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -551,20 +552,20 @@ protected void consumeFormalParameter() {
 	*/
 
 	identifierLengthPtr--;
-	char[] name = identifierStack[identifierPtr];
+	char[] parameterName = identifierStack[identifierPtr];
 	long namePositions = identifierPositionStack[identifierPtr--];
 	TypeReference type = getTypeReference(intStack[intPtr--] + intStack[intPtr--]);
 	intPtr -= 3;
 	Argument arg = 
 		new Argument(
-			name, 
+			parameterName, 
 			namePositions, 
 			type, 
 			intStack[intPtr + 1]); // modifiers
 	pushOnAstStack(arg);
 	intArrayPtr--;
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -578,7 +579,7 @@ protected void consumeInterfaceDeclaration() {
 	requestor.exitInterface(endStatementPosition, // the '}' is the end of the body
 	 ((TypeDeclaration) astStack[astPtr]).declarationSourceEnd);
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -628,16 +629,14 @@ protected void consumeInterfaceHeader() {
 }
 protected void consumeInterfaceHeaderName() {
 	// InterfaceHeaderName ::= Modifiersopt 'interface' 'Identifier'
-	TypeDeclaration typeDecl;
+	TypeDeclaration typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
 	if (nestedMethod[nestedType] == 0) {
 		if (nestedType != 0) {
-			typeDecl = new MemberTypeDeclaration(this.compilationUnit.compilationResult);
-		} else {
-			typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
+			typeDecl.bits |= ASTNode.IsMemberTypeMASK;
 		}
 	} else {
 		// Record that the block has a declaration for local types
-		typeDecl = new LocalTypeDeclaration(this.compilationUnit.compilationResult);
+		typeDecl.bits |= ASTNode.IsLocalTypeMASK;
 		markEnclosingMemberWithLocalType();
 		blockReal();
 	}
@@ -653,16 +652,19 @@ protected void consumeInterfaceHeaderName() {
 	// 'class' and 'interface' push an int position
 	typeStartPosition = typeDecl.declarationSourceStart = intStack[intPtr--];
 	intPtr--;
-	int declarationSourceStart = intStack[intPtr--];
+	int declSourceStart = intStack[intPtr--];
 	typeDecl.modifiersSourceStart = intStack[intPtr--];
 	typeDecl.modifiers = intStack[intPtr--];
-	if (typeDecl.declarationSourceStart > declarationSourceStart) {
-		typeDecl.declarationSourceStart = declarationSourceStart;
+	if (typeDecl.declarationSourceStart > declSourceStart) {
+		typeDecl.declarationSourceStart = declSourceStart;
 	}
 	typeDecl.bodyStart = typeDecl.sourceEnd + 1;
 	pushOnAstStack(typeDecl);
+	// javadoc
+	typeDecl.javadoc = this.javadoc;
+	this.javadoc = null;
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -673,7 +675,7 @@ protected void consumeLocalVariableDeclaration() {
 	super.consumeLocalVariableDeclaration();
 	intArrayPtr--;
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -688,7 +690,7 @@ protected void consumeMethodDeclaration(boolean isNotAbstract) {
 	MethodDeclaration md = (MethodDeclaration) astStack[astPtr];
 	requestor.exitMethod(endStatementPosition, md.declarationSourceEnd);
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -814,6 +816,9 @@ protected void consumeMethodHeaderName() {
 	md.declarationSourceStart = intStack[intPtr--];
 	md.modifiersSourceStart = intStack[intPtr--];
 	md.modifiers = intStack[intPtr--];
+	// javadoc
+	md.javadoc = this.javadoc;
+	this.javadoc = null;
 
 	//highlight starts at selector start
 	md.sourceStart = (int) (selectorSourcePositions >>> 32);
@@ -821,14 +826,14 @@ protected void consumeMethodHeaderName() {
 	md.bodyStart = scanner.currentPosition-1;
 }
 protected void consumeModifiers() {
-	checkAnnotation(); // might update modifiers with AccDeprecated
+	checkComment(); // might update modifiers with AccDeprecated
 	pushOnIntStack(modifiers); // modifiers
 	pushOnIntStack(modifiersSourceStart);
 	pushOnIntStack(
 		declarationSourceStart >= 0 ? declarationSourceStart : modifiersSourceStart); 
 	resetModifiers();
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -847,7 +852,7 @@ protected void consumePackageDeclarationName() {
 		importReference.sourceStart);
 }
 protected void consumePushModifiers() {
-	checkAnnotation(); // might update modifiers with AccDeprecated
+	checkComment(); // might update modifiers with AccDeprecated
 	pushOnIntStack(modifiers); // modifiers
 	if (modifiersSourceStart < 0) {
 		pushOnIntStack(-1);
@@ -860,7 +865,7 @@ protected void consumePushModifiers() {
 	}
 	resetModifiers();
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -880,7 +885,7 @@ protected void consumeSingleTypeImportDeclarationName() {
 		importReference.sourceStart,
 		false);
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -901,15 +906,16 @@ protected void consumeStaticInitializer() {
 }
 protected void consumeStaticOnly() {
 	// StaticOnly ::= 'static'
-	checkAnnotation(); // might update declaration source start
+	checkComment(); // might update declaration source start
 	pushOnIntStack(modifiersSourceStart);
+	pushOnIntStack(scanner.currentPosition);
 	pushOnIntStack(
 		declarationSourceStart >= 0 ? declarationSourceStart : modifiersSourceStart); 
 	jumpOverMethodBody();
 	nestedMethod[nestedType]++;
 	resetModifiers();
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -936,9 +942,9 @@ public CompilationUnitDeclaration endParse(int act) {
 	return super.endParse(act);
 }
 /*
- * Flush annotations defined prior to a given positions.
+ * Flush javadocs defined prior to a given positions.
  *
- * Note: annotations are stacked in syntactical order
+ * Note: javadocs are stacked in syntactical order
  *
  * Either answer given <position>, or the end position of a comment line 
  * immediately following the <position> (same line)
@@ -948,9 +954,9 @@ public CompilationUnitDeclaration endParse(int act) {
  * } // end of method foo
  */
  
-public int flushAnnotationsDefinedPriorTo(int position) {
+public int flushCommentsDefinedPriorTo(int position) {
 
-	return lastFieldEndPosition = super.flushAnnotationsDefinedPriorTo(position);
+	return lastFieldEndPosition = super.flushCommentsDefinedPriorTo(position);
 }
 protected TypeReference getTypeReference(int dim) { /* build a Reference on a variable that may be qualified or not
 This variable is a type reference and dim will be its dimensions*/
@@ -1000,7 +1006,7 @@ This variable is a type reference and dim will be its dimensions*/
 				ref.sourceEnd = endPosition;
 			}
 		}
-	};
+	}
 	return ref;
 }
 public void initialize() {
@@ -1009,7 +1015,7 @@ public void initialize() {
 	super.initialize();
 	intArrayPtr = -1;
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -1042,6 +1048,7 @@ public void parseCompilationUnit(ICompilationUnit unit) {
 		scanner.setSource(regionSource);
 		parse();
 	} catch (AbortCompilation ex) {
+		// ignore this exception
 	}
 }
 /*
@@ -1062,6 +1069,7 @@ public void parseConstructor(char[] regionSource) {
 		scanner.setSource(regionSource);
 		parse();
 	} catch (AbortCompilation ex) {
+		// ignore this exception
 	}
 }
 /*
@@ -1082,6 +1090,7 @@ public void parseField(char[] regionSource) {
 		scanner.setSource(regionSource);
 		parse();
 	} catch (AbortCompilation ex) {
+		// ignore this exception
 	}
 
 }
@@ -1103,6 +1112,7 @@ public void parseImport(char[] regionSource) {
 		scanner.setSource(regionSource);
 		parse();
 	} catch (AbortCompilation ex) {
+		// ignore this exception
 	}
 
 }
@@ -1127,6 +1137,7 @@ public void parseInitializer(char[] regionSource) {
 		scanner.setSource(regionSource);
 		parse();
 	} catch (AbortCompilation ex) {
+		// ignore this exception
 	}
 
 }
@@ -1148,6 +1159,7 @@ public void parseMethod(char[] regionSource) {
 		scanner.setSource(regionSource);
 		parse();
 	} catch (AbortCompilation ex) {
+		// ignore this exception
 	}
 
 }
@@ -1169,6 +1181,7 @@ public void parsePackage(char[] regionSource) {
 		scanner.setSource(regionSource);
 		parse();
 	} catch (AbortCompilation ex) {
+		// ignore this exception
 	}
 
 }
@@ -1190,6 +1203,7 @@ public void parseType(char[] regionSource) {
 		scanner.setSource(regionSource);
 		parse();
 	} catch (AbortCompilation ex) {
+		// ignore this exception
 	}
 
 }
@@ -1197,6 +1211,8 @@ public void parseType(char[] regionSource) {
  * Returns this parser's problem reporter initialized with its reference context.
  * Also it is assumed that a problem is going to be reported, so initializes
  * the compilation result's line positions.
+ * 
+ * @return ProblemReporter
  */
 public ProblemReporter problemReporter() {
 	problemReporter.referenceContext = referenceContext;
@@ -1253,7 +1269,8 @@ public String toString() {
 	buffer.append(super.toString());
 	return buffer.toString();
 }
-/**
+/*
+ * 
  * INTERNAL USE ONLY
  */
 protected TypeReference typeReference(
@@ -1308,7 +1325,7 @@ protected TypeReference typeReference(
 			else
 				ref = new ArrayQualifiedTypeReference(tokens, dim, positions);
 		}
-	};
+	}
 	return ref;
 }
 }

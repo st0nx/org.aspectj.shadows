@@ -33,7 +33,7 @@ public class CodeSnippetEvaluator extends Evaluator implements EvaluationConstan
 	 * Whether the code snippet support classes should be found in the provided name environment
 	 * or on disk.
 	 */
-	final static boolean DEVELOPMENT_MODE = false;
+	static final boolean DEVELOPMENT_MODE = false;
 
 	/**
 	 * The code snippet to evaluate.
@@ -55,9 +55,9 @@ CodeSnippetEvaluator(char[] codeSnippet, EvaluationContext context, INameEnviron
  * @see org.eclipse.jdt.internal.eval.Evaluator
  */
 protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, IProblem problem, char[] cuSource) {
-	CodeSnippetToCuMapper mapper = getMapper();
+	CodeSnippetToCuMapper sourceMapper = getMapper();
 	int pbLineNumber = problem.getSourceLineNumber();
-	int evaluationType = mapper.getEvaluationType(pbLineNumber);
+	int evaluationType = sourceMapper.getEvaluationType(pbLineNumber);
 
 	char[] evaluationID = null;
 	switch(evaluationType) {
@@ -71,7 +71,7 @@ protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, IProbl
 			break;
 			
 		case EvaluationResult.T_IMPORT:
-			evaluationID = mapper.getImport(pbLineNumber);
+			evaluationID = sourceMapper.getImport(pbLineNumber);
 
 			// shift line number, source start and source end
 			problem.setSourceLineNumber(1);
@@ -109,7 +109,7 @@ protected char[] getClassName() {
 /**
  * @see Evaluator.
  */
-Compiler getCompiler(ICompilerRequestor requestor) {
+Compiler getCompiler(ICompilerRequestor compilerRequestor) {
 	Compiler compiler = null;
 	if (!DEVELOPMENT_MODE) {
 		// If we are not developping the code snippet support classes,
@@ -121,11 +121,11 @@ Compiler getCompiler(ICompilerRequestor requestor) {
 				this.environment, 
 				DefaultErrorHandlingPolicies.exitAfterAllProblems(), 
 				this.options, 
-				requestor, 
+				compilerRequestor, 
 				this.problemFactory,
 				this.context,
 				getMapper().startPosOffset,
-				getMapper().startPosOffset + codeSnippet.length - 1);
+				getMapper().startPosOffset + this.codeSnippet.length - 1);
 		// Initialize the compiler's lookup environment with the already compiled super classes
 		IBinaryType binary = this.context.getRootCodeSnippetBinary();
 		if (binary != null) {
@@ -153,7 +153,7 @@ Compiler getCompiler(ICompilerRequestor requestor) {
 			getWrapperEnvironment(), 
 			DefaultErrorHandlingPolicies.exitAfterAllProblems(), 
 			this.options, 
-			requestor, 
+			compilerRequestor, 
 			this.problemFactory);
 	}
 	return compiler;

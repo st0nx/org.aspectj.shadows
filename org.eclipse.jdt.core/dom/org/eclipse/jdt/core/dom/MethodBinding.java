@@ -11,6 +11,8 @@
 
 package org.eclipse.jdt.core.dom;
 
+import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
+
 /**
  * Internal implementation of method bindings.
  */
@@ -36,6 +38,17 @@ class MethodBinding implements IMethodBinding {
 	public boolean isConstructor() {
 		return this.binding.isConstructor();
 	}
+	
+	/*
+	 * @see IMethodBinding#isDefaultConstructor()
+	 * @since 3.0
+	 */
+	public boolean isDefaultConstructor() {
+		if (this.binding.declaringClass.isBinaryBinding()) {
+			return false;
+		}
+		return (this.binding.modifiers & CompilerModifiers.AccIsDefaultConstructor) != 0;
+	}	
 
 	/*
 	 * @see IBinding#getName()
@@ -142,15 +155,15 @@ class MethodBinding implements IMethodBinding {
 	 */
 	public String getKey() {
 		StringBuffer buffer = new StringBuffer();
-		ITypeBinding returnType = getReturnType();
-		if (returnType != null) {
-			buffer.append(returnType.getKey());
+		buffer.append(this.getDeclaringClass().getKey());
+		buffer.append('/');
+		ITypeBinding _returnType = getReturnType();
+		if (_returnType != null) {
+			buffer.append(_returnType.getKey());
 		}
 		if (!isConstructor()) {
 			buffer.append(this.getName());
-			buffer.append('/');
 		}
-		buffer.append(this.getDeclaringClass().getKey());
 		ITypeBinding[] parameters = getParameterTypes();
 		buffer.append('(');
 		for (int i = 0, max = parameters.length; i < max; i++) {

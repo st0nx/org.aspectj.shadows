@@ -10,10 +10,10 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
-import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
@@ -51,6 +51,8 @@ public class ForStatement extends Statement {
 		this.condition = condition;
 		this.increments = increments;
 		this.action = action;
+		// remember useful empty statement
+		if (action instanceof EmptyStatement) action.bits |= IsUsefulEmptyStatementMASK;
 		this.neededScope = neededScope;
 	}
 
@@ -64,9 +66,8 @@ public class ForStatement extends Statement {
 
 		// process the initializations
 		if (initializations != null) {
-			int count = initializations.length, i = 0;
-			while (i < count) {
-				flowInfo = initializations[i++].analyseCode(scope, flowContext, flowInfo);
+			for (int i = 0, count = initializations.length; i < count; i++) {
+				flowInfo = initializations[i].analyseCode(scope, flowContext, flowInfo);
 			}
 		}
 		preCondInitStateIndex =
@@ -97,7 +98,7 @@ public class ForStatement extends Statement {
 		LoopingFlowContext loopingContext;
 		FlowInfo actionInfo;
 		if (action == null 
-			|| (action.isEmptyBlock() && currentScope.environment().options.complianceLevel <= CompilerOptions.JDK1_3)) {
+			|| (action.isEmptyBlock() && currentScope.environment().options.complianceLevel <= ClassFileConstants.JDK1_3)) {
 			if (condLoopContext != null)
 				condLoopContext.complainOnFinalAssignmentsInLoop(scope, flowInfo);
 			if (isConditionTrue) {
@@ -125,7 +126,7 @@ public class ForStatement extends Statement {
 						actionInfo.setReachMode(FlowInfo.UNREACHABLE);
 					}
 				}
-			if (!actionInfo.complainIfUnreachable(action, scope, false)) {
+			if (!this.action.complainIfUnreachable(actionInfo, scope, false)) {
 				actionInfo = action.analyseCode(scope, loopingContext, actionInfo);
 			}
 
@@ -135,39 +136,28 @@ public class ForStatement extends Statement {
 			} else {
 				if (condLoopContext != null)
 					condLoopContext.complainOnFinalAssignmentsInLoop(scope, flowInfo);
+				actionInfo = actionInfo.mergedWith(loopingContext.initsOnContinue.unconditionalInits());
 				loopingContext.complainOnFinalAssignmentsInLoop(scope, actionInfo);
-				actionInfo =
-					actionInfo.mergedWith(loopingContext.initsOnContinue.unconditionalInits());
-				// for increments
 			}
 		}
+		// for increments
 		if ((continueLabel != null) && (increments != null)) {
 			LoopingFlowContext loopContext =
 				new LoopingFlowContext(flowContext, this, null, null, scope);
-			int i = 0, count = increments.length;
-			while (i < count)
-				actionInfo = increments[i++].analyseCode(scope, loopContext, actionInfo);
+			for (int i = 0, count = increments.length; i < count; i++) {
+				actionInfo = increments[i].analyseCode(scope, loopContext, actionInfo);
+			}
 			loopContext.complainOnFinalAssignmentsInLoop(scope, actionInfo);
 		}
 
-		// infinite loop
-		FlowInfo mergedInfo;
-		if (isConditionOptimizedTrue) {
-			mergedInitStateIndex =
-				currentScope.methodScope().recordInitializationStates(
-					mergedInfo = loopingContext.initsOnBreak);
-			return mergedInfo;
-		}
-
-		//end of loop: either condition false or break
-		mergedInfo =
-			flowInfo.initsWhenFalse().unconditionalInits().mergedWith(
-				loopingContext.initsOnBreak.unconditionalInits());
-		if (isConditionOptimizedTrue && continueLabel == null){
-			mergedInfo.setReachMode(FlowInfo.UNREACHABLE);
-		}
-		mergedInitStateIndex =
-			currentScope.methodScope().recordInitializationStates(mergedInfo);
+		//end of loop
+		FlowInfo mergedInfo = FlowInfo.mergedOptimizedBranches(
+				loopingContext.initsOnBreak, 
+				isConditionOptimizedTrue, 
+				flowInfo.initsWhenFalse(), 
+				isConditionOptimizedFalse, 
+				!isConditionTrue /*for(;;){}while(true); unreachable(); */);
+		mergedInitStateIndex = currentScope.methodScope().recordInitializationStates(mergedInfo);
 		return mergedInfo;
 	}
 
@@ -259,6 +249,39 @@ public class ForStatement extends Statement {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
+	public StringBuffer printStatement(int tab, StringBuffer output) {
+
+		printIndent(tab, output).append("for ("); //$NON-NLS-1$
+		//inits
+		if (initializations != null) {
+			for (int i = 0; i < initializations.length; i++) {
+				//nice only with expressions
+				if (i > 0) output.append(", "); //$NON-NLS-1$
+				initializations[i].print(0, output);
+			}
+		}
+		output.append("; "); //$NON-NLS-1$
+		//cond
+		if (condition != null) condition.printExpression(0, output);
+		output.append("; "); //$NON-NLS-1$
+		//updates
+		if (increments != null) {
+			for (int i = 0; i < increments.length; i++) {
+				if (i > 0) output.append(", "); //$NON-NLS-1$
+				increments[i].print(0, output);
+			}
+		}
+		output.append(") "); //$NON-NLS-1$
+		//block
+		if (action == null)
+			output.append(';');
+		else {
+			output.append('\n');
+			action.printStatement(tab + 1, output); //$NON-NLS-1$
+		}
+		return output.append(';');
+	}
+
 	public void resetStateForCodeGeneration() {
 		if (this.breakLabel != null) {
 			this.breakLabel.resetStateForCodeGeneration();
@@ -285,46 +308,9 @@ public class ForStatement extends Statement {
 		if (action != null)
 			action.resolve(scope);
 	}
-
-	public String toString(int tab) {
-
-		String s = tabString(tab) + "for ("; //$NON-NLS-1$
-		if (!neededScope)
-			s = s + " //--NO upperscope scope needed\n" + tabString(tab) + "     ";	//$NON-NLS-2$ //$NON-NLS-1$
-		//inits
-		if (initializations != null) {
-			for (int i = 0; i < initializations.length; i++) {
-				//nice only with expressions
-				s = s + initializations[i].toString(0);
-				if (i != (initializations.length - 1))
-					s = s + " , "; //$NON-NLS-1$
-			}
-		}; 
-		s = s + "; "; //$NON-NLS-1$
-		//cond
-		if (condition != null)
-			s = s + condition.toStringExpression();
-		s = s + "; "; //$NON-NLS-1$
-		//updates
-		if (increments != null) {
-			for (int i = 0; i < increments.length; i++) {
-				//nice only with expressions
-				s = s + increments[i].toString(0);
-				if (i != (increments.length - 1))
-					s = s + " , "; //$NON-NLS-1$
-			}
-		}; 
-		s = s + ") "; //$NON-NLS-1$
-		//block
-		if (action == null)
-			s = s + "{}"; //$NON-NLS-1$
-		else
-			s = s + "\n" + action.toString(tab + 1); //$NON-NLS-1$
-		return s;
-	}
 	
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		BlockScope blockScope) {
 
 		if (visitor.visit(this, blockScope)) {

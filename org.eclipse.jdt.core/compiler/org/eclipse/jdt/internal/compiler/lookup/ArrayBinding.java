@@ -16,7 +16,7 @@ import org.eclipse.jdt.internal.compiler.impl.Constant;
 public final class ArrayBinding extends TypeBinding {
 	// creation and initialization of the length field
 	// the declaringClass of this field is intentionally set to null so it can be distinguished.
-	public static final FieldBinding LengthField = new FieldBinding(LENGTH, IntBinding, AccPublic | AccFinal, null, Constant.NotAConstant);
+	public static final FieldBinding ArrayLength = new FieldBinding(LENGTH, IntBinding, AccPublic | AccFinal, null, Constant.NotAConstant);
 
 	public TypeBinding leafComponentType;
 	public int dimensions;
@@ -27,18 +27,18 @@ public ArrayBinding(TypeBinding type, int dimensions) {
 	this.leafComponentType = type;
 	this.dimensions = dimensions;
 }
-/* Answer the receiver's constant pool name.
-*
-* NOTE: This method should only be used during/after code gen.
-*/
+/**
+ * Answer the receiver's constant pool name.
+ * NOTE: This method should only be used during/after code gen.
+ * e.g. '[Ljava/lang/Object;'
+ */
 
-public char[] constantPoolName() /*	[Ljava/lang/Object; */ {
+public char[] constantPoolName() {
 	if (constantPoolName != null)
 		return constantPoolName;
 
 	char[] brackets = new char[dimensions];
-	for (int i = dimensions - 1; i >= 0; i--)
-		brackets[i] = '[';
+	for (int i = dimensions - 1; i >= 0; i--) brackets[i] = '[';
 	return constantPoolName = CharOperation.concat(brackets, leafComponentType.signature());
 }
 String debugName() {

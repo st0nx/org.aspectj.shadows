@@ -24,43 +24,44 @@ import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
 import org.eclipse.jdt.internal.codeassist.SelectionEngine;
+import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
+import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
+import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
+import org.eclipse.jdt.internal.core.util.HandleFactory;
 
 /**
  * Implementation of <code>ISelectionRequestor</code> to assist with
  * code resolve in a compilation unit. Translates names to elements.
  */
 public class SelectionRequestor implements ISelectionRequestor {
-	/**
+	/*
 	 * The name lookup facility used to resolve packages
 	 */
-	protected NameLookup fNameLookup= null;
+	protected NameLookup nameLookup;
 
-	/**
-	 * Fix for 1FVXGDK
-	 *
-	 * The compilation unit we are resolving in
+	/*
+	 * The compilation unit or class file we are resolving in
 	 */
-	protected IJavaElement fCodeResolve;
+	protected Openable openable;
 
-	/**
+	/*
 	 * The collection of resolved elements.
 	 */
-	protected IJavaElement[] fElements= fgEmptyElements;
+	protected IJavaElement[] elements = JavaElement.NO_ELEMENTS;
+	protected int elementIndex = -1;
+	
+	protected HandleFactory handleFactory = new HandleFactory();
 
-	/**
-	 * Empty collection used for efficiency.
-	 */
-	protected static IJavaElement[] fgEmptyElements = new IJavaElement[]{};
 /**
  * Creates a selection requestor that uses that given
  * name lookup facility to resolve names.
  *
  * Fix for 1FVXGDK
  */
-public SelectionRequestor(NameLookup nameLookup, IJavaElement codeResolve) {
+public SelectionRequestor(NameLookup nameLookup, Openable openable) {
 	super();
-	fNameLookup = nameLookup;
-	fCodeResolve = codeResolve;
+	this.nameLookup = nameLookup;
+	this.openable = openable;
 }
 /**
  * Resolve the binary method
@@ -86,7 +87,7 @@ protected void acceptBinaryMethod(IType type, char[] selector, char[][] paramete
 	}
 	IMethod method= type.getMethod(new String(selector), parameterTypes);
 	if (method.exists()) {
-		fElements = growAndAddToArray(fElements, method);
+		addElement(method);
 		if(SelectionEngine.DEBUG){
 			System.out.print("SELECTION - accept method("); //$NON-NLS-1$
 			System.out.print(method.toString());
@@ -101,9 +102,11 @@ public void acceptClass(char[] packageName, char[] className, boolean needQualif
 	acceptType(packageName, className, NameLookup.ACCEPT_CLASSES, needQualification);
 }
 /**
- * Do nothing.
+ * @see ISelectionRequestor#acceptError
  */
-public void acceptError(IProblem error) {}
+public void acceptError(IProblem error) {
+	// do nothing
+}
 /**
  * Resolve the field.
  */
@@ -113,7 +116,7 @@ public void acceptField(char[] declaringTypePackageName, char[] declaringTypeNam
 	if (type != null) {
 		IField field= type.getField(new String(name));
 		if (field.exists()) {
-			fElements= growAndAddToArray(fElements, field);
+			addElement(field);
 			if(SelectionEngine.DEBUG){
 				System.out.print("SELECTION - accept field("); //$NON-NLS-1$
 				System.out.print(field.toString());
@@ -127,6 +130,73 @@ public void acceptField(char[] declaringTypePackageName, char[] declaringTypeNam
  */
 public void acceptInterface(char[] packageName, char[] interfaceName, boolean needQualification) {
 	acceptType(packageName, interfaceName, NameLookup.ACCEPT_INTERFACES, needQualification);
+}
+public void acceptLocalField(SourceTypeBinding typeBinding, char[] name, CompilationUnitDeclaration parsedUnit) {
+	IType type = (IType)this.handleFactory.createElement(typeBinding.scope.referenceContext, parsedUnit, this.openable);
+	if (type != null) {
+		IField field= type.getField(new String(name));
+		if (field.exists()) {
+			addElement(field);
+			if(SelectionEngine.DEBUG){
+				System.out.print("SELECTION - accept field("); //$NON-NLS-1$
+				System.out.print(field.toString());
+				System.out.println(")"); //$NON-NLS-1$
+			}
+		}
+	}
+}
+public void acceptLocalMethod(SourceTypeBinding typeBinding, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, boolean isConstructor, CompilationUnitDeclaration parsedUnit) {
+	IType type = (IType)this.handleFactory.createElement(typeBinding.scope.referenceContext, parsedUnit, this.openable);
+	// fix for 1FWFT6Q
+	if (type != null) {
+		if (type.isBinary()) {
+			
+			// need to add a paramater for constructor in binary type
+			IType declaringDeclaringType = type.getDeclaringType();
+			
+			boolean isStatic = false;
+			try {
+				isStatic = Flags.isStatic(type.getFlags());
+			} catch (JavaModelException e) {
+				// isStatic == false
+			}
+			
+			if(declaringDeclaringType != null && isConstructor	&& !isStatic) {
+				int length = parameterPackageNames.length;
+				System.arraycopy(parameterPackageNames, 0, parameterPackageNames = new char[length+1][], 1, length);
+				System.arraycopy(parameterTypeNames, 0, parameterTypeNames = new char[length+1][], 1, length);
+				
+				parameterPackageNames[0] = declaringDeclaringType.getPackageFragment().getElementName().toCharArray();
+				parameterTypeNames[0] = declaringDeclaringType.getTypeQualifiedName().toCharArray();
+			}
+			
+			acceptBinaryMethod(type, selector, parameterPackageNames, parameterTypeNames);
+		} else {
+			acceptSourceMethod(type, selector, parameterPackageNames, parameterTypeNames);
+		}
+	}
+}
+public void acceptLocalType(SourceTypeBinding typeBinding, CompilationUnitDeclaration parsedUnit) {
+	IJavaElement type = this.handleFactory.createElement(typeBinding.scope.referenceContext, parsedUnit, this.openable);
+	if (type != null) {
+		addElement(type);
+		if(SelectionEngine.DEBUG){
+			System.out.print("SELECTION - accept local type("); //$NON-NLS-1$
+			System.out.print(type.toString());
+			System.out.println(")"); //$NON-NLS-1$
+		}
+	}
+}
+public void acceptLocalVariable(LocalVariableBinding binding, CompilationUnitDeclaration parsedUnit) {
+	IJavaElement localVar = this.handleFactory.createElement(binding.declaration, parsedUnit, this.openable);
+	if (localVar != null) {
+		addElement(localVar);
+		if(SelectionEngine.DEBUG){
+			System.out.print("SELECTION - accept local variable("); //$NON-NLS-1$
+			System.out.print(localVar.toString());
+			System.out.println(")"); //$NON-NLS-1$
+		}
+	}
 }
 /**
  * Resolve the method
@@ -167,10 +237,10 @@ public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeNa
  * Resolve the package
  */
 public void acceptPackage(char[] packageName) {
-	IPackageFragment[] pkgs = fNameLookup.findPackageFragments(new String(packageName), false);
+	IPackageFragment[] pkgs = this.nameLookup.findPackageFragments(new String(packageName), false);
 	if (pkgs != null) {
 		for (int i = 0, length = pkgs.length; i < length; i++) {
-			fElements = growAndAddToArray(fElements, pkgs[i]);
+			addElement(pkgs[i]);
 			if(SelectionEngine.DEBUG){
 				System.out.print("SELECTION - accept package("); //$NON-NLS-1$
 				System.out.print(pkgs[i].toString());
@@ -187,12 +257,11 @@ public void acceptPackage(char[] packageName) {
 protected void acceptSourceMethod(IType type, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames) {
 	String name = new String(selector);
 	IMethod[] methods = null;
-	IJavaElement[] matches = new IJavaElement[] {};
 	try {
 		methods = type.getMethods();
 		for (int i = 0; i < methods.length; i++) {
 			if (methods[i].getElementName().equals(name) && methods[i].getParameterTypes().length == parameterTypeNames.length) {
-				matches = growAndAddToArray(matches, methods[i]);
+				addElement(methods[i]);
 			}
 		}
 	} catch (JavaModelException e) {
@@ -200,9 +269,9 @@ protected void acceptSourceMethod(IType type, char[] selector, char[][] paramete
 	}
 
 	// if no matches, nothing to report
-	if (matches.length == 0) {
+	if (this.elementIndex == -1) {
 		// no match was actually found, but a method was originally given -> default constructor
-		fElements = growAndAddToArray(fElements, type);
+		addElement(type);
 		if(SelectionEngine.DEBUG){
 			System.out.print("SELECTION - accept type("); //$NON-NLS-1$
 			System.out.print(type.toString());
@@ -212,18 +281,21 @@ protected void acceptSourceMethod(IType type, char[] selector, char[][] paramete
 	}
 
 	// if there is only one match, we've got it
-	if (matches.length == 1) {
-		fElements = growAndAddToArray(fElements, matches[0]);
+	if (this.elementIndex == 0) {
 		if(SelectionEngine.DEBUG){
 			System.out.print("SELECTION - accept method("); //$NON-NLS-1$
-			System.out.print(matches[0].toString());
+			System.out.print(this.elements[0].toString());
 			System.out.println(")"); //$NON-NLS-1$
 		}
 		return;
 	}
 
 	// more than one match - must match simple parameter types
-	for (int i = 0; i < matches.length; i++) {
+	IJavaElement[] matches = this.elements;
+	int matchesIndex = this.elementIndex;
+	this.elements = JavaElement.NO_ELEMENTS;
+	this.elementIndex = -1;
+	for (int i = 0; i <= matchesIndex; i++) {
 		IMethod method= (IMethod)matches[i];
 		String[] signatures = method.getParameterTypes();
 		boolean match= true;
@@ -236,7 +308,7 @@ protected void acceptSourceMethod(IType type, char[] selector, char[][] paramete
 			}
 		}
 		if (match) {
-			fElements = growAndAddToArray(fElements, method);
+			addElement(method);
 			if(SelectionEngine.DEBUG){
 				System.out.print("SELECTION - accept method("); //$NON-NLS-1$
 				System.out.print(method.toString());
@@ -252,7 +324,7 @@ protected void acceptSourceMethod(IType type, char[] selector, char[][] paramete
 protected void acceptType(char[] packageName, char[] typeName, int acceptFlags, boolean needQualification) {
 	IType type= resolveType(packageName, typeName, acceptFlags);
 	if (type != null) {
-		fElements= growAndAddToArray(fElements, type);
+		addElement(type);
 		if(SelectionEngine.DEBUG){
 			System.out.print("SELECTION - accept type("); //$NON-NLS-1$
 			System.out.print(type.toString());
@@ -261,22 +333,25 @@ protected void acceptType(char[] packageName, char[] typeName, int acceptFlags, 
 	} 
 	
 }
+/*
+ * Adds the given element to the list of resolved elements.
+ */
+protected void addElement(IJavaElement element) {
+	int elementLength = this.elementIndex + 1;
+	if (elementLength == this.elements.length) {
+		System.arraycopy(this.elements, 0, this.elements = new IJavaElement[(elementLength*2) + 1], 0, elementLength);
+	}
+	this.elements[++this.elementIndex] = element;
+}
 /**
  * Returns the resolved elements.
  */
 public IJavaElement[] getElements() {
-	return fElements;
-}
-/**
- * Adds the new element to a new array that contains all of the elements of the old array.
- * Returns the new array.
- */
-protected IJavaElement[] growAndAddToArray(IJavaElement[] array, IJavaElement addition) {
-	IJavaElement[] old = array;
-	array = new IJavaElement[old.length + 1];
-	System.arraycopy(old, 0, array, 0, old.length);
-	array[old.length] = addition;
-	return array;
+	int elementLength = this.elementIndex + 1;
+	if (this.elements.length != elementLength) {
+		System.arraycopy(this.elements, 0, this.elements = new IJavaElement[elementLength], 0, elementLength);
+	}
+	return this.elements;
 }
 /**
  * Resolve the type
@@ -285,8 +360,8 @@ protected IType resolveType(char[] packageName, char[] typeName, int acceptFlags
 
 	IType type= null;
 	
-	if (fCodeResolve instanceof WorkingCopy) {
-		WorkingCopy wc = (WorkingCopy) fCodeResolve;
+	if (this.openable instanceof CompilationUnit && ((CompilationUnit)this.openable).isWorkingCopy()) {
+		CompilationUnit wc = (CompilationUnit) this.openable;
 		try {
 			if(((packageName == null || packageName.length == 0) && wc.getPackageDeclarations().length == 0) ||
 				(!(packageName == null || packageName.length == 0) && wc.getPackageDeclaration(new String(packageName)).exists())) {
@@ -309,12 +384,12 @@ protected IType resolveType(char[] packageName, char[] typeName, int acceptFlags
 	}
 
 	if(type == null) {
-		IPackageFragment[] pkgs = fNameLookup.findPackageFragments(
+		IPackageFragment[] pkgs = this.nameLookup.findPackageFragments(
 			(packageName == null || packageName.length == 0) ? IPackageFragment.DEFAULT_PACKAGE_NAME : new String(packageName), 
 			false);
 		// iterate type lookup in each package fragment
 		for (int i = 0, length = pkgs == null ? 0 : pkgs.length; i < length; i++) {
-			type= fNameLookup.findType(new String(typeName), pkgs[i], false, acceptFlags);
+			type= this.nameLookup.findType(new String(typeName), pkgs[i], false, acceptFlags);
 			if (type != null) break;	
 		}
 		if (type == null) {
@@ -322,13 +397,13 @@ protected IType resolveType(char[] packageName, char[] typeName, int acceptFlags
 			if (packageName != null) {
 				pName = new String(packageName);
 			}
-			if (fCodeResolve != null && fCodeResolve.getParent().getElementName().equals(pName)) {
+			if (this.openable != null && this.openable.getParent().getElementName().equals(pName)) {
 				// look inside the type in which we are resolving in
 				String tName= new String(typeName);
 				tName = tName.replace('.','$');
 				IType[] allTypes= null;
 				try {
-					ArrayList list = ((JavaElement)fCodeResolve).getChildrenOfType(IJavaElement.TYPE);
+					ArrayList list = this.openable.getChildrenOfType(IJavaElement.TYPE);
 					allTypes = new IType[list.size()];
 					list.toArray(allTypes);
 				} catch (JavaModelException e) {

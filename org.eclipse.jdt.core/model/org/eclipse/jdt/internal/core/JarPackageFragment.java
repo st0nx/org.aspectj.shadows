@@ -11,6 +11,7 @@
 package org.eclipse.jdt.internal.core;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
 
 import org.eclipse.core.resources.IResource;
@@ -19,20 +20,19 @@ import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 
 /**
  * A package fragment that represents a package fragment found in a JAR.
  *
  * @see IPackageFragment
  */
-class JarPackageFragment extends PackageFragment {
+class JarPackageFragment extends PackageFragment implements SuffixConstants {
 /**
  * Constructs a package fragment that is contained within a jar or a zip.
  */
-protected JarPackageFragment(IPackageFragmentRoot root, String name) {
+protected JarPackageFragment(PackageFragmentRoot root, String name) {
 	super(root, name);
 }
 /**
@@ -41,9 +41,9 @@ protected JarPackageFragment(IPackageFragmentRoot root, String name) {
  */
 protected boolean computeChildren(OpenableElementInfo info) {
 	JarPackageFragmentInfo jInfo= (JarPackageFragmentInfo)info;
-	if (jInfo.fEntryNames != null){
+	if (jInfo.entryNames != null){
 		ArrayList vChildren = new ArrayList();
-		for (Iterator iter = jInfo.fEntryNames.iterator(); iter.hasNext();) {
+		for (Iterator iter = jInfo.entryNames.iterator(); iter.hasNext();) {
 			String child = (String) iter.next();
 			IClassFile classFile = getClassFile(child);
 			vChildren.add(classFile);
@@ -52,7 +52,7 @@ protected boolean computeChildren(OpenableElementInfo info) {
 		vChildren.toArray(children);
 		info.setChildren(children);
 	} else {
-		info.setChildren(JavaElementInfo.fgEmptyChildren);
+		info.setChildren(NO_ELEMENTS);
 	}
 	return true;
 }
@@ -70,7 +70,7 @@ protected boolean computeChildren(OpenableElementInfo info) {
 	for (int i = 0; i < max; i++) {
 		String resName = resNames[i];
 		// consider that a .java file is not a non-java resource (see bug 12246 Packages view shows .class and .java files when JAR has source)
-		if (!resName.toLowerCase().endsWith(".java")) { //$NON-NLS-1$
+		if (!resName.toLowerCase().endsWith(SUFFIX_STRING_java)) {
 			if (!this.isDefaultPackage()) {
 				resName = this.getElementName().replace('.', '/') + "/" + resName;//$NON-NLS-1$
 			}
@@ -92,14 +92,24 @@ public boolean containsJavaResources() throws JavaModelException {
 /**
  * @see IPackageFragment
  */
-public ICompilationUnit createCompilationUnit(String name, String contents, boolean force, IProgressMonitor monitor) throws JavaModelException {
+public ICompilationUnit createCompilationUnit(String cuName, String contents, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, this));
 }
 /**
  * @see JavaElement
  */
-protected OpenableElementInfo createElementInfo() {
-	return new JarPackageFragmentInfo();
+protected Object createElementInfo() {
+	return null; // not used for JarPackageFragments: info is created when jar is opened
+}
+/*
+ * @see JavaElement#generateInfos
+ */
+protected void generateInfos(Object info, HashMap newElements, IProgressMonitor pm) throws JavaModelException {
+	// Open my jar: this creates all the pkg infos
+	Openable openableParent = (Openable)this.parent;
+	if (!openableParent.isOpen()) {
+		openableParent.generateInfos(openableParent.createElementInfo(), newElements, pm);
+	}
 }
 /**
  * @see IPackageFragment
@@ -114,15 +124,15 @@ public IClassFile[] getClassFiles() throws JavaModelException {
  * A jar package fragment never contains compilation units.
  * @see IPackageFragment
  */
-public ICompilationUnit[] getCompilationUnits() throws JavaModelException {
-	return fgEmptyCompilationUnitList;
+public ICompilationUnit[] getCompilationUnits() {
+	return NO_COMPILATION_UNITS;
 }
 /**
  * A package fragment in a jar has no corresponding resource.
  *
  * @see IJavaElement
  */
-public IResource getCorrespondingResource() throws JavaModelException {
+public IResource getCorrespondingResource() {
 	return null;
 }
 /**
@@ -141,28 +151,6 @@ public Object[] getNonJavaResources() throws JavaModelException {
  */
 public boolean isReadOnly() {
 	return true;
-}
-/**
- * @see Openable#openWhenClosed()
- */
-protected void openWhenClosed(IProgressMonitor pm) throws JavaModelException {
-	// Open my jar
-	getOpenableParent().open(pm);
-}
-/**
- * A package fragment in an archive cannot refresh its children.
- */
-public void refreshChildren() {
-	// do nothing
-}
-/*
- * @see JavaElement#rootedAt(IJavaProject)
- */
-public IJavaElement rootedAt(IJavaProject project) {
-	return
-		new JarPackageFragment(
-			(IPackageFragmentRoot)((JavaElement)fParent).rootedAt(project), 
-			fName);
 }
 protected Object[] storedNonJavaResources() throws JavaModelException {
 	return ((JarPackageFragmentInfo) getElementInfo()).getNonJavaResources();

@@ -38,6 +38,7 @@ import org.eclipse.jdt.internal.compiler.SourceElementParser;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.util.ReferenceInfoAdapter;
 
@@ -52,22 +53,17 @@ import org.eclipse.jdt.internal.core.util.ReferenceInfoAdapter;
  */
 public class SourceMapper
 	extends ReferenceInfoAdapter
-	implements ISourceElementRequestor {
+	implements ISourceElementRequestor, SuffixConstants {
 		
 	public static boolean VERBOSE = false;
-
-	private final static String SUFFIX_JAVA = ".JAVA"; //$NON-NLS-1$
-	private final static String SUFFIX_java = ".java"; //$NON-NLS-1$
-
 	/**
 	 * Specifies the file name filter use to compute the root paths.
 	 */
 	private static final FilenameFilter FILENAME_FILTER = new FilenameFilter() {
 		public boolean accept(File dir, String name) {
-			return name.endsWith(SUFFIX_JAVA) || name.endsWith(SUFFIX_java); //$NON-NLS-1$
+			return name.endsWith(SUFFIX_STRING_JAVA) || name.endsWith(SUFFIX_STRING_java); //$NON-NLS-1$
 		}
 	};
-	
 	/**
 	 * Specifies the location of the package fragment roots within
 	 * the zip (empty specifies the default root). <code>null</code> is
@@ -204,10 +200,11 @@ public class SourceMapper
 	 * @see ISourceElementRequestor
 	 */
 	public void acceptImport(
-		int declarationStart,
-		int declarationEnd,
-		char[] name,
-		boolean onDemand) {
+			int declarationStart,
+			int declarationEnd,
+			char[] name,
+			boolean onDemand,
+			int modifiers) {
 		char[][] imports = (char[][]) this.importsTable.get(fType);
 		int importsCounter;
 		if (imports == null) {
@@ -263,7 +260,7 @@ public class SourceMapper
 	 * Closes this <code>SourceMapper</code>'s zip file. Once this is done, this
 	 * <code>SourceMapper</code> cannot be used again.
 	 */
-	public void close() throws JavaModelException {
+	public void close() {
 		fSourceRanges = null;
 		fParameterNames = null;
 	}
@@ -331,6 +328,7 @@ public class SourceMapper
 					}
 				}
 			} catch (CoreException e) {
+				// ignore
 			} finally {
 				manager.closeZipFile(zip); // handle null case
 			}
@@ -350,6 +348,7 @@ public class SourceMapper
 							}
 						}
 					} catch (CoreException e) {
+						// ignore
 					}
 				}
 			} else if (target instanceof File) {
@@ -394,6 +393,7 @@ public class SourceMapper
 					}
 				}
 			} catch (CoreException e) {
+				// ignore
 			} finally {
 				manager.closeZipFile(zip); // handle null case
 			}
@@ -477,6 +477,7 @@ public class SourceMapper
 				}
 			}
 		} catch (CoreException e) {
+			// ignore
 		}
 	}	
 
@@ -708,6 +709,7 @@ public class SourceMapper
 	 * @see ISourceElementRequestor
 	 */
 	public void exitInitializer(int declarationEnd) {
+		// implements abstract method
 	}
 	
 	/**
@@ -837,17 +839,19 @@ public class SourceMapper
 			try {
 				if (type.isMember()) {
 					IType enclosingType = type.getDeclaringType();
+					if (enclosingType == null) return null; // play it safe
 					while (enclosingType.getDeclaringType() != null) {
 						enclosingType = enclosingType.getDeclaringType();
 					}
-					return enclosingType.getElementName() + ".java"; //$NON-NLS-1$
+					return enclosingType.getElementName() + SUFFIX_STRING_java;
 				} else if (type.isLocal() || type.isAnonymous()){
 					String typeQualifiedName = type.getTypeQualifiedName();
-					return typeQualifiedName.substring(0, typeQualifiedName.indexOf('$')) + ".java"; //$NON-NLS-1$
+					return typeQualifiedName.substring(0, typeQualifiedName.indexOf('$')) + SUFFIX_STRING_java;
 				} else {
-					return type.getElementName() + ".java"; //$NON-NLS-1$
+					return type.getElementName() + SUFFIX_STRING_java;
 				}
 			} catch (JavaModelException e) {
+				// ignore
 			}
 		} else {
 			return  new String(sourceFileName);
@@ -895,8 +899,9 @@ public class SourceMapper
 				IResource res = folder.findMember(fullName);
 				if (res instanceof IFile) {
 					try {
-						source = org.eclipse.jdt.internal.core.Util.getResourceContentsAsCharArray((IFile)res, this.encoding);
+						source = org.eclipse.jdt.internal.core.util.Util.getResourceContentsAsCharArray((IFile)res, this.encoding);
 					} catch (JavaModelException e) {
+						// ignore
 					}
 				}
 			} else if (target instanceof File) {
@@ -906,6 +911,7 @@ public class SourceMapper
 					try {
 						source = Util.getFileCharContent(sourceFile, this.encoding);
 					} catch (IOException e) {
+						// ignore
 					}
 				}
 			}
@@ -942,7 +948,7 @@ public class SourceMapper
 	 * null if no parameter names are known for the method.
 	 */
 	public char[][] getMethodParameterNames(IMethod method) {
-		if (((IMember) method).isBinary()) {
+		if (method.isBinary()) {
 			IJavaElement[] el = getUnqualifiedMethodHandle(method, false);
 			if(el[1] != null && fParameterNames.get(el[0]) == null) {
 				method = (IMethod) getUnqualifiedMethodHandle(method, true)[0];
@@ -1049,16 +1055,16 @@ public class SourceMapper
 	public synchronized ISourceRange mapSource(
 		IType type,
 		char[] contents,
-		IJavaElement searchedElement) {
+		IJavaElement elementToFind) {
 			
 		fType = (BinaryType) type;
 		
 		// check whether it is already mapped
-		if (this.fSourceRanges.get(type) != null) return (searchedElement != null) ? this.getNameRange(searchedElement) : null;
+		if (this.fSourceRanges.get(type) != null) return (elementToFind != null) ? this.getNameRange(elementToFind) : null;
 		
 		this.importsTable.remove(fType);
 		this.importsCounterTable.remove(fType);
-		this.searchedElement = searchedElement;
+		this.searchedElement = elementToFind;
 		this.types = new IType[1];
 		this.typeDeclarationStarts = new int[1];
 		this.typeNameRanges = new SourceRange[1];
@@ -1082,6 +1088,7 @@ public class SourceMapper
 				isAnonymousClass = binType.isAnonymous();
 				fullName = binType.getName();
 			} catch(JavaModelException e) {
+				// ignore
 			}
 			if (isAnonymousClass) {
 				String eltName = fType.getElementName();
@@ -1089,21 +1096,22 @@ public class SourceMapper
 				try {
 					this.anonymousClassName = Integer.parseInt(eltName);
 				} catch(NumberFormatException e) {
+					// ignore
 				}
 			}
 			boolean doFullParse = hasToRetrieveSourceRangesForLocalClass(fullName);
 			parser = new SourceElementParser(this, factory, new CompilerOptions(this.options), doFullParse);
 			parser.parseCompilationUnit(
-				new BasicCompilationUnit(contents, null, type.getElementName() + ".java", encoding), //$NON-NLS-1$
+				new BasicCompilationUnit(contents, null, type.getElementName() + SUFFIX_STRING_java, encoding),
 				doFullParse);
-			if (searchedElement != null) {
-				ISourceRange range = this.getNameRange(searchedElement);
+			if (elementToFind != null) {
+				ISourceRange range = this.getNameRange(elementToFind);
 				return range;
 			} else {
 				return null;
 			}
 		} finally {
-			if (searchedElement != null) {
+			if (elementToFind != null) {
 				fSourceRanges = oldSourceRanges;
 			}
 			fType = null;
@@ -1121,6 +1129,7 @@ public class SourceMapper
 				return Util.bytesToChar(bytes, this.encoding);
 			}
 		} catch (IOException e) {
+			// ignore
 		}
 		return null;
 	}	

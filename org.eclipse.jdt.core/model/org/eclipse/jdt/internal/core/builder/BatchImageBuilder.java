@@ -15,7 +15,7 @@ import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.internal.core.JavaModelManager;
-import org.eclipse.jdt.internal.core.Util;
+import org.eclipse.jdt.internal.core.util.Util;
 
 import java.util.*;
 
@@ -32,7 +32,7 @@ public void build() {
 
 	try {
 		notifier.subTask(Util.bind("build.cleaningOutput")); //$NON-NLS-1$
-		JavaModelManager.getJavaModelManager().deltaProcessor.addForRefresh(javaBuilder.javaProject);
+		JavaModelManager.getJavaModelManager().getDeltaProcessor().addForRefresh(javaBuilder.javaProject);
 		JavaBuilder.removeProblemsAndTasksFor(javaBuilder.currentProject);
 		cleanOutputFolders();
 		notifier.updateProgressDelta(0.1f);
@@ -75,7 +75,7 @@ protected void addAllSourceFiles(final ArrayList sourceFiles) throws CoreExcepti
 					}
 					switch(proxy.getType()) {
 						case IResource.FILE :
-							if (Util.isJavaFileName(proxy.getName())) {
+							if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName())) {
 								if (resource == null)
 									resource = proxy.requestResource();
 								sourceFiles.add(new SourceFile((IFile) resource, sourceLocation, encoding));
@@ -106,11 +106,23 @@ protected void cleanOutputFolders() throws CoreException {
 				if (!visited.contains(outputFolder)) {
 					visited.add(outputFolder);
 					IResource[] members = outputFolder.members(); 
-					for (int j = 0, m = members.length; j < m; j++)
-						members[j].delete(IResource.FORCE, null);
+					for (int j = 0, m = members.length; j < m; j++) {
+						IResource member = members[j];
+						if (!member.isDerived()) {
+							member.accept(
+								new IResourceVisitor() {
+									public boolean visit(IResource resource) throws CoreException {
+										resource.setDerived(true);
+										return resource.getType() != IResource.FILE;
+									}
+								}
+							);
+						}
+						member.delete(IResource.FORCE, null);
+					}
 				}
 				notifier.checkCancel();
-				copyExtraResourcesBack(sourceLocation, deleteAll);
+				copyExtraResourcesBack(sourceLocation, true);
 			} else {
 				boolean isOutputFolder = sourceLocation.sourceFolder.equals(sourceLocation.binaryFolder);
 				final char[][] exclusionPatterns =
@@ -126,7 +138,7 @@ protected void cleanOutputFolders() throws CoreException {
 								if (Util.isExcluded(resource, exclusionPatterns)) return false;
 							}
 							if (proxy.getType() == IResource.FILE) {
-								if (Util.isClassFileName(proxy.getName())) {
+								if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(proxy.getName())) {
 									if (resource == null)
 										resource = proxy.requestResource();
 									resource.delete(IResource.FORCE, null);
@@ -150,7 +162,7 @@ protected void cleanOutputFolders() throws CoreException {
 		for (int i = 0, l = sourceLocations.length; i < l; i++) {
 			ClasspathMultiDirectory sourceLocation = sourceLocations[i];
 			if (sourceLocation.hasIndependentOutputFolder)
-				copyExtraResourcesBack(sourceLocation, deleteAll);
+				copyExtraResourcesBack(sourceLocation, false);
 			else if (!sourceLocation.sourceFolder.equals(sourceLocation.binaryFolder))
 				copyPackages(sourceLocation); // output folder is different from source folder
 			notifier.checkCancel();
@@ -173,7 +185,8 @@ protected void copyExtraResourcesBack(ClasspathMultiDirectory sourceLocation, fi
 				IResource resource = null;
 				switch(proxy.getType()) {
 					case IResource.FILE :
-						if (Util.isJavaFileName(proxy.getName()) || Util.isClassFileName(proxy.getName())) return false;
+						if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName()) ||
+							org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(proxy.getName())) return false;
 
 						resource = proxy.requestResource();
 						if (javaBuilder.filterExtraResource(resource)) return false;
@@ -184,7 +197,12 @@ protected void copyExtraResourcesBack(ClasspathMultiDirectory sourceLocation, fi
 						IResource copiedResource = outputFolder.getFile(partialPath);
 						if (copiedResource.exists()) {
 							if (deletedAll) {
-								createErrorFor(resource, Util.bind("build.duplicateResource")); //$NON-NLS-1$
+								IResource originalResource = findOriginalResource(partialPath);
+								String id = originalResource.getFullPath().removeFirstSegments(1).toString();
+								createProblemFor(
+									resource,
+									Util.bind("build.duplicateResource", id), //$NON-NLS-1$
+									javaBuilder.javaProject.getOption(JavaCore.CORE_JAVA_BUILD_DUPLICATE_RESOURCE, true));
 								return false;
 							}
 							copiedResource.delete(IResource.FORCE, null); // last one wins
@@ -235,6 +253,17 @@ protected void copyPackages(ClasspathMultiDirectory sourceLocation) throws CoreE
 		},
 		IResource.NONE
 	);
+}
+
+protected IResource findOriginalResource(IPath partialPath) {
+	for (int i = 0, l = sourceLocations.length; i < l; i++) {
+		ClasspathMultiDirectory sourceLocation = sourceLocations[i];
+		if (sourceLocation.hasIndependentOutputFolder) {
+			IResource originalResource = sourceLocation.sourceFolder.getFile(partialPath);
+			if (originalResource.exists()) return originalResource;
+		}
+	}
+	return null;
 }
 
 public String toString() {

@@ -25,6 +25,7 @@ public class MethodBinding extends Binding implements BaseTypes, TypeConstants {
 	char[] signature;
 
 protected MethodBinding() {
+	// for creating problem or synthetic method
 }
 public MethodBinding(int modifiers, char[] selector, TypeBinding returnType, TypeBinding[] args, ReferenceBinding[] exceptions, ReferenceBinding declaringClass) {
 	this.modifiers = modifiers;
@@ -206,7 +207,13 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 	} while ((type = type.superclass()) != null);
 	return false;
 }
-
+/* 
+ * Answer the declaring class to use in the constant pool
+ * may not be a reference binding (see subtypes)
+ */
+public TypeBinding constantPoolDeclaringClass() {
+	return this.declaringClass;
+}
 /* Answer the receiver's constant pool name.
 *
 * <init> for constructors
@@ -395,7 +402,7 @@ public char[] shortReadableName() {
 	return buffer.toString().toCharArray();
 }
 
-protected final void selector(char[] selector) {
+protected final void setSelector(char[] selector) {
 	this.selector = selector;
 	this.signature = null;
 }

@@ -10,8 +10,6 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.flow;
 
-import org.eclipse.jdt.internal.compiler.ast.Statement;
-import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
 import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
 
@@ -32,12 +30,6 @@ public abstract class FlowInfo {
 	public FlowInfo asNegatedCondition() {
 
 		return this;
-	}
-
-	public boolean complainIfUnreachable(Statement statement, BlockScope scope, boolean didAlreadyComplain) {
-
-		// Report an error if necessary
-		return false;
 	}
 
 	public static FlowInfo conditional(FlowInfo initsWhenTrue, FlowInfo initsWhenFalse){
@@ -103,6 +95,31 @@ public abstract class FlowInfo {
 	 */
 	abstract public void markAsDefinitelyNotAssigned(LocalVariableBinding local);
 
+	/**
+	 * Merge branches using optimized boolean conditions
+	 */
+	public static FlowInfo mergedOptimizedBranches(FlowInfo initsWhenTrue, boolean isOptimizedTrue, FlowInfo initsWhenFalse, boolean isOptimizedFalse, boolean allowFakeDeadBranch) {
+		FlowInfo mergedInfo;
+		if (isOptimizedTrue){
+			if (initsWhenTrue == FlowInfo.DEAD_END && allowFakeDeadBranch) {
+				mergedInfo = initsWhenFalse.setReachMode(FlowInfo.UNREACHABLE);
+			} else {
+				mergedInfo = initsWhenTrue.addPotentialInitializationsFrom(initsWhenFalse);
+			}
+
+		} else if (isOptimizedFalse) {
+			if (initsWhenFalse == FlowInfo.DEAD_END && allowFakeDeadBranch) {
+				mergedInfo = initsWhenTrue.setReachMode(FlowInfo.UNREACHABLE);
+			} else {
+				mergedInfo = initsWhenFalse.addPotentialInitializationsFrom(initsWhenTrue);
+			}
+
+		} else {
+			mergedInfo = initsWhenTrue.unconditionalInits().mergedWith(initsWhenFalse.unconditionalInits());
+		}
+		return mergedInfo;
+	}
+	
 	abstract public int reachMode();
 
 	abstract public FlowInfo setReachMode(int reachMode);

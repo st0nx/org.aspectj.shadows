@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
@@ -19,6 +19,7 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 public class FieldDeclaration extends AbstractVariableDeclaration {
 	public FieldBinding binding;
 	boolean hasBeenResolved = false;
+	public Javadoc javadoc;
 
 	//allows to retrieve both the "type" part of the declaration (part1)
 	//and also the part that decribe the name and the init and optionally
@@ -32,15 +33,14 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 	public int endPart2Position;
 
 	public FieldDeclaration() {
+		// for subtypes or conversion
 	}
 
 	public FieldDeclaration(
-		Expression initialization,
 		char[] name,
 		int sourceStart,
 		int sourceEnd) {
 
-		this.initialization = initialization;
 		this.name = name;
 
 		//due to some declaration like 
@@ -61,24 +61,24 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 			}
 		}
 		// cannot define static non-constant field inside nested class
-		if (binding != null
-			&& binding.isValidBinding()
-			&& binding.isStatic()
-			&& binding.constant == NotAConstant
-			&& binding.declaringClass.isNestedType()
-			&& binding.declaringClass.isClass()
-			&& !binding.declaringClass.isStatic()) {
+		if (this.binding != null
+			&& this.binding.isValidBinding()
+			&& this.binding.isStatic()
+			&& this.binding.constant == NotAConstant
+			&& this.binding.declaringClass.isNestedType()
+			&& this.binding.declaringClass.isClass()
+			&& !this.binding.declaringClass.isStatic()) {
 			initializationScope.problemReporter().unexpectedStaticModifierForField(
-				(SourceTypeBinding) binding.declaringClass,
+				(SourceTypeBinding) this.binding.declaringClass,
 				this);
 		}
 
-		if (initialization != null) {
+		if (this.initialization != null) {
 			flowInfo =
-				initialization
+				this.initialization
 					.analyseCode(initializationScope, flowContext, flowInfo)
 					.unconditionalInits();
-			flowInfo.markAsDefinitelyAssigned(binding);
+			flowInfo.markAsDefinitelyAssigned(this.binding);
 		}
 		return flowInfo;
 	}
@@ -92,25 +92,25 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 	 */
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 
-		if ((bits & IsReachableMASK) == 0) {
+		if ((this.bits & IsReachableMASK) == 0) {
 			return;
 		}
 		// do not generate initialization code if final and static (constant is then
 		// recorded inside the field itself).
 		int pc = codeStream.position;
 		boolean isStatic;
-		if (initialization != null
-			&& !((isStatic = binding.isStatic()) && binding.constant != NotAConstant)) {
+		if (this.initialization != null
+			&& !((isStatic = this.binding.isStatic()) && this.binding.constant != NotAConstant)) {
 			// non-static field, need receiver
 			if (!isStatic)
 				codeStream.aload_0();
 			// generate initialization value
-			initialization.generateCode(currentScope, codeStream, true);
+			this.initialization.generateCode(currentScope, codeStream, true);
 			// store into field
 			if (isStatic) {
-				codeStream.putstatic(binding);
+				codeStream.putstatic(this.binding);
 			} else {
-				codeStream.putfield(binding);
+				codeStream.putfield(this.binding);
 			}
 		}
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
@@ -118,7 +118,7 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 
 	public TypeBinding getTypeBinding(Scope scope) {
 
-		return type.getTypeBinding(scope);
+		return this.type.getTypeBinding(scope);
 	}
 
 	public boolean isField() {
@@ -128,14 +128,9 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 
 	public boolean isStatic() {
 
-		if (binding != null)
-			return binding.isStatic();
-		return (modifiers & AccStatic) != 0;
-	}
-
-	public String name() {
-
-		return String.valueOf(name);
+		if (this.binding != null)
+			return this.binding.isStatic();
+		return (this.modifiers & AccStatic) != 0;
 	}
 
 	public void resolve(MethodScope initializationScope) {
@@ -145,36 +140,59 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 		// existence is not at all the same. See comment for the second one.
 
 		//--------------------------------------------------------
-		if (!this.hasBeenResolved && binding != null && this.binding.isValidBinding()) {
+		if (!this.hasBeenResolved && this.binding != null && this.binding.isValidBinding()) {
 
 			this.hasBeenResolved = true;
 
-			if (isTypeUseDeprecated(this.binding.type, initializationScope))
-				initializationScope.problemReporter().deprecatedType(this.binding.type, this.type);
-
+			// check if field is hiding some variable - issue is that field binding already got inserted in scope
+			ClassScope classScope = initializationScope.enclosingClassScope();
+			if (classScope != null) {
+				SourceTypeBinding declaringType = classScope.enclosingSourceType();
+				boolean checkLocal = true;
+				if (declaringType.superclass != null) {
+					Binding existingVariable = classScope.findField(declaringType.superclass, this.name, this, true /*resolve*/);
+					if (existingVariable != null && existingVariable.isValidBinding()) {
+						initializationScope.problemReporter().fieldHiding(this, existingVariable);
+						checkLocal = false; // already found a matching field
+					}
+				}
+				if (checkLocal) {
+					Scope outerScope = classScope.parent;
+					Binding existingVariable = outerScope.getBinding(this.name, BindingIds.VARIABLE, this, false /*do not resolve hidden field*/);
+					if (existingVariable != null && existingVariable.isValidBinding()){
+						initializationScope.problemReporter().fieldHiding(this, existingVariable);
+					}
+				}
+			}
+			
 			this.type.resolvedType = this.binding.type; // update binding for type reference
 
-			// the resolution of the initialization hasn't been done
-			if (this.initialization == null) {
-				this.binding.constant = Constant.NotAConstant;
-			} else {
-				int previous = initializationScope.fieldDeclarationIndex;
-				try {
-					initializationScope.fieldDeclarationIndex = this.binding.id;
+			FieldBinding previousField = initializationScope.initializedField;
+			int previousFieldID = initializationScope.lastVisibleFieldID;
+			try {
+				initializationScope.initializedField = this.binding;
+				initializationScope.lastVisibleFieldID = this.binding.id;
 
+				if (isTypeUseDeprecated(this.binding.type, initializationScope)) {
+					initializationScope.problemReporter().deprecatedType(this.binding.type, this.type);
+				}
+				// the resolution of the initialization hasn't been done
+				if (this.initialization == null) {
+					this.binding.constant = Constant.NotAConstant;
+				} else {
 					// break dead-lock cycles by forcing constant to NotAConstant
 					this.binding.constant = Constant.NotAConstant;
 					
 					TypeBinding typeBinding = this.binding.type;
 					TypeBinding initializationTypeBinding;
 					
-					if (initialization instanceof ArrayInitializer) {
+					if (this.initialization instanceof ArrayInitializer) {
 
 						if ((initializationTypeBinding = this.initialization.resolveTypeExpecting(initializationScope, typeBinding)) != null) {
 							((ArrayInitializer) this.initialization).binding = (ArrayBinding) initializationTypeBinding;
 							this.initialization.implicitWidening(typeBinding, initializationTypeBinding);
 						}
-					} else if ((initializationTypeBinding = initialization.resolveType(initializationScope)) != null) {
+					} else if ((initializationTypeBinding = this.initialization.resolveType(initializationScope)) != null) {
 
 						if (this.initialization.isConstantValueOfTypeAssignableToType(initializationTypeBinding, typeBinding)
 							|| (typeBinding.isBaseType() && BaseTypeBinding.isWidening(typeBinding.id, initializationTypeBinding.id))) {
@@ -195,21 +213,33 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 					} else {
 						this.binding.constant = NotAConstant;
 					}
-				} finally {
-					initializationScope.fieldDeclarationIndex = previous;
-					if (this.binding.constant == null)
-						this.binding.constant = Constant.NotAConstant;
 				}
+				// Resolve Javadoc comment if one is present
+				if (this.javadoc != null) {
+					/*
+					if (classScope != null) {
+						this.javadoc.resolve(classScope);
+					}
+					*/
+					this.javadoc.resolve(initializationScope);
+				} else if (this.binding != null && this.binding.declaringClass != null && !this.binding.declaringClass.isLocalType()) {
+					initializationScope.problemReporter().javadocMissing(this.sourceStart, this.sourceEnd, this.binding.modifiers);
+				}
+			} finally {
+				initializationScope.initializedField = previousField;
+				initializationScope.lastVisibleFieldID = previousFieldID;
+				if (this.binding.constant == null)
+					this.binding.constant = Constant.NotAConstant;
 			}
 		}
 	}
 
-	public void traverse(IAbstractSyntaxTreeVisitor visitor, MethodScope scope) {
+	public void traverse(ASTVisitor visitor, MethodScope scope) {
 
 		if (visitor.visit(this, scope)) {
-			type.traverse(visitor, scope);
-			if (initialization != null)
-				initialization.traverse(visitor, scope);
+			this.type.traverse(visitor, scope);
+			if (this.initialization != null)
+				this.initialization.traverse(visitor, scope);
 		}
 		visitor.endVisit(this, scope);
 	}

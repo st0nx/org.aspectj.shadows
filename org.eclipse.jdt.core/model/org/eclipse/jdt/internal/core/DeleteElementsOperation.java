@@ -24,6 +24,7 @@ import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.jdom.DOMFactory;
 import org.eclipse.jdt.core.jdom.IDOMCompilationUnit;
 import org.eclipse.jdt.internal.core.jdom.DOMNode;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * This operation deletes a collection of elements (and
@@ -42,12 +43,12 @@ public class DeleteElementsOperation extends MultiOperation {
 	 * values are <code>IRegion</code>s of elements to be processed in each
 	 * compilation unit.
 	 */ 
-	protected Map fChildrenToRemove;
+	protected Map childrenToRemove;
 	/**
 	 * The <code>DOMFactory</code> used to manipulate the source code of
 	 * <code>ICompilationUnit</code>s.
 	 */
-	protected DOMFactory fFactory;
+	protected DOMFactory factory;
 	/**
 	 * When executed, this operation will delete the given elements. The elements
 	 * to delete cannot be <code>null</code> or empty, and must be contained within a
@@ -55,7 +56,7 @@ public class DeleteElementsOperation extends MultiOperation {
 	 */
 	public DeleteElementsOperation(IJavaElement[] elementsToDelete, boolean force) {
 		super(elementsToDelete, force);
-		fFactory = new DOMFactory();
+		factory = new DOMFactory();
 	}
 	
 	/**
@@ -71,28 +72,28 @@ public class DeleteElementsOperation extends MultiOperation {
 	 * duplicates specified in elements to be processed.
 	 */
 	protected void groupElements() throws JavaModelException {
-		fChildrenToRemove = new HashMap(1);
+		childrenToRemove = new HashMap(1);
 		int uniqueCUs = 0;
-		for (int i = 0, length = fElementsToProcess.length; i < length; i++) {
-			IJavaElement e = fElementsToProcess[i];
+		for (int i = 0, length = elementsToProcess.length; i < length; i++) {
+			IJavaElement e = elementsToProcess[i];
 			ICompilationUnit cu = getCompilationUnitFor(e);
 			if (cu == null) {
-				throw new JavaModelException(new JavaModelStatus(JavaModelStatus.READ_ONLY, e));
+				throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, e));
 			} else {
-				IRegion region = (IRegion) fChildrenToRemove.get(cu);
+				IRegion region = (IRegion) childrenToRemove.get(cu);
 				if (region == null) {
 					region = new Region();
-					fChildrenToRemove.put(cu, region);
+					childrenToRemove.put(cu, region);
 					uniqueCUs += 1;
 				}
 				region.add(e);
 			}
 		}
-		fElementsToProcess = new IJavaElement[uniqueCUs];
-		Iterator iter = fChildrenToRemove.keySet().iterator();
+		elementsToProcess = new IJavaElement[uniqueCUs];
+		Iterator iter = childrenToRemove.keySet().iterator();
 		int i = 0;
 		while (iter.hasNext()) {
-			fElementsToProcess[i++] = (IJavaElement) iter.next();
+			elementsToProcess[i++] = (IJavaElement) iter.next();
 		}
 	}
 	/**
@@ -109,13 +110,13 @@ public class DeleteElementsOperation extends MultiOperation {
 		IBuffer buffer = cu.getBuffer();
 		if (buffer == null) return;
 		JavaElementDelta delta = new JavaElementDelta(cu);
-		IJavaElement[] cuElements = ((IRegion) fChildrenToRemove.get(cu)).getElements();
+		IJavaElement[] cuElements = ((IRegion) childrenToRemove.get(cu)).getElements();
 		for (int i = 0, length = cuElements.length; i < length; i++) {
 			IJavaElement e = cuElements[i];
 			if (e.exists()) {
 				char[] contents = buffer.getCharacters();
 				if (contents == null) continue;
-				IDOMCompilationUnit cuDOM = fFactory.createCompilationUnit(contents, cu.getElementName());
+				IDOMCompilationUnit cuDOM = factory.createCompilationUnit(contents, cu.getElementName());
 				DOMNode node = (DOMNode)((JavaElement) e).findNode(cuDOM);
 				if (node == null) Assert.isTrue(false, "Failed to locate " + e.getElementName() + " in " + cuDOM.getName()); //$NON-NLS-1$//$NON-NLS-2$
 
@@ -131,7 +132,7 @@ public class DeleteElementsOperation extends MultiOperation {
 			}
 		}
 		if (delta.getAffectedChildren().length > 0) {
-			cu.save(getSubProgressMonitor(1), fForce);
+			cu.save(getSubProgressMonitor(1), force);
 			if (!cu.isWorkingCopy()) { // if unit is working copy, then save will have already fired the delta
 				addDelta(delta);
 				this.setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE);
@@ -151,11 +152,18 @@ public class DeleteElementsOperation extends MultiOperation {
 	 * @see MultiOperation
 	 */
 	protected void verify(IJavaElement element) throws JavaModelException {
-		IJavaElement[] children = ((IRegion) fChildrenToRemove.get(element)).getElements();
+		IJavaElement[] children = ((IRegion) childrenToRemove.get(element)).getElements();
 		for (int i = 0; i < children.length; i++) {
 			IJavaElement child = children[i];
 			if (child.getCorrespondingResource() != null)
 				error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, child);
+
+			Member localContext;
+			if (child instanceof Member && (localContext = ((Member)child).getOuterMostLocalContext()) != null && localContext != child) {
+				// JDOM doesn't support source manipulation in local/anonymous types
+				error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, child);
+			}
+
 			if (child.isReadOnly())
 				error(IJavaModelStatusConstants.READ_ONLY, child);
 		}

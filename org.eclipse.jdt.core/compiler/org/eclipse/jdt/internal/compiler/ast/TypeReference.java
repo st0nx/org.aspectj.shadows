@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.flow.FlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -26,7 +26,9 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 }
 
 // allows us to trap completion & selection nodes
-public void aboutToResolve(Scope scope) {}
+public void aboutToResolve(Scope scope) {
+	// default implementation: do nothing
+}
 /*
  * Answer a base type reference (can be an array of base type).
  */
@@ -87,22 +89,48 @@ public abstract char [][] getTypeName() ;
 public boolean isTypeReference() {
 	return true;
 }
-public TypeBinding resolveType(BlockScope scope) {
+public TypeBinding resolveType(BlockScope blockScope) {
 	// handle the error here
-	constant = NotAConstant;
+	this.constant = NotAConstant;
 	if (this.resolvedType != null) { // is a shared type reference which was already resolved
 		if (!this.resolvedType.isValidBinding())
 			return null; // already reported error
 	} else {
-		this.resolvedType = getTypeBinding(scope);
+		this.resolvedType = getTypeBinding(blockScope);
 		if (!this.resolvedType.isValidBinding()) {
-			scope.problemReporter().invalidType(this, this.resolvedType);
+			reportInvalidType(blockScope);
 			return null;
 		}
-		if (isTypeUseDeprecated(this.resolvedType, scope))
-			scope.problemReporter().deprecatedType(this.resolvedType, this);
+		if (isTypeUseDeprecated(this.resolvedType, blockScope)) {
+			reportDeprecatedType(blockScope);
+		}
 	}
 	return this.resolvedType;
 }
-public abstract void traverse(IAbstractSyntaxTreeVisitor visitor, ClassScope classScope);
+
+public TypeBinding resolveType(ClassScope classScope) {
+	// handle the error here
+	this.constant = NotAConstant;
+	if (this.resolvedType != null) { // is a shared type reference which was already resolved
+		if (!this.resolvedType.isValidBinding())
+			return null; // already reported error
+	} else {
+		this.resolvedType = getTypeBinding(classScope);
+		if (!this.resolvedType.isValidBinding()) {
+			reportInvalidType(classScope);
+			return null;
+		}
+		if (isTypeUseDeprecated(this.resolvedType, classScope)) {
+			reportDeprecatedType(classScope);
+		}
+	}
+	return this.resolvedType;
+}
+protected void reportInvalidType(Scope scope) {
+	scope.problemReporter().invalidType(this, this.resolvedType);
+}
+protected void reportDeprecatedType(Scope scope) {
+	scope.problemReporter().deprecatedType(this.resolvedType, this);
+}
+public abstract void traverse(ASTVisitor visitor, ClassScope classScope);
 }

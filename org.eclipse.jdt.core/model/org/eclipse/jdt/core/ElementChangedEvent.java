@@ -61,6 +61,7 @@ public class ElementChangedEvent extends EventObject {
 	 * @see org.eclipse.core.resources.IResourceChangeEvent
 	 * @see #getDelta()
 	 * @since 2.0
+	 * @deprecated - no longer used, such deltas are now notified during POST_CHANGE
 	 */
 	public static final int PRE_AUTO_BUILD = 2;
 
@@ -92,6 +93,7 @@ public class ElementChangedEvent extends EventObject {
 	 * Creates an new element changed event (based on a <code>IJavaElementDelta</code>).
 	 *
 	 * @param delta the Java element delta.
+	 * @param type the type of delta (ADDED, REMOVED, CHANGED) this event contains
 	 */
 	public ElementChangedEvent(IJavaElementDelta delta, int type) {
 		super(delta);
@@ -103,7 +105,7 @@ public class ElementChangedEvent extends EventObject {
 	 * @return the delta describing the change
 	 */
 	public IJavaElementDelta getDelta() {
-		return (IJavaElementDelta) source;
+		return (IJavaElementDelta) this.source;
 	}
 	
 	/**

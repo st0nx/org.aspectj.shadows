@@ -21,6 +21,7 @@ public class PackageBinding extends Binding implements TypeConstants {
 	HashtableOfType knownTypes;
 	HashtableOfPackage knownPackages;
 protected PackageBinding() {
+	// for creating problem package
 }
 public PackageBinding(char[][] compoundName, PackageBinding parent, LookupEnvironment environment) {
 	this.compoundName = compoundName;
@@ -65,10 +66,10 @@ private PackageBinding findPackage(char[] name) {
 	if (!environment.isPackage(this.compoundName, name))
 		return null;
 
-	char[][] compoundName = CharOperation.arrayConcat(this.compoundName, name);
-	PackageBinding newPackageBinding = new PackageBinding(compoundName, this, environment);
-	addPackage(newPackageBinding);
-	return newPackageBinding;
+	char[][] subPkgCompoundName = CharOperation.arrayConcat(this.compoundName, name);
+	PackageBinding subPackageBinding = new PackageBinding(subPkgCompoundName, this, environment);
+	addPackage(subPackageBinding);
+	return subPackageBinding;
 }
 /* Answer the subpackage named name; ask the oracle for the package if its not in the cache.
 * Answer null if it could not be resolved.

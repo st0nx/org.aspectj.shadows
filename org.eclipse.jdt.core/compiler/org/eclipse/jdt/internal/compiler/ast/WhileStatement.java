@@ -10,8 +10,9 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -29,6 +30,8 @@ public class WhileStatement extends Statement {
 
 		this.condition = condition;
 		this.action = action;
+		// remember useful empty statement
+		if (action instanceof EmptyStatement) action.bits |= IsUsefulEmptyStatementMASK;
 		sourceStart = s;
 		sourceEnd = e;
 	}
@@ -62,7 +65,7 @@ public class WhileStatement extends Statement {
 		LoopingFlowContext loopingContext;
 		FlowInfo actionInfo;
 		if (action == null 
-			|| (action.isEmptyBlock() && currentScope.environment().options.complianceLevel <= CompilerOptions.JDK1_3)) {
+			|| (action.isEmptyBlock() && currentScope.environment().options.complianceLevel <= ClassFileConstants.JDK1_3)) {
 			condLoopContext.complainOnFinalAssignmentsInLoop(currentScope, postCondInfo);
 			if (isConditionTrue) {
 				return FlowInfo.DEAD_END;
@@ -99,38 +102,29 @@ public class WhileStatement extends Statement {
 				currentScope.methodScope().recordInitializationStates(
 					postCondInfo.initsWhenTrue());
 
-			if (!actionInfo.complainIfUnreachable(action, currentScope, false)) {
-				actionInfo = action.analyseCode(currentScope, loopingContext, actionInfo);
+			if (!this.action.complainIfUnreachable(actionInfo, currentScope, false)) {
+				actionInfo = this.action.analyseCode(currentScope, loopingContext, actionInfo);
 			}
 
 			// code generation can be optimized when no need to continue in the loop
 			if (!actionInfo.isReachable() && !loopingContext.initsOnContinue.isReachable()) {
 				continueLabel = null;
 			} else {
-				// TODO: (philippe) should simplify in one Loop context
+				// TODO (philippe) should simplify in one Loop context
 				condLoopContext.complainOnFinalAssignmentsInLoop(currentScope, postCondInfo);
+				actionInfo = actionInfo.mergedWith(loopingContext.initsOnContinue.unconditionalInits());
 				loopingContext.complainOnFinalAssignmentsInLoop(currentScope, actionInfo);
 			}
 		}
 
-		// infinite loop
-		FlowInfo mergedInfo;
-		if (isConditionOptimizedTrue) {
-			mergedInitStateIndex =
-				currentScope.methodScope().recordInitializationStates(
-					mergedInfo = loopingContext.initsOnBreak);
-			return mergedInfo;
-		}
-
-		// end of loop: either condition false or break
-		mergedInfo =
-			postCondInfo.initsWhenFalse().unconditionalInits().mergedWith(
-				loopingContext.initsOnBreak);
-		if (isConditionOptimizedTrue && continueLabel == null){
-			mergedInfo.setReachMode(FlowInfo.UNREACHABLE);
-		}
-		mergedInitStateIndex =
-			currentScope.methodScope().recordInitializationStates(mergedInfo);
+		// end of loop
+		FlowInfo mergedInfo = FlowInfo.mergedOptimizedBranches(
+				loopingContext.initsOnBreak, 
+				isConditionOptimizedTrue, 
+				postCondInfo.initsWhenFalse(), 
+				isConditionOptimizedFalse,
+				!isConditionTrue /*while(true); unreachable(); */);
+		mergedInitStateIndex = currentScope.methodScope().recordInitializationStates(mergedInfo);
 		return mergedInfo;
 	}
 
@@ -228,21 +222,19 @@ public class WhileStatement extends Statement {
 			action.resolve(scope);
 	}
 
-	public String toString(int tab) {
+	public StringBuffer printStatement(int tab, StringBuffer output) {
 
-		String s = tabString(tab);
-		s = s + "while (" + condition.toStringExpression() + ")"; 	//$NON-NLS-1$ //$NON-NLS-2$
+		printIndent(tab, output).append("while ("); //$NON-NLS-1$
+		condition.printExpression(0, output).append(')');
 		if (action == null)
-			s = s + " {} ;"; //$NON-NLS-1$ 
-		else if (action instanceof Block)
-			s = s + "\n" + action.toString(tab + 1); //$NON-NLS-1$
+			output.append(';');
 		else
-			s = s + " {\n" + action.toString(tab + 1) + "}"; //$NON-NLS-2$ //$NON-NLS-1$
-		return s;
+			action.printStatement(tab + 1, output); 
+		return output;
 	}
 
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		BlockScope blockScope) {
 
 		if (visitor.visit(this, blockScope)) {

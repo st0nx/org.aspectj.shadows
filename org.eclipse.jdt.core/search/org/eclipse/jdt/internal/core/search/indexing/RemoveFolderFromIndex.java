@@ -16,10 +16,9 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.Path;
-import org.eclipse.jdt.internal.core.Util;
 import org.eclipse.jdt.internal.core.index.IIndex;
-import org.eclipse.jdt.internal.core.index.IQueryResult;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
+import org.eclipse.jdt.internal.core.util.Util;
 
 class RemoveFolderFromIndex extends IndexRequest {
 	IPath folderPath;
@@ -34,22 +33,22 @@ class RemoveFolderFromIndex extends IndexRequest {
 	}
 	public boolean execute(IProgressMonitor progressMonitor) {
 
-		if (progressMonitor != null && progressMonitor.isCanceled()) return true;
+		if (this.isCancelled || progressMonitor != null && progressMonitor.isCanceled()) return true;
 
 		/* ensure no concurrent write access to index */
-		IIndex index = manager.getIndex(this.indexPath, true, /*reuse index file*/ false /*create if none*/);
+		IIndex index = manager.getIndex(this.containerPath, true, /*reuse index file*/ false /*create if none*/);
 		if (index == null) return true;
 		ReadWriteMonitor monitor = manager.getMonitorFor(index);
 		if (monitor == null) return true; // index got deleted since acquired
 
 		try {
 			monitor.enterRead(); // ask permission to read
-			IQueryResult[] results = index.queryInDocumentNames(this.folderPath.toString());
+			String[] paths = index.queryInDocumentNames(this.folderPath.toString());
 			// all file names belonging to the folder or its subfolders and that are not excluded (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=32607)
-			for (int i = 0, max = results == null ? 0 : results.length; i < max; i++) {
-				String documentPath = results[i].getPath();
+			for (int i = 0, max = paths == null ? 0 : paths.length; i < max; i++) {
+				String documentPath = paths[i];
 				if (this.exclusionPatterns == null || !Util.isExcluded(new Path(documentPath), this.exclusionPatterns)) {
-					manager.remove(documentPath, this.indexPath); // write lock will be acquired by the remove operation
+					manager.remove(documentPath, this.containerPath); // write lock will be acquired by the remove operation
 				}
 			}
 		} catch (IOException e) {
@@ -64,6 +63,6 @@ class RemoveFolderFromIndex extends IndexRequest {
 		return true;
 	}
 	public String toString() {
-		return "removing " + this.folderPath + " from index " + this.indexPath; //$NON-NLS-1$ //$NON-NLS-2$
+		return "removing " + this.folderPath + " from index " + this.containerPath; //$NON-NLS-1$ //$NON-NLS-2$
 	}
 }

@@ -10,6 +10,8 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.util.HashMap;
+
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
@@ -19,20 +21,35 @@ import org.eclipse.jdt.core.JavaModelException;
 /**
  * Common functionality for Binary member handles.
  */
-public class BinaryMember extends Member {
-/**
+public abstract class BinaryMember extends Member {
+/*
  * Constructs a binary member.
  */
-protected BinaryMember(int type, IJavaElement parent, String name) {
-	super(type, parent, name);
+protected BinaryMember(JavaElement parent, String name) {
+	super(parent, name);
 }
-/**
+/*
  * @see ISourceManipulation
  */
 public void copy(IJavaElement container, IJavaElement sibling, String rename, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, this));
 }
-/**
+/*
+ * @see JavaElement#generateInfos
+ */
+protected void generateInfos(Object info, HashMap newElements, IProgressMonitor pm) throws JavaModelException {
+	Openable openableParent = (Openable)getOpenableParent();
+	if (openableParent == null) return;
+	
+	ClassFileInfo openableParentInfo = (ClassFileInfo) JavaModelManager.getJavaModelManager().getInfo(openableParent);
+	if (openableParentInfo == null) {
+		openableParent.generateInfos(openableParent.createElementInfo(), newElements, pm);
+		openableParentInfo = (ClassFileInfo)newElements.get(openableParent);
+	}
+	if (openableParentInfo == null) return;
+	openableParentInfo.getBinaryChildren(newElements); // forces the initialization
+}
+/*
  * @see ISourceReference
  */
 public ISourceRange getNameRange() throws JavaModelException {
@@ -46,7 +63,7 @@ public ISourceRange getNameRange() throws JavaModelException {
 		return SourceMapper.fgUnknownRange;
 	}
 }
-/**
+/*
  * @see ISourceReference
  */
 public ISourceRange getSourceRange() throws JavaModelException {
@@ -60,48 +77,31 @@ public ISourceRange getSourceRange() throws JavaModelException {
 		return SourceMapper.fgUnknownRange;
 	}
 }
-/**
+/*
  * @see IMember
  */
 public boolean isBinary() {
 	return true;
 }
-/**
+/*
  * @see IJavaElement
  */
 public boolean isStructureKnown() throws JavaModelException {
 	return ((IJavaElement)getOpenableParent()).isStructureKnown();
 }
-/**
+/*
  * @see ISourceManipulation
  */
 public void move(IJavaElement container, IJavaElement sibling, String rename, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, this));
 }
-/**
- * Opens this element and all parents that are not already open.
- *
- * @exception NotPresentException this element is not present or accessable
- */
-protected void openHierarchy() throws JavaModelException {
-	Openable openableParent = (Openable)getOpenableParent();
-	if (openableParent != null) {
-		JavaElementInfo openableParentInfo = (JavaElementInfo) JavaModelManager.getJavaModelManager().getInfo((IJavaElement) openableParent);
-		if (openableParentInfo == null) {
-			openableParent.openWhenClosed(null);
-			openableParentInfo = (JavaElementInfo) JavaModelManager.getJavaModelManager().getInfo((IJavaElement) openableParent);
-		}
-		ClassFileInfo cfi = (ClassFileInfo) openableParentInfo;
-		cfi.getBinaryChildren(); // forces the initialization
-	}
-}
-/**
+/*
  * @see ISourceManipulation
  */
-public void rename(String name, boolean force, IProgressMonitor monitor) throws JavaModelException {
+public void rename(String newName, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, this));
 }
-/**
+/*
  * Sets the contents of this element.
  * Throws an exception as this element is read only.
  */

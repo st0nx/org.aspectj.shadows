@@ -24,6 +24,7 @@ public class Label {
 	public int forwardReferenceCount = 0;
 	private boolean isWide = false;
 public Label() {
+	// for creating labels ahead of code generation
 }
 /**
  * @param codeStream org.eclipse.jdt.internal.compiler.codegen.CodeStream
@@ -56,7 +57,7 @@ public void appendForwardReferencesFrom(Label otherLabel) {
 	forwardReferenceCount = neededSpace;
 }
 /*
-* Put down  a refernece to the array at the location in the codestream.
+* Put down  a reference to the array at the location in the codestream.
 */
 void branch() {
 	if (position == POS_NOT_SET) {
@@ -72,7 +73,7 @@ void branch() {
 		if (Math.abs(offset) > 0x7FFF && !this.codeStream.wideMode) {
 			throw new AbortMethod(CodeStream.RESTART_IN_WIDE_MODE);
 		}
-		codeStream.writeSignedShort((short) offset);
+		codeStream.writeSignedShort(offset);
 	}
 }
 /*
@@ -99,6 +100,7 @@ public boolean hasForwardReferences() {
  * Some placed labels might be branching to a goto bytecode which we can optimize better.
  */
 public void inlineForwardReferencesFromLabelsTargeting(int gotoLocation) {
+	
 /*
  Code required to optimized unreachable gotos.
 	public boolean isBranchTarget(int location) {
@@ -134,14 +136,17 @@ public boolean isStandardLabel(){
 * Place the label. If we have forward references resolve them.
 */
 public void place() { // Currently lacking wide support.
+	if (CodeStream.DEBUG) System.out.println("\t\t\t\t<place at: "+codeStream.position+" - "+ this); //$NON-NLS-1$ //$NON-NLS-2$
+
 	if (position == POS_NOT_SET) {
 		position = codeStream.position;
 		codeStream.addLabel(this);
 		int oldPosition = position;
-		boolean optimizedBranch = false;
+		boolean isOptimizedBranch = false;
 		// TURNED OFF since fail on 1F4IRD9
 		if (forwardReferenceCount != 0) {
-			if (optimizedBranch = (forwardReferences[forwardReferenceCount - 1] + 2 == position) && (codeStream.bCodeStream[codeStream.classFileOffset - 3] == CodeStream.OPC_goto)) {
+			isOptimizedBranch = (forwardReferences[forwardReferenceCount - 1] + 2 == position) && (codeStream.bCodeStream[codeStream.classFileOffset - 3] == Opcodes.OPC_goto);
+			if (isOptimizedBranch) {
 				codeStream.position = (position -= 3);
 				codeStream.classFileOffset -= 3;
 				forwardReferenceCount--;
@@ -188,16 +193,16 @@ public void place() { // Currently lacking wide support.
 				if (this.isWide) {
 					codeStream.writeSignedWord(forwardReferences[i], offset);
 				} else {
-					codeStream.writeSignedShort(forwardReferences[i], (short) offset);
+					codeStream.writeSignedShort(forwardReferences[i], offset);
 				}
 			} else {
-				codeStream.writeSignedShort(forwardReferences[i], (short) offset);
+				codeStream.writeSignedShort(forwardReferences[i], offset);
 			}
 		}
 		// For all labels placed at that position we check if we need to rewrite the jump
 		// offset. It is the case each time a label had a forward reference to the current position.
 		// Like we change the current position, we have to change the jump offset. See 1F4IRD9 for more details.
-		if (optimizedBranch) {
+		if (isOptimizedBranch) {
 			for (int i = 0; i < codeStream.countLabels; i++) {
 				Label label = codeStream.labels[i];
 				if (oldPosition == label.position) {
@@ -219,10 +224,10 @@ public void place() { // Currently lacking wide support.
 								if (this.isWide) {
 									codeStream.writeSignedWord(forwardPosition, offset);
 								} else {
-									codeStream.writeSignedShort(forwardPosition, (short) offset);
+									codeStream.writeSignedShort(forwardPosition, offset);
 								}
 							} else {
-								codeStream.writeSignedShort(forwardPosition, (short) offset);
+								codeStream.writeSignedShort(forwardPosition, offset);
 							}
 						}
 					}
@@ -235,8 +240,11 @@ public void place() { // Currently lacking wide support.
  * Print out the receiver
  */
 public String toString() {
-	StringBuffer buffer = new StringBuffer("(position="); //$NON-NLS-1$
-	buffer.append(position);
+	String basic = getClass().getName();
+	basic = basic.substring(basic.lastIndexOf('.')+1);
+	StringBuffer buffer = new StringBuffer(basic); 
+	buffer.append('@').append(Integer.toHexString(hashCode()));
+	buffer.append("(position=").append(position); //$NON-NLS-1$
 	buffer.append(", forwards = ["); //$NON-NLS-1$
 	for (int i = 0; i < forwardReferenceCount - 1; i++)
 		buffer.append(forwardReferences[i] + ", "); //$NON-NLS-1$

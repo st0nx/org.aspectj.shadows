@@ -12,6 +12,8 @@ package org.eclipse.jdt.internal.core.index.impl;
 
 import java.io.UTFDataFormatException;
 
+import org.eclipse.jdt.internal.core.util.Util;
+
 /**
  * Uses prefix coding on words, and gamma coding of document numbers differences.
  */
@@ -30,7 +32,7 @@ public class GammaCompressedIndexBlock extends IndexBlock {
 	 */
 	public boolean addEntry(WordEntry entry) {
 		writeCodeStream.reset();
-		encodeEntry(entry, prevWord, writeCodeStream);
+		encodeEntry(entry);
 		if (offset + writeCodeStream.byteLength() > this.blockSize - 2) {
 			return false;
 		}
@@ -40,19 +42,19 @@ public class GammaCompressedIndexBlock extends IndexBlock {
 		prevWord= entry.getWord();
 		return true;
 	}
-	protected void encodeEntry(WordEntry entry, char[] prevWord, CodeByteStream codeStream) {
+	private void encodeEntry(WordEntry entry) {
 		char[] word= entry.getWord();
 		int prefixLen= prevWord == null ? 0 : Util.prefixLength(prevWord, word);
-		codeStream.writeByte(prefixLen);
-		codeStream.writeUTF(word, prefixLen, word.length);
+		writeCodeStream.writeByte(prefixLen);
+		writeCodeStream.writeUTF(word, prefixLen, word.length);
 		int n= entry.getNumRefs();
-		codeStream.writeGamma(n);
+		writeCodeStream.writeGamma(n);
 		int prevRef= 0;
 		for (int i= 0; i < n; ++i) {
 			int ref= entry.getRef(i);
 			if (ref <= prevRef)
 				throw new IllegalArgumentException();
-			codeStream.writeGamma(ref - prevRef);
+			writeCodeStream.writeGamma(ref - prevRef);
 			prevRef= ref;
 		}
 	}

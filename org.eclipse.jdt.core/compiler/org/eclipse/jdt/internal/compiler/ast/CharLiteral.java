@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -68,7 +68,7 @@ private void computeValue() {
 			else {
 				constant = Constant.fromValue(value = (char) number);
 				break;
-			};
+			}
 			if ((digit = source[4]) != '\'')
 				number = (number * 8) + Character.getNumericValue(digit);
 			value = (char) number;
@@ -94,7 +94,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 public TypeBinding literalType(BlockScope scope) {
 	return CharBinding;
 }
-public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope blockScope) {
+public void traverse(ASTVisitor visitor, BlockScope blockScope) {
 	visitor.visit(this, blockScope);
 	visitor.endVisit(this, blockScope);
 }

@@ -14,7 +14,7 @@ package org.eclipse.jdt.internal.compiler.parser;
  * Internal local variable structure for parsing recovery 
  */
 import org.eclipse.jdt.internal.compiler.ast.ArrayTypeReference;
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Statement;
@@ -31,22 +31,22 @@ public RecoveredLocalVariable(LocalDeclaration localDeclaration, RecoveredElemen
 /*
  * Record an expression statement if local variable is expecting an initialization expression. 
  */
-public RecoveredElement add(Statement statement, int bracketBalance) {
+public RecoveredElement add(Statement stmt, int bracketBalanceValue) {
 
-	if (this.alreadyCompletedLocalInitialization || !(statement instanceof Expression)) {
-		return super.add(statement, bracketBalance);
+	if (this.alreadyCompletedLocalInitialization || !(stmt instanceof Expression)) {
+		return super.add(stmt, bracketBalanceValue);
 	} else {
 		this.alreadyCompletedLocalInitialization = true;
-		this.localDeclaration.initialization = (Expression)statement;
-		this.localDeclaration.declarationSourceEnd = statement.sourceEnd;
-		this.localDeclaration.declarationEnd = statement.sourceEnd;
+		this.localDeclaration.initialization = (Expression)stmt;
+		this.localDeclaration.declarationSourceEnd = stmt.sourceEnd;
+		this.localDeclaration.declarationEnd = stmt.sourceEnd;
 		return this;
 	}
 }
 /* 
  * Answer the associated parsed structure
  */
-public AstNode parseTree(){
+public ASTNode parseTree(){
 	return localDeclaration;
 }
 /*
@@ -56,7 +56,7 @@ public int sourceEnd(){
 	return this.localDeclaration.declarationSourceEnd;
 }
 public String toString(int tab) {
-	return tabString(tab) + "Recovered local variable:\n" + localDeclaration.toString(tab + 1); //$NON-NLS-1$
+	return tabString(tab) + "Recovered local variable:\n" + localDeclaration.print(tab + 1, new StringBuffer(10)); //$NON-NLS-1$
 }
 public Statement updatedStatement(){
 	return localDeclaration;
@@ -82,7 +82,7 @@ public RecoveredElement updateOnClosingBrace(int braceStart, int braceEnd){
  * An opening brace got consumed, might be the expected opening one of the current element,
  * in which case the bodyStart is updated.
  */
-public RecoveredElement updateOnOpeningBrace(int currentPosition){
+public RecoveredElement updateOnOpeningBrace(int braceStart, int braceEnd){
 	if (localDeclaration.declarationSourceEnd == 0 
 		&& localDeclaration.type instanceof ArrayTypeReference
 		&& !alreadyCompletedLocalInitialization){
@@ -90,8 +90,8 @@ public RecoveredElement updateOnOpeningBrace(int currentPosition){
 		return null; // no update is necessary	(array initializer)
 	}
 	// might be an array initializer
-	this.updateSourceEndIfNecessary(currentPosition - 1);	
-	return this.parent.updateOnOpeningBrace(currentPosition);	
+	this.updateSourceEndIfNecessary(braceStart - 1, braceEnd - 1);	
+	return this.parent.updateOnOpeningBrace(braceStart, braceEnd);	
 }
 public void updateParseTree(){
 	this.updatedStatement();
@@ -99,10 +99,10 @@ public void updateParseTree(){
 /*
  * Update the declarationSourceEnd of the corresponding parse node
  */
-public void updateSourceEndIfNecessary(int sourceEnd){
+public void updateSourceEndIfNecessary(int bodyStart, int bodyEnd){
 	if (this.localDeclaration.declarationSourceEnd == 0) {
-		this.localDeclaration.declarationSourceEnd = sourceEnd;
-		this.localDeclaration.declarationEnd = sourceEnd;	
+		this.localDeclaration.declarationSourceEnd = bodyEnd;
+		this.localDeclaration.declarationEnd = bodyEnd;	
 	}
 }
 }

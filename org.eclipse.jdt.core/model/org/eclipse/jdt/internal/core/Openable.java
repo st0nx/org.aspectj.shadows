@@ -10,9 +10,10 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.text.NumberFormat;
+import java.util.*;
 import java.util.Enumeration;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.Map;
 
 import org.eclipse.core.resources.*;
@@ -26,7 +27,6 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
 import org.eclipse.jdt.internal.codeassist.ISearchableNameEnvironment;
-import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
 import org.eclipse.jdt.internal.codeassist.SelectionEngine;
 
 
@@ -38,129 +38,25 @@ import org.eclipse.jdt.internal.codeassist.SelectionEngine;
  */
 public abstract class Openable extends JavaElement implements IOpenable, IBufferChangedListener {
 
-protected Openable(int type, IJavaElement parent, String name) {
-	super(type, parent, name);
-}
-	/**
-	 * The buffer associated with this element has changed. Registers
-	 * this element as being out of synch with its buffer's contents.
-	 * If the buffer has been closed, this element is set as NOT out of
-	 * synch with the contents.
-	 *
-	 * @see IBufferChangedListener
-	 */
-	public void bufferChanged(BufferChangedEvent event) {
-		if (event.getBuffer().isClosed()) {
-			JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().remove(this);
-			getBufferManager().removeBuffer(event.getBuffer());
-		} else {
-			JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().put(this, this);
-		}
-	}	
-/**
- * Updates the info objects for this element and all of its children by
- * removing the current infos, generating new infos, and then placing
- * the new infos into the Java Model cache tables.
- */
-protected void buildStructure(OpenableElementInfo info, IProgressMonitor monitor) throws JavaModelException {
-
-	if (monitor != null && monitor.isCanceled()) return;
-	
-	// remove existing (old) infos
-	removeInfo();
-	HashMap newElements = new HashMap(11);
-	info.setIsStructureKnown(generateInfos(info, monitor, newElements, getResource()));
-	JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().remove(this);
-	for (Iterator iter = newElements.keySet().iterator(); iter.hasNext();) {
-		IJavaElement key = (IJavaElement) iter.next();
-		Object value = newElements.get(key);
-		JavaModelManager.getJavaModelManager().putInfo(key, value);
-	}
-		
-	// add the info for this at the end, to ensure that a getInfo cannot reply null in case the LRU cache needs
-	// to be flushed. Might lead to performance issues.
-	// see PR 1G2K5S7: ITPJCORE:ALL - NPE when accessing source for a binary type
-	JavaModelManager.getJavaModelManager().putInfo(this, info);	
+protected Openable(JavaElement parent, String name) {
+	super(parent, name);
 }
 /**
- * Close the buffer associated with this element, if any.
+ * The buffer associated with this element has changed. Registers
+ * this element as being out of synch with its buffer's contents.
+ * If the buffer has been closed, this element is set as NOT out of
+ * synch with the contents.
+ *
+ * @see IBufferChangedListener
  */
-protected void closeBuffer(OpenableElementInfo info) {
-	if (!hasBuffer()) return; // nothing to do
-	IBuffer buffer = null;
-	buffer = getBufferManager().getBuffer(this);
-	if (buffer != null) {
-		buffer.close();
-		buffer.removeBufferChangedListener(this);
+public void bufferChanged(BufferChangedEvent event) {
+	if (event.getBuffer().isClosed()) {
+		JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().remove(this);
+		getBufferManager().removeBuffer(event.getBuffer());
+	} else {
+		JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().put(this, this);
 	}
-}
-/**
- * This element is being closed.  Do any necessary cleanup.
- */
-protected void closing(Object info) throws JavaModelException {
-	OpenableElementInfo openableInfo = (OpenableElementInfo) info;
-	closeBuffer(openableInfo);
-	super.closing(info);
-}
-/**
- * @see ICodeAssist
- */
-protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUnit cu, org.eclipse.jdt.internal.compiler.env.ICompilationUnit unitToSkip, int position, ICompletionRequestor requestor) throws JavaModelException {
-	if (requestor == null) {
-		throw new IllegalArgumentException(Util.bind("codeAssist.nullRequestor")); //$NON-NLS-1$
-	}
-	IBuffer buffer = getBuffer();
-	if (buffer == null) {
-		return;
-	}
-	if (position < -1 || position > buffer.getLength()) {
-		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INDEX_OUT_OF_BOUNDS));
-	}
-	JavaProject project = (JavaProject) getJavaProject();
-	SearchableEnvironment environment = (SearchableEnvironment) project.getSearchableNameEnvironment();
-	NameLookup nameLookup = project.getNameLookup();
-	environment.unitToSkip = unitToSkip;
-
-	CompletionEngine engine = new CompletionEngine(environment, new CompletionRequestorWrapper(requestor,nameLookup), project.getOptions(true), project);
-	engine.complete(cu, position, 0);
-	environment.unitToSkip = null;
-}
-/**
- * @see ICodeAssist
- */
-protected IJavaElement[] codeSelect(org.eclipse.jdt.internal.compiler.env.ICompilationUnit cu, int offset, int length) throws JavaModelException {
-	SelectionRequestor requestor= new SelectionRequestor(((JavaProject)getJavaProject()).getNameLookup(), this);
-	this.codeSelect(cu, offset, length, requestor);
-	return requestor.getElements();
-}
-/**
- * @see ICodeAssist
- */
-protected void codeSelect(org.eclipse.jdt.internal.compiler.env.ICompilationUnit cu, int offset, int length, ISelectionRequestor requestor) throws JavaModelException {
-	IBuffer buffer = getBuffer();
-	if (buffer == null) {
-		return;
-	}
-	int end= buffer.getLength();
-	if (offset < 0 || length < 0 || offset + length > end ) {
-		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INDEX_OUT_OF_BOUNDS));
-	}
-
-	// fix for 1FVGGKF
-	JavaProject project = (JavaProject)getJavaProject();
-	ISearchableNameEnvironment environment = project.getSearchableNameEnvironment();
-	
-	// fix for 1FVXGDK
-	SelectionEngine engine = new SelectionEngine(environment, requestor, project.getOptions(true));
-	engine.select(cu, offset, offset + length - 1);
-}
-/**
- * Returns a new element info for this element.
- */
-protected OpenableElementInfo createElementInfo() {
-	return new OpenableElementInfo();
-}
-
+}	
 /**
  * Builds this element's structure and properties in the given
  * info object, based on this element's current contents (reuse buffer
@@ -171,7 +67,151 @@ protected OpenableElementInfo createElementInfo() {
  * if successful, or false if an error is encountered while determining
  * the structure of this element.
  */
-protected abstract boolean generateInfos(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource) throws JavaModelException;
+protected abstract boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource) throws JavaModelException;
+/*
+ * Returns whether this element can be removed from the Java model cache to make space.
+ */
+public boolean canBeRemovedFromCache() {
+	try {
+		return !hasUnsavedChanges();
+	} catch (JavaModelException e) {
+		return false;
+	}
+}
+/*
+ * Returns whether the buffer of this element can be removed from the Java model cache to make space.
+ */
+public boolean canBufferBeRemovedFromCache(IBuffer buffer) {
+	return !buffer.hasUnsavedChanges();
+}
+/**
+ * Close the buffer associated with this element, if any.
+ */
+protected void closeBuffer() {
+	if (!hasBuffer()) return; // nothing to do
+	IBuffer buffer = getBufferManager().getBuffer(this);
+	if (buffer != null) {
+		buffer.close();
+		buffer.removeBufferChangedListener(this);
+	}
+}
+/**
+ * This element is being closed.  Do any necessary cleanup.
+ */
+protected void closing(Object info) {
+	closeBuffer();
+}
+protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUnit cu, org.eclipse.jdt.internal.compiler.env.ICompilationUnit unitToSkip, int position, ICompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
+	if (requestor == null) {
+		throw new IllegalArgumentException("Completion requestor cannot be null"); //$NON-NLS-1$
+	}
+	IBuffer buffer = getBuffer();
+	if (buffer == null) {
+		return;
+	}
+	if (position < -1 || position > buffer.getLength()) {
+		throw new IllegalArgumentException("Completion position "+position+" is not located in supplied source range (0, "+buffer.getLength()+")"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+	}
+	JavaProject project = (JavaProject) getJavaProject();
+	SearchableEnvironment environment = null;
+	NameLookup nameLookup = null;
+	try {
+		// set unit to skip
+		environment = (SearchableEnvironment) project.getSearchableNameEnvironment();
+		environment.unitToSkip = unitToSkip;
+	
+		// set the units to look inside
+		nameLookup = project.getNameLookup();
+		JavaModelManager manager = JavaModelManager.getJavaModelManager();
+		ICompilationUnit[] workingCopies = manager.getWorkingCopies(owner, true/*add primary WCs*/);
+		nameLookup.setUnitsToLookInside(workingCopies);
+
+		// code complete
+		CompletionRequestorWrapper requestorWrapper = new CompletionRequestorWrapper(requestor,nameLookup);
+		CompletionEngine engine = new CompletionEngine(environment, requestorWrapper, project.getOptions(true), project);
+		requestorWrapper.completionEngine = engine;
+		engine.complete(cu, position, 0);
+	} finally {
+		if (environment != null) {
+			environment.unitToSkip = null;
+		}
+		if (nameLookup != null) {
+			nameLookup.setUnitsToLookInside(null);
+		}
+	}
+}
+protected IJavaElement[] codeSelect(org.eclipse.jdt.internal.compiler.env.ICompilationUnit cu, int offset, int length, WorkingCopyOwner owner) throws JavaModelException {
+	NameLookup nameLookup = null;
+	try {
+		// set the units to look inside
+		nameLookup = ((JavaProject)getJavaProject()).getNameLookup();
+		JavaModelManager manager = JavaModelManager.getJavaModelManager();
+		ICompilationUnit[] workingCopies = manager.getWorkingCopies(owner, true/*add primary WCs*/);
+		nameLookup.setUnitsToLookInside(workingCopies);
+
+		// code select
+		SelectionRequestor requestor= new SelectionRequestor(nameLookup, this);
+		IBuffer buffer = getBuffer();
+		if (buffer == null) {
+			return requestor.getElements();
+		}
+		int end= buffer.getLength();
+		if (offset < 0 || length < 0 || offset + length > end ) {
+			throw new IllegalArgumentException("Selected range ("+offset+ ", " + (offset+length)+") is not located in supplied source range (0, "+end+")"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+		}
+	
+		// fix for 1FVGGKF
+		JavaProject project = (JavaProject)getJavaProject();
+		ISearchableNameEnvironment environment = project.getSearchableNameEnvironment();
+		
+		// fix for 1FVXGDK
+		SelectionEngine engine = new SelectionEngine(environment, requestor, project.getOptions(true));
+		engine.select(cu, offset, offset + length - 1);
+		return requestor.getElements();
+	} finally {
+		if (nameLookup != null) {
+			nameLookup.setUnitsToLookInside(null);
+		}
+	}
+}
+/*
+ * Returns a new element info for this element.
+ */
+protected Object createElementInfo() {
+	return new OpenableElementInfo();
+}
+protected void generateInfos(Object info, HashMap newElements, IProgressMonitor monitor) throws JavaModelException {
+
+	if (JavaModelManager.VERBOSE){
+		System.out.println("OPENING Element ("+ Thread.currentThread()+"): " + this.toStringWithAncestors()); //$NON-NLS-1$//$NON-NLS-2$
+	}
+	
+	// open the parent if necessary
+	openParent(info, newElements, monitor);
+	if (monitor != null && monitor.isCanceled()) return;
+
+	 // puts the info before building the structure so that questions to the handle behave as if the element existed
+	 // (case of compilation units becoming working copies)
+	newElements.put(this, info);
+
+	// build the structure of the openable (this will open the buffer if needed)
+	try {
+		OpenableElementInfo openableElementInfo = (OpenableElementInfo)info;
+		boolean isStructureKnown = buildStructure(openableElementInfo, monitor, newElements, getResource());
+		openableElementInfo.setIsStructureKnown(isStructureKnown);
+	} catch (JavaModelException e) {
+		newElements.remove(this);
+		throw e;
+	}
+	
+	// remove out of sync buffer for this element
+	JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().remove(this);
+
+	if (JavaModelManager.VERBOSE) {
+		System.out.println("-> Package cache size = " + JavaModelManager.getJavaModelManager().cache.pkgSize()); //$NON-NLS-1$
+		System.out.println("-> Openable cache filling ratio = " + NumberFormat.getInstance().format(JavaModelManager.getJavaModelManager().cache.openableFillingRatio()) + "%"); //$NON-NLS-1$//$NON-NLS-2$
+	}
+}
 /**
  * Note: a buffer with no unsaved changes can be closed by the Java Model
  * since it has a finite number of buffers allowed open at one time. If this
@@ -184,22 +224,20 @@ protected abstract boolean generateInfos(OpenableElementInfo info, IProgressMoni
 public IBuffer getBuffer() throws JavaModelException {
 	if (hasBuffer()) {
 		// ensure element is open
-		if (!isOpen()) {
-			getElementInfo();
-		}
+		Object info = getElementInfo();
 		IBuffer buffer = getBufferManager().getBuffer(this);
 		if (buffer == null) {
 			// try to (re)open a buffer
-			buffer = openBuffer(null);
+			buffer = openBuffer(null, info);
 		}
 		return buffer;
 	} else {
 		return null;
 	}
 }
-
 /**
  * Answers the buffer factory to use for creating new buffers
+ * @deprecated
  */
 public IBufferFactory getBufferFactory(){
 	return getBufferManager().getDefaultBufferFactory();
@@ -233,14 +271,14 @@ public IOpenable getOpenable() {
  * @see IJavaElement
  */
 public IResource getUnderlyingResource() throws JavaModelException {
-	IResource parentResource = fParent.getUnderlyingResource();
+	IResource parentResource = this.parent.getUnderlyingResource();
 	if (parentResource == null) {
 		return null;
 	}
 	int type = parentResource.getType();
 	if (type == IResource.FOLDER || type == IResource.PROJECT) {
 		IContainer folder = (IContainer) parentResource;
-		IResource resource = folder.findMember(fName);
+		IResource resource = folder.findMember(this.name);
 		if (resource == null) {
 			throw newNotPresentException();
 		} else {
@@ -250,16 +288,6 @@ public IResource getUnderlyingResource() throws JavaModelException {
 		return parentResource;
 	}
 }
-
-public boolean exists() {
-	
-	IPackageFragmentRoot root = this.getPackageFragmentRoot();
-	if (root == null || root == this || !root.isArchive()) {
-		return parentExists() && resourceExists();
-	} else {
-		return super.exists();
-	}
-}	
 
 /**
  * Returns true if this element may have an associated source buffer,
@@ -288,10 +316,11 @@ public boolean hasUnsavedChanges() throws JavaModelException{
 	}
 	// for package fragments, package fragment roots, and projects must check open buffers
 	// to see if they have an child with unsaved changes
-	if (fLEType == PACKAGE_FRAGMENT ||
-		fLEType == PACKAGE_FRAGMENT_ROOT ||
-		fLEType == JAVA_PROJECT ||
-		fLEType == JAVA_MODEL) { // fix for 1FWNMHH
+	int elementType = getElementType();
+	if (elementType == PACKAGE_FRAGMENT ||
+		elementType == PACKAGE_FRAGMENT_ROOT ||
+		elementType == JAVA_PROJECT ||
+		elementType == JAVA_MODEL) { // fix for 1FWNMHH
 		Enumeration openBuffers= getBufferManager().getOpenBuffers();
 		while (openBuffers.hasMoreElements()) {
 			IBuffer buffer= (IBuffer)openBuffers.nextElement();
@@ -311,7 +340,7 @@ public boolean hasUnsavedChanges() throws JavaModelException{
  *
  * @see IOpenable
  */
-public boolean isConsistent() throws JavaModelException {
+public boolean isConsistent() {
 	return true;
 }
 /**
@@ -319,9 +348,7 @@ public boolean isConsistent() throws JavaModelException {
  * @see IOpenable
  */
 public boolean isOpen() {
-	synchronized(JavaModelManager.getJavaModelManager()){
-		return JavaModelManager.getJavaModelManager().getInfo(this) != null;
-	}
+	return JavaModelManager.getJavaModelManager().getInfo(this) != null;
 }
 /**
  * Returns true if this represents a source element.
@@ -334,20 +361,42 @@ protected boolean isSourceElement() {
 /**
  * @see IOpenable
  */
-public void makeConsistent(IProgressMonitor pm) throws JavaModelException {
-	if (!isConsistent()) {
-		buildStructure((OpenableElementInfo)getElementInfo(), pm);
+public void makeConsistent(IProgressMonitor monitor) throws JavaModelException {
+	if (isConsistent()) return;
+	
+	// close
+	JavaModelManager manager = JavaModelManager.getJavaModelManager();
+	manager.removeInfoAndChildren(this);
+	
+	boolean hadTemporaryCache = manager.hasTemporaryCache();
+	try {
+		HashMap newElements = manager.getTemporaryCache();
+		openWhenClosed(newElements, monitor);
+		if (newElements.get(this) == null) {
+			// close any buffer that was opened for the new elements
+			Iterator iterator = newElements.keySet().iterator();
+			while (iterator.hasNext()) {
+				IJavaElement element = (IJavaElement)iterator.next();
+				if (element instanceof Openable) {
+					((Openable)element).closeBuffer();
+				}
+			}
+			throw newNotPresentException();
+		}
+		if (!hadTemporaryCache) {
+			manager.putInfos(this, newElements);
+		}
+	} finally {
+		if (!hadTemporaryCache) {
+			manager.resetTemporaryCache();
+		}
 	}
 }
 /**
  * @see IOpenable
  */
 public void open(IProgressMonitor pm) throws JavaModelException {
-	if (!isOpen()) {
-		// TODO: need to synchronize (IOpenable.open(IProgressMonitor) is API
-		// TODO: could use getElementInfo instead
-		this.openWhenClosed(pm);
-	}
+	getElementInfo(pm);
 }
 
 /**
@@ -356,60 +405,18 @@ public void open(IProgressMonitor pm) throws JavaModelException {
  * By default, do nothing - subclasses that have buffers
  * must override as required.
  */
-protected IBuffer openBuffer(IProgressMonitor pm) throws JavaModelException {
+protected IBuffer openBuffer(IProgressMonitor pm, Object info) throws JavaModelException {
 	return null;
 }
 
 /**
- * 	Open the parent element if necessary
- * 
+ * Open the parent element if necessary.
  */
-protected void openParent(IProgressMonitor pm) throws JavaModelException {
+protected void openParent(Object childInfo, HashMap newElements, IProgressMonitor pm) throws JavaModelException {
 
 	Openable openableParent = (Openable)getOpenableParent();
-	if (openableParent != null) {
-		if (!openableParent.isOpen()){
-			openableParent.openWhenClosed(pm);
-		}
-	}
-}
-
-/**
- * Open an <code>Openable</code> that is known to be closed (no check for <code>isOpen()</code>).
- */
-protected void openWhenClosed(IProgressMonitor pm) throws JavaModelException {
-	try {
-		
-		if (JavaModelManager.VERBOSE){
-			System.out.println("OPENING Element ("+ Thread.currentThread()+"): " + this.toStringWithAncestors()); //$NON-NLS-1$//$NON-NLS-2$
-		}
-		
-		// 1) Parent must be open - open the parent if necessary
-		openParent(pm);
-
-		// 2) create the new element info and open a buffer if needed
-		OpenableElementInfo info = createElementInfo();
-		if (isSourceElement()) {
-			this.openBuffer(pm);
-		} 
-
-		// 3) build the structure of the openable
-		buildStructure(info, pm);
-
-		// 4) anything special
-		opening(info);
-		
-		if (JavaModelManager.VERBOSE) {
-			System.out.println("-> Package cache size = " + JavaModelManager.getJavaModelManager().cache.pkgSize()); //$NON-NLS-1$
-			System.out.println("-> Openable cache filling ratio = " + JavaModelManager.getJavaModelManager().cache.openableFillingRatio() + "%"); //$NON-NLS-1$//$NON-NLS-2$
-		}
-
-		// if any problems occuring openning the element, ensure that it's info
-		// does not remain in the cache	(some elements, pre-cache their info
-		// as they are being opened).
-	} catch (JavaModelException e) {
-		JavaModelManager.getJavaModelManager().removeInfo(this);
-		throw e;
+	if (openableParent != null && !openableParent.isOpen()){
+		openableParent.generateInfos(openableParent.createElementInfo(), newElements, pm);
 	}
 }
 
@@ -419,9 +426,9 @@ protected void openWhenClosed(IProgressMonitor pm) throws JavaModelException {
  */
 protected boolean parentExists(){
 	
-	IJavaElement parent = this.getParent();
-	if (parent == null) return true;
-	return parent.exists();
+	IJavaElement parentElement = getParent();
+	if (parentElement == null) return true;
+	return parentElement.exists();
 }
 
 /**
@@ -441,7 +448,7 @@ protected boolean resourceExists() {
  * @see IOpenable
  */
 public void save(IProgressMonitor pm, boolean force) throws JavaModelException {
-	if (isReadOnly() || this.getResource().isReadOnly()) {
+	if (isReadOnly()) {
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, this));
 	}
 	IBuffer buf = getBuffer();
@@ -468,8 +475,8 @@ public PackageFragmentRoot getPackageFragmentRoot() {
  */
 protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUnit cu, org.eclipse.jdt.internal.compiler.env.ICompilationUnit unitToSkip, int position, final ICodeCompletionRequestor requestor) throws JavaModelException {
 
-	if (requestor == null){
-		codeComplete(cu, unitToSkip, position, (ICompletionRequestor)null);
+	if (requestor == null){ 
+		codeComplete(cu, unitToSkip, position, null, DefaultWorkingCopyOwner.PRIMARY);
 		return;
 	}
 	codeComplete(
@@ -478,6 +485,7 @@ protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUn
 		position,
 		new ICompletionRequestor(){
 			public void acceptAnonymousType(char[] superTypePackageName,char[] superTypeName,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {
+				// ignore
 			}
 			public void acceptClass(char[] packageName, char[] className, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
 				requestor.acceptClass(packageName, className, completionName, modifiers, completionStart, completionEnd);
@@ -495,10 +503,11 @@ protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUn
 					marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
 					requestor.acceptError(marker);
 				} catch(CoreException e){
+					// could not create marker: ignore
 				}
 			}
-			public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] name, char[] typePackageName, char[] typeName, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
-				requestor.acceptField(declaringTypePackageName, declaringTypeName, name, typePackageName, typeName, completionName, modifiers, completionStart, completionEnd);
+			public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] fieldName, char[] typePackageName, char[] typeName, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
+				requestor.acceptField(declaringTypePackageName, declaringTypeName, fieldName, typePackageName, typeName, completionName, modifiers, completionStart, completionEnd);
 			}
 			public void acceptInterface(char[] packageName,char[] interfaceName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {
 				requestor.acceptInterface(packageName, interfaceName, completionName, modifiers, completionStart, completionEnd);
@@ -509,7 +518,7 @@ protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUn
 			public void acceptLabel(char[] labelName,int completionStart,int completionEnd, int relevance){
 				requestor.acceptLabel(labelName, completionStart, completionEnd);
 			}
-			public void acceptLocalVariable(char[] name,char[] typePackageName,char[] typeName,int modifiers,int completionStart,int completionEnd, int relevance){
+			public void acceptLocalVariable(char[] localVarName,char[] typePackageName,char[] typeName,int modifiers,int completionStart,int completionEnd, int relevance){
 				// ignore
 			}
 			public void acceptMethod(char[] declaringTypePackageName,char[] declaringTypeName,char[] selector,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] returnTypePackageName,char[] returnTypeName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance){
@@ -528,9 +537,10 @@ protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUn
 			public void acceptType(char[] packageName,char[] typeName,char[] completionName,int completionStart,int completionEnd, int relevance){
 				requestor.acceptType(packageName, typeName, completionName, completionStart, completionEnd);
 			}
-			public void acceptVariableName(char[] typePackageName,char[] typeName,char[] name,char[] completionName,int completionStart,int completionEnd, int relevance){
+			public void acceptVariableName(char[] typePackageName,char[] typeName,char[] varName,char[] completionName,int completionStart,int completionEnd, int relevance){
 				// ignore
 			}
-		});
+		},
+		DefaultWorkingCopyOwner.PRIMARY);
 }
 }

@@ -14,7 +14,6 @@ import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.internal.core.Util;
 import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
 
 import java.io.*;
@@ -37,6 +36,10 @@ SimpleLookupTable structuralBuildTimes;
 
 private String[] knownPackageNames; // of the form "p1/p2"
 
+private long previousStructuralBuildTime;
+private StringSet structurallyChangedTypes;
+public static int MaxStructurallyChangedTypes = 100; // keep track of ? structurally changed types, otherwise consider all to be changed
+
 static final byte VERSION = 0x0007;
 
 static final byte SOURCE_FOLDER = 1;
@@ -45,10 +48,13 @@ static final byte EXTERNAL_JAR = 3;
 static final byte INTERNAL_JAR = 4;
 
 State() {
+	// constructor with no argument
 }
 
 protected State(JavaBuilder javaBuilder) {
 	this.knownPackageNames = null;
+	this.previousStructuralBuildTime = -1;
+	this.structurallyChangedTypes = null;
 	this.javaProjectName = javaBuilder.currentProject.getName();
 	this.sourceLocations = javaBuilder.nameEnvironment.sourceLocations;
 	this.binaryLocations = javaBuilder.nameEnvironment.binaryLocations;
@@ -61,10 +67,14 @@ protected State(JavaBuilder javaBuilder) {
 }
 
 void copyFrom(State lastState) {
+	this.knownPackageNames = null;
+	this.previousStructuralBuildTime = lastState.previousStructuralBuildTime;
+	this.structurallyChangedTypes = lastState.structurallyChangedTypes;
+	this.buildNumber = lastState.buildNumber + 1;
+	this.lastStructuralBuildTime = lastState.lastStructuralBuildTime;
+	this.structuralBuildTimes = lastState.structuralBuildTimes;
+
 	try {
-		this.knownPackageNames = null;
-		this.buildNumber = lastState.buildNumber + 1;
-		this.lastStructuralBuildTime = lastState.lastStructuralBuildTime;
 		this.references = (SimpleLookupTable) lastState.references.clone();
 		this.typeLocators = (SimpleLookupTable) lastState.typeLocators.clone();
 	} catch (CloneNotSupportedException e) {
@@ -89,6 +99,16 @@ char[][] getDefinedTypeNamesFor(String typeLocator) {
 	if (c instanceof AdditionalTypeCollection)
 		return ((AdditionalTypeCollection) c).definedTypeNames;
 	return null; // means only one type is defined with the same name as the file... saves space
+}
+
+StringSet getStructurallyChangedTypes(State prereqState) {
+	if (prereqState != null && prereqState.previousStructuralBuildTime > 0) {
+		Object o = structuralBuildTimes.get(prereqState.javaProjectName);
+		long previous = o == null ? 0 : ((Long) o).longValue();
+		if (previous == prereqState.previousStructuralBuildTime)
+			return prereqState.structurallyChangedTypes;
+	}
+	return null;
 }
 
 boolean isDuplicateLocator(String qualifiedTypeName, String typeLocator) {
@@ -157,7 +177,7 @@ void removePackage(IResourceDelta sourceDelta) {
 			return;
 		case IResource.FILE :
 			IPath typeLocatorPath = resource.getProjectRelativePath();
-			if (Util.isJavaFileName(typeLocatorPath.lastSegment()))
+			if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(typeLocatorPath.lastSegment()))
 				removeLocator(typeLocatorPath.toString());
 	}
 }
@@ -299,6 +319,8 @@ boolean wasNoopBuild() {
 }
 
 void tagAsStructurallyChanged() {
+	this.previousStructuralBuildTime = this.lastStructuralBuildTime;
+	this.structurallyChangedTypes = new StringSet(7);
 	this.lastStructuralBuildTime = System.currentTimeMillis();
 }
 
@@ -309,6 +331,15 @@ boolean wasStructurallyChanged(IProject prereqProject, State prereqState) {
 		if (previous == prereqState.lastStructuralBuildTime) return false;
 	}
 	return true;
+}
+
+void wasStructurallyChanged(String typeName) {
+	if (this.structurallyChangedTypes != null) {
+		if (this.structurallyChangedTypes.elementSize > MaxStructurallyChangedTypes)
+			this.structurallyChangedTypes = null; // too many to keep track of
+		else
+			this.structurallyChangedTypes.add(typeName);
+	}
 }
 
 void write(DataOutputStream out) throws IOException {
@@ -426,7 +457,7 @@ void write(DataOutputStream out) throws IOException {
 			if (keyTable[i] != null) {
 				length--;
 				out.writeUTF((String) keyTable[i]);
-				out.writeInt(internedTypeLocators.indexOf((String) valueTable[i]));
+				out.writeInt(internedTypeLocators.indexOf(valueTable[i]));
 			}
 		}
 		if (JavaBuilder.DEBUG && length != 0)
@@ -487,7 +518,7 @@ void write(DataOutputStream out) throws IOException {
 		for (int i = 0, l = keyTable.length; i < l; i++) {
 			if (keyTable[i] != null) {
 				length--;
-				out.writeInt(internedTypeLocators.indexOf((String) keyTable[i]));
+				out.writeInt(internedTypeLocators.indexOf(keyTable[i]));
 				ReferenceCollection collection = (ReferenceCollection) valueTable[i];
 				if (collection instanceof AdditionalTypeCollection) {
 					out.writeByte(1);

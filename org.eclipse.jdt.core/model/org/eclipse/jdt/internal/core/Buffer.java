@@ -21,6 +21,7 @@ import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.ISafeRunnable;
 import org.eclipse.core.runtime.Platform;
 import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * @see IBuffer
@@ -31,14 +32,14 @@ public class Buffer implements IBuffer {
 	protected char[] contents;
 	protected ArrayList changeListeners;
 	protected IOpenable owner;
-	protected int gapStart= -1;
-	protected int gapEnd= -1;
+	protected int gapStart = -1;
+	protected int gapEnd = -1;
 
-	protected Object lock= new Object();
+	protected Object lock = new Object();
 
-	protected static final int F_HAS_UNSAVED_CHANGES= 1;
-	protected static final int F_IS_READ_ONLY= 2;
-	protected static final int F_IS_CLOSED= 4;
+	protected static final int F_HAS_UNSAVED_CHANGES = 1;
+	protected static final int F_IS_READ_ONLY = 2;
+	protected static final int F_IS_CLOSED = 4;
 
 /**
  * Creates a new buffer on an underlying resource.
@@ -71,10 +72,13 @@ public void append(char[] text) {
 			return;
 		}
 		int length = getLength();
-		moveAndResizeGap(length, text.length);
-		System.arraycopy(text, 0, this.contents, length, text.length);
-		this.gapStart += text.length;
-		this.flags |= F_HAS_UNSAVED_CHANGES;
+		synchronized(this.lock) {
+		    if (this.contents == null) return;
+			moveAndResizeGap(length, text.length);
+			System.arraycopy(text, 0, this.contents, length, text.length);
+			this.gapStart += text.length;
+			this.flags |= F_HAS_UNSAVED_CHANGES;
+		}
 		notifyChanged(new BufferChangedEvent(this, length, 0, new String(text)));
 	}
 }
@@ -91,7 +95,7 @@ public void append(String text) {
 /**
  * @see IBuffer
  */
-public void close() throws IllegalArgumentException {
+public void close() {
 	BufferChangedEvent event = null;
 	synchronized (this.lock) {
 		if (isClosed())
@@ -108,6 +112,7 @@ public void close() throws IllegalArgumentException {
  */
 public char getChar(int position) {
 	synchronized (this.lock) {
+	    if (this.contents == null) return Character.MIN_VALUE;
 		if (position < this.gapStart) {
 			return this.contents[position];
 		}
@@ -119,8 +124,8 @@ public char getChar(int position) {
  * @see IBuffer
  */
 public char[] getCharacters() {
-	if (this.contents == null) return null;
 	synchronized (this.lock) {
+		if (this.contents == null) return null;
 		if (this.gapStart < 0) {
 			return this.contents;
 		}
@@ -144,6 +149,7 @@ public String getContents() {
  */
 public int getLength() {
 	synchronized (this.lock) {
+		if (this.contents == null) return -1;
 		int length = this.gapEnd - this.gapStart;
 		return (this.contents.length - length);
 	}
@@ -158,9 +164,8 @@ public IOpenable getOwner() {
  * @see IBuffer
  */
 public String getText(int offset, int length) {
-	if (this.contents == null)
-		return ""; //$NON-NLS-1$
 	synchronized (this.lock) {
+		if (this.contents == null) return ""; //$NON-NLS-1$
 		if (offset + length < this.gapStart)
 			return new String(this.contents, offset, length);
 		if (this.gapStart < offset) {
@@ -195,11 +200,7 @@ public boolean isClosed() {
  * @see IBuffer
  */
 public boolean isReadOnly() {
-	if (this.file == null) {
-		return (this.flags & F_IS_READ_ONLY) != 0;
-	} else {
-		return this.file.isReadOnly();
-	}
+	return (this.flags & F_IS_READ_ONLY) != 0;
 }
 /**
  * Moves the gap to location and adjust its size to the
@@ -283,6 +284,8 @@ public void replace(int position, int length, char[] text) {
 	if (!isReadOnly()) {
 		int textLength = text == null ? 0 : text.length;
 		synchronized (this.lock) {
+		    if (this.contents == null) return;
+		    
 			// move gap
 			moveAndResizeGap(position + length, textLength - length);
 
@@ -299,8 +302,8 @@ public void replace(int position, int length, char[] text) {
 				this.gapStart += textLength - length;
 				System.arraycopy(text, 0, this.contents, position, textLength);
 			}
+			this.flags |= F_HAS_UNSAVED_CHANGES;
 		}
-		this.flags |= F_HAS_UNSAVED_CHANGES;
 		String string = null;
 		if (textLength > 0) {
 			string = new String(text);
@@ -325,33 +328,35 @@ public void save(IProgressMonitor progress, boolean force) throws JavaModelExcep
 	if (isReadOnly() || this.file == null) {
 		return;
 	}
-	synchronized (this.lock) {
-		if (!hasUnsavedChanges())
-			return;
-			
-		// use a platform operation to update the resource contents
-		try {
-			String encoding = ((IJavaElement)this.owner).getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
-			String contents = this.getContents();
-			if (contents == null) return;
-			byte[] bytes = encoding == null 
-				? contents.getBytes() 
-				: contents.getBytes(encoding);
-			ByteArrayInputStream stream = new ByteArrayInputStream(bytes);
+	if (!hasUnsavedChanges())
+		return;
+		
+	// use a platform operation to update the resource contents
+	try {
+		String encoding = ((IJavaElement)this.owner).getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
+		String stringContents = this.getContents();
+		if (stringContents == null) return;
+		byte[] bytes = encoding == null 
+			? stringContents.getBytes() 
+			: stringContents.getBytes(encoding);
+		ByteArrayInputStream stream = new ByteArrayInputStream(bytes);
 
+		if (this.file.exists()) {
 			this.file.setContents(
 				stream, 
 				force ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY, 
 				null);
-		} catch (IOException e) {
-			throw new JavaModelException(e, IJavaModelStatusConstants.IO_EXCEPTION);
-		} catch (CoreException e) {
-			throw new JavaModelException(e);
-		}
-
-		// the resource no longer has unsaved changes
-		this.flags &= ~ (F_HAS_UNSAVED_CHANGES);
+		} else {
+			this.file.create(stream, force, null);
+		}	
+	} catch (IOException e) {
+		throw new JavaModelException(e, IJavaModelStatusConstants.IO_EXCEPTION);
+	} catch (CoreException e) {
+		throw new JavaModelException(e);
 	}
+
+	// the resource no longer has unsaved changes
+	this.flags &= ~ (F_HAS_UNSAVED_CHANGES);
 }
 /**
  * @see IBuffer
@@ -360,8 +365,10 @@ public void setContents(char[] newContents) {
 	// allow special case for first initialization 
 	// after creation by buffer factory
 	if (this.contents == null) {
-		this.contents = newContents;
-		this.flags &= ~ (F_HAS_UNSAVED_CHANGES);
+		synchronized (this.lock) {
+			this.contents = newContents;
+			this.flags &= ~ (F_HAS_UNSAVED_CHANGES);
+		}
 		return;
 	}
 	
@@ -370,13 +377,14 @@ public void setContents(char[] newContents) {
 		if (newContents != null) {
 			string = new String(newContents);
 		}
-		BufferChangedEvent event = new BufferChangedEvent(this, 0, this.getLength(), string);
 		synchronized (this.lock) {
+		    if (this.contents == null) return; // ignore if buffer is closed (as per spec)
 			this.contents = newContents;
 			this.flags |= F_HAS_UNSAVED_CHANGES;
 			this.gapStart = -1;
 			this.gapEnd = -1;
 		}
+		BufferChangedEvent event = new BufferChangedEvent(this, 0, this.getLength(), string);
 		notifyChanged(event);
 	}
 }
@@ -403,14 +411,14 @@ public String toString() {
 	buffer.append("\nIs readonly: " + this.isReadOnly()); //$NON-NLS-1$
 	buffer.append("\nIs closed: " + this.isClosed()); //$NON-NLS-1$
 	buffer.append("\nContents:\n"); //$NON-NLS-1$
-	char[] contents = this.getCharacters();
-	if (contents == null) {
+	char[] charContents = this.getCharacters();
+	if (charContents == null) {
 		buffer.append("<null>"); //$NON-NLS-1$
 	} else {
-		int length = contents.length;
+		int length = charContents.length;
 		for (int i = 0; i < length; i++) {
-			char car = contents[i];
-			switch (car) {
+			char c = charContents[i];
+			switch (c) {
 				case '\n': 
 					buffer.append("\\n\n"); //$NON-NLS-1$
 					break;
@@ -423,7 +431,7 @@ public String toString() {
 					}
 					break;
 				default:
-					buffer.append(car);
+					buffer.append(c);
 					break;
 			}
 		}

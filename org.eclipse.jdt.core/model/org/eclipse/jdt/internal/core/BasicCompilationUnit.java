@@ -51,8 +51,9 @@ public char[] getContents() {
 
 	// otherwise retrieve it
 	try {
-		return Util.getFileCharContent(new File(new String(fileName)), this.encoding);
+		return Util.getFileCharContent(new File(new String(this.fileName)), this.encoding);
 	} catch (IOException e) {
+		// could not read file: returns an empty array
 	}
 	return CharOperation.NO_CHAR;
 }
@@ -66,6 +67,6 @@ public char[][] getPackageName() {
 	return this.packageName;
 }
 public String toString(){
-	return "CompilationUnit: "+new String(fileName); //$NON-NLS-1$
+	return "CompilationUnit: "+new String(this.fileName); //$NON-NLS-1$
 }
 }

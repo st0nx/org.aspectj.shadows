@@ -34,16 +34,16 @@ public final int bindingType() {
 }
 /* Answer true if the receiver can be instantiated
  */
-
 public boolean canBeInstantiated() {
 	return !isBaseType();
 }
-/* Answer the receiver's constant pool name.
- *
- * NOTE: This method should only be used during/after code gen.
+/**
+ *  Answer the receiver's constant pool name.
+ *  NOTE: This method should only be used during/after code gen.
+ *  e.g. 'java/lang/Object' 
  */
+public abstract char[] constantPoolName();
 
-public abstract char[] constantPoolName(); /* java/lang/Object */
 String debugName() {
 	return new String(readableName());
 }
@@ -132,4 +132,34 @@ public char[] signature() {
 	return constantPoolName();
 }
 public abstract char[] sourceName();
+
+/**
+ * Match a well-known type id to its binding
+ */
+public static final TypeBinding wellKnownType(Scope scope, int id) {
+		switch (id) { 
+			case T_boolean :
+				return BooleanBinding;
+			case T_byte :
+				return ByteBinding;
+			case T_char :
+				return CharBinding;
+			case T_short :
+				return ShortBinding;
+			case T_double :
+				return DoubleBinding;
+			case T_float :
+				return FloatBinding;
+			case T_int :
+				return IntBinding;
+			case T_long :
+				return LongBinding;
+			case T_Object :
+				return scope.getJavaLangObject();
+			case T_String :
+				return scope.getJavaLangString();
+			default : 
+				return null;
+		}
+	}
 }

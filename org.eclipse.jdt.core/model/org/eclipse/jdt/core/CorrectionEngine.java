@@ -18,7 +18,7 @@ import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
 import org.eclipse.jdt.internal.compiler.parser.*;
-import org.eclipse.jdt.internal.core.*;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * This class is the entry point for source corrections.
@@ -44,11 +44,11 @@ public class CorrectionEngine implements ProblemReasons {
 	/**
 	 * This field is not intended to be used by client.
 	 */
-	protected ICompilationUnit unit;
+	protected ICompilationUnit compilationUnit;
 	/**
 	 * This field is not intended to be used by client.
 	 */
-	protected ICorrectionRequestor requestor;
+	protected ICorrectionRequestor correctionRequestor;
 	/**
 	 * This field is not intended to be used by client.
 	 */
@@ -86,7 +86,7 @@ public class CorrectionEngine implements ProblemReasons {
 	 * 		CURRENTLY THERE IS NO CORRECTION SPECIFIC SETTINGS.
 	 */
 	public CorrectionEngine(Map setting) {
-		
+		// settings ignored for now
 	}
 	
 	/**
@@ -97,13 +97,12 @@ public class CorrectionEngine implements ProblemReasons {
 	 * 
 	 * @param marker
 	 * 		the marker which describe the problem to correct.
-	 * 
 	 * @param targetUnit
 	 * 		replace the compilation unit given by the marker. Ignored if null.
-	 * 
 	 * @param positionOffset
 	 * 		the offset of position given by the marker.
-	 *
+	 * @param requestor
+	 * 		the given correction requestor
 	 * @exception IllegalArgumentException if <code>requestor</code> is <code>null</code>
 	 * @exception JavaModelException currently this exception is never thrown, but the opportunity to thrown an exception
 	 * 	when the correction failed is kept for later. 
@@ -134,10 +133,10 @@ public class CorrectionEngine implements ProblemReasons {
 	 * 
 	 * @param problem
 	 * 		the problem which describe the problem to correct.
-	 * 
 	 * @param targetUnit
 	 * 		denote the compilation unit in which correction occurs. Cannot be null.
-	 * 
+	 * @param requestor
+	 * 		the given correction requestor
 	 * @exception IllegalArgumentException if <code>targetUnit</code> or <code>requestor</code> is <code>null</code>
 	 * @exception JavaModelException currently this exception is never thrown, but the opportunity to thrown an exception
 	 * 	when the correction failed is kept for later.
@@ -155,7 +154,7 @@ public class CorrectionEngine implements ProblemReasons {
 			requestor);
 	}
 
-	/**
+	/*
 	 * Ask the engine to compute a correction for the specified problem
 	 * of the given compilation unit.
 	 * Correction results are answered through a requestor.
@@ -180,7 +179,7 @@ public class CorrectionEngine implements ProblemReasons {
 	 * 	when the correction failed is kept for later.
 	 * @since 2.0
 	 */
-	private void computeCorrections(ICompilationUnit unit, int id, int start, int end, String[] arguments, ICorrectionRequestor requestor) throws JavaModelException{
+	private void computeCorrections(ICompilationUnit unit, int id, int start, int end, String[] arguments, ICorrectionRequestor requestor) {
 
 		if(id == -1 || arguments == null || start == -1 || end == -1)
 			return;		
@@ -188,10 +187,10 @@ public class CorrectionEngine implements ProblemReasons {
 			throw new IllegalArgumentException(Util.bind("correction.nullRequestor")); //$NON-NLS-1$
 		}
 		
-		this.requestor = requestor;
+		this.correctionRequestor = requestor;
 		this.correctionStart = start;
 		this.correctionEnd = end;
-		this.unit = unit;
+		this.compilationUnit = unit;
 		
 		String argument = null;
 		try {
@@ -199,47 +198,47 @@ public class CorrectionEngine implements ProblemReasons {
 				// Type correction
 				case IProblem.FieldTypeNotFound :
 				case IProblem.ArgumentTypeNotFound :
-					filter = CLASSES | INTERFACES;
+					this.filter = CLASSES | INTERFACES;
 					argument = arguments[2];
 					break;
 				case IProblem.SuperclassNotFound :
-					filter = CLASSES;
+					this.filter = CLASSES;
 					argument = arguments[0];
 					break;
 				case IProblem.InterfaceNotFound :
-					filter = INTERFACES;
+					this.filter = INTERFACES;
 					argument = arguments[0];
 					break;
 				case IProblem.ExceptionTypeNotFound :
-					filter = CLASSES;
+					this.filter = CLASSES;
 					argument = arguments[1];
 					break;
 				case IProblem.ReturnTypeNotFound :
-					filter = CLASSES | INTERFACES;
+					this.filter = CLASSES | INTERFACES;
 					argument = arguments[1];
 					break;
 				case IProblem.ImportNotFound :
-					filter = IMPORT;
+					this.filter = IMPORT;
 					argument = arguments[0];
 					break;
 				case IProblem.UndefinedType :
-					filter = CLASSES | INTERFACES;
+					this.filter = CLASSES | INTERFACES;
 					argument = arguments[0];
 					break;
 					
 				// Method correction
 				case IProblem.UndefinedMethod :
-					filter = METHOD;
+					this.filter = METHOD;
 					argument = arguments[1];
 					break;
 					
 				// Field and local variable correction
 				case IProblem.UndefinedField :
-					filter = FIELD;
+					this.filter = FIELD;
 					argument = arguments[0];
 					break;
 				case IProblem.UndefinedName :
-					filter = FIELD | LOCAL;
+					this.filter = FIELD | LOCAL;
 					argument = arguments[0];
 					break;
 			}
@@ -251,13 +250,13 @@ public class CorrectionEngine implements ProblemReasons {
 		}
 	}
 
-	private void correct(char[] argument) throws JavaModelException {
+	private void correct(char[] argument) {
 		try {
-			String source = unit.getSource();
+			String source = this.compilationUnit.getSource();
 			Scanner scanner = new Scanner();
 			scanner.setSource(source.toCharArray());
 			
-			scanner.resetTo(correctionStart, correctionEnd);
+			scanner.resetTo(this.correctionStart, this.correctionEnd);
 			int token = 0;
 			char[] argumentSource = CharOperation.NO_CHAR;
 			
@@ -273,17 +272,17 @@ public class CorrectionEngine implements ProblemReasons {
 					return;
 				
 				if(CharOperation.equals(argument, argumentSource)) {
-					correctionStart = scanner.startPosition;
-					correctionEnd = scanner.currentPosition;
-					prefixLength = CharOperation.lastIndexOf('.', argument) + 1;
+					this.correctionStart = scanner.startPosition;
+					this.correctionEnd = scanner.currentPosition;
+					this.prefixLength = CharOperation.lastIndexOf('.', argument) + 1;
 					break;
 				}
 				
 			}
 		
 			// search completion position
-			int completionPosition = correctionStart;
-			scanner.resetTo(completionPosition, correctionEnd);
+			int completionPosition = this.correctionStart;
+			scanner.resetTo(completionPosition, this.correctionEnd);
 			int position = completionPosition;
 			
 			for (int i = 0; i < 4; i++) {
@@ -295,9 +294,9 @@ public class CorrectionEngine implements ProblemReasons {
 				}
 			}
 			
-			unit.codeComplete(
+			this.compilationUnit.codeComplete(
 				completionPosition,
-				completionRequestor
+				this.completionRequestor
 			);
 		} catch (JavaModelException e) {
 			return;
@@ -312,29 +311,29 @@ public class CorrectionEngine implements ProblemReasons {
 	protected ICompletionRequestor completionRequestor = new ICompletionRequestor() {
 		public void acceptAnonymousType(char[] superTypePackageName,char[] superTypeName,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {}
 		public void acceptClass(char[] packageName,char[] className,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {
-			if((filter & (CLASSES | INTERFACES)) != 0) {
-				requestor.acceptClass(
+			if((CorrectionEngine.this.filter & (CLASSES | INTERFACES)) != 0) {
+				CorrectionEngine.this.correctionRequestor.acceptClass(
 					packageName,
 					className,
-					CharOperation.subarray(completionName, prefixLength, completionName.length),
+					CharOperation.subarray(completionName, CorrectionEngine.this.prefixLength, completionName.length),
 					modifiers,
-					correctionStart,
-					correctionEnd);
-			} else if((filter & IMPORT) != 0) {
+					CorrectionEngine.this.correctionStart,
+					CorrectionEngine.this.correctionEnd);
+			} else if((CorrectionEngine.this.filter & IMPORT) != 0) {
 				char[] fullName = CharOperation.concat(packageName, className, '.');
-				requestor.acceptClass(
+				CorrectionEngine.this.correctionRequestor.acceptClass(
 					packageName,
 					className,
-					CharOperation.subarray(fullName, prefixLength, fullName.length),
+					CharOperation.subarray(fullName, CorrectionEngine.this.prefixLength, fullName.length),
 					modifiers,
-					correctionStart,
-					correctionEnd);
+					CorrectionEngine.this.correctionStart,
+					CorrectionEngine.this.correctionEnd);
 			}
 		}
 		public void acceptError(IProblem error) {}
 		public void acceptField(char[] declaringTypePackageName,char[] declaringTypeName,char[] name,char[] typePackageName,char[] typeName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {
-			if((filter & FIELD) != 0) {
-				requestor.acceptField(
+			if((CorrectionEngine.this.filter & FIELD) != 0) {
+				CorrectionEngine.this.correctionRequestor.acceptField(
 					declaringTypePackageName,
 					declaringTypeName,
 					name,
@@ -342,46 +341,46 @@ public class CorrectionEngine implements ProblemReasons {
 					typeName,
 					name,
 					modifiers,
-					correctionStart,
-					correctionEnd);
+					CorrectionEngine.this.correctionStart,
+					CorrectionEngine.this.correctionEnd);
 			}
 		}
 		public void acceptInterface(char[] packageName,char[] interfaceName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {
-			if((filter & (CLASSES | INTERFACES)) != 0) {
-				requestor.acceptInterface(
+			if((CorrectionEngine.this.filter & (CLASSES | INTERFACES)) != 0) {
+				CorrectionEngine.this.correctionRequestor.acceptInterface(
 					packageName,
 					interfaceName,
-					CharOperation.subarray(completionName, prefixLength, completionName.length),
+					CharOperation.subarray(completionName, CorrectionEngine.this.prefixLength, completionName.length),
 					modifiers,
-					correctionStart,
-					correctionEnd);
-			} else if((filter & IMPORT) != 0) {
+					CorrectionEngine.this.correctionStart,
+					CorrectionEngine.this.correctionEnd);
+			} else if((CorrectionEngine.this.filter & IMPORT) != 0) {
 				char[] fullName = CharOperation.concat(packageName, interfaceName, '.');
-				requestor.acceptInterface(
+				CorrectionEngine.this.correctionRequestor.acceptInterface(
 					packageName,
 					interfaceName,
-					CharOperation.subarray(fullName, prefixLength, fullName.length),
+					CharOperation.subarray(fullName, CorrectionEngine.this.prefixLength, fullName.length),
 					modifiers,
-					correctionStart,
-					correctionEnd);
+					CorrectionEngine.this.correctionStart,
+					CorrectionEngine.this.correctionEnd);
 			}
 		}
 		public void acceptKeyword(char[] keywordName,int completionStart,int completionEnd, int relevance) {}
 		public void acceptLabel(char[] labelName,int completionStart,int completionEnd, int relevance) {}
 		public void acceptLocalVariable(char[] name,char[] typePackageName,char[] typeName,int modifiers,int completionStart,int completionEnd, int relevance) {
-			if((filter & LOCAL) != 0) {
-				requestor.acceptLocalVariable(
+			if((CorrectionEngine.this.filter & LOCAL) != 0) {
+				CorrectionEngine.this.correctionRequestor.acceptLocalVariable(
 					name,
 					typePackageName,
 					typeName,
 					modifiers,
-					correctionStart,
-					correctionEnd);
+					CorrectionEngine.this.correctionStart,
+					CorrectionEngine.this.correctionEnd);
 			}
 		}
 		public void acceptMethod(char[] declaringTypePackageName,char[] declaringTypeName,char[] selector,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] returnTypePackageName,char[] returnTypeName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {
-			if((filter & METHOD) != 0) {
-				requestor.acceptMethod(
+			if((CorrectionEngine.this.filter & METHOD) != 0) {
+				CorrectionEngine.this.correctionRequestor.acceptMethod(
 					declaringTypePackageName,
 					declaringTypeName,
 					selector,
@@ -392,19 +391,19 @@ public class CorrectionEngine implements ProblemReasons {
 					returnTypeName,
 					selector,
 					modifiers,
-					correctionStart,
-					correctionEnd);
+					CorrectionEngine.this.correctionStart,
+					CorrectionEngine.this.correctionEnd);
 			}
 		}
 		public void acceptMethodDeclaration(char[] declaringTypePackageName,char[] declaringTypeName,char[] selector,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] returnTypePackageName,char[] returnTypeName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {}
 		public void acceptModifier(char[] modifierName,int completionStart,int completionEnd, int relevance) {}
 		public void acceptPackage(char[] packageName,char[] completionName,int completionStart,int completionEnd, int relevance) {
-			if((filter & (CLASSES | INTERFACES | IMPORT)) != 0) {
-				requestor.acceptPackage(
+			if((CorrectionEngine.this.filter & (CLASSES | INTERFACES | IMPORT)) != 0) {
+				CorrectionEngine.this.correctionRequestor.acceptPackage(
 					packageName,
-					CharOperation.subarray(packageName, prefixLength, packageName.length),
-					correctionStart,
-					correctionEnd);
+					CharOperation.subarray(packageName, CorrectionEngine.this.prefixLength, packageName.length),
+					CorrectionEngine.this.correctionStart,
+					CorrectionEngine.this.correctionEnd);
 			}
 		}
 		public void acceptType(char[] packageName,char[] typeName,char[] completionName,int completionStart,int completionEnd, int relevance) {}

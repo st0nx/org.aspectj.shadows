@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     IBM Corporation - added constant AccDefault
  *******************************************************************************/
 package org.eclipse.jdt.core;
 
@@ -25,10 +26,15 @@ import org.eclipse.jdt.internal.compiler.env.IConstants;
  * the <code>org.eclipse.jdt.core.dom</code> package.
  * </p>
  *
- * @see IMember#getFlags
+ * @see IMember#getFlags()
  */
 public final class Flags {
 
+	/**
+	 * Constant representing the absence of any flag
+	 * @since 3.0
+	 */
+	public static final int AccDefault = 0;
 	/**
 	 * Public access flag. See The Java Virtual Machine Specification for more details.
 	 * @since 2.0
@@ -109,6 +115,7 @@ public final class Flags {
 	 * Not instantiable.
 	 */
 	private Flags() {
+		// Not instantiable
 	}
 	/**
 	 * Returns whether the given integer includes the <code>abstract</code> modifier.

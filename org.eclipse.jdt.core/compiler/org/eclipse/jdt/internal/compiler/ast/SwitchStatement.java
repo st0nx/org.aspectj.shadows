@@ -10,36 +10,43 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class SwitchStatement extends Statement {
-	public Expression testExpression;
+
+	public Expression expression;
 	public Statement[] statements;
 	public BlockScope scope;
 	public int explicitDeclarations;
 	public Label breakLabel;
-	public Case[] cases;
-	public DefaultCase defaultCase;
+	public CaseStatement[] cases;
+	public CaseStatement defaultCase;
 	public int caseCount = 0;
-
+	public int blockStart;
+	
 	// for local variables table attributes
 	int preSwitchInitStateIndex = -1;
 	int mergedInitStateIndex = -1;
+
 	/**
 	 * SwitchStatement constructor comment.
 	 */
 	public SwitchStatement() {
+
 		super();
 	}
+
 	public FlowInfo analyseCode(
-		BlockScope currentScope,
-		FlowContext flowContext,
-		FlowInfo flowInfo) {
-		flowInfo = testExpression.analyseCode(currentScope, flowContext, flowInfo);
+			BlockScope currentScope,
+			FlowContext flowContext,
+			FlowInfo flowInfo) {
+			
+		flowInfo = expression.analyseCode(currentScope, flowContext, flowInfo);
 		SwitchFlowContext switchContext =
 			new SwitchFlowContext(flowContext, this, (breakLabel = new Label()));
 
@@ -62,7 +69,7 @@ public class SwitchStatement extends Statement {
 					caseInits = caseInits.mergedWith(flowInfo.copy().unconditionalInits());
 					didAlreadyComplain = false; // reset complaint
 				}
-				if (!caseInits.complainIfUnreachable(statement, scope, didAlreadyComplain)) {
+				if (!statement.complainIfUnreachable(caseInits, scope, didAlreadyComplain)) {
 					caseInits = statement.analyseCode(scope, switchContext, caseInits);
 				} else {
 					didAlreadyComplain = true;
@@ -86,6 +93,7 @@ public class SwitchStatement extends Statement {
 			currentScope.methodScope().recordInitializationStates(mergedInfo);
 		return mergedInfo;
 	}
+
 	/**
 	 * Switch code generation
 	 *
@@ -93,6 +101,7 @@ public class SwitchStatement extends Statement {
 	 * @param codeStream org.eclipse.jdt.internal.compiler.codegen.CodeStream
 	 */
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
+
 		int[] sortedIndexes = new int[caseCount];
 		int[] localKeysCopy;
 		if ((bits & IsReachableMASK) == 0) {
@@ -126,7 +135,7 @@ public class SwitchStatement extends Statement {
 			defaultCase.targetLabel = defaultLabel;
 		}
 		// generate expression testes
-		testExpression.generateCode(currentScope, codeStream, needSwitch);
+		expression.generateCode(currentScope, codeStream, needSwitch);
 
 		// generate the appropriate switch table/lookup bytecode
 		if (needSwitch) {
@@ -136,7 +145,7 @@ public class SwitchStatement extends Statement {
 				
 				// work-around 1.3 VM bug, if max>0x7FFF0000, must use lookup bytecode
 				// see http://dev.eclipse.org/bugs/show_bug.cgi?id=21557
-				if (max > 0x7FFF0000 && currentScope.environment().options.complianceLevel < CompilerOptions.JDK1_4) {
+				if (max > 0x7FFF0000 && currentScope.environment().options.complianceLevel < ClassFileConstants.JDK1_4) {
 					codeStream.lookupswitch(defaultLabel, constants, sortedIndexes, caseLabels);
 
 				} else {
@@ -197,22 +206,40 @@ public class SwitchStatement extends Statement {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
+	public StringBuffer printStatement(int indent, StringBuffer output) {
+
+		printIndent(indent, output).append("switch ("); //$NON-NLS-1$
+		expression.printExpression(0, output).append(") {"); //$NON-NLS-1$
+		if (statements != null) {
+			for (int i = 0; i < statements.length; i++) {
+				output.append('\n');
+				if (statements[i] instanceof CaseStatement) {
+					statements[i].printStatement(indent, output);
+				} else {
+					statements[i].printStatement(indent+2, output);
+				}
+			}
+		}
+		output.append("\n"); //$NON-NLS-1$
+		return printIndent(indent, output).append('}');
+	}
 
 	public void resetStateForCodeGeneration() {
+
 		if (this.breakLabel != null) {
 			this.breakLabel.resetStateForCodeGeneration();
 		}
 	}
 
 	public void resolve(BlockScope upperScope) {
-
-		TypeBinding testType = testExpression.resolveType(upperScope);
+	
+		TypeBinding testType = expression.resolveType(upperScope);
 		if (testType == null)
 			return;
-		testExpression.implicitWidening(testType, testType);
-		if (!(testExpression.isConstantValueOfTypeAssignableToType(testType, IntBinding))) {
+		expression.implicitWidening(testType, testType);
+		if (!(expression.isConstantValueOfTypeAssignableToType(testType, IntBinding))) {
 			if (!testType.isCompatibleWith(IntBinding)) {
-				upperScope.problemReporter().incorrectSwitchType(testExpression, testType);
+				upperScope.problemReporter().incorrectSwitchType(expression, testType);
 				return;
 			}
 		}
@@ -220,83 +247,59 @@ public class SwitchStatement extends Statement {
 			scope = explicitDeclarations == 0 ? upperScope : new BlockScope(upperScope);
 			int length;
 			// collection of cases is too big but we will only iterate until caseCount
-			cases = new Case[length = statements.length];
+			cases = new CaseStatement[length = statements.length];
 			int[] casesValues = new int[length];
+			CaseStatement[] duplicateCaseStatements = null;
+			int duplicateCaseStatementsCounter = 0;
 			int counter = 0;
 			for (int i = 0; i < length; i++) {
-				Constant cst;
-				if ((cst = statements[i].resolveCase(scope, testType, this)) != null) {
+				Constant constant;
+				final Statement statement = statements[i];
+				if ((constant = statement.resolveCase(scope, testType, this)) != null) {
 					//----check for duplicate case statement------------
-					if (cst != NotAConstant) {
-						int key = cst.intValue();
+					if (constant != NotAConstant) {
+						int key = constant.intValue();
 						for (int j = 0; j < counter; j++) {
 							if (casesValues[j] == key) {
-								scope.problemReporter().duplicateCase((Case) statements[i], cst); //TODO: (philippe) could improve diagnosis to indicate colliding case
+								final CaseStatement currentCaseStatement = (CaseStatement) statement;
+								if (duplicateCaseStatements == null) {
+									scope.problemReporter().duplicateCase(cases[j]);
+									scope.problemReporter().duplicateCase(currentCaseStatement);
+									duplicateCaseStatements = new CaseStatement[length];
+									duplicateCaseStatements[duplicateCaseStatementsCounter++] = cases[j];
+									duplicateCaseStatements[duplicateCaseStatementsCounter++] = currentCaseStatement;
+								} else {
+									boolean found = false;
+									searchReportedDuplicate: for (int k = 2; k < duplicateCaseStatementsCounter; k++) {
+										if (duplicateCaseStatements[k] == statement) {
+											found = true;
+											break searchReportedDuplicate;
+										}
+									}
+									if (!found) {
+										scope.problemReporter().duplicateCase(currentCaseStatement);
+										duplicateCaseStatements[duplicateCaseStatementsCounter++] = currentCaseStatement;
+									}
+								}
 							}
 						}
 						casesValues[counter++] = key;
 					}
 				}
 			}
-		}
-	}
-	public String toString(int tab) {
-
-		String inFront, s = tabString(tab);
-		inFront = s;
-		s = s + "switch (" + testExpression.toStringExpression() + ") "; //$NON-NLS-1$ //$NON-NLS-2$
-		if (statements == null) {
-			s = s + "{}"; //$NON-NLS-1$
-			return s;
-		} else
-			s = s + "{"; //$NON-NLS-1$
-			s = s
-					+ (explicitDeclarations != 0
-						? "// ---scope needed for " //$NON-NLS-1$
-							+ String.valueOf(explicitDeclarations)
-							+ " locals------------ \n"//$NON-NLS-1$
-						: "// ---NO scope needed------ \n"); //$NON-NLS-1$
-
-		int i = 0;
-		String tabulation = "  "; //$NON-NLS-1$
-		try {
-			while (true) {
-				//use instanceof in order not to polluate classes with behavior only needed for printing purpose.
-				if (statements[i] instanceof Expression)
-					s = s + "\n" + inFront + tabulation; //$NON-NLS-1$
-				if (statements[i] instanceof Break)
-					s = s + statements[i].toString(0);
-				else
-					s = s + "\n" + statements[i].toString(tab + 2); //$NON-NLS-1$
-				//=============	
-				if ((statements[i] instanceof Case)
-					|| (statements[i] instanceof DefaultCase)) {
-					i++;
-					while (!((statements[i] instanceof Case)
-						|| (statements[i] instanceof DefaultCase))) {
-						if ((statements[i] instanceof Expression) || (statements[i] instanceof Break))
-							s = s + statements[i].toString(0) + " ; "; //$NON-NLS-1$
-						else
-							s = s + "\n" + statements[i].toString(tab + 6) + " ; "; //$NON-NLS-1$ //$NON-NLS-2$
-						i++;
-					}
-				} else {
-					s = s + " ;"; //$NON-NLS-1$
-					i++;
-				}
+		} else {
+			if ((this.bits & UndocumentedEmptyBlockMASK) != 0) {
+				upperScope.problemReporter().undocumentedEmptyBlock(this.blockStart, this.sourceEnd);
 			}
-		} catch (IndexOutOfBoundsException e) {
-		};
-		s = s + "}"; //$NON-NLS-1$
-		return s;
+		}
 	}
 
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
-		BlockScope blockScope) {
+			ASTVisitor visitor,
+			BlockScope blockScope) {
 
 		if (visitor.visit(this, blockScope)) {
-			testExpression.traverse(visitor, scope);
+			expression.traverse(visitor, scope);
 			if (statements != null) {
 				int statementsLength = statements.length;
 				for (int i = 0; i < statementsLength; i++)

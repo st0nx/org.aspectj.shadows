@@ -11,13 +11,9 @@
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.Argument;
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
-import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
-import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 
@@ -39,7 +35,7 @@ public class BlockScope extends Scope {
 	public final static VariableBinding[] NoEnclosingInstanceInStaticContext = {};
 
 	public Scope[] subscopes = new Scope[1]; // need access from code assist
-	public int scopeIndex = 0; // need access from code assist
+	public int subscopeCount = 0; // need access from code assist
 
 	protected BlockScope(int kind, Scope parent) {
 
@@ -131,14 +127,14 @@ public class BlockScope extends Scope {
 	}
 
 	public void addSubscope(Scope childScope) {
-		if (scopeIndex == subscopes.length)
+		if (subscopeCount == subscopes.length)
 			System.arraycopy(
 				subscopes,
 				0,
-				(subscopes = new Scope[scopeIndex * 2]),
+				(subscopes = new Scope[subscopeCount * 2]),
 				0,
-				scopeIndex);
-		subscopes[scopeIndex++] = childScope;
+				subscopeCount);
+		subscopes[subscopeCount++] = childScope;
 	}
 
 	/* Answer true if the receiver is suitable for assigning final blank fields.
@@ -202,7 +198,7 @@ public class BlockScope extends Scope {
 		boolean hasMoreVariables = ilocal < maxLocals;
 
 		// scope init
-		int iscope = 0, maxScopes = this.scopeIndex;
+		int iscope = 0, maxScopes = this.subscopeCount;
 		boolean hasMoreScopes = maxScopes > 0;
 
 		// iterate scopes and variables in parallel
@@ -229,7 +225,7 @@ public class BlockScope extends Scope {
 				// do not report fake used variable
 				if (local.useFlag == LocalVariableBinding.UNUSED
 					&& (local.declaration != null) // unused (and non secret) local
-					&& ((local.declaration.bits & AstNode.IsLocalDeclarationReachableMASK) != 0)) { // declaration is reachable
+					&& ((local.declaration.bits & ASTNode.IsLocalDeclarationReachableMASK) != 0)) { // declaration is reachable
 						
 					if (!(local.declaration instanceof Argument))  // do not report unused catch arguments
 						this.problemReporter().unusedLocalVariable(local.declaration);
@@ -260,7 +256,7 @@ public class BlockScope extends Scope {
 					if (this.offset > 0xFFFF) { // no more than 65535 words of locals
 						this.problemReporter().noMoreAvailableSpaceForLocal(
 							local, 
-							local.declaration == null ? (AstNode)this.methodScope().referenceContext : local.declaration);
+							local.declaration == null ? (ASTNode)this.methodScope().referenceContext : local.declaration);
 					}
 				} else {
 					local.resolvedPosition = -1; // not generated
@@ -270,19 +266,6 @@ public class BlockScope extends Scope {
 		}
 		if (this.offset > this.maxOffset)
 			this.maxOffset = this.offset;
-	}
-
-	/* Answer true if the variable name already exists within the receiver's scope.
-	 */
-	public final LocalVariableBinding duplicateName(char[] name) {
-		for (int i = 0; i < localIndex; i++)
-			if (CharOperation.equals(name, locals[i].name))
-				return locals[i];
-
-		if (this instanceof MethodScope)
-			return null;
-		else
-			return ((BlockScope) parent).duplicateName(name);
 	}
 
 	/*
@@ -333,7 +316,7 @@ public class BlockScope extends Scope {
 	 */
 	public final ReferenceBinding findLocalType(char[] name) {
 
-		for (int i = 0, length = scopeIndex; i < length; i++) {
+		for (int i = 0, length = subscopeCount; i < length; i++) {
 			if (subscopes[i] instanceof ClassScope) {
 				SourceTypeBinding sourceType =
 					((ClassScope) subscopes[i]).referenceContext.binding;
@@ -388,9 +371,9 @@ public class BlockScope extends Scope {
 	 *
 	 *	IMPORTANT NOTE: This method is written under the assumption that compoundName is longer than length 1.
 	 */
-	public Binding getBinding(char[][] compoundName, int mask, InvocationSite invocationSite) {
+	public Binding getBinding(char[][] compoundName, int mask, InvocationSite invocationSite, boolean needResolve) {
 
-		Binding binding = getBinding(compoundName[0], mask | TYPE | PACKAGE, invocationSite);
+		Binding binding = getBinding(compoundName[0], mask | TYPE | PACKAGE, invocationSite, needResolve);
 		invocationSite.setFieldIndex(1);
 		if (binding instanceof VariableBinding) return binding;
 		compilationUnitScope().recordSimpleReference(compoundName[0]);
@@ -423,7 +406,7 @@ public class BlockScope extends Scope {
 					if (!((ReferenceBinding) binding).canBeSeenBy(this))
 						return new ProblemReferenceBinding(
 							CharOperation.subarray(compoundName, 0, currentIndex),
-							binding,
+							(ReferenceBinding) binding,
 							NotVisible);
 					break foundType;
 				}
@@ -442,7 +425,7 @@ public class BlockScope extends Scope {
 			char[] nextName = compoundName[currentIndex++];
 			invocationSite.setFieldIndex(currentIndex);
 			invocationSite.setActualReceiverType(typeBinding);
-			if ((mask & FIELD) != 0 && (binding = findField(typeBinding, nextName, invocationSite)) != null) {
+			if ((mask & FIELD) != 0 && (binding = findField(typeBinding, nextName, invocationSite, true /*resolve*/)) != null) {
 				if (!binding.isValidBinding())
 					return new ProblemFieldBinding(
 						((FieldBinding) binding).declaringClass,
@@ -500,7 +483,8 @@ public class BlockScope extends Scope {
 			getBinding(
 				compoundName[currentIndex++],
 				VARIABLE | TYPE | PACKAGE,
-				invocationSite);
+				invocationSite, 
+				true /*resolve*/);
 		if (!binding.isValidBinding())
 			return binding;
 
@@ -527,7 +511,7 @@ public class BlockScope extends Scope {
 					if (!((ReferenceBinding) binding).canBeSeenBy(this))
 						return new ProblemReferenceBinding(
 							CharOperation.subarray(compoundName, 0, currentIndex),
-							binding, 
+							(ReferenceBinding) binding, 
 							NotVisible);
 					break foundType;
 				}
@@ -539,7 +523,7 @@ public class BlockScope extends Scope {
 			while (currentIndex < length) {
 				ReferenceBinding typeBinding = (ReferenceBinding) binding;
 				char[] nextName = compoundName[currentIndex++];
-				if ((binding = findField(typeBinding, nextName, invocationSite)) != null) {
+				if ((binding = findField(typeBinding, nextName, invocationSite, true /*resolve*/)) != null) {
 					if (!binding.isValidBinding())
 						return new ProblemFieldBinding(
 							((FieldBinding) binding).declaringClass,
@@ -574,7 +558,7 @@ public class BlockScope extends Scope {
 					CharOperation.subarray(compoundName, 0, currentIndex + 1),
 					NotFound);
 			variableBinding =
-				findField(typeBinding, compoundName[currentIndex++], invocationSite);
+				findField(typeBinding, compoundName[currentIndex++], invocationSite, true /*resolve*/);
 			if (variableBinding == null)
 				return new ProblemFieldBinding(
 					null,
@@ -584,251 +568,6 @@ public class BlockScope extends Scope {
 				return variableBinding;
 		}
 		return variableBinding;
-	}
-
-	/* API
-     *	
-	 *	Answer the binding that corresponds to the argument name.
-	 *	flag is a mask of the following values VARIABLE (= FIELD or LOCAL), TYPE, PACKAGE.
-	 *	Only bindings corresponding to the mask can be answered.
-	 *
-	 *	For example, getBinding("foo", VARIABLE, site) will answer
-	 *	the binding for the field or local named "foo" (or an error binding if none exists).
-	 *	If a type named "foo" exists, it will not be detected (and an error binding will be answered)
-	 *
-	 *	The VARIABLE mask has precedence over the TYPE mask.
-	 *
-	 *	If the VARIABLE mask is not set, neither fields nor locals will be looked for.
-	 *
-	 *	InvocationSite implements:
-	 *		isSuperAccess(); this is used to determine if the discovered field is visible.
-	 *
-	 *	Limitations: cannot request FIELD independently of LOCAL, or vice versa
-	 */
-	public Binding getBinding(char[] name, int mask, InvocationSite invocationSite) {
-			
-		Binding binding = null;
-		FieldBinding problemField = null;
-		if ((mask & VARIABLE) != 0) {
-			if (this.kind == BLOCK_SCOPE || this.kind == METHOD_SCOPE) {
-				LocalVariableBinding variableBinding = findVariable(name);
-				// looks in this scope only
-				if (variableBinding != null) return variableBinding;
-			}
-
-			boolean insideStaticContext = false;
-			boolean insideConstructorCall = false;
-			if (this.kind == METHOD_SCOPE) {
-				MethodScope methodScope = (MethodScope) this;
-				insideStaticContext |= methodScope.isStatic;
-				insideConstructorCall |= methodScope.isConstructorCall;
-			}
-
-			FieldBinding foundField = null;
-			// can be a problem field which is answered if a valid field is not found
-			ProblemFieldBinding foundInsideProblem = null;
-			// inside Constructor call or inside static context
-			Scope scope = parent;
-			int depth = 0;
-			int foundDepth = 0;
-			ReferenceBinding foundActualReceiverType = null;
-			done : while (true) { // done when a COMPILATION_UNIT_SCOPE is found
-				switch (scope.kind) {
-					case METHOD_SCOPE :
-						MethodScope methodScope = (MethodScope) scope;
-						insideStaticContext |= methodScope.isStatic;
-						insideConstructorCall |= methodScope.isConstructorCall;
-						// Fall through... could duplicate the code below to save a cast - questionable optimization
-					case BLOCK_SCOPE :
-						LocalVariableBinding variableBinding = ((BlockScope) scope).findVariable(name);
-						// looks in this scope only
-						if (variableBinding != null) {
-							if (foundField != null && foundField.isValidBinding())
-								return new ProblemFieldBinding(
-									foundField.declaringClass,
-									name,
-									InheritedNameHidesEnclosingName);
-							if (depth > 0)
-								invocationSite.setDepth(depth);
-							return variableBinding;
-						}
-						break;
-					case CLASS_SCOPE :
-						ClassScope classScope = (ClassScope) scope;
-						SourceTypeBinding enclosingType = classScope.referenceContext.binding;
-						FieldBinding fieldBinding =
-							classScope.findField(enclosingType, name, invocationSite);
-						// Use next line instead if willing to enable protected access accross inner types
-						// FieldBinding fieldBinding = findField(enclosingType, name, invocationSite);
-						if (fieldBinding != null) { // skip it if we did not find anything
-							if (fieldBinding.problemId() == Ambiguous) {
-								if (foundField == null || foundField.problemId() == NotVisible)
-									// supercedes any potential InheritedNameHidesEnclosingName problem
-									return fieldBinding;
-								else
-									// make the user qualify the field, likely wants the first inherited field (javac generates an ambiguous error instead)
-									return new ProblemFieldBinding(
-										fieldBinding.declaringClass,
-										name,
-										InheritedNameHidesEnclosingName);
-							}
-
-							ProblemFieldBinding insideProblem = null;
-							if (fieldBinding.isValidBinding()) {
-								if (!fieldBinding.isStatic()) {
-									if (insideConstructorCall) {
-										insideProblem =
-											new ProblemFieldBinding(
-												fieldBinding.declaringClass,
-												name,
-												NonStaticReferenceInConstructorInvocation);
-									} else if (insideStaticContext) {
-										insideProblem =
-											new ProblemFieldBinding(
-												fieldBinding.declaringClass,
-												name,
-												NonStaticReferenceInStaticContext);
-									}
-								}
-								if (enclosingType == fieldBinding.declaringClass
-									|| environment().options.complianceLevel >= CompilerOptions.JDK1_4){
-									// found a valid field in the 'immediate' scope (ie. not inherited)
-									// OR in 1.4 mode (inherited shadows enclosing)
-									if (foundField == null) {
-										if (depth > 0){
-											invocationSite.setDepth(depth);
-											invocationSite.setActualReceiverType(enclosingType);
-										}
-										// return the fieldBinding if it is not declared in a superclass of the scope's binding (that is, inherited)
-										return insideProblem == null ? fieldBinding : insideProblem;
-									}
-									if (foundField.isValidBinding())
-										// if a valid field was found, complain when another is found in an 'immediate' enclosing type (that is, not inherited)
-										if (foundField.declaringClass != fieldBinding.declaringClass)
-											// ie. have we found the same field - do not trust field identity yet
-											return new ProblemFieldBinding(
-												fieldBinding.declaringClass,
-												name,
-												InheritedNameHidesEnclosingName);
-								}
-							}
-
-							if (foundField == null
-								|| (foundField.problemId() == NotVisible
-									&& fieldBinding.problemId() != NotVisible)) {
-								// only remember the fieldBinding if its the first one found or the previous one was not visible & fieldBinding is...
-								foundDepth = depth;
-								foundActualReceiverType = enclosingType;
-								foundInsideProblem = insideProblem;
-								foundField = fieldBinding;
-							}
-						}
-						depth++;
-						insideStaticContext |= enclosingType.isStatic();
-						// 1EX5I8Z - accessing outer fields within a constructor call is permitted
-						// in order to do so, we change the flag as we exit from the type, not the method
-						// itself, because the class scope is used to retrieve the fields.
-						MethodScope enclosingMethodScope = scope.methodScope();
-						insideConstructorCall =
-							enclosingMethodScope == null ? false : enclosingMethodScope.isConstructorCall;
-						break;
-					case COMPILATION_UNIT_SCOPE :
-						break done;
-				}
-				scope = scope.parent;
-			}
-
-			if (foundInsideProblem != null){
-				return foundInsideProblem;
-			}
-			if (foundField != null) {
-				if (foundField.isValidBinding()){
-					if (foundDepth > 0){
-						invocationSite.setDepth(foundDepth);
-						invocationSite.setActualReceiverType(foundActualReceiverType);
-					}
-					return foundField;
-				}
-				problemField = foundField;
-			}
-		}
-
-		// We did not find a local or instance variable.
-		if ((mask & TYPE) != 0) {
-			if ((binding = getBaseType(name)) != null)
-				return binding;
-			binding = getTypeOrPackage(name, (mask & PACKAGE) == 0 ? TYPE : TYPE | PACKAGE);
-			if (binding.isValidBinding() || mask == TYPE)
-				return binding;
-			// answer the problem type binding if we are only looking for a type
-		} else if ((mask & PACKAGE) != 0) {
-			compilationUnitScope().recordSimpleReference(name);
-			if ((binding = environment().getTopLevelPackage(name)) != null)
-				return binding;
-		}
-		if (problemField != null)
-			return problemField;
-		else
-			return new ProblemBinding(name, enclosingSourceType(), NotFound);
-	}
-
-	/* API
-	 *
-	 *	Answer the constructor binding that corresponds to receiverType, argumentTypes.
-	 *
-	 *	InvocationSite implements 
-	 *		isSuperAccess(); this is used to determine if the discovered constructor is visible.
-	 *
-	 *	If no visible constructor is discovered, an error binding is answered.
-	 */
-	public MethodBinding getConstructor(
-		ReferenceBinding receiverType,
-		TypeBinding[] argumentTypes,
-		InvocationSite invocationSite) {
-
-		compilationUnitScope().recordTypeReference(receiverType);
-		compilationUnitScope().recordTypeReferences(argumentTypes);
-		MethodBinding methodBinding = receiverType.getExactConstructor(argumentTypes);
-		if (methodBinding != null) {
-			if (methodBinding.canBeSeenBy(invocationSite, this))
-				return methodBinding;
-		}
-		MethodBinding[] methods =
-			receiverType.getMethods(ConstructorDeclaration.ConstantPoolName);
-		if (methods == NoMethods) {
-			return new ProblemMethodBinding(
-				ConstructorDeclaration.ConstantPoolName,
-				argumentTypes,
-				NotFound);
-		}
-		MethodBinding[] compatible = new MethodBinding[methods.length];
-		int compatibleIndex = 0;
-		for (int i = 0, length = methods.length; i < length; i++)
-			if (areParametersAssignable(methods[i].parameters, argumentTypes))
-				compatible[compatibleIndex++] = methods[i];
-		if (compatibleIndex == 0)
-			return new ProblemMethodBinding(
-				ConstructorDeclaration.ConstantPoolName,
-				argumentTypes,
-				NotFound);
-		// need a more descriptive error... cannot convert from X to Y
-
-		MethodBinding[] visible = new MethodBinding[compatibleIndex];
-		int visibleIndex = 0;
-		for (int i = 0; i < compatibleIndex; i++) {
-			MethodBinding method = compatible[i];
-			if (method.canBeSeenBy(invocationSite, this))
-				visible[visibleIndex++] = method;
-		}
-		if (visibleIndex == 1)
-			return visible[0];
-		if (visibleIndex == 0)
-			return new ProblemMethodBinding(
-				compatible[0],
-				ConstructorDeclaration.ConstantPoolName,
-				compatible[0].parameters,
-				NotVisible);
-		return mostSpecificClassMethodBinding(visible, visibleIndex);
 	}
 
 	/*
@@ -880,41 +619,33 @@ public class BlockScope extends Scope {
 	 * This retrieves the argument that maps to an enclosing instance of the suitable type,
 	 * 	if not found then answers nil -- do not create one
 	 *
-	 *		#implicitThis		  	 					:  the implicit this will be ok
-	 *		#((arg) this$n)								: available as a constructor arg
-	 * 		#((arg) this$n access$m... access$p) 		: available as as a constructor arg + a sequence of synthetic accessors to synthetic fields
-	 * 		#((fieldDescr) this$n access#m... access$p)	: available as a first synthetic field + a sequence of synthetic accessors to synthetic fields
-	 * 		nil 		 														: not found
-	 *	jls 15.9.2
+	 *		#implicitThis		  	 											:  the implicit this will be ok
+	 *		#((arg) this$n)													: available as a constructor arg
+	 * 	#((arg) this$n access$m... access$p) 		: available as as a constructor arg + a sequence of synthetic accessors to synthetic fields
+	 * 	#((fieldDescr) this$n access#m... access$p)	: available as a first synthetic field + a sequence of synthetic accessors to synthetic fields
+	 * 	null 		 															: not found
+	 *	jls 15.9.2 + http://www.ergnosis.com/java-spec-report/java-language/jls-8.8.5.1-d.html
 	 */
 	public Object[] getEmulationPath(
 			ReferenceBinding targetEnclosingType, 
 			boolean onlyExactMatch,
 			boolean ignoreEnclosingArgInConstructorCall) {
-		//TODO: (philippe) investigate why exactly test76 fails if ignoreEnclosingArgInConstructorCall is always false
+				
 		MethodScope currentMethodScope = this.methodScope();
 		SourceTypeBinding sourceType = currentMethodScope.enclosingSourceType();
 
-		// identity check
-		if (!currentMethodScope.isStatic 
-			&& (!currentMethodScope.isConstructorCall || ignoreEnclosingArgInConstructorCall)
-			&& (sourceType == targetEnclosingType
-				|| (!onlyExactMatch && targetEnclosingType.isSuperclassOf(sourceType)))) {
-			if (currentMethodScope.isConstructorCall) {
-				return NoEnclosingInstanceInConstructorCall;
+		// use 'this' if possible
+		if (!currentMethodScope.isConstructorCall && !currentMethodScope.isStatic) {
+			if (sourceType == targetEnclosingType || (!onlyExactMatch && targetEnclosingType.isSuperclassOf(sourceType))) {
+				return EmulationPathToImplicitThis; // implicit this is good enough
 			}
-			if (currentMethodScope.isStatic){
-				return NoEnclosingInstanceInStaticContext;
-			}
-			return EmulationPathToImplicitThis; // implicit this is good enough
 		}
 		if (!sourceType.isNestedType() || sourceType.isStatic()) { // no emulation from within non-inner types
 			if (currentMethodScope.isConstructorCall) {
 				return NoEnclosingInstanceInConstructorCall;
+			} else if (currentMethodScope.isStatic){
+				return NoEnclosingInstanceInStaticContext;
 			}
-				if (currentMethodScope.isStatic){
-					return NoEnclosingInstanceInStaticContext;
-				}
 			return null;
 		}
 		boolean insideConstructor = currentMethodScope.isInsideInitializerOrConstructor();
@@ -922,6 +653,12 @@ public class BlockScope extends Scope {
 		if (insideConstructor) {
 			SyntheticArgumentBinding syntheticArg;
 			if ((syntheticArg = ((NestedTypeBinding) sourceType).getSyntheticArgument(targetEnclosingType, onlyExactMatch)) != null) {
+				// reject allocation and super constructor call
+				if (ignoreEnclosingArgInConstructorCall 
+						&& currentMethodScope.isConstructorCall 
+						&& (sourceType == targetEnclosingType || (!onlyExactMatch && targetEnclosingType.isSuperclassOf(sourceType)))) {
+					return NoEnclosingInstanceInConstructorCall;
+				}
 				return new Object[] { syntheticArg };
 			}
 		}
@@ -941,12 +678,12 @@ public class BlockScope extends Scope {
 		Object[] path = new Object[2]; // probably at least 2 of them
 		ReferenceBinding currentType = sourceType.enclosingType();
 		if (insideConstructor) {
-			path[0] = ((NestedTypeBinding) sourceType).getSyntheticArgument((SourceTypeBinding) currentType, onlyExactMatch);
+			path[0] = ((NestedTypeBinding) sourceType).getSyntheticArgument(currentType, onlyExactMatch);
 		} else {
 			if (currentMethodScope.isConstructorCall){
 				return NoEnclosingInstanceInConstructorCall;
 			}
-			path[0] = sourceType.getSyntheticField((SourceTypeBinding) currentType, onlyExactMatch);
+			path[0] = sourceType.getSyntheticField(currentType, onlyExactMatch);
 		}
 		if (path[0] != null) { // keep accumulating
 			
@@ -968,7 +705,7 @@ public class BlockScope extends Scope {
 					}
 				}
 				
-				syntheticField = ((NestedTypeBinding) currentType).getSyntheticField((SourceTypeBinding) currentEnclosingType, onlyExactMatch);
+				syntheticField = ((NestedTypeBinding) currentType).getSyntheticField(currentEnclosingType, onlyExactMatch);
 				if (syntheticField == null) break;
 
 				// append inside the path
@@ -985,34 +722,6 @@ public class BlockScope extends Scope {
 			}
 		}
 		return null;
-	}
-
-	/* API
-     *	
-	 *	Answer the field binding that corresponds to fieldName.
-	 *	Start the lookup at the receiverType.
-	 *	InvocationSite implements
-	 *		isSuperAccess(); this is used to determine if the discovered field is visible.
-	 *	Only fields defined by the receiverType or its supertypes are answered;
-	 *	a field of an enclosing type will not be found using this API.
-	 *
-	 *	If no visible field is discovered, an error binding is answered.
-	 */
-	public FieldBinding getField(
-		TypeBinding receiverType,
-		char[] fieldName,
-		InvocationSite invocationSite) {
-
-		FieldBinding field = findField(receiverType, fieldName, invocationSite);
-		if (field == null)
-			return new ProblemFieldBinding(
-				receiverType instanceof ReferenceBinding
-					? (ReferenceBinding) receiverType
-					: null,
-				fieldName,
-				NotFound);
-		else
-			return field;
 	}
 
 	/* API
@@ -1128,7 +837,7 @@ public class BlockScope extends Scope {
 							
 							if (receiverType == methodBinding.declaringClass
 								|| (receiverType.getMethods(selector)) != NoMethods
-								|| ((fuzzyProblem == null || fuzzyProblem.problemId() != NotVisible) && environment().options.complianceLevel >= CompilerOptions.JDK1_4)){
+								|| ((fuzzyProblem == null || fuzzyProblem.problemId() != NotVisible) && environment().options.complianceLevel >= ClassFileConstants.JDK1_4)){
 								// found a valid method in the 'immediate' scope (ie. not inherited)
 								// OR the receiverType implemented a method with the correct name
 								// OR in 1.4 mode (inherited visible shadows enclosing)
@@ -1193,64 +902,21 @@ public class BlockScope extends Scope {
 			return foundMethod;
 		return new ProblemMethodBinding(selector, argumentTypes, NotFound);
 	}
+	
 
-	/* API
-     *	
-	 *	Answer the method binding that corresponds to selector, argumentTypes.
-	 *	Start the lookup at the receiverType.
-	 *	InvocationSite implements 
-	 *		isSuperAccess(); this is used to determine if the discovered method is visible.
-	 *
-	 *	Only methods defined by the receiverType or its supertypes are answered;
-	 *	use getImplicitMethod() to discover methods of enclosing types.
-	 *
-	 *	If no visible method is discovered, an error binding is answered.
+	
+	/* Answer true if the variable name already exists within the receiver's scope.
 	 */
-	public MethodBinding getMethod(
-		TypeBinding receiverType,
-		char[] selector,
-		TypeBinding[] argumentTypes,
-		InvocationSite invocationSite) {
-
-		if (receiverType.isArrayType())
-			return findMethodForArray(
-				(ArrayBinding) receiverType,
-				selector,
-				argumentTypes,
-				invocationSite);
-		if (receiverType.isBaseType())
-			return new ProblemMethodBinding(selector, argumentTypes, NotFound);
-
-		ReferenceBinding currentType = (ReferenceBinding) receiverType;
-		if (!currentType.canBeSeenBy(this))
-			return new ProblemMethodBinding(selector, argumentTypes, ReceiverTypeNotVisible);
-
-		// retrieve an exact visible match (if possible)
-		MethodBinding methodBinding =
-			findExactMethod(currentType, selector, argumentTypes, invocationSite);
-		if (methodBinding != null)
-			return methodBinding;
-
-		// answers closest approximation, may not check argumentTypes or visibility
-		methodBinding =
-			findMethod(currentType, selector, argumentTypes, invocationSite);
-		if (methodBinding == null)
-			return new ProblemMethodBinding(selector, argumentTypes, NotFound);
-		if (methodBinding.isValidBinding()) {
-			if (!areParametersAssignable(methodBinding.parameters, argumentTypes))
-				return new ProblemMethodBinding(
-					methodBinding,
-					selector,
-					argumentTypes,
-					NotFound);
-			if (!methodBinding.canBeSeenBy(currentType, invocationSite, this))
-				return new ProblemMethodBinding(
-					methodBinding,
-					selector,
-					methodBinding.parameters,
-					NotVisible);
+	public final boolean isDuplicateLocalVariable(char[] name) {
+		BlockScope current = this;
+		while (true) {
+			for (int i = 0; i < localIndex; i++) {
+				if (CharOperation.equals(name, current.locals[i].name))
+					return true;
+			}
+			if (current.kind != BLOCK_SCOPE) return false;
+			current = (BlockScope)current.parent;
 		}
-		return methodBinding;
 	}
 
 	public int maxShiftedOffset() {
@@ -1305,6 +971,20 @@ public class BlockScope extends Scope {
 		return methodScope().referenceType();
 	}
 
+	/*
+	 * Answer the index of this scope relatively to its parent.
+	 * For method scope, answers -1 (not a classScope relative position)
+	 */
+	public int scopeIndex() {
+		if (this instanceof MethodScope) return -1;
+		BlockScope parentScope = (BlockScope)parent;
+		Scope[] parentSubscopes = parentScope.subscopes;
+		for (int i = 0, max = parentScope.subscopeCount; i < max; i++) {
+			if (parentSubscopes[i] == this) return i;
+		}
+		return -1;
+	}
+	
 	// start position in this scope - for ordering scopes vs. variables
 	int startIndex() {
 		return startIndex;
@@ -1317,7 +997,7 @@ public class BlockScope extends Scope {
 	public String toString(int tab) {
 
 		String s = basicToString(tab);
-		for (int i = 0; i < scopeIndex; i++)
+		for (int i = 0; i < subscopeCount; i++)
 			if (subscopes[i] instanceof BlockScope)
 				s += ((BlockScope) subscopes[i]).toString(tab + 1) + "\n"; //$NON-NLS-1$
 		return s;

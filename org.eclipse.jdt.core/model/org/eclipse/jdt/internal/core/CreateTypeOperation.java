@@ -19,6 +19,7 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.jdom.DOMFactory;
 import org.eclipse.jdt.core.jdom.IDOMNode;
 import org.eclipse.jdt.core.jdom.IDOMType;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * <p>This operation creates a class or interface.
@@ -44,14 +45,18 @@ protected IDOMNode generateElementDOM() throws JavaModelException {
 	if (fDOMNode == null) {
 		fDOMNode = (new DOMFactory()).createType(fSource);
 		if (fDOMNode == null) {
+			//syntactically incorrect source
 			fDOMNode = generateSyntaxIncorrectDOM();
+			if (fDOMNode == null) {
+				throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
+			}
 		}
 		if (fAlteredName != null && fDOMNode != null) {
 			fDOMNode.setName(fAlteredName);
 		}
 	}
 	if (!(fDOMNode instanceof IDOMType)) {
-		return null;
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
 	}
 	return fDOMNode;
 }
@@ -60,12 +65,13 @@ protected IDOMNode generateElementDOM() throws JavaModelException {
  */
 protected IJavaElement generateResultHandle() {
 	IJavaElement parent= getParentElement();
-	int type= parent.getElementType();
-	if (type == IJavaElement.TYPE) {
-		return ((IType)parent).getType(fDOMNode.getName());
-	} else if (type == IJavaElement.COMPILATION_UNIT) {
-		return ((ICompilationUnit)parent).getType(fDOMNode.getName());
-	} 
+	switch (parent.getElementType()) {
+		case IJavaElement.COMPILATION_UNIT:
+			return ((ICompilationUnit)parent).getType(fDOMNode.getName());
+		case IJavaElement.TYPE:
+			return ((IType)parent).getType(fDOMNode.getName());
+		// Note: creating local/anonymous type is not supported 
+	}
 	return null;
 }
 /**
@@ -89,21 +95,23 @@ protected IType getType() {
  */
 protected IJavaModelStatus verifyNameCollision() {
 	IJavaElement parent = getParentElement();
-	int type = parent.getElementType();
-	if (type == IJavaElement.TYPE) {
-		if (((IType) parent).getType(fDOMNode.getName()).exists()) {
-			return new JavaModelStatus(
-				IJavaModelStatusConstants.NAME_COLLISION, 
-				Util.bind("status.nameCollision", fDOMNode.getName())); //$NON-NLS-1$
-		}
-	} else
-		if (type == IJavaElement.COMPILATION_UNIT) {
+	switch (parent.getElementType()) {
+		case IJavaElement.COMPILATION_UNIT:
 			if (((ICompilationUnit) parent).getType(fDOMNode.getName()).exists()) {
 				return new JavaModelStatus(
 					IJavaModelStatusConstants.NAME_COLLISION, 
 					Util.bind("status.nameCollision", fDOMNode.getName())); //$NON-NLS-1$
 			}
-		}
+			break;
+		case IJavaElement.TYPE:
+			if (((IType) parent).getType(fDOMNode.getName()).exists()) {
+				return new JavaModelStatus(
+					IJavaModelStatusConstants.NAME_COLLISION, 
+					Util.bind("status.nameCollision", fDOMNode.getName())); //$NON-NLS-1$
+			}
+			break;
+		// Note: creating local/anonymous type is not supported 
+	}
 	return JavaModelStatus.VERIFIED_OK;
 }
 }

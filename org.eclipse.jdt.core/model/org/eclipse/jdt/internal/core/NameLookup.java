@@ -11,14 +11,18 @@
 package org.eclipse.jdt.internal.core;
 
 import java.io.File;
+import java.util.*;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IPath;
+import org.eclipse.core.runtime.Path;
+import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.ICompilationUnit;
@@ -27,10 +31,14 @@ import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.IWorkingCopy;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.internal.core.util.PerThreadObject;
+import org.eclipse.jdt.core.search.IJavaSearchConstants;
+import org.eclipse.jdt.core.search.ITypeNameRequestor;
+import org.eclipse.jdt.core.search.SearchEngine;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.util.Util;
+
 /**
  * A <code>NameLookup</code> provides name resolution within a Java project.
  * The name lookup facility uses the project's classpath to prioritize the 
@@ -47,7 +55,7 @@ import org.eclipse.jdt.internal.core.util.PerThreadObject;
  * in real time through an <code>IJavaElementRequestor</code>.
  *
  */
-public class NameLookup {
+public class NameLookup implements SuffixConstants {
 	/**
 	 * Accept flag for specifying classes.
 	 */
@@ -86,7 +94,7 @@ public class NameLookup {
 	 * Allows working copies to take precedence over compilation units.
 	 * The cache is a 2-level cache, first keyed by thread.
 	 */
-	protected PerThreadObject unitsToLookInside = new PerThreadObject();
+	protected ThreadLocal unitsToLookInside = new ThreadLocal();
 
 	public NameLookup(IJavaProject project) throws JavaModelException {
 		configureFromProject(project);
@@ -196,7 +204,7 @@ public class NameLookup {
 		if (index != -1) {
 			cuName= cuName.substring(0, index);
 		}
-		cuName += ".java"; //$NON-NLS-1$
+		cuName += SUFFIX_STRING_java;
 		IPackageFragment[] frags= (IPackageFragment[]) fPackageFragments.get(pkgName);
 		if (frags != null) {
 			for (int i= 0; i < frags.length; i++) {
@@ -355,8 +363,11 @@ public class NameLookup {
 	 * 
 	 */
 	public IType findType(String typeName, String packageName, boolean partialMatch, int acceptFlags) {
-		if (packageName == null) {
+		if (packageName == null || packageName.length() == 0) {
 			packageName= IPackageFragment.DEFAULT_PACKAGE_NAME;
+		} else if (typeName.length() > 0 && Character.isLowerCase(typeName.charAt(0))) {
+			// see if this is a known package and not a type
+			if (findPackageFragments(packageName + "." + typeName, false) != null) return null; //$NON-NLS-1$
 		}
 		JavaElementRequestor elementRequestor = new JavaElementRequestor();
 		seekPackageFragments(packageName, false, elementRequestor);
@@ -431,16 +442,62 @@ public class NameLookup {
 	 * @see #ACCEPT_INTERFACES
 	 */
 	public IType findType(String name, IPackageFragment pkg, boolean partialMatch, int acceptFlags) {
-		if (pkg == null) {
-			return null;
-		}
+		if (pkg == null) return null;
+
 		// Return first found (ignore duplicates).
-//synchronized(JavaModelManager.getJavaModelManager()){	
 		SingleTypeRequestor typeRequestor = new SingleTypeRequestor();
 		seekTypes(name, pkg, partialMatch, acceptFlags, typeRequestor);
-		IType type= typeRequestor.getType();
+		IType type = typeRequestor.getType();
+//		if (type == null)
+//			type = findSecondaryType(name, pkg, partialMatch, acceptFlags);
 		return type;
-//}
+	}
+
+	// TODO (kent) enable once index support is in
+	IType findSecondaryType(String typeName, IPackageFragment pkg, boolean partialMatch, final int acceptFlags) {
+		try {
+			final ArrayList paths = new ArrayList();
+			ITypeNameRequestor nameRequestor = new ITypeNameRequestor() {
+				public void acceptClass(char[] packageName, char[] simpleTypeName, char[][] enclosingTypeNames, String path) {
+					if ((acceptFlags & ACCEPT_CLASSES) != 0)
+						if (enclosingTypeNames == null || enclosingTypeNames.length == 0) // accept only top level types
+							paths.add(path);
+				}
+				public void acceptInterface(char[] packageName, char[] simpleTypeName, char[][] enclosingTypeNames, String path) {
+					if ((acceptFlags & ACCEPT_INTERFACES) != 0)
+						if (enclosingTypeNames == null || enclosingTypeNames.length == 0) // accept only top level types
+							paths.add(path);
+				}
+			};
+
+			new SearchEngine().searchAllTypeNames(
+				workspace,
+				pkg.getElementName().toCharArray(),
+				typeName.toCharArray(),
+				partialMatch ? IJavaSearchConstants.PREFIX_MATCH : IJavaSearchConstants.EXACT_MATCH,
+				partialMatch ? IJavaSearchConstants.CASE_INSENSITIVE : IJavaSearchConstants.CASE_SENSITIVE,
+				IJavaSearchConstants.TYPE,
+				SearchEngine.createJavaSearchScope(new IJavaElement[] {pkg}, false),
+				nameRequestor,
+				IJavaSearchConstants.CANCEL_IF_NOT_READY_TO_SEARCH,
+				null);
+
+			if (!paths.isEmpty()) {
+				for (int i = 0, l = paths.size(); i < l; i++) {
+					String pathname = (String) paths.get(i);
+					if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(pathname)) {
+						IFile file = workspace.getRoot().getFile(new Path(pathname));
+						ICompilationUnit unit = JavaCore.createCompilationUnitFrom(file);
+						return unit.getType(typeName);
+					}
+				}
+			}
+		} catch (JavaModelException e) {
+			// ignore
+		} catch (OperationCanceledException ignore) {
+			// ignore
+		}
+		return null;
 	}
 
 	/**
@@ -622,13 +679,55 @@ public class NameLookup {
 	 * Performs type search in a source package.
 	 */
 	protected void seekTypesInSourcePackage(String name, IPackageFragment pkg, boolean partialMatch, int acceptFlags, IJavaElementRequestor requestor) {
+		
 		ICompilationUnit[] compilationUnits = null;
 		try {
 			compilationUnits = pkg.getCompilationUnits();
 		} catch (JavaModelException npe) {
 			return; // the package is not present
 		}
+
+		// replace with working copies to look inside
 		int length= compilationUnits.length;
+		boolean[] isWorkingCopy = new boolean[length];
+		Map workingCopies = (Map) this.unitsToLookInside.get();
+		int workingCopiesSize;
+		if (workingCopies != null && (workingCopiesSize = workingCopies.size()) > 0) {
+			Map temp = new HashMap(workingCopiesSize);
+			temp.putAll(workingCopies);
+			for (int i = 0; i < length; i++) {
+				ICompilationUnit unit = compilationUnits[i];
+				ICompilationUnit workingCopy = (ICompilationUnit)temp.remove(unit);
+				if (workingCopy != null) {
+					compilationUnits[i] = workingCopy;
+					isWorkingCopy[i] = true;
+				}
+			}
+			// add remaining working copies that belong to this package
+			int index = 0;
+			Collection values = temp.values();
+			Iterator iterator = values.iterator();
+			while (iterator.hasNext()) {
+				ICompilationUnit workingCopy = (ICompilationUnit)iterator.next();
+				if (pkg.equals(workingCopy.getParent())) {
+					if (index == 0) {
+						int valuesLength = values.size();
+						index = length;
+						length += valuesLength;
+						System.arraycopy(compilationUnits, 0, compilationUnits = new ICompilationUnit[length], 0, index);
+						System.arraycopy(isWorkingCopy, 0, isWorkingCopy = new boolean[length], 0, index);
+					}
+					isWorkingCopy[index] = true; 
+					compilationUnits[index++] = workingCopy;
+				}
+			}
+			if (index > 0 && index < length) {
+				System.arraycopy(compilationUnits, 0, compilationUnits = new ICompilationUnit[index], 0, index);
+				System.arraycopy(isWorkingCopy, 0, isWorkingCopy = new boolean[index], 0, index);
+				length = index;
+			}
+		}
+			
 		String matchName = name;
 		int index= name.indexOf('$');
 		boolean potentialMemberType = false;
@@ -644,10 +743,10 @@ public class NameLookup {
 		 * the compilationUnits always will. So add it if we're looking for 
 		 * an exact match.
 		 */
-		String unitName = partialMatch ? matchName.toLowerCase() : matchName + ".java"; //$NON-NLS-1$
+		String unitName = partialMatch ? matchName.toLowerCase() : matchName + SUFFIX_STRING_java;
 		String potentialUnitName = null;
 		if (potentialMemberType) {
-			potentialUnitName = partialMatch ? potentialMatchName.toLowerCase() : potentialMatchName + ".java"; //$NON-NLS-1$
+			potentialUnitName = partialMatch ? potentialMatchName.toLowerCase() : potentialMatchName + SUFFIX_STRING_java;
 		}
 
 		for (int i= 0; i < length; i++) {
@@ -655,14 +754,9 @@ public class NameLookup {
 				return;
 			ICompilationUnit compilationUnit= compilationUnits[i];
 			
-			// unit to look inside
-			ICompilationUnit unitToLookInside = null;
-			Map workingCopies = (Map) this.unitsToLookInside.getCurrent();
-			if (workingCopies != null 
-					&& (unitToLookInside = (ICompilationUnit)workingCopies.get(compilationUnit)) != null){
-					compilationUnit = unitToLookInside;
-				}
-			if ((unitToLookInside != null && !potentialMemberType) || nameMatches(unitName, compilationUnit, partialMatch)) {
+			if ((isWorkingCopy[i] && !potentialMemberType)
+					|| nameMatches(unitName, compilationUnit, partialMatch)) {
+						
 				IType[] types= null;
 				try {
 					types= compilationUnit.getTypes();
@@ -701,24 +795,20 @@ public class NameLookup {
 /**
  * Remembers a set of compilation units that will be looked inside
  * when looking up a type. If they are working copies, they take
- * precedence of their compilation units.
+ * precedence over their compilation units.
  * <code>null</code> means that no special compilation units should be used.
  */
-public void setUnitsToLookInside(IWorkingCopy[] unitsToLookInside) {
+public void setUnitsToLookInside(ICompilationUnit[] unitsToLookInside) {
 	
 	if (unitsToLookInside == null) {
-		this.unitsToLookInside.setCurrent(null); 
+		this.unitsToLookInside.set(null); 
 	} else {
 		HashMap workingCopies = new HashMap();
-		this.unitsToLookInside.setCurrent(workingCopies);
+		this.unitsToLookInside.set(workingCopies);
 		for (int i = 0, length = unitsToLookInside.length; i < length; i++) {
-			IWorkingCopy unitToLookInside = unitsToLookInside[i];
-			ICompilationUnit original = (ICompilationUnit)unitToLookInside.getOriginalElement();
-			if (original != null) {
-				workingCopies.put(original, unitToLookInside);
-			} else {
-				workingCopies.put(unitToLookInside, unitToLookInside);
-			}
+			ICompilationUnit unitToLookInside = unitsToLookInside[i];
+			ICompilationUnit original = unitToLookInside.getPrimary();
+			workingCopies.put(original, unitToLookInside);
 		}
 	}
 }

@@ -11,6 +11,7 @@
 package org.eclipse.jdt.internal.core;
 
 import java.io.*;
+import java.text.NumberFormat;
 import java.util.*;
 import java.util.zip.ZipFile;
 
@@ -21,6 +22,7 @@ import javax.xml.parsers.ParserConfigurationException;
 import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
 import org.eclipse.jdt.internal.codeassist.SelectionEngine;
@@ -29,6 +31,8 @@ import org.eclipse.jdt.internal.core.builder.JavaBuilder;
 import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
 import org.eclipse.jdt.internal.core.search.AbstractSearchScope;
 import org.eclipse.jdt.internal.core.search.indexing.IndexManager;
+import org.eclipse.jdt.internal.core.search.processing.JobManager;
+import org.eclipse.jdt.internal.core.util.Util;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
@@ -82,6 +86,11 @@ public class JavaModelManager implements ISaveParticipant {
 	public static final String FORMATTER_EXTPOINT_ID = "codeFormatter" ; //$NON-NLS-1$
 	
 	/**
+	 * Name of the extension point for contributing a search participant
+	 * TODO search participant
+	 */
+	public static final String SEARCH_PARTICIPANT_EXTPOINT_ID = "searchParticipant" ; //$NON-NLS-1$
+	/**
 	 * Special value used for recognizing ongoing initialization and breaking initialization cycles
 	 */
 	public final static IPath VariableInitializationInProgress = new Path("Variable Initialization In Progress"); //$NON-NLS-1$
@@ -93,6 +102,7 @@ public class JavaModelManager implements ISaveParticipant {
 		public String toString() { return getDescription(); }
 	};
 	
+	private static final String BUFFER_MANAGER_DEBUG = JavaCore.PLUGIN_ID + "/debug/buffermanager" ; //$NON-NLS-1$
 	private static final String INDEX_MANAGER_DEBUG = JavaCore.PLUGIN_ID + "/debug/indexmanager" ; //$NON-NLS-1$
 	private static final String COMPILER_DEBUG = JavaCore.PLUGIN_ID + "/debug/compiler" ; //$NON-NLS-1$
 	private static final String JAVAMODEL_DEBUG = JavaCore.PLUGIN_ID + "/debug/javamodel" ; //$NON-NLS-1$
@@ -104,10 +114,9 @@ public class JavaModelManager implements ISaveParticipant {
 	private static final String BUILDER_DEBUG = JavaCore.PLUGIN_ID + "/debug/builder" ; //$NON-NLS-1$
 	private static final String COMPLETION_DEBUG = JavaCore.PLUGIN_ID + "/debug/completion" ; //$NON-NLS-1$
 	private static final String SELECTION_DEBUG = JavaCore.PLUGIN_ID + "/debug/selection" ; //$NON-NLS-1$
-	private static final String SHARED_WC_DEBUG = JavaCore.PLUGIN_ID + "/debug/sharedworkingcopy" ; //$NON-NLS-1$
 	private static final String SEARCH_DEBUG = JavaCore.PLUGIN_ID + "/debug/search" ; //$NON-NLS-1$
 
-	public final static IWorkingCopy[] NoWorkingCopy = new IWorkingCopy[0];
+	public final static ICompilationUnit[] NoWorkingCopy = new ICompilationUnit[0];
 	
 	/**
 	 * Returns whether the given full path (for a package) conflicts with the output location
@@ -184,6 +193,7 @@ public class JavaModelManager implements ISaveParticipant {
 				containerString = ((JavaProject)project).encodeClasspath(container.getClasspathEntries(), null, false);
 			}
 		} catch(JavaModelException e){
+			// could not encode entry: leave it as CP_ENTRY_IGNORE
 		}
 		preferences.setDefault(containerKey, CP_ENTRY_IGNORE); // use this default to get rid of removed ones
 		preferences.setValue(containerKey, containerString);
@@ -252,11 +262,11 @@ public class JavaModelManager implements ISaveParticipant {
 	
 		if (file.getFileExtension() != null) {
 			String name = file.getName();
-			if (Util.isValidCompilationUnitName(name))
+			if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(name))
 				return createCompilationUnitFrom(file, project);
-			if (Util.isValidClassFileName(name))
+			if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(name))
 				return createClassFileFrom(file, project);
-			if (Util.isArchiveFileName(name))
+			if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(name))
 				return createJarPackageFragmentRootFrom(file, project);
 		}
 		return null;
@@ -363,6 +373,7 @@ public class JavaModelManager implements ISaveParticipant {
 				}
 			}
 		} catch (JavaModelException e) {
+			// project doesn't exist: return null
 		}
 		return null;
 	}
@@ -379,7 +390,7 @@ public class JavaModelManager implements ISaveParticipant {
 		IPath resourcePath = resource.getFullPath();
 		try {
 			IClasspathEntry[] entries = 
-				Util.isJavaFileName(resourcePath.lastSegment())
+				org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(resourcePath.lastSegment())
 					? project.getRawClasspath() // JAVA file can only live inside SRC folder (on the raw path)
 					: ((JavaProject)project).getResolvedClasspath(true);
 				
@@ -394,21 +405,17 @@ public class JavaModelManager implements ISaveParticipant {
 					IPackageFragmentRoot root = ((JavaProject) project).getFolderPackageFragmentRoot(rootPath);
 					if (root == null) return null;
 					IPath pkgPath = resourcePath.removeFirstSegments(rootPath.segmentCount());
+
 					if (resource.getType() == IResource.FILE) {
 						// if the resource is a file, then remove the last segment which
 						// is the file name in the package
 						pkgPath = pkgPath.removeLastSegments(1);
-						
-						// don't check validity of package name (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=26706)
-						String pkgName = pkgPath.toString().replace('/', '.');
-						return root.getPackageFragment(pkgName);
-					} else {
-						String pkgName = Util.packageName(pkgPath);
-						if (pkgName == null || JavaConventions.validatePackageName(pkgName).getSeverity() == IStatus.ERROR) {
-							return null;
-						}
-						return root.getPackageFragment(pkgName);
 					}
+					String pkgName = Util.packageName(pkgPath);
+					if (pkgName == null || JavaConventions.validatePackageName(pkgName).getSeverity() == IStatus.ERROR) {
+						return null;
+					}
+					return root.getPackageFragment(pkgName);
 				}
 			}
 		} catch (JavaModelException npe) {
@@ -426,6 +433,11 @@ public class JavaModelManager implements ISaveParticipant {
 	 * Infos cache.
 	 */
 	protected JavaModelCache cache = new JavaModelCache();
+	
+	/*
+	 * Temporary cache of newly opened elements
+	 */
+	private ThreadLocal temporaryCache = new ThreadLocal();
 
 	/**
 	 * Set of elements which are out of sync with their buffers.
@@ -433,90 +445,93 @@ public class JavaModelManager implements ISaveParticipant {
 	protected Map elementsOutOfSynchWithBuffers = new HashMap(11);
 	
 	/**
-	 * Turns delta firing on/off. By default it is on.
+	 * Holds the state used for delta processing.
 	 */
-	private boolean isFiring= true;
+	public DeltaProcessingState deltaState = new DeltaProcessingState();
 
-	/**
-	 * Queue of deltas created explicily by the Java Model that
-	 * have yet to be fired.
-	 */
-	ArrayList javaModelDeltas= new ArrayList();
-	/**
-	 * Queue of reconcile deltas on working copies that have yet to be fired.
-	 * This is a table form IWorkingCopy to IJavaElementDelta
-	 */
-	HashMap reconcileDeltas = new HashMap();
-
-
-	/**
-	 * Collection of listeners for Java element deltas
-	 */
-	private IElementChangedListener[] elementChangedListeners = new IElementChangedListener[5];
-	private int[] elementChangedListenerMasks = new int[5];
-	private int elementChangedListenerCount = 0;
-	public int currentChangeEventType = ElementChangedEvent.PRE_AUTO_BUILD;
-	public static final int DEFAULT_CHANGE_EVENT = 0; // must not collide with ElementChangedEvent event masks
-
-
-
-	/**
-	 * Used to convert <code>IResourceDelta</code>s into <code>IJavaElementDelta</code>s.
-	 */
-	public final DeltaProcessor deltaProcessor = new DeltaProcessor(this);
-	/**
-	 * Used to update the JavaModel for <code>IJavaElementDelta</code>s.
-	 */
-	private final ModelUpdater modelUpdater =new ModelUpdater();
-	/**
-	 * Workaround for bug 15168 circular errors not reported  
-	 * This is a cache of the projects before any project addition/deletion has started.
-	 */
-	public IJavaProject[] javaProjectsCache;
-
+	public IndexManager indexManager = new IndexManager();
+	
 	/**
 	 * Table from IProject to PerProjectInfo.
 	 * NOTE: this object itself is used as a lock to synchronize creation/removal of per project infos
 	 */
-	protected Map perProjectInfo = new HashMap(5);
+	protected Map perProjectInfos = new HashMap(5);
 	
 	/**
-	 * A map from ICompilationUnit to IWorkingCopy
-	 * of the shared working copies.
+	 * Table from WorkingCopyOwner to a table of IPath (working copy's path) to PerWorkingCopyInfo.
+	 * NOTE: this object itself is used as a lock to synchronize creation/removal of per working copy infos
 	 */
-	public Map sharedWorkingCopies = new HashMap();
+	protected Map perWorkingCopyInfos = new HashMap(5);
 	
 	/**
-	 * A weak set of the known scopes.
+	 * A weak set of the known search scopes.
 	 */
-	protected WeakHashMap scopes = new WeakHashMap();
+	protected WeakHashMap searchScopes = new WeakHashMap();
 
 	public static class PerProjectInfo {
+		
 		public IProject project;
 		public Object savedState;
 		public boolean triedRead;
-		public IClasspathEntry[] classpath;
-		public IClasspathEntry[] lastResolvedClasspath;
+		public IClasspathEntry[] rawClasspath;
+		public IClasspathEntry[] resolvedClasspath;
 		public Map resolvedPathToRawEntries; // reverse map from resolved path to raw entries
 		public IPath outputLocation;
 		public Preferences preferences;
+		
 		public PerProjectInfo(IProject project) {
 
 			this.triedRead = false;
 			this.savedState = null;
 			this.project = project;
 		}
+		
+		// updating raw classpath need to flush obsoleted cached information about resolved entries
+		public synchronized void updateClasspathInformation(IClasspathEntry[] newRawClasspath) {
+
+			this.rawClasspath = newRawClasspath;
+			this.resolvedClasspath = null;
+			this.resolvedPathToRawEntries = null;
+		}
 	}
+	
+	public static class PerWorkingCopyInfo implements IProblemRequestor {
+		int useCount = 0;
+		IProblemRequestor problemRequestor;
+		ICompilationUnit workingCopy;
+		public PerWorkingCopyInfo(ICompilationUnit workingCopy, IProblemRequestor problemRequestor) {
+			this.workingCopy = workingCopy;
+			this.problemRequestor = problemRequestor;
+		}
+		public void acceptProblem(IProblem problem) {
+			if (this.problemRequestor == null) return;
+			this.problemRequestor.acceptProblem(problem);
+		}
+		public void beginReporting() {
+			if (this.problemRequestor == null) return;
+			this.problemRequestor.beginReporting();
+		}
+		public void endReporting() {
+			if (this.problemRequestor == null) return;
+			this.problemRequestor.endReporting();
+		}
+		public ICompilationUnit getWorkingCopy() {
+			return this.workingCopy;
+		}
+		public boolean isActive() {
+			return this.problemRequestor != null && this.problemRequestor.isActive();
+		}
+	}
+	
 	public static boolean VERBOSE = false;
 	public static boolean CP_RESOLVE_VERBOSE = false;
 	public static boolean ZIP_ACCESS_VERBOSE = false;
 	
 	/**
 	 * A cache of opened zip files per thread.
-	 * (map from Thread to map of IPath to java.io.ZipFile)
-	 * NOTE: this object itself is used as a lock to synchronize creation/removal of entries
+	 * (for a given thread, the object value is a HashMap from IPath to java.io.ZipFile)
 	 */
-	private HashMap zipFiles = new HashMap();
+	private ThreadLocal zipFiles = new ThreadLocal();
 	
 	
 	/**
@@ -545,47 +560,10 @@ public class JavaModelManager implements ISaveParticipant {
 	}
 
 	/**
-	 * Line separator to use throughout the JavaModel for any source edit operation
-	 */
-	//	public static String LINE_SEPARATOR = System.getProperty("line.separator"); //$NON-NLS-1$
-	/**
 	 * Constructs a new JavaModelManager
 	 */
 	private JavaModelManager() {
-	}
-
-	/**
-	 * @deprecated - discard once debug has converted to not using it
-	 */
-	public void addElementChangedListener(IElementChangedListener listener) {
-		this.addElementChangedListener(listener, ElementChangedEvent.POST_CHANGE | ElementChangedEvent.POST_RECONCILE);
-	}
-	/**
-	 * addElementChangedListener method comment.
-	 * Need to clone defensively the listener information, in case some listener is reacting to some notification iteration by adding/changing/removing
-	 * any of the other (for example, if it deregisters itself).
-	 */
-	public void addElementChangedListener(IElementChangedListener listener, int eventMask) {
-		for (int i = 0; i < this.elementChangedListenerCount; i++){
-			if (this.elementChangedListeners[i].equals(listener)){
-				
-				// only clone the masks, since we could be in the middle of notifications and one listener decide to change
-				// any event mask of another listeners (yet not notified).
-				int cloneLength = this.elementChangedListenerMasks.length;
-				System.arraycopy(this.elementChangedListenerMasks, 0, this.elementChangedListenerMasks = new int[cloneLength], 0, cloneLength);
-				this.elementChangedListenerMasks[i] = eventMask; // could be different
-				return;
-			}
-		}
-		// may need to grow, no need to clone, since iterators will have cached original arrays and max boundary and we only add to the end.
-		int length;
-		if ((length = this.elementChangedListeners.length) == this.elementChangedListenerCount){
-			System.arraycopy(this.elementChangedListeners, 0, this.elementChangedListeners = new IElementChangedListener[length*2], 0, length);
-			System.arraycopy(this.elementChangedListenerMasks, 0, this.elementChangedListenerMasks = new int[length*2], 0, length);
-		}
-		this.elementChangedListeners[this.elementChangedListenerCount] = listener;
-		this.elementChangedListenerMasks[this.elementChangedListenerCount] = eventMask;
-		this.elementChangedListenerCount++;
+		// singleton: prevent others from creating a new instance
 	}
 
 	/**
@@ -593,36 +571,33 @@ public class JavaModelManager implements ISaveParticipant {
 	 * Ignores if there are already clients.
 	 */
 	public void cacheZipFiles() {
-		synchronized(this.zipFiles) {
-			Thread currentThread = Thread.currentThread();
-			if (this.zipFiles.get(currentThread) != null) return;
-			this.zipFiles.put(currentThread, new HashMap());
-		}
+		if (this.zipFiles.get() != null) return;
+		this.zipFiles.set(new HashMap());
 	}
 	public void closeZipFile(ZipFile zipFile) {
 		if (zipFile == null) return;
-		synchronized(this.zipFiles) {
-			if (this.zipFiles.get(Thread.currentThread()) != null) {
-				return; // zip file will be closed by call to flushZipFiles
+		if (this.zipFiles.get() != null) {
+			return; // zip file will be closed by call to flushZipFiles
+		}
+		try {
+			if (JavaModelManager.ZIP_ACCESS_VERBOSE) {
+				System.out.println("(" + Thread.currentThread() + ") [JavaModelManager.closeZipFile(ZipFile)] Closing ZipFile on " +zipFile.getName()); //$NON-NLS-1$	//$NON-NLS-2$
 			}
-			try {
-				if (JavaModelManager.ZIP_ACCESS_VERBOSE) {
-					System.out.println("(" + Thread.currentThread() + ") [JavaModelManager.closeZipFile(ZipFile)] Closing ZipFile on " +zipFile.getName()); //$NON-NLS-1$	//$NON-NLS-2$
-				}
-				zipFile.close();
-			} catch (IOException e) {
-			}
+			zipFile.close();
+		} catch (IOException e) {
+			// problem occured closing zip file: cannot do much more
 		}
 	}
-	
-
 
 	/**
 	 * Configure the plugin with respect to option settings defined in ".options" file
 	 */
 	public void configurePluginDebugOptions(){
 		if(JavaCore.getPlugin().isDebugging()){
-			String option = Platform.getDebugOption(BUILDER_DEBUG);
+			String option = Platform.getDebugOption(BUFFER_MANAGER_DEBUG);
+			if(option != null) BufferManager.VERBOSE = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
+			
+			option = Platform.getDebugOption(BUILDER_DEBUG);
 			if(option != null) JavaBuilder.DEBUG = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
 			
 			option = Platform.getDebugOption(COMPILER_DEBUG);
@@ -641,7 +616,7 @@ public class JavaModelManager implements ISaveParticipant {
 			if(option != null) TypeHierarchy.DEBUG = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
 
 			option = Platform.getDebugOption(INDEX_MANAGER_DEBUG);
-			if(option != null) IndexManager.VERBOSE = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
+			if(option != null) JobManager.VERBOSE = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
 			
 			option = Platform.getDebugOption(JAVAMODEL_DEBUG);
 			if(option != null) JavaModelManager.VERBOSE = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
@@ -655,183 +630,92 @@ public class JavaModelManager implements ISaveParticipant {
 			option = Platform.getDebugOption(SELECTION_DEBUG);
 			if(option != null) SelectionEngine.DEBUG = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
 
-			option = Platform.getDebugOption(SHARED_WC_DEBUG);
-			if(option != null) CompilationUnit.SHARED_WC_VERBOSE = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
-
 			option = Platform.getDebugOption(ZIP_ACCESS_DEBUG);
 			if(option != null) JavaModelManager.ZIP_ACCESS_VERBOSE = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
 		}
 	}
 	
+	/*
+	 * Discards the per working copy info for the given working copy (making it a compilation unit)
+	 * if its use count was 1. Otherwise, just decrement the use count.
+	 * If the working copy is primary, computes the delta between its state and the original compilation unit
+	 * and register it.
+	 * Close the working copy, its buffer and remove it from the shared working copy table.
+	 * Ignore if no per-working copy info existed.
+	 * Returns the new use count (or -1 if it didn't exist).
+	 */
+	public int discardPerWorkingCopyInfo(CompilationUnit workingCopy) throws JavaModelException {
+		synchronized(perWorkingCopyInfos) {
+			WorkingCopyOwner owner = workingCopy.owner;
+			Map pathToPerWorkingCopyInfos = (Map)this.perWorkingCopyInfos.get(owner);
+			if (pathToPerWorkingCopyInfos == null) return -1;
+			
+			IPath path = workingCopy.getPath();
+			PerWorkingCopyInfo info = (PerWorkingCopyInfo)pathToPerWorkingCopyInfos.get(path);
+			if (info == null) return -1;
+			
+			if (--info.useCount == 0) {
+				// create the delta builder (this remembers the current content of the working copy)
+				JavaElementDeltaBuilder deltaBuilder = null;
+				if (workingCopy.isPrimary()) {
+					deltaBuilder = new JavaElementDeltaBuilder(workingCopy);
+				}
 
+				// remove per working copy info
+				pathToPerWorkingCopyInfos.remove(path);
+				if (pathToPerWorkingCopyInfos.isEmpty()) {
+					this.perWorkingCopyInfos.remove(owner);
+				}
+
+				// remove infos + close buffer (since no longer working copy)
+				removeInfoAndChildren(workingCopy);
+				workingCopy.closeBuffer();
+
+				// compute the delta if needed and register it if there are changes
+				if (deltaBuilder != null) {
+					deltaBuilder.buildDeltas();
+					if ((deltaBuilder.delta != null) && (deltaBuilder.delta.getAffectedChildren().length > 0)) {
+						getDeltaProcessor().registerJavaModelDelta(deltaBuilder.delta);
+					}
+				}
+				
+			}
+			return info.useCount;
+		}
+	}
 	
 	/**
 	 * @see ISaveParticipant
 	 */
 	public void doneSaving(ISaveContext context){
-	}
-	
-	/**
-	 * Fire Java Model delta, flushing them after the fact after post_change notification.
-	 * If the firing mode has been turned off, this has no effect. 
-	 */
-	public void fire(IJavaElementDelta customDelta, int eventType) {
-
-		if (!this.isFiring) return;
-		
-		if (DeltaProcessor.VERBOSE && (eventType == DEFAULT_CHANGE_EVENT || eventType == ElementChangedEvent.PRE_AUTO_BUILD)) {
-			System.out.println("-----------------------------------------------------------------------------------------------------------------------");//$NON-NLS-1$
-		}
-
-		IJavaElementDelta deltaToNotify;
-		if (customDelta == null){
-			deltaToNotify = this.mergeDeltas(this.javaModelDeltas);
-		} else {
-			deltaToNotify = customDelta;
-		}
-			
-		// Refresh internal scopes
-		if (deltaToNotify != null) {
-			Iterator scopes = this.scopes.keySet().iterator();
-			while (scopes.hasNext()) {
-				AbstractSearchScope scope = (AbstractSearchScope)scopes.next();
-				scope.processDelta(deltaToNotify);
-			}
-		}
-			
-		// Notification
-	
-		// Important: if any listener reacts to notification by updating the listeners list or mask, these lists will
-		// be duplicated, so it is necessary to remember original lists in a variable (since field values may change under us)
-		IElementChangedListener[] listeners = this.elementChangedListeners;
-		int[] listenerMask = this.elementChangedListenerMasks;
-		int listenerCount = this.elementChangedListenerCount;
-
-		switch (eventType) {
-			case DEFAULT_CHANGE_EVENT:
-				firePreAutoBuildDelta(deltaToNotify, listeners, listenerMask, listenerCount);
-				firePostChangeDelta(deltaToNotify, listeners, listenerMask, listenerCount);
-				fireReconcileDelta(listeners, listenerMask, listenerCount);
-				break;
-			case ElementChangedEvent.PRE_AUTO_BUILD:
-				firePreAutoBuildDelta(deltaToNotify, listeners, listenerMask, listenerCount);
-				break;
-			case ElementChangedEvent.POST_CHANGE:
-				firePostChangeDelta(deltaToNotify, listeners, listenerMask, listenerCount);
-				fireReconcileDelta(listeners, listenerMask, listenerCount);
-				break;
-		}
-
-	}
-
-	private void firePreAutoBuildDelta(
-		IJavaElementDelta deltaToNotify,
-		IElementChangedListener[] listeners,
-		int[] listenerMask,
-		int listenerCount) {
-			
-		if (DeltaProcessor.VERBOSE){
-			System.out.println("FIRING PRE_AUTO_BUILD Delta ["+Thread.currentThread()+"]:"); //$NON-NLS-1$//$NON-NLS-2$
-			System.out.println(deltaToNotify == null ? "<NONE>" : deltaToNotify.toString()); //$NON-NLS-1$
-		}
-		if (deltaToNotify != null) {
-			notifyListeners(deltaToNotify, ElementChangedEvent.PRE_AUTO_BUILD, listeners, listenerMask, listenerCount);
-		}
-	}
-
-	private void firePostChangeDelta(
-		IJavaElementDelta deltaToNotify,
-		IElementChangedListener[] listeners,
-		int[] listenerMask,
-		int listenerCount) {
-			
-		// post change deltas
-		if (DeltaProcessor.VERBOSE){
-			System.out.println("FIRING POST_CHANGE Delta ["+Thread.currentThread()+"]:"); //$NON-NLS-1$//$NON-NLS-2$
-			System.out.println(deltaToNotify == null ? "<NONE>" : deltaToNotify.toString()); //$NON-NLS-1$
-		}
-		if (deltaToNotify != null) {
-			// flush now so as to keep listener reactions to post their own deltas for subsequent iteration
-			this.flush();
-			
-			notifyListeners(deltaToNotify, ElementChangedEvent.POST_CHANGE, listeners, listenerMask, listenerCount);
-		} 
-	}		
-	private void fireReconcileDelta(
-		IElementChangedListener[] listeners,
-		int[] listenerMask,
-		int listenerCount) {
-
-
-		IJavaElementDelta deltaToNotify = mergeDeltas(this.reconcileDeltas.values());
-		if (DeltaProcessor.VERBOSE){
-			System.out.println("FIRING POST_RECONCILE Delta ["+Thread.currentThread()+"]:"); //$NON-NLS-1$//$NON-NLS-2$
-			System.out.println(deltaToNotify == null ? "<NONE>" : deltaToNotify.toString()); //$NON-NLS-1$
-		}
-		if (deltaToNotify != null) {
-			// flush now so as to keep listener reactions to post their own deltas for subsequent iteration
-			this.reconcileDeltas = new HashMap();
-		
-			notifyListeners(deltaToNotify, ElementChangedEvent.POST_RECONCILE, listeners, listenerMask, listenerCount);
-		} 
-	}
-
-	public void notifyListeners(IJavaElementDelta deltaToNotify, int eventType, IElementChangedListener[] listeners, int[] listenerMask, int listenerCount) {
-		final ElementChangedEvent extraEvent = new ElementChangedEvent(deltaToNotify, eventType);
-		for (int i= 0; i < listenerCount; i++) {
-			if ((listenerMask[i] & eventType) != 0){
-				final IElementChangedListener listener = listeners[i];
-				long start = -1;
-				if (DeltaProcessor.VERBOSE) {
-					System.out.print("Listener #" + (i+1) + "=" + listener.toString());//$NON-NLS-1$//$NON-NLS-2$
-					start = System.currentTimeMillis();
-				}
-				// wrap callbacks with Safe runnable for subsequent listeners to be called when some are causing grief
-				Platform.run(new ISafeRunnable() {
-					public void handleException(Throwable exception) {
-						Util.log(exception, "Exception occurred in listener of Java element change notification"); //$NON-NLS-1$
-					}
-					public void run() throws Exception {
-						listener.elementChanged(extraEvent);
-					}
-				});
-				if (DeltaProcessor.VERBOSE) {
-					System.out.println(" -> " + (System.currentTimeMillis()-start) + "ms"); //$NON-NLS-1$ //$NON-NLS-2$
-				}
-			}
-		}
-	}
-	
-	/**
-	 * Flushes all deltas without firing them.
-	 */
-	protected void flush() {
-		this.javaModelDeltas = new ArrayList();
+		// nothing to do for jdt.core
 	}
 
 	/**
 	 * Flushes ZipFiles cache if there are no more clients.
 	 */
 	public void flushZipFiles() {
-		synchronized(this.zipFiles) {
-			Thread currentThread = Thread.currentThread();
-			HashMap map = (HashMap)this.zipFiles.remove(currentThread);
-			if (map == null) return;
-			Iterator iterator = map.values().iterator();
-			while (iterator.hasNext()) {
-				try {
-					ZipFile zipFile = (ZipFile)iterator.next();
-					if (JavaModelManager.ZIP_ACCESS_VERBOSE) {
-						System.out.println("(" + currentThread + ") [JavaModelManager.flushZipFiles()] Closing ZipFile on " +zipFile.getName()); //$NON-NLS-1$//$NON-NLS-2$
-					}
-					zipFile.close();
-				} catch (IOException e) {
+		Thread currentThread = Thread.currentThread();
+		HashMap map = (HashMap)this.zipFiles.get();
+		if (map == null) return;
+		this.zipFiles.set(null);
+		Iterator iterator = map.values().iterator();
+		while (iterator.hasNext()) {
+			try {
+				ZipFile zipFile = (ZipFile)iterator.next();
+				if (JavaModelManager.ZIP_ACCESS_VERBOSE) {
+					System.out.println("(" + currentThread + ") [JavaModelManager.flushZipFiles()] Closing ZipFile on " +zipFile.getName()); //$NON-NLS-1$//$NON-NLS-2$
 				}
+				zipFile.close();
+			} catch (IOException e) {
+				// problem occured closing zip file: cannot do much more
 			}
-		}	
+		}
 	}
 	
-
+	public DeltaProcessor getDeltaProcessor() {
+		return this.deltaState.getDeltaProcessor();
+	}
 	
 	/** 
 	 * Returns the set of elements which are out of synch with their buffers.
@@ -840,66 +724,21 @@ public class JavaModelManager implements ISaveParticipant {
 		return this.elementsOutOfSynchWithBuffers;
 	}
 
-	/**
-	 * Returns the <code>IJavaElement</code> represented by the 
-	 * <code>String</code> memento.
-	 */
-	public IJavaElement getHandleFromMemento(String memento) throws JavaModelException {
-		if (memento == null) {
-			return null;
-		}
-		JavaModel model= (JavaModel) getJavaModel();
-		if (memento.equals("")){ // workspace memento //$NON-NLS-1$
-			return model;
-		}
-		int modelEnd= memento.indexOf(JavaElement.JEM_JAVAPROJECT);
-		if (modelEnd == -1) {
-			return null;
-		}
-		boolean returnProject= false;
-		int projectEnd= memento.indexOf(JavaElement.JEM_PACKAGEFRAGMENTROOT, modelEnd);
-		if (projectEnd == -1) {
-			projectEnd= memento.length();
-			returnProject= true;
-		}
-		String projectName= memento.substring(modelEnd + 1, projectEnd);
-		JavaProject proj= (JavaProject) model.getJavaProject(projectName);
-		if (returnProject) {
-			return proj;
-		}
-		int rootEnd= memento.indexOf(JavaElement.JEM_PACKAGEFRAGMENT, projectEnd + 1);
-		if (rootEnd == -1) {
-			return model.getHandleFromMementoForRoot(memento, proj, projectEnd, memento.length());
-		}
-		IPackageFragmentRoot root = model.getHandleFromMementoForRoot(memento, proj, projectEnd, rootEnd);
-		if (root == null)
-			return null;
-
-		int end= memento.indexOf(JavaElement.JEM_COMPILATIONUNIT, rootEnd);
-		if (end == -1) {
-			end= memento.indexOf(JavaElement.JEM_CLASSFILE, rootEnd);
-			if (end == -1) {
-				if (rootEnd + 1 == memento.length()) {
-					return root.getPackageFragment(IPackageFragment.DEFAULT_PACKAGE_NAME);
-				} else {
-					return root.getPackageFragment(memento.substring(rootEnd + 1));
-				}
-			}
-			//deal with class file and binary members
-			return model.getHandleFromMementoForBinaryMembers(memento, root, rootEnd, end);
-		}
-
-		//deal with compilation units and source members
-		return model.getHandleFromMementoForSourceMembers(memento, root, rootEnd, end);
-	}
 	public IndexManager getIndexManager() {
-		return this.deltaProcessor.indexManager;
+		return this.indexManager;
 	}
 
 	/**
 	 *  Returns the info for the element.
 	 */
-	public Object getInfo(IJavaElement element) {
+	public synchronized Object getInfo(IJavaElement element) {
+		HashMap tempCache = (HashMap)this.temporaryCache.get();
+		if (tempCache != null) {
+			Object result = tempCache.get(element);
+			if (result != null) {
+				return result;
+			}
+		}
 		return this.cache.getInfo(element);
 	}
 
@@ -943,11 +782,11 @@ public class JavaModelManager implements ISaveParticipant {
 	 * Returns the per-project info for the given project. If specified, create the info if the info doesn't exist.
 	 */
 	public PerProjectInfo getPerProjectInfo(IProject project, boolean create) {
-		synchronized(perProjectInfo) { // use the perProjectInfo collection as its own lock
-			PerProjectInfo info= (PerProjectInfo) perProjectInfo.get(project);
+		synchronized(perProjectInfos) { // use the perProjectInfo collection as its own lock
+			PerProjectInfo info= (PerProjectInfo) perProjectInfos.get(project);
 			if (info == null && create) {
 				info= new PerProjectInfo(project);
-				perProjectInfo.put(project, info);
+				perProjectInfos.put(project, info);
 			}
 			return info;
 		}
@@ -967,6 +806,44 @@ public class JavaModelManager implements ISaveParticipant {
 			info = getPerProjectInfo(project, true /* create info */);
 		}
 		return info;
+	}
+	
+	/*
+	 * Returns the per-working copy info for the given working copy at the given path.
+	 * If it doesn't exist and if create, add a new per-working copy info with the given problem requestor.
+	 * If recordUsage, increment the per-working copy info's use count.
+	 * Returns null if it doesn't exist and not create.
+	 */
+	public PerWorkingCopyInfo getPerWorkingCopyInfo(CompilationUnit workingCopy, IPath path, boolean create, boolean recordUsage, IProblemRequestor problemRequestor) {
+		synchronized(perWorkingCopyInfos) { // use the perWorkingCopyInfo collection as its own lock
+			WorkingCopyOwner owner = workingCopy.owner;
+			Map pathToPerWorkingCopyInfos = (Map)this.perWorkingCopyInfos.get(owner);
+			if (pathToPerWorkingCopyInfos == null && create) {
+				pathToPerWorkingCopyInfos = new HashMap();
+				this.perWorkingCopyInfos.put(owner, pathToPerWorkingCopyInfos);
+			}
+
+			PerWorkingCopyInfo info = pathToPerWorkingCopyInfos == null ? null : (PerWorkingCopyInfo) pathToPerWorkingCopyInfos.get(path);
+			if (info == null && create) {
+				info= new PerWorkingCopyInfo(workingCopy, problemRequestor);
+				pathToPerWorkingCopyInfos.put(path, info);
+			}
+			if (info != null && recordUsage) info.useCount++;
+			return info;
+		}
+	}	
+	
+	/*
+	 * Returns the temporary cache for newly opened elements for the current thread.
+	 * Creates it if not already created.
+	 */
+	public HashMap getTemporaryCache() {
+		HashMap result = (HashMap)this.temporaryCache.get();
+		if (result == null) {
+			result = new HashMap();
+			this.temporaryCache.set(result);
+		}
+		return result;
 	}
 
 	/**
@@ -1028,65 +905,84 @@ public class JavaModelManager implements ISaveParticipant {
 		IPath workingLocation= project.getPluginWorkingLocation(descr);
 		return workingLocation.append("state.dat").toFile(); //$NON-NLS-1$
 	}
-
+	
+	/*
+	 * Returns all the working copies which have the given owner.
+	 * Adds the working copies of the primary owner if specified.
+	 * Returns null if it has none.
+	 */
+	public ICompilationUnit[] getWorkingCopies(WorkingCopyOwner owner, boolean addPrimary) {
+		synchronized(perWorkingCopyInfos) {
+			ICompilationUnit[] primaryWCs = addPrimary && owner != DefaultWorkingCopyOwner.PRIMARY 
+				? getWorkingCopies(DefaultWorkingCopyOwner.PRIMARY, false) 
+				: null;
+			Map pathToPerWorkingCopyInfos = (Map)perWorkingCopyInfos.get(owner);
+			if (pathToPerWorkingCopyInfos == null) return primaryWCs;
+			int primaryLength = primaryWCs == null ? 0 : primaryWCs.length;
+			int size = pathToPerWorkingCopyInfos.size(); // note size is > 0 otherwise pathToPerWorkingCopyInfos would be null
+			ICompilationUnit[] result = new ICompilationUnit[primaryLength + size];
+			if (primaryWCs != null) {
+				System.arraycopy(primaryWCs, 0, result, 0, primaryLength);
+			}
+			Iterator iterator = pathToPerWorkingCopyInfos.values().iterator();
+			int index = primaryLength;
+			while(iterator.hasNext()) {
+				result[index++] = ((JavaModelManager.PerWorkingCopyInfo)iterator.next()).getWorkingCopy();
+			}
+			return result;
+		}		
+	}
+	
 	/**
 	 * Returns the open ZipFile at the given location. If the ZipFile
 	 * does not yet exist, it is created, opened, and added to the cache
-	 * of open ZipFiles. The location must be a absolute path.
+	 * of open ZipFiles. The path must be absolute.
 	 *
 	 * @exception CoreException If unable to create/open the ZipFile
 	 */
 	public ZipFile getZipFile(IPath path) throws CoreException {
 			
-		synchronized(this.zipFiles) { // TODO:  use PeThreadObject which does synchronization
-			Thread currentThread = Thread.currentThread();
-			HashMap map = null;
-			ZipFile zipFile;
-			if ((map = (HashMap)this.zipFiles.get(currentThread)) != null 
-					&& (zipFile = (ZipFile)map.get(path)) != null) {
-					
-				return zipFile;
-			}
-			String fileSystemPath= null;
-			IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
-			IResource file = root.findMember(path);
-			if (path.isAbsolute() && file != null) {
-				if (file == null) { // external file
-					fileSystemPath= path.toOSString();
-				} else { // internal resource (not an IFile or not existing)
-					IPath location;
-					if (file.getType() != IResource.FILE || (location = file.getLocation()) == null) {
-						throw new CoreException(new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Util.bind("file.notFound", path.toString()), null)); //$NON-NLS-1$
-					}
-					fileSystemPath= location.toOSString();
-				}
-			} else if (!path.isAbsolute()) {
-				file= root.getFile(path);
-				if (file == null || file.getType() != IResource.FILE) {
-					throw new CoreException(new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Util.bind("file.notFound", path.toString()), null)); //$NON-NLS-1$
-				}
-				IPath location = file.getLocation();
-				if (location == null) {
-					throw new CoreException(new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Util.bind("file.notFound", path.toString()), null)); //$NON-NLS-1$
-				}
-				fileSystemPath= location.toOSString();
-			} else {
-				fileSystemPath= path.toOSString();
-			}
-	
-			try {
-				if (ZIP_ACCESS_VERBOSE) {
-					System.out.println("(" + currentThread + ") [JavaModelManager.getZipFile(IPath)] Creating ZipFile on " + fileSystemPath ); //$NON-NLS-1$ //$NON-NLS-2$
-				}
-				zipFile = new ZipFile(fileSystemPath);
-				if (map != null) {
-					map.put(path, zipFile);
-				}
-				return zipFile;
-			} catch (IOException e) {
-				throw new CoreException(new Status(Status.ERROR, JavaCore.PLUGIN_ID, -1, Util.bind("status.IOException"), e)); //$NON-NLS-1$
-			}
+		HashMap map;
+		ZipFile zipFile;
+		if ((map = (HashMap)this.zipFiles.get()) != null 
+				&& (zipFile = (ZipFile)map.get(path)) != null) {
+				
+			return zipFile;
 		}
+		String fileSystemPath= null;
+		IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
+		IResource file = root.findMember(path);
+		if (file != null) {
+			// internal resource
+			IPath location;
+			if (file.getType() != IResource.FILE || (location = file.getLocation()) == null) {
+				throw new CoreException(new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Util.bind("file.notFound", path.toString()), null)); //$NON-NLS-1$
+			}
+			fileSystemPath= location.toOSString();
+		} else {
+			// external resource
+			fileSystemPath= path.toOSString();
+		}
+
+		try {
+			if (ZIP_ACCESS_VERBOSE) {
+				System.out.println("(" + Thread.currentThread() + ") [JavaModelManager.getZipFile(IPath)] Creating ZipFile on " + fileSystemPath ); //$NON-NLS-1$ //$NON-NLS-2$
+			}
+			zipFile = new ZipFile(fileSystemPath);
+			if (map != null) {
+				map.put(path, zipFile);
+			}
+			return zipFile;
+		} catch (IOException e) {
+			throw new CoreException(new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Util.bind("status.IOException"), e)); //$NON-NLS-1$
+		}
+	}
+	
+	/*
+	 * Returns whether there is a temporary cache for the current thread.
+	 */
+	public boolean hasTemporaryCache() {
+		return this.temporaryCache.get() != null;
 	}
 
 	public void loadVariablesAndContainers() throws CoreException {
@@ -1130,6 +1026,7 @@ public class JavaModelManager implements ISaveParticipant {
 				}
 			}
 		} catch(IOException e){
+			// problem loading xml file: nothing we can do
 		} finally {
 			if (xmlString != null){
 				ResourcesPlugin.getWorkspace().getRoot().setPersistentProperty(qName, null); // flush old one
@@ -1184,68 +1081,50 @@ public class JavaModelManager implements ISaveParticipant {
 	}
 
 	/**
-	 * Merged all awaiting deltas.
-	 */
-	public IJavaElementDelta mergeDeltas(Collection deltas) {
-		if (deltas.size() == 0) return null;
-		if (deltas.size() == 1) return (IJavaElementDelta)deltas.iterator().next();
-		
-		if (DeltaProcessor.VERBOSE) {
-			System.out.println("MERGING " + deltas.size() + " DELTAS ["+Thread.currentThread()+"]"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-		}
-		
-		Iterator iterator = deltas.iterator();
-		IJavaElement javaModel = this.getJavaModel();
-		JavaElementDelta rootDelta = new JavaElementDelta(javaModel);
-		boolean insertedTree = false;
-		while (iterator.hasNext()) {
-			JavaElementDelta delta = (JavaElementDelta)iterator.next();
-			if (DeltaProcessor.VERBOSE) {
-				System.out.println(delta.toString());
-			}
-			IJavaElement element = delta.getElement();
-			if (javaModel.equals(element)) {
-				IJavaElementDelta[] children = delta.getAffectedChildren();
-				for (int j = 0; j < children.length; j++) {
-					JavaElementDelta projectDelta = (JavaElementDelta) children[j];
-					rootDelta.insertDeltaTree(projectDelta.getElement(), projectDelta);
-					insertedTree = true;
-				}
-				IResourceDelta[] resourceDeltas = delta.getResourceDeltas();
-				if (resourceDeltas != null) {
-					for (int i = 0, length = resourceDeltas.length; i < length; i++) {
-						rootDelta.addResourceDelta(resourceDeltas[i]);
-						insertedTree = true;
-					}
-				}
-			} else {
-				rootDelta.insertDeltaTree(element, delta);
-				insertedTree = true;
-			}
-		}
-		if (insertedTree) {
-			return rootDelta;
-		}
-		else {
-			return null;
-		}
-	}	
-
-	/**
 	 *  Returns the info for this element without
 	 *  disturbing the cache ordering.
-	 */ // TODO: should be synchronized, could answer unitialized info or if cache is in middle of rehash, could even answer distinct element info
-	protected Object peekAtInfo(IJavaElement element) {
+	 */
+	protected synchronized Object peekAtInfo(IJavaElement element) {
+		HashMap tempCache = (HashMap)this.temporaryCache.get();
+		if (tempCache != null) {
+			Object result = tempCache.get(element);
+			if (result != null) {
+				return result;
+			}
+		}
 		return this.cache.peekAtInfo(element);
 	}
 
 	/**
 	 * @see ISaveParticipant
 	 */
-	public void prepareToSave(ISaveContext context) throws CoreException {
+	public void prepareToSave(ISaveContext context) /*throws CoreException*/ {
+		// nothing to do
 	}
-	protected void putInfo(IJavaElement element, Object info) {
-		this.cache.putInfo(element, info);
+	/*
+	 * Puts the infos in the given map (keys are IJavaElements and values are JavaElementInfos)
+	 * in the Java model cache in an atomic way.
+	 * First checks that the info for the opened element (or one of its ancestors) has not been 
+	 * added to the cache. If it is the case, another thread has opened the element (or one of
+	 * its ancestors). So returns without updating the cache.
+	 */
+	protected synchronized void putInfos(IJavaElement openedElement, Map newElements) {
+		while (openedElement != null) {
+			if (!newElements.containsKey(openedElement)) {
+				break;
+			}
+			if (this.cache.peekAtInfo(openedElement) != null) {
+				return;
+			}
+			openedElement = openedElement.getParent();
+		}
+		
+		Iterator iterator = newElements.keySet().iterator();
+		while (iterator.hasNext()) {
+			IJavaElement element = (IJavaElement)iterator.next();
+			Object info = newElements.get(element);
+			this.cache.putInfo(element, info);
+		}
 	}
 
 	/**
@@ -1323,13 +1202,6 @@ public class JavaModelManager implements ISaveParticipant {
 			}
 		}
 	}
-
-	/**
-	 * Registers the given delta with this manager.
-	 */
-	protected void registerJavaModelDelta(IJavaElementDelta delta) {
-		this.javaModelDeltas.add(delta);
-	}
 	
 	/**
 	 * Remembers the given scope in a weak set
@@ -1337,60 +1209,67 @@ public class JavaModelManager implements ISaveParticipant {
 	 */
 	public void rememberScope(AbstractSearchScope scope) {
 		// NB: The value has to be null so as to not create a strong reference on the scope
-		this.scopes.put(scope, null); 
+		this.searchScopes.put(scope, null); 
 	}
-
-	/**
-	 * removeElementChangedListener method comment.
+	
+	/*
+	 * Removes all cached info for the given element (including all children)
+	 * from the cache.
+	 * Returns the info for the given element, or null if it was closed.
 	 */
-	public void removeElementChangedListener(IElementChangedListener listener) {
-		
-		for (int i = 0; i < this.elementChangedListenerCount; i++){
-			
-			if (this.elementChangedListeners[i].equals(listener)){
-				
-				// need to clone defensively since we might be in the middle of listener notifications (#fire)
-				int length = this.elementChangedListeners.length;
-				IElementChangedListener[] newListeners = new IElementChangedListener[length];
-				System.arraycopy(this.elementChangedListeners, 0, newListeners, 0, i);
-				int[] newMasks = new int[length];
-				System.arraycopy(this.elementChangedListenerMasks, 0, newMasks, 0, i);
-				
-				// copy trailing listeners
-				int trailingLength = this.elementChangedListenerCount - i - 1;
-				if (trailingLength > 0){
-					System.arraycopy(this.elementChangedListeners, i+1, newListeners, i, trailingLength);
-					System.arraycopy(this.elementChangedListenerMasks, i+1, newMasks, i, trailingLength);
+	public synchronized Object removeInfoAndChildren(JavaElement element) throws JavaModelException {
+		Object info = peekAtInfo(element);
+		if (info != null) {
+			boolean wasVerbose = false;
+			try {
+				if (VERBOSE) {
+					System.out.println("CLOSING Element ("+ Thread.currentThread()+"): " + element.toStringWithAncestors());  //$NON-NLS-1$//$NON-NLS-2$
+					wasVerbose = true;
+					VERBOSE = false;
 				}
-				
-				// update manager listener state (#fire need to iterate over original listeners through a local variable to hold onto
-				// the original ones)
-				this.elementChangedListeners = newListeners;
-				this.elementChangedListenerMasks = newMasks;
-				this.elementChangedListenerCount--;
-				return;
+				element.closing(info);
+				if (element instanceof IParent && info instanceof JavaElementInfo) {
+					IJavaElement[] children = ((JavaElementInfo)info).getChildren();
+					for (int i = 0, size = children.length; i < size; ++i) {
+						JavaElement child = (JavaElement) children[i];
+						child.close();
+					}
+				}
+				this.cache.removeInfo(element);
+				if (wasVerbose) {
+					System.out.println("-> Package cache size = " + this.cache.pkgSize()); //$NON-NLS-1$
+					System.out.println("-> Openable cache filling ratio = " + NumberFormat.getInstance().format(this.cache.openableFillingRatio()) + "%"); //$NON-NLS-1$//$NON-NLS-2$
+				}
+			} finally {
+				JavaModelManager.VERBOSE = wasVerbose;
+			}
+			return info;
+		}
+		return null;
+	}	
+
+	public void removePerProjectInfo(JavaProject javaProject) {
+		synchronized(perProjectInfos) { // use the perProjectInfo collection as its own lock
+			IProject project = javaProject.getProject();
+			PerProjectInfo info= (PerProjectInfo) perProjectInfos.get(project);
+			if (info != null) {
+				perProjectInfos.remove(project);
 			}
 		}
 	}
 	
-	protected void removeInfo(IJavaElement element) {
-		this.cache.removeInfo(element);
-	}
-
-	public void removePerProjectInfo(JavaProject javaProject) {
-		synchronized(perProjectInfo) { // use the perProjectInfo collection as its own lock
-			IProject project = javaProject.getProject();
-			PerProjectInfo info= (PerProjectInfo) perProjectInfo.get(project);
-			if (info != null) {
-				perProjectInfo.remove(project);
-			}
-		}
+	/*
+	 * Resets the temporary cache for newly created elements to null.
+	 */
+	public void resetTemporaryCache() {
+		this.temporaryCache.set(null);
 	}
 
 	/**
 	 * @see ISaveParticipant
 	 */
 	public void rollback(ISaveContext context){
+		// nothing to do
 	}
 
 	private void saveState(PerProjectInfo info, ISaveContext context) throws CoreException {
@@ -1426,12 +1305,20 @@ public class JavaModelManager implements ISaveParticipant {
 				out.close();
 			}
 		} catch (RuntimeException e) {
-			try {file.delete();} catch(SecurityException se) {}
+			try {
+				file.delete();
+			} catch(SecurityException se) {
+				// could not delete file: cannot do much more
+			}
 			throw new CoreException(
 				new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, Platform.PLUGIN_ERROR,
 					Util.bind("build.cannotSaveState", info.project.getName()), e)); //$NON-NLS-1$
 		} catch (IOException e) {
-			try {file.delete();} catch(SecurityException se) {}
+			try {
+				file.delete();
+			} catch(SecurityException se) {
+				// could not delete file: cannot do much more
+			}
 			throw new CoreException(
 				new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, Platform.PLUGIN_ERROR,
 					Util.bind("build.cannotSaveState", info.project.getName()), e)); //$NON-NLS-1$
@@ -1456,7 +1343,7 @@ public class JavaModelManager implements ISaveParticipant {
 		}
 
 		ArrayList vStats= null; // lazy initialized
-		for (Iterator iter =  perProjectInfo.values().iterator(); iter.hasNext();) {
+		for (Iterator iter =  perProjectInfos.values().iterator(); iter.hasNext();) {
 			try {
 				PerProjectInfo info = (PerProjectInfo) iter.next();
 				saveState(info, context);
@@ -1532,65 +1419,30 @@ public class JavaModelManager implements ISaveParticipant {
 	 * Sets the last built state for the given project, or null to reset it.
 	 */
 	public void setLastBuiltState(IProject project, Object state) {
-		if (!JavaProject.hasJavaNature(project)) return; // should never be requested on non-Java projects
-		PerProjectInfo info = getPerProjectInfo(project, true /*create if missing*/);
-		info.triedRead = true; // no point trying to re-read once using setter
-		info.savedState = state;
+		if (JavaProject.hasJavaNature(project)) {
+			// should never be requested on non-Java projects
+			PerProjectInfo info = getPerProjectInfo(project, true /*create if missing*/);
+			info.triedRead = true; // no point trying to re-read once using setter
+			info.savedState = state;
+		}
 		if (state == null) { // delete state file to ensure a full build happens if the workspace crashes
 			try {
 				File file = getSerializationFile(project);
 				if (file != null && file.exists())
 					file.delete();
-			} catch(SecurityException se) {}
+			} catch(SecurityException se) {
+				// could not delete file: cannot do much more
+			}
 		}
 	}
 
 	public void shutdown () {
-		if (this.deltaProcessor.indexManager != null){ // no more indexing
-			this.deltaProcessor.indexManager.shutdown();
+		if (this.indexManager != null){ // no more indexing
+			this.indexManager.shutdown();
 		}
-		try {
-			IJavaModel model = this.getJavaModel();
-			if (model != null) {
-				model.close();
-			}
-		} catch (JavaModelException e) {
-		}
+		// Note: no need to close the Java model as this just removes Java element infos from the Java model cache
 	}
-
-	/**
-	 * Turns the firing mode to on. That is, deltas that are/have been
-	 * registered will be fired.
-	 */
-	public void startDeltas() {
-		this.isFiring= true;
-	}
-
-	/**
-	 * Turns the firing mode to off. That is, deltas that are/have been
-	 * registered will not be fired until deltas are started again.
-	 */
-	public void stopDeltas() {
-		this.isFiring= false;
-	}
-	
-	/**
-	 * Update Java Model given some delta
-	 */
-	public void updateJavaModel(IJavaElementDelta customDelta) {
-
-		if (customDelta == null){
-			for (int i = 0, length = this.javaModelDeltas.size(); i < length; i++){
-				IJavaElementDelta delta = (IJavaElementDelta)this.javaModelDeltas.get(i);
-				this.modelUpdater.processJavaDelta(delta);
-			}
-		} else {
-			this.modelUpdater.processJavaDelta(customDelta);
-		}
-	}
-
-
-	
+		
 	public static IPath variableGet(String variableName){
 		return (IPath)Variables.get(variableName);
 	}

@@ -163,6 +163,37 @@ public final class CharOperation {
 		System.arraycopy(second, 0, result, length1, length2);
 		return result;
 	}
+	/**
+	 * Returns the char arrays as an array of Strings
+	 * 
+	 * @param charArrays the char array to convert
+	 * @return the char arrays as an array of Strings or null if the given char arrays is null.
+	 * @since 3.0
+	 */
+	public static String[] charArrayToStringArray(char[][] charArrays) {
+		if (charArrays == null) {
+			return null;
+		}
+		String[] strings= new String[charArrays.length];
+		for (int i= 0; i < charArrays.length; i++) {
+			strings[i]= new String(charArrays[i]);
+		}
+		return strings;
+	}
+	/**
+	 * Returns the char array as a String
+
+	 * @param charArray the char array to convert
+	 * @return the char array as a String or null if the given char array is null.
+	 * @since 3.0
+	 */
+	public static String charToString(char[] charArray) {
+		if (charArray == null) {
+			return null;
+		} else {
+			return new String(charArray);
+		}
+	}
 
 	/**
 	 * Answers a new array adding the second array at the end of first array.
@@ -1063,6 +1094,67 @@ public final class CharOperation {
 				return false;
 		return true;
 	}
+	
+	/**
+	 * Answers true if the first array is identical character by character to a portion of the second array
+	 * delimited from position secondStart (inclusive) to secondEnd(exclusive), otherwise false.
+	 * The equality is case sensitive.
+	 * <br>
+	 * <br>
+	 * For example:
+	 * <ol>
+	 * <li><pre>
+	 *    first = null
+	 *    second = null
+	 *    secondStart = 0
+	 *    secondEnd = 0
+	 *    result => true
+	 * </pre>
+	 * </li>
+	 * <li><pre>
+	 *    first = { }
+	 *    second = null
+	 *    secondStart = 0
+	 *    secondEnd = 0
+	 *    result => false
+	 * </pre>
+	 * </li>
+	 * <li><pre>
+	 *    first = { 'a' }
+	 *    second = { 'a' }
+	 *    secondStart = 0
+	 *    secondEnd = 1
+	 *    result => true
+	 * </pre>
+	 * </li>
+	 * <li><pre>
+	 *    first = { 'a' }
+	 *    second = { 'A' }
+	 *    secondStart = 0
+	 *    secondEnd = 1
+	 *    result => false
+	 * </pre>
+	 * </li>
+	 * </ol>
+	 * @param first the first array
+	 * @param second the second array
+	 * @param secondStart inclusive start position in the second array to compare
+	 * @param secondEnd exclusive end position in the second array to compare
+	 * @return true if the first array is identical character by character to fragment of second array ranging from secondStart to secondEnd-1, otherwise false
+	 */
+	public static final boolean equals(char[] first, char[] second, int secondStart, int secondEnd) {
+		if (first == second)
+			return true;
+		if (first == null || second == null)
+			return false;
+		if (first.length != secondEnd - secondStart)
+			return false;
+
+		for (int i = first.length; --i >= 0;)
+			if (first[i] != second[i+secondStart])
+				return false;
+		return true;
+	}
 
 	/**
 	 * If isCaseSensite is true, answers true if the two arrays are identical character
@@ -1689,9 +1781,8 @@ public final class CharOperation {
 	 * conventions, also see "http://jakarta.apache.org/ant/manual/dirtasks.html#defaultexcludes").
 	 * Path pattern matching is enhancing regular pattern matching in supporting extra rule where '**' represent
 	 * any folder combination.
-	 * Special rules: 
+	 * Special rule: 
 	 * - foo\  is equivalent to foo\**   
-	 * - *.java is equivalent to **\*.java
 	 * When not case sensitive, the pattern is assumed to already be lowercased, the
 	 * name will be lowercased character per character as comparing.
 	 * 
@@ -1712,17 +1803,9 @@ public final class CharOperation {
 		if (pattern == null)
 			return true; // null pattern is equivalent to '*'
 
-		// special case: pattern foo is equivalent to **\foo (not absolute)
-		boolean freeLeadingDoubleStar;
-
 		// offsets inside pattern
-		int pSegmentStart, pLength = pattern.length;
-
-		if (freeLeadingDoubleStar = pattern[0] != pathSeparator){
-			pSegmentStart = 0;
-		} else {
-			pSegmentStart = 1;
-		}
+		int pSegmentStart = pattern[0] == pathSeparator ? 1 : 0;
+		int pLength = pattern.length;
 		int pSegmentEnd = CharOperation.indexOf(pathSeparator, pattern, pSegmentStart+1);
 		if (pSegmentEnd < 0) pSegmentEnd = pLength;
 
@@ -1744,7 +1827,6 @@ public final class CharOperation {
 
 		// first segments
 		while (pSegmentStart < pLength
-			&& !freeLeadingDoubleStar
 			&& !(pSegmentEnd == pLength && freeTrailingDoubleStar
 					|| (pSegmentEnd == pSegmentStart + 2
 							&& pattern[pSegmentStart] == '*'
@@ -2587,5 +2669,12 @@ public final class CharOperation {
 	final static public String toString(char[][] array) {
 		char[] result = concatWith(array, '.');
 		return new String(result);
+	}
+	final static public String[] toStrings(char[][] array) {
+		int length = array.length;
+		String[] result = new String[length];
+		for (int i = 0; i < length; i++)
+			result[i] = new String(array[i]);
+		return result;
 	}
 }

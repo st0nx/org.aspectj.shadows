@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.flow;
 
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.Reference;
 import org.eclipse.jdt.internal.compiler.codegen.Label;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
@@ -34,7 +34,7 @@ public class LoopingFlowContext extends SwitchFlowContext {
 	
 	public LoopingFlowContext(
 		FlowContext parent,
-		AstNode associatedNode,
+		ASTNode associatedNode,
 		Label breakLabel,
 		Label continueLabel,
 		Scope associatedScope) {
@@ -102,13 +102,14 @@ public class LoopingFlowContext extends SwitchFlowContext {
 		if (initsOnContinue == FlowInfo.DEAD_END) {
 			initsOnContinue = flowInfo.copy().unconditionalInits();
 		} else {
-			initsOnContinue = initsOnContinue.mergedWith(flowInfo.unconditionalInits());
-		};
+			initsOnContinue = initsOnContinue.mergedWith(flowInfo.copy().unconditionalInits());
+		}
 	}
 
 	boolean recordFinalAssignment(
 		VariableBinding binding,
 		Reference finalAssignment) {
+
 		// do not consider variables which are defined inside this loop
 		if (binding instanceof LocalVariableBinding) {
 			Scope scope = ((LocalVariableBinding) binding).declaringScope;
@@ -134,7 +135,7 @@ public class LoopingFlowContext extends SwitchFlowContext {
 				(finalVariables = new VariableBinding[assignCount * 2]),
 				0,
 				assignCount);
-		};
+		}
 		finalAssignments[assignCount] = finalAssignment;
 		finalVariables[assignCount++] = binding;
 		return true;

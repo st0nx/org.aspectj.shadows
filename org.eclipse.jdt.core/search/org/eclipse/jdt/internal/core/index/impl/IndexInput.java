@@ -12,9 +12,7 @@ package org.eclipse.jdt.internal.core.index.impl;
 
 import java.io.IOException;
 
-import org.eclipse.jdt.internal.core.index.IDocument;
-import org.eclipse.jdt.internal.core.index.IEntryResult;
-import org.eclipse.jdt.internal.core.index.IQueryResult;
+import org.eclipse.jdt.core.search.SearchDocument;
 
 
 /**
@@ -52,7 +50,7 @@ public abstract class IndexInput {
 	/**
 	 * Returns the current file the indexInput is pointing to in the index.
 	 */
-	public WordEntry getCurrentWordEntry() throws IOException {
+	public WordEntry getCurrentWordEntry() {
 		if (!hasMoreWords())
 			return null;
 		return currentWordEntry;
@@ -73,7 +71,7 @@ public abstract class IndexInput {
 	 * reads in (e.g. the indexedFile with the same path in this index), or null if such 
 	 * indexedFile does not exist.
 	 */
-	public abstract IndexedFile getIndexedFile(IDocument document) throws IOException;
+	public abstract IndexedFile getIndexedFile(SearchDocument document) throws IOException;
 	/**
 	 * Returns the number of files in the index.
 	 */
@@ -102,7 +100,7 @@ public abstract class IndexInput {
 	/**
 	 * Moves the pointer on the current file to the next file in the index.
 	 */
-	public abstract void moveToNextFile() throws IOException;
+	public abstract void moveToNextFile();
 	/**
 	 * Moves the pointer on the current word to the next file in the index.
 	 */
@@ -114,13 +112,14 @@ public abstract class IndexInput {
 	/**
 	 * Returns the list of the files containing the given word in the index.
 	 */
-	public abstract IQueryResult[] query(String word) throws IOException;
-	public abstract IEntryResult[] queryEntriesPrefixedBy(char[] prefix) throws IOException;
-	public abstract IQueryResult[] queryFilesReferringToPrefix(char[] prefix) throws IOException;
+	public abstract String[] query(String word) throws IOException;
+	public abstract EntryResult[] queryEntries(char[] pattern, int matchRule) throws IOException;
+	public abstract EntryResult[] queryEntriesPrefixedBy(char[] prefix) throws IOException;
+	public abstract String[] queryFilesReferringToPrefix(char[] prefix) throws IOException;
 	/**
 	 * Returns the list of the files whose name contain the given word in the index.
 	 */
-	public abstract IQueryResult[] queryInDocumentNames(String word) throws IOException;
+	public abstract String[] queryInDocumentNames(String word) throws IOException;
 	/**
 	 * Set the pointer on the current file to the first file of the index.
 	 */

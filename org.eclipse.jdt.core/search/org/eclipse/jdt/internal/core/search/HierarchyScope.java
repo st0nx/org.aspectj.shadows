@@ -18,6 +18,7 @@ import java.util.Iterator;
 import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.JarPackageFragmentRoot;
 import org.eclipse.jdt.internal.core.JavaElement;
@@ -27,10 +28,11 @@ import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
 /**
  * Scope limited to the subtype and supertype hierarchy of a given type.
  */
-public class HierarchyScope extends AbstractSearchScope {
+public class HierarchyScope extends AbstractSearchScope implements SuffixConstants {
 
 	public IType focusType;
 	private String focusPath;
+	private WorkingCopyOwner owner;
 	
 	private ITypeHierarchy hierarchy;
 	private IType[] types;
@@ -60,8 +62,9 @@ public class HierarchyScope extends AbstractSearchScope {
 	/* (non-Javadoc)
 	 * Creates a new hiearchy scope for the given type.
 	 */
-	public HierarchyScope(IType type) throws JavaModelException {
+	public HierarchyScope(IType type, WorkingCopyOwner owner) throws JavaModelException {
 		this.focusType = type;
+		this.owner = owner;
 		
 		this.enclosingProjectsAndJars = this.computeProjectsAndJars(type);
 
@@ -84,7 +87,7 @@ public class HierarchyScope extends AbstractSearchScope {
 				zipFileName
 					+ JAR_FILE_ENTRY_SEPARATOR
 					+ type.getFullyQualifiedName().replace('.', '/')
-					+ ".class";//$NON-NLS-1$
+					+ SUFFIX_STRING_class;
 		} else {
 			this.focusPath = type.getPath().toString();
 		}
@@ -94,7 +97,7 @@ public class HierarchyScope extends AbstractSearchScope {
 		//disabled for now as this could be expensive
 		//JavaModelManager.getJavaModelManager().rememberScope(this);
 	}
-	private void buildResourceVector() throws JavaModelException {
+	private void buildResourceVector() {
 		HashMap resources = new HashMap();
 		HashMap paths = new HashMap();
 		this.types = this.hierarchy.getAllTypes();
@@ -127,7 +130,7 @@ public class HierarchyScope extends AbstractSearchScope {
 					zipFileName
 						+ JAR_FILE_ENTRY_SEPARATOR
 						+ type.getFullyQualifiedName().replace('.', '/')
-						+ ".class";//$NON-NLS-1$
+						+ SUFFIX_STRING_class;
 				
 				this.resourcePaths.add(resourcePath);
 				paths.put(jarPath, type);
@@ -298,7 +301,7 @@ public class HierarchyScope extends AbstractSearchScope {
 				// be flexible: look at original element (see bug 14106 Declarations in Hierarchy does not find declarations in hierarchy)
 				IType original;
 				if (!type.isBinary() 
-						&& (original = (IType)type.getCompilationUnit().getOriginal(type)) != null) {
+						&& (original = (IType)type.getPrimaryElement()) != null) {
 					return this.hierarchy.contains(original);
 				}
 			}
@@ -325,7 +328,7 @@ public class HierarchyScope extends AbstractSearchScope {
 		this.elementCount = 0;
 		this.needsRefresh = false;
 		if (this.hierarchy == null) {
-			this.hierarchy = this.focusType.newTypeHierarchy(null);
+			this.hierarchy = this.focusType.newTypeHierarchy(this.owner, null);
 		} else {
 			this.hierarchy.refresh(null);
 		}

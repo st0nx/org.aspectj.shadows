@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
@@ -1180,12 +1180,14 @@ public class BinaryExpression extends OperatorExpression {
 						trueLabel,
 						falseLabel,
 						false);
+					Label internalTrueLabel = new Label(codeStream);
 					right.generateOptimizedBoolean(
 						currentScope,
 						codeStream,
 						trueLabel,
 						falseLabel,
 						false);
+					internalTrueLabel.place();
 					if (valueRequired) {
 						if ((bits & OnlyValueRequiredMASK) != 0) {
 							codeStream.iconst_0();
@@ -1222,12 +1224,14 @@ public class BinaryExpression extends OperatorExpression {
 						false);
 				} else {
 					// x & <something equivalent to false>
+					Label internalTrueLabel = new Label(codeStream);
 					left.generateOptimizedBoolean(
 						currentScope,
 						codeStream,
-						trueLabel,
+						internalTrueLabel,
 						falseLabel,
 						false);
+					internalTrueLabel.place();
 					right.generateOptimizedBoolean(
 						currentScope,
 						codeStream,
@@ -1296,12 +1300,14 @@ public class BinaryExpression extends OperatorExpression {
 						trueLabel,
 						falseLabel,
 						false);
+					Label internalFalseLabel = new Label(codeStream);
 					right.generateOptimizedBoolean(
 						currentScope,
 						codeStream,
 						trueLabel,
-						falseLabel,
+						internalFalseLabel,
 						false);
+					internalFalseLabel.place();
 					if (valueRequired) {
 						if ((bits & OnlyValueRequiredMASK) != 0) {
 							codeStream.iconst_1();
@@ -1337,12 +1343,14 @@ public class BinaryExpression extends OperatorExpression {
 			if ((condConst = right.optimizedBooleanConstant()) != NotAConstant) {
 				if (condConst.booleanValue() == true) {
 					// x | <something equivalent to true>
+					Label internalFalseLabel = new Label(codeStream);
 					left.generateOptimizedBoolean(
 						currentScope,
 						codeStream,
 						trueLabel,
-						falseLabel,
+						internalFalseLabel,
 						false);
+					internalFalseLabel.place();
 					right.generateOptimizedBoolean(
 						currentScope,
 						codeStream,
@@ -1641,59 +1649,67 @@ public class BinaryExpression extends OperatorExpression {
 				}
 		}
 	}
-	
+
+	public StringBuffer printExpressionNoParenthesis(int indent, StringBuffer output) {
+
+		left.printExpression(indent, output).append(' ').append(operatorToString()).append(' ');
+		return right.printExpression(0, output);
+	}
+		
 	public TypeBinding resolveType(BlockScope scope) {
 
+		boolean leftIsCast, rightIsCast;
+		if ((leftIsCast = left instanceof CastExpression) == true) left.bits |= IgnoreNeedForCastCheckMASK; // will check later on
+		TypeBinding leftType = left.resolveType(scope);
+
+		if ((rightIsCast = right instanceof CastExpression) == true) right.bits |= IgnoreNeedForCastCheckMASK; // will check later on
+		TypeBinding rightType = right.resolveType(scope);
+
 		// use the id of the type to navigate into the table
-		TypeBinding leftTb = left.resolveType(scope);
-		TypeBinding rightTb = right.resolveType(scope);
-		if (leftTb == null || rightTb == null) {
+		if (leftType == null || rightType == null) {
 			constant = Constant.NotAConstant;
 			return null;
 		}
-		int leftId = leftTb.id;
-		int rightId = rightTb.id;
-		if (leftId > 15
-			|| rightId > 15) { // must convert String + Object || Object + String
-			if (leftId == T_String) {
-				rightId = T_Object;
-			} else if (rightId == T_String) {
-				leftId = T_Object;
+		int leftTypeId = leftType.id;
+		int rightTypeId = rightType.id;
+		if (leftTypeId > 15
+			|| rightTypeId > 15) { // must convert String + Object || Object + String
+			if (leftTypeId == T_String) {
+				rightTypeId = T_Object;
+			} else if (rightTypeId == T_String) {
+				leftTypeId = T_Object;
 			} else {
 				constant = Constant.NotAConstant;
-				scope.problemReporter().invalidOperator(this, leftTb, rightTb);
+				scope.problemReporter().invalidOperator(this, leftType, rightType);
 				return null;
 			}
 		}
 		if (((bits & OperatorMASK) >> OperatorSHIFT) == PLUS) {
-			if (leftId == T_String
-				&& rightTb.isArrayType()
-				&& ((ArrayBinding) rightTb).elementsType(scope) == CharBinding)
-				scope.problemReporter().signalNoImplicitStringConversionForCharArrayExpression(
-					right);
-			else if (
-				rightId == T_String
-					&& leftTb.isArrayType()
-					&& ((ArrayBinding) leftTb).elementsType(scope) == CharBinding)
-				scope.problemReporter().signalNoImplicitStringConversionForCharArrayExpression(
-					left);
+			if (leftTypeId == T_String
+					&& rightType.isArrayType()
+					&& ((ArrayBinding) rightType).elementsType(scope) == CharBinding) {
+				scope.problemReporter().signalNoImplicitStringConversionForCharArrayExpression(right);
+					} else if (rightTypeId == T_String
+							&& leftType.isArrayType()
+							&& ((ArrayBinding) leftType).elementsType(scope) == CharBinding) {
+				scope.problemReporter().signalNoImplicitStringConversionForCharArrayExpression(left);
+			}
 		}
 
 		// the code is an int
-		// (cast)  left   Op (cast)  rigth --> result
+		// (cast)  left   Op (cast)  right --> result
 		//  0000   0000       0000   0000      0000
 		//  <<16   <<12       <<8    <<4       <<0
 
 		// Don't test for result = 0. If it is zero, some more work is done.
 		// On the one hand when it is not zero (correct code) we avoid doing the test	
-		int result =
-			ResolveTypeTables[(bits & OperatorMASK) >> OperatorSHIFT][(leftId << 4)
-				+ rightId];
-		left.implicitConversion = result >>> 12;
-		right.implicitConversion = (result >>> 4) & 0x000FF;
+		int operator = (bits & OperatorMASK) >> OperatorSHIFT;
+		int operatorSignature = OperatorSignatures[operator][(leftTypeId << 4) + rightTypeId];
+		left.implicitConversion = operatorSignature >>> 12;
+		right.implicitConversion = (operatorSignature >>> 4) & 0x000FF;
 
-		bits |= result & 0xF;
-		switch (result & 0xF) { // record the current ReturnTypeID
+		bits |= operatorSignature & 0xF;
+		switch (operatorSignature & 0xF) { // record the current ReturnTypeID
 			// only switch on possible result type.....
 			case T_boolean :
 				this.resolvedType = BooleanBinding;
@@ -1721,23 +1737,20 @@ public class BinaryExpression extends OperatorExpression {
 				break;
 			default : //error........
 				constant = Constant.NotAConstant;
-				scope.problemReporter().invalidOperator(this, leftTb, rightTb);
+				scope.problemReporter().invalidOperator(this, leftType, rightType);
 				return null;
 		}
 
+		// check need for operand cast
+		if (leftIsCast || rightIsCast) {
+			CastExpression.checkNeedForArgumentCasts(scope, operator, operatorSignature, left, leftTypeId, leftIsCast, right, rightTypeId, rightIsCast);
+		}
 		// compute the constant when valid
-		computeConstant(scope, leftId, rightId);
+		computeConstant(scope, leftTypeId, rightTypeId);
 		return this.resolvedType;
 	}
-	
-	public String toStringExpressionNoParenthesis() {
 
-		return left.toStringExpression() + " " + //$NON-NLS-1$
-		operatorToString() + " " + //$NON-NLS-1$
-		right.toStringExpression();
-	}
-
-	public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope scope) {
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
 		
 		if (visitor.visit(this, scope)) {
 			left.traverse(visitor, scope);

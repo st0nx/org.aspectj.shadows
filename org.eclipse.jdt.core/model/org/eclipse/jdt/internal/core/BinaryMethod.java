@@ -17,6 +17,7 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.internal.compiler.SourceElementRequestorAdapter;
 import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * @see IMethod
@@ -30,18 +31,18 @@ import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
 			public void enterMethod(
 				int declarationStart,
 				int modifiers,
-				char[] returnType,
-				char[] name,
+				char[] returnTypeName,
+				char[] selector,
 				int nameSourceStart,
 				int nameSourceEnd,
-				char[][] parameterTypes,
-				char[][] parameterNames,
-				char[][] exceptionTypes) {
-					if (parameterNames != null) {
-						int length = parameterNames.length;
+				char[][] paramTypes,
+				char[][] paramNames,
+				char[][] exceptions) {
+					if (paramNames != null) {
+						int length = paramNames.length;
 						this.parametersNames = new String[length];
 						for (int i = 0; i < length; i++) {
-							this.parametersNames[i] = new String(parameterNames[i]);
+							this.parametersNames[i] = new String(paramNames[i]);
 						}
 					}
 				}
@@ -49,17 +50,17 @@ import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
 			public void enterConstructor(
 				int declarationStart,
 				int modifiers,
-				char[] name,
+				char[] selector,
 				int nameSourceStart,
 				int nameSourceEnd,
-				char[][] parameterTypes,
-				char[][] parameterNames,
-				char[][] exceptionTypes) {
-					if (parameterNames != null) {
-						int length = parameterNames.length;
+				char[][] paramTypes,
+				char[][] paramNames,
+				char[][] exceptions) {
+					if (paramNames != null) {
+						int length = paramNames.length;
 						this.parametersNames = new String[length];
 						for (int i = 0; i < length; i++) {
-							this.parametersNames[i] = new String(parameterNames[i]);
+							this.parametersNames[i] = new String(paramNames[i]);
 						}
 					}
 				}
@@ -74,42 +75,43 @@ import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
 	 * to perform equality test. <code>null</code> indicates no
 	 * parameters.
 	 */
-	protected String[] fParameterTypes;
+	protected String[] parameterTypes;
 	/**
 	 * The parameter names for the method.
 	 */
-	protected String[] fParameterNames;
+	protected String[] parameterNames;
 
 	/**
 	 * An empty list of Strings
 	 */
-	protected static final String[] fgEmptyList= new String[] {};
-	protected String[] fExceptionTypes;
-	protected String fReturnType;
-protected BinaryMethod(IType parent, String name, String[] parameterTypes) {
-	super(METHOD, parent, name);
+	protected static final String[] NO_TYPES= new String[] {};
+	protected String[] exceptionTypes;
+	protected String returnType;
+protected BinaryMethod(JavaElement parent, String name, String[] paramTypes) {
+	super(parent, name);
 	Assert.isTrue(name.indexOf('.') == -1);
-	if (parameterTypes == null) {
-		fParameterTypes= fgEmptyList;
+	if (paramTypes == null) {
+		this.parameterTypes= NO_TYPES;
 	} else {
-		fParameterTypes= parameterTypes;
+		this.parameterTypes= paramTypes;
 	}
 }
 public boolean equals(Object o) {
-	return super.equals(o) && Util.equalArraysOrNull(fParameterTypes, ((BinaryMethod)o).fParameterTypes);
+	if (!(o instanceof BinaryMethod)) return false;
+	return super.equals(o) && Util.equalArraysOrNull(this.parameterTypes, ((BinaryMethod)o).parameterTypes);
 }
-/**
+/*
  * @see IMethod
  */
 public String[] getExceptionTypes() throws JavaModelException {
-	if (fExceptionTypes == null) {
+	if (this.exceptionTypes == null) {
 		IBinaryMethod info = (IBinaryMethod) getElementInfo();
 		char[][] eTypeNames = info.getExceptionTypeNames();
 		if (eTypeNames == null || eTypeNames.length == 0) {
-			fExceptionTypes = fgEmptyList;
+			this.exceptionTypes = NO_TYPES;
 		} else {
 			eTypeNames = ClassFile.translatedNames(eTypeNames);
-			fExceptionTypes = new String[eTypeNames.length];
+			this.exceptionTypes = new String[eTypeNames.length];
 			for (int j = 0, length = eTypeNames.length; j < length; j++) {
 				// 1G01HRY: ITPJCORE:WINNT - method.getExceptionType not in correct format
 				int nameLength = eTypeNames[j].length;
@@ -117,125 +119,135 @@ public String[] getExceptionTypes() throws JavaModelException {
 				System.arraycopy(eTypeNames[j], 0, convertedName, 1, nameLength);
 				convertedName[0] = 'L';
 				convertedName[nameLength + 1] = ';';
-				fExceptionTypes[j] = new String(convertedName);
+				this.exceptionTypes[j] = new String(convertedName);
 			}
 		}
 	}
-	return fExceptionTypes;
+	return this.exceptionTypes;
 }
-/**
+/*
+ * @see IJavaElement
+ */
+public int getElementType() {
+	return METHOD;
+}
+/*
  * @see IMember
  */
 public int getFlags() throws JavaModelException {
 	IBinaryMethod info = (IBinaryMethod) getElementInfo();
 	return info.getModifiers();
 }
-/**
+/*
  * @see JavaElement#getHandleMemento()
  */
 public String getHandleMemento() {
 	StringBuffer buff = new StringBuffer(((JavaElement) getParent()).getHandleMemento());
 	buff.append(getHandleMementoDelimiter());
 	buff.append(getElementName());
-	for (int i = 0; i < fParameterTypes.length; i++) {
+	for (int i = 0; i < this.parameterTypes.length; i++) {
 		buff.append(getHandleMementoDelimiter());
-		buff.append(fParameterTypes[i]);
+		buff.append(this.parameterTypes[i]);
+	}
+	if (this.occurrenceCount > 1) {
+		buff.append(JEM_COUNT);
+		buff.append(this.occurrenceCount);
 	}
 	return buff.toString();
 }
-/**
+/*
  * @see JavaElement#getHandleMemento()
  */
 protected char getHandleMementoDelimiter() {
 	return JavaElement.JEM_METHOD;
 }
-/**
+/*
  * @see IMethod
  */
 public int getNumberOfParameters() {
-	return fParameterTypes == null ? 0 : fParameterTypes.length;
+	return this.parameterTypes == null ? 0 : this.parameterTypes.length;
 }
-/**
+/*
  * @see IMethod
  * Look for source attachment information to retrieve the actual parameter names as stated in source.
  */
 public String[] getParameterNames() throws JavaModelException {
-	if (fParameterNames == null) {
+	if (this.parameterNames == null) {
 
 		// force source mapping if not already done
 		IType type = (IType) getParent();
 		SourceMapper mapper = getSourceMapper();
 		if (mapper != null) {
-			char[][] parameterNames = mapper.getMethodParameterNames(this);
+			char[][] paramNames = mapper.getMethodParameterNames(this);
 			
 			// map source and try to find parameter names
-			if(parameterNames == null) {
+			if(paramNames == null) {
 				char[] source = mapper.findSource(type);
 				if (source != null){
 					mapper.mapSource(type, source);
 				}
-				parameterNames = mapper.getMethodParameterNames(this);
+				paramNames = mapper.getMethodParameterNames(this);
 			}
 			
 			// if parameter names exist, convert parameter names to String array
-			if(parameterNames != null) {
-				fParameterNames = new String[parameterNames.length];
-				for (int i = 0; i < parameterNames.length; i++) {
-					fParameterNames[i] = new String(parameterNames[i]);
+			if(paramNames != null) {
+				this.parameterNames = new String[paramNames.length];
+				for (int i = 0; i < paramNames.length; i++) {
+					this.parameterNames[i] = new String(paramNames[i]);
 				}
 			}
 		}
 		// if still no parameter names, produce fake ones
-		if (fParameterNames == null) {
+		if (this.parameterNames == null) {
 			IBinaryMethod info = (IBinaryMethod) getElementInfo();
 			int paramCount = Signature.getParameterCount(new String(info.getMethodDescriptor()));
-			fParameterNames = new String[paramCount];
+			this.parameterNames = new String[paramCount];
 			for (int i = 0; i < paramCount; i++) {
-				fParameterNames[i] = "arg" + i; //$NON-NLS-1$
+				this.parameterNames[i] = "arg" + i; //$NON-NLS-1$
 			}
 		}
 	}
-	return fParameterNames;
+	return this.parameterNames;
 }
-/**
+/*
  * @see IMethod
  */
 public String[] getParameterTypes() {
-	return fParameterTypes;
+	return this.parameterTypes;
 }
-/**
+/*
  * @see IMethod
  */
 public String getReturnType() throws JavaModelException {
 	IBinaryMethod info = (IBinaryMethod) getElementInfo();
-	if (fReturnType == null) {
-		String returnType= Signature.getReturnType(new String(info.getMethodDescriptor()));
-		fReturnType= new String(ClassFile.translatedName(returnType.toCharArray()));
+	if (this.returnType == null) {
+		String returnTypeName= Signature.getReturnType(new String(info.getMethodDescriptor()));
+		this.returnType= new String(ClassFile.translatedName(returnTypeName.toCharArray()));
 	}
-	return fReturnType;
+	return this.returnType;
 }
-/**
+/*
  * @see IMethod
  */
 public String getSignature() throws JavaModelException {
 	IBinaryMethod info = (IBinaryMethod) getElementInfo();
 	return new String(info.getMethodDescriptor());
 }
-/**
+/*
  * @see IMethod
  */
 public boolean isConstructor() throws JavaModelException {
 	IBinaryMethod info = (IBinaryMethod) getElementInfo();
 	return info.isConstructor();
 }
-/**
+/*
  * @see IMethod#isMainMethod()
  */
 public boolean isMainMethod() throws JavaModelException {
 	return this.isMainMethod(this);
 }
 
-/**
+/*
  * @see IMethod#isSimilar(IMethod)
  */
 public boolean isSimilar(IMethod method) {
@@ -246,17 +258,15 @@ public boolean isSimilar(IMethod method) {
 			null);
 }
 
-/**
- */
 public String readableName() {
 
 	StringBuffer buffer = new StringBuffer(super.readableName());
 	buffer.append("("); //$NON-NLS-1$
-	String[] parameterTypes = this.getParameterTypes();
+	String[] paramTypes = this.parameterTypes;
 	int length;
-	if (parameterTypes != null && (length = parameterTypes.length) > 0) {
+	if (paramTypes != null && (length = paramTypes.length) > 0) {
 		for (int i = 0; i < length; i++) {
-			buffer.append(Signature.toString(parameterTypes[i]));
+			buffer.append(Signature.toString(paramTypes[i]));
 			if (i < length - 1) {
 				buffer.append(", "); //$NON-NLS-1$
 			}
@@ -265,16 +275,18 @@ public String readableName() {
 	buffer.append(")"); //$NON-NLS-1$
 	return buffer.toString();
 }
-/**
+/*
  * @private Debugging purposes
  */
 protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 	buffer.append(this.tabString(tab));
 	if (info == null) {
 		buffer.append(getElementName());
+		toStringParameters(buffer);
 		buffer.append(" (not open)"); //$NON-NLS-1$
 	} else if (info == NO_INFO) {
 		buffer.append(getElementName());
+		toStringParameters(buffer);
 	} else {
 		try {
 			if (Flags.isStatic(this.getFlags())) {
@@ -285,21 +297,24 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 				buffer.append(' ');
 			}
 			buffer.append(this.getElementName());
-			buffer.append('(');
-			String[] parameterTypes = this.getParameterTypes();
-			int length;
-			if (parameterTypes != null && (length = parameterTypes.length) > 0) {
-				for (int i = 0; i < length; i++) {
-					buffer.append(Signature.toString(parameterTypes[i]));
-					if (i < length - 1) {
-						buffer.append(", "); //$NON-NLS-1$
-					}
-				}
-			}
-			buffer.append(')');
+			toStringParameters(buffer);
 		} catch (JavaModelException e) {
 			buffer.append("<JavaModelException in toString of " + getElementName()); //$NON-NLS-1$
 		}
 	}
+}
+private void toStringParameters(StringBuffer buffer) {
+	buffer.append('(');
+	String[] parameters = this.getParameterTypes();
+	int length;
+	if (parameters != null && (length = parameters.length) > 0) {
+		for (int i = 0; i < length; i++) {
+			buffer.append(Signature.toString(parameters[i]));
+			if (i < length - 1) {
+				buffer.append(", "); //$NON-NLS-1$
+			}
+		}
+	}
+	buffer.append(')');
 }
 }

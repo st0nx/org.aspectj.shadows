@@ -26,15 +26,12 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.Path;
-import org.eclipse.jdt.core.IClassFile;
-import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModel;
 import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IPackageFragmentRoot;
-import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * Implementation of <code>IJavaModel<code>. The Java Model maintains a cache of
@@ -62,7 +59,22 @@ public class JavaModel extends Openable implements IJavaModel {
  * @exception Error if called more than once
  */
 protected JavaModel() throws Error {
-	super(JAVA_MODEL, null, "" /*workspace has empty name*/); //$NON-NLS-1$
+	super(null, "" /*workspace has empty name*/); //$NON-NLS-1$
+}
+protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource)	/*throws JavaModelException*/ {
+
+	// determine my children
+	IProject[] projects = ResourcesPlugin.getWorkspace().getRoot().getProjects();
+	for (int i = 0, max = projects.length; i < max; i++) {
+		IProject project = projects[i];
+		if (JavaProject.hasJavaNature(project)) {
+			info.addChild(getJavaProject(project));
+		}
+	}
+
+	newElements.put(this, info);
+	
+	return true;
 }
 /*
  * @see IJavaModel
@@ -101,7 +113,7 @@ public void copy(IJavaElement[] elements, IJavaElement[] containers, IJavaElemen
 /**
  * Returns a new element info for this element.
  */
-protected OpenableElementInfo createElementInfo() {
+protected Object createElementInfo() {
 	return new JavaModelInfo();
 }
 
@@ -114,6 +126,10 @@ public void delete(IJavaElement[] elements, boolean force, IProgressMonitor moni
 	} else {
 		runOperation(new DeleteElementsOperation(elements, force), monitor);
 	}
+}
+public boolean equals(Object o) {
+	if (!(o instanceof JavaModel)) return false;
+	return super.equals(o);
 }
 /**
  * Finds the given project in the list of the java model's children.
@@ -129,10 +145,16 @@ public IJavaProject findJavaProject(IProject project) {
 			}
 		}
 	} catch (JavaModelException e) {
+		// java model doesn't exist: cannot find any project
 	}
 	return null;
 }
-
+/**
+ * @see IJavaElement
+ */
+public int getElementType() {
+	return JAVA_MODEL;
+}
 /**
  * Flushes the cache of external files known to be existing.
  */
@@ -140,199 +162,19 @@ public static void flushExternalFileCache() {
 	existingExternalFiles = new HashSet();
 }
 
-/**
+/*
+ * @see JavaElement
  */
-protected boolean generateInfos(
-	OpenableElementInfo info,
-	IProgressMonitor pm,
-	Map newElements,
-	IResource underlyingResource)	throws JavaModelException {
-
-	JavaModelManager.getJavaModelManager().putInfo(this, info);
-	// determine my children
-	IProject[] projects = ResourcesPlugin.getWorkspace().getRoot().getProjects();
-	for (int i = 0, max = projects.length; i < max; i++) {
-		IProject project = projects[i];
-		if (JavaProject.hasJavaNature(project)) {
-			info.addChild(getJavaProject(project));
-		}
+public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner owner) {
+	switch (token.charAt(0)) {
+		case JEM_COUNT:
+			return getHandleUpdatingCountFromMemento(memento, owner);
+		case JEM_JAVAPROJECT:
+			String projectName = memento.nextToken();
+			JavaElement project = (JavaElement)getJavaProject(projectName);
+			return project.getHandleFromMemento(memento, owner);
 	}
-	return true;
-}
-/**
- * Returns the <code>IJavaElement</code> represented by the <code>String</code>
- * memento.
- * @see getHandleMemento()
- */
-protected IJavaElement getHandleFromMementoForBinaryMembers(String memento, IPackageFragmentRoot root, int rootEnd, int end) throws JavaModelException {
-
-	//deal with class file and binary members
-	IPackageFragment frag = null;
-	if (rootEnd == end - 1) {
-		//default package
-		frag= root.getPackageFragment(IPackageFragment.DEFAULT_PACKAGE_NAME);
-	} else {
-		frag= root.getPackageFragment(memento.substring(rootEnd + 1, end));
-	}
-	int oldEnd = end;
-	end = memento.indexOf(JavaElement.JEM_TYPE, oldEnd);
-	if (end == -1) {
-		//we ended with a class file 
-		return frag.getClassFile(memento.substring(oldEnd + 1));
-	}
-	IClassFile cf = frag.getClassFile(memento.substring(oldEnd + 1, end));
-	oldEnd = end;
-	end = memento.indexOf(JavaElement.JEM_TYPE, oldEnd);
-	oldEnd = end;
-	end = memento.indexOf(JavaElement.JEM_FIELD, end);
-	if (end != -1) {
-		//binary field
-		IType type = cf.getType();
-		return type.getField(memento.substring(end + 1));
-	}
-	end = memento.indexOf(JavaElement.JEM_METHOD, oldEnd);
-	if (end != -1) {
-		//binary method
-		oldEnd = end;
-		IType type = cf.getType();
-		String methodName;
-		end = memento.lastIndexOf(JavaElement.JEM_METHOD);
-		String[] parameterTypes = null;
-		if (end == oldEnd) {
-			methodName = memento.substring(end + 1);
-			//no parameter types
-			parameterTypes = new String[] {};
-		} else {
-			String parameters = memento.substring(oldEnd + 1);
-			StringTokenizer tokenizer = new StringTokenizer(parameters, new String(new char[] {JavaElement.JEM_METHOD}));
-			parameterTypes = new String[tokenizer.countTokens() - 1];
-			methodName= tokenizer.nextToken();
-			int i = 0;
-			while (tokenizer.hasMoreTokens()) {
-				parameterTypes[i] = tokenizer.nextToken();
-				i++;
-			}
-		}
-		return type.getMethod(methodName, parameterTypes);
-	}
-
-	//binary type
-	return cf.getType();
-}
-/**
- * Returns the <code>IPackageFragmentRoot</code> represented by the <code>String</code>
- * memento.
- * @see getHandleMemento()
- */
-protected IPackageFragmentRoot getHandleFromMementoForRoot(String memento, JavaProject project, int projectEnd, int rootEnd) {
-	String rootName = null;
-	if (rootEnd == projectEnd - 1) {
-		//default root
-		rootName = IPackageFragmentRoot.DEFAULT_PACKAGEROOT_PATH;
-	} else {
-		rootName = memento.substring(projectEnd + 1, rootEnd);
-	}
-	return project.getPackageFragmentRoot(new Path(rootName));
-}
-/**
- * Returns the <code>IJavaElement</code> represented by the <code>String</code>
- * memento.
- * @see getHandleMemento()
- */
-protected IJavaElement getHandleFromMementoForSourceMembers(String memento, IPackageFragmentRoot root, int rootEnd, int end) throws JavaModelException {
-
-	//deal with compilation units and source members
-	IPackageFragment frag = null;
-	if (rootEnd == end - 1) {
-		//default package
-		frag= root.getPackageFragment(IPackageFragment.DEFAULT_PACKAGE_NAME);
-	} else {
-		frag= root.getPackageFragment(memento.substring(rootEnd + 1, end));
-	}
-	int oldEnd = end;
-	end = memento.indexOf(JavaElement.JEM_PACKAGEDECLARATION, end);
-	if (end != -1) {
-		//package declaration
-		ICompilationUnit cu = frag.getCompilationUnit(memento.substring(oldEnd + 1, end));
-		return cu.getPackageDeclaration(memento.substring(end + 1));
-	}
-	end = memento.indexOf(JavaElement.JEM_IMPORTDECLARATION, oldEnd);
-	if (end != -1) {
-		//import declaration
-		ICompilationUnit cu = frag.getCompilationUnit(memento.substring(oldEnd + 1, end));
-		return cu.getImport(memento.substring(end + 1));
-	}
-	int typeStart = memento.indexOf(JavaElement.JEM_TYPE, oldEnd);
-	if (typeStart == -1) {
-		//we ended with a compilation unit
-		return frag.getCompilationUnit(memento.substring(oldEnd + 1));
-	}
-
-	//source members
-	ICompilationUnit cu = frag.getCompilationUnit(memento.substring(oldEnd + 1, typeStart));
-	end = memento.indexOf(JavaElement.JEM_FIELD, oldEnd);
-	if (end != -1) {
-		//source field
-		IType type = getHandleFromMementoForSourceType(memento, cu, typeStart, end);
-		return type.getField(memento.substring(end + 1));
-	}
-	end = memento.indexOf(JavaElement.JEM_METHOD, oldEnd);
-	if (end != -1) {
-		//source method
-		IType type = getHandleFromMementoForSourceType(memento, cu, typeStart, end);
-		oldEnd = end;
-		String methodName;
-		end = memento.lastIndexOf(JavaElement.JEM_METHOD);
-		String[] parameterTypes = null;
-		if (end == oldEnd) {
-			methodName = memento.substring(end + 1);
-			//no parameter types
-			parameterTypes = new String[] {};
-		} else {
-			String parameters = memento.substring(oldEnd + 1);
-			StringTokenizer mTokenizer = new StringTokenizer(parameters, new String(new char[] {JavaElement.JEM_METHOD}));
-			parameterTypes = new String[mTokenizer.countTokens() - 1];
-			methodName = mTokenizer.nextToken();
-			int i = 0;
-			while (mTokenizer.hasMoreTokens()) {
-				parameterTypes[i] = mTokenizer.nextToken();
-				i++;
-			}
-		}
-		return type.getMethod(methodName, parameterTypes);
-	}
-	
-	end = memento.indexOf(JavaElement.JEM_INITIALIZER, oldEnd);
-	if (end != -1 ) {
-		//initializer
-		IType type = getHandleFromMementoForSourceType(memento, cu, typeStart, end);
-		return type.getInitializer(Integer.parseInt(memento.substring(end + 1)));
-	}
-	//source type
-	return getHandleFromMementoForSourceType(memento, cu, typeStart, memento.length());
-}
-/**
- * Returns the <code>IJavaElement</code> represented by the <code>String</code>
- * memento.
- * @see getHandleMemento()
- */
-protected IType getHandleFromMementoForSourceType(String memento, ICompilationUnit cu, int typeStart, int typeEnd) throws JavaModelException {
-	int end = memento.lastIndexOf(JavaElement.JEM_TYPE);
-	IType type = null;
-	if (end == typeStart) {
-		String typeName = memento.substring(typeStart + 1, typeEnd);
-		type = cu.getType(typeName);
-		
-	} else {
-		String typeNames = memento.substring(typeStart + 1, typeEnd);
-		StringTokenizer tokenizer = new StringTokenizer(typeNames, new String(new char[] {JavaElement.JEM_TYPE}));
-		type = cu.getType(tokenizer.nextToken());
-		while (tokenizer.hasMoreTokens()) {
-			//deal with inner types
-			type= type.getType(tokenizer.nextToken());
-		}
-	}
-	return type;
+	return null;
 }
 /**
  * @see JavaElement#getHandleMemento()
@@ -351,8 +193,8 @@ protected char getHandleMementoDelimiter(){
 /**
  * @see IJavaModel
  */
-public IJavaProject getJavaProject(String name) {
-	return new JavaProject(ResourcesPlugin.getWorkspace().getRoot().getProject(name), this);
+public IJavaProject getJavaProject(String projectName) {
+	return new JavaProject(ResourcesPlugin.getWorkspace().getRoot().getProject(projectName), this);
 }
 /**
  * Returns the active Java project associated with the specified
@@ -398,10 +240,9 @@ public Object[] getNonJavaResources() throws JavaModelException {
  */
 public IJavaProject[] getOldJavaProjectsList() throws JavaModelException {
 	JavaModelManager manager = JavaModelManager.getJavaModelManager();
-	return 
-		manager.javaProjectsCache == null ? 
+	return manager.deltaState.modelProjectsCache == null ? 
 			this.getJavaProjects() : 
-			manager.javaProjectsCache; 
+			manager.deltaState.modelProjectsCache; 
 }
 /*
  * @see IJavaElement
@@ -418,7 +259,7 @@ public IResource getResource() {
 /**
  * @see IOpenable
  */
-public IResource getUnderlyingResource() throws JavaModelException {
+public IResource getUnderlyingResource() {
 	return null;
 }
 /**
@@ -446,7 +287,7 @@ public void refreshExternalArchives(IJavaElement[] elementsScope, IProgressMonit
 	if (elementsScope == null){
 		elementsScope = new IJavaElement[] { this };
 	}
-	JavaModelManager.getJavaModelManager().deltaProcessor.checkExternalArchiveChanges(elementsScope, monitor);
+	JavaModelManager.getJavaModelManager().getDeltaProcessor().checkExternalArchiveChanges(elementsScope, monitor);
 }
 
 /**
@@ -461,13 +302,6 @@ public void rename(IJavaElement[] elements, IJavaElement[] destinations, String[
 	}
 	
 	runOperation(op, monitor);
-}
-/*
- * @see JavaElement#rootedAt(IJavaProject)
- */
-public IJavaElement rootedAt(IJavaProject project) {
-	return this;
-
 }
 /**
  * Configures and runs the <code>MultiOperation</code>.

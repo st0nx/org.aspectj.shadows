@@ -11,11 +11,13 @@
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.jdom.DOMFactory;
 import org.eclipse.jdt.core.jdom.IDOMInitializer;
 import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * <p>This operation creates a initializer in a type.
@@ -47,15 +49,19 @@ public CreateInitializerOperation(IType parentElement, String source) {
  * @see CreateTypeMemberOperation#generateElementDOM
  */
 protected IDOMNode generateElementDOM() throws JavaModelException {
-	IDOMInitializer domInitializer = (new DOMFactory()).createInitializer(fSource);
-	if (domInitializer == null) {
-		IDOMNode node = generateSyntaxIncorrectDOM();
-		if (!(node instanceof IDOMInitializer)) {
-			return null;
+	if (fDOMNode == null) {
+		fDOMNode = (new DOMFactory()).createInitializer(fSource);
+		if (fDOMNode == null) {
+			fDOMNode = generateSyntaxIncorrectDOM();
+			if (fDOMNode == null) {
+				throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
+			}
 		}
-		domInitializer = (IDOMInitializer) node;
+	}					
+	if (!(fDOMNode instanceof IDOMInitializer)) {
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
 	}
-	return domInitializer;
+	return fDOMNode;
 }
 /**
  * @see CreateElementInCUOperation#generateResultHandle
@@ -82,7 +88,8 @@ protected IJavaElement generateResultHandle() {
 					}
 			}
 		}
-	} catch (JavaModelException jme) {
+	} catch (JavaModelException e) {
+		// type doesn't exist: ignore
 	}
 	return null;
 }
@@ -111,6 +118,7 @@ protected void initializeDefaultPosition() {
 			}
 		}
 	} catch (JavaModelException e) {
+		// type doesn't exist: ignore
 	}
 }
 }

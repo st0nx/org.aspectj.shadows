@@ -17,7 +17,7 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
-import org.eclipse.jdt.internal.core.Util;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class SourceFile implements ICompilationUnit {
 
@@ -25,12 +25,20 @@ IFile resource;
 ClasspathMultiDirectory sourceLocation;
 String initialTypeName;
 String encoding;
+boolean updateClassFile;
 
 public SourceFile(IFile resource, ClasspathMultiDirectory sourceLocation, String encoding) {
 	this.resource = resource;
 	this.sourceLocation = sourceLocation;
 	this.initialTypeName = extractTypeName();
 	this.encoding = encoding;
+	this.updateClassFile = false;
+}
+
+public SourceFile(IFile resource, ClasspathMultiDirectory sourceLocation, String encoding, boolean updateClassFile) {
+	this(resource, sourceLocation, encoding);
+
+	this.updateClassFile = updateClassFile;
 }
 
 public boolean equals(Object o) {

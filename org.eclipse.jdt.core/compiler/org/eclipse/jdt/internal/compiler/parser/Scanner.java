@@ -12,9 +12,10 @@ package org.eclipse.jdt.internal.compiler.parser;
 
 import java.util.Iterator;
 
-import org.eclipse.jdt.core.compiler.*;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.compiler.ast.StringLiteral;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 
 /**
  * IMPORTANT NOTE: Internal Scanner implementation. It is mirrored in 
@@ -134,8 +135,6 @@ public class Scanner implements TerminalTokens {
 	public /*static*/ final char[][][][] charArray_length = 
 		new char[OptimizedLength][TableSize][InternalTableSize][]; 
 	// support for detecting non-externalized string literals
-	int currentLineNr= -1;
-	int previousLineNr= -1;
 	NLSLine currentLine= null;
 	public static final String TAG_PREFIX= "//$NON-NLS-"; //$NON-NLS-1$
 	public static final int TAG_PREFIX_LENGTH= TAG_PREFIX.length();
@@ -166,25 +165,25 @@ public class Scanner implements TerminalTokens {
 	public static final int BracketKinds = 3;
 
 public Scanner() {
-	this(false /*comment*/, false /*whitespace*/, false /*nls*/, false /*assert*/, null/*taskTag*/, null/*taskPriorities*/);
+	this(false /*comment*/, false /*whitespace*/, false /*nls*/, ClassFileConstants.JDK1_3 /*sourceLevel*/, null/*taskTag*/, null/*taskPriorities*/);
 }
+
 public Scanner(
 	boolean tokenizeComments, 
 	boolean tokenizeWhiteSpace, 
 	boolean checkNonExternalizedStringLiterals, 
-	boolean assertMode,
+	long sourceLevel,
 	char[][] taskTags,
 	char[][] taskPriorities) {
-		
+
 	this.eofPosition = Integer.MAX_VALUE;
 	this.tokenizeComments = tokenizeComments;
 	this.tokenizeWhiteSpace = tokenizeWhiteSpace;
 	this.checkNonExternalizedStringLiterals = checkNonExternalizedStringLiterals;
-	this.assertMode = assertMode;
+	this.assertMode = sourceLevel >= ClassFileConstants.JDK1_4;
 	this.taskTags = taskTags;
 	this.taskPriorities = taskPriorities;
 }
-
 
 public  final boolean atEnd() {
 	// This code is not relevant if source is 
@@ -193,106 +192,124 @@ public  final boolean atEnd() {
 	return source.length == currentPosition;
 }
 
-private void checkNonExternalizeString()  throws InvalidInputException {
-	if (currentLine == null)
+private void checkNonExternalizedString() {
+	if (currentLine == null) 
 		return;
 	parseTags(currentLine);
 }
 
 // chech presence of task: tags
 public void checkTaskTag(int commentStart, int commentEnd) {
-
+	char[] src = this.source;
+	
 	// only look for newer task: tags
-	if (this.foundTaskCount > 0 && this.foundTaskPositions[this.foundTaskCount-1][0] >= commentStart) {
+	if (this.foundTaskCount > 0
+		&& this.foundTaskPositions[this.foundTaskCount - 1][0] >= commentStart) {
 		return;
 	}
 	int foundTaskIndex = this.foundTaskCount;
-	nextChar: for (int i = commentStart; i < commentEnd && i < this.eofPosition; i++) {
-
+	char previous = '/';
+	nextChar : for (
+		int i = commentStart + 1; i < commentEnd && i < this.eofPosition; i++) {
 		char[] tag = null;
 		char[] priority = null;
-		
 		// check for tag occurrence
-		nextTag: for (int itag = 0; itag < this.taskTags.length; itag++){
+		nextTag : for (int itag = 0; itag < this.taskTags.length; itag++) {
 			tag = this.taskTags[itag];
-			priority = 
-				this.taskPriorities != null && itag < this.taskPriorities.length ?
-				this.taskPriorities[itag] :
-				null;
 			int tagLength = tag.length;
-			for (int t = 0; t < tagLength; t++){
-				if (this.source[i+t] != tag[t]) continue nextTag;
+			if (tagLength == 0) continue nextTag;
+
+			// ensure tag is not leaded with letter if tag starts with a letter
+			if (Character.isLetterOrDigit(tag[0])) {
+				if (Character.isLetterOrDigit(previous)) {
+					continue nextTag;
+				}
 			}
 
-			if (this.foundTaskTags == null){
+			for (int t = 0; t < tagLength; t++) {
+				if (src[i + t] != tag[t])
+					continue nextTag;
+			}
+			// ensure tag is not followed with letter if tag finishes with a letter
+			if (i+tagLength < commentEnd && Character.isLetterOrDigit(src[i+tagLength-1])) {
+				if (Character.isLetterOrDigit(src[i + tagLength]))
+					continue nextTag;
+			}
+			if (this.foundTaskTags == null) {
 				this.foundTaskTags = new char[5][];
 				this.foundTaskMessages = new char[5][];
 				this.foundTaskPriorities = new char[5][];
 				this.foundTaskPositions = new int[5][];
 			} else if (this.foundTaskCount == this.foundTaskTags.length) {
-				System.arraycopy(this.foundTaskTags, 0, this.foundTaskTags = new char[this.foundTaskCount*2][], 0, this.foundTaskCount);
-				System.arraycopy(this.foundTaskMessages, 0, this.foundTaskMessages = new char[this.foundTaskCount*2][], 0, this.foundTaskCount);
-				System.arraycopy(this.foundTaskPriorities, 0, this.foundTaskPriorities = new char[this.foundTaskCount*2][], 0, this.foundTaskCount);
-				System.arraycopy(this.foundTaskPositions, 0, this.foundTaskPositions = new int[this.foundTaskCount*2][], 0, this.foundTaskCount);
+				System.arraycopy(this.foundTaskTags, 0, this.foundTaskTags = new char[this.foundTaskCount * 2][], 0, this.foundTaskCount);
+				System.arraycopy(this.foundTaskMessages, 0, this.foundTaskMessages = new char[this.foundTaskCount * 2][], 0, this.foundTaskCount);
+				System.arraycopy(this.foundTaskPriorities, 0, this.foundTaskPriorities = new char[this.foundTaskCount * 2][], 0, this.foundTaskCount);
+				System.arraycopy(this.foundTaskPositions, 0, this.foundTaskPositions = new int[this.foundTaskCount * 2][], 0, this.foundTaskCount);
 			}
+			
+			priority = this.taskPriorities != null && itag < this.taskPriorities.length
+						? this.taskPriorities[itag]
+						: null;
+			
 			this.foundTaskTags[this.foundTaskCount] = tag;
 			this.foundTaskPriorities[this.foundTaskCount] = priority;
-			this.foundTaskPositions[this.foundTaskCount] = new int[]{ i, i+tagLength-1 };
+			this.foundTaskPositions[this.foundTaskCount] = new int[] { i, i + tagLength - 1 };
 			this.foundTaskMessages[this.foundTaskCount] = CharOperation.NO_CHAR;
 			this.foundTaskCount++;
-			
-			i += tagLength-1; // will be incremented when looping
+			i += tagLength - 1; // will be incremented when looping
+			break nextTag;
 		}
+		previous = src[i];
 	}
-	
 	for (int i = foundTaskIndex; i < this.foundTaskCount; i++) {
 		// retrieve message start and end positions
 		int msgStart = this.foundTaskPositions[i][0] + this.foundTaskTags[i].length;
-		int max_value = i + 1 < this.foundTaskCount ? this.foundTaskPositions[i + 1][0] - 1 : commentEnd-1; // at most beginning of next task
-		if (max_value < msgStart) max_value = msgStart; // would only occur if tag is before EOF.
+		int max_value = i + 1 < this.foundTaskCount
+				? this.foundTaskPositions[i + 1][0] - 1
+				: commentEnd - 1;
+		// at most beginning of next task
+		if (max_value < msgStart) {
+			max_value = msgStart; // would only occur if tag is before EOF.
+		}
 		int end = -1;
 		char c;
-		
-		for (int j = msgStart; j < max_value; j++){
-			if ((c = this.source[j]) == '\n' || c == '\r'){
-				end = j-1;
+		for (int j = msgStart; j < max_value; j++) {
+			if ((c = src[j]) == '\n' || c == '\r') {
+				end = j - 1;
 				break;
 			}
 		}
-		
-		if (end == -1){
-			for (int j = max_value; j > msgStart; j--){
-				if ((c = this.source[j]) == '*') {
-					end = j-1;
+		if (end == -1) {
+			for (int j = max_value; j > msgStart; j--) {
+				if ((c = src[j]) == '*') {
+					end = j - 1;
 					break;
 				}
 			}
-			if (end == -1) end = max_value;
+			if (end == -1)
+				end = max_value;
 		}
-
-		if (msgStart == end) continue; // empty
-				
+		if (msgStart == end)
+			continue; // empty
 		// trim the message
-		while (CharOperation.isWhitespace(source[end]) && msgStart <= end) end--;
-		while (CharOperation.isWhitespace(source[msgStart]) && msgStart <= end) msgStart++;
-
+		while (CharOperation.isWhitespace(src[end]) && msgStart <= end)
+			end--;
+		while (CharOperation.isWhitespace(src[msgStart]) && msgStart <= end)
+			msgStart++;
 		// update the end position of the task
 		this.foundTaskPositions[i][1] = end;
-		
 		// get the message source
-		final int messageLength = end-msgStart+1;
+		final int messageLength = end - msgStart + 1;
 		char[] message = new char[messageLength];
-
-		System.arraycopy(source, msgStart, message, 0, messageLength);
+		System.arraycopy(src, msgStart, message, 0, messageLength);
 		this.foundTaskMessages[i] = message;
 	}
 }
-
 public char[] getCurrentIdentifierSource() {
 	//return the token REAL source (aka unicodes are precomputed)
 
 	char[] result;
-	if (withoutUnicodePtr != 0)
+	if (withoutUnicodePtr != 0) {
 		//0 is used as a fast test flag so the real first char is in position 1
 		System.arraycopy(
 			withoutUnicodeBuffer, 
@@ -300,8 +317,9 @@ public char[] getCurrentIdentifierSource() {
 			result = new char[withoutUnicodePtr], 
 			0, 
 			withoutUnicodePtr); 
-	else {
+	} else {
 		int length = currentPosition - startPosition;
+		if (length == this.source.length) return this.source;
 		switch (length) { // see OptimizedLength
 			case 1 :
 				return optimizedCurrentTokenSource1();
@@ -376,6 +394,13 @@ public final char[] getRawTokenSource() {
 	return tokenSource;	
 }
 	
+public final char[] getRawTokenSourceEnd() {
+	int length = this.eofPosition - this.currentPosition;
+	char[] sourceEnd = new char[length];
+	System.arraycopy(source, this.currentPosition, sourceEnd, 0, length);
+	return sourceEnd;	
+}
+	
 public int getCurrentTokenStartPosition(){
 	return this.startPosition;
 }
@@ -389,11 +414,14 @@ public int getCurrentTokenStartPosition(){
  */
 public final int getLineEnd(int lineNumber) {
 
-	if (lineEnds == null) return -1;
-	if (lineNumber >= lineEnds.length) return -1;
-	if (lineNumber <= 0) return -1;
-	
-	if (lineNumber == lineEnds.length - 1) return eofPosition;
+	if (lineEnds == null) 
+		return -1;
+	if (lineNumber > lineEnds.length+1) 
+		return -1;
+	if (lineNumber <= 0) 
+		return -1;
+	if (lineNumber == lineEnds.length + 1) 
+		return eofPosition;
 	return lineEnds[lineNumber-1]; // next line start one character behind the lineEnd of the previous line
 }
 
@@ -414,15 +442,74 @@ public final int[] getLineEnds() {
  * e.g.	getLineStart(1) --> 0	indicates that the first line starts at character 0.
  *
  * In case the given line number is inconsistent, answers -1.
+ * 
+ * @param lineNumber int
+ * @return int
  */
 public final int getLineStart(int lineNumber) {
 
-	if (lineEnds == null) return -1;
-	if (lineNumber >= lineEnds.length) return -1;
-	if (lineNumber <= 0) return -1;
+	if (lineEnds == null) 
+		return -1;
+	if (lineNumber > lineEnds.length + 1) 
+		return -1;
+	if (lineNumber <= 0) 
+		return -1;
 	
-	if (lineNumber == 1) return initialPosition;
+	if (lineNumber == 1) 
+		return initialPosition;
 	return lineEnds[lineNumber-2]+1; // next line start one character behind the lineEnd of the previous line
+}
+public final int getNextChar() {
+	try {
+		if (((currentCharacter = source[currentPosition++]) == '\\')
+			&& (source[currentPosition] == 'u')) {
+			//-------------unicode traitement ------------
+			int c1, c2, c3, c4;
+			int unicodeSize = 6;
+			currentPosition++;
+			while (source[currentPosition] == 'u') {
+				currentPosition++;
+				unicodeSize++;
+			}
+
+			if (((c1 = Character.getNumericValue(source[currentPosition++])) > 15
+				|| c1 < 0)
+				|| ((c2 = Character.getNumericValue(source[currentPosition++])) > 15 || c2 < 0)
+				|| ((c3 = Character.getNumericValue(source[currentPosition++])) > 15 || c3 < 0)
+				|| ((c4 = Character.getNumericValue(source[currentPosition++])) > 15 || c4 < 0)) {
+				return -1;
+			}
+
+			currentCharacter = (char) (((c1 * 16 + c2) * 16 + c3) * 16 + c4);
+
+			unicodeAsBackSlash = currentCharacter == '\\';
+
+			//need the unicode buffer
+			if (withoutUnicodePtr == 0) {
+				//buffer all the entries that have been left aside....
+				withoutUnicodePtr = currentPosition - unicodeSize - startPosition;
+				System.arraycopy(
+					source, 
+					startPosition, 
+					withoutUnicodeBuffer, 
+					1, 
+					withoutUnicodePtr); 
+			}
+			//fill the buffer with the char
+			withoutUnicodeBuffer[++withoutUnicodePtr] = currentCharacter;
+			return currentCharacter;
+
+		} //-------------end unicode traitement--------------
+		else {
+			unicodeAsBackSlash = false;
+			if (withoutUnicodePtr != 0) {
+				withoutUnicodeBuffer[++withoutUnicodePtr] = currentCharacter;
+			}
+			return currentCharacter;
+		}
+	} catch (IndexOutOfBoundsException e) {
+		return -1;
+	}
 }
 public final boolean getNextChar(char testedChar) {
 	//BOOLEAN
@@ -783,7 +870,6 @@ public boolean getNextCharAsJavaIdentifierPart() {
 	}
 }
 public int getNextToken() throws InvalidInputException {
-
 	this.wasAcr = false;
 	if (diet) {
 		jumpOverMethodBody();
@@ -822,7 +908,7 @@ public int getNextToken() throws InvalidInputException {
 				} else {
 					offset = 1;
 					if ((currentCharacter == '\r') || (currentCharacter == '\n')) {
-						checkNonExternalizeString();
+						checkNonExternalizedString();
 						if (recordLineSeparator) {
 							pushLineSeparator();
 						} else {
@@ -1229,7 +1315,7 @@ public int getNextToken() throws InvalidInputException {
 								recordComment(false);
 								if (this.taskTags != null) checkTaskTag(this.startPosition, this.currentPosition);
 								if ((currentCharacter == '\r') || (currentCharacter == '\n')) {
-									checkNonExternalizeString();
+									checkNonExternalizedString();
 									if (recordLineSeparator) {
 										if (isUnicode) {
 											pushUnicodeLineSeparator();
@@ -1244,16 +1330,18 @@ public int getNextToken() throws InvalidInputException {
 									return TokenNameCOMMENT_LINE;
 								}
 							} catch (IndexOutOfBoundsException e) {
+								currentPosition--;
 								recordComment(false);
-								if (this.taskTags != null) checkTaskTag(this.startPosition, this.currentPosition-1);
+								if (this.taskTags != null) checkTaskTag(this.startPosition, this.currentPosition);
 								if (tokenizeComments) {
-									this.currentPosition--; // reset one character behind
 									return TokenNameCOMMENT_LINE;
+								} else {
+									this.currentPosition++; 
 								}
 							}
 							break;
 						}
-						if (test > 0) { //traditional and annotation comment
+						if (test > 0) { //traditional and javadoc comment
 							try { //get the next char
 								boolean isJavadoc = false, star = false;
 								boolean isUnicode = false;
@@ -1275,7 +1363,7 @@ public int getNextToken() throws InvalidInputException {
 									star = true;
 								}
 								if ((currentCharacter == '\r') || (currentCharacter == '\n')) {
-									checkNonExternalizeString();
+									checkNonExternalizedString();
 									if (recordLineSeparator) {
 										if (!isUnicode) {
 											pushLineSeparator();
@@ -1298,10 +1386,14 @@ public int getNextToken() throws InvalidInputException {
 									if (source[currentPosition] == '\\')
 										currentPosition++; //jump over the \\
 								}
+								// empty comment is not a javadoc /**/
+								if (currentCharacter == '/') { 
+									isJavadoc = false;
+								}
 								//loop until end of comment */
 								while ((currentCharacter != '/') || (!star)) {
 									if ((currentCharacter == '\r') || (currentCharacter == '\n')) {
-										checkNonExternalizeString();
+										checkNonExternalizedString();
 										if (recordLineSeparator) {
 											if (!isUnicode) {
 												pushLineSeparator();
@@ -1457,7 +1549,8 @@ public final void jumpOverMethodBody() {
 							try {
 								scanEscapeCharacter();
 							} catch (InvalidInputException ex) {
-							};
+								// ignore
+							}
 						} else {
 							try { // consume next character
 								unicodeAsBackSlash = false;
@@ -1470,7 +1563,8 @@ public final void jumpOverMethodBody() {
 									}
 								}
 							} catch (InvalidInputException ex) {
-							};
+								// ignore
+							}
 						}
 						getNextChar('\'');
 						break;
@@ -1488,7 +1582,8 @@ public final void jumpOverMethodBody() {
 								}
 							}
 						} catch (InvalidInputException ex) {
-						};
+								// ignore
+						}
 						while (currentCharacter != '"') {
 							if (currentCharacter == '\r'){
 								if (source[currentPosition] == '\n') currentPosition++;
@@ -1501,7 +1596,8 @@ public final void jumpOverMethodBody() {
 								try {
 									scanEscapeCharacter();
 								} catch (InvalidInputException ex) {
-								};
+									// ignore
+								}
 							}
 							try { // consume next character
 								unicodeAsBackSlash = false;
@@ -1514,7 +1610,8 @@ public final void jumpOverMethodBody() {
 									}
 								}
 							} catch (InvalidInputException ex) {
-							};
+								// ignore
+							}
 						}
 					} catch (IndexOutOfBoundsException e) {
 						return;
@@ -1588,10 +1685,11 @@ public final void jumpOverMethodBody() {
 										}
 									}
 							} catch (IndexOutOfBoundsException e) {
-							} //an eof will them be generated
+								 //an eof will then be generated
+							}
 							break;
 						}
-						if (test > 0) { //traditional and annotation comment
+						if (test > 0) { //traditional and javadoc comment
 							isUnicode = false;
 							boolean star = false;
 							try { // consume next character
@@ -1605,9 +1703,10 @@ public final void jumpOverMethodBody() {
 									if (withoutUnicodePtr != 0) {
 										withoutUnicodeBuffer[++withoutUnicodePtr] = currentCharacter;
 									}
-								};
+								}
 							} catch (InvalidInputException ex) {
-							};
+ 								// ignore
+ 							}
 							if (currentCharacter == '*') {
 								star = true;
 							}
@@ -1689,24 +1788,24 @@ public final void jumpOverMethodBody() {
 
 				default :
 					if (Character.isJavaIdentifierStart(currentCharacter)) {
-						try {
-							scanIdentifierOrKeyword();
-						} catch (InvalidInputException ex) {
-						};
+						scanIdentifierOrKeyword();
 						break;
 					}
 					if (Character.isDigit(currentCharacter)) {
 						try {
 							scanNumber(false);
 						} catch (InvalidInputException ex) {
-						};
+ 							// ignore
+ 						}
 						break;
 					}
 			}
 		}
 		//-----------------end switch while try--------------------
 	} catch (IndexOutOfBoundsException e) {
+		// ignore
 	} catch (InvalidInputException e) {
+		// ignore
 	}
 	return;
 }
@@ -1995,7 +2094,7 @@ final char[] optimizedCurrentTokenSource6() {
 	newEntry6 = max;
 	return r;	
 }
-private void parseTags(NLSLine line) throws InvalidInputException {
+private void parseTags(NLSLine line) {
 	String s = new String(getCurrentTokenSource());
 	int pos = s.indexOf(TAG_PREFIX);
 	int lineLength = line.size();
@@ -2037,7 +2136,7 @@ private void parseTags(NLSLine line) throws InvalidInputException {
 	currentLine = null;
 }
 
-public final void pushLineSeparator() throws InvalidInputException {
+public final void pushLineSeparator() {
 	//see comment on isLineDelimiter(char) for the use of '\n' and '\r'
 	final int INCREMENT = 250;
 	
@@ -2050,7 +2149,8 @@ public final void pushLineSeparator() throws InvalidInputException {
 	// cr 000D
 	if (currentCharacter == '\r') {
 		int separatorPos = currentPosition - 1;
-		if ((linePtr > 0) && (lineEnds[linePtr] >= separatorPos)) return;
+		//TODO (olivier) david - why the following line was "if ((linePtr > 0) && (lineEnds[linePtr] >= separatorPos)) return;" ?
+		if ((linePtr >= 0) && (lineEnds[linePtr] >= separatorPos)) return;
 		//System.out.println("CR-" + separatorPos);
 		try {
 			lineEnds[++linePtr] = separatorPos;
@@ -2083,7 +2183,8 @@ public final void pushLineSeparator() throws InvalidInputException {
 				lineEnds[linePtr] = currentPosition - 1;
 			} else {
 				int separatorPos = currentPosition - 1;
-				if ((linePtr > 0) && (lineEnds[linePtr] >= separatorPos)) return;
+				//TODO (olivier) david - why the following line was "if ((linePtr > 0) && (lineEnds[linePtr] >= separatorPos)) return;" ?
+				if ((linePtr >= 0) && (lineEnds[linePtr] >= separatorPos)) return;
 				// System.out.println("LF-" + separatorPos);							
 				try {
 					lineEnds[++linePtr] = separatorPos;
@@ -2122,7 +2223,7 @@ public final void pushUnicodeLineSeparator() {
 }
 public final void recordComment(boolean isJavadoc) {
 
-	// a new annotation comment is recorded
+	// a new comment is recorded
 	try {
 		this.commentStops[++this.commentPtr] = isJavadoc ? this.currentPosition : -this.currentPosition;
 	} catch (IndexOutOfBoundsException e) {
@@ -2141,6 +2242,13 @@ public final void recordComment(boolean isJavadoc) {
 	this.commentStarts[this.commentPtr] = this.startPosition;
 }
 
+/**
+ * Reposition the scanner on some portion of the original source. The given endPosition is the last valid position.
+ * Beyond this position, the scanner will answer EOF tokens (<code>ITerminalSymbols.TokenNameEOF</code>).
+ * 
+ * @param begin the given start position
+ * @param end the given end position
+ */
 public void resetTo(int begin, int end) {
 	//reset the scanner to a given position where it may rescan again
 
@@ -2149,7 +2257,11 @@ public void resetTo(int begin, int end) {
 	eofPosition = end < Integer.MAX_VALUE ? end + 1 : end;
 	commentPtr = -1; // reset comment stack
 	foundTaskCount = 0;
-
+	
+//	// if resetTo is used with being > than end.
+//	if (begin > eofPosition) {
+//		begin = eofPosition;
+//	}
 }
 
 public final void scanEscapeCharacter() throws InvalidInputException {
@@ -2233,7 +2345,7 @@ public final void scanEscapeCharacter() throws InvalidInputException {
 				throw new InvalidInputException(INVALID_ESCAPE);
 	}
 }
-public int scanIdentifierOrKeyword() throws InvalidInputException {
+public int scanIdentifierOrKeyword() {
 	//test keywords
 
 	//first dispatch on the first char.
@@ -2241,7 +2353,7 @@ public int scanIdentifierOrKeyword() throws InvalidInputException {
 	//keywors with the same length AND the same first char, then do another
 	//dispatch on the second char 
 	useAssertAsAnIndentifier = false;
-	while (getNextCharAsJavaIdentifierPart()) {};
+	while (getNextCharAsJavaIdentifierPart());
 
 	int index, length;
 	char[] data;
@@ -2821,7 +2933,7 @@ public int scanNumber(boolean dotPrefix) throws InvalidInputException {
 			if (Character.digit(currentCharacter, 16) == -1)
 				throw new InvalidInputException(INVALID_HEXA);
 			//---end forcing--
-			while (getNextCharAsDigit(16)) {};
+			while (getNextCharAsDigit(16));
 			if (getNextChar('l', 'L') >= 0)
 				return TokenNameLongLiteral;
 			else
@@ -2831,7 +2943,7 @@ public int scanNumber(boolean dotPrefix) throws InvalidInputException {
 		//there is x or X in the number
 		//potential octal ! ... some one may write 000099.0 ! thus 00100 < 00078.0 is true !!!!! crazy language
 		if (getNextCharAsDigit()) { //-------------potential octal-----------------
-			while (getNextCharAsDigit()) {};
+			while (getNextCharAsDigit());
 
 			if (getNextChar('l', 'L') >= 0) {
 				return TokenNameLongLiteral;
@@ -2847,7 +2959,7 @@ public int scanNumber(boolean dotPrefix) throws InvalidInputException {
 				boolean isInteger = true;
 				if (getNextChar('.')) { 
 					isInteger = false;
-					while (getNextCharAsDigit()) {};
+					while (getNextCharAsDigit());
 				}
 				if (getNextChar('e', 'E') >= 0) { // consume next character
 					isInteger = false;
@@ -2875,7 +2987,7 @@ public int scanNumber(boolean dotPrefix) throws InvalidInputException {
 					}
 					if (!Character.isDigit(currentCharacter))
 						throw new InvalidInputException(INVALID_FLOAT);
-					while (getNextCharAsDigit()) {};
+					while (getNextCharAsDigit());
 				}
 				if (getNextChar('f', 'F') >= 0)
 					return TokenNameFloatingPointLiteral;
@@ -2888,13 +3000,13 @@ public int scanNumber(boolean dotPrefix) throws InvalidInputException {
 		}
 	}
 
-	while (getNextCharAsDigit()) {};
+	while (getNextCharAsDigit());
 
 	if ((!dotPrefix) && (getNextChar('l', 'L') >= 0))
 		return TokenNameLongLiteral;
 
 	if ((!dotPrefix) && (getNextChar('.'))) { //decimal part that can be empty
-		while (getNextCharAsDigit()) {};
+		while (getNextCharAsDigit());
 		floating = true;
 	}
 
@@ -2927,7 +3039,7 @@ public int scanNumber(boolean dotPrefix) throws InvalidInputException {
 		}
 		if (!Character.isDigit(currentCharacter))
 			throw new InvalidInputException(INVALID_FLOAT);
-		while (getNextCharAsDigit()) {};
+		while (getNextCharAsDigit());
 	}
 
 	if (getNextChar('d', 'D') >= 0)
@@ -2941,7 +3053,8 @@ public int scanNumber(boolean dotPrefix) throws InvalidInputException {
 }
 /**
  * Search the line number corresponding to a specific position
- *
+ * @param position int
+ * @return int
  */
 public final int getLineNumber(int position) {
 
@@ -2967,27 +3080,29 @@ public final int getLineNumber(int position) {
 	}
 	return m+2;
 }
-public final void setSource(char[] source){
+public final void setSource(char[] sourceString){
 	//the source-buffer is set to sourceString
 
-	if (source == null) {
+	int sourceLength;
+	if (sourceString == null) {
 		this.source = CharOperation.NO_CHAR;
+		sourceLength = 0;
 	} else {
-		this.source = source;
+		this.source = sourceString;
+		sourceLength = sourceString.length;
 	}
 	startPosition = -1;
-	eofPosition = source.length;
+	eofPosition = sourceLength;
 	initialPosition = currentPosition = 0;
 	containsAssertKeyword = false;
-	withoutUnicodeBuffer = new char[this.source.length];
-
+	withoutUnicodeBuffer = new char[sourceLength]; // TODO (philippe) should only allocate when needed
 }
 
 public String toString() {
 	if (startPosition == source.length)
 		return "EOF\n\n" + new String(source); //$NON-NLS-1$
 	if (currentPosition > source.length)
-		return "behind the EOF :-( ....\n\n" + new String(source); //$NON-NLS-1$
+		return "behind the EOF\n\n" + new String(source); //$NON-NLS-1$
 
 	char front[] = new char[startPosition];
 	System.arraycopy(source, 0, front, 0, startPosition);

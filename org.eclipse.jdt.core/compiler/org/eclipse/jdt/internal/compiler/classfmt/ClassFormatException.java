@@ -59,4 +59,10 @@ public ClassFormatException(int code, int bufPos) {
 public int getErrorCode() {
 	return errorCode;
 }
+/**
+ * @return int
+ */
+public int getBufferPosition() {
+	return bufferPosition;
+}
 }

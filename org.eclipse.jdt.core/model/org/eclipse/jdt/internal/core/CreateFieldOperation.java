@@ -18,6 +18,7 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.jdom.DOMFactory;
 import org.eclipse.jdt.core.jdom.IDOMField;
 import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * <p>This operation creates a field declaration in a type.
@@ -48,13 +49,16 @@ protected IDOMNode generateElementDOM() throws JavaModelException {
 		fDOMNode = (new DOMFactory()).createField(fSource);
 		if (fDOMNode == null) {
 			fDOMNode = generateSyntaxIncorrectDOM();
+			if (fDOMNode == null) {
+				throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
+			}
 		}
 		if (fAlteredName != null && fDOMNode != null) {
 			fDOMNode.setName(fAlteredName);
 		}
 	}
 	if (!(fDOMNode instanceof IDOMField)) {
-		return null;
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
 	}
 	return fDOMNode;
 }
@@ -88,6 +92,7 @@ protected void initializeDefaultPosition() {
 			}
 		}
 	} catch (JavaModelException e) {
+		// type doesn't exist: ignore
 	}
 }
 /**

@@ -17,8 +17,10 @@ import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.classfmt.*;
-import org.eclipse.jdt.internal.core.Util;
+import org.eclipse.jdt.internal.compiler.problem.*;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
+import org.eclipse.jdt.internal.core.util.Util;
 
 import java.io.*;
 import java.util.*;
@@ -30,8 +32,8 @@ public class IncrementalImageBuilder extends AbstractImageBuilder {
 
 protected ArrayList sourceFiles;
 protected ArrayList previousSourceFiles;
-protected ArrayList qualifiedStrings;
-protected ArrayList simpleStrings;
+protected StringSet qualifiedStrings;
+protected StringSet simpleStrings;
 protected SimpleLookupTable secondaryTypesToRemove;
 protected boolean hasStructuralChanges;
 protected int compileLoop;
@@ -45,8 +47,8 @@ protected IncrementalImageBuilder(JavaBuilder javaBuilder) {
 
 	this.sourceFiles = new ArrayList(33);
 	this.previousSourceFiles = null;
-	this.qualifiedStrings = new ArrayList(33);
-	this.simpleStrings = new ArrayList(33);
+	this.qualifiedStrings = new StringSet(3);
+	this.simpleStrings = new StringSet(3);
 	this.hasStructuralChanges = false;
 	this.compileLoop = 0;
 }
@@ -79,9 +81,10 @@ public boolean build(SimpleLookupTable deltas) {
 		for (int i = 0, l = valueTable.length; i < l; i++) {
 			IResourceDelta delta = (IResourceDelta) valueTable[i];
 			if (delta != null) {
-				ClasspathLocation[] classFoldersAndJars = (ClasspathLocation[]) javaBuilder.binaryLocationsPerProject.get(keyTable[i]);
+				IProject p = (IProject) keyTable[i];
+				ClasspathLocation[] classFoldersAndJars = (ClasspathLocation[]) javaBuilder.binaryLocationsPerProject.get(p);
 				if (classFoldersAndJars != null)
-					if (!findAffectedSourceFiles(delta, classFoldersAndJars)) return false;
+					if (!findAffectedSourceFiles(delta, classFoldersAndJars, p)) return false;
 			}
 		}
 		notifier.updateProgressDelta(0.10f);
@@ -116,8 +119,8 @@ public boolean build(SimpleLookupTable deltas) {
 	} catch (AbortIncrementalBuildException e) {
 		// abort the incremental build and let the batch builder handle the problem
 		if (JavaBuilder.DEBUG)
-			System.out.println("ABORTING incremental build... cannot find " + e.qualifiedTypeName + //$NON-NLS-1$
-				". Could have been renamed inside its existing source file."); //$NON-NLS-1$
+			System.out.println("ABORTING incremental build... problem with " + e.qualifiedTypeName + //$NON-NLS-1$
+				". Likely renamed inside its existing source file."); //$NON-NLS-1$
 		return false;
 	} catch (CoreException e) {
 		throw internalException(e);
@@ -128,16 +131,16 @@ public boolean build(SimpleLookupTable deltas) {
 }
 
 protected void addAffectedSourceFiles() {
-	if (qualifiedStrings.isEmpty() && simpleStrings.isEmpty()) return;
+	if (qualifiedStrings.elementSize == 0 && simpleStrings.elementSize == 0) return;
 
 	// the qualifiedStrings are of the form 'p1/p2' & the simpleStrings are just 'X'
 	char[][][] qualifiedNames = ReferenceCollection.internQualifiedNames(qualifiedStrings);
 	// if a well known qualified name was found then we can skip over these
-	if (qualifiedNames.length < qualifiedStrings.size())
+	if (qualifiedNames.length < qualifiedStrings.elementSize)
 		qualifiedNames = null;
 	char[][] simpleNames = ReferenceCollection.internSimpleNames(simpleStrings);
 	// if a well known name was found then we can skip over these
-	if (simpleNames.length < simpleStrings.size())
+	if (simpleNames.length < simpleStrings.elementSize)
 		simpleNames = null;
 
 	Object[] keyTable = newState.references.keyTable;
@@ -172,26 +175,22 @@ protected void addAffectedSourceFiles() {
 	}
 }
 
-protected void addDependentsOf(IPath path, boolean hasStructuralChanges) {
-	if (hasStructuralChanges) {
+protected void addDependentsOf(IPath path, boolean isStructuralChange) {
+	if (isStructuralChange && !this.hasStructuralChanges) {
 		newState.tagAsStructurallyChanged();
 		this.hasStructuralChanges = true;
 	}
 	// the qualifiedStrings are of the form 'p1/p2' & the simpleStrings are just 'X'
 	path = path.setDevice(null);
 	String packageName = path.removeLastSegments(1).toString();
-	if (!qualifiedStrings.contains(packageName))
-		qualifiedStrings.add(packageName);
+	qualifiedStrings.add(packageName);
 	String typeName = path.lastSegment();
 	int memberIndex = typeName.indexOf('$');
 	if (memberIndex > 0)
 		typeName = typeName.substring(0, memberIndex);
-	if (!simpleStrings.contains(typeName)) {
-		if (JavaBuilder.DEBUG)
-			System.out.println("  will look for dependents of " //$NON-NLS-1$
-				+ typeName + " in " + packageName); //$NON-NLS-1$
-		simpleStrings.add(typeName);
-	}
+	if (simpleStrings.add(typeName) && JavaBuilder.DEBUG)
+		System.out.println("  will look for dependents of " //$NON-NLS-1$
+			+ typeName + " in " + packageName); //$NON-NLS-1$
 }
 
 protected void cleanUp() {
@@ -206,7 +205,7 @@ protected void cleanUp() {
 	this.compileLoop = 0;
 }
 
-protected boolean findAffectedSourceFiles(IResourceDelta delta, ClasspathLocation[] classFoldersAndJars) {
+protected boolean findAffectedSourceFiles(IResourceDelta delta, ClasspathLocation[] classFoldersAndJars, IProject prereqProject) {
 	for (int i = 0, l = classFoldersAndJars.length; i < l; i++) {
 		ClasspathLocation bLocation = classFoldersAndJars[i];
 		// either a .class file folder or a zip/jar file
@@ -227,8 +226,11 @@ protected boolean findAffectedSourceFiles(IResourceDelta delta, ClasspathLocatio
 					}
 					int segmentCount = binaryDelta.getFullPath().segmentCount();
 					IResourceDelta[] children = binaryDelta.getAffectedChildren(); // .class files from class folder
+					StringSet structurallyChangedTypes = null;
+					if (bLocation.isOutputFolder())
+						structurallyChangedTypes = this.newState.getStructurallyChangedTypes(javaBuilder.getLastState(prereqProject));
 					for (int j = 0, m = children.length; j < m; j++)
-						findAffectedSourceFiles(children[j], segmentCount);
+						findAffectedSourceFiles(children[j], segmentCount, structurallyChangedTypes);
 					notifier.checkCancel();
 				}
 			}
@@ -237,7 +239,7 @@ protected boolean findAffectedSourceFiles(IResourceDelta delta, ClasspathLocatio
 	return true;
 }
 
-protected void findAffectedSourceFiles(IResourceDelta binaryDelta, int segmentCount) {
+protected void findAffectedSourceFiles(IResourceDelta binaryDelta, int segmentCount, StringSet structurallyChangedTypes) {
 	// When a package becomes a type or vice versa, expect 2 deltas,
 	// one on the folder & one on the class file
 	IResource resource = binaryDelta.getResource();
@@ -273,11 +275,11 @@ protected void findAffectedSourceFiles(IResourceDelta binaryDelta, int segmentCo
 				case IResourceDelta.CHANGED :
 					IResourceDelta[] children = binaryDelta.getAffectedChildren();
 					for (int i = 0, l = children.length; i < l; i++)
-						findAffectedSourceFiles(children[i], segmentCount);
+						findAffectedSourceFiles(children[i], segmentCount, structurallyChangedTypes);
 			}
 			return;
 		case IResource.FILE :
-			if (Util.isClassFileName(resource.getName())) {
+			if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(resource.getName())) {
 				IPath typePath = resource.getFullPath().removeFirstSegments(segmentCount).removeFileExtension();
 				switch (binaryDelta.getKind()) {
 					case IResourceDelta.ADDED :
@@ -289,6 +291,8 @@ protected void findAffectedSourceFiles(IResourceDelta binaryDelta, int segmentCo
 					case IResourceDelta.CHANGED :
 						if ((binaryDelta.getFlags() & IResourceDelta.CONTENT) == 0)
 							return; // skip it since it really isn't changed
+						if (structurallyChangedTypes != null && !structurallyChangedTypes.includes(typePath.toString()))
+							return; // skip since it wasn't a structural change
 						if (JavaBuilder.DEBUG)
 							System.out.println("Found changed class file " + typePath); //$NON-NLS-1$
 						addDependentsOf(typePath, false);
@@ -310,7 +314,6 @@ protected boolean findSourceFiles(IResourceDelta delta) throws CoreException {
 					findSourceFiles(children[j], md, segmentCount);
 		} else {
 			IResourceDelta sourceDelta = delta.findMember(md.sourceFolder.getProjectRelativePath());
-
 			if (sourceDelta != null) {
 				if (sourceDelta.getKind() == IResourceDelta.REMOVED) {
 					if (JavaBuilder.DEBUG)
@@ -319,8 +322,18 @@ protected boolean findSourceFiles(IResourceDelta delta) throws CoreException {
 				}
 				int segmentCount = sourceDelta.getFullPath().segmentCount();
 				IResourceDelta[] children = sourceDelta.getAffectedChildren();
-				for (int j = 0, m = children.length; j < m; j++)
-					findSourceFiles(children[j], md, segmentCount);
+				try {
+					for (int j = 0, m = children.length; j < m; j++)
+						findSourceFiles(children[j], md, segmentCount);
+				} catch (org.eclipse.core.internal.resources.ResourceException e) {
+					// catch the case that a package has been renamed and collides on disk with an as-yet-to-be-deleted package
+					if (e.getStatus().getCode() == IResourceStatus.CASE_VARIANT_EXISTS) {
+						if (JavaBuilder.DEBUG)
+							System.out.println("ABORTING incremental build... found renamed package"); //$NON-NLS-1$
+						return false;
+					}
+					throw e; // rethrow
+				}
 			}
 		}
 		notifier.checkCancel();
@@ -375,14 +388,14 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 			return;
 		case IResource.FILE :
 			String resourceName = resource.getName();
-			if (Util.isJavaFileName(resourceName)) {
+			if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(resourceName)) {
 				IPath typePath = resource.getFullPath().removeFirstSegments(segmentCount).removeFileExtension();
 				String typeLocator = resource.getProjectRelativePath().toString();
 				switch (sourceDelta.getKind()) {
 					case IResourceDelta.ADDED :
 						if (JavaBuilder.DEBUG)
 							System.out.println("Compile this added source file " + typeLocator); //$NON-NLS-1$
-						sourceFiles.add(new SourceFile((IFile) resource, md, encoding));
+						sourceFiles.add(new SourceFile((IFile) resource, md, encoding, true));
 						String typeName = typePath.toString();
 						if (!newState.isDuplicateLocator(typeName, typeLocator)) { // adding dependents results in 2 duplicate errors
 							if (JavaBuilder.DEBUG)
@@ -419,10 +432,10 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 							return; // skip it since it really isn't changed
 						if (JavaBuilder.DEBUG)
 							System.out.println("Compile this changed source file " + typeLocator); //$NON-NLS-1$
-						sourceFiles.add(new SourceFile((IFile) resource, md, encoding));
+						sourceFiles.add(new SourceFile((IFile) resource, md, encoding, true));
 				}
 				return;
-			} else if (Util.isClassFileName(resourceName)) {
+			} else if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(resourceName)) {
 				return; // skip class files
 			} else if (md.hasIndependentOutputFolder) {
 				if (javaBuilder.filterExtraResource(resource)) return;
@@ -469,7 +482,7 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 	}
 }
 
-protected void finishedWith(String sourceLocator, CompilationResult result, char[] mainTypeName, ArrayList definedTypeNames, ArrayList duplicateTypeNames) throws CoreException {
+protected void finishedWith(String sourceLocator, CompilationResult result, char[] mainTypeName, ArrayList definedTypeNames, ArrayList duplicateTypeNames) {
 	char[][] previousTypeNames = newState.getDefinedTypeNamesFor(sourceLocator);
 	if (previousTypeNames == null)
 		previousTypeNames = new char[][] {mainTypeName};
@@ -504,7 +517,7 @@ protected void removeClassFile(IPath typePath, IContainer outputFolder) throws C
 			System.out.println("Found removed type " + typePath); //$NON-NLS-1$
 		addDependentsOf(typePath, true); // when member types are removed, their enclosing type is structurally changed
 	}
-	IFile classFile = outputFolder.getFile(typePath.addFileExtension(JavaBuilder.CLASS_EXTENSION));
+	IFile classFile = outputFolder.getFile(typePath.addFileExtension(SuffixConstants.EXTENSION_class));
 	if (classFile.exists()) {
 		if (JavaBuilder.DEBUG)
 			System.out.println("Deleting class file of removed type " + typePath); //$NON-NLS-1$
@@ -558,11 +571,11 @@ protected void updateTasksFor(SourceFile sourceFile, CompilationResult result) t
 	storeTasksFor(sourceFile, tasks);
 }
 
-protected void writeClassFileBytes(byte[] bytes, IFile file, String qualifiedFileName, boolean isSecondaryType) throws CoreException {
+protected void writeClassFileBytes(byte[] bytes, IFile file, String qualifiedFileName, boolean isSecondaryType, boolean updateClassFile) throws CoreException {
 	// Before writing out the class file, compare it to the previous file
 	// If structural changes occured then add dependent source files
 	if (file.exists()) {
-		if (writeClassFileCheck(file, qualifiedFileName, bytes)) {
+		if (writeClassFileCheck(file, qualifiedFileName, bytes) || updateClassFile) { // see 46093
 			if (JavaBuilder.DEBUG)
 				System.out.println("Writing changed class file " + file.getName());//$NON-NLS-1$
 			file.setContents(new ByteArrayInputStream(bytes), true, false, null);
@@ -576,7 +589,14 @@ protected void writeClassFileBytes(byte[] bytes, IFile file, String qualifiedFil
 			addDependentsOf(new Path(qualifiedFileName), true); // new secondary type
 		if (JavaBuilder.DEBUG)
 			System.out.println("Writing new class file " + file.getName());//$NON-NLS-1$
-		file.create(new ByteArrayInputStream(bytes), IResource.FORCE, null);
+		try {
+			file.create(new ByteArrayInputStream(bytes), IResource.FORCE, null);
+		} catch (org.eclipse.core.internal.resources.ResourceException e) {
+			if (e.getStatus().getCode() == IResourceStatus.CASE_VARIANT_EXISTS)
+				// catch the case that a nested type has been renamed and collides on disk with an as-yet-to-be-deleted type
+				throw new AbortCompilation(true, new AbortIncrementalBuildException(qualifiedFileName));
+			throw e; // rethrow
+		}
 		file.setDerived(true);
 	}
 }
@@ -584,12 +604,10 @@ protected void writeClassFileBytes(byte[] bytes, IFile file, String qualifiedFil
 protected boolean writeClassFileCheck(IFile file, String fileName, byte[] newBytes) throws CoreException {
 	try {
 		byte[] oldBytes = Util.getResourceContentsAsByteArray(file);
-		if (this.compileLoop > 1) { // only optimize files which were recompiled during the dependent pass, see 33990
-			notEqual : if (newBytes.length == oldBytes.length) {
-				for (int i = newBytes.length; --i >= 0;)
-					if (newBytes[i] != oldBytes[i]) break notEqual;
-				return false; // bytes are identical so skip them
-			}
+		notEqual : if (newBytes.length == oldBytes.length) {
+			for (int i = newBytes.length; --i >= 0;)
+				if (newBytes[i] != oldBytes[i]) break notEqual;
+			return false; // bytes are identical so skip them
 		}
 		IPath location = file.getLocation();
 		if (location == null) return false; // unable to determine location of this class file
@@ -599,9 +617,11 @@ protected boolean writeClassFileCheck(IFile file, String fileName, byte[] newByt
 			if (JavaBuilder.DEBUG)
 				System.out.println("Type has structural changes " + fileName); //$NON-NLS-1$
 			addDependentsOf(new Path(fileName), true);
+			this.newState.wasStructurallyChanged(fileName);
 		}
 	} catch (ClassFormatException e) {
 		addDependentsOf(new Path(fileName), true);
+		this.newState.wasStructurallyChanged(fileName);
 	}
 	return true;
 }

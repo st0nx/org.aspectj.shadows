@@ -16,6 +16,7 @@ import org.eclipse.jdt.internal.compiler.impl.Constant;
 public class FieldBinding extends VariableBinding {
 	public ReferenceBinding declaringClass;
 protected FieldBinding() {
+	// for creating problem field
 }
 public FieldBinding(char[] name, TypeBinding type, int modifiers, ReferenceBinding declaringClass, Constant constant) {
 	this.modifiers = modifiers;
@@ -29,10 +30,9 @@ public FieldBinding(char[] name, TypeBinding type, int modifiers, ReferenceBindi
 		if (this.declaringClass.isViewedAsDeprecated() && !isDeprecated())
 			this.modifiers |= AccDeprecatedImplicitly;
 }
-public FieldBinding(FieldDeclaration field, TypeBinding type, ReferenceBinding declaringClass) {
-	this(field.name, type, field.modifiers, declaringClass, null);
-
-	field.binding = this;
+public FieldBinding(FieldDeclaration field, TypeBinding type, int modifiers, ReferenceBinding declaringClass) {
+	this(field.name, type, modifiers, declaringClass, null);
+	field.binding = this; // record binding in declaration
 }
 // special API used to change field declaring class for runtime visibility check
 public FieldBinding(FieldBinding initialFieldBinding, ReferenceBinding declaringClass) {
@@ -127,12 +127,12 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 	// receiverType can be an array binding in one case... see if you can change it
 	if (receiverType instanceof ArrayBinding)
 		return false;
-	ReferenceBinding type = (ReferenceBinding) receiverType;
+	ReferenceBinding currentType = (ReferenceBinding) receiverType;
 	PackageBinding declaringPackage = declaringClass.fPackage;
 	do {
-		if (declaringClass == type) return true;
-		if (declaringPackage != type.fPackage) return false;
-	} while ((type = type.superclass()) != null);
+		if (declaringClass == currentType) return true;
+		if (declaringPackage != currentType.fPackage) return false;
+	} while ((currentType = currentType.superclass()) != null);
 	return false;
 }
 public final int getAccessFlags() {

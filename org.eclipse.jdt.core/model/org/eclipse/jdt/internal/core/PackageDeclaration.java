@@ -10,9 +10,8 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IPackageDeclaration;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.jdom.IDOMNode;
 
 /**
@@ -20,20 +19,38 @@ import org.eclipse.jdt.core.jdom.IDOMNode;
  */
 
 /* package */ class PackageDeclaration extends SourceRefElement implements IPackageDeclaration {
-protected PackageDeclaration(ICompilationUnit parent, String name) {
-	super(PACKAGE_DECLARATION, parent, name);
+protected PackageDeclaration(CompilationUnit parent, String name) {
+	super(parent, name);
+}
+public boolean equals(Object o) {
+	if (!(o instanceof PackageDeclaration)) return false;
+	return super.equals(o);
 }
 /**
  * @see JavaElement#equalsDOMNode
  */
-protected boolean equalsDOMNode(IDOMNode node) throws JavaModelException {
+protected boolean equalsDOMNode(IDOMNode node) {
 	return (node.getNodeType() == IDOMNode.PACKAGE) && getElementName().equals(node.getName());
+}
+/**
+ * @see IJavaElement
+ */
+public int getElementType() {
+	return PACKAGE_DECLARATION;
 }
 /**
  * @see JavaElement#getHandleMemento()
  */
 protected char getHandleMementoDelimiter() {
 	return JavaElement.JEM_PACKAGEDECLARATION;
+}
+/*
+ * @see JavaElement#getPrimaryElement(boolean)
+ */
+public IJavaElement getPrimaryElement(boolean checkOwner) {
+	CompilationUnit cu = (CompilationUnit)getAncestor(COMPILATION_UNIT);
+	if (checkOwner && cu.isPrimary()) return this;
+	return cu.getPackageDeclaration(this.name);
 }
 /**
  * @private Debugging purposes

@@ -13,38 +13,75 @@ package org.eclipse.jdt.internal.compiler.ast;
 import org.eclipse.jdt.internal.compiler.flow.FlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
+import org.eclipse.jdt.internal.compiler.lookup.InvocationSite;
+import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 
-public abstract class AbstractVariableDeclaration extends Statement {
-	public int modifiers;
-
-	public TypeReference type;
+public abstract class AbstractVariableDeclaration extends Statement implements InvocationSite {
+	public int declarationEnd;
+	public int declarationSourceEnd;
+	public int declarationSourceStart;
+	public int hiddenVariableDepth; // used to diagnose hiding scenarii
 	public Expression initialization;
+	public int modifiers;
+	public int modifiersSourceStart;
 
 	public char[] name;
-	public int declarationEnd;
-	public int declarationSourceStart;
-	public int declarationSourceEnd;
-	public int modifiersSourceStart;
-	
-	public AbstractVariableDeclaration() {}
 
+	public TypeReference type;
+	
 	public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, FlowInfo flowInfo) {
 		return flowInfo;
 	}
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.internal.compiler.lookup.InvocationSite#isSuperAccess()
+	 */
+	public boolean isSuperAccess() {
+		return false;
+	}
 
-	public abstract String name();
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.internal.compiler.lookup.InvocationSite#isTypeAccess()
+	 */
+	public boolean isTypeAccess() {
+		return false;
+	}
 
-	public void resolve(BlockScope scope) {}
-		
-	public String toString(int tab) {
+	
+	public StringBuffer printStatement(int indent, StringBuffer output) {
 
-		String s = tabString(tab);
-		if (modifiers != AccDefault) {
-			s += modifiersString(modifiers);
+		printIndent(indent, output);
+		printModifiers(this.modifiers, output);
+		type.print(0, output).append(' ').append(this.name); 
+		if (initialization != null) {
+			output.append(" = "); //$NON-NLS-1$
+			initialization.printExpression(indent, output);
 		}
-		s += type.toString(0) + " " + new String(name()); //$NON-NLS-1$
-		if (initialization != null)
-			s += " = " + initialization.toStringExpression(tab); //$NON-NLS-1$
-		return s;
+		return output.append(';');
+	}
+
+	public void resolve(BlockScope scope) {
+		// do nothing by default (redefined for local variables)
+	}
+
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.internal.compiler.lookup.InvocationSite#setActualReceiverType(org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding)
+	 */
+	public void setActualReceiverType(ReferenceBinding receiverType) {
+		// do nothing by default
+	}
+
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.internal.compiler.lookup.InvocationSite#setDepth(int)
+	 */
+	public void setDepth(int depth) {
+
+		this.hiddenVariableDepth = depth;
+	}
+
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.internal.compiler.lookup.InvocationSite#setFieldIndex(int)
+	 */
+	public void setFieldIndex(int depth) {
+		// do nothing by default
 	}
 }

@@ -12,7 +12,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.flow.ExceptionHandlingFlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
 import org.eclipse.jdt.internal.compiler.flow.InitializationFlowContext;
@@ -65,8 +65,8 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 			if (statements != null) {
 				boolean didAlreadyComplain = false;
 				for (int i = 0, count = statements.length; i < count; i++) {
-					Statement stat;
-					if (!flowInfo.complainIfUnreachable((stat = statements[i]), scope, didAlreadyComplain)) {
+					Statement stat = statements[i];
+					if (!stat.complainIfUnreachable(flowInfo, scope, didAlreadyComplain)) {
 						flowInfo = stat.analyseCode(scope, methodContext, flowInfo);
 					} else {
 						didAlreadyComplain = true;
@@ -74,14 +74,16 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 				}
 			}
 			// check for missing returning path
-			TypeBinding returnType = binding.returnType;
-			if ((returnType == VoidBinding) || isAbstract()) {
+			TypeBinding returnTypeBinding = binding.returnType;
+			if ((returnTypeBinding == VoidBinding) || isAbstract()) {
 				this.needFreeReturn = flowInfo.isReachable();
 			} else {
 				if (flowInfo != FlowInfo.DEAD_END) { 
-					scope.problemReporter().shouldReturn(returnType, this);
+					scope.problemReporter().shouldReturn(returnTypeBinding, this);
 				}
 			}
+			// check unreachable catch blocks
+			methodContext.complainIfUnusedExceptionHandlers(this);
 		} catch (AbortMethod e) {
 			this.ignoreFurtherInvestigation = true;
 		}
@@ -95,6 +97,12 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 		parser.parse(this, unit);
 	}
 
+	public StringBuffer printReturnType(int indent, StringBuffer output) {
+
+		if (returnType == null) return output;
+		return returnType.printExpression(0, output).append(' ');
+	}
+
 	public void resolveStatements() {
 
 		// ========= abort on fatal error =============
@@ -106,9 +114,11 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 		if (binding != null && isTypeUseDeprecated(binding.returnType, scope))
 			scope.problemReporter().deprecatedType(binding.returnType, returnType);
 
-		if (CharOperation.equals(scope.enclosingSourceType().sourceName, selector))
+		// check if method with constructor name
+		if (CharOperation.equals(scope.enclosingSourceType().sourceName, selector)) {
 			scope.problemReporter().methodWithConstructorName(this);
-
+		}
+		
 		// by grammatical construction, interface methods are always abstract
 		if (!scope.enclosingSourceType().isInterface()){
 
@@ -127,15 +137,8 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 		super.resolveStatements(); 
 	}
 
-	public String returnTypeToString(int tab) {
-
-		if (returnType == null)
-			return ""; //$NON-NLS-1$
-		return returnType.toString(tab) + " "; //$NON-NLS-1$
-	}
-
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		ClassScope classScope) {
 
 		if (visitor.visit(this, classScope)) {

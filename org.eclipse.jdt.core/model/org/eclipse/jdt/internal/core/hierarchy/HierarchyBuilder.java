@@ -10,21 +10,15 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.hierarchy;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
-import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.IWorkingCopy;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
@@ -32,19 +26,14 @@ import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.core.BasicCompilationUnit;
-import org.eclipse.jdt.internal.core.BinaryType;
 import org.eclipse.jdt.internal.core.ClassFile;
-import org.eclipse.jdt.internal.core.CompilationUnit;
-import org.eclipse.jdt.internal.core.CreateTypeHierarchyOperation;
 import org.eclipse.jdt.internal.core.JarPackageFragmentRoot;
 import org.eclipse.jdt.internal.core.JavaElement;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.JavaProject;
 import org.eclipse.jdt.internal.core.NameLookup;
 import org.eclipse.jdt.internal.core.Openable;
-import org.eclipse.jdt.internal.core.PackageFragmentRoot;
 import org.eclipse.jdt.internal.core.SearchableEnvironment;
-import org.eclipse.jdt.internal.core.SourceType;
 import org.eclipse.jdt.internal.core.SourceTypeElementInfo;
 
 public abstract class HierarchyBuilder implements IHierarchyRequestor {
@@ -111,28 +100,26 @@ public abstract class HierarchyBuilder implements IHierarchyRequestor {
 		//    a sub or super type of the focus type.
 		org.eclipse.jdt.core.ICompilationUnit unitToLookInside = focusType.getCompilationUnit();
 		if (nameLookup != null) {
-			synchronized(nameLookup) { // prevent 2 concurrent accesses to name lookup while the working copies are set
-				IWorkingCopy[] workingCopies = this.getWokingCopies();
-				IWorkingCopy[] unitsToLookInside;
-				if (unitToLookInside != null) {
-					int wcLength = workingCopies == null ? 0 : workingCopies.length;
-					if (wcLength == 0) {
-						unitsToLookInside = new IWorkingCopy[] {unitToLookInside};
-					} else {
-						unitsToLookInside = new IWorkingCopy[wcLength+1];
-						unitsToLookInside[0] = unitToLookInside;
-						System.arraycopy(workingCopies, 0, unitsToLookInside, 1, wcLength);
-					}
+			org.eclipse.jdt.core.ICompilationUnit[] workingCopies = this.hierarchy.workingCopies;
+			org.eclipse.jdt.core.ICompilationUnit[] unitsToLookInside;
+			if (unitToLookInside != null) {
+				int wcLength = workingCopies == null ? 0 : workingCopies.length;
+				if (wcLength == 0) {
+					unitsToLookInside = new org.eclipse.jdt.core.ICompilationUnit[] {unitToLookInside};
 				} else {
-					unitsToLookInside = workingCopies;
+					unitsToLookInside = new org.eclipse.jdt.core.ICompilationUnit[wcLength+1];
+					unitsToLookInside[0] = unitToLookInside;
+					System.arraycopy(workingCopies, 0, unitsToLookInside, 1, wcLength);
 				}
-				try {
-					nameLookup.setUnitsToLookInside(unitsToLookInside);
-					// resolve
-					this.hierarchyResolver.resolve(type);
-				} finally {
-					nameLookup.setUnitsToLookInside(null);
-				}
+			} else {
+				unitsToLookInside = workingCopies;
+			}
+			try {
+				nameLookup.setUnitsToLookInside(unitsToLookInside); // NB: this uses a PerThreadObject, so it is thread safe
+				// resolve
+				this.hierarchyResolver.resolve(type);
+			} finally {
+				nameLookup.setUnitsToLookInside(null);
 			}
 		} else {
 			// resolve
@@ -261,13 +248,6 @@ public abstract class HierarchyBuilder implements IHierarchyRequestor {
 	protected IType getType() {
 		return this.hierarchy.getType();
 	}
-protected IWorkingCopy[] getWokingCopies() {
-	if (this.hierarchy.progressMonitor instanceof CreateTypeHierarchyOperation) {
-		return ((CreateTypeHierarchyOperation)this.hierarchy.progressMonitor).workingCopies;
-	} else {
-		return null;
-	}
-}
 	/**
 	 * Looks up and returns a handle for the given binary info.
 	 */
@@ -295,7 +275,7 @@ protected IWorkingCopy[] getWokingCopies() {
 /**
  * Create an ICompilationUnit info from the given compilation unit on disk.
  */
-protected ICompilationUnit createCompilationUnitFromPath(Openable handle, String osPath) throws JavaModelException {
+protected ICompilationUnit createCompilationUnitFromPath(Openable handle, String osPath) {
 	String encoding = handle.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
 	return 
 		new BasicCompilationUnit(
@@ -308,15 +288,19 @@ protected ICompilationUnit createCompilationUnitFromPath(Openable handle, String
  * Creates the type info from the given class file on disk and
  * adds it to the given list of infos.
  */
-protected IGenericType createInfoFromClassFile(Openable handle, String osPath) throws JavaModelException {
-	IGenericType info = null;
+protected IBinaryType createInfoFromClassFile(Openable handle, String osPath) {
+	IBinaryType info = null;
 	try {
 		info = org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader.read(osPath);
 	} catch (org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException e) {
-		e.printStackTrace();
+		if (TypeHierarchy.DEBUG) {
+			e.printStackTrace();
+		}
 		return null;
 	} catch (java.io.IOException e) {
-		e.printStackTrace();
+		if (TypeHierarchy.DEBUG) {
+			e.printStackTrace();
+		}
 		return null;
 	}						
 	this.infoToHandle.put(info, handle);
@@ -325,10 +309,10 @@ protected IGenericType createInfoFromClassFile(Openable handle, String osPath) t
 	/**
  * Create a type info from the given class file in a jar and adds it to the given list of infos.
  */
-protected IGenericType createInfoFromClassFileInJar(Openable classFile) throws JavaModelException {
+protected IBinaryType createInfoFromClassFileInJar(Openable classFile) {
 	IJavaElement pkg = classFile.getParent();
 	String classFilePath = pkg.getElementName().replace('.', '/') + "/" + classFile.getElementName(); //$NON-NLS-1$
-	IGenericType info = null;
+	IBinaryType info = null;
 	java.util.zip.ZipFile zipFile = null;
 	try {
 		zipFile = ((JarPackageFragmentRoot)pkg.getParent()).getJar();
@@ -336,13 +320,19 @@ protected IGenericType createInfoFromClassFileInJar(Openable classFile) throws J
 			zipFile,
 			classFilePath);
 	} catch (org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException e) {
-		e.printStackTrace();
+		if (TypeHierarchy.DEBUG) {
+			e.printStackTrace();
+		}
 		return null;
 	} catch (java.io.IOException e) {
-		e.printStackTrace();
+		if (TypeHierarchy.DEBUG) {
+			e.printStackTrace();
+		}
 		return null;
 	} catch (CoreException e) {
-		e.printStackTrace();
+		if (TypeHierarchy.DEBUG) {
+			e.printStackTrace();
+		}
 		return null;
 	} finally {
 		JavaModelManager.getJavaModelManager().closeZipFile(zipFile);
@@ -350,92 +340,5 @@ protected IGenericType createInfoFromClassFileInJar(Openable classFile) throws J
 	this.infoToHandle.put(info, classFile);
 	return info;
 }
-
-protected void addInfoFromClosedElement(Openable handle, ArrayList infos, ArrayList units, String resourcePath) throws JavaModelException {
-	
-	// create a temporary info
-	IJavaElement pkg = handle.getParent();
-	PackageFragmentRoot root = (PackageFragmentRoot)pkg.getParent();
-	if (root.isArchive()) {
-		// class file in a jar
-		IGenericType info = this.createInfoFromClassFileInJar(handle);
-		if (info != null) {
-			infos.add(info);
-		}
-	} else {
-		// file in a directory
-		IPath path = new Path(resourcePath);
-		IFile file = ResourcesPlugin.getWorkspace().getRoot().getFile(path);
-		IPath location = file.getLocation();
-		if (location != null){
-			String osPath = location.toOSString();
-			if (handle instanceof CompilationUnit) {
-				// compilation unit in a directory
-				ICompilationUnit unit = this.createCompilationUnitFromPath(handle, osPath);
-				if (unit != null) {
-					units.add(unit);
-				}
-			} else if (handle instanceof ClassFile) {
-				// class file in a directory
-				IGenericType info = this.createInfoFromClassFile(handle, osPath);
-				if (info != null) {
-					infos.add(info);
-				}
-			}
-		}
-	}
-	
-}
-
-/**
- * Add the type info from the given CU to the given list of infos.
- */
-protected void addInfoFromOpenCU(CompilationUnit cu, ArrayList infos) throws JavaModelException {
-	IType[] types = cu.getTypes();
-	for (int j = 0; j < types.length; j++) {
-		SourceType type = (SourceType)types[j];
-		this.addInfoFromOpenSourceType(type, infos);
-	}
-}
-
-
-/**
- * Add the type info from the given CU to the given list of infos.
- */
-protected void addInfoFromOpenSourceType(SourceType type, ArrayList infos) throws JavaModelException {
-	IGenericType info = (IGenericType)type.getElementInfo();
-	infos.add(info);
-	this.infoToHandle.put(info, type);
-	IType[] members = type.getTypes();
-	for (int i = 0; i < members.length; i++) {
-		this.addInfoFromOpenSourceType((SourceType)members[i], infos);
-	}
-}
-
-/**
- * Add the type info from the given class file to the given list of infos.
- */
-protected void addInfoFromOpenClassFile(ClassFile classFile, ArrayList infos) throws JavaModelException {
-	IType type = classFile.getType();
-	IGenericType info = (IGenericType) ((BinaryType) type).getElementInfo();
-	infos.add(info);
-	this.infoToHandle.put(info, classFile);
-}
-
-protected void addInfoFromElement(Openable handle, ArrayList infos, ArrayList units, String resourcePath) throws JavaModelException {
-	if (handle.isOpen()) {
-		// reuse the info from the java model cache
-		if (handle instanceof CompilationUnit) {
-			this.addInfoFromOpenCU((CompilationUnit)handle, infos);
-		} else if (handle instanceof ClassFile) {
-			this.addInfoFromOpenClassFile((ClassFile)handle, infos);
-		}
-	} else {
-		this.addInfoFromClosedElement(handle, infos, units, resourcePath);
-	}
-}
-
-
-
 
 }

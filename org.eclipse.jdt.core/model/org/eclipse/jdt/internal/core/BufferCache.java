@@ -38,7 +38,10 @@ public BufferCache(int size, int overflow) {
  */
 protected boolean close(LRUCacheEntry entry) {
 	IBuffer buffer= (IBuffer) entry._fValue;
-	if (buffer.hasUnsavedChanges()) {
+	
+	// prevent buffer that have unsaved changes or working copy buffer to be removed
+	// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=39311
+	if (!((Openable)buffer.getOwner()).canBufferBeRemovedFromCache(buffer)) {
 		return false;
 	} else {
 		buffer.close();

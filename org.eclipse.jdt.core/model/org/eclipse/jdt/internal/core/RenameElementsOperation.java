@@ -15,6 +15,7 @@ import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.ISourceReference;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * This operation renames elements.
@@ -56,7 +57,7 @@ protected IJavaModelStatus verify() {
 	IJavaModelStatus status = super.verify();
 	if (! status.isOK())
 		return status;
-	if (fRenamingsList == null || fRenamingsList.length == 0)
+	if (this.renamingsList == null || this.renamingsList.length == 0)
 		return new JavaModelStatus(IJavaModelStatusConstants.NULL_NAME);
 	return JavaModelStatus.VERIFIED_OK;
 }
@@ -78,6 +79,12 @@ protected void verify(IJavaElement element) throws JavaModelException {
 	if (elementType < IJavaElement.TYPE || elementType == IJavaElement.INITIALIZER)
 		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
 		
+	Member localContext;
+	if (element instanceof Member && (localContext = ((Member)element).getOuterMostLocalContext()) != null && localContext != element) {
+		// JDOM doesn't support source manipulation in local/anonymous types
+		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
+	}
+
 	verifyRenaming(element);
 }
 }

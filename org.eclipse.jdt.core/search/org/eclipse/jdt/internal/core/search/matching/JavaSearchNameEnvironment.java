@@ -16,29 +16,29 @@ import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.JavaModel;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.JavaProject;
 import org.eclipse.jdt.internal.core.builder.ClasspathJar;
 import org.eclipse.jdt.internal.core.builder.ClasspathLocation;
 
-// TODO: (jerome) Remove when switching to JavaSearchNameEnvironment2
-public class JavaSearchNameEnvironment implements INameEnvironment {
+/*
+ * A name environment based on the classpath of a Java project.
+ */
+public class JavaSearchNameEnvironment implements INameEnvironment, SuffixConstants {
 	
 	ClasspathLocation[] locations;
 	
 public JavaSearchNameEnvironment(IJavaProject javaProject) {
-	try {
-		computeClasspathLocations(javaProject.getProject().getWorkspace().getRoot(), (JavaProject) javaProject);
-	} catch(CoreException e) {
-		this.locations = new ClasspathLocation[0];
-	}
+	computeClasspathLocations(javaProject.getProject().getWorkspace().getRoot(), (JavaProject) javaProject);
 }
 
 public void cleanup() {
@@ -47,34 +47,47 @@ public void cleanup() {
 	}
 }
 
-private void computeClasspathLocations(
-	IWorkspaceRoot workspaceRoot,
-	JavaProject javaProject) throws CoreException {
+private void computeClasspathLocations(IWorkspaceRoot workspaceRoot, JavaProject javaProject) {
 
 	String encoding = null;
-	IPackageFragmentRoot[] roots = javaProject.getAllPackageFragmentRoots();
+	IPackageFragmentRoot[] roots = null;
+	try {
+		roots = javaProject.getAllPackageFragmentRoots();
+	} catch (JavaModelException e) {
+		// project doesn't exist
+		this.locations = new ClasspathLocation[0];
+		return;
+	}
 	int length = roots.length;
-	ClasspathLocation[] locations = new ClasspathLocation[length];
+	ClasspathLocation[] cpLocations = new ClasspathLocation[length];
+	int index = 0;
 	JavaModelManager manager = JavaModelManager.getJavaModelManager();
 	for (int i = 0; i < length; i++) {
 		IPackageFragmentRoot root = roots[i];
 		IPath path = root.getPath();
-		if (root.isArchive()) {
-			ZipFile zipFile = manager.getZipFile(path);
-			locations[i] = new ClasspathJar(zipFile);
-		} else {
-			Object target = JavaModel.getTarget(workspaceRoot, path, false);
-			if (root.getKind() == IPackageFragmentRoot.K_SOURCE) {
-				if (encoding == null) {
-					encoding = javaProject.getOption(JavaCore.CORE_ENCODING, true);
-				}
-				locations[i] = new ClasspathSourceDirectory((IContainer)target, encoding);
+		try {
+			if (root.isArchive()) {
+				ZipFile zipFile = manager.getZipFile(path);
+				cpLocations[index++] = new ClasspathJar(zipFile);
 			} else {
-				locations[i] = ClasspathLocation.forBinaryFolder((IContainer) target, false);
+				Object target = JavaModel.getTarget(workspaceRoot, path, false);
+				if (root.getKind() == IPackageFragmentRoot.K_SOURCE) {
+					if (encoding == null) {
+						encoding = javaProject.getOption(JavaCore.CORE_ENCODING, true);
+					}
+					cpLocations[index++] = new ClasspathSourceDirectory((IContainer)target, encoding);
+				} else {
+					cpLocations[index++] = ClasspathLocation.forBinaryFolder((IContainer) target, false);
+				}
 			}
+		} catch (CoreException e1) {
+			// problem opening zip file or getting root kind
+			// consider root corrupt and ignore
+			// just resize cpLocations
+			System.arraycopy(cpLocations, 0, cpLocations = new ClasspathLocation[cpLocations.length-1], 0, index);
 		}
 	}
-	this.locations = locations;
+	this.locations = cpLocations;
 }
 
 private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeName) {
@@ -87,7 +100,7 @@ private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeNam
 		NameEnvironmentAnswer answer;
 		if (location instanceof ClasspathSourceDirectory) {
 			if (sourceFileName == null) {
-				qSourceFileName = qualifiedTypeName + ".java"; //$NON-NLS-1$
+				qSourceFileName = qualifiedTypeName + SUFFIX_STRING_java;
 				sourceFileName = qSourceFileName;
 				qPackageName =  ""; //$NON-NLS-1$
 				if (qualifiedTypeName.length() > typeName.length) {
@@ -102,7 +115,7 @@ private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeNam
 				qSourceFileName);
 		} else {
 			if (binaryFileName == null) {
-				qBinaryFileName = qualifiedTypeName + ".class"; //$NON-NLS-1$
+				qBinaryFileName = qualifiedTypeName + SUFFIX_STRING_class;
 				binaryFileName = qBinaryFileName;
 				qPackageName =  ""; //$NON-NLS-1$
 				if (qualifiedTypeName.length() > typeName.length) {

@@ -21,10 +21,9 @@ import org.eclipse.jdt.core.IJavaModel;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
+import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.internal.core.JarPackageFragmentRoot;
 import org.eclipse.jdt.internal.core.JavaProject;
-import org.eclipse.jdt.internal.core.index.IIndex;
-import org.eclipse.jdt.internal.core.search.indexing.IndexManager;
 
 /**
  * Selects the indexes that correspond to projects in a given search scope
@@ -32,19 +31,15 @@ import org.eclipse.jdt.internal.core.search.indexing.IndexManager;
  */
 public class IndexSelector {
 	IJavaSearchScope searchScope;
-	IJavaElement focus;
-	IndexManager indexManager;
+	SearchPattern pattern;
 	IPath[] indexKeys; // cache of the keys for looking index up
-	boolean isPolymorphicSearch;
+	
 public IndexSelector(
-	IJavaSearchScope searchScope,
-	IJavaElement focus,
-	boolean isPolymorphicSearch,
-	IndexManager indexManager) {
+		IJavaSearchScope searchScope,
+		SearchPattern pattern) {
+	
 	this.searchScope = searchScope;
-	this.focus = focus;
-	this.indexManager = indexManager;
-	this.isPolymorphicSearch = isPolymorphicSearch;
+	this.pattern = pattern;
 }
 /**
  * Returns whether elements of the given project or jar can see the given focus (an IJavaProject or
@@ -130,7 +125,8 @@ private void initializeIndexKeys() {
 	ArrayList requiredIndexKeys = new ArrayList();
 	IPath[] projectsAndJars = this.searchScope.enclosingProjectsAndJars();
 	IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
-	IJavaElement projectOrJarFocus = this.focus == null ? null : getProjectOrJar(this.focus);
+	IJavaElement projectOrJarFocus = this.pattern == null || this.pattern.focus == null ? null : getProjectOrJar(this.pattern.focus);
+	boolean isPolymorphicSearch = this.pattern == null ? false : this.pattern.isPolymorphicSearch();
 	for (int i = 0; i < projectsAndJars.length; i++) {
 		IPath location;
 		IPath path = projectsAndJars[i];
@@ -141,7 +137,7 @@ private void initializeIndexKeys() {
 			&& !new java.io.File(path.toOSString()).exists()) { // and external jar file does not exist
 				continue;
 		}
-		if (projectOrJarFocus == null || canSeeFocus(projectOrJarFocus, this.isPolymorphicSearch, path)) {
+		if (projectOrJarFocus == null || canSeeFocus(projectOrJarFocus, isPolymorphicSearch, path)) {
 			if (requiredIndexKeys.indexOf(path) == -1) {
 				requiredIndexKeys.add(path);
 			}
@@ -150,24 +146,13 @@ private void initializeIndexKeys() {
 	this.indexKeys = new IPath[requiredIndexKeys.size()];
 	requiredIndexKeys.toArray(this.indexKeys);
 }
-public IIndex[] getIndexes() {
+public IPath[] getIndexKeys() {
 	if (this.indexKeys == null) {
 		this.initializeIndexKeys(); 
 	}
-	// acquire the in-memory indexes on the fly
-	int length = this.indexKeys.length;
-	IIndex[] indexes = new IIndex[length];
-	int count = 0;
-	for (int i = 0; i < length; i++){
-		// may trigger some index recreation work
-		IIndex index = indexManager.getIndex(indexKeys[i], true /*reuse index file*/, false /*do not create if none*/);
-		if (index != null) indexes[count++] = index; // only consider indexes which are ready yet
-	}
-	if (count != length) {
-		System.arraycopy(indexes, 0, indexes=new IIndex[count], 0, count);
-	}
-	return indexes;
+	return this.indexKeys;
 }
+
 /**
  * Returns the java project that corresponds to the given path.
  * Returns null if the path doesn't correspond to a project.

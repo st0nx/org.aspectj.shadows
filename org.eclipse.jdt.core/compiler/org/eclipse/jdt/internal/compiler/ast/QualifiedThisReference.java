@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -72,7 +72,7 @@ public class QualifiedThisReference extends ThisReference {
 	public TypeBinding resolveType(BlockScope scope) {
 
 		constant = NotAConstant;
-		this.resolvedType = qualification.resolveType(scope);
+		this.resolvedType = this.qualification.resolveType(scope);
 		if (this.resolvedType == null) return null;
 
 		// the qualification MUST exactly match some enclosing type name
@@ -99,13 +99,13 @@ public class QualifiedThisReference extends ThisReference {
 		return this.resolvedType;
 	}
 
-	public String toStringExpression() {
+	public StringBuffer printExpression(int indent, StringBuffer output) {
 
-		return qualification.toString(0) + ".this"; //$NON-NLS-1$
+		return qualification.print(0, output).append(".this"); //$NON-NLS-1$
 	}
 
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		BlockScope blockScope) {
 
 		if (visitor.visit(this, blockScope)) {

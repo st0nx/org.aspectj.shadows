@@ -8,20 +8,20 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     IBM Corporation - added the following constants
- *                                 NonStaticAccessToStaticField
- *                                 NonStaticAccessToStaticMethod
- *                                 Task
- * 								   ExpressionShouldBeAVariable
- * 								   AssignmentHasNoEffect
+ *								   NonStaticAccessToStaticField
+ *								   NonStaticAccessToStaticMethod
+ *								   Task
+ *								   ExpressionShouldBeAVariable
+ *								   AssignmentHasNoEffect
  *     IBM Corporation - added the following constants
- * 								   TooManySyntheticArgumentSlots
- * 								   TooManyArrayDimensions
- * 								   TooManyBytesForStringConstant
- * 								   TooManyMethods
- * 								   TooManyFields
- * 								   NonBlankFinalLocalAssignment
- * 								   ObjectCannotHaveSuperTypes
- * 								   MissingSemiColon
+ *								   TooManySyntheticArgumentSlots
+ *								   TooManyArrayDimensions
+ *								   TooManyBytesForStringConstant
+ *								   TooManyMethods
+ *								   TooManyFields
+ *								   NonBlankFinalLocalAssignment
+ *								   ObjectCannotHaveSuperTypes
+ *								   MissingSemiColon
  *								   InvalidParenthesizedExpression
  *								   EnclosingInstanceInConstructorCall
  *								   BytecodeExceeds64KLimitForConstructor
@@ -31,7 +31,24 @@
  *								   UnusedPrivateType
  *								   UnusedPrivateField
  *								   IncompatibleExceptionInThrowsClauseForNonInheritedInterfaceMethod
- *******************************************************************************/
+ *								   InvalidExplicitConstructorCall
+ *     IBM Corporation - added the following constants
+ *								   PossibleAccidentalBooleanAssignment
+ *								   SuperfluousSemicolon
+ *								   IndirectAccessToStaticField
+ *								   IndirectAccessToStaticMethod
+ *								   IndirectAccessToStaticType
+ *								   BooleanMethodThrowingException
+ *								   UnnecessaryCast
+ *								   UnnecessaryArgumentCast
+ *								   UnnecessaryInstanceof
+ *								   FinallyMustCompleteNormally
+ *								   UnusedMethodDeclaredThrownException
+ *								   UnusedConstructorDeclaredThrownException
+ *								   InvalidCatchBlockSequence
+ *								   UnqualifiedFieldAccess
+ *								   Javadoc
+ ****************************************************************************/
 package org.eclipse.jdt.core.compiler;
  
 import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
@@ -137,7 +154,7 @@ public interface IProblem {
 	 * Set the start position of the problem (inclusive), or -1 if unknown.
 	 * Used for shifting problem positions.
 	 * 
-	 * @param the given start position
+	 * @param sourceStart the given start position
 	 */
 	void setSourceStart(int sourceStart);
 	
@@ -158,7 +175,10 @@ public interface IProblem {
 	int ConstructorRelated = 0x08000000;
 	int ImportRelated = 0x10000000;
 	int Internal = 0x20000000;
-	int Syntax =  0x40000000;
+	int Syntax = 0x40000000;
+	int Javadoc = 0x80000000;
+	/** @deprecated */
+	int Annotation = 0x80000000;
 	
 	/**
 	 * Mask to use in order to filter out the category portion of the problem ID.
@@ -177,7 +197,7 @@ public interface IProblem {
 	int Unclassified = 0;
 
 	/**
-	 * Generic type related problems
+	 * General type related problems
 	 */
 	int ObjectHasNoSuperclass = TypeRelated + 1;
 	int UndefinedType = TypeRelated + 2;
@@ -191,7 +211,9 @@ public interface IProblem {
 	int IncompatibleTypesInEqualityOperator = TypeRelated + 15;
 	int IncompatibleTypesInConditionalOperator = TypeRelated + 16;
 	int TypeMismatch = TypeRelated + 17;
-
+	/** @since 3.0 */
+	int IndirectAccessToStaticType = Internal + TypeRelated + 18;
+	
 	/**
 	 * Inner types related problems
 	 */
@@ -220,6 +242,7 @@ public interface IProblem {
 	int DuplicateFinalLocalInitialization = Internal + 57;
 	/** @since 2.1 */
 	int NonBlankFinalLocalAssignment = Internal + 58;
+	
 	int FinalOuterLocalAssignment = Internal + 60;
 	int LocalVariableIsNeverUsed = Internal + 61;
 	int ArgumentIsNeverUsed = Internal + 62;
@@ -245,11 +268,52 @@ public interface IProblem {
 	int NonStaticAccessToStaticField = Internal + FieldRelated + 76;
 	/** @since 2.1 */
 	int UnusedPrivateField = Internal + FieldRelated + 77;
+	/** @since 3.0 */
+	int IndirectAccessToStaticField = Internal + FieldRelated + 78;
+	/** @since 3.0 */
+	int UnqualifiedFieldAccess = Internal + FieldRelated + 79;
 	
 	// blank final fields
 	int FinalFieldAssignment = FieldRelated + 80;
 	int UninitializedBlankFinalField = FieldRelated + 81;
 	int DuplicateBlankFinalFieldInitialization = FieldRelated + 82;
+
+	// variable hiding
+	/**
+	 * The local variable {0} is hiding another local variable defined in an enclosing type scope 
+	 * @since 3.0
+	 */
+	int LocalVariableHidingLocalVariable = Internal + 90;		
+
+	/**
+	 * The local variable {0} is hiding the field {1}.{2} 
+	 * @since 3.0
+	 */
+	int LocalVariableHidingField = Internal + FieldRelated + 91;		
+	 
+	/**
+	 * The field {0}.{1} is hiding another local variable defined in an enclosing type scope
+	 * @since 3.0 
+	 */
+	int FieldHidingLocalVariable = Internal + FieldRelated + 92;		
+
+	/**
+	 * The field {0}.{1} is hiding the field {2}.{3}
+	 * @since 3.0 
+	 */
+	int FieldHidingField = Internal + FieldRelated + 93;		
+
+	/**
+	 * The argument {0} is hiding another local variable defined in an enclosing type scope
+	 * @since 3.0 
+	 */
+	int ArgumentHidingLocalVariable = Internal + 94;		
+
+	/**
+	 * The argument {0} is hiding the field {2}.{3}
+	 * @since 3.0 
+	 */
+	int ArgumentHidingField = Internal + 95;		
 
 	// methods
 	int UndefinedMethod = MethodRelated + 100;
@@ -272,6 +336,9 @@ public interface IProblem {
     int NonStaticAccessToStaticMethod = Internal + MethodRelated + 117;
 	/** @since 2.1 */
 	int UnusedPrivateMethod = Internal + MethodRelated + 118;
+	/** @since 3.0 */
+	int IndirectAccessToStaticMethod = Internal + MethodRelated + 119;
+
 	    
 	// constructors
 	int UndefinedConstructor = ConstructorRelated + 130;
@@ -285,6 +352,8 @@ public interface IProblem {
 	int InstanceMethodDuringConstructorInvocation = ConstructorRelated + 136;
 	int RecursiveConstructorInvocation = ConstructorRelated + 137;
 	int ThisSuperDuringConstructorInvocation = ConstructorRelated + 138;
+	/** @since 3.0 */
+	int InvalidExplicitConstructorCall = ConstructorRelated + Syntax + 139;
 	// implicit constructor calls
 	int UndefinedConstructorInDefaultConstructor = ConstructorRelated + 140;
 	int NotVisibleConstructorInDefaultConstructor = ConstructorRelated + 141;
@@ -314,7 +383,6 @@ public interface IProblem {
 	int CodeCannotBeReached = Internal + 161;
 	int CannotReturnInInitializer = Internal + 162;
 	int InitializerMustCompleteNormally = Internal + 163;
-	
 	// assert
 	int InvalidVoidExpression = Internal + 164;
 	// try
@@ -338,7 +406,25 @@ public interface IProblem {
 	// assignment
 	/** @since 2.1 */
 	int AssignmentHasNoEffect = Internal + 178;
-	
+	/** @since 3.0 */
+	int PossibleAccidentalBooleanAssignment = Internal + 179;
+	/** @since 3.0 */
+	int SuperfluousSemicolon = Internal + 180;
+	/** @since 3.0 */
+	int UnnecessaryCast = Internal + TypeRelated + 181;
+	/** @since 3.0 */
+	int UnnecessaryArgumentCast = Internal + TypeRelated + 182;
+	/** @since 3.0 */
+	int UnnecessaryInstanceof = Internal + TypeRelated + 183;	
+	/** @since 3.0 */
+	int FinallyMustCompleteNormally = Internal + 184;	
+	/** @since 3.0 */
+	int UnusedMethodDeclaredThrownException = Internal + 185;	
+	/** @since 3.0 */
+	int UnusedConstructorDeclaredThrownException = Internal + 186;	
+	/** @since 3.0 */
+	int InvalidCatchBlockSequence = Internal + TypeRelated + 187;	
+
 	// inner emulation
 	int NeedToEmulateFieldReadAccess = FieldRelated + 190;
 	int NeedToEmulateFieldWriteAccess = FieldRelated + 191;
@@ -374,6 +460,33 @@ public interface IProblem {
 	int MissingSemiColon = Syntax + Internal + 224;
 	/** @since 2.1 */
 	int InvalidParenthesizedExpression = Syntax + Internal + 225;
+	
+	/** @since 3.0 */
+	int ParsingErrorInsertTokenBefore = Syntax + Internal + 230;
+	/** @since 3.0 */
+	int ParsingErrorInsertTokenAfter = Syntax + Internal + 231;
+	/** @since 3.0 */
+    int ParsingErrorDeleteToken = Syntax + Internal + 232;
+    /** @since 3.0 */
+    int ParsingErrorDeleteTokens = Syntax + Internal + 233;
+    /** @since 3.0 */
+    int ParsingErrorMergeTokens = Syntax + Internal + 234;
+    /** @since 3.0 */
+    int ParsingErrorInvalidToken = Syntax + Internal + 235;
+    /** @since 3.0 */
+    int ParsingErrorMisplacedConstruct = Syntax + Internal + 236;
+    /** @since 3.0 */
+    int ParsingErrorReplaceTokens = Syntax + Internal + 237;
+    /** @since 3.0 */
+    int ParsingErrorNoSuggestionForTokens = Syntax + Internal + 238;
+    /** @since 3.0 */
+    int ParsingErrorUnexpectedEOF = Syntax + Internal + 239;
+    /** @since 3.0 */
+    int ParsingErrorInsertToComplete = Syntax + Internal + 240;
+    /** @since 3.0 */
+    int ParsingErrorInsertToCompleteScope = Syntax + Internal + 241;
+    /** @since 3.0 */
+    int ParsingErrorInsertToCompletePhrase = Syntax + Internal + 242;
     
 	// scanner errors
 	int EndOfSource = Syntax + Internal + 250;
@@ -501,7 +614,6 @@ public interface IProblem {
 	int ImportInternalNameProvided =  ImportRelated + 389 + ProblemReasons.InternalNameProvided; // ImportRelated + 393
 	int ImportInheritedNameHidesEnclosingName =  ImportRelated + 389 + ProblemReasons.InheritedNameHidesEnclosingName; // ImportRelated + 394
 
-	
 	// local variable related problems
 	int DuplicateModifierForVariable = MethodRelated + 395;
 	int IllegalModifierForVariable = MethodRelated + 396;
@@ -549,4 +661,85 @@ public interface IProblem {
 	// detected task
 	/** @since 2.1 */
 	int Task = Internal + 450;
+	
+	// block
+	/** @since 3.0 */
+	int UndocumentedEmptyBlock = Internal + 460;
+		
+	/*
+	 * Javadoc comments
+	 */
+	/** @since 3.0 */
+	int JavadocUnexpectedTag = Javadoc + Internal + 470;
+	/** @since 3.0 */
+	int JavadocMissingParamTag = Javadoc + Internal + 471;
+	/** @since 3.0 */
+	int JavadocMissingParamName = Javadoc + Internal + 472;
+	/** @since 3.0 */
+	int JavadocDuplicateParamName = Javadoc + Internal + 473;
+	/** @since 3.0 */
+	int JavadocInvalidParamName = Javadoc + Internal + 474;
+	/** @since 3.0 */
+	int JavadocMissingReturnTag = Javadoc + Internal + 475;
+	/** @since 3.0 */
+	int JavadocDuplicateReturnTag = Javadoc + Internal + 476;
+	/** @since 3.0 */
+	int JavadocMissingThrowsTag = Javadoc + Internal + 477;
+	/** @since 3.0 */
+	int JavadocMissingThrowsClassName = Javadoc + Internal + 478;
+	/** @since 3.0 */
+	int JavadocInvalidThrowsClass = Javadoc + Internal + 479;
+	/** @since 3.0 */
+	int JavadocDuplicateThrowsClassName = Javadoc + Internal + 480;
+	/** @since 3.0 */
+	int JavadocInvalidThrowsClassName = Javadoc + Internal + 481;
+	/** @since 3.0 */
+	int JavadocMissingSeeReference = Javadoc + Internal + 482;
+	/** @since 3.0 */
+	int JavadocInvalidSeeReference = Javadoc + Internal + 483;
+	/** @since 3.0 */
+	int JavadocInvalidSeeHref = Javadoc + Internal + 484;
+	/** @since 3.0 */
+	int JavadocInvalidSeeArgs = Javadoc + Internal + 485;
+	/** @since 3.0 */
+	int JavadocMissing = Javadoc + Internal + 486;
+	/** @since 3.0 */
+	int JavadocMessagePrefix = Internal + 489;
+
+	/**@deprecated */
+	int AnnotationUnexpectedTag = JavadocUnexpectedTag;
+	/**@deprecated */
+	int AnnotationMissingParamTag = JavadocMissingParamTag;
+	/**@deprecated */
+	int AnnotationMissingParamName = JavadocMissingParamName;
+	/**@deprecated */
+	int AnnotationDuplicateParamName = JavadocDuplicateParamName;
+	/**@deprecated */
+	int AnnotationInvalidParamName = JavadocInvalidParamName;
+	/**@deprecated */
+	int AnnotationMissingReturnTag = JavadocMissingReturnTag;
+	/**@deprecated */
+	int AnnotationDuplicateReturnTag = JavadocDuplicateReturnTag;
+	/**@deprecated */
+	int AnnotationMissingThrowsTag = JavadocMissingThrowsTag;
+	/**@deprecated */
+	int AnnotationMissingThrowsClassName = JavadocMissingThrowsClassName;
+	/**@deprecated */
+	int AnnotationInvalidThrowsClass = JavadocInvalidThrowsClass;
+	/**@deprecated */
+	int AnnotationDuplicateThrowsClassName = JavadocDuplicateThrowsClassName;
+	/**@deprecated */
+	int AnnotationInvalidThrowsClassName = JavadocInvalidThrowsClassName;
+	/**@deprecated */
+	int AnnotationMissingSeeReference = JavadocMissingSeeReference;
+	/**@deprecated */
+	int AnnotationInvalidSeeReference = JavadocInvalidSeeReference;
+	/**@deprecated */
+	int AnnotationInvalidSeeHref = JavadocInvalidSeeHref;
+	/**@deprecated */
+	int AnnotationInvalidSeeArgs = JavadocInvalidSeeArgs;
+	/**@deprecated */
+	int AnnotationMissing = JavadocMissing;
+	/**@deprecated */
+	int AnnotationMessagePrefix = JavadocMessagePrefix;
 }

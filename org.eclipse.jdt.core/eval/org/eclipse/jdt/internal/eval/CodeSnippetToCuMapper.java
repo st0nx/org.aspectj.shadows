@@ -42,45 +42,45 @@ class CodeSnippetToCuMapper implements EvaluationConstants {
 
 	// Internal fields
 	char[] codeSnippet;
-	char[] packageName;
-	char[][] imports;
-	char[] className; 
-	char[] varClassName;
+	char[] snippetPackageName;
+	char[][] snippetImports;
+	char[] snippetClassName; 
+	char[] snippetVarClassName;
+	char[] snippetDeclaringTypeName;
 
 	// Mapping of external local variables
 	char[][] localVarNames;
 	char[][] localVarTypeNames;
 	int[] localVarModifiers;
-	char[] declaringTypeName;
-
+	
 /**
  * Rebuild source in presence of external local variables
  */
  public CodeSnippetToCuMapper(char[] codeSnippet, char[] packageName, char[][] imports, char[] className, char[] varClassName, char[][] localVarNames, char[][] localVarTypeNames, int[] localVarModifiers, char[] declaringTypeName) {
 	this.codeSnippet = codeSnippet;
-	this.packageName = packageName;
-	this.imports = imports;
-	this.className = className;
-	this.varClassName = varClassName;
+	this.snippetPackageName = packageName;
+	this.snippetImports = imports;
+	this.snippetClassName = className;
+	this.snippetVarClassName = varClassName;
 	this.localVarNames = localVarNames;
 	this.localVarTypeNames = localVarTypeNames;
 	this.localVarModifiers = localVarModifiers;
-	this.declaringTypeName = declaringTypeName;
+	this.snippetDeclaringTypeName = declaringTypeName;
 	this.buildCUSource();
 }
 private void buildCUSource() {
 	StringBuffer buffer = new StringBuffer();
 
 	// package declaration
-	if (this.packageName != null && this.packageName.length != 0) {
+	if (this.snippetPackageName != null && this.snippetPackageName.length != 0) {
 		buffer.append("package "); //$NON-NLS-1$
-		buffer.append(this.packageName);
+		buffer.append(this.snippetPackageName);
 		buffer.append(";").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
 		this.lineNumberOffset++;
 	}
 
 	// import declarations
-	char[][] imports = this.imports;
+	char[][] imports = this.snippetImports;
 	for (int i = 0; i < imports.length; i++) {
 		buffer.append("import "); //$NON-NLS-1$
 		buffer.append(imports[i]);
@@ -90,12 +90,12 @@ private void buildCUSource() {
 
 	// class declaration
 	buffer.append("public class "); //$NON-NLS-1$
-	buffer.append(this.className);
+	buffer.append(this.snippetClassName);
 
 	// super class is either a global variable class or the CodeSnippet class
-	if (this.varClassName != null) {
+	if (this.snippetVarClassName != null) {
 		buffer.append(" extends "); //$NON-NLS-1$
-		buffer.append(this.varClassName);
+		buffer.append(this.snippetVarClassName);
 	} else {
 		buffer.append(" extends "); //$NON-NLS-1$
 		buffer.append(PACKAGE_NAME);
@@ -105,22 +105,22 @@ private void buildCUSource() {
 	buffer.append(" {").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
 	this.lineNumberOffset++;
 
-	if (this.declaringTypeName != null){
+	if (this.snippetDeclaringTypeName != null){
 		buffer.append("  "); //$NON-NLS-1$
-		buffer.append(this.declaringTypeName);
+		buffer.append(this.snippetDeclaringTypeName);
 		buffer.append(" "); //$NON-NLS-1$
 		buffer.append(DELEGATE_THIS); // val$this
 		buffer.append(';').append(Util.LINE_SEPARATOR);
 		this.lineNumberOffset++;
 	}
 	// add some storage location for local variable persisted state
-	if (localVarNames != null) {
-		for (int i = 0, max = localVarNames.length; i < max; i++) {
+	if (this.localVarNames != null) {
+		for (int i = 0, max = this.localVarNames.length; i < max; i++) {
 			buffer.append("    "); //$NON-NLS-1$
-			buffer.append(localVarTypeNames[i]);
+			buffer.append(this.localVarTypeNames[i]);
 			buffer.append(" "); //$NON-NLS-1$
 			buffer.append(LOCAL_VAR_PREFIX); // val$...
-			buffer.append(localVarNames[i]);
+			buffer.append(this.localVarNames[i]);
 			buffer.append(';').append(Util.LINE_SEPARATOR);
 			this.lineNumberOffset++;
 		}
@@ -128,8 +128,8 @@ private void buildCUSource() {
 	// run() method declaration
 	buffer.append("public void run() throws Throwable {").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
 	this.lineNumberOffset++;
-	startPosOffset = buffer.length();
-	buffer.append(codeSnippet);
+	this.startPosOffset = buffer.length();
+	buffer.append(this.codeSnippet);
 	// a line separator is required after the code snippet source code
 	// in case the code snippet source code ends with a line comment
 	// http://dev.eclipse.org/bugs/show_bug.cgi?id=14838
@@ -148,68 +148,66 @@ private void buildCUSource() {
  * according to the start offset and line number offset of the code snippet in the generated compilation unit. 
  */
 public ICompletionRequestor getCompletionRequestor(final ICompletionRequestor originalRequestor) {
-	final int startPosOffset = this.startPosOffset;
-	final int lineNumberOffset = this.lineNumberOffset;
 	return new ICompletionRequestor() {
 		public void acceptAnonymousType(char[] superTypePackageName,char[] superTypeName,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance){
-			originalRequestor.acceptAnonymousType(superTypePackageName, superTypeName, parameterPackageNames, parameterTypeNames, parameterNames, completionName, modifiers, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			originalRequestor.acceptAnonymousType(superTypePackageName, superTypeName, parameterPackageNames, parameterTypeNames, parameterNames, completionName, modifiers, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		
 		public void acceptClass(char[] packageName, char[] className, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
 			// Remove completion on generated class name or generated global variable class name
-			if (CharOperation.equals(packageName, CodeSnippetToCuMapper.this.packageName) 
-					&& (CharOperation.equals(className, CodeSnippetToCuMapper.this.className)
-						|| CharOperation.equals(className, CodeSnippetToCuMapper.this.varClassName))) return;
-			originalRequestor.acceptClass(packageName, className, completionName, modifiers, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			if (CharOperation.equals(packageName, CodeSnippetToCuMapper.this.snippetPackageName) 
+					&& (CharOperation.equals(className, CodeSnippetToCuMapper.this.snippetClassName)
+						|| CharOperation.equals(className, CodeSnippetToCuMapper.this.snippetVarClassName))) return;
+			originalRequestor.acceptClass(packageName, className, completionName, modifiers, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		public void acceptError(IProblem error) {
 
-			error.setSourceStart(error.getSourceStart() - startPosOffset);
-			error.setSourceEnd(error.getSourceEnd() - startPosOffset);
-			error.setSourceLineNumber(error.getSourceLineNumber() - lineNumberOffset);
+			error.setSourceStart(error.getSourceStart() - CodeSnippetToCuMapper.this.startPosOffset);
+			error.setSourceEnd(error.getSourceEnd() - CodeSnippetToCuMapper.this.startPosOffset);
+			error.setSourceLineNumber(error.getSourceLineNumber() -  CodeSnippetToCuMapper.this.lineNumberOffset);
 			originalRequestor.acceptError(error);
 		}
 		public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] name, char[] typePackageName, char[] typeName, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
-			originalRequestor.acceptField(declaringTypePackageName, declaringTypeName, name, typePackageName, typeName, completionName, modifiers, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			originalRequestor.acceptField(declaringTypePackageName, declaringTypeName, name, typePackageName, typeName, completionName, modifiers, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		public void acceptInterface(char[] packageName, char[] interfaceName, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
-			originalRequestor.acceptInterface(packageName, interfaceName, completionName, modifiers, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			originalRequestor.acceptInterface(packageName, interfaceName, completionName, modifiers, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		public void acceptKeyword(char[] keywordName, int completionStart, int completionEnd, int relevance) {
-			originalRequestor.acceptKeyword(keywordName, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			originalRequestor.acceptKeyword(keywordName, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		public void acceptLabel(char[] labelName, int completionStart, int completionEnd, int relevance) {
-			originalRequestor.acceptLabel(labelName, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			originalRequestor.acceptLabel(labelName, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		public void acceptLocalVariable(char[] name, char[] typePackageName, char[] typeName, int modifiers, int completionStart, int completionEnd, int relevance) {
-			originalRequestor.acceptLocalVariable(name, typePackageName, typeName, modifiers, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			originalRequestor.acceptLocalVariable(name, typePackageName, typeName, modifiers, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, char[][] parameterNames, char[] returnTypePackageName, char[] returnTypeName, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
 			// Remove completion on generated method
-			if (CharOperation.equals(declaringTypePackageName, CodeSnippetToCuMapper.this.packageName) 
-					&& CharOperation.equals(declaringTypeName, CodeSnippetToCuMapper.this.className)
+			if (CharOperation.equals(declaringTypePackageName, CodeSnippetToCuMapper.this.snippetPackageName) 
+					&& CharOperation.equals(declaringTypeName, CodeSnippetToCuMapper.this.snippetClassName)
 					&& CharOperation.equals(selector, "run".toCharArray())) return; //$NON-NLS-1$
-			originalRequestor.acceptMethod(declaringTypePackageName, declaringTypeName, selector, parameterPackageNames, parameterTypeNames, parameterNames, returnTypePackageName, returnTypeName, completionName, modifiers, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			originalRequestor.acceptMethod(declaringTypePackageName, declaringTypeName, selector, parameterPackageNames, parameterTypeNames, parameterNames, returnTypePackageName, returnTypeName, completionName, modifiers, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		public void acceptMethodDeclaration(char[] declaringTypePackageName, char[] declaringTypeName, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, char[][] parameterNames, char[] returnTypePackageName, char[] returnTypeName, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
 			// Remove completion on generated method
-			if (CharOperation.equals(declaringTypePackageName, CodeSnippetToCuMapper.this.packageName) 
-					&& CharOperation.equals(declaringTypeName, CodeSnippetToCuMapper.this.className)
+			if (CharOperation.equals(declaringTypePackageName, CodeSnippetToCuMapper.this.snippetPackageName) 
+					&& CharOperation.equals(declaringTypeName, CodeSnippetToCuMapper.this.snippetClassName)
 					&& CharOperation.equals(selector, "run".toCharArray())) return;//$NON-NLS-1$
-			originalRequestor.acceptMethodDeclaration(declaringTypePackageName, declaringTypeName, selector, parameterPackageNames, parameterTypeNames, parameterNames, returnTypePackageName, returnTypeName, completionName, modifiers, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			originalRequestor.acceptMethodDeclaration(declaringTypePackageName, declaringTypeName, selector, parameterPackageNames, parameterTypeNames, parameterNames, returnTypePackageName, returnTypeName, completionName, modifiers, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		public void acceptModifier(char[] modifierName, int completionStart, int completionEnd, int relevance) {
-			originalRequestor.acceptModifier(modifierName, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			originalRequestor.acceptModifier(modifierName, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		public void acceptPackage(char[] packageName, char[] completionName, int completionStart, int completionEnd, int relevance) {
-			originalRequestor.acceptPackage(packageName, completionName, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			originalRequestor.acceptPackage(packageName, completionName, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		public void acceptType(char[] packageName, char[] typeName, char[] completionName, int completionStart, int completionEnd, int relevance) {
 			// Remove completion on generated class name or generated global variable class name
-			if (CharOperation.equals(packageName, CodeSnippetToCuMapper.this.packageName) 
-					&& (CharOperation.equals(className, CodeSnippetToCuMapper.this.className)
-						|| CharOperation.equals(className, CodeSnippetToCuMapper.this.varClassName))) return;
-			originalRequestor.acceptType(packageName, typeName, completionName, completionStart - startPosOffset, completionEnd - startPosOffset, relevance);
+			if (CharOperation.equals(packageName, CodeSnippetToCuMapper.this.snippetPackageName) 
+					&& (CharOperation.equals( CodeSnippetToCuMapper.this.snippetClassName, CodeSnippetToCuMapper.this.snippetClassName)
+						|| CharOperation.equals( CodeSnippetToCuMapper.this.snippetClassName, CodeSnippetToCuMapper.this.snippetVarClassName))) return;
+			originalRequestor.acceptType(packageName, typeName, completionName, completionStart - CodeSnippetToCuMapper.this.startPosOffset, completionEnd - CodeSnippetToCuMapper.this.startPosOffset, relevance);
 		}
 		public void acceptVariableName(char[] typePackageName, char[] typeName, char[] name, char[] completionName, int completionStart, int completionEnd, int relevance){
 			originalRequestor.acceptVariableName(typePackageName, typeName, name, completionName, completionStart, completionEnd, relevance);
@@ -229,7 +227,7 @@ public int getEvaluationType(int lineNumber) {
 	int currentLine = 1;
 
 	// check package declaration	
-	if (this.packageName != null && this.packageName.length != 0) {
+	if (this.snippetPackageName != null && this.snippetPackageName.length != 0) {
 		if (lineNumber == 1) {
 			return EvaluationResult.T_PACKAGE;
 		}
@@ -237,7 +235,7 @@ public int getEvaluationType(int lineNumber) {
 	}
 
 	// check imports
-	char[][] imports = this.imports;
+	char[][] imports = this.snippetImports;
 	if ((currentLine <= lineNumber) && (lineNumber < (currentLine + imports.length))) {
 		return EvaluationResult.T_IMPORT;
 	}
@@ -245,7 +243,7 @@ public int getEvaluationType(int lineNumber) {
 
 	// check generated fields
 	currentLine +=
-		(this.declaringTypeName == null ? 0 : 1) 
+		(this.snippetDeclaringTypeName == null ? 0 : 1) 
 		+ (this.localVarNames == null ? 0 : this.localVarNames.length);
 	if (currentLine > lineNumber) {
 		return EvaluationResult.T_INTERNAL;
@@ -264,24 +262,22 @@ public int getEvaluationType(int lineNumber) {
  * Returns the import defined at the given line number. 
  */
 public char[] getImport(int lineNumber) {
-	int importStartLine = this.lineNumberOffset - 1 - this.imports.length;
-	return this.imports[lineNumber - importStartLine];
+	int importStartLine = this.lineNumberOffset - 1 - this.snippetImports.length;
+	return this.snippetImports[lineNumber - importStartLine];
 }
 /**
  * Returns a selection requestor that wraps the given requestor and shift the problems
  * according to the start offset and line number offset of the code snippet in the generated compilation unit. 
  */
 public ISelectionRequestor getSelectionRequestor(final ISelectionRequestor originalRequestor) {
-	final int startPosOffset = this.startPosOffset;
-	final int lineNumberOffset = this.lineNumberOffset;
 	return new ISelectionRequestor() {
 		public void acceptClass(char[] packageName, char[] className, boolean needQualification) {
 			originalRequestor.acceptClass(packageName, className, needQualification);
 		}
 		public void acceptError(IProblem error) {
-			error.setSourceLineNumber(error.getSourceLineNumber() - lineNumberOffset);
-			error.setSourceStart(error.getSourceStart() - startPosOffset);
-			error.setSourceEnd(error.getSourceEnd() - startPosOffset);
+			error.setSourceLineNumber(error.getSourceLineNumber() -  CodeSnippetToCuMapper.this.lineNumberOffset);
+			error.setSourceStart(error.getSourceStart() - CodeSnippetToCuMapper.this.startPosOffset);
+			error.setSourceEnd(error.getSourceEnd() - CodeSnippetToCuMapper.this.startPosOffset);
 			originalRequestor.acceptError(error);
 		}
 		public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] name) {

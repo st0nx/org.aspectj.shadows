@@ -16,6 +16,7 @@ package org.eclipse.jdt.core;
  * This interface may be implemented by clients.
  * </p>
  * @since 2.0
+ * @deprecated Use <code>WorkingCopyOwner</code> instead
  */
 public interface IBufferFactory {
 
@@ -26,6 +27,7 @@ public interface IBufferFactory {
 	 * its content is <code>null</code>).
 	 * 
 	 * @param owner the owner of the buffer
+	 * @return the newly created buffer
 	 * @see IBuffer
 	 */
 	IBuffer createBuffer(IOpenable owner);

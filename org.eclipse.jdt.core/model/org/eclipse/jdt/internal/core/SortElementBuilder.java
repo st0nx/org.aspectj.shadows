@@ -27,6 +27,9 @@ import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
 import org.eclipse.jdt.core.util.CompilationUnitSorter;
 import org.eclipse.jdt.internal.compiler.SourceElementRequestorAdapter;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.env.IConstants;
+import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 
@@ -40,20 +43,20 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 		SortElement(int sourceStart, int modifiers) {
 			super(SortElementBuilder.this);
 			this.sourceStart = normalizeSourceStart(sourceStart);
-			modifiers &= ~org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers.AccInterface; // remove AccInterface flags
-			modifiers &= org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers.AccJustFlag;
+			modifiers &= ~IConstants.AccInterface; // remove AccInterface flags
+			modifiers &= CompilerModifiers.AccJustFlag;
 			this.modifiers = modifiers;
 			this.children_count = 0;
 		}
 
 		protected void setParameters(MethodDeclaration methodDeclaration, String[] parameterNames, String[] parameterTypes) {
 			for (int i = 0, max = parameterNames.length; i < max; i++) {
-				String type = parameterTypes[i];
+				String paramType = parameterTypes[i];
 				SingleVariableDeclaration singleVariableDeclaration = ast.newSingleVariableDeclaration();
 				singleVariableDeclaration.setName(ast.newSimpleName(parameterNames[i]));
 				int indexOfArrayBrace;
-				if (type.indexOf('.') != -1) {
-					String[] typeParts = splitOn('.', type);
+				if (paramType.indexOf('.') != -1) {
+					String[] typeParts = splitOn('.', paramType);
 					int length = typeParts.length;
 					indexOfArrayBrace = typeParts[length - 1].indexOf('[');
 					if (indexOfArrayBrace != -1) {
@@ -61,7 +64,7 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 						typeParts[length - 1] = typeParts[length - 1].substring(0, indexOfArrayBrace);
 						String[] typeSubstrings = new String[length];
 						for (int j = 0; j < length; j++) {
-							typeSubstrings[j] = new String(typeParts[j]);
+							typeSubstrings[j] = typeParts[j];
 						}
 						singleVariableDeclaration.setType(ast.newArrayType(ast.newSimpleType(ast.newName(typeSubstrings)), dimensions));
 					} else {
@@ -71,12 +74,12 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 						}
 						singleVariableDeclaration.setType(ast.newSimpleType(ast.newName(typeSubstrings)));
 					}
-				} else if ((indexOfArrayBrace = type.indexOf('[')) != -1) {
-					int dimensions = occurencesOf('[', type);
-					type = type.substring(0, indexOfArrayBrace);
-					singleVariableDeclaration.setType(ast.newArrayType(newType(type), dimensions));
+				} else if ((indexOfArrayBrace = paramType.indexOf('[')) != -1) {
+					int dimensions = occurencesOf('[', paramType);
+					paramType = paramType.substring(0, indexOfArrayBrace);
+					singleVariableDeclaration.setType(ast.newArrayType(newType(paramType), dimensions));
 				} else {
-					singleVariableDeclaration.setType(newType(type));
+					singleVariableDeclaration.setType(newType(paramType));
 				}
 				methodDeclaration.parameters().add(singleVariableDeclaration);
 			}
@@ -112,10 +115,10 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 			return count;
 		}
 		
-		protected Type newType(String type) {
+		protected Type newType(String typeSource) {
 			// check if type is a primitive type
-			scanner.setSource(type.toCharArray());
-			scanner.resetTo(0, type.length());
+			scanner.setSource(typeSource.toCharArray());
+			scanner.resetTo(0, typeSource.length());
 			int token = 0;
 			try {
 				token = scanner.getNextToken();
@@ -123,7 +126,7 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 				return null;
 			}
 			if (token == TerminalTokens.TokenNameIdentifier) {
-				return ast.newSimpleType(ast.newSimpleName(new String(type)));
+				return ast.newSimpleType(ast.newSimpleName(typeSource));
 			} else {
 				switch(token) {
 					case TerminalTokens.TokenNameint :
@@ -250,7 +253,9 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 		SortMethodDeclaration(int sourceStart, int modifiers, char[] name, char[][] parametersNames, char[][] parametersTypes, char[][] thrownExceptions, char[] returnType) {			
 			super(sourceStart, modifiers, name, parametersNames, parametersTypes, thrownExceptions);
 			this.id = METHOD;
-			this.returnType = new String(returnType);
+			if (returnType != null) {
+				this.returnType = new String(returnType);
+			}
 		}
 		
 		void display(StringBuffer buffer, int tab) {
@@ -258,15 +263,19 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 				.append(tab(tab))
 				.append("method ") //$NON-NLS-1$
 				.append(name)
-				.append(decodeSignature())
-				.append(" " + returnType + LINE_SEPARATOR); //$NON-NLS-1$
+				.append(decodeSignature());
+			if (returnType != null) {
+				buffer.append(" " + returnType + LINE_SEPARATOR); //$NON-NLS-1$
+			} else {
+				buffer.append(LINE_SEPARATOR); //$NON-NLS-1$
+			}
 		}
 		
 		ASTNode convert() {
 			MethodDeclaration methodDeclaration = ast.newMethodDeclaration();
 			methodDeclaration.setConstructor(false);
 			methodDeclaration.setModifiers(this.modifiers);
-			methodDeclaration.setName(ast.newSimpleName(new String(this.name)));
+			methodDeclaration.setName(ast.newSimpleName(this.name));
 			methodDeclaration.setProperty(CompilationUnitSorter.RELATIVE_ORDER, new Integer(this.sourceStart));
 			// set parameter names and types
 			if (this.parametersNames != null) {
@@ -288,23 +297,25 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 			// set return type
 			int indexOfArrayBrace;
 			String currentReturnType = this.returnType;
-			if (currentReturnType.indexOf('.') != -1) {
-				String[] returnTypeSubstrings = splitOn('.', currentReturnType);
-				int length = returnTypeSubstrings.length;
-				indexOfArrayBrace = returnTypeSubstrings[length - 1].indexOf('[');
-				if (indexOfArrayBrace != -1) {
-					int dimensions = occurencesOf('[', returnTypeSubstrings[length - 1]);
-					returnTypeSubstrings[length - 1] = returnTypeSubstrings[length - 1].substring(0, indexOfArrayBrace);
-					methodDeclaration.setReturnType(ast.newArrayType(ast.newSimpleType(ast.newName(returnTypeSubstrings)), dimensions));
+			if (currentReturnType != null) {
+				if (currentReturnType.indexOf('.') != -1) {
+					String[] returnTypeSubstrings = splitOn('.', currentReturnType);
+					int length = returnTypeSubstrings.length;
+					indexOfArrayBrace = returnTypeSubstrings[length - 1].indexOf('[');
+					if (indexOfArrayBrace != -1) {
+						int dimensions = occurencesOf('[', returnTypeSubstrings[length - 1]);
+						returnTypeSubstrings[length - 1] = returnTypeSubstrings[length - 1].substring(0, indexOfArrayBrace);
+						methodDeclaration.setReturnType(ast.newArrayType(ast.newSimpleType(ast.newName(returnTypeSubstrings)), dimensions));
+					} else {
+						methodDeclaration.setReturnType(ast.newSimpleType(ast.newName(returnTypeSubstrings)));
+					}
+				} else if ((indexOfArrayBrace = currentReturnType.indexOf('[')) != -1) {
+					int dimensions = occurencesOf('[', currentReturnType);
+					currentReturnType = currentReturnType.substring(0, indexOfArrayBrace);
+					methodDeclaration.setReturnType(ast.newArrayType(newType(currentReturnType), dimensions));
 				} else {
-					methodDeclaration.setReturnType(ast.newSimpleType(ast.newName(returnTypeSubstrings)));
+					methodDeclaration.setReturnType(newType(currentReturnType));
 				}
-			} else if ((indexOfArrayBrace = currentReturnType.indexOf('[')) != -1) {
-				int dimensions = occurencesOf('[', currentReturnType);
-				currentReturnType = currentReturnType.substring(0, indexOfArrayBrace);
-				methodDeclaration.setReturnType(ast.newArrayType(newType(currentReturnType), dimensions));
-			} else {
-				methodDeclaration.setReturnType(newType(currentReturnType));
 			}
 			return methodDeclaration;				
 		}
@@ -327,7 +338,7 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 			MethodDeclaration methodDeclaration = ast.newMethodDeclaration();
 			methodDeclaration.setConstructor(true);
 			methodDeclaration.setModifiers(this.modifiers);
-			methodDeclaration.setName(ast.newSimpleName(new String(this.name)));
+			methodDeclaration.setName(ast.newSimpleName(this.name));
 			methodDeclaration.setProperty(CompilationUnitSorter.RELATIVE_ORDER, new Integer(this.sourceStart));
 			// set parameter names and types
 			if (this.parametersNames != null) {
@@ -371,7 +382,7 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 		
 		ASTNode convert() {
 			VariableDeclarationFragment variableDeclarationFragment = ast.newVariableDeclarationFragment();
-			variableDeclarationFragment.setName(ast.newSimpleName(new String(this.name)));
+			variableDeclarationFragment.setName(ast.newSimpleName(this.name));
 			FieldDeclaration fieldDeclaration = ast.newFieldDeclaration(variableDeclarationFragment);
 
 			String currentFieldType = this.type;
@@ -506,8 +517,6 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 	}
 	
 	class SortMultipleFieldDeclaration extends SortElement {
-		int declarationStart;
-		
 		SortMultipleFieldDeclaration(SortFieldDeclaration fieldDeclaration) {
 			super(fieldDeclaration.declarationStart, fieldDeclaration.modifiers);
 			this.declarationStart = fieldDeclaration.declarationStart;
@@ -544,7 +553,7 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 
 		ASTNode convert() {
 			VariableDeclarationFragment variableDeclarationFragment = ast.newVariableDeclarationFragment();
-			variableDeclarationFragment.setName(ast.newSimpleName(new String(this.innerFields[0].name)));
+			variableDeclarationFragment.setName(ast.newSimpleName(this.innerFields[0].name));
 			FieldDeclaration fieldDeclaration = ast.newFieldDeclaration(variableDeclarationFragment);
 
 			for (int j = 1, max2 = this.innerFields.length; j < max2; j++) {
@@ -867,6 +876,7 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 			this.id = COMPILATION_UNIT;
 		}
 		void display(StringBuffer buffer, int tab) {
+			// nothing to do
 		}
 		
 		ASTNode convert() {
@@ -921,7 +931,7 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 		this.source = source;
 		this.comparator = comparator;
 		this.positionsToMap = positionsToMap;
-		this.scanner = new Scanner(false, false, false, false, null, null);
+		this.scanner = new Scanner(false, false, false, ClassFileConstants.JDK1_3/*sourceLevel*/, null, null);
 		this.ast = new AST();
 	}
 	

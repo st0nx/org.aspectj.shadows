@@ -18,35 +18,33 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.jdom.IDOMNode;
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.SourceElementParser;
+import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * @see ICompilationUnit
  */
 
-public class CompilationUnit extends Openable implements ICompilationUnit, org.eclipse.jdt.internal.compiler.env.ICompilationUnit {
+public class CompilationUnit extends Openable implements ICompilationUnit, org.eclipse.jdt.internal.compiler.env.ICompilationUnit, SuffixConstants {
 	
-	public static boolean SHARED_WC_VERBOSE = false;
-	
-	// TODO: Remove when we are certain that every client is ready for this fix
-	public static final boolean FIX_BUG25184 = true;
+	public WorkingCopyOwner owner;
 
 /**
  * Constructs a handle to a compilation unit with the given name in the
- * specified package.
+ * specified package for the specified owner
  *
  * @exception IllegalArgumentException if the name of the compilation unit
  * does not end with ".java"
  */
-protected CompilationUnit(IPackageFragment parent, String name) {
-	super(COMPILATION_UNIT, parent, name);
-	if (!Util.isJavaFileName(name)) {
-		throw new IllegalArgumentException(org.eclipse.jdt.internal.core.Util.bind("convention.unit.notJavaName")); //$NON-NLS-1$
-	}
+protected CompilationUnit(PackageFragment parent, String name, WorkingCopyOwner owner) {
+	super(parent, name);
+	this.owner = owner;
 }
 /**
  * Accepts the given visitor onto the parsed tree of this compilation unit, after
@@ -62,48 +60,226 @@ protected CompilationUnit(IPackageFragment parent, String name) {
  * <li> The visitor failed with this exception.</li>
  * </ul>
  */
-public void accept(IAbstractSyntaxTreeVisitor visitor) throws JavaModelException {
+public void accept(ASTVisitor visitor) throws JavaModelException {
 	CompilationUnitVisitor.visit(this, visitor);
-} 
-
-protected void buildStructure(OpenableElementInfo info, IProgressMonitor monitor) throws JavaModelException {
-
-	if (monitor != null && monitor.isCanceled()) return;
-
-	// remove existing (old) infos
-	removeInfo();
-
-	HashMap newElements = new HashMap(11);
-	info.setIsStructureKnown(generateInfos(info, monitor, newElements, getResource()));
-	JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().remove(this);
-	for (Iterator iter = newElements.keySet().iterator(); iter.hasNext();) {
-		IJavaElement key = (IJavaElement) iter.next();
-		Object value = newElements.get(key);
-		JavaModelManager.getJavaModelManager().putInfo(key, value);
-	}
-	// add the info for this at the end, to ensure that a getInfo cannot reply null in case the LRU cache needs
-	// to be flushed. Might lead to performance issues.
-	// see PR 1G2K5S7: ITPJCORE:ALL - NPE when accessing source for a binary type
-	JavaModelManager.getJavaModelManager().putInfo(this, info);	
 }
+/*
+ * @see ICompilationUnit#becomeWorkingCopy(IProblemRequestor, IProgressMonitor)
+ */
+public void becomeWorkingCopy(IProblemRequestor problemRequestor, IProgressMonitor monitor) throws JavaModelException {
+	JavaModelManager manager = JavaModelManager.getJavaModelManager();
+	IPath path = this.getPath();
+	JavaModelManager.PerWorkingCopyInfo perWorkingCopyInfo = manager.getPerWorkingCopyInfo(this, path, false/*don't create*/, true /*record usage*/, null/*no problem requestor needed*/);
+	if (perWorkingCopyInfo == null) {
+		// close cu and its children
+		close();
 
+		BecomeWorkingCopyOperation operation = new BecomeWorkingCopyOperation(this, path, problemRequestor);
+		runOperation(operation, null);
+	}
+}
+protected boolean buildStructure(OpenableElementInfo info, final IProgressMonitor pm, Map newElements, IResource underlyingResource) throws JavaModelException {
+
+	// check if this compilation unit can be opened
+	if (!isWorkingCopy()) { // no check is done on root kind or exclusion pattern for working copies
+		if (((IPackageFragment)getParent()).getKind() == IPackageFragmentRoot.K_BINARY
+				|| !isValidCompilationUnit()
+				|| !underlyingResource.isAccessible()) {
+			throw newNotPresentException();
+		}
+	}
+	
+	// prevents reopening of non-primary working copies (they are closed when they are discarded and should not be reopened)
+	if (!isPrimary() && getPerWorkingCopyInfo() == null) {
+		throw newNotPresentException();
+	}
+
+	CompilationUnitElementInfo unitInfo = (CompilationUnitElementInfo) info;
+
+	// get buffer contents
+	IBuffer buffer = getBufferManager().getBuffer(CompilationUnit.this);
+	if (buffer == null) {
+		buffer = openBuffer(pm, unitInfo); // open buffer independently from the info, since we are building the info
+	}
+	final char[] contents = buffer == null ? null : buffer.getCharacters();
+
+	// generate structure and compute syntax problems if needed
+	CompilationUnitStructureRequestor requestor = new CompilationUnitStructureRequestor(this, unitInfo, newElements);
+	JavaModelManager.PerWorkingCopyInfo perWorkingCopyInfo = getPerWorkingCopyInfo();
+	boolean computeProblems = perWorkingCopyInfo != null && perWorkingCopyInfo.isActive();
+	IProblemFactory problemFactory = new DefaultProblemFactory();
+	SourceElementParser parser = new SourceElementParser(
+		requestor, 
+		problemFactory, 
+		new CompilerOptions(getJavaProject().getOptions(true)),
+		true/*report local declarations*/);
+	requestor.parser = parser;
+	CompilationUnitDeclaration unit = parser.parseCompilationUnit(new org.eclipse.jdt.internal.compiler.env.ICompilationUnit() {
+			public char[] getContents() {
+				return contents;
+			}
+			public char[] getMainTypeName() {
+				return CompilationUnit.this.getMainTypeName();
+			}
+			public char[][] getPackageName() {
+				return CompilationUnit.this.getPackageName();
+			}
+			public char[] getFileName() {
+				return CompilationUnit.this.getFileName();
+			}
+		}, true /*full parse to find local elements*/);
+	
+	// update timestamp (might be IResource.NULL_STAMP if original does not exist)
+	if (underlyingResource == null) {
+		underlyingResource = getResource();
+	}
+	unitInfo.timestamp = ((IFile)underlyingResource).getModificationStamp();
+	
+	// compute other problems if needed
+	if (computeProblems){
+		perWorkingCopyInfo.beginReporting();
+		CompilationUnitProblemFinder.process(unit, this, parser, perWorkingCopyInfo, problemFactory, pm);
+		perWorkingCopyInfo.endReporting();
+	}
+	
+	return unitInfo.isStructureKnown();
+}
+/*
+ * @see Openable#canBeRemovedFromCache
+ */
+public boolean canBeRemovedFromCache() {
+	if (getPerWorkingCopyInfo() != null) return false; // working copies should remain in the cache until they are destroyed
+	return super.canBeRemovedFromCache();
+}
+/*
+ * @see Openable#canBufferBeRemovedFromCache
+ */
+public boolean canBufferBeRemovedFromCache(IBuffer buffer) {
+	if (getPerWorkingCopyInfo() != null) return false; // working copy buffers should remain in the cache until working copy is destroyed
+	return super.canBufferBeRemovedFromCache(buffer);
+}/*
+ * @see IOpenable#close
+ */
+public void close() throws JavaModelException {
+	if (getPerWorkingCopyInfo() != null) return; // a working copy must remain opened until it is discarded
+	super.close();
+}
+/*
+ * @see Openable#closing
+ */
+protected void closing(Object info) {
+	if (getPerWorkingCopyInfo() == null) {
+		super.closing(info);
+	} // else the buffer of a working copy must remain open for the lifetime of the working copy
+}
 /**
  * @see ICodeAssist#codeComplete(int, ICompletionRequestor)
  */
 public void codeComplete(int offset, ICompletionRequestor requestor) throws JavaModelException {
-	codeComplete(this, isWorkingCopy() ? (org.eclipse.jdt.internal.compiler.env.ICompilationUnit) getOriginalElement() : this, offset, requestor);
+	codeComplete(offset, requestor, DefaultWorkingCopyOwner.PRIMARY);
+}
+/**
+ * @see ICodeAssist#codeComplete(int, ICompletionRequestor, WorkingCopyOwner)
+ */
+public void codeComplete(int offset, ICompletionRequestor requestor, WorkingCopyOwner workingCopyOwner) throws JavaModelException {
+	codeComplete(this, isWorkingCopy() ? (org.eclipse.jdt.internal.compiler.env.ICompilationUnit) getOriginalElement() : this, offset, requestor, workingCopyOwner);
+}
+/**
+ * @see ICodeAssist#codeComplete(int, ICodeCompletionRequestor)
+ * @deprecated - use codeComplete(int, ICompletionRequestor)
+ */
+public void codeComplete(int offset, final ICodeCompletionRequestor requestor) throws JavaModelException {
+	
+	if (requestor == null){
+		codeComplete(offset, (ICompletionRequestor)null);
+		return;
+	}
+	codeComplete(
+		offset,
+		new ICompletionRequestor(){
+			public void acceptAnonymousType(char[] superTypePackageName,char[] superTypeName,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance){
+				// ignore
+			}
+			public void acceptClass(char[] packageName, char[] className, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
+				requestor.acceptClass(packageName, className, completionName, modifiers, completionStart, completionEnd);
+			}
+			public void acceptError(IProblem error) {
+				if (true) return; // was disabled in 1.0
+
+				try {
+					IMarker marker = ResourcesPlugin.getWorkspace().getRoot().createMarker(IJavaModelMarker.TRANSIENT_PROBLEM);
+					marker.setAttribute(IJavaModelMarker.ID, error.getID());
+					marker.setAttribute(IMarker.CHAR_START, error.getSourceStart());
+					marker.setAttribute(IMarker.CHAR_END, error.getSourceEnd() + 1);
+					marker.setAttribute(IMarker.LINE_NUMBER, error.getSourceLineNumber());
+					marker.setAttribute(IMarker.MESSAGE, error.getMessage());
+					marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
+					requestor.acceptError(marker);
+				} catch(CoreException e){
+					// ignore
+				}
+			}
+			public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] fieldName, char[] typePackageName, char[] typeName, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
+				requestor.acceptField(declaringTypePackageName, declaringTypeName, fieldName, typePackageName, typeName, completionName, modifiers, completionStart, completionEnd);
+			}
+			public void acceptInterface(char[] packageName,char[] interfaceName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {
+				requestor.acceptInterface(packageName, interfaceName, completionName, modifiers, completionStart, completionEnd);
+			}
+			public void acceptKeyword(char[] keywordName,int completionStart,int completionEnd, int relevance){
+				requestor.acceptKeyword(keywordName, completionStart, completionEnd);
+			}
+			public void acceptLabel(char[] labelName,int completionStart,int completionEnd, int relevance){
+				requestor.acceptLabel(labelName, completionStart, completionEnd);
+			}
+			public void acceptLocalVariable(char[] localVarName,char[] typePackageName,char[] typeName,int modifiers,int completionStart,int completionEnd, int relevance){
+				// ignore
+			}
+			public void acceptMethod(char[] declaringTypePackageName,char[] declaringTypeName,char[] selector,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] returnTypePackageName,char[] returnTypeName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance){
+				// skip parameter names
+				requestor.acceptMethod(declaringTypePackageName, declaringTypeName, selector, parameterPackageNames, parameterTypeNames, returnTypePackageName, returnTypeName, completionName, modifiers, completionStart, completionEnd);
+			}
+			public void acceptMethodDeclaration(char[] declaringTypePackageName,char[] declaringTypeName,char[] selector,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] returnTypePackageName,char[] returnTypeName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance){
+				// ignore
+			}
+			public void acceptModifier(char[] modifierName,int completionStart,int completionEnd, int relevance){
+				requestor.acceptModifier(modifierName, completionStart, completionEnd);
+			}
+			public void acceptPackage(char[] packageName,char[] completionName,int completionStart,int completionEnd, int relevance){
+				requestor.acceptPackage(packageName, completionName, completionStart, completionEnd);
+			}
+			public void acceptType(char[] packageName,char[] typeName,char[] completionName,int completionStart,int completionEnd, int relevance){
+				requestor.acceptType(packageName, typeName, completionName, completionStart, completionEnd);
+			}
+			public void acceptVariableName(char[] typePackageName,char[] typeName,char[] varName,char[] completionName,int completionStart,int completionEnd, int relevance){
+				// ignore
+			}
+		});
 }
 /**
  * @see ICodeAssist#codeSelect(int, int)
  */
 public IJavaElement[] codeSelect(int offset, int length) throws JavaModelException {
-	return super.codeSelect(this, offset, length);
+	return codeSelect(offset, length, DefaultWorkingCopyOwner.PRIMARY);
+}
+/**
+ * @see ICodeAssist#codeSelect(int, int, WorkingCopyOwner)
+ */
+public IJavaElement[] codeSelect(int offset, int length, WorkingCopyOwner workingCopyOwner) throws JavaModelException {
+	return super.codeSelect(this, offset, length, workingCopyOwner);
 }
 /**
  * @see IWorkingCopy#commit(boolean, IProgressMonitor)
+ * @deprecated
  */
 public void commit(boolean force, IProgressMonitor monitor) throws JavaModelException {
-	throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, this));
+	commitWorkingCopy(force, monitor);
+}
+/**
+ * @see ICompilationUnit#commitWorkingCopy(boolean, IProgressMonitor)
+ */
+public void commitWorkingCopy(boolean force, IProgressMonitor monitor) throws JavaModelException {
+	CommitWorkingCopyOperation op= new CommitWorkingCopyOperation(this, force);
+	runOperation(op, monitor);
 }
 /**
  * @see ISourceManipulation#copy(IJavaElement, IJavaElement, String, boolean, IProgressMonitor)
@@ -123,28 +299,28 @@ public void copy(IJavaElement container, IJavaElement sibling, String rename, bo
 /**
  * Returns a new element info for this element.
  */
-protected OpenableElementInfo createElementInfo() {
+protected Object createElementInfo() {
 	return new CompilationUnitElementInfo();
 }
 /**
  * @see ICompilationUnit#createImport(String, IJavaElement, IProgressMonitor)
  */
-public IImportDeclaration createImport(String name, IJavaElement sibling, IProgressMonitor monitor) throws JavaModelException {
-	CreateImportOperation op = new CreateImportOperation(name, this);
+public IImportDeclaration createImport(String importName, IJavaElement sibling, IProgressMonitor monitor) throws JavaModelException {
+	CreateImportOperation op = new CreateImportOperation(importName, this);
 	if (sibling != null) {
 		op.createBefore(sibling);
 	}
 	runOperation(op, monitor);
-	return getImport(name);
+	return getImport(importName);
 }
 /**
  * @see ICompilationUnit#createPackageDeclaration(String, IProgressMonitor)
  */
-public IPackageDeclaration createPackageDeclaration(String name, IProgressMonitor monitor) throws JavaModelException {
+public IPackageDeclaration createPackageDeclaration(String pkg, IProgressMonitor monitor) throws JavaModelException {
 	
-	CreatePackageDeclarationOperation op= new CreatePackageDeclarationOperation(name, this);
+	CreatePackageDeclarationOperation op= new CreatePackageDeclarationOperation(pkg, this);
 	runOperation(op, monitor);
-	return getPackageDeclaration(name);
+	return getPackageDeclaration(pkg);
 }
 /**
  * @see ICompilationUnit#createType(String, IJavaElement, boolean, IProgressMonitor)
@@ -158,7 +334,7 @@ public IType createType(String content, IJavaElement sibling, boolean force, IPr
 			//not the default package...add the package declaration
 			source = "package " + pkg.getElementName() + ";"  + org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR + org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR; //$NON-NLS-1$ //$NON-NLS-2$
 		}
-		CreateCompilationUnitOperation op = new CreateCompilationUnitOperation(pkg, fName, source, force);
+		CreateCompilationUnitOperation op = new CreateCompilationUnitOperation(pkg, this.name, source, force);
 		runOperation(op, monitor);
 	}
 	CreateTypeOperation op = new CreateTypeOperation(this, content, force);
@@ -176,47 +352,67 @@ public void delete(boolean force, IProgressMonitor monitor) throws JavaModelExce
 	getJavaModel().delete(elements, force, monitor);
 }
 /**
- * This is not a working copy, do nothing.
- *
  * @see IWorkingCopy#destroy()
+ * @deprecated
  */
 public void destroy() {
+	try {
+		discardWorkingCopy();
+	} catch (JavaModelException e) {
+		e.printStackTrace();
+	}
 }
-
-
+/*
+ * @see ICompilationUnit#discardWorkingCopy
+ */
+public void discardWorkingCopy() throws JavaModelException {
+	// discard working copy and its children
+	DiscardWorkingCopyOperation op = new DiscardWorkingCopyOperation(this);
+	runOperation(op, null);
+}
 /**
  * Returns true if this handle represents the same Java element
  * as the given handle.
  *
- * <p>Compilation units must also check working copy state;
- *
  * @see Object#equals(java.lang.Object)
  */
-public boolean equals(Object o) {
-	return super.equals(o) && !((ICompilationUnit)o).isWorkingCopy();
+public boolean equals(Object obj) {
+	if (!(obj instanceof CompilationUnit)) return false;
+	CompilationUnit other = (CompilationUnit)obj;
+	return this.owner.equals(other.owner) && super.equals(obj);
 }
 /**
  * @see JavaElement#equalsDOMNode(IDOMNode)
  */
-protected boolean equalsDOMNode(IDOMNode node) throws JavaModelException {
-	String name = getElementName();
-	if (node.getNodeType() == IDOMNode.COMPILATION_UNIT && name != null ) {
+protected boolean equalsDOMNode(IDOMNode node) {
+	String elementName = getElementName();
+	if (node.getNodeType() == IDOMNode.COMPILATION_UNIT && elementName != null ) {
 		String nodeName = node.getName();
 		if (nodeName == null) return false;		
-		if (name.equals(nodeName)) {
+		if (elementName.equals(nodeName)) {
 			return true;
 		} else {
-			// iterate through all the types inside the receiver and see if one of them can fit
-			IType[] types = getTypes();
-			String typeNodeName = nodeName.substring(0, nodeName.indexOf(".java")); //$NON-NLS-1$
-			for (int i = 0, max = types.length; i < max; i++) {
-				if (types[i].getElementName().equals(typeNodeName)) {
-					return true;
+			try {
+				// iterate through all the types inside the receiver and see if one of them can fit
+				IType[] types = getTypes();
+				String typeNodeName = nodeName.substring(0, nodeName.indexOf(SUFFIX_STRING_java));
+				for (int i = 0, max = types.length; i < max; i++) {
+					if (types[i].getElementName().equals(typeNodeName)) {
+						return true;
+					}
 				}
+			} catch (JavaModelException e) {
+				return false;
 			}
 		}
 	}
 	return false;
+}
+public boolean exists() {
+	// working copy always exists in the model until it is gotten rid of
+	if (getPerWorkingCopyInfo() != null) return true;	
+	
+	return super.exists();
 }
 /**
  * @see IWorkingCopy#findElements(IJavaElement)
@@ -230,7 +426,7 @@ public IJavaElement[] findElements(IJavaElement element) {
 	if (element == null) return null;
 	IJavaElement currentElement = this;
 	for (int i = children.size()-1; i >= 0; i--) {
-		IJavaElement child = (IJavaElement)children.get(i);
+		JavaElement child = (JavaElement)children.get(i);
 		switch (child.getElementType()) {
 			case IJavaElement.PACKAGE_DECLARATION:
 				currentElement = ((ICompilationUnit)currentElement).getPackageDeclaration(child.getElementName());
@@ -242,20 +438,29 @@ public IJavaElement[] findElements(IJavaElement element) {
 				currentElement = ((IImportContainer)currentElement).getImport(child.getElementName());
 				break;
 			case IJavaElement.TYPE:
-				if (currentElement.getElementType() == IJavaElement.COMPILATION_UNIT) {
-					currentElement = ((ICompilationUnit)currentElement).getType(child.getElementName());
-				} else {
-					currentElement = ((IType)currentElement).getType(child.getElementName());
+				switch (currentElement.getElementType()) {
+					case IJavaElement.COMPILATION_UNIT:
+						currentElement = ((ICompilationUnit)currentElement).getType(child.getElementName());
+						break;
+					case IJavaElement.TYPE:
+						currentElement = ((IType)currentElement).getType(child.getElementName());
+						break;
+					case IJavaElement.FIELD:
+					case IJavaElement.INITIALIZER:
+					case IJavaElement.METHOD:
+						currentElement =  ((IMember)currentElement).getType(child.getElementName(), child.occurrenceCount);
+						break;
 				}
 				break;
 			case IJavaElement.INITIALIZER:
-				currentElement = ((IType)currentElement).getInitializer(((JavaElement)child).getOccurrenceCount());
+				currentElement = ((IType)currentElement).getInitializer(child.occurrenceCount);
 				break;
 			case IJavaElement.FIELD:
 				currentElement = ((IType)currentElement).getField(child.getElementName());
 				break;
 			case IJavaElement.METHOD:
-				return ((IType)currentElement).findMethods((IMethod)child);
+				currentElement = ((IType)currentElement).getMethod(child.getElementName(), ((IMethod)child).getParameterTypes());
+				break;
 		}
 		
 	}
@@ -279,44 +484,31 @@ public IType findPrimaryType() {
 
 /**
  * @see IWorkingCopy#findSharedWorkingCopy(IBufferFactory)
+ * @deprecated
  */
 public IJavaElement findSharedWorkingCopy(IBufferFactory factory) {
 
 	// if factory is null, default factory must be used
 	if (factory == null) factory = this.getBufferManager().getDefaultBufferFactory();
-
-	// In order to be shared, working copies have to denote the same compilation unit 
-	// AND use the same buffer factory.
-	// Assuming there is a little set of buffer factories, then use a 2 level Map cache.
-	Map sharedWorkingCopies = JavaModelManager.getJavaModelManager().sharedWorkingCopies;
 	
-	Map perFactoryWorkingCopies = (Map) sharedWorkingCopies.get(factory);
-	if (perFactoryWorkingCopies == null) return null;
-	return (WorkingCopy)perFactoryWorkingCopies.get(this);
+	return findWorkingCopy(BufferFactoryWrapper.create(factory));
 }
 
-protected boolean generateInfos(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource) throws JavaModelException {
-
-	if (getParent() instanceof JarPackageFragment) {
-		// ignore .java files in jar
-		throw newNotPresentException();
+/**
+ * @see ICompilationUnit#findWorkingCopy(WorkingCopyOwner)
+ */
+public ICompilationUnit findWorkingCopy(WorkingCopyOwner workingCopyOwner) {
+	CompilationUnit cu = new CompilationUnit((PackageFragment)this.parent, getElementName(), workingCopyOwner);
+	if (workingCopyOwner == DefaultWorkingCopyOwner.PRIMARY) {
+		return cu;
 	} else {
-		// put the info now, because getting the contents requires it
-		JavaModelManager.getJavaModelManager().putInfo(this, info);
-		CompilationUnitElementInfo unitInfo = (CompilationUnitElementInfo) info;
-
-		// generate structure
-		CompilationUnitStructureRequestor requestor = new CompilationUnitStructureRequestor(this, unitInfo, newElements);
-		IProblemFactory factory = new DefaultProblemFactory();
-		SourceElementParser parser = new SourceElementParser(requestor, factory, new CompilerOptions(getJavaProject().getOptions(true)));
-		requestor.parser = parser;
-		parser.parseCompilationUnit(this, false);
-		if (isWorkingCopy()) {
-			CompilationUnit original = (CompilationUnit) getOriginalElement();
-			// might be IResource.NULL_STAMP if original does not exist
-			unitInfo.fTimestamp = ((IFile) original.getResource()).getModificationStamp();
+		// must be a working copy
+		JavaModelManager.PerWorkingCopyInfo perWorkingCopyInfo = cu.getPerWorkingCopyInfo();
+		if (perWorkingCopyInfo != null) {
+			return perWorkingCopyInfo.getWorkingCopy();
+		} else {
+			return null;
 		}
-		return unitInfo.isStructureKnown();
 	}
 }
 /**
@@ -386,8 +578,35 @@ public IJavaElement getElementAt(int position) throws JavaModelException {
 		return e;
 	}
 }
+/**
+ * @see IJavaElement
+ */
+public int getElementType() {
+	return COMPILATION_UNIT;
+}
 public char[] getFileName(){
 	return getElementName().toCharArray();
+}
+/*
+ * @see JavaElement
+ */
+public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner workingCopyOwner) {
+	switch (token.charAt(0)) {
+		case JEM_COUNT:
+			return getHandleUpdatingCountFromMemento(memento, workingCopyOwner);
+		case JEM_IMPORTDECLARATION:
+			JavaElement container = (JavaElement)getImportContainer();
+			return container.getHandleFromMemento(token, memento, workingCopyOwner);
+		case JEM_PACKAGEDECLARATION:
+			String pkgName = memento.nextToken();
+			JavaElement pkgDecl = (JavaElement)getPackageDeclaration(pkgName);
+			return pkgDecl.getHandleFromMemento(memento, workingCopyOwner);
+		case JEM_TYPE:
+			String typeName = memento.nextToken();
+			JavaElement type = (JavaElement)getType(typeName);
+			return type.getHandleFromMemento(memento, workingCopyOwner);
+	}
+	return null;
 }
 /**
  * @see JavaElement#getHandleMementoDelimiter()
@@ -398,8 +617,8 @@ protected char getHandleMementoDelimiter() {
 /**
  * @see ICompilationUnit#getImport(String)
  */
-public IImportDeclaration getImport(String name) {
-	return new ImportDeclaration(getImportContainer(), name);
+public IImportDeclaration getImport(String importName) {
+	return new ImportDeclaration((ImportContainer)getImportContainer(), importName);
 }
 /**
  * @see ICompilationUnit#getImportContainer()
@@ -430,32 +649,46 @@ public IImportDeclaration[] getImports() throws JavaModelException {
  * @see org.eclipse.jdt.internal.compiler.env.ICompilationUnit#getMainTypeName()
  */
 public char[] getMainTypeName(){
-	String name= getElementName();
+	String elementName = getElementName();
 	//remove the .java
-	name= name.substring(0, name.length() - 5);
-	return name.toCharArray();
+	elementName = elementName.substring(0, elementName.length() - 5);
+	return elementName.toCharArray();
 }
 /**
- * Returns <code>null</code>, this is not a working copy.
- *
  * @see IWorkingCopy#getOriginal(IJavaElement)
+ * @deprecated
  */
 public IJavaElement getOriginal(IJavaElement workingCopyElement) {
-	return null;
+	// backward compatibility
+	if (!isWorkingCopy()) return null;
+	CompilationUnit cu = (CompilationUnit)workingCopyElement.getAncestor(COMPILATION_UNIT);
+	if (cu == null || !this.owner.equals(cu.owner)) {
+		return null;
+	}
+	
+	return workingCopyElement.getPrimaryElement();
 }
 /**
- * Returns <code>null</code>, this is not a working copy.
- *
  * @see IWorkingCopy#getOriginalElement()
+ * @deprecated
  */
 public IJavaElement getOriginalElement() {
-	return null;
+	// backward compatibility
+	if (!isWorkingCopy()) return null;
+	
+	return getPrimaryElement();
+}
+/*
+ * @see ICompilationUnit#getOwner()
+ */
+public WorkingCopyOwner getOwner() {
+	return isPrimary() || !isWorkingCopy() ? null : this.owner;
 }
 /**
  * @see ICompilationUnit#getPackageDeclaration(String)
  */
-public IPackageDeclaration getPackageDeclaration(String name) {
-	return new PackageDeclaration(this, name);
+public IPackageDeclaration getPackageDeclaration(String pkg) {
+	return new PackageDeclaration(this, pkg);
 }
 /**
  * @see ICompilationUnit#getPackageDeclarations()
@@ -483,6 +716,26 @@ public IPath getPath() {
 		return this.getParent().getPath().append(this.getElementName());
 	}
 }
+/*
+ * Returns the per working copy info for the receiver, or null if none exist.
+ * Note: the use count of the per working copy info is NOT incremented.
+ */
+public JavaModelManager.PerWorkingCopyInfo getPerWorkingCopyInfo() {
+	return JavaModelManager.getJavaModelManager().getPerWorkingCopyInfo(this, getPath(), false/*don't create*/, false/*don't record usage*/, null/*no problem requestor needed*/);
+}
+/*
+ * @see ICompilationUnit#getPrimary()
+ */
+public ICompilationUnit getPrimary() {
+	return (ICompilationUnit)getPrimaryElement(true);
+}
+/*
+ * @see JavaElement#getPrimaryElement(boolean)
+ */
+public IJavaElement getPrimaryElement(boolean checkOwner) {
+	if (checkOwner && isPrimary()) return this;
+	return new CompilationUnit((PackageFragment)getParent(), getElementName(), DefaultWorkingCopyOwner.PRIMARY);
+}
 /**
  * @see IJavaElement#getResource()
  */
@@ -494,7 +747,6 @@ public IResource getResource() {
 		return ((IContainer)this.getParent().getResource()).getFile(new Path(this.getElementName()));
 	}
 }
-
 /**
  * @see ISourceReference#getSource()
  */
@@ -512,8 +764,8 @@ public ISourceRange getSourceRange() throws JavaModelException {
 /**
  * @see ICompilationUnit#getType(String)
  */
-public IType getType(String name) {
-	return new SourceType(this, name);
+public IType getType(String typeName) {
+	return new SourceType(this, typeName);
 }
 /**
  * @see ICompilationUnit#getTypes()
@@ -524,64 +776,63 @@ public IType[] getTypes() throws JavaModelException {
 	list.toArray(array);
 	return array;
 }
+/**
+ * @see IJavaElement
+ */
 public IResource getUnderlyingResource() throws JavaModelException {
-	if (FIX_BUG25184) {
-		return super.getUnderlyingResource();
-	} else {
-		return getResource();
-	}
+	if (isWorkingCopy() && !isPrimary()) return null;
+	return super.getUnderlyingResource();
 }
 /**
  * @see IWorkingCopy#getSharedWorkingCopy(IProgressMonitor, IBufferFactory, IProblemRequestor)
+ * @deprecated
  */
 public IJavaElement getSharedWorkingCopy(IProgressMonitor pm, IBufferFactory factory, IProblemRequestor problemRequestor) throws JavaModelException {
 	
 	// if factory is null, default factory must be used
 	if (factory == null) factory = this.getBufferManager().getDefaultBufferFactory();
-
-	JavaModelManager manager = JavaModelManager.getJavaModelManager();
 	
-	// In order to be shared, working copies have to denote the same compilation unit 
-	// AND use the same buffer factory.
-	// Assuming there is a little set of buffer factories, then use a 2 level Map cache.
-	Map sharedWorkingCopies = manager.sharedWorkingCopies;
-	
-	Map perFactoryWorkingCopies = (Map) sharedWorkingCopies.get(factory);
-	if (perFactoryWorkingCopies == null){
-		perFactoryWorkingCopies = new HashMap();
-		sharedWorkingCopies.put(factory, perFactoryWorkingCopies);
-	}
-	WorkingCopy workingCopy = (WorkingCopy)perFactoryWorkingCopies.get(this);
-	if (workingCopy != null) {
-		workingCopy.useCount++;
-
-		if (SHARED_WC_VERBOSE) {
-			System.out.println("Incrementing use count of shared working copy " + workingCopy.toStringWithAncestors()); //$NON-NLS-1$
-		}
-
-		return workingCopy;
-	} else {
-		CreateWorkingCopyOperation op = new CreateWorkingCopyOperation(this, perFactoryWorkingCopies, factory, problemRequestor);
-		runOperation(op, pm);
-		return op.getResultElements()[0];
-	}
+	return getWorkingCopy(BufferFactoryWrapper.create(factory), problemRequestor, pm);
 }
 /**
  * @see IWorkingCopy#getWorkingCopy()
+ * @deprecated
  */
 public IJavaElement getWorkingCopy() throws JavaModelException {
-	return this.getWorkingCopy(null, null, null);
+	return getWorkingCopy(null);
 }
-
+/**
+ * @see ICompilationUnit#getWorkingCopy(IProgressMonitor)
+ */
+public ICompilationUnit getWorkingCopy(IProgressMonitor monitor) throws JavaModelException {
+	return getWorkingCopy(new WorkingCopyOwner() {/*non shared working copy*/}, null/*no problem requestor*/, monitor);
+}
 /**
  * @see IWorkingCopy#getWorkingCopy(IProgressMonitor, IBufferFactory, IProblemRequestor)
+ * @deprecated
  */
-public IJavaElement getWorkingCopy(IProgressMonitor pm, IBufferFactory factory, IProblemRequestor problemRequestor) throws JavaModelException {
-	CreateWorkingCopyOperation op = new CreateWorkingCopyOperation(this, null, factory, problemRequestor);
-	runOperation(op, pm);
-	return op.getResultElements()[0];
+public IJavaElement getWorkingCopy(IProgressMonitor monitor, IBufferFactory factory, IProblemRequestor problemRequestor) throws JavaModelException {
+	return getWorkingCopy(BufferFactoryWrapper.create(factory), problemRequestor, monitor);
 }
-
+/**
+ * @see IWorkingCopy#getWorkingCopy(WorkingCopyOwner, IProblemRequestor, IProgressMonitor)
+ */
+public ICompilationUnit getWorkingCopy(WorkingCopyOwner workingCopyOwner, IProblemRequestor problemRequestor, IProgressMonitor monitor) throws JavaModelException {
+	if (!isPrimary()) return this;
+	
+	JavaModelManager manager = JavaModelManager.getJavaModelManager();
+	
+	CompilationUnit workingCopy = new CompilationUnit((PackageFragment)getParent(), getElementName(), workingCopyOwner);
+	IPath path = getPath();
+	JavaModelManager.PerWorkingCopyInfo perWorkingCopyInfo = 
+		manager.getPerWorkingCopyInfo(workingCopy, path, false/*don't create*/, true/*record usage*/, null/*not used since don't create*/);
+	if (perWorkingCopyInfo != null) {
+		return perWorkingCopyInfo.getWorkingCopy(); // return existing handle instead of the one created above
+	}
+	BecomeWorkingCopyOperation op = new BecomeWorkingCopyOperation(workingCopy, path, problemRequestor);
+	runOperation(op, monitor);
+	return workingCopy;
+}
 /**
  * @see Openable#hasBuffer()
  */
@@ -600,19 +851,43 @@ public boolean hasChildren() throws JavaModelException {
 		return true;
 	}
 }
+/*
+ * @see ICompilationUnit#hasResourceChanged()
+ */
+public boolean hasResourceChanged() {
+	if (!isWorkingCopy()) return false;
+	
+	// if resource got deleted, then #getModificationStamp() will answer IResource.NULL_STAMP, which is always different from the cached
+	// timestamp
+	Object info = JavaModelManager.getJavaModelManager().getInfo(this);
+	if (info == null) return false;
+	return ((CompilationUnitElementInfo)info).timestamp != getResource().getModificationStamp();
+}
 /**
- * Returns false, this is not a working copy.
- *
  * @see IWorkingCopy#isBasedOn(IResource)
+ * @deprecated
  */
 public boolean isBasedOn(IResource resource) {
-	return false;
+	if (!isWorkingCopy()) return false;
+	if (!getResource().equals(resource)) return false;
+	return !hasResourceChanged();
 }
 /**
  * @see IOpenable#isConsistent()
  */
-public boolean isConsistent() throws JavaModelException {
+public boolean isConsistent() {
 	return JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().get(this) == null;
+}
+/**
+ * 
+ * @see IOpenable
+ */
+public boolean isOpen() {
+	Object info = JavaModelManager.getJavaModelManager().getInfo(this);
+	return info != null && ((CompilationUnitElementInfo)info).isOpen();
+}
+public boolean isPrimary() {
+	return this.owner == DefaultWorkingCopyOwner.PRIMARY;
 }
 /**
  * @see Openable#isSourceElement()
@@ -620,23 +895,43 @@ public boolean isConsistent() throws JavaModelException {
 protected boolean isSourceElement() {
 	return true;
 }
-/**
- * @see IWorkingCopy#isWorkingCopy()
+protected boolean isValidCompilationUnit() {
+	IPackageFragmentRoot root = getPackageFragmentRoot();
+	try {
+		if (root.getKind() != IPackageFragmentRoot.K_SOURCE) return false;
+	} catch (JavaModelException e) {
+		return false;
+	}
+	IResource resource = getResource();
+	if (resource != null) {
+		char[][] exclusionPatterns = ((PackageFragmentRoot)root).fullExclusionPatternChars();
+		if (Util.isExcluded(resource, exclusionPatterns)) return false;
+	}
+	if (!Util.isValidCompilationUnitName(getElementName())) return false;
+	return true;
+}
+/*
+ * @see ICompilationUnit#isWorkingCopy()
  */
 public boolean isWorkingCopy() {
-	return false;
+	// For backward compatibility, non primary working copies are always returning true; in removal
+	// delta, clients can still check that element was a working copy before being discarded.
+	return !isPrimary() || getPerWorkingCopyInfo() != null;
 }
 /**
  * @see IOpenable#makeConsistent(IProgressMonitor)
  */
 public void makeConsistent(IProgressMonitor monitor) throws JavaModelException {
-	if (!isConsistent()) { // TODO: this code isn't synchronized with regular opening of a working copy
-		// create a new info and make it the current info
-		OpenableElementInfo info = createElementInfo();
-		buildStructure(info, monitor);
-	}
+	if (isConsistent()) return;
+		
+	// close
+	JavaModelManager manager = JavaModelManager.getJavaModelManager();
+	// working copy: remove info from cache, but keep buffer open
+	manager.removeInfoAndChildren(this);
+	
+	// create a new info and make it the current info
+	openWhenClosed(createElementInfo(), monitor);
 }
-
 /**
  * @see ISourceManipulation#move(IJavaElement, IJavaElement, String, boolean, IProgressMonitor)
  */
@@ -657,21 +952,41 @@ public void move(IJavaElement container, IJavaElement sibling, String rename, bo
 /**
  * @see Openable#openBuffer(IProgressMonitor)
  */
-protected IBuffer openBuffer(IProgressMonitor pm) throws JavaModelException {
+protected IBuffer openBuffer(IProgressMonitor pm, Object info) throws JavaModelException {
 
-	// create buffer -  compilation units only use default buffer factory
-	BufferManager bufManager = getBufferManager();
-	IBuffer buffer = getBufferFactory().createBuffer(this);
+	// create buffer
+	boolean isWorkingCopy = isWorkingCopy();
+	IBuffer buffer = 
+		isWorkingCopy 
+			? this.owner.createBuffer(this) 
+			: BufferManager.getDefaultBufferManager().createBuffer(this);
 	if (buffer == null) return null;
 	
 	// set the buffer source
-	if (buffer.getCharacters() == null){
-		IFile file = (IFile)this.getResource();
-		if (file == null || !file.exists()) throw newNotPresentException();
-		buffer.setContents(Util.getResourceContentsAsCharArray(file));
+	if (buffer.getCharacters() == null) {
+		if (isWorkingCopy) {
+			ICompilationUnit original;
+			if (!isPrimary() 
+					&& (original = new CompilationUnit((PackageFragment)getParent(), getElementName(), DefaultWorkingCopyOwner.PRIMARY)).isOpen()) {
+				buffer.setContents(original.getSource());
+			} else {
+				IFile file = (IFile)getResource();
+				if (file == null || !file.exists()) {
+					// initialize buffer with empty contents
+					buffer.setContents(CharOperation.NO_CHAR);
+				} else {
+					buffer.setContents(Util.getResourceContentsAsCharArray(file));
+				}
+			}
+		} else {
+			IFile file = (IFile)this.getResource();
+			if (file == null || !file.exists()) throw newNotPresentException();
+			buffer.setContents(Util.getResourceContentsAsCharArray(file));
+		}
 	}
 
 	// add buffer to buffer cache
+	BufferManager bufManager = getBufferManager();
 	bufManager.addBuffer(buffer);
 			
 	// listen to buffer changes
@@ -679,142 +994,137 @@ protected IBuffer openBuffer(IProgressMonitor pm) throws JavaModelException {
 	
 	return buffer;
 }
-protected void openParent(IProgressMonitor pm) throws JavaModelException {
-	if (FIX_BUG25184) {
-		super.openParent(pm);
-	} else {
-		try {
-			super.openParent(pm);
-		} catch(JavaModelException e){
-			// allow parent to not exist for compilation units defined outside classpath
-			if (!e.isDoesNotExist()){ 
-				throw e;
-			}
+/*
+ * @see Openable#openParent
+ */
+protected void openParent(Object childInfo, HashMap newElements, IProgressMonitor pm) throws JavaModelException {
+	try {
+		super.openParent(childInfo, newElements, pm);
+	} catch(JavaModelException e){
+		// allow parent to not exist for working copies defined outside classpath
+		if (!isWorkingCopy() && !e.isDoesNotExist()){ 
+			throw e;
 		}
 	}
 }
-protected boolean parentExists() {
-	if (FIX_BUG25184) {
-		return super.parentExists();
-	} else {
-		return true; // tolerate units outside classpath
-	}
-}
-
 /**
- * @see IWorkingCopy#reconcile()
+ * @see ICompilationUnit#reconcile()
+ * @deprecated
  */
 public IMarker[] reconcile() throws JavaModelException {
-	// Reconciling is not supported on non working copies
+	reconcile(false, null);
 	return null;
 }
-
 /**
- * @see IWorkingCopy#reconcile(boolean, IProgressMonitor)
+ * @see ICompilationUnit#reconcile(boolean, IProgressMonitor)
+ */
+public void reconcile(boolean forceProblemDetection, IProgressMonitor monitor) throws JavaModelException {
+	reconcile(forceProblemDetection, DefaultWorkingCopyOwner.PRIMARY, monitor);
+}
+/**
+ * @see ICompilationUnit#reconcile(boolean, WorkingCopyOwner, IProgressMonitor)
  */
 public void reconcile(
 	boolean forceProblemDetection,
+	WorkingCopyOwner workingCopyOwner,
 	IProgressMonitor monitor)
 	throws JavaModelException {
-	// Reconciling is not supported on non working copies
-}
 
+	if (!isWorkingCopy()) return; // Reconciling is not supported on non working copies
+	
+	NameLookup lookup = null;
+	try {
+		// set the units to look inside only for problem detection purpose (40322)
+		if (forceProblemDetection) {
+			try {
+				lookup = ((JavaProject)getJavaProject()).getNameLookup();
+				JavaModelManager manager = JavaModelManager.getJavaModelManager();
+				ICompilationUnit[] workingCopies = manager.getWorkingCopies(workingCopyOwner, true/*add primary WCs*/);
+				lookup.setUnitsToLookInside(workingCopies);
+			} catch(JavaModelException e) {
+				// simple project may not find its namelookup, simply ignore working copies (41583)
+			}
+		}			
+		// reconcile
+		ReconcileWorkingCopyOperation op = new ReconcileWorkingCopyOperation(this, forceProblemDetection);
+		runOperation(op, monitor);
+	} finally {
+		if (lookup != null) {
+			lookup.setUnitsToLookInside(null);
+		}
+	}
+}
 /**
  * @see ISourceManipulation#rename(String, boolean, IProgressMonitor)
  */
-public void rename(String name, boolean force, IProgressMonitor monitor) throws JavaModelException {
-	if (name == null) {
+public void rename(String newName, boolean force, IProgressMonitor monitor) throws JavaModelException {
+	if (newName == null) {
 		throw new IllegalArgumentException(Util.bind("operation.nullName")); //$NON-NLS-1$
 	}
 	IJavaElement[] elements= new IJavaElement[] {this};
 	IJavaElement[] dests= new IJavaElement[] {this.getParent()};
-	String[] renamings= new String[] {name};
+	String[] renamings= new String[] {newName};
 	getJavaModel().rename(elements, dests, renamings, force, monitor);
 }
-/**
- * Does nothing - this is not a working copy.
- *
- * @see IWorkingCopy#restore()
+/*
+ * @see ICompilationUnit
  */
-public void restore () throws JavaModelException {
-}
-/**
- * @see ICodeAssist#codeComplete(int, ICodeCompletionRequestor)
- * @deprecated - use codeComplete(int, ICompletionRequestor)
- */
-public void codeComplete(int offset, final ICodeCompletionRequestor requestor) throws JavaModelException {
-	
-	if (requestor == null){
-		codeComplete(offset, (ICompletionRequestor)null);
-		return;
-	}
-	codeComplete(
-		offset,
-		new ICompletionRequestor(){
-			public void acceptAnonymousType(char[] superTypePackageName,char[] superTypeName,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance){
-			}
-			public void acceptClass(char[] packageName, char[] className, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
-				requestor.acceptClass(packageName, className, completionName, modifiers, completionStart, completionEnd);
-			}
-			public void acceptError(IProblem error) {
-				if (true) return; // was disabled in 1.0
+public void restore() throws JavaModelException {
 
-				try {
-					IMarker marker = ResourcesPlugin.getWorkspace().getRoot().createMarker(IJavaModelMarker.TRANSIENT_PROBLEM);
-					marker.setAttribute(IJavaModelMarker.ID, error.getID());
-					marker.setAttribute(IMarker.CHAR_START, error.getSourceStart());
-					marker.setAttribute(IMarker.CHAR_END, error.getSourceEnd() + 1);
-					marker.setAttribute(IMarker.LINE_NUMBER, error.getSourceLineNumber());
-					marker.setAttribute(IMarker.MESSAGE, error.getMessage());
-					marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
-					requestor.acceptError(marker);
-				} catch(CoreException e){
-				}
-			}
-			public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] name, char[] typePackageName, char[] typeName, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
-				requestor.acceptField(declaringTypePackageName, declaringTypeName, name, typePackageName, typeName, completionName, modifiers, completionStart, completionEnd);
-			}
-			public void acceptInterface(char[] packageName,char[] interfaceName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {
-				requestor.acceptInterface(packageName, interfaceName, completionName, modifiers, completionStart, completionEnd);
-			}
-			public void acceptKeyword(char[] keywordName,int completionStart,int completionEnd, int relevance){
-				requestor.acceptKeyword(keywordName, completionStart, completionEnd);
-			}
-			public void acceptLabel(char[] labelName,int completionStart,int completionEnd, int relevance){
-				requestor.acceptLabel(labelName, completionStart, completionEnd);
-			}
-			public void acceptLocalVariable(char[] name,char[] typePackageName,char[] typeName,int modifiers,int completionStart,int completionEnd, int relevance){
-				// ignore
-			}
-			public void acceptMethod(char[] declaringTypePackageName,char[] declaringTypeName,char[] selector,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] returnTypePackageName,char[] returnTypeName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance){
-				// skip parameter names
-				requestor.acceptMethod(declaringTypePackageName, declaringTypeName, selector, parameterPackageNames, parameterTypeNames, returnTypePackageName, returnTypeName, completionName, modifiers, completionStart, completionEnd);
-			}
-			public void acceptMethodDeclaration(char[] declaringTypePackageName,char[] declaringTypeName,char[] selector,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] returnTypePackageName,char[] returnTypeName,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance){
-				// ignore
-			}
-			public void acceptModifier(char[] modifierName,int completionStart,int completionEnd, int relevance){
-				requestor.acceptModifier(modifierName, completionStart, completionEnd);
-			}
-			public void acceptPackage(char[] packageName,char[] completionName,int completionStart,int completionEnd, int relevance){
-				requestor.acceptPackage(packageName, completionName, completionStart, completionEnd);
-			}
-			public void acceptType(char[] packageName,char[] typeName,char[] completionName,int completionStart,int completionEnd, int relevance){
-				requestor.acceptType(packageName, typeName, completionName, completionStart, completionEnd);
-			}
-			public void acceptVariableName(char[] typePackageName,char[] typeName,char[] name,char[] completionName,int completionStart,int completionEnd, int relevance){
-				// ignore
-			}
-		});
+	if (!isWorkingCopy()) return;
+
+	CompilationUnit original = (CompilationUnit) getOriginalElement();
+	IBuffer buffer = this.getBuffer();
+	if (buffer == null) return;
+	buffer.setContents(original.getContents());
+	updateTimeStamp(original);
+	makeConsistent(null);
 }
 /**
- * @see JavaElement#rootedAt(IJavaProject)
+ * @see IOpenable
  */
-public IJavaElement rootedAt(IJavaProject project) {
-	return
-		new CompilationUnit(
-			(IPackageFragment)((JavaElement)fParent).rootedAt(project), 
-			fName);
+public void save(IProgressMonitor pm, boolean force) throws JavaModelException {
+	if (isWorkingCopy()) {
+		// no need to save the buffer for a working copy (this is a noop)
+		reconcile();   // not simply makeConsistent, also computes fine-grain deltas
+								// in case the working copy is being reconciled already (if not it would miss
+								// one iteration of deltas).
+	} else {		
+		super.save(pm, force);
+	}
+}
+/**
+ * @private Debugging purposes
+ */
+protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
+	if (!isPrimary()) {
+		buffer.append(this.tabString(tab));
+		buffer.append("[Working copy] "); //$NON-NLS-1$
+		buffer.append(getElementName());
+	} else {
+		if (isWorkingCopy()) {
+			buffer.append(this.tabString(tab));
+			buffer.append("[Working copy] "); //$NON-NLS-1$
+			buffer.append(getElementName());
+			if (info == null) {
+				buffer.append(" (not open)"); //$NON-NLS-1$
+			}
+		} else {
+			super.toStringInfo(tab, buffer, info);
+		}
+	}
+}
+/*
+ * Assume that this is a working copy
+ */
+protected void updateTimeStamp(CompilationUnit original) throws JavaModelException {
+	long timeStamp =
+		((IFile) original.getResource()).getModificationStamp();
+	if (timeStamp == IResource.NULL_STAMP) {
+		throw new JavaModelException(
+			new JavaModelStatus(IJavaModelStatusConstants.INVALID_RESOURCE));
+	}
+	((CompilationUnitElementInfo) getElementInfo()).timestamp = timeStamp;
 }
 
 }

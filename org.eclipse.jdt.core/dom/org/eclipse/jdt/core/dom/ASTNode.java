@@ -1430,10 +1430,16 @@ public abstract class ASTNode {
 	/**
 	 * Returns the character index into the original source file indicating
 	 * where the source fragment corresponding to this node begins.
+	 * <p>
+	 * The parser supplies useful well-defined source ranges to the nodes it creates.
+	 * See {@link AST#parseCompilationUnit AST.parseCompilationUnit} for details
+	 * on precisely where source ranges begin and end.
+	 * </p>
 	 * 
 	 * @return the 0-based character index, or <code>-1</code>
 	 *    if no source position information is recorded for this node
 	 * @see #getLength
+	 * @see AST#parseCompilationUnit
 	 */
 	public int getStartPosition() {
 		return startPosition;
@@ -1442,10 +1448,16 @@ public abstract class ASTNode {
 	/**
 	 * Returns the length in characters of the original source file indicating
 	 * where the source fragment corresponding to this node ends.
+	 * <p>
+	 * The parser supplies useful well-defined source ranges to the nodes it creates.
+	 * See {@link AST#parseCompilationUnit AST.parseCompilationUnit} for details
+	 * on precisely where source ranges begin and end.
+	 * </p>
 	 * 
 	 * @return a (possibly 0) length, or <code>0</code>
 	 *    if no source position information is recorded for this node
 	 * @see #getStartPosition()
+	 * @see AST#parseCompilationUnit
 	 */
 	public int getLength() {
 		return length;
@@ -1454,6 +1466,10 @@ public abstract class ASTNode {
 	/**
 	 * Sets the source range of the original source file where the source
 	 * fragment corresponding to this node was found.
+	 * <p>
+	 * See {@link AST#parseCompilationUnit AST.parseCompilationUnit} for details
+	 * on precisely where source ranges begin and end.
+	 * </p>
 	 * 
 	 * @param startPosition a 0-based character index, 
 	 *    or <code>-1</code> if no source position information is 
@@ -1463,6 +1479,7 @@ public abstract class ASTNode {
 	 *    for this node
 	 * @see #getStartPosition
 	 * @see #getLength
+	 * @see AST#parseCompilationUnit
 	 */
 	public void setSourceRange(int startPosition, int length) {
 		if (startPosition >= 0 && length < 0) {
@@ -1483,8 +1500,7 @@ public abstract class ASTNode {
 	 * @return a debug string 
 	 */
 	public final String toString() {
-		// allocate a buffer that is large enough to hold an average compilation unit
-		StringBuffer buffer = new StringBuffer(6000);
+		StringBuffer buffer = new StringBuffer();
 		int p = buffer.length();
 		try {
 			appendDebugString(buffer);
@@ -1495,8 +1511,7 @@ public abstract class ASTNode {
 			buffer.append("!"); //$NON-NLS-1$
 			buffer.append(standardToString());
 		}
-		// convert to a string, but lose the extra space in the string buffer by copying
-		return new String(buffer.toString());
+		return buffer.toString();
 	}
 	
 	/**
@@ -1543,8 +1558,9 @@ public abstract class ASTNode {
 	/**
 	 * Approximate base size of an AST node instance in bytes, 
 	 * including object header and instance fields.
+	 * That is, HEADERS + (# instance vars in ASTNode)*4.
 	 */
-	static final int BASE_NODE_SIZE = HEADERS + 6 * 4;
+	static final int BASE_NODE_SIZE = HEADERS + 7 * 4;
 	
 	/**
 	 * Returns an estimate of the memory footprint in bytes of the entire 

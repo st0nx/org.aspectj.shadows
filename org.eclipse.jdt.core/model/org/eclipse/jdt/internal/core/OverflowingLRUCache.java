@@ -10,10 +10,12 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.text.NumberFormat;
 import java.util.Enumeration;
 import java.util.Iterator;
 
 import org.eclipse.jdt.internal.core.util.LRUCache;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  *	The <code>OverflowingLRUCache</code> is an LRUCache which attempts
@@ -172,9 +174,17 @@ public double getLoadFactor() {
 		spaceNeeded = (spaceNeeded > space) ? spaceNeeded : space;
 		LRUCacheEntry entry = fEntryQueueTail;
 	
-		while (fCurrentSpace + spaceNeeded > limit && entry != null) {
-			this.privateRemoveEntry(entry, false, false);
-			entry = entry._fPrevious;
+		try {
+			// disable timestamps update while making space so that the previous and next links are not changed
+			// (by a call to get(Object) for example)
+			fTimestampsOn = false;
+			
+			while (fCurrentSpace + spaceNeeded > limit && entry != null) {
+				this.privateRemoveEntry(entry, false, false);
+				entry = entry._fPrevious;
+			}
+		} finally {
+			fTimestampsOn = true;
 		}
 	
 		/* check again, since we may have aquired enough space */
@@ -324,7 +334,7 @@ protected void privateRemoveEntry(LRUCacheEntry entry, boolean shuffle, boolean 
 			shrink();
 			
 		/* Check whether there's an entry in the cache */
-		int newSpace = spaceFor (key, value);
+		int newSpace = spaceFor(value);
 		LRUCacheEntry entry = (LRUCacheEntry) fEntryTable.get (key);
 		
 		if (entry != null) {
@@ -405,7 +415,7 @@ public void setLoadFactor(double newLoadFactor) throws IllegalArgumentException 
  */
 public String toString() {
 	return 
-		"OverflowingLRUCache " + this.fillingRatio() + "% full\n" + //$NON-NLS-1$ //$NON-NLS-2$
+		"OverflowingLRUCache " + NumberFormat.getInstance().format(this.fillingRatio()) + "% full\n" + //$NON-NLS-1$ //$NON-NLS-2$
 		this.toStringContents();
 }
 /**

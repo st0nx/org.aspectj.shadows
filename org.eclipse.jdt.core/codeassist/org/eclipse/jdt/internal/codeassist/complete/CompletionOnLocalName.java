@@ -11,7 +11,6 @@
 package org.eclipse.jdt.internal.codeassist.complete;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 
@@ -19,24 +18,30 @@ import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 public class CompletionOnLocalName extends LocalDeclaration {
 	private static final char[] FAKENAMESUFFIX = " ".toCharArray(); //$NON-NLS-1$
 	public char[] realName;
-	public CompletionOnLocalName(Expression expr,char[] name, int sourceStart, int sourceEnd){
-		super(expr, CharOperation.concat(name, FAKENAMESUFFIX), sourceStart, sourceEnd);
+
+	public CompletionOnLocalName(char[] name, int sourceStart, int sourceEnd){
+
+		super(CharOperation.concat(name, FAKENAMESUFFIX), sourceStart, sourceEnd);
 		this.realName = name;
 	}
 	
 	public void resolve(BlockScope scope) {
-		super.resolve(scope);
 		
+		super.resolve(scope);
 		throw new CompletionNodeFound(this, scope);
 	}
-	public String toString(int tab) {
-		String s = tabString(tab);
-		s += "<CompleteOnLocalName:"; //$NON-NLS-1$
-		if (type != null) s += type.toString() + " "; //$NON-NLS-1$
-		s += new String(realName);
-		if (initialization != null) s += " = " + initialization.toStringExpression(); //$NON-NLS-1$
-		s += ">"; //$NON-NLS-1$
-		return s;
+
+	public StringBuffer printStatement(int indent, StringBuffer output) {
+
+		printIndent(indent, output);
+		output.append("<CompleteOnLocalName:"); //$NON-NLS-1$
+		if (type != null)  type.print(0, output).append(' ');
+		output.append(this.realName);
+		if (initialization != null) {
+			output.append(" = "); //$NON-NLS-1$
+			initialization.printExpression(0, output); 
+		}
+		return output.append(">;"); //$NON-NLS-1$
 	}	
 }
 

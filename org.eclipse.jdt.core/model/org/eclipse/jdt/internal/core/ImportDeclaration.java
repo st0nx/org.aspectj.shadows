@@ -10,12 +10,13 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import org.eclipse.jdt.core.IImportContainer;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.jdom.IDOMNode;
 
 /**
+ * Handle for an import declaration. Info object is a ImportDeclarationElementInfo.
  * @see IImportDeclaration
  */
 
@@ -23,29 +24,69 @@ import org.eclipse.jdt.core.jdom.IDOMNode;
 
 
 /**
- * Constructs an ImportDeclartaion in the given import container
+ * Constructs an ImportDeclaration in the given import container
  * with the given name.
  */
-protected ImportDeclaration(IImportContainer parent, String name) {
-	super(IMPORT_DECLARATION, parent, name);
+protected ImportDeclaration(ImportContainer parent, String name) {
+	super(parent, name);
+}
+public boolean equals(Object o) {
+	if (!(o instanceof ImportDeclaration)) return false;
+	return super.equals(o);
 }
 /**
  * @see JavaElement#equalsDOMNode
  */
-protected boolean equalsDOMNode(IDOMNode node) throws JavaModelException {
+protected boolean equalsDOMNode(IDOMNode node) {
 	return (node.getNodeType() == IDOMNode.IMPORT) && getElementName().equals(node.getName());
+}
+/**
+ * @see IJavaElement
+ */
+public int getElementType() {
+	return IMPORT_DECLARATION;
+}
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.IImportDeclaration#getFlags()
+ */
+public int getFlags() throws JavaModelException {
+	ImportDeclarationElementInfo info = (ImportDeclarationElementInfo)getElementInfo();
+	return info.getModifiers();
+}
+/**
+ * @see JavaElement#getHandleMemento()
+ * For import declarations, the handle delimiter is associated to the import container already
+ */
+public String getHandleMemento(){
+	StringBuffer buff= new StringBuffer(((JavaElement)getParent()).getHandleMemento());
+	buff.append(getElementName());
+	if (this.occurrenceCount > 1) {
+		buff.append(JEM_COUNT);
+		buff.append(this.occurrenceCount);
+	}
+	return buff.toString();
 }
 /**
  * @see JavaElement#getHandleMemento()
  */
 protected char getHandleMementoDelimiter() {
-	return JavaElement.JEM_IMPORTDECLARATION;
+	// For import declarations, the handle delimiter is associated to the import container already
+	Assert.isTrue(false, "Should not be called"); //$NON-NLS-1$
+	return 0;
+}
+/*
+ * @see JavaElement#getPrimaryElement(boolean)
+ */
+public IJavaElement getPrimaryElement(boolean checkOwner) {
+	CompilationUnit cu = (CompilationUnit)this.parent.getParent();
+	if (checkOwner && cu.isPrimary()) return this;
+	return cu.getImport(this.name);
 }
 /**
  * Returns true if the import is on-demand (ends with ".*")
  */
 public boolean isOnDemand() {
-	return fName.endsWith(".*"); //$NON-NLS-1$
+	return this.name.endsWith(".*"); //$NON-NLS-1$
 }
 /**
  */

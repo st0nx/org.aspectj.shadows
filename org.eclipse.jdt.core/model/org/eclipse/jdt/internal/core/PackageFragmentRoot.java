@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.util.*;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Map;
@@ -24,6 +25,7 @@ import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * @see IPackageFragmentRoot
@@ -54,8 +56,8 @@ public class PackageFragmentRoot extends Openable implements IPackageFragmentRoo
  * Constructs a package fragment root which is the root of the java package
  * directory hierarchy.
  */
-protected PackageFragmentRoot(IResource resource, IJavaProject project, String name) {
-	super(PACKAGE_FRAGMENT_ROOT, project, name);
+protected PackageFragmentRoot(IResource resource, JavaProject project, String name) {
+	super(project, name);
 	this.resource = resource;
 }
 
@@ -157,6 +159,20 @@ public void attachSource(IPath sourcePath, IPath rootPath, IProgressMonitor moni
 	}
 }
 
+/**
+ * @see Openable
+ */
+protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource) throws JavaModelException {
+	
+	// check whether this pkg fragment root can be opened
+	if (!resourceExists() || !isOnClasspath()) {
+		throw newNotPresentException();
+	}
+
+	((PackageFragmentRootInfo) info).setRootKind(determineKind(underlyingResource));
+	return computeChildren(info, newElements);
+}
+
 SourceMapper createSourceMapper(IPath sourcePath, IPath rootPath) {
 	SourceMapper mapper = new SourceMapper(
 		sourcePath, 
@@ -178,29 +194,21 @@ public void delete(
 }
 
 /**
- * This root is being closed.  If this root has an associated source attachment, 
- * close it too.
- *
- * @see JavaElement
- */
-//protected void closing(Object info) throws JavaModelException { TODO remove after 2.1
-//	((PackageFragmentRootInfo) info).sourceMapper = null;
-//	super.closing(info);
-//}
-/**
  * Compute the package fragment children of this package fragment root.
  * 
  * @exception JavaModelException  The resource associated with this package fragment root does not exist
  */
-protected boolean computeChildren(OpenableElementInfo info) throws JavaModelException {
+protected boolean computeChildren(OpenableElementInfo info, Map newElements) throws JavaModelException {
+	// Note the children are not opened (so not added to newElements) for a regular package fragment root
+	// Howver they are opened for a Jar package fragment root (see JarPackageFragmentRoot#computeChildren)
 	try {
 		// the underlying resource may be a folder or a project (in the case that the project folder
 		// is actually the package fragment root)
-		IResource resource = getResource();
-		if (resource.getType() == IResource.FOLDER || resource.getType() == IResource.PROJECT) {
+		IResource underlyingResource = getResource();
+		if (underlyingResource.getType() == IResource.FOLDER || underlyingResource.getType() == IResource.PROJECT) {
 			ArrayList vChildren = new ArrayList(5);
 			char[][] exclusionPatterns = fullExclusionPatternChars();
-			computeFolderChildren((IContainer) resource, "", vChildren, exclusionPatterns); //$NON-NLS-1$
+			computeFolderChildren((IContainer) underlyingResource, "", vChildren, exclusionPatterns); //$NON-NLS-1$
 			IJavaElement[] children = new IJavaElement[vChildren.size()];
 			vChildren.toArray(children);
 			info.setChildren(children);
@@ -250,26 +258,7 @@ protected void computeFolderChildren(IContainer folder, String prefix, ArrayList
 		throw new JavaModelException(e);
 	}
 }
-/*
- * Computes and returns the source attachment root path for the given source attachment path.
- * Returns <code>null</code> if none could be found.
- * 
- * @param sourceAttachmentPath the given absolute path to the source archive or folder
- * @return the computed source attachment root path or <code>null</cde> if none could be found
- * @throws JavaModelException
- */
-public IPath computeSourceAttachmentRootPath(IPath sourceAttachmentPath) throws JavaModelException {
-	IPath sourcePath = this.getSourceAttachmentPath();
-	if (sourcePath == null) return null;
-	SourceMapper mapper = 
-		new SourceMapper(
-		sourcePath, 
-		null, // detect root path
-		this.isExternal() ? JavaCore.getOptions() : this.getJavaProject().getOptions(true) // only project options if associated with resource
-	);
-	if (mapper.rootPath == null) return null;
-	return new Path(mapper.rootPath);
-}
+
 /*
  * @see org.eclipse.jdt.core.IPackageFragmentRoot#copy
  */
@@ -286,22 +275,20 @@ public void copy(
 	runOperation(op, monitor);
 }
 
-
-
 /**
  * Returns a new element info for this element.
  */
-protected OpenableElementInfo createElementInfo() {
+protected Object createElementInfo() {
 	return new PackageFragmentRootInfo();
 }
 
 /**
  * @see IPackageFragmentRoot
  */
-public IPackageFragment createPackageFragment(String name, boolean force, IProgressMonitor monitor) throws JavaModelException {
-	CreatePackageFragmentOperation op = new CreatePackageFragmentOperation(this, name, force);
+public IPackageFragment createPackageFragment(String pkgName, boolean force, IProgressMonitor monitor) throws JavaModelException {
+	CreatePackageFragmentOperation op = new CreatePackageFragmentOperation(this, pkgName, force);
 	runOperation(op, monitor);
-	return getPackageFragment(name);
+	return getPackageFragment(pkgName);
 }
 
 /**
@@ -334,17 +321,18 @@ public boolean equals(Object o) {
 	if (!(o instanceof PackageFragmentRoot))
 		return false;
 	PackageFragmentRoot other = (PackageFragmentRoot) o;
-	return getJavaModel().equals(other.getJavaModel()) && 
-			this.resource.equals(other.resource) &&
-			fOccurrenceCount == other.fOccurrenceCount;
+	return this.resource.equals(other.resource) &&
+			this.occurrenceCount == other.occurrenceCount;
 }
 
 /**
  * @see IJavaElement
  */
 public boolean exists() {
-	return super.exists() 
-				&& isOnClasspath();
+	return 
+		parentExists() 
+			&& resourceExists() 
+			&& isOnClasspath();
 }
 
 public IClasspathEntry findSourceAttachmentRecommendation() {
@@ -361,7 +349,7 @@ public IClasspathEntry findSourceAttachmentRecommendation() {
 				Object target = JavaModel.getTarget(workspaceRoot, entry.getSourceAttachmentPath(), true);
 				if (target instanceof IFile){
 					IFile file = (IFile) target;
-					if (Util.isArchiveFileName(file.getName())){
+					if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())){
 						return entry;
 					}
 				} else if (target instanceof IFolder) {
@@ -370,7 +358,7 @@ public IClasspathEntry findSourceAttachmentRecommendation() {
 				if (target instanceof java.io.File){
 					java.io.File file = (java.io.File) target;
 					if (file.isFile()) {
-						if (Util.isArchiveFileName(file.getName())){
+						if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())){
 							return entry;
 						}
 					} else {
@@ -380,6 +368,7 @@ public IClasspathEntry findSourceAttachmentRecommendation() {
 				}
 			}
 		} catch(JavaModelException e){
+			// ignore
 		}
 		
 		// iterate over all projects
@@ -394,7 +383,7 @@ public IClasspathEntry findSourceAttachmentRecommendation() {
 					Object target = JavaModel.getTarget(workspaceRoot, entry.getSourceAttachmentPath(), true);
 					if (target instanceof IFile){
 						IFile file = (IFile) target;
-						if (Util.isArchiveFileName(file.getName())){
+						if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())){
 							return entry;
 						}
 					} else if (target instanceof IFolder) {
@@ -403,7 +392,7 @@ public IClasspathEntry findSourceAttachmentRecommendation() {
 					if (target instanceof java.io.File){
 						java.io.File file = (java.io.File) target;
 						if (file.isFile()) {
-							if (Util.isArchiveFileName(file.getName())){
+							if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())){
 								return entry;
 							}
 						} else {
@@ -413,9 +402,11 @@ public IClasspathEntry findSourceAttachmentRecommendation() {
 					}
 				}
 			} catch(JavaModelException e){
+				// ignore
 			}
 		}
 	} catch(JavaModelException e){
+		// ignore
 	}
 
 	return null;
@@ -424,7 +415,7 @@ public IClasspathEntry findSourceAttachmentRecommendation() {
 /*
  * Returns the exclusion patterns from the classpath entry associated with this root.
  */
-char[][] fullExclusionPatternChars() {
+public char[][] fullExclusionPatternChars() {
 	try {
 		if (this.isOpen() && this.getKind() != IPackageFragmentRoot.K_SOURCE) return null;
 		ClasspathEntry entry = (ClasspathEntry)getRawClasspathEntry();
@@ -437,34 +428,61 @@ char[][] fullExclusionPatternChars() {
 		return null;
 	}
 }		
-
 /**
- * @see Openable
+ * @see IJavaElement
  */
-protected boolean generateInfos(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource) throws JavaModelException {
-	
-	((PackageFragmentRootInfo) info).setRootKind(determineKind(underlyingResource));
-	return computeChildren(info);
+public int getElementType() {
+	return PACKAGE_FRAGMENT_ROOT;
 }
-
 /**
  * @see JavaElement#getHandleMemento()
  */
 protected char getHandleMementoDelimiter() {
 	return JavaElement.JEM_PACKAGEFRAGMENTROOT;
 }
+/*
+ * @see JavaElement
+ */
+public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner owner) {
+	switch (token.charAt(0)) {
+		case JEM_COUNT:
+			return getHandleUpdatingCountFromMemento(memento, owner);
+		case JEM_PACKAGEFRAGMENT:
+			String pkgName;
+			if (memento.hasMoreTokens()) {
+				pkgName = memento.nextToken();
+				char firstChar = pkgName.charAt(0);
+				if (firstChar == JEM_CLASSFILE || firstChar == JEM_COMPILATIONUNIT || firstChar == JEM_COUNT) {
+					token = pkgName;
+					pkgName = IPackageFragment.DEFAULT_PACKAGE_NAME;
+				} else {
+					token = null;
+				}
+			} else {
+				pkgName = IPackageFragment.DEFAULT_PACKAGE_NAME;
+				token = null;
+			}
+			JavaElement pkg = (JavaElement)getPackageFragment(pkgName);
+			if (token == null) {
+				return pkg.getHandleFromMemento(memento, owner);
+			} else {
+				return pkg.getHandleFromMemento(token, memento, owner);
+			}
+	}
+	return null;
+}
 /**
  * @see JavaElement#getHandleMemento()
  */
 public String getHandleMemento(){
 	IPath path;
-	IResource resource = getResource();
-	if (resource != null) {
+	IResource underlyingResource = getResource();
+	if (underlyingResource != null) {
 		// internal jar or regular root
 		if (getResource().getProject().equals(getJavaProject().getProject())) {
-			path = resource.getProjectRelativePath();
+			path = underlyingResource.getProjectRelativePath();
 		} else {
-			path = resource.getFullPath();
+			path = underlyingResource.getFullPath();
 		}
 	} else {
 		// external jar
@@ -473,6 +491,10 @@ public String getHandleMemento(){
 	StringBuffer buff= new StringBuffer(((JavaElement)getParent()).getHandleMemento());
 	buff.append(getHandleMementoDelimiter());
 	buff.append(path.toString()); 
+	if (this.occurrenceCount > 1) {
+		buff.append(JEM_COUNT);
+		buff.append(this.occurrenceCount);
+	}
 	return buff.toString();
 }
 /**
@@ -511,19 +533,19 @@ public IPackageFragment getPackageFragment(String packageName) {
  * Returns the package name for the given folder
  * (which is a decendent of this root).
  */
-protected String getPackageName(IFolder folder) throws JavaModelException {
+protected String getPackageName(IFolder folder) {
 	IPath myPath= getPath();
 	IPath pkgPath= folder.getFullPath();
 	int mySegmentCount= myPath.segmentCount();
 	int pkgSegmentCount= pkgPath.segmentCount();
-	StringBuffer name = new StringBuffer(IPackageFragment.DEFAULT_PACKAGE_NAME);
+	StringBuffer pkgName = new StringBuffer(IPackageFragment.DEFAULT_PACKAGE_NAME);
 	for (int i= mySegmentCount; i < pkgSegmentCount; i++) {
 		if (i > mySegmentCount) {
-			name.append('.');
+			pkgName.append('.');
 		}
-		name.append(pkgPath.segment(i));
+		pkgName.append(pkgPath.segment(i));
 	}
-	return name.toString();
+	return pkgName.toString();
 }
 
 /**
@@ -539,10 +561,9 @@ public IPath getPath() {
 public IClasspathEntry getRawClasspathEntry() throws JavaModelException {
 
 	IClasspathEntry rawEntry = null;
-	IJavaProject project = this.getJavaProject();
+	JavaProject project = (JavaProject)this.getJavaProject();
 	project.getResolvedClasspath(true); // force the reverse rawEntry cache to be populated
-	JavaModelManager.PerProjectInfo perProjectInfo = 
-		JavaModelManager.getJavaModelManager().getPerProjectInfoCheckExistence(project.getProject());
+	JavaModelManager.PerProjectInfo perProjectInfo = project.getPerProjectInfo();
 	if (perProjectInfo != null && perProjectInfo.resolvedPathToRawEntries != null) {
 		rawEntry = (IClasspathEntry) perProjectInfo.resolvedPathToRawEntries.get(this.getPath());
 	}
@@ -615,7 +636,7 @@ protected String getSourceAttachmentProperty() throws JavaModelException {
  * Returns the qualified name for the source attachment property
  * of this root.
  */
-protected QualifiedName getSourceAttachmentPropertyName() throws JavaModelException {
+protected QualifiedName getSourceAttachmentPropertyName() {
 	return new QualifiedName(JavaCore.PLUGIN_ID, "sourceattachment: " + this.getPath().toOSString()); //$NON-NLS-1$
 }
 
@@ -623,6 +644,7 @@ public void setSourceAttachmentProperty(String property) {
 	try {
 		ResourcesPlugin.getWorkspace().getRoot().setPersistentProperty(this.getSourceAttachmentPropertyName(), property);
 	} catch (CoreException ce) {
+		// ignore
 	}
 }
 
@@ -726,9 +748,6 @@ public boolean isExternal() {
  * Returns whether this package fragment root is on the classpath of its project.
  */
 protected boolean isOnClasspath() {
-	if (this.getElementType() == IJavaElement.JAVA_PROJECT){
-		return true;
-	}
 	
 	IPath path = this.getPath();
 	try {
@@ -762,46 +781,13 @@ public void move(
 	runOperation(op, monitor);
 }
 
-
-protected void openWhenClosed(IProgressMonitor pm) throws JavaModelException {
-	if (!this.resourceExists() 
-			|| !this.isOnClasspath()) {
-		throw newNotPresentException();
-	}
-	super.openWhenClosed(pm);
-}
-
-/**
- * Recomputes the children of this element, based on the current state
- * of the workbench.
- */
-public void refreshChildren() {
-	try {
-		OpenableElementInfo info= (OpenableElementInfo)getElementInfo();
-		computeChildren(info);
-	} catch (JavaModelException e) {
-		// do nothing.
-	}
-}
-
-/*
- * @see JavaElement#rootedAt(IJavaProject)
- */
-public IJavaElement rootedAt(IJavaProject project) {
-	return
-		new PackageFragmentRoot(
-			getResource(),
-			project, 
-			fName);
-}
-
 /**
  * @private Debugging purposes
  */
 protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 	buffer.append(this.tabString(tab));
 	if (getElementName().length() == 0) {
-		buffer.append("[project root]"); //$NON-NLS-1$
+		buffer.append("<project root>"); //$NON-NLS-1$
 	} else {
 		IPath path = getPath();
 		if (getJavaProject().getElementName().equals(path.segment(0))) {

@@ -10,8 +10,10 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.util.*;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.StringTokenizer;
 
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IFolder;
@@ -20,55 +22,58 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * @see IPackageFragment
  */
-public class PackageFragment extends Openable implements IPackageFragment {
+public class PackageFragment extends Openable implements IPackageFragment, SuffixConstants {
 	/**
 	 * Constant empty list of class files
 	 */
-	protected static IClassFile[] fgEmptyClassFileList= new IClassFile[] {};
+	protected static final IClassFile[] NO_CLASSFILES = new IClassFile[] {};
 	/**
 	 * Constant empty list of compilation units
 	 */
-	protected static ICompilationUnit[] fgEmptyCompilationUnitList= new ICompilationUnit[] {};
+	protected static final ICompilationUnit[] NO_COMPILATION_UNITS = new ICompilationUnit[] {};
 /**
  * Constructs a handle for a package fragment
  *
  * @see IPackageFragment
  */
-protected PackageFragment(IPackageFragmentRoot root, String name) {
-	super(PACKAGE_FRAGMENT, root, name);
+protected PackageFragment(PackageFragmentRoot root, String name) {
+	super(root, name);
 }
 /**
- * Compute the children of this package fragment.
- *
- * <p>Package fragments which are folders recognize files based on the
- * type of the fragment
- * <p>Package fragments which are in a jar only recognize .class files (
- * @see JarPackageFragment).
+ * @see Openable
  */
-protected boolean computeChildren(OpenableElementInfo info, IResource resource) throws JavaModelException {
-	ArrayList vChildren = new ArrayList();
+protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource) throws JavaModelException {
+
+	// check whether this pkg can be opened
+	if (!underlyingResource.isAccessible()) throw newNotPresentException();
+
 	int kind = getKind();
 	String extType;
 	if (kind == IPackageFragmentRoot.K_SOURCE) {
-		extType = "java"; //$NON-NLS-1$
+		extType = EXTENSION_java;
 	} else {
-		extType = "class"; //$NON-NLS-1$
+		extType = EXTENSION_class;
 	}
+
+	// add compilation units/class files from resources
+	HashSet vChildren = new HashSet();
 	try {
-		char[][] exclusionPatterns = ((PackageFragmentRoot)getPackageFragmentRoot()).fullExclusionPatternChars();
-		IResource[] members = ((IContainer) resource).members();
+		char[][] exclusionPatterns = getPackageFragmentRoot().fullExclusionPatternChars();
+		IResource[] members = ((IContainer) underlyingResource).members();
 		for (int i = 0, max = members.length; i < max; i++) {
 			IResource child = members[i];
 			if (child.getType() != IResource.FOLDER
@@ -78,7 +83,7 @@ protected boolean computeChildren(OpenableElementInfo info, IResource resource) 
 					if (extension.equalsIgnoreCase(extType)) {
 						IJavaElement childElement;
 						if (kind == IPackageFragmentRoot.K_SOURCE && Util.isValidCompilationUnitName(child.getName())) {
-							childElement = getCompilationUnit(child.getName());
+							childElement = new CompilationUnit(this, child.getName(), DefaultWorkingCopyOwner.PRIMARY);
 							vChildren.add(childElement);
 						} else if (Util.isValidClassFileName(child.getName())) {
 							childElement = getClassFile(child.getName());
@@ -91,6 +96,16 @@ protected boolean computeChildren(OpenableElementInfo info, IResource resource) 
 	} catch (CoreException e) {
 		throw new JavaModelException(e);
 	}
+	
+	if (kind == IPackageFragmentRoot.K_SOURCE) {
+		// add primary compilation units
+		ICompilationUnit[] primaryCompilationUnits = getCompilationUnits(DefaultWorkingCopyOwner.PRIMARY);
+		for (int i = 0, length = primaryCompilationUnits.length; i < length; i++) {
+			ICompilationUnit primary = primaryCompilationUnits[i];
+			vChildren.add(primary);
+		}
+	}
+	
 	IJavaElement[] children = new IJavaElement[vChildren.size()];
 	vChildren.toArray(children);
 	info.setChildren(children);
@@ -125,15 +140,15 @@ public void copy(IJavaElement container, IJavaElement sibling, String rename, bo
 /**
  * @see IPackageFragment
  */
-public ICompilationUnit createCompilationUnit(String name, String contents, boolean force, IProgressMonitor monitor) throws JavaModelException {
-	CreateCompilationUnitOperation op= new CreateCompilationUnitOperation(this, name, contents, force);
+public ICompilationUnit createCompilationUnit(String cuName, String contents, boolean force, IProgressMonitor monitor) throws JavaModelException {
+	CreateCompilationUnitOperation op= new CreateCompilationUnitOperation(this, cuName, contents, force);
 	runOperation(op, monitor);
-	return getCompilationUnit(name);
+	return new CompilationUnit(this, cuName, DefaultWorkingCopyOwner.PRIMARY);
 }
 /**
  * @see JavaElement
  */
-protected OpenableElementInfo createElementInfo() {
+protected Object createElementInfo() {
 	return new PackageFragmentInfo();
 }
 /**
@@ -143,18 +158,19 @@ public void delete(boolean force, IProgressMonitor monitor) throws JavaModelExce
 	IJavaElement[] elements = new IJavaElement[] {this};
 	getJavaModel().delete(elements, force, monitor);
 }
-/**
- * @see Openable
- */
-protected boolean generateInfos(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource) throws JavaModelException {
-	
-	return computeChildren(info, underlyingResource);
+public boolean equals(Object o) {
+	if (!(o instanceof PackageFragment)) return false;
+	return super.equals(o);
 }
 /**
  * @see IPackageFragment#getClassFile(String)
+ * @exception IllegalArgumentExcpetion if the name does not end with ".class"
  */
-public IClassFile getClassFile(String name) {
-	return new ClassFile(this, name);
+public IClassFile getClassFile(String classFileName) {
+	if (!org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(classFileName)) {
+		throw new IllegalArgumentException(Util.bind("element.invalidClassFileName")); //$NON-NLS-1$
+	}
+	return new ClassFile(this, classFileName);
 }
 /**
  * Returns a the collection of class files in this - a folder package fragment which has a root
@@ -165,7 +181,7 @@ public IClassFile getClassFile(String name) {
  */
 public IClassFile[] getClassFiles() throws JavaModelException {
 	if (getKind() == IPackageFragmentRoot.K_SOURCE) {
-		return fgEmptyClassFileList;
+		return NO_CLASSFILES;
 	}
 	
 	ArrayList list = getChildrenOfType(CLASS_FILE);
@@ -175,22 +191,70 @@ public IClassFile[] getClassFiles() throws JavaModelException {
 }
 /**
  * @see IPackageFragment#getCompilationUnit(String)
+ * @exception IllegalArgumentExcpetion if the name does not end with ".java"
  */
-public ICompilationUnit getCompilationUnit(String name) {
-	return new CompilationUnit(this, name);
+public ICompilationUnit getCompilationUnit(String cuName) {
+	if (!org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(cuName)) {
+		throw new IllegalArgumentException(Util.bind("convention.unit.notJavaName")); //$NON-NLS-1$
+	}
+	return new CompilationUnit(this, cuName, DefaultWorkingCopyOwner.PRIMARY);
 }
 /**
  * @see IPackageFragment#getCompilationUnits()
  */
 public ICompilationUnit[] getCompilationUnits() throws JavaModelException {
 	if (getKind() == IPackageFragmentRoot.K_BINARY) {
-		return fgEmptyCompilationUnitList;
+		return NO_COMPILATION_UNITS;
 	}
 	
 	ArrayList list = getChildrenOfType(COMPILATION_UNIT);
 	ICompilationUnit[] array= new ICompilationUnit[list.size()];
 	list.toArray(array);
 	return array;
+}
+/**
+ * @see IPackageFragment#getCompilationUnits(WorkingCopyOwner)
+ */
+public ICompilationUnit[] getCompilationUnits(WorkingCopyOwner owner) {
+	ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, false/*don't add primary*/);
+	if (workingCopies == null) return JavaModelManager.NoWorkingCopy;
+	int length = workingCopies.length;
+	ICompilationUnit[] result = new ICompilationUnit[length];
+	int index = 0;
+	for (int i = 0; i < length; i++) {
+		ICompilationUnit wc = workingCopies[i];
+		if (equals(wc.getParent())) {
+			result[index++] = wc;
+		}
+	}
+	if (index != length) {
+		System.arraycopy(result, 0, result = new ICompilationUnit[index], 0, index);
+	}
+	return result;
+}
+/**
+ * @see IJavaElement
+ */
+public int getElementType() {
+	return PACKAGE_FRAGMENT;
+}
+/*
+ * @see JavaElement
+ */
+public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner owner) {
+	switch (token.charAt(0)) {
+		case JEM_COUNT:
+			return getHandleUpdatingCountFromMemento(memento, owner);
+		case JEM_CLASSFILE:
+			String classFileName = memento.nextToken();
+			JavaElement classFile = (JavaElement)getClassFile(classFileName);
+			return classFile.getHandleFromMemento(memento, owner);
+		case JEM_COMPILATIONUNIT:
+			String cuName = memento.nextToken();
+			JavaElement cu = new CompilationUnit(this, cuName, owner);
+			return cu.getHandleFromMemento(memento, owner);
+	}
+	return null;
 }
 /**
  * @see JavaElement#getHandleMementoDelimiter()
@@ -212,7 +276,7 @@ public Object[] getNonJavaResources() throws JavaModelException {
 		// We don't want to show non java resources of the default package (see PR #1G58NB8)
 		return JavaElementInfo.NO_NON_JAVA_RESOURCES;
 	} else {
-		return ((PackageFragmentInfo) getElementInfo()).getNonJavaResources(getResource(), (PackageFragmentRoot)getPackageFragmentRoot());
+		return ((PackageFragmentInfo) getElementInfo()).getNonJavaResources(getResource(), getPackageFragmentRoot());
 	}
 }
 /**
@@ -246,7 +310,7 @@ public IResource getResource() {
  * @see IJavaElement#getUnderlyingResource()
  */
 public IResource getUnderlyingResource() throws JavaModelException {
-	IResource rootResource = fParent.getUnderlyingResource();
+	IResource rootResource = this.parent.getUnderlyingResource();
 	if (rootResource == null) {
 		//jar package fragment root that has no associated resource
 		return null;
@@ -255,7 +319,7 @@ public IResource getUnderlyingResource() throws JavaModelException {
 	// is atually the package fragment root)
 	if (rootResource.getType() == IResource.FOLDER || rootResource.getType() == IResource.PROJECT) {
 		IContainer folder = (IContainer) rootResource;
-		String[] segs = Signature.getSimpleNames(fName);
+		String[] segs = Signature.getSimpleNames(this.name);
 		for (int i = 0; i < segs.length; ++i) {
 			IResource child = folder.findMember(segs[i]);
 			if (child == null || child.getType() != IResource.FOLDER) {
@@ -273,9 +337,9 @@ public IResource getUnderlyingResource() throws JavaModelException {
  */
 public boolean hasSubpackages() throws JavaModelException {
 	IJavaElement[] packages= ((IPackageFragmentRoot)getParent()).getChildren();
-	String name = getElementName();
-	int nameLength = name.length();
-	String packageName = isDefaultPackage() ? name : name+"."; //$NON-NLS-1$
+	String elementName = getElementName();
+	int nameLength = elementName.length();
+	String packageName = isDefaultPackage() ? elementName : elementName+"."; //$NON-NLS-1$
 	for (int i= 0; i < packages.length; i++) {
 		String otherName = packages[i].getElementName();
 		if (otherName.length() > nameLength && otherName.startsWith(packageName)) {
@@ -309,42 +373,17 @@ public void move(IJavaElement container, IJavaElement sibling, String rename, bo
 	}
 	getJavaModel().move(elements, containers, siblings, renamings, force, monitor);
 }
-protected void openWhenClosed(IProgressMonitor pm) throws JavaModelException {
-	if (!this.resourceExists()) throw newNotPresentException();
-	super.openWhenClosed(pm);
-}
-/**
- * Recomputes the children of this element, based on the current state
- * of the workbench.
- */
-public void refreshChildren() {
-	try {
-		OpenableElementInfo info= (OpenableElementInfo)getElementInfo();
-		computeChildren(info, getResource());
-	} catch (JavaModelException e) {
-		// do nothing.
-	}
-}
 /**
  * @see ISourceManipulation#rename(String, boolean, IProgressMonitor)
  */
-public void rename(String name, boolean force, IProgressMonitor monitor) throws JavaModelException {
-	if (name == null) {
+public void rename(String newName, boolean force, IProgressMonitor monitor) throws JavaModelException {
+	if (newName == null) {
 		throw new IllegalArgumentException(Util.bind("element.nullName")); //$NON-NLS-1$
 	}
 	IJavaElement[] elements= new IJavaElement[] {this};
 	IJavaElement[] dests= new IJavaElement[] {this.getParent()};
-	String[] renamings= new String[] {name};
+	String[] renamings= new String[] {newName};
 	getJavaModel().rename(elements, dests, renamings, force, monitor);
-}
-/*
- * @see JavaElement#rootedAt(IJavaProject)
- */
-public IJavaElement rootedAt(IJavaProject project) {
-	return
-		new PackageFragment(
-			(IPackageFragmentRoot)((JavaElement)fParent).rootedAt(project), 
-			fName);
 }
 /**
  * Debugging purposes
@@ -360,7 +399,7 @@ protected void toStringChildren(int tab, StringBuffer buffer, Object info) {
 protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 	buffer.append(this.tabString(tab));
 	if (getElementName().length() == 0) {
-		buffer.append("[default]"); //$NON-NLS-1$
+		buffer.append("<default>"); //$NON-NLS-1$
 	} else {
 		buffer.append(getElementName());
 	}

@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.flow;
 
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.Reference;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
@@ -27,7 +27,7 @@ public class FinallyFlowContext extends FlowContext {
 	VariableBinding finalVariables[];
 	int assignCount;
 	
-	public FinallyFlowContext(FlowContext parent, AstNode associatedNode) {
+	public FinallyFlowContext(FlowContext parent, ASTNode associatedNode) {
 		super(parent, associatedNode);
 	}
 
@@ -104,7 +104,7 @@ public class FinallyFlowContext extends FlowContext {
 				(finalVariables = new VariableBinding[assignCount * 2]),
 				0,
 				assignCount);
-		};
+		}
 		finalAssignments[assignCount] = finalAssignment;
 		finalVariables[assignCount++] = binding;
 		return true;

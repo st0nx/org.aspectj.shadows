@@ -25,6 +25,7 @@ import org.eclipse.jdt.internal.compiler.ICompilerRequestor;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 
 /**
  * A evaluator builds a compilation unit and compiles it into class files.
@@ -53,7 +54,7 @@ Evaluator(EvaluationContext context, INameEnvironment environment, Map options, 
  * are computed so that they correspond to the given problem. If it is found to be an internal problem,
  * then the evaluation id of the result is the given compilation unit source.
  */
-abstract protected void addEvaluationResultForCompilationProblem(Map resultsByIDs,IProblem problem, char[] cuSource);
+protected abstract void addEvaluationResultForCompilationProblem(Map resultsByIDs,IProblem problem, char[] cuSource);
 /**
  * Returns the evaluation results that converts the given compilation result that has problems.
  * If the compilation result has more than one problem, then the problems are broken down so that
@@ -100,7 +101,7 @@ ClassFile[] getClasses() {
 				}
 			}
 			if (result.hasErrors()) {
-				hasErrors = true;
+				this.hasErrors = true;
 			} else {
 				ClassFile[] classFiles = result.getClassFiles();
 				for (int i = 0; i < classFiles.length; i++) {
@@ -129,7 +130,7 @@ ClassFile[] getClasses() {
 	compiler.compile(new ICompilationUnit[] {new ICompilationUnit() {
 		public char[] getFileName() {
 			 // Name of class is name of CU
-			return CharOperation.concat(Evaluator.this.getClassName(), ".java".toCharArray()); //$NON-NLS-1$
+			return CharOperation.concat(Evaluator.this.getClassName(), SuffixConstants.SUFFIX_java); //$NON-NLS-1$
 		}
 		public char[] getContents() {
 			return source;
@@ -153,20 +154,20 @@ ClassFile[] getClasses() {
  * Returns the name of the current class. This is the simple name of the class.
  * This doesn't include the extension ".java" nor the name of the package.
  */
-abstract protected char[] getClassName();
+protected abstract char[] getClassName();
 /**
  * Creates and returns a compiler for this evaluator.
  */
-Compiler getCompiler(ICompilerRequestor requestor) {
+Compiler getCompiler(ICompilerRequestor compilerRequestor) {
 	return new Compiler(
 		this.environment, 
 		DefaultErrorHandlingPolicies.exitAfterAllProblems(), 
 		this.options, 
-		requestor, 
+		compilerRequestor, 
 		this.problemFactory);
 }
 /**
  * Builds and returns the source for the current compilation unit.
  */
-abstract protected char[] getSource();
+protected abstract char[] getSource();
 }

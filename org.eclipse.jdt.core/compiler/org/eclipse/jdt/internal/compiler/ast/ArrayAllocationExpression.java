@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
@@ -89,6 +89,24 @@ public class ArrayAllocationExpression extends Expression {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
+
+	public StringBuffer printExpression(int indent, StringBuffer output) {
+
+		output.append("new "); //$NON-NLS-1$
+		type.print(0, output); 
+		for (int i = 0; i < dimensions.length; i++) {
+			if (dimensions[i] == null)
+				output.append("[]"); //$NON-NLS-1$
+			else {
+				output.append('[');
+				dimensions[i].printExpression(0, output);
+				output.append(']');
+			}
+		} 
+		if (initializer != null) initializer.printExpression(0, output);
+		return output;
+	}
+	
 	public TypeBinding resolveType(BlockScope scope) {
 
 		// Build an array type reference using the current dimensions
@@ -152,21 +170,8 @@ public class ArrayAllocationExpression extends Expression {
 		return this.resolvedType;
 	}
 
-	public String toStringExpression() {
 
-		String s = "new " + type.toString(0); //$NON-NLS-1$
-		for (int i = 0; i < dimensions.length; i++) {
-			if (dimensions[i] == null)
-				s = s + "[]"; //$NON-NLS-1$
-			else
-				s = s + "[" + dimensions[i].toStringExpression() + "]"; //$NON-NLS-2$ //$NON-NLS-1$
-		} 
-		if (initializer != null)
-			s = s + initializer.toStringExpression();
-		return s;
-	}
-
-	public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope scope) {
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
 
 		if (visitor.visit(this, scope)) {
 			int dimensionsLength = dimensions.length;

@@ -17,12 +17,16 @@ import org.eclipse.jdt.internal.compiler.ICompilerRequestor;
 import org.eclipse.jdt.internal.compiler.IErrorHandlingPolicy;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
-import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 
 /**
  * A compiler that compiles code snippets. 
  */
 public class CodeSnippetCompiler extends Compiler {
+	
+	EvaluationContext evaluationContext;
+	int codeSnippetStart;
+	int codeSnippetEnd;
+	
 	/**
 	 * Creates a new code snippet compiler initialized with a code snippet parser.
 	 */
@@ -38,13 +42,25 @@ public class CodeSnippetCompiler extends Compiler {
 		super(environment, policy, settings, requestor, problemFactory);
 		this.parser =
 			new CodeSnippetParser(
-				problemReporter,
+				this.problemReporter,
 				evaluationContext,
 				this.options.parseLiteralExpressionsAsConstants,
-				this.options.sourceLevel >= CompilerOptions.JDK1_4,
 				codeSnippetStart,
 				codeSnippetEnd);
 		this.parseThreshold = 1;
 		// fully parse only the code snippet compilation unit
 	}
+	
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.internal.compiler.Compiler#initializeParser()
+	 */
+	public void initializeParser() {
+		this.parser =
+			new CodeSnippetParser(
+				this.problemReporter,
+				this.evaluationContext,
+				this.options.parseLiteralExpressionsAsConstants,
+				this.codeSnippetStart,
+				this.codeSnippetEnd);
+		}
 }

@@ -40,15 +40,15 @@ public class SelectionParser extends AssistParser {
 	public static final char[] SUPER = "super".toCharArray(); //$NON-NLS-1$
 	public static final char[] THIS = "this".toCharArray(); //$NON-NLS-1$
 	
-public SelectionParser(ProblemReporter problemReporter, boolean assertMode) {
-	super(problemReporter, assertMode);
+public SelectionParser(ProblemReporter problemReporter) {
+	super(problemReporter);
 }
 public char[] assistIdentifier(){
 	return ((SelectionScanner)scanner).selectionIdentifier;
 }
 protected void attachOrphanCompletionNode(){
 	if (isOrphanCompletionNode){
-		AstNode orphan = this.assistNode;
+		ASTNode orphan = this.assistNode;
 		isOrphanCompletionNode = false;
 		
 		
@@ -182,10 +182,10 @@ protected void consumeEnterAnonymousClassBody() {
 		return;
 	}
 	QualifiedAllocationExpression alloc;
-	AnonymousLocalTypeDeclaration anonymousType = 
-		new AnonymousLocalTypeDeclaration(this.compilationUnit.compilationResult); 
-	alloc = 
-		anonymousType.allocation = new SelectionOnQualifiedAllocationExpression(anonymousType); 
+	TypeDeclaration anonymousType = new TypeDeclaration(this.compilationUnit.compilationResult); 
+		anonymousType.name = TypeDeclaration.ANONYMOUS_EMPTY_NAME;
+		anonymousType.bits |= ASTNode.AnonymousAndLocalMask;
+		alloc = anonymousType.allocation = new SelectionOnQualifiedAllocationExpression(anonymousType); 
 	markEnclosingMemberWithLocalType();
 	pushOnAstStack(anonymousType);
 
@@ -255,9 +255,10 @@ protected void consumeExitVariableWithInitialization() {
 	int start = variable.initialization.sourceStart;
 	int end =  variable.initialization.sourceEnd;
 	if ((selectionStart < start) &&  (selectionEnd < start) ||
-		(selectionStart > end) && (selectionEnd > end)) {
+			(selectionStart > end) && (selectionEnd > end)) {
 		variable.initialization = null;
 	}
+
 }
 
 protected void consumeFieldAccess(boolean isSuperAccess) {
@@ -305,16 +306,18 @@ protected void consumeFormalParameter() {
 	} else {
 
 		identifierLengthPtr--;
-		char[] name = identifierStack[identifierPtr];
+		char[] identifierName = identifierStack[identifierPtr];
 		long namePositions = identifierPositionStack[identifierPtr--];
 		TypeReference type = getTypeReference(intStack[intPtr--] + intStack[intPtr--]);
-		intPtr -= 2;
+		int modifierPositions = intStack[intPtr--];
+		intPtr--;
 		Argument arg = 
 			new SelectionOnArgumentName(
-				name, 
+				identifierName, 
 				namePositions, 
 				type, 
 				intStack[intPtr + 1] & ~AccDeprecated); // modifiers
+		arg.declarationSourceStart = modifierPositions;
 		pushOnAstStack(arg);
 		
 		assistNode = arg;
@@ -339,6 +342,19 @@ protected void consumeInstanceOfExpression(int op) {
 		this.isOrphanCompletionNode = true;
 		this.restartRecovery = true;
 		this.lastIgnoredToken = -1;
+	}
+}
+protected void consumeLocalVariableDeclarationStatement() {
+	super.consumeLocalVariableDeclarationStatement();
+	
+	// force to restart in recovery mode if the declaration contains the selection
+	if (!this.diet) {
+		LocalDeclaration localDeclaration = (LocalDeclaration) this.astStack[this.astPtr];
+		if ((this.selectionStart >= localDeclaration.sourceStart) 
+				&&  (this.selectionEnd <= localDeclaration.sourceEnd)) {
+			this.restartRecovery	= true;	
+			this.lastIgnoredToken = -1;	
+		}
 	}
 }
 protected void consumeMethodInvocationName() {
@@ -380,6 +396,9 @@ protected void consumeMethodInvocationName() {
 			public TypeBinding resolveType(BlockScope scope) {
 				constructorCall.resolve(scope);
 				return null;
+			}
+			public StringBuffer printExpression(int indent, StringBuffer output) {
+				return output; 
 			}
 		});
 	}
@@ -427,6 +446,9 @@ protected void consumeMethodInvocationPrimary() {
 				constructorCall.resolve(scope);
 				return null;
 			}
+			public StringBuffer printExpression(int indent, StringBuffer output) {
+				return output; 
+			}
 		});
 	}
 	
@@ -461,7 +483,7 @@ protected void consumeTypeImportOnDemandDeclarationName() {
 		length); 
 
 	/* build specific assist node on import statement */
-	ImportReference reference = this.createAssistImportReference(subset, positions);
+	ImportReference reference = this.createAssistImportReference(subset, positions, AccDefault);
 	reference.onDemand = true;
 	assistNode = reference;
 	this.lastCheckPoint = reference.sourceEnd + 1;
@@ -475,8 +497,8 @@ protected void consumeTypeImportOnDemandDeclarationName() {
 	}
 	//endPosition is just before the ;
 	reference.declarationSourceStart = intStack[intPtr--];
-	// flush annotations defined prior to import statements
-	reference.declarationSourceEnd = this.flushAnnotationsDefinedPriorTo(reference.declarationSourceEnd);
+	// flush comments defined prior to import statements
+	reference.declarationSourceEnd = this.flushCommentsDefinedPriorTo(reference.declarationSourceEnd);
 
 	// recovery
 	if (currentElement != null){
@@ -486,52 +508,48 @@ protected void consumeTypeImportOnDemandDeclarationName() {
 		restartRecovery = true; // used to avoid branching back into the regular automaton		
 	}
 }
-public ImportReference createAssistImportReference(char[][] tokens, long[] positions){
-	return new SelectionOnImportReference(tokens, positions);
+public ImportReference createAssistImportReference(char[][] tokens, long[] positions, int mod){
+	return new SelectionOnImportReference(tokens, positions, mod);
 }
 public ImportReference createAssistPackageReference(char[][] tokens, long[] positions){
 	return new SelectionOnPackageReference(tokens, positions);
 }
-protected LocalDeclaration createLocalDeclaration(Expression initialization,char[] name,int sourceStart,int sourceEnd) {
+protected LocalDeclaration createLocalDeclaration(char[] assistName,int sourceStart,int sourceEnd) {
 	if (this.indexOfAssistIdentifier() < 0) {
-		return super.createLocalDeclaration(initialization, name, sourceStart, sourceEnd);
+		return super.createLocalDeclaration(assistName, sourceStart, sourceEnd);
 	} else {
-		SelectionOnLocalName local = new SelectionOnLocalName(initialization, name, sourceStart, sourceEnd);
+		SelectionOnLocalName local = new SelectionOnLocalName(assistName, sourceStart, sourceEnd);
 		this.assistNode = local;
 		this.lastCheckPoint = sourceEnd + 1;
-		if (!diet){
-			this.restartRecovery	= true;	// force to restart in recovery mode
-			this.lastIgnoredToken = -1;	
-		}
 		return local;
 	}
 }
-public NameReference createQualifiedAssistNameReference(char[][] previousIdentifiers, char[] name, long[] positions){
+public NameReference createQualifiedAssistNameReference(char[][] previousIdentifiers, char[] assistName, long[] positions){
 	return new SelectionOnQualifiedNameReference(
 					previousIdentifiers, 
-					name, 
+					assistName, 
 					positions); 	
 }
-public TypeReference createQualifiedAssistTypeReference(char[][] previousIdentifiers, char[] name, long[] positions){
+public TypeReference createQualifiedAssistTypeReference(char[][] previousIdentifiers, char[] assistName, long[] positions){
 	return new SelectionOnQualifiedTypeReference(
 					previousIdentifiers, 
-					name, 
+					assistName, 
 					positions); 	
 }
-public NameReference createSingleAssistNameReference(char[] name, long position) {
-	return new SelectionOnSingleNameReference(name, position);
+public NameReference createSingleAssistNameReference(char[] assistName, long position) {
+	return new SelectionOnSingleNameReference(assistName, position);
 }
-public TypeReference createSingleAssistTypeReference(char[] name, long position) {
-	return new SelectionOnSingleTypeReference(name, position);
+public TypeReference createSingleAssistTypeReference(char[] assistName, long position) {
+	return new SelectionOnSingleTypeReference(assistName, position);
 }
-public CompilationUnitDeclaration dietParse(ICompilationUnit sourceUnit, CompilationResult compilationResult, int selectionStart, int selectionEnd) {
+public CompilationUnitDeclaration dietParse(ICompilationUnit sourceUnit, CompilationResult compilationResult, int start, int end) {
 
-	this.selectionStart = selectionStart;
-	this.selectionEnd = selectionEnd;	
+	this.selectionStart = start;
+	this.selectionEnd = end;	
 	SelectionScanner selectionScanner = (SelectionScanner)this.scanner;
 	selectionScanner.selectionIdentifier = null;
-	selectionScanner.selectionStart = selectionStart;
-	selectionScanner.selectionEnd = selectionEnd;	
+	selectionScanner.selectionStart = start;
+	selectionScanner.selectionEnd = end;	
 	return this.dietParse(sourceUnit, compilationResult);
 }
 protected NameReference getUnspecifiedReference() {
@@ -622,7 +640,7 @@ protected NameReference getUnspecifiedReferenceOptimized() {
 	return reference;
 }
 public void initializeScanner(){
-	this.scanner = new SelectionScanner(this.assertMode);
+	this.scanner = new SelectionScanner(this.options.sourceLevel);
 }
 protected MessageSend newMessageSend() {
 	// '(' ArgumentListopt ')'
@@ -642,7 +660,7 @@ protected MessageSend newMessageSend() {
 			messageSend.arguments = new Expression[length], 
 			0, 
 			length); 
-	};
+	}
 	assistNode = messageSend;
 	if (!diet){
 		this.restartRecovery	= true;	// force to restart in recovery mode
@@ -652,15 +670,17 @@ protected MessageSend newMessageSend() {
 	this.isOrphanCompletionNode = true;
 	return messageSend;
 }
-public CompilationUnitDeclaration parse(ICompilationUnit sourceUnit, CompilationResult compilationResult, int selectionStart, int selectionEnd) {
+public CompilationUnitDeclaration parse(ICompilationUnit sourceUnit, CompilationResult compilationResult, int start, int end) {
 
-	this.selectionStart = selectionStart;
-	this.selectionEnd = selectionEnd;	
+	if (end == -1) return super.parse(sourceUnit, compilationResult, start, end);
+	
+	this.selectionStart = start;
+	this.selectionEnd = end;	
 	SelectionScanner selectionScanner = (SelectionScanner)this.scanner;
 	selectionScanner.selectionIdentifier = null;
-	selectionScanner.selectionStart = selectionStart;
-	selectionScanner.selectionEnd = selectionEnd;	
-	return this.parse(sourceUnit, compilationResult);
+	selectionScanner.selectionStart = start;
+	selectionScanner.selectionEnd = end;	
+	return super.parse(sourceUnit, compilationResult, -1, -1/*parse without reseting the scanner*/);
 }
 /*
  * Reset context so as to resume to regular parse loop

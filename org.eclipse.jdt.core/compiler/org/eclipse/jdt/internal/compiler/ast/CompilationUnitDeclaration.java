@@ -17,13 +17,12 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
 
 public class CompilationUnitDeclaration
-	extends AstNode
+	extends ASTNode
 	implements ProblemSeverities, ReferenceContext {
 		
 	public ImportReference currentPackage;
 	public ImportReference[] imports;
 	public TypeDeclaration[] types;
-	//public char[][] name;
 
 	public boolean ignoreFurtherInvestigation = false;	// once pointless to investigate due to errors
 	public boolean ignoreMethodBodies = false;
@@ -31,8 +30,8 @@ public class CompilationUnitDeclaration
 	public ProblemReporter problemReporter;
 	public CompilationResult compilationResult;
 
-	private LocalTypeBinding[] localTypes;
-	int localTypeCount = 0;
+	public LocalTypeBinding[] localTypes;
+	public int localTypeCount = 0;
 	
 	public boolean isPropagatingInnerClassEmulation;
 
@@ -57,11 +56,11 @@ public class CompilationUnitDeclaration
 
 		switch (abortLevel) {
 			case AbortType :
-				throw new AbortType(compilationResult);
+				throw new AbortType(this.compilationResult);
 			case AbortMethod :
-				throw new AbortMethod(compilationResult);
+				throw new AbortMethod(this.compilationResult);
 			default :
-				throw new AbortCompilationUnit(compilationResult);
+				throw new AbortCompilationUnit(this.compilationResult);
 		}
 	}
 
@@ -177,6 +176,7 @@ public class CompilationUnitDeclaration
 					types[i].generateCode(scope);
 			}
 		} catch (AbortCompilationUnit e) {
+			// ignore
 		}
 	}
 
@@ -213,6 +213,26 @@ public class CompilationUnitDeclaration
 		return this.ignoreFurtherInvestigation;
 	}
 
+	public StringBuffer print(int indent, StringBuffer output) {
+
+		if (currentPackage != null) {
+			printIndent(indent, output).append("package "); //$NON-NLS-1$
+			currentPackage.print(0, output, false).append(";\n"); //$NON-NLS-1$
+		}
+		if (imports != null)
+			for (int i = 0; i < imports.length; i++) {
+				printIndent(indent, output).append("import "); //$NON-NLS-1$
+				imports[i].print(0, output).append(";\n"); //$NON-NLS-1$ 
+			}
+
+		if (types != null) {
+			for (int i = 0; i < types.length; i++) {
+				types[i].print(indent, output).append("\n"); //$NON-NLS-1$
+			}
+		}
+		return output;
+	}
+	
 	/*
 	 * Force inner local types to update their innerclass emulation
 	 */
@@ -262,50 +282,33 @@ public class CompilationUnitDeclaration
 		ignoreFurtherInvestigation = true;
 	}
 
-	public String toString(int tab) {
-
-		String s = ""; //$NON-NLS-1$
-		if (currentPackage != null)
-			s = tabString(tab) + "package " + currentPackage.toString(0, false) + ";\n"; //$NON-NLS-1$ //$NON-NLS-2$
-
-		if (imports != null)
-			for (int i = 0; i < imports.length; i++) {
-				s += tabString(tab) + "import " + imports[i].toString() + ";\n"; //$NON-NLS-1$ //$NON-NLS-2$
-			};
-
-		if (types != null)
-			for (int i = 0; i < types.length; i++) {
-				s += types[i].toString(tab) + "\n"; //$NON-NLS-1$
-			}
-		return s;
-	}
-
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
-		CompilationUnitScope scope) {
+		ASTVisitor visitor,
+		CompilationUnitScope unitScope) {
 
 		if (ignoreFurtherInvestigation)
 			return;
 		try {
-			if (visitor.visit(this, scope)) {
+			if (visitor.visit(this, this.scope)) {
 				if (currentPackage != null) {
-					currentPackage.traverse(visitor, scope);
+					currentPackage.traverse(visitor, this.scope);
 				}
 				if (imports != null) {
 					int importLength = imports.length;
 					for (int i = 0; i < importLength; i++) {
-						imports[i].traverse(visitor, scope);
+						imports[i].traverse(visitor, this.scope);
 					}
 				}
 				if (types != null) {
 					int typesLength = types.length;
 					for (int i = 0; i < typesLength; i++) {
-						types[i].traverse(visitor, scope);
+						types[i].traverse(visitor, this.scope);
 					}
 				}
 			}
-			visitor.endVisit(this, scope);
+			visitor.endVisit(this, this.scope);
 		} catch (AbortCompilationUnit e) {
+			// ignore
 		}
 	}
 }

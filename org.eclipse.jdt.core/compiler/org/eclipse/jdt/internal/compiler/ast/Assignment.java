@@ -11,7 +11,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -89,13 +89,38 @@ public class Assignment extends Expression {
 		}
 		return null;
 	}
+	public StringBuffer print(int indent, StringBuffer output) {
+
+		//no () when used as a statement 
+		printIndent(indent, output);
+		return printExpressionNoParenthesis(indent, output);
+	}
+	public StringBuffer printExpression(int indent, StringBuffer output) {
+
+		//subclass redefine printExpressionNoParenthesis()
+		output.append('(');
+		return printExpressionNoParenthesis(0, output).append(')');
+	} 
+
+	public StringBuffer printExpressionNoParenthesis(int indent, StringBuffer output) {
+
+		lhs.printExpression(indent, output).append(" = "); //$NON-NLS-1$
+		return expression.printExpression(0, output);
+	}
+	
+	public StringBuffer printStatement(int indent, StringBuffer output) {
+
+		//no () when used as a statement 
+		return print(indent, output).append(';');
+	}
 
 	public TypeBinding resolveType(BlockScope scope) {
 
 		// due to syntax lhs may be only a NameReference, a FieldReference or an ArrayReference
 		constant = NotAConstant;
-		if (!(this.lhs instanceof Reference)) {
+		if (!(this.lhs instanceof Reference) || this.lhs.isThis()) {
 			scope.problemReporter().expressionShouldBeAVariable(this.lhs);
+			return null;
 		}
 		this.resolvedType = lhs.resolveType(scope); // expressionType contains the assignment type (lhs Type)
 		TypeBinding rhsType = expression.resolveType(scope);
@@ -118,29 +143,25 @@ public class Assignment extends Expression {
 			this.resolvedType);
 		return this.resolvedType;
 	}
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.internal.compiler.ast.Expression#resolveTypeExpecting(org.eclipse.jdt.internal.compiler.lookup.BlockScope, org.eclipse.jdt.internal.compiler.lookup.TypeBinding)
+	 */
+	public TypeBinding resolveTypeExpecting(
+			BlockScope scope,
+			TypeBinding expectedType) {
 
-	public String toString(int tab) {
+		TypeBinding type = super.resolveTypeExpecting(scope, expectedType);
+		// signal possible accidental boolean assignment (instead of using '==' operator)
+		if (expectedType == BooleanBinding 
+				&& this.lhs.resolvedType == BooleanBinding 
+				&& (this.lhs.bits & IsStrictlyAssignedMASK) != 0) {
+			scope.problemReporter().possibleAccidentalBooleanAssignment(this);
+		}
 
-		//no () when used as a statement 
-		return tabString(tab) + toStringExpressionNoParenthesis();
+		return type;
 	}
 
-	public String toStringExpression() {
-
-		//subclass redefine toStringExpressionNoParenthesis()
-		return "(" + toStringExpressionNoParenthesis() + ")"; //$NON-NLS-2$ //$NON-NLS-1$
-	} 
-	
-	public String toStringExpressionNoParenthesis() {
-
-		return lhs.toStringExpression() + " " //$NON-NLS-1$
-			+ "=" //$NON-NLS-1$
-			+ ((expression.constant != null) && (expression.constant != NotAConstant)
-				? " /*cst:" + expression.constant.toString() + "*/ " //$NON-NLS-1$ //$NON-NLS-2$
-				: " ")  //$NON-NLS-1$
-			+ expression.toStringExpression();
-	}
-	public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope scope) {
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
 		
 		if (visitor.visit(this, scope)) {
 			lhs.traverse(visitor, scope);

@@ -10,7 +10,10 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.hierarchy;
 
+import java.util.ArrayList;
+
 import org.eclipse.core.runtime.CoreException;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaElementDelta;
 import org.eclipse.jdt.core.IJavaProject;
@@ -22,45 +25,40 @@ import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.internal.core.CompilationUnit;
 import org.eclipse.jdt.internal.core.JavaElement;
 import org.eclipse.jdt.internal.core.Openable;
-import org.eclipse.jdt.internal.core.Region;
 import org.eclipse.jdt.internal.core.TypeVector;
 
 public class RegionBasedTypeHierarchy extends TypeHierarchy {
 	/**
 	 * The region of types for which to build the hierarchy
 	 */
-	protected IRegion fRegion;
+	protected IRegion region;
 
-	/**
-	 * The Java Project in which the hierarchy is being built - this
-	 * provides the context for determining a classpath and namelookup rules/
-	 */
-	protected IJavaProject fProject;
 /**
  * Creates a TypeHierarchy on the types in the specified region,
+ * considering first the given working copies,
  * using the given project for a name lookup contenxt. If a specific
  * type is also specified, the type hierarchy is pruned to only
  * contain the branch including the specified type.
  */
-public RegionBasedTypeHierarchy(IRegion region, IJavaProject project, IType type, boolean computeSubtypes) throws JavaModelException {
-	super(type, (IJavaSearchScope)null, computeSubtypes);
-	fRegion = region;
-	fProject = project;
+public RegionBasedTypeHierarchy(IRegion region, IJavaProject project, ICompilationUnit[] workingCopies, IType type, boolean computeSubtypes) {
+	super(type, workingCopies, (IJavaSearchScope)null, computeSubtypes);
+	this.region = region;
+	this.project = project;
 }
-/**
- * Activates this hierarchy for change listeners
+/*
+ * @see TypeHierarchy#initializeRegions
  */
-protected void activate() {
-	super.activate();
-	IJavaElement[] roots = fRegion.getElements();
+protected void initializeRegions() {
+	super.initializeRegions();
+	IJavaElement[] roots = this.region.getElements();
 	for (int i = 0; i < roots.length; i++) {
 		IJavaElement root = roots[i];
 		if (root instanceof IOpenable) {
-			this.files.put(root, root);
+			this.files.put(root, new ArrayList());
 		} else {
 			Openable o = (Openable) ((JavaElement) root).getOpenableParent();
 			if (o != null) {
-				this.files.put(o, o);
+				this.files.put(o, new ArrayList());
 			}
 		}
 		checkCanceled();
@@ -73,19 +71,15 @@ protected void compute() throws JavaModelException, CoreException {
 	HierarchyBuilder builder = new RegionBasedHierarchyBuilder(this);
 	builder.build(this.computeSubtypes);
 }
-protected void destroy() {
-	fRegion = new Region();
-	super.destroy();	
-}
 protected boolean isAffectedByOpenable(IJavaElementDelta delta, IJavaElement element) {
-	// ignore changes to working copies
+	// change to working copy
 	if (element instanceof CompilationUnit && ((CompilationUnit)element).isWorkingCopy()) {
-		return false;
+		return super.isAffectedByOpenable(delta, element);
 	}
 
 	// if no focus, hierarchy is affected if the element is part of the region
-	if (this.type == null) {
-		return fRegion.contains(element);
+	if (this.focusType == null) {
+		return this.region.contains(element);
 	} else {
 		return super.isAffectedByOpenable(delta, element);
 	}
@@ -94,7 +88,7 @@ protected boolean isAffectedByOpenable(IJavaElementDelta delta, IJavaElement ele
  * Returns the java project this hierarchy was created in.
  */
 public IJavaProject javaProject() {
-	return fProject;
+	return this.project;
 }
 public void pruneDeadBranches() {
 	this.pruneDeadBranches(this.getRootClasses(), false);
@@ -102,7 +96,7 @@ public void pruneDeadBranches() {
 private void pruneDeadBranches(IType[] types, boolean superInRegion) {
 	for (int i = 0, length = types.length; i < length; i++) {
 		IType type = types[i];
-		if (fRegion.contains(type)) {
+		if (this.region.contains(type)) {
 			TypeVector subtypes = (TypeVector)this.typeToSubtypes.get(type);
 			if (subtypes != null) {
 				this.pruneDeadBranches(subtypes.copy().elements(), true);

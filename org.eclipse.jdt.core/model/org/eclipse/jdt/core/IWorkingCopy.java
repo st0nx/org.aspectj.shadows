@@ -49,6 +49,7 @@ import org.eclipse.core.runtime.IProgressMonitor;
  * <p>
  * This interface is not intended to be implemented by clients.
  * </p>
+ * @deprecated Use <code>ICompilationUnit</code>instead
  */
 public interface IWorkingCopy {
 	
@@ -118,6 +119,7 @@ public interface IWorkingCopy {
 	 * or <code>null</code> if this is not a working copy element.  This is a handle
 	 * only method, the returned element may or may not exist.
 	 * 
+	 * @param workingCopyElement the specified working copy element
 	 * @return the original element the specified working copy element was created from,
 	 * or <code>null</code> if this is not a working copy element
 	 */
@@ -269,6 +271,7 @@ public interface IWorkingCopy {
 	 * Returns whether this working copy's original element's content
 	 * has not changed since the inception of this working copy.
 	 * 
+	 * @param resource this working copy's resource
 	 * @return true if this working copy's original element's content
 	 * has not changed since the inception of this working copy, false otherwise
 	 */
@@ -289,16 +292,14 @@ public interface IWorkingCopy {
 	 * this delta.
 	 * <p>
 	 * If the working copy hasn't changed, then no problem will be detected,
-	 * this is equivalent to <code>IWorkingCopy#reconcile(false, null)</code>.
+	 * this is equivalent to <code>IWorkingCopy#reconcile(false, null)</code>.</p>
 	 * <p>
 	 * Compilation problems found in the new contents are notified through the
 	 * <code>IProblemRequestor</code> interface which was passed at
 	 * creation, and no longer as transient markers. Therefore this API will
-	 * return <code>null</code>.
+	 * return <code>null</code>.</p>
 	 * <p>
-	 * Note: It has been assumed that added inner types should
-	 * not generate change deltas.  The implementation has been
-	 * modified to reflect this assumption.
+ 	 * Note: Since 3.0 added/removed/changed inner types generate change deltas.</p>
 	 *
 	 * @exception JavaModelException if the contents of the original element
 	 *		cannot be accessed. Reasons include:
@@ -317,16 +318,14 @@ public interface IWorkingCopy {
 	 * this delta.
 	 * <p>
 	 * The boolean argument allows to force problem detection even if the
-	 * working copy is already consistent.
+	 * working copy is already consistent.</p>
 	 * <p>
 	 * Compilation problems found in the new contents are notified through the
 	 * <code>IProblemRequestor</code> interface which was passed at
 	 * creation, and no longer as transient markers. Therefore this API answers
-	 * nothing.
+	 * nothing.</p>
 	 * <p>
-	 * Note: It has been assumed that added inner types should
-	 * not generate change deltas.  The implementation has been
-	 * modified to reflect this assumption.
+ 	 * Note: Since 3.0 added/removed/changed inner types generate change deltas.</p>
 	 *
 	 * @param forceProblemDetection boolean indicating whether problem should be recomputed
 	 *   even if the source hasn't changed.

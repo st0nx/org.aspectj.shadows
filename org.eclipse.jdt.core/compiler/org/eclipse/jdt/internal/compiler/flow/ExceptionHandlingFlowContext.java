@@ -12,10 +12,12 @@ package org.eclipse.jdt.internal.compiler.flow;
 
 import java.util.ArrayList;
 
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
+import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.TryStatement;
 import org.eclipse.jdt.internal.compiler.codegen.ObjectCache;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
+import org.eclipse.jdt.internal.compiler.lookup.MethodScope;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.Scope;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
@@ -42,7 +44,7 @@ public class ExceptionHandlingFlowContext extends FlowContext {
 	
 	public ExceptionHandlingFlowContext(
 		FlowContext parent,
-		AstNode associatedNode,
+		ASTNode associatedNode,
 		ReferenceBinding[] handledExceptions,
 		BlockScope scope,
 		UnconditionalFlowInfo flowInfo) {
@@ -70,8 +72,23 @@ public class ExceptionHandlingFlowContext extends FlowContext {
 		this.initsOnReturn = FlowInfo.DEAD_END;	
 	}
 
+	public void complainIfUnusedExceptionHandlers(AbstractMethodDeclaration method) {
+		MethodScope scope = method.scope;
+		// report errors for unreachable exception handlers
+		for (int i = 0, count = handledExceptions.length; i < count; i++) {
+			int index = indexes.get(handledExceptions[i]);
+			int cacheIndex = index / BitCacheSize;
+			int bitMask = 1 << (index % BitCacheSize);
+			if ((isReached[cacheIndex] & bitMask) == 0) {
+				scope.problemReporter().unusedDeclaredThrownException(
+					handledExceptions[index],
+					method,
+					method.thrownExceptions[index]);
+			}
+		}
+	}
+	
 	public void complainIfUnusedExceptionHandlers(
-		AstNode[] exceptionHandlers,
 		BlockScope scope,
 		TryStatement tryStatement) {
 		// report errors for unreachable exception handlers
@@ -80,19 +97,17 @@ public class ExceptionHandlingFlowContext extends FlowContext {
 			int cacheIndex = index / BitCacheSize;
 			int bitMask = 1 << (index % BitCacheSize);
 			if ((isReached[cacheIndex] & bitMask) == 0) {
-				scope.problemReporter().unreachableExceptionHandler(
+				scope.problemReporter().unreachableCatchBlock(
 					handledExceptions[index],
-					exceptionHandlers[index]);
+					tryStatement.catchArguments[index].type);
 			} else {
 				if ((isNeeded[cacheIndex] & bitMask) == 0) {
-					scope.problemReporter().maskedExceptionHandler(
+					scope.problemReporter().hiddenCatchBlock(
 						handledExceptions[index],
-						exceptionHandlers[index]);
+						tryStatement.catchArguments[index].type);
 				}
 			}
 		}
-		// will optimized out unnecessary catch block during code gen
-		tryStatement.preserveExceptionHandler = isNeeded;
 	}
 
 	public String individualToString() {
@@ -135,7 +150,7 @@ public class ExceptionHandlingFlowContext extends FlowContext {
 		ReferenceBinding exceptionType,
 		UnconditionalFlowInfo flowInfo,
 		TypeBinding raisedException,
-		AstNode invocationSite,
+		ASTNode invocationSite,
 		boolean wasAlreadyDefinitelyCaught) {
 			
 		int index = indexes.get(exceptionType);
@@ -150,7 +165,7 @@ public class ExceptionHandlingFlowContext extends FlowContext {
 		initsOnExceptions[index] =
 			initsOnExceptions[index] == FlowInfo.DEAD_END
 				? flowInfo.copy().unconditionalInits()
-				: initsOnExceptions[index].mergedWith(flowInfo);
+				: initsOnExceptions[index].mergedWith(flowInfo.copy().unconditionalInits());
 	}
 	
 	public void recordReturnFrom(FlowInfo flowInfo) {
@@ -159,7 +174,7 @@ public class ExceptionHandlingFlowContext extends FlowContext {
 		if (initsOnReturn == FlowInfo.DEAD_END) {
 			initsOnReturn = flowInfo.copy().unconditionalInits();
 		} else {
-			initsOnReturn = initsOnReturn.mergedWith(flowInfo.unconditionalInits());
+			initsOnReturn = initsOnReturn.mergedWith(flowInfo.copy().unconditionalInits());
 		}
 	}
 	

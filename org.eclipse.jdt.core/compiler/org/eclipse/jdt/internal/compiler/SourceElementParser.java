@@ -10,6 +10,14 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
+import org.eclipse.jdt.internal.compiler.env.*;
+import org.eclipse.jdt.internal.compiler.impl.*;
+import org.eclipse.jdt.core.compiler.*;
+import org.eclipse.jdt.internal.compiler.ast.*;
+import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.parser.*;
+import org.eclipse.jdt.internal.compiler.problem.*;
+
 /**
  * A source element parser extracts structural and reference information
  * from a piece of source.
@@ -28,21 +36,10 @@ package org.eclipse.jdt.internal.compiler;
  *
  * Any (parsing) problem encountered is also provided.
  */
-
-import org.eclipse.jdt.internal.compiler.env.*;
-import org.eclipse.jdt.internal.compiler.impl.*;
-import org.eclipse.jdt.core.compiler.*;
-import org.eclipse.jdt.internal.compiler.ast.*;
-import org.eclipse.jdt.internal.compiler.lookup.*;
-import org.eclipse.jdt.internal.compiler.parser.*;
-import org.eclipse.jdt.internal.compiler.problem.*;
-
 public class SourceElementParser extends Parser {
 	
 	ISourceElementRequestor requestor;
 	int fieldCount;
-	int localIntPtr;
-	int lastFieldEndPosition;
 	ISourceType sourceType;
 	boolean reportReferenceInfo;
 	char[][] typeNames;
@@ -57,18 +54,12 @@ public class SourceElementParser extends Parser {
 /**
  * An ast visitor that visits local type declarations.
  */
-public class LocalDeclarationVisitor extends AbstractSyntaxTreeVisitorAdapter {
-	public boolean visit(
-			AnonymousLocalTypeDeclaration anonymousTypeDeclaration,
-			BlockScope scope) {
-		notifySourceElementRequestor(anonymousTypeDeclaration, sourceType == null);
-		return false; // don't visit members as this was done during notifySourceElementRequestor(...)
-	}
-	public boolean visit(LocalTypeDeclaration typeDeclaration, BlockScope scope) {
+public class LocalDeclarationVisitor extends ASTVisitor {
+	public boolean visit(TypeDeclaration typeDeclaration, BlockScope scope) {
 		notifySourceElementRequestor(typeDeclaration, sourceType == null);
 		return false; // don't visit members as this was done during notifySourceElementRequestor(...)
 	}
-	public boolean visit(MemberTypeDeclaration typeDeclaration, ClassScope scope) {
+	public boolean visit(TypeDeclaration typeDeclaration, ClassScope scope) {
 		notifySourceElementRequestor(typeDeclaration, sourceType == null);
 		return false; // don't visit members as this was done during notifySourceElementRequestor(...)
 	}
@@ -85,25 +76,17 @@ public SourceElementParser(
 		DefaultErrorHandlingPolicies.exitAfterAllProblems(),
 		options, 
 		problemFactory) {
-		public void record(IProblem problem, CompilationResult unitResult, ReferenceContext referenceContext) {
-			unitResult.record(problem, referenceContext);
+		public void record(IProblem problem, CompilationResult unitResult, ReferenceContext context) {
+			unitResult.record(problem, context); // TODO (jerome) clients are trapping problems either through factory or requestor... is result storing needed?
 			requestor.acceptProblem(problem);
 		}
 	},
-	true,
-	options.sourceLevel >= CompilerOptions.JDK1_4);
+	true);
 	this.requestor = requestor;
 	typeNames = new char[4][];
 	superTypeNames = new char[4][];
 	nestedTypeIndex = 0;
 	this.options = options;
-}
-
-/** @deprecated use SourceElementParser(ISourceElementRequestor, IProblemFactory, CompilerOptions) */
-public SourceElementParser(
-	final ISourceElementRequestor requestor, 
-	IProblemFactory problemFactory) {
-		this(requestor, problemFactory, new CompilerOptions());
 }
 
 public SourceElementParser(
@@ -117,17 +100,57 @@ public SourceElementParser(
 		}
 }
 
-public void checkAnnotation() {
-	int firstCommentIndex = scanner.commentPtr;
+public void checkComment() {
+	super.checkComment();
+	if (this.reportReferenceInfo && this.javadocParser.checkJavadoc && this.javadoc != null) {
+		// Report reference info in javadoc comment @throws/@exception tags
+		TypeReference[] thrownExceptions = this.javadoc.thrownExceptions;
+		int throwsTagsNbre = thrownExceptions == null ? 0 : thrownExceptions.length;
+		for (int i = 0; i < throwsTagsNbre; i++) {
+			TypeReference typeRef = thrownExceptions[i];
+			if (typeRef instanceof JavadocSingleTypeReference) {
+				JavadocSingleTypeReference singleRef = (JavadocSingleTypeReference) typeRef;
+				this.requestor.acceptTypeReference(singleRef.token, singleRef.sourceStart);
+			} else if (typeRef instanceof JavadocQualifiedTypeReference) {
+				JavadocQualifiedTypeReference qualifiedRef = (JavadocQualifiedTypeReference) typeRef;
+				this.requestor.acceptTypeReference(qualifiedRef.tokens, qualifiedRef.sourceStart, qualifiedRef.sourceEnd);
+			}
+		}
 
-	super.checkAnnotation();
-
-	// modify the modifier source start to point at the first comment
-	if (firstCommentIndex >= 0) {
-		modifiersSourceStart = scanner.commentStarts[0]; 
+		// Report reference info in javadoc comment @see tags
+		Expression[] references = this.javadoc.references;
+		int seeTagsNbre = references == null ? 0 : references.length;
+		for (int i = 0; i < seeTagsNbre; i++) {
+			Expression reference = references[i];
+			acceptJavadocTypeReference(reference);
+			if (reference instanceof JavadocFieldReference) {
+				JavadocFieldReference fieldRef = (JavadocFieldReference) reference;
+				this.requestor.acceptFieldReference(fieldRef.token, fieldRef.sourceStart);
+				acceptJavadocTypeReference(fieldRef.receiver);
+			} else if (reference instanceof JavadocMessageSend) {
+				JavadocMessageSend messageSend = (JavadocMessageSend) reference;
+				int argCount = messageSend.arguments == null ? 0 : messageSend.arguments.length;
+				this.requestor.acceptMethodReference(messageSend.selector, argCount, messageSend.sourceStart);
+				acceptJavadocTypeReference(messageSend.receiver);
+			} else if (reference instanceof JavadocAllocationExpression) {
+				JavadocAllocationExpression constructor = (JavadocAllocationExpression) reference;
+				int argCount = constructor.arguments == null ? 0 : constructor.arguments.length;
+				char[][] compoundName = constructor.type.getTypeName();
+				this.requestor.acceptConstructorReference(compoundName[compoundName.length-1], argCount, constructor.sourceStart);
+				acceptJavadocTypeReference(constructor.type);
+			}
+		}
 	}
 }
-
+private void acceptJavadocTypeReference(Expression expression) {
+	if (expression instanceof JavadocSingleTypeReference) {
+		JavadocSingleTypeReference singleRef = (JavadocSingleTypeReference) expression;
+		this.requestor.acceptTypeReference(singleRef.token, singleRef.sourceStart);
+	} else if (expression instanceof JavadocQualifiedTypeReference) {
+		JavadocQualifiedTypeReference qualifiedRef = (JavadocQualifiedTypeReference) expression;
+		this.requestor.acceptTypeReference(qualifiedRef.tokens, qualifiedRef.sourceStart, qualifiedRef.sourceEnd);
+	}
+}
 protected void classInstanceCreation(boolean alwaysQualified) {
 
 	boolean previousFlag = reportReferenceInfo;
@@ -166,6 +189,9 @@ protected void consumeConstructorHeaderName() {
 	//modifiers
 	cd.declarationSourceStart = intStack[intPtr--];
 	cd.modifiers = intStack[intPtr--];
+	// javadoc
+	cd.javadoc = this.javadoc;
+	this.javadoc = null;
 
 	//highlight starts at the selector starts
 	cd.sourceStart = (int) (selectorSourcePositions >>> 32);
@@ -186,7 +212,7 @@ protected void consumeConstructorHeaderName() {
 		}
 	}	
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -207,7 +233,7 @@ protected void consumeExitVariableWithoutInitialization() {
 		return;
 	((SourceFieldDeclaration) astStack[astPtr]).fieldEndPosition = scanner.currentPosition - 1;
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -233,6 +259,9 @@ protected void consumeMethodHeaderName() {
 	//modifiers
 	md.declarationSourceStart = intStack[intPtr--];
 	md.modifiers = intStack[intPtr--];
+	// javadoc
+	md.javadoc = this.javadoc;
+	this.javadoc = null;
 
 	//highlight starts at selector start
 	md.sourceStart = (int) (selectorSourcePositions >>> 32);
@@ -257,7 +286,7 @@ protected void consumeMethodHeaderName() {
 		}
 	}		
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -275,7 +304,7 @@ protected void consumeMethodInvocationName() {
 			(int)(messageSend.nameSourcePosition >>> 32));
 	}
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -290,7 +319,7 @@ protected void consumeMethodInvocationPrimary() {
 			(int)(messageSend.nameSourcePosition >>> 32));
 	}
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -328,8 +357,28 @@ protected void consumeTypeImportOnDemandDeclarationName() {
 		requestor.acceptUnknownReference(impt.tokens, impt.sourceStart, impt.sourceEnd);
 	}
 }
-protected FieldDeclaration createFieldDeclaration(Expression initialization, char[] name, int sourceStart, int sourceEnd) {
-	return new SourceFieldDeclaration(null, name, sourceStart, sourceEnd);
+public MethodDeclaration convertToMethodDeclaration(ConstructorDeclaration c, CompilationResult compilationResult) {
+	SourceMethodDeclaration m = new SourceMethodDeclaration(compilationResult);
+	m.sourceStart = c.sourceStart;
+	m.sourceEnd = c.sourceEnd;
+	m.bodyStart = c.bodyStart;
+	m.bodyEnd = c.bodyEnd;
+	m.declarationSourceEnd = c.declarationSourceEnd;
+	m.declarationSourceStart = c.declarationSourceStart;
+	m.selector = c.selector;
+	m.statements = c.statements;
+	m.modifiers = c.modifiers;
+	m.arguments = c.arguments;
+	m.thrownExceptions = c.thrownExceptions;
+	m.explicitDeclarations = c.explicitDeclarations;
+	m.returnType = null;
+	if (c instanceof SourceConstructorDeclaration) {
+		m.selectorSourceEnd = ((SourceConstructorDeclaration)c).selectorSourceEnd;
+	}
+	return m;
+}
+protected FieldDeclaration createFieldDeclaration(char[] fieldName, int sourceStart, int sourceEnd) {
+	return new SourceFieldDeclaration(fieldName, sourceStart, sourceEnd);
 }
 protected CompilationUnitDeclaration endParse(int act) {
 	if (sourceType != null) {
@@ -345,23 +394,6 @@ protected CompilationUnitDeclaration endParse(int act) {
 	} else {
 		return null;
 	}		
-}
-/*
- * Flush annotations defined prior to a given positions.
- *
- * Note: annotations are stacked in syntactical order
- *
- * Either answer given <position>, or the end position of a comment line 
- * immediately following the <position> (same line)
- *
- * e.g.
- * void foo(){
- * } // end of method foo
- */
- 
-public int flushAnnotationsDefinedPriorTo(int position) {
-
-	return lastFieldEndPosition = super.flushAnnotationsDefinedPriorTo(position);
 }
 public TypeReference getTypeReference(int dim) {
 	/* build a Reference on a variable that may be qualified or not
@@ -453,9 +485,12 @@ public NameReference getUnspecifiedReference() {
 		char[][] tokens = new char[length][];
 		identifierPtr -= length;
 		System.arraycopy(identifierStack, identifierPtr + 1, tokens, 0, length);
+		long[] positions = new long[length];
+		System.arraycopy(identifierPositionStack, identifierPtr + 1, positions, 0, length);
 		QualifiedNameReference ref = 
 			new QualifiedNameReference(
 				tokens, 
+				positions,
 				(int) (identifierPositionStack[identifierPtr + 1] >> 32), // sourceStart
 				(int) identifierPositionStack[identifierPtr + length]); // sourceEnd
 		if (reportReferenceInfo) {
@@ -479,7 +514,7 @@ public NameReference getUnspecifiedReferenceOptimized() {
 			new SingleNameReference(
 				identifierStack[identifierPtr], 
 				identifierPositionStack[identifierPtr--]); 
-		ref.bits &= ~AstNode.RestrictiveFlagMASK;
+		ref.bits &= ~ASTNode.RestrictiveFlagMASK;
 		ref.bits |= LOCAL | FIELD;
 		if (reportReferenceInfo) {
 			this.addUnknownRef(ref);
@@ -496,20 +531,23 @@ public NameReference getUnspecifiedReferenceOptimized() {
 	char[][] tokens = new char[length][];
 	identifierPtr -= length;
 	System.arraycopy(identifierStack, identifierPtr + 1, tokens, 0, length);
+	long[] positions = new long[length];
+	System.arraycopy(identifierPositionStack, identifierPtr + 1, positions, 0, length);
 	QualifiedNameReference ref = 
 		new QualifiedNameReference(
 			tokens, 
+			positions,
 			(int) (identifierPositionStack[identifierPtr + 1] >> 32), 
 	// sourceStart
 	 (int) identifierPositionStack[identifierPtr + length]); // sourceEnd
-	ref.bits &= ~AstNode.RestrictiveFlagMASK;
+	ref.bits &= ~ASTNode.RestrictiveFlagMASK;
 	ref.bits |= LOCAL | FIELD;
 	if (reportReferenceInfo) {
 		this.addUnknownRef(ref);
 	}
 	return ref;
 }
-/**
+/*
  *
  * INTERNAL USE-ONLY
  */
@@ -546,7 +584,7 @@ public void notifySourceElementRequestor(CompilationUnitDeclaration parsedUnit) 
 	}
 	// collect the top level ast nodes
 	int length = 0;
-	AstNode[] nodes = null;
+	ASTNode[] nodes = null;
 	if (sourceType == null){
 		if (isInRange) {
 			requestor.enterCompilationUnit();
@@ -558,7 +596,7 @@ public void notifySourceElementRequestor(CompilationUnitDeclaration parsedUnit) 
 			(currentPackage == null ? 0 : 1) 
 			+ (imports == null ? 0 : imports.length)
 			+ (types == null ? 0 : types.length);
-		nodes = new AstNode[length];
+		nodes = new ASTNode[length];
 		int index = 0;
 		if (currentPackage != null) {
 			nodes[index++] = currentPackage;
@@ -577,7 +615,7 @@ public void notifySourceElementRequestor(CompilationUnitDeclaration parsedUnit) 
 		TypeDeclaration[] types = parsedUnit.types;
 		if (types != null) {
 			length = types.length;
-			nodes = new AstNode[length];
+			nodes = new ASTNode[length];
 			for (int i = 0, max = types.length; i < max; i++) {
 				nodes[i] = types[i];
 			}
@@ -588,7 +626,7 @@ public void notifySourceElementRequestor(CompilationUnitDeclaration parsedUnit) 
 	if (nodes != null && length > 0) {
 		quickSort(nodes, 0, length-1);
 		for (int i=0;i<length;i++) {
-			AstNode node = nodes[i];
+			ASTNode node = nodes[i];
 			if (node instanceof ImportReference) {
 				ImportReference importRef = (ImportReference)node;
 				if (node == parsedUnit.currentPackage) {
@@ -758,11 +796,11 @@ public void notifySourceElementRequestor(AbstractMethodDeclaration methodDeclara
 			((SourceMethodDeclaration) methodDeclaration).selectorSourceEnd; 
 	}
 	if (isInRange) {
-		int modifiers = methodDeclaration.modifiers;
-		boolean deprecated = (modifiers & AccDeprecated) != 0; // remember deprecation so as to not lose it below
+		int currentModifiers = methodDeclaration.modifiers;
+		boolean deprecated = (currentModifiers & AccDeprecated) != 0; // remember deprecation so as to not lose it below
 		requestor.enterMethod(
 			methodDeclaration.declarationSourceStart, 
-			deprecated ? (modifiers & AccJustFlag) | AccDeprecated : modifiers & AccJustFlag, 
+			deprecated ? (currentModifiers & AccJustFlag) | AccDeprecated : currentModifiers & AccJustFlag, 
 			returnTypeName(((MethodDeclaration) methodDeclaration).returnType), 
 			methodDeclaration.selector, 
 			methodDeclaration.sourceStart, 
@@ -797,11 +835,11 @@ public void notifySourceElementRequestor(FieldDeclaration fieldDeclaration) {
 			}
 		}
 		if (isInRange) {
-			int modifiers = fieldDeclaration.modifiers;
-			boolean deprecated = (modifiers & AccDeprecated) != 0; // remember deprecation so as to not lose it below
+			int currentModifiers = fieldDeclaration.modifiers;
+			boolean deprecated = (currentModifiers & AccDeprecated) != 0; // remember deprecation so as to not lose it below
 			requestor.enterField(
 				fieldDeclaration.declarationSourceStart, 
-				deprecated ? (modifiers & AccJustFlag) | AccDeprecated : modifiers & AccJustFlag, 
+				deprecated ? (currentModifiers & AccJustFlag) | AccDeprecated : currentModifiers & AccJustFlag, 
 				returnTypeName(fieldDeclaration.type), 
 				fieldDeclaration.name, 
 				fieldDeclaration.sourceStart, 
@@ -851,7 +889,8 @@ public void notifySourceElementRequestor(
 			importReference.declarationSourceStart, 
 			importReference.declarationSourceEnd, 
 			CharOperation.concatWith(importReference.getImportName(), '.'), 
-			importReference.onDemand); 
+			importReference.onDemand,
+			importReference.modifiers); 
 	}
 }
 public void notifySourceElementRequestor(TypeDeclaration typeDeclaration, boolean notifyTypePresence) {
@@ -863,10 +902,10 @@ public void notifySourceElementRequestor(TypeDeclaration typeDeclaration, boolea
 	
 	FieldDeclaration[] fields = typeDeclaration.fields;
 	AbstractMethodDeclaration[] methods = typeDeclaration.methods;
-	MemberTypeDeclaration[] memberTypes = typeDeclaration.memberTypes;
-	int fieldCount = fields == null ? 0 : fields.length;
-	int methodCount = methods == null ? 0 : methods.length;
-	int memberTypeCount = memberTypes == null ? 0 : memberTypes.length;
+	TypeDeclaration[] memberTypes = typeDeclaration.memberTypes;
+	int fieldCounter = fields == null ? 0 : fields.length;
+	int methodCounter = methods == null ? 0 : methods.length;
+	int memberTypeCounter = memberTypes == null ? 0 : memberTypes.length;
 	int fieldIndex = 0;
 	int methodIndex = 0;
 	int memberTypeIndex = 0;
@@ -880,11 +919,11 @@ public void notifySourceElementRequestor(TypeDeclaration typeDeclaration, boolea
 			superInterfacesLength = superInterfaces.length;
 			interfaceNames = new char[superInterfacesLength][];
 		} else {
-			if (typeDeclaration instanceof AnonymousLocalTypeDeclaration) {
+			if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0) {
 				// see PR 3442
-				QualifiedAllocationExpression alloc = ((AnonymousLocalTypeDeclaration)typeDeclaration).allocation;
+				QualifiedAllocationExpression alloc = typeDeclaration.allocation;
 				if (alloc != null && alloc.type != null) {
-					superInterfaces = new TypeReference[] { ((AnonymousLocalTypeDeclaration)typeDeclaration).allocation.type};
+					superInterfaces = new TypeReference[] { typeDeclaration.allocation.type};
 					superInterfacesLength = 1;
 					interfaceNames = new char[1][];
 				}
@@ -898,14 +937,14 @@ public void notifySourceElementRequestor(TypeDeclaration typeDeclaration, boolea
 		}
 		if (isInterface) {
 			if (isInRange){
-				int modifiers = typeDeclaration.modifiers;
-				boolean deprecated = (modifiers & AccDeprecated) != 0; // remember deprecation so as to not lose it below
+				int currentModifiers = typeDeclaration.modifiers;
+				boolean deprecated = (currentModifiers & AccDeprecated) != 0; // remember deprecation so as to not lose it below
 				requestor.enterInterface(
 					typeDeclaration.declarationSourceStart, 
-					deprecated ? (modifiers & AccJustFlag) | AccDeprecated : modifiers & AccJustFlag, 
+					deprecated ? (currentModifiers & AccJustFlag) | AccDeprecated : currentModifiers & AccJustFlag, 
 					typeDeclaration.name, 
 					typeDeclaration.sourceStart, 
-					typeDeclaration.sourceEnd, 
+					sourceEnd(typeDeclaration), 
 					interfaceNames);
 			}
 			if (nestedTypeIndex == typeNames.length) {
@@ -924,7 +963,7 @@ public void notifySourceElementRequestor(TypeDeclaration typeDeclaration, boolea
 						typeDeclaration.modifiers, 
 						typeDeclaration.name, 
 						typeDeclaration.sourceStart, 
-						typeDeclaration.sourceEnd, 
+						sourceEnd(typeDeclaration), 
 						null, 
 						interfaceNames); 
 				}
@@ -935,7 +974,7 @@ public void notifySourceElementRequestor(TypeDeclaration typeDeclaration, boolea
 						typeDeclaration.modifiers, 
 						typeDeclaration.name, 
 						typeDeclaration.sourceStart, 
-						typeDeclaration.sourceEnd, 
+						sourceEnd(typeDeclaration), 
 						CharOperation.concatWith(superclass.getTypeName(), '.'), 
 						interfaceNames); 
 				}
@@ -949,30 +988,30 @@ public void notifySourceElementRequestor(TypeDeclaration typeDeclaration, boolea
 			superTypeNames[nestedTypeIndex++] = superclass == null ? JAVA_LANG_OBJECT : CharOperation.concatWith(superclass.getTypeName(), '.');
 		}
 	}
-	while ((fieldIndex < fieldCount)
-		|| (memberTypeIndex < memberTypeCount)
-		|| (methodIndex < methodCount)) {
+	while ((fieldIndex < fieldCounter)
+		|| (memberTypeIndex < memberTypeCounter)
+		|| (methodIndex < methodCounter)) {
 		FieldDeclaration nextFieldDeclaration = null;
 		AbstractMethodDeclaration nextMethodDeclaration = null;
 		TypeDeclaration nextMemberDeclaration = null;
 
 		int position = Integer.MAX_VALUE;
 		int nextDeclarationType = -1;
-		if (fieldIndex < fieldCount) {
+		if (fieldIndex < fieldCounter) {
 			nextFieldDeclaration = fields[fieldIndex];
 			if (nextFieldDeclaration.declarationSourceStart < position) {
 				position = nextFieldDeclaration.declarationSourceStart;
 				nextDeclarationType = 0; // FIELD
 			}
 		}
-		if (methodIndex < methodCount) {
+		if (methodIndex < methodCounter) {
 			nextMethodDeclaration = methods[methodIndex];
 			if (nextMethodDeclaration.declarationSourceStart < position) {
 				position = nextMethodDeclaration.declarationSourceStart;
 				nextDeclarationType = 1; // METHOD
 			}
 		}
-		if (memberTypeIndex < memberTypeCount) {
+		if (memberTypeIndex < memberTypeCounter) {
 			nextMemberDeclaration = memberTypes[memberTypeIndex];
 			if (nextMemberDeclaration.declarationSourceStart < position) {
 				position = nextMemberDeclaration.declarationSourceStart;
@@ -1004,15 +1043,23 @@ public void notifySourceElementRequestor(TypeDeclaration typeDeclaration, boolea
 		nestedTypeIndex--;
 	}
 }
+private int sourceEnd(TypeDeclaration typeDeclaration) {
+	if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0) {
+		return typeDeclaration.allocation.type.sourceEnd;
+	} else {
+		return typeDeclaration.sourceEnd;
+	}
+}
+
 public void parseCompilationUnit(
 	ICompilationUnit unit, 
 	int start, 
 	int end, 
-	boolean needReferenceInfo) {
+	boolean fullParse) {
 
-	reportReferenceInfo = needReferenceInfo;
+	this.reportReferenceInfo = fullParse;
 	boolean old = diet;
-	if (needReferenceInfo) {
+	if (fullParse) {
 		unknownRefs = new NameReference[10];
 		unknownRefsCounter = 0;
 	}
@@ -1024,29 +1071,31 @@ public void parseCompilationUnit(
 		if (scanner.recordLineSeparator) {
 			requestor.acceptLineSeparatorPositions(scanner.getLineEnds());
 		}
-		if (this.localDeclarationVisitor != null || needReferenceInfo){
+		if (this.localDeclarationVisitor != null || fullParse){
 			diet = false;
 			this.getMethodBodies(parsedUnit);
 		}		
 		this.scanner.resetTo(start, end);
 		notifySourceElementRequestor(parsedUnit);
 	} catch (AbortCompilation e) {
+		// ignore this exception
 	} finally {
 		diet = old;
 	}
 }
-public void parseCompilationUnit(
+public CompilationUnitDeclaration parseCompilationUnit(
 	ICompilationUnit unit, 
-	boolean needReferenceInfo) {
+	boolean fullParse) {
+		
 	boolean old = diet;
-	if (needReferenceInfo) {
+	if (fullParse) {
 		unknownRefs = new NameReference[10];
 		unknownRefsCounter = 0;
 	}
 
 	try {
 		diet = true;
-		reportReferenceInfo = needReferenceInfo;
+		this.reportReferenceInfo = fullParse;
 		CompilationResult compilationUnitResult = new CompilationResult(unit, 0, 0, this.options.maxProblemsPerUnit);
 		CompilationUnitDeclaration parsedUnit = parse(unit, compilationUnitResult);
 		if (scanner.recordLineSeparator) {
@@ -1054,19 +1103,22 @@ public void parseCompilationUnit(
 		}
 		int initialStart = this.scanner.initialPosition;
 		int initialEnd = this.scanner.eofPosition;
-		if (this.localDeclarationVisitor != null || needReferenceInfo){
+		if (this.localDeclarationVisitor != null || fullParse){
 			diet = false;
 			this.getMethodBodies(parsedUnit);
 		}
 		this.scanner.resetTo(initialStart, initialEnd);
 		notifySourceElementRequestor(parsedUnit);
+		return parsedUnit;
 	} catch (AbortCompilation e) {
+		// ignore this exception
 	} finally {
 		diet = old;
 	}
+	return null;
 }
 public void parseTypeMemberDeclarations(
-	ISourceType sourceType, 
+	ISourceType type, 
 	ICompilationUnit sourceUnit, 
 	int start, 
 	int end, 
@@ -1084,15 +1136,16 @@ public void parseTypeMemberDeclarations(
 			new CompilationResult(sourceUnit, 0, 0, this.options.maxProblemsPerUnit); 
 		CompilationUnitDeclaration unit = 
 			SourceTypeConverter.buildCompilationUnit(
-				new ISourceType[]{sourceType}, 
-				false, // no need for field and methods
-				false, // no need for member types
-				false, // no need for field initialization
+				new ISourceType[]{type}, 
+				// no need for field and methods
+				// no need for member types
+				// no need for field initialization
+				SourceTypeConverter.NONE,
 				problemReporter(), 
 				compilationUnitResult); 
 		if ((unit == null) || (unit.types == null) || (unit.types.length != 1))
 			return;
-		this.sourceType = sourceType;
+		this.sourceType = type;
 		try {
 			/* automaton initialization */
 			initialize();
@@ -1113,6 +1166,7 @@ public void parseTypeMemberDeclarations(
 			compilationUnit = null; // reset parser
 		}
 	} catch (AbortCompilation e) {
+		// ignore this exception
 	} finally {
 		if (scanner.recordLineSeparator) {
 			requestor.acceptLineSeparatorPositions(scanner.getLineEnds());
@@ -1150,17 +1204,18 @@ public void parseTypeMemberDeclarations(
 		parse();
 		notifySourceElementRequestor((CompilationUnitDeclaration)null);
 	} catch (AbortCompilation e) {
+		// ignore this exception
 	} finally {
 		diet = old;
 	}
 }
-/**
+/*
  * Sort the given ast nodes by their positions.
  */
-private static void quickSort(AstNode[] sortedCollection, int left, int right) {
+private static void quickSort(ASTNode[] sortedCollection, int left, int right) {
 	int original_left = left;
 	int original_right = right;
-	AstNode mid = sortedCollection[ (left + right) / 2];
+	ASTNode mid = sortedCollection[ (left + right) / 2];
 	do {
 		while (sortedCollection[left].sourceStart < mid.sourceStart) {
 			left++;
@@ -1169,7 +1224,7 @@ private static void quickSort(AstNode[] sortedCollection, int left, int right) {
 			right--;
 		}
 		if (left <= right) {
-			AstNode tmp = sortedCollection[left];
+			ASTNode tmp = sortedCollection[left];
 			sortedCollection[left] = sortedCollection[right];
 			sortedCollection[right] = tmp;
 			left++;
@@ -1222,7 +1277,7 @@ public void addUnknownRef(NameReference nameRef) {
 
 private void visitIfNeeded(AbstractMethodDeclaration method) {
 	if (this.localDeclarationVisitor != null 
-		&& (method.bits & AstNode.HasLocalTypeMASK) != 0) {
+		&& (method.bits & ASTNode.HasLocalTypeMASK) != 0) {
 			if (method.statements != null) {
 				int statementsLength = method.statements.length;
 				for (int i = 0; i < statementsLength; i++)
@@ -1233,7 +1288,7 @@ private void visitIfNeeded(AbstractMethodDeclaration method) {
 
 private void visitIfNeeded(FieldDeclaration field) {
 	if (this.localDeclarationVisitor != null 
-		&& (field.bits & AstNode.HasLocalTypeMASK) != 0) {
+		&& (field.bits & ASTNode.HasLocalTypeMASK) != 0) {
 			if (field.initialization != null) {
 				field.initialization.traverse(this.localDeclarationVisitor, null);
 			}
@@ -1242,16 +1297,10 @@ private void visitIfNeeded(FieldDeclaration field) {
 
 private void visitIfNeeded(Initializer initializer) {
 	if (this.localDeclarationVisitor != null 
-		&& (initializer.bits & AstNode.HasLocalTypeMASK) != 0) {
+		&& (initializer.bits & ASTNode.HasLocalTypeMASK) != 0) {
 			if (initializer.block != null) {
 				initializer.block.traverse(this.localDeclarationVisitor, null);
 			}
 	}
 }
-
-protected void reportSyntaxError(int act, int currentKind, int stateStackTop) {
-	if (compilationUnit == null) return;
-	super.reportSyntaxError(act, currentKind,stateStackTop);
-}
-
 }

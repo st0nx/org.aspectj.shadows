@@ -25,23 +25,19 @@ import java.util.zip.ZipFile;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 
-public class Util {
+public class Util implements SuffixConstants {
+
+	public interface Displayable {
+		String displayString(Object o);
+	}
 
 	public static String LINE_SEPARATOR = System.getProperty("line.separator"); //$NON-NLS-1$
 	public static char[] LINE_SEPARATOR_CHARS = LINE_SEPARATOR.toCharArray();
-	public final static char[] SUFFIX_class = ".class".toCharArray(); //$NON-NLS-1$
-	public final static char[] SUFFIX_CLASS = ".CLASS".toCharArray(); //$NON-NLS-1$
-	public final static char[] SUFFIX_java = ".java".toCharArray(); //$NON-NLS-1$
-	public final static char[] SUFFIX_JAVA = ".JAVA".toCharArray(); //$NON-NLS-1$
-	public final static char[] SUFFIX_jar = ".jar".toCharArray(); //$NON-NLS-1$
-	public final static char[] SUFFIX_JAR = ".JAR".toCharArray(); //$NON-NLS-1$
-	public final static char[] SUFFIX_zip = ".zip".toCharArray(); //$NON-NLS-1$
-	public final static char[] SUFFIX_ZIP = ".ZIP".toCharArray(); //$NON-NLS-1$
-		
+	
 	private final static char[] DOUBLE_QUOTES = "''".toCharArray(); //$NON-NLS-1$
 	private final static char[] SINGLE_QUOTE = "'".toCharArray(); //$NON-NLS-1$
 	private static final int DEFAULT_READING_SIZE = 8192;
-	
+
 	/* Bundle containing messages */
 	protected static ResourceBundle bundle;
 	private final static String bundleName =
@@ -83,31 +79,42 @@ public class Util {
 			CharOperation.replace(message.toCharArray(), DOUBLE_QUOTES, SINGLE_QUOTE);
 		message = new String(messageWithNoDoubleQuotes);
 
-		if (bindings == null)
-			return message;
-
 		int length = message.length();
 		int start = -1;
 		int end = length;
-		StringBuffer output = new StringBuffer(80);
+		StringBuffer output = null;
 		while (true) {
 			if ((end = message.indexOf('{', start)) > -1) {
+				if (output == null) output = new StringBuffer(80);
 				output.append(message.substring(start + 1, end));
 				if ((start = message.indexOf('}', end)) > -1) {
 					int index = -1;
 					try {
 						index = Integer.parseInt(message.substring(end + 1, start));
 						output.append(bindings[index]);
-					} catch (NumberFormatException nfe) {
-						output.append(message.substring(end + 1, start + 1));
+					} catch (NumberFormatException nfe) { // could be nested message ID {compiler.name}
+						String argId = message.substring(end + 1, start);
+						boolean done = false;
+						if (!id.equals(argId)) {
+							String argMessage = null;
+							try {
+								argMessage = bundle.getString(argId);
+								output.append(argMessage);
+								done = true;
+							} catch (MissingResourceException e) {
+								// ignore
+							}
+						}
+						if (!done) output.append(message.substring(end + 1, start + 1));
 					} catch (ArrayIndexOutOfBoundsException e) {
-						output.append("{missing " + Integer.toString(index) + "}");	//$NON-NLS-2$ //$NON-NLS-1$
+						output.append("{missing " + Integer.toString(index) + "}"); //$NON-NLS-2$ //$NON-NLS-1$
 					}
 				} else {
 					output.append(message.substring(end, length));
 					break;
 				}
 			} else {
+				if (output == null) return message;
 				output.append(message.substring(start + 1, length));
 				break;
 			}
@@ -153,6 +160,7 @@ public class Util {
 				try {
 					stream.close();
 				} catch (IOException e) {
+					// ignore
 				}
 			}
 		}
@@ -172,6 +180,7 @@ public class Util {
 				try {
 					stream.close();
 				} catch (IOException e) {
+					// ignore
 				}
 			}
 		}
@@ -320,6 +329,7 @@ public class Util {
 				try {
 					stream.close();
 				} catch (IOException e) {
+					// ignore
 				}
 			}
 		}
@@ -369,6 +379,21 @@ public class Util {
 		return true;		
 	}	
 	/**
+	 * Returns true iff str.toLowerCase().endsWith(".class")
+	 * implementation is not creating extra strings.
+	 */
+	public final static boolean isClassFileName(char[] name) {
+		int nameLength = name == null ? 0 : name.length;
+		int suffixLength = SUFFIX_CLASS.length;
+		if (nameLength < suffixLength) return false;
+
+		for (int i = 0, offset = nameLength - suffixLength; i < suffixLength; i++) {
+			char c = name[offset + i];
+			if (c != SUFFIX_class[i] && c != SUFFIX_CLASS[i]) return false;
+		}
+		return true;		
+	}	
+	/**
 	 * Returns true iff str.toLowerCase().endsWith(".java")
 	 * implementation is not creating extra strings.
 	 */
@@ -384,4 +409,58 @@ public class Util {
 		}
 		return true;		
 	}
+	/**
+	 * Returns true iff str.toLowerCase().endsWith(".java")
+	 * implementation is not creating extra strings.
+	 */
+	public final static boolean isJavaFileName(char[] name) {
+		int nameLength = name == null ? 0 : name.length;
+		int suffixLength = SUFFIX_JAVA.length;
+		if (nameLength < suffixLength) return false;
+
+		for (int i = 0, offset = nameLength - suffixLength; i < suffixLength; i++) {
+			char c = name[offset + i];
+			if (c != SUFFIX_java[i] && c != SUFFIX_JAVA[i]) return false;
+		}
+		return true;		
+	}
+	/**
+	 * Converts an array of Objects into String.
+	 */
+	public static String toString(Object[] objects) {
+		return toString(objects, 
+			new Displayable(){ 
+				public String displayString(Object o) { 
+					if (o == null) return "null"; //$NON-NLS-1$
+					return o.toString(); 
+				}
+			});
+	}
+
+	/**
+	 * Converts an array of Objects into String.
+	 */
+	public static String toString(Object[] objects, Displayable renderer) {
+		if (objects == null) return ""; //$NON-NLS-1$
+		StringBuffer buffer = new StringBuffer(10);
+		for (int i = 0; i < objects.length; i++){
+			if (i > 0) buffer.append(", "); //$NON-NLS-1$
+			buffer.append(renderer.displayString(objects[i]));
+		}
+		return buffer.toString();
+	}
+
+	/**
+	 * Converts a boolean value into Boolean.
+	 * @param bool The boolean to convert
+	 * @return The corresponding Boolean object (TRUE or FALSE).
+	 */
+	public static Boolean toBoolean(boolean bool) {
+		if (bool) {
+			return Boolean.TRUE;
+		} else {
+			return Boolean.FALSE;
+		}
+	}
+	
 }

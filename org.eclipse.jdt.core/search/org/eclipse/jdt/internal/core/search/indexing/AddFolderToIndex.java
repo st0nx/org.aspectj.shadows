@@ -18,9 +18,9 @@ import org.eclipse.core.resources.IResourceProxyVisitor;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.jdt.internal.core.Util;
 import org.eclipse.jdt.internal.core.index.IIndex;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
+import org.eclipse.jdt.internal.core.util.Util;
 
 class AddFolderToIndex extends IndexRequest {
 	IPath folderPath;
@@ -35,13 +35,13 @@ class AddFolderToIndex extends IndexRequest {
 	}
 	public boolean execute(IProgressMonitor progressMonitor) {
 
-		if (progressMonitor != null && progressMonitor.isCanceled()) return true;
+		if (this.isCancelled || progressMonitor != null && progressMonitor.isCanceled()) return true;
 		if (!project.isAccessible()) return true; // nothing to do
 		IResource folder = this.project.getParent().findMember(this.folderPath);
 		if (folder == null || folder.getType() == IResource.FILE) return true; // nothing to do, source folder was removed
 
 		/* ensure no concurrent write access to index */
-		IIndex index = manager.getIndex(this.indexPath, true, /*reuse index file*/ true /*create if none*/);
+		IIndex index = manager.getIndex(this.containerPath, true, /*reuse index file*/ true /*create if none*/);
 		if (index == null) return true;
 		ReadWriteMonitor monitor = manager.getMonitorFor(index);
 		if (monitor == null) return true; // index got deleted since acquired
@@ -49,15 +49,15 @@ class AddFolderToIndex extends IndexRequest {
 		try {
 			monitor.enterRead(); // ask permission to read
 
-			final IPath container = this.indexPath;
+			final IPath container = this.containerPath;
 			final IndexManager indexManager = this.manager;
 			final char[][] pattern = exclusionPattern;
 			folder.accept(
 				new IResourceProxyVisitor() {
-					public boolean visit(IResourceProxy proxy) throws CoreException {
+					public boolean visit(IResourceProxy proxy) /* throws CoreException */{
 						switch(proxy.getType()) {
 							case IResource.FILE :
-								if (Util.isJavaFileName(proxy.getName())) {
+								if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName())) {
 									IResource resource = proxy.requestResource();
 									if (pattern == null || !Util.isExcluded(resource, pattern))
 										indexManager.addSource((IFile)resource, container);
@@ -84,6 +84,6 @@ class AddFolderToIndex extends IndexRequest {
 		return true;
 	}
 	public String toString() {
-		return "adding " + this.folderPath + " to index " + this.indexPath; //$NON-NLS-1$ //$NON-NLS-2$
+		return "adding " + this.folderPath + " to index " + this.containerPath; //$NON-NLS-1$ //$NON-NLS-2$
 	}
 }

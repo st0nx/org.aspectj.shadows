@@ -34,9 +34,10 @@ public class MethodScope extends BlockScope {
 	public boolean isStatic; // method modifier or initializer one
 
 	//fields used during name resolution
-	public static final int NotInFieldDecl = -1; //must be a negative value 
 	public boolean isConstructorCall = false; 
-	public int fieldDeclarationIndex = NotInFieldDecl; 
+	public FieldBinding initializedField; // the field being initialized
+	public int lastVisibleFieldID = -1; // the ID of the last field which got declared 
+	// note that #initializedField can be null AND lastVisibleFieldID >= 0, when processing instance field initializers.
 
 	// flow analysis
 	public int analysisIndex; // for setting flow-analysis id
@@ -246,7 +247,7 @@ public class MethodScope extends BlockScope {
 			// do not report fake used variable
 			if (isReportingUnusedArgument
 					&& local.useFlag == LocalVariableBinding.UNUSED
-					&& ((local.declaration.bits & AstNode.IsLocalDeclarationReachableMASK) != 0)) { // declaration is reachable
+					&& ((local.declaration.bits & ASTNode.IsLocalDeclarationReachableMASK) != 0)) { // declaration is reachable
 				this.problemReporter().unusedArgument(local.declaration);
 			}
 
@@ -279,7 +280,7 @@ public class MethodScope extends BlockScope {
 					this.offset++;
 				}
 				if (this.offset > 0xFF) { // no more than 255 words of arguments
-					this.problemReporter().noMoreAvailableSpaceForArgument(argument, (AstNode)this.referenceContext); 
+					this.problemReporter().noMoreAvailableSpaceForArgument(argument, (ASTNode)this.referenceContext); 
 				}
 			}
 		}
@@ -299,6 +300,9 @@ public class MethodScope extends BlockScope {
 		SourceTypeBinding declaringClass = referenceType().binding;
 		int modifiers = method.modifiers | AccUnresolved;
 		if (method.isConstructor()) {
+			if (method.isDefaultConstructor()) {
+				modifiers |= AccIsDefaultConstructor;
+			}
 			method.binding = new MethodBinding(modifiers, null, null, declaringClass);
 			checkAndSetModifiersForConstructor(method.binding);
 		} else {
@@ -308,7 +312,6 @@ public class MethodScope extends BlockScope {
 				new MethodBinding(modifiers, method.selector, null, null, null, declaringClass);
 			checkAndSetModifiersForMethod(method.binding);
 		}
-
 		this.isStatic = method.binding.isStatic();
 		return method.binding;
 	}
@@ -326,9 +329,10 @@ public class MethodScope extends BlockScope {
 	public FieldBinding findField(
 		TypeBinding receiverType,
 		char[] fieldName,
-		InvocationSite invocationSite) {
+		InvocationSite invocationSite,
+		boolean needResolve) {
 
-		FieldBinding field = super.findField(receiverType, fieldName, invocationSite);
+		FieldBinding field = super.findField(receiverType, fieldName, invocationSite, needResolve);
 		if (field == null)
 			return null;
 		if (!field.isValidBinding())
@@ -357,6 +361,11 @@ public class MethodScope extends BlockScope {
 		return field;
 	}
 
+	public boolean isInsideConstructor() {
+
+		return (referenceContext instanceof ConstructorDeclaration);
+	}
+	
 	public boolean isInsideInitializer() {
 
 		return (referenceContext instanceof TypeDeclaration);
@@ -443,13 +452,21 @@ public class MethodScope extends BlockScope {
 		return lastIndex++;
 	}
 
+	/* Answer the reference method of this scope, or null if initialization scoope.
+	*/
+	public AbstractMethodDeclaration referenceMethod() {
+
+		if (referenceContext instanceof AbstractMethodDeclaration) return (AbstractMethodDeclaration) referenceContext;
+		return null;
+	}
+
 	/* Answer the reference type of this scope.
 	*
 	* It is the nearest enclosing type of this scope.
 	*/
 	public TypeDeclaration referenceType() {
 
-		return (TypeDeclaration) ((ClassScope) parent).referenceContext;
+		return ((ClassScope) parent).referenceContext;
 	}
 
 	String basicToString(int tab) {
@@ -465,7 +482,8 @@ public class MethodScope extends BlockScope {
 			s += newLine + "\t" + locals[i].toString(); //$NON-NLS-1$
 		s += newLine + "startIndex = " + startIndex; //$NON-NLS-1$
 		s += newLine + "isConstructorCall = " + isConstructorCall; //$NON-NLS-1$
-		s += newLine + "fieldDeclarationIndex = " + fieldDeclarationIndex; //$NON-NLS-1$
+		s += newLine + "initializedField = " + initializedField; //$NON-NLS-1$
+		s += newLine + "lastVisibleFieldID = " + lastVisibleFieldID; //$NON-NLS-1$
 		s += newLine + "referenceContext = " + referenceContext; //$NON-NLS-1$
 		return s;
 	}

@@ -39,12 +39,13 @@ class NaiveASTFlattener extends ASTVisitor {
 	 * The string buffer into which the serialized representation of the AST is
 	 * written.
 	 */
-	private StringBuffer buffer = new StringBuffer(6000);
+	private StringBuffer buffer;
 	
 	/**
 	 * Creates a new AST printer.
 	 */
 	NaiveASTFlattener() {
+		this.buffer = new StringBuffer();
 	}
 	
 	/**
@@ -53,8 +54,7 @@ class NaiveASTFlattener extends ASTVisitor {
 	 * @return the serialized 
 	 */
 	public String getResult() {
-		// convert to a string, but lose any extra space in the string buffer by copying
-		return new String(buffer.toString());
+		return buffer.toString();
 	}
 	
 	/**
@@ -766,11 +766,11 @@ class NaiveASTFlattener extends ASTVisitor {
 	 */
 	public boolean visit(SwitchCase node) {
 		if (node.isDefault()) {
-			buffer.append("default : ");//$NON-NLS-1$
+			buffer.append("default :");//$NON-NLS-1$
 		} else {
 			buffer.append("case ");//$NON-NLS-1$
 			node.getExpression().accept(this);
-			buffer.append(": ");//$NON-NLS-1$
+			buffer.append(":");//$NON-NLS-1$
 		}
 		return false;
 	}
@@ -836,6 +836,7 @@ class NaiveASTFlattener extends ASTVisitor {
 			cc.accept(this);
 		}
 		if (node.getFinally() != null) {
+			buffer.append("finally ");//$NON-NLS-1$
 			node.getFinally().accept(this);
 		}
 		return false;

@@ -191,7 +191,7 @@ public class CompilationUnit extends ASTNode {
 	}
 
 	/**
-	 * Returns the live list of nodes for the import declaration of this 
+	 * Returns the live list of nodes for the import declarations of this 
 	 * compilation unit, in order of appearance.
 	 * 
 	 * @return the live list of import declaration nodes
@@ -202,7 +202,7 @@ public class CompilationUnit extends ASTNode {
 	}
 	
 	/**
-	 * Returns the live list of nodes for the top-level type declaration of this 
+	 * Returns the live list of nodes for the top-level type declarations of this 
 	 * compilation unit, in order of appearance.
 	 * 
 	 * @return the live list of top-level type declaration
@@ -225,7 +225,7 @@ public class CompilationUnit extends ASTNode {
 	 * <li></li>
 	 * <li>package - a <code>PackageDeclaration</code></li>
 	 * <li>class or interface - a <code>TypeDeclaration</code> or a
-	 *    <code>ClassInstanceCreation</code> (for anonymous classes) </li>
+	 *    <code>AnonymousClassDeclaration</code> (for anonymous classes) </li>
 	 * <li>primitive type - none</li>
 	 * <li>array type - none</li>
 	 * <li>field - a <code>VariableDeclarationFragment</code> in a 
@@ -269,7 +269,7 @@ public class CompilationUnit extends ASTNode {
 	 * <li></li>
 	 * <li>package - a <code>PackageDeclaration</code></li>
 	 * <li>class or interface - a <code>TypeDeclaration</code> or a
-	 *    <code>ClassInstanceCreation</code> (for anonymous classes) </li>
+	 *    <code>AnonymousClassDeclaration</code> (for anonymous classes) </li>
 	 * <li>primitive type - none</li>
 	 * <li>array type - none</li>
 	 * <li>field - a <code>VariableDeclarationFragment</code> in a 
@@ -281,6 +281,11 @@ public class CompilationUnit extends ASTNode {
 	 * <li>method - a <code>MethodDeclaration</code> </li>
 	 * <li>constructor - a <code>MethodDeclaration</code> </li>
 	 * </ul>
+	 * </p>
+	 * <p>
+	 * Note that as explained in {@link IBinding#getkey IBinding.getkey}
+	 * there may be no keys for finding the declaring node for local variables,
+	 * local or anonymous classes, etc.
 	 * </p>
 	 * 
 	 * @param key the binding key, or <code>null</code>

@@ -20,7 +20,8 @@ import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.jdom.*;
-import org.eclipse.jdt.internal.compiler.util.Util;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * This operation copies/moves/renames a collection of resources from their current
@@ -46,27 +47,34 @@ import org.eclipse.jdt.internal.compiler.util.Util;
  * </ul>
  *
  */
-public class CopyResourceElementsOperation extends MultiOperation {
+public class CopyResourceElementsOperation extends MultiOperation implements SuffixConstants {
 	/**
-	 * A collection of renamed compilation units.  These cus do
-	 * not need to be saved as they no longer exist.
+	 * The list of new resources created during this operation.
 	 */
-	protected ArrayList fRenamedCompilationUnits = null;
+	protected ArrayList createdElements;
 	/**
 	 * Table specifying deltas for elements being 
 	 * copied/moved/renamed. Keyed by elements' project(s), and
 	 * values are the corresponding deltas.
 	 */
-	protected Map fDeltasPerProject= new HashMap(1);
+	protected Map deltasPerProject = new HashMap(1);
 	/**
 	 * The <code>DOMFactory</code> used to manipulate the source code of
 	 * <code>ICompilationUnit</code>.
 	 */
 	protected DOMFactory fFactory;
 	/**
-	 * The list of new resources created during this operation.
+	 * A collection of renamed compilation units.  These cus do
+	 * not need to be saved as they no longer exist.
 	 */
-	protected ArrayList fCreatedElements;
+	protected ArrayList fRenamedCompilationUnits = null;
+	/**
+	 * When executed, this operation will copy the given resources to the
+	 * given container.
+	 */
+	public CopyResourceElementsOperation(IJavaElement[] resourcesToCopy, IJavaElement destContainer, boolean force) {
+		this(resourcesToCopy, new IJavaElement[]{destContainer}, force);
+	}
 	/**
 	 * When executed, this operation will copy the given resources to the
 	 * given containers.  The resources and destination containers must be in
@@ -76,13 +84,6 @@ public class CopyResourceElementsOperation extends MultiOperation {
 	public CopyResourceElementsOperation(IJavaElement[] resourcesToCopy, IJavaElement[] destContainers, boolean force) {
 		super(resourcesToCopy, destContainers, force);
 		fFactory = new DOMFactory();
-	}
-	/**
-	 * When executed, this operation will copy the given resources to the
-	 * given container.
-	 */
-	public CopyResourceElementsOperation(IJavaElement[] resourcesToCopy, IJavaElement destContainer, boolean force) {
-		this(resourcesToCopy, new IJavaElement[]{destContainer}, force);
 	}
 	/**
 	 * Returns the children of <code>source</code> which are affected by this operation.
@@ -127,11 +128,13 @@ public class CopyResourceElementsOperation extends MultiOperation {
 	}
 	/**
 	 * Creates any destination package fragment(s) which do not exists yet.
+	 * Return true if a read-only package fragment has been found among package fragments, false otherwise
 	 */
-	private void createNeededPackageFragments(IContainer sourceFolder, IPackageFragmentRoot root, String newFragName, boolean moveFolder) throws JavaModelException {
+	private boolean createNeededPackageFragments(IContainer sourceFolder, IPackageFragmentRoot root, String newFragName, boolean moveFolder) throws JavaModelException {
+		boolean containsReadOnlyPackageFragment = false;
 		IContainer parentFolder = (IContainer) root.getResource();
 		JavaElementDelta projectDelta = null;
-		String[] names = org.eclipse.jdt.internal.core.Util.getTrimmedSimpleNames(newFragName);
+		String[] names = Util.getTrimmedSimpleNames(newFragName);
 		StringBuffer sideEffectPackageName = new StringBuffer();
 		char[][] exclusionsPatterns = ((PackageFragmentRoot)root).fullExclusionPatternChars();
 		for (int i = 0; i < names.length; i++) {
@@ -141,38 +144,40 @@ public class CopyResourceElementsOperation extends MultiOperation {
 			if (subFolder == null) {
 				// create deepest folder only if not a move (folder will be moved in processPackageFragmentResource)
 				if (!(moveFolder && i == names.length-1)) {
-					createFolder(parentFolder, subFolderName, fForce);
+					createFolder(parentFolder, subFolderName, force);
 				}
 				parentFolder = parentFolder.getFolder(new Path(subFolderName));
 				sourceFolder = sourceFolder.getFolder(new Path(subFolderName));
 				if (sourceFolder.isReadOnly()) {
-					parentFolder.setReadOnly(true);
+					containsReadOnlyPackageFragment = true;
 				}
 				IPackageFragment sideEffectPackage = root.getPackageFragment(sideEffectPackageName.toString());
 				if (i < names.length - 1 // all but the last one are side effect packages
-						&& !org.eclipse.jdt.internal.core.Util.isExcluded(parentFolder, exclusionsPatterns)) { 
+						&& !Util.isExcluded(parentFolder, exclusionsPatterns)) { 
 					if (projectDelta == null) {
 						projectDelta = getDeltaFor(root.getJavaProject());
 					}
 					projectDelta.added(sideEffectPackage);
 				}
-				fCreatedElements.add(sideEffectPackage);
+				createdElements.add(sideEffectPackage);
 			} else {
 				parentFolder = (IContainer) subFolder;
 			}
 			sideEffectPackageName.append('.');
 		}
+		return containsReadOnlyPackageFragment;
 	}
+	
 	/**
 	 * Returns the <code>JavaElementDelta</code> for <code>javaProject</code>,
 	 * creating it and putting it in <code>fDeltasPerProject</code> if
 	 * it does not exist yet.
 	 */
 	private JavaElementDelta getDeltaFor(IJavaProject javaProject) {
-		JavaElementDelta delta = (JavaElementDelta) fDeltasPerProject.get(javaProject);
+		JavaElementDelta delta = (JavaElementDelta) deltasPerProject.get(javaProject);
 		if (delta == null) {
 			delta = new JavaElementDelta(javaProject);
-			fDeltasPerProject.put(javaProject, delta);
+			deltasPerProject.put(javaProject, delta);
 		}
 		return delta;
 	}
@@ -180,7 +185,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 	 * @see MultiOperation
 	 */
 	protected String getMainTaskName() {
-		return org.eclipse.jdt.internal.core.Util.bind("operation.copyResourceProgress"); //$NON-NLS-1$
+		return Util.bind("operation.copyResourceProgress"); //$NON-NLS-1$
 	}
 	/**
 	 * Sets the deltas to register the changes resulting from this operation
@@ -194,7 +199,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 	 * 	 
 	 */
 	protected void prepareDeltas(IJavaElement sourceElement, IJavaElement destinationElement, boolean isMove) {
-		if (org.eclipse.jdt.internal.core.Util.isExcluded(sourceElement) || org.eclipse.jdt.internal.core.Util.isExcluded(destinationElement)) return;
+		if (Util.isExcluded(sourceElement) || Util.isExcluded(destinationElement)) return;
 		IJavaProject destProject = destinationElement.getJavaProject();
 		if (isMove) {
 			IJavaProject sourceProject = sourceElement.getJavaProject();
@@ -219,13 +224,13 @@ public class CopyResourceElementsOperation extends MultiOperation {
 		String newContent = updatedContent(source, dest, newCUName); // null if unchanged
 	
 		// copy resource
-		IFile sourceResource = (IFile)(source.isWorkingCopy() ? source.getOriginalElement() : source).getResource();
+		IFile sourceResource = (IFile)source.getResource();
 		IContainer destFolder = (IContainer)dest.getResource(); // can be an IFolder or an IProject
 		IFile destFile = destFolder.getFile(new Path(destName));
 		if (!destFile.equals(sourceResource)) {
 			try {
 				if (destFile.exists()) {
-					if (fForce) {
+					if (force) {
 						// we can remove it
 						deleteResource(destFile, IResource.KEEP_HISTORY);
 					} else {
@@ -235,7 +240,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 							Util.bind("status.nameCollision", destFile.getFullPath().toString()))); //$NON-NLS-1$
 					}
 				}
-				int flags = fForce ? IResource.FORCE : IResource.NONE;
+				int flags = force ? IResource.FORCE : IResource.NONE;
 				if (this.isMove()) {
 					flags |= IResource.KEEP_HISTORY;
 					sourceResource.move(destFile.getFullPath(), flags, getSubProgressMonitor(1));
@@ -251,18 +256,27 @@ public class CopyResourceElementsOperation extends MultiOperation {
 			}
 	
 			// update new resource content
-			try {
-				if (newContent != null){
+			if (newContent != null){
+				boolean wasReadOnly = destFile.isReadOnly();
+				try {
 					String encoding = source.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
+					
+					// when the file was copied, its read-only flag was preserved -> temporary set it to false
+					// note this doesn't interfer with repository providers as this is a new resource that cannot be under
+					// version control yet
+					destFile.setReadOnly(false);
+					
 					destFile.setContents(
 						new ByteArrayInputStream(encoding == null ? newContent.getBytes() : newContent.getBytes(encoding)), 
-						fForce ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY,
+						force ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY,
 						getSubProgressMonitor(1));
+				} catch(IOException e) {
+					throw new JavaModelException(e, IJavaModelStatusConstants.IO_EXCEPTION);
+				} catch (CoreException e) {
+					throw new JavaModelException(e);
+				} finally {
+					destFile.setReadOnly(wasReadOnly);
 				}
-			} catch(IOException e) {
-				throw new JavaModelException(e, IJavaModelStatusConstants.IO_EXCEPTION);
-			} catch (CoreException e) {
-				throw new JavaModelException(e);
 			}
 		
 			// register the correct change deltas
@@ -277,7 +291,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 				prepareDeltas(source.getType(oldName), destCU.getType(newName), isMove());
 			}
 		} else {
-			if (!fForce) {
+			if (!force) {
 				throw new JavaModelException(new JavaModelStatus(
 					IJavaModelStatusConstants.NAME_COLLISION, 
 					Util.bind("status.nameCollision", destFile.getFullPath().toString()))); //$NON-NLS-1$
@@ -290,7 +304,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 					String encoding = source.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
 					destFile.setContents(
 						new ByteArrayInputStream(encoding == null ? newContent.getBytes() : newContent.getBytes(encoding)), 
-						fForce ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY, 
+						force ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY, 
 						getSubProgressMonitor(1));
 				}
 			} catch(IOException e) {
@@ -304,7 +318,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 	 * Process all of the changed deltas generated by this operation.
 	 */
 	protected void processDeltas() {
-		for (Iterator deltas = this.fDeltasPerProject.values().iterator(); deltas.hasNext();){
+		for (Iterator deltas = this.deltasPerProject.values().iterator(); deltas.hasNext();){
 			addDelta((IJavaElementDelta) deltas.next());
 		}
 	}
@@ -319,7 +333,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 		switch (element.getElementType()) {
 			case IJavaElement.COMPILATION_UNIT :
 				processCompilationUnitResource((ICompilationUnit) element, (IPackageFragment) dest);
-				fCreatedElements.add(((IPackageFragment) dest).getCompilationUnit(element.getElementName()));
+				createdElements.add(((IPackageFragment) dest).getCompilationUnit(element.getElementName()));
 				break;
 			case IJavaElement.PACKAGE_FRAGMENT :
 				processPackageFragmentResource((IPackageFragment) element, (IPackageFragmentRoot) dest, getNewNameFor(element));
@@ -334,14 +348,14 @@ public class CopyResourceElementsOperation extends MultiOperation {
 	 * and <code>fResultElements</code>.
 	 */
 	protected void processElements() throws JavaModelException {
-		fCreatedElements = new ArrayList(fElementsToProcess.length);
+		createdElements = new ArrayList(elementsToProcess.length);
 		try {
 			super.processElements();
 		} catch (JavaModelException jme) {
 			throw jme;
 		} finally {
-			fResultElements = new IJavaElement[fCreatedElements.size()];
-			fCreatedElements.toArray(fResultElements);
+			resultElements = new IJavaElement[createdElements.size()];
+			createdElements.toArray(resultElements);
 			processDeltas();
 		}
 	}
@@ -377,12 +391,20 @@ public class CopyResourceElementsOperation extends MultiOperation {
 					}
 				}	
 			}
-			createNeededPackageFragments((IContainer) source.getParent().getResource(), root, newFragName, shouldMoveFolder);
+			boolean containsReadOnlySubPackageFragments = createNeededPackageFragments((IContainer) source.getParent().getResource(), root, newFragName, shouldMoveFolder);
+			boolean sourceIsReadOnly = srcFolder.isReadOnly();
 	
 			// Process resources
 			if (shouldMoveFolder) {
 				// move underlying resource
-				srcFolder.move(destPath, fForce, true /* keep history */, getSubProgressMonitor(1));
+				// TODO Revisit once bug 43044 is fixed
+				if (sourceIsReadOnly) {
+					srcFolder.setReadOnly(false);
+				}
+				srcFolder.move(destPath, force, true /* keep history */, getSubProgressMonitor(1));
+				if (sourceIsReadOnly) {
+					srcFolder.setReadOnly(true);
+				}
 				this.setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
 			} else {
 				// process the leaf resources
@@ -396,7 +418,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 						for (int i = 0, max = resources.length; i < max; i++) {
 							IResource destinationResource = ResourcesPlugin.getWorkspace().getRoot().findMember(destPath.append(resources[i].getName()));
 							if (destinationResource != null) {
-								if (fForce) {
+								if (force) {
 									deleteResource(destinationResource, IResource.KEEP_HISTORY);
 								} else {
 									throw new JavaModelException(new JavaModelStatus(
@@ -411,7 +433,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 						for (int i = 0, max = resources.length; i < max; i++) {
 							IResource destinationResource = ResourcesPlugin.getWorkspace().getRoot().findMember(destPath.append(resources[i].getName()));
 							if (destinationResource != null) {
-								if (fForce) {
+								if (force) {
 									// we need to delete this resource if this operation wants to override existing resources
 									deleteResource(destinationResource, IResource.KEEP_HISTORY);
 								} else {
@@ -426,15 +448,48 @@ public class CopyResourceElementsOperation extends MultiOperation {
 				}
 			}
 	
+			// Update package statement in compilation unit if needed
+			if (!newFrag.getElementName().equals(source.getElementName())) { // if package has been renamed, update the compilation units
+				for (int i = 0; i < resources.length; i++) {
+					if (resources[i].getName().endsWith(SUFFIX_STRING_java)) {
+						// we only consider potential compilation units
+						ICompilationUnit cu = newFrag.getCompilationUnit(resources[i].getName());
+						IDOMCompilationUnit domCU = fFactory.createCompilationUnit(cu.getSource(), cu.getElementName());
+						if (domCU != null) {
+							updatePackageStatement(domCU, newFragName);
+							IBuffer buffer = cu.getBuffer();
+							if (buffer == null) continue;
+							String bufferContents = buffer.getContents();
+							if (bufferContents == null) continue;
+							String domCUContents = domCU.getContents();
+							String cuContents = null;
+							if (domCUContents != null) {
+								cuContents = Util.normalizeCRs(domCU.getContents(), bufferContents);
+							} else {
+								// See PR http://dev.eclipse.org/bugs/show_bug.cgi?id=11285
+								cuContents = bufferContents;//$NON-NLS-1$
+							}
+							buffer.setContents(cuContents);
+							cu.save(null, false);
+						}
+					}
+				}
+			}
+			
 			// Discard empty old package (if still empty after the rename)
 			boolean isEmpty = true;
 			if (isMove()) {
 				// delete remaining files in this package (.class file in the case where Proj=src=bin)
+				// in case of a copy
+				updateReadOnlyPackageFragmentsForMove((IContainer) source.getParent().getResource(), root, newFragName, sourceIsReadOnly);
 				if (srcFolder.exists()) {
-					IResource[] remaingFiles = srcFolder.members();
-					for (int i = 0, length = remaingFiles.length; i < length; i++) {
-						IResource file = remaingFiles[i];
+					IResource[] remaining = srcFolder.members();
+					for (int i = 0, length = remaining.length; i < length; i++) {
+						IResource file = remaining[i];
 						if (file instanceof IFile) {
+							if (file.isReadOnly()) {
+								file.setReadOnly(false);
+							}
 							this.deleteResource(file, IResource.FORCE | IResource.KEEP_HISTORY);
 						} else {
 							isEmpty = false;
@@ -453,36 +508,10 @@ public class CopyResourceElementsOperation extends MultiOperation {
 					// delete recursively empty folders
 					deleteEmptyPackageFragment(source, false, rootResource);
 				}
+			} else if (containsReadOnlySubPackageFragments) {
+				// in case of a copy
+				updateReadOnlyPackageFragmentsForCopy((IContainer) source.getParent().getResource(), root, newFragName);
 			}
-	
-			// Update package statement in compilation unit if needed
-			if (!newFrag.getElementName().equals(source.getElementName())) { // if package has been renamed, update the compilation units
-				for (int i = 0; i < resources.length; i++) {
-					if (resources[i].getName().endsWith(".java")) { //$NON-NLS-1$
-						// we only consider potential compilation units
-						ICompilationUnit cu = newFrag.getCompilationUnit(resources[i].getName());
-						IDOMCompilationUnit domCU = fFactory.createCompilationUnit(cu.getSource(), cu.getElementName());
-						if (domCU != null) {
-							updatePackageStatement(domCU, newFragName);
-							IBuffer buffer = cu.getBuffer();
-							if (buffer == null) continue;
-							String bufferContents = buffer.getContents();
-							if (bufferContents == null) continue;
-							String domCUContents = domCU.getContents();
-							String cuContents = null;
-							if (domCUContents != null) {
-								cuContents = org.eclipse.jdt.internal.core.Util.normalizeCRs(domCU.getContents(), bufferContents);
-							} else {
-								// See PR http://dev.eclipse.org/bugs/show_bug.cgi?id=11285
-								cuContents = bufferContents;//$NON-NLS-1$
-							}
-							buffer.setContents(cuContents);
-							cu.save(null, false);
-						}
-					}
-				}
-			}
-	
 			//register the correct change deltas
 			prepareDeltas(source, newFrag, isMove() && isEmpty);
 		} catch (DOMException dom) {
@@ -521,7 +550,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 	/**
 	 * Makes sure that <code>cu</code> declares to be in the <code>pkgName</code> package.
 	 */
-	private void updatePackageStatement(IDOMCompilationUnit domCU, String pkgName) throws JavaModelException {
+	private void updatePackageStatement(IDOMCompilationUnit domCU, String pkgName) {
 		boolean defaultPackage = pkgName.equals(IPackageFragment.DEFAULT_PACKAGE_NAME);
 		boolean seenPackageNode = false;
 		Enumeration enum = domCU.getChildren();
@@ -540,11 +569,45 @@ public class CopyResourceElementsOperation extends MultiOperation {
 		if (!seenPackageNode && !defaultPackage) {
 			//the cu was in a default package...no package declaration
 			//create the new package declaration as the first child of the cu
-			IDOMPackage pkg = fFactory.createPackage("package " + pkgName + ";" + Util.LINE_SEPARATOR); //$NON-NLS-1$ //$NON-NLS-2$
+			IDOMPackage pkg = fFactory.createPackage("package " + pkgName + ";" + org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR); //$NON-NLS-1$ //$NON-NLS-2$
 			IDOMNode firstChild = domCU.getFirstChild();
 			if (firstChild != null) {
 				firstChild.insertSibling(pkg);
 			} // else the cu was empty: leave it empty
+		}
+	}
+	
+	private void updateReadOnlyPackageFragmentsForCopy(IContainer sourceFolder, IPackageFragmentRoot root, String newFragName) {
+		IContainer parentFolder = (IContainer) root.getResource();
+		String[] names = Util.getTrimmedSimpleNames(newFragName);
+		StringBuffer sideEffectPackageName = new StringBuffer();
+		for (int i = 0, nameLength = names.length; i < nameLength; i++) {
+			String subFolderName = names[i];
+			sideEffectPackageName.append(subFolderName);
+			parentFolder = parentFolder.getFolder(new Path(subFolderName));
+			sourceFolder = sourceFolder.getFolder(new Path(subFolderName));
+			if (sourceFolder.exists() && sourceFolder.isReadOnly()) {
+				parentFolder.setReadOnly(true);
+			}
+			sideEffectPackageName.append('.');
+		}
+	}
+
+	private void updateReadOnlyPackageFragmentsForMove(IContainer sourceFolder, IPackageFragmentRoot root, String newFragName, boolean sourceFolderIsReadOnly) {
+		IContainer parentFolder = (IContainer) root.getResource();
+		String[] names = Util.getTrimmedSimpleNames(newFragName);
+		StringBuffer sideEffectPackageName = new StringBuffer();
+		for (int i = 0, nameLength = names.length; i < nameLength; i++) {
+			String subFolderName = names[i];
+			sideEffectPackageName.append(subFolderName);
+			parentFolder = parentFolder.getFolder(new Path(subFolderName));
+			sourceFolder = sourceFolder.getFolder(new Path(subFolderName));
+			if ((sourceFolder.exists() && sourceFolder.isReadOnly()) || (i == nameLength - 1 && sourceFolderIsReadOnly)) {
+				parentFolder.setReadOnly(true);
+				// the source folder will be deleted anyway (move operation)
+				sourceFolder.setReadOnly(false);
+			}
+			sideEffectPackageName.append('.');
 		}
 	}
 		/**
@@ -585,7 +648,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 			return status;
 		}
 	
-		if (fRenamingsList != null && fRenamingsList.length != fElementsToProcess.length) {
+		if (this.renamingsList != null && this.renamingsList.length != elementsToProcess.length) {
 			return new JavaModelStatus(IJavaModelStatusConstants.INDEX_OUT_OF_BOUNDS);
 		}
 		return JavaModelStatus.VERIFIED_OK;
@@ -603,14 +666,15 @@ public class CopyResourceElementsOperation extends MultiOperation {
 		IResource resource = element.getResource();
 		if (resource instanceof IFolder) {
 			if (resource.isLinked()) {
-				error(JavaModelStatus.INVALID_RESOURCE, element);
+				error(IJavaModelStatusConstants.INVALID_RESOURCE, element);
 			}
 		}
 	
 		int elementType = element.getElementType();
 	
 		if (elementType == IJavaElement.COMPILATION_UNIT) {
-			if (isMove() && ((ICompilationUnit) element).isWorkingCopy())
+			CompilationUnit compilationUnit = (CompilationUnit)element;
+			if (isMove() && compilationUnit.isWorkingCopy() && !compilationUnit.isPrimary())
 				error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
 		} else if (elementType != IJavaElement.PACKAGE_FRAGMENT) {
 			error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
@@ -618,7 +682,7 @@ public class CopyResourceElementsOperation extends MultiOperation {
 		
 		JavaElement dest = (JavaElement) getDestinationParent(element);
 		verifyDestination(element, dest);
-		if (fRenamings != null) {
+		if (this.renamings != null) {
 			verifyRenaming(element);
 		}
 }

@@ -20,7 +20,8 @@ import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.ClassFile;
 import org.eclipse.jdt.internal.compiler.Compiler;
 import org.eclipse.jdt.internal.compiler.problem.*;
-import org.eclipse.jdt.internal.core.*;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.util.Util;
 
 import java.io.*;
 import java.util.*;
@@ -76,47 +77,54 @@ public void acceptResult(CompilationResult result) {
 
 	SourceFile compilationUnit = (SourceFile) result.getCompilationUnit(); // go directly back to the sourceFile
 	if (!workQueue.isCompiled(compilationUnit)) {
+		workQueue.finished(compilationUnit);
+
 		try {
-			workQueue.finished(compilationUnit);
 			updateProblemsFor(compilationUnit, result); // record compilation problems before potentially adding duplicate errors
 			updateTasksFor(compilationUnit, result); // record tasks
-
-			String typeLocator = compilationUnit.typeLocator();
-			ClassFile[] classFiles = result.getClassFiles();
-			int length = classFiles.length;
-			ArrayList duplicateTypeNames = null;
-			ArrayList definedTypeNames = new ArrayList(length);
-			for (int i = 0; i < length; i++) {
-				ClassFile classFile = classFiles[i];
-				char[][] compoundName = classFile.getCompoundName();
-				char[] typeName = compoundName[compoundName.length - 1];
-				boolean isNestedType = CharOperation.contains('$', typeName);
-
-				// Look for a possible collision, if one exists, report an error but do not write the class file
-				if (isNestedType) {
-					String qualifiedTypeName = new String(classFile.outerMostEnclosingClassFile().fileName());
-					if (newState.isDuplicateLocator(qualifiedTypeName, typeLocator))
-						continue;
-				} else {
-					String qualifiedTypeName = new String(classFile.fileName()); // the qualified type name "p1/p2/A"
-					if (newState.isDuplicateLocator(qualifiedTypeName, typeLocator)) {
-						if (duplicateTypeNames == null)
-							duplicateTypeNames = new ArrayList();
-						duplicateTypeNames.add(compoundName);
-						createErrorFor(compilationUnit.resource, Util.bind("build.duplicateClassFile", new String(typeName))); //$NON-NLS-1$
-						continue;
-					}
-					newState.recordLocatorForType(qualifiedTypeName, typeLocator);
-				}
-				definedTypeNames.add(writeClassFile(classFile, compilationUnit.sourceLocation.binaryFolder, !isNestedType));
-			}
-
-			finishedWith(typeLocator, result, compilationUnit.getMainTypeName(), definedTypeNames, duplicateTypeNames);
-			notifier.compiled(compilationUnit);
 		} catch (CoreException e) {
-			Util.log(e, "JavaBuilder handling CoreException"); //$NON-NLS-1$
-			createErrorFor(compilationUnit.resource, Util.bind("build.inconsistentClassFile")); //$NON-NLS-1$
+			throw internalException(e);
 		}
+
+		String typeLocator = compilationUnit.typeLocator();
+		ClassFile[] classFiles = result.getClassFiles();
+		int length = classFiles.length;
+		ArrayList duplicateTypeNames = null;
+		ArrayList definedTypeNames = new ArrayList(length);
+		for (int i = 0; i < length; i++) {
+			ClassFile classFile = classFiles[i];
+			char[][] compoundName = classFile.getCompoundName();
+			char[] typeName = compoundName[compoundName.length - 1];
+			boolean isNestedType = CharOperation.contains('$', typeName);
+
+			// Look for a possible collision, if one exists, report an error but do not write the class file
+			if (isNestedType) {
+				String qualifiedTypeName = new String(classFile.outerMostEnclosingClassFile().fileName());
+				if (newState.isDuplicateLocator(qualifiedTypeName, typeLocator))
+					continue;
+			} else {
+				String qualifiedTypeName = new String(classFile.fileName()); // the qualified type name "p1/p2/A"
+				if (newState.isDuplicateLocator(qualifiedTypeName, typeLocator)) {
+					if (duplicateTypeNames == null)
+						duplicateTypeNames = new ArrayList();
+					duplicateTypeNames.add(compoundName);
+					createProblemFor(compilationUnit.resource, Util.bind("build.duplicateClassFile", new String(typeName)), JavaCore.ERROR); //$NON-NLS-1$
+					continue;
+				}
+				newState.recordLocatorForType(qualifiedTypeName, typeLocator);
+			}
+			try {
+				definedTypeNames.add(writeClassFile(classFile, compilationUnit, !isNestedType));
+			} catch (CoreException e) {
+				Util.log(e, "JavaBuilder handling CoreException"); //$NON-NLS-1$
+				if (e.getStatus().getCode() == IResourceStatus.CASE_VARIANT_EXISTS)
+					createProblemFor(compilationUnit.resource, Util.bind("build.classFileCollision", e.getMessage()), JavaCore.ERROR); //$NON-NLS-1$
+				else
+					createProblemFor(compilationUnit.resource, Util.bind("build.inconsistentClassFile"), JavaCore.ERROR); //$NON-NLS-1$
+			}
+		}
+		finishedWith(typeLocator, result, compilationUnit.getMainTypeName(), definedTypeNames, duplicateTypeNames);
+		notifier.compiled(compilationUnit);
 	}
 }
 
@@ -136,21 +144,23 @@ protected void cleanUp() {
 * if they are affected by the changes.
 */
 protected void compile(SourceFile[] units) {
-	int toDo = units.length;
-	if (this.compiledAllAtOnce = toDo <= MAX_AT_ONCE) {
+	int unitsLength = units.length;
+
+	this.compiledAllAtOnce = unitsLength <= MAX_AT_ONCE;
+	if (this.compiledAllAtOnce) {
 		// do them all now
 		if (JavaBuilder.DEBUG)
-			for (int i = 0; i < toDo; i++)
+			for (int i = 0; i < unitsLength; i++)
 				System.out.println("About to compile " + units[i].typeLocator()); //$NON-NLS-1$
 		compile(units, null);
 	} else {
 		int i = 0;
 		boolean compilingFirstGroup = true;
-		while (i < toDo) {
-			int doNow = toDo < MAX_AT_ONCE ? toDo : MAX_AT_ONCE;
+		while (i < unitsLength) {
+			int doNow = unitsLength < MAX_AT_ONCE ? unitsLength : MAX_AT_ONCE;
 			int index = 0;
 			SourceFile[] toCompile = new SourceFile[doNow];
-			while (i < toDo && index < doNow) {
+			while (i < unitsLength && index < doNow) {
 				// Although it needed compiling when this method was called, it may have
 				// already been compiled when it was referenced by another unit.
 				SourceFile unit = units[i++];
@@ -162,7 +172,7 @@ protected void compile(SourceFile[] units) {
 			}
 			if (index < doNow)
 				System.arraycopy(toCompile, 0, toCompile = new SourceFile[index], 0, index);
-			SourceFile[] additionalUnits = new SourceFile[toDo - i];
+			SourceFile[] additionalUnits = new SourceFile[unitsLength - i];
 			System.arraycopy(units, i, additionalUnits, 0, additionalUnits.length);
 			compilingFirstGroup = false;
 			compile(toCompile, additionalUnits);
@@ -204,13 +214,11 @@ void compile(SourceFile[] units, SourceFile[] additionalUnits) {
 	notifier.checkCancel();
 }
 
-protected void createErrorFor(IResource resource, String message) {
+protected void createProblemFor(IResource resource, String message, String problemSeverity) {
 	try {
 		IMarker marker = resource.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
-		int severity = IMarker.SEVERITY_ERROR;
-		if (message.equals(Util.bind("build.duplicateResource"))) //$NON-NLS-1$
-			if (JavaCore.WARNING.equals(javaBuilder.javaProject.getOption(JavaCore.CORE_JAVA_BUILD_DUPLICATE_RESOURCE, true)))
-				severity = IMarker.SEVERITY_WARNING;
+		int severity = problemSeverity.equals(JavaCore.WARNING) ? IMarker.SEVERITY_WARNING : IMarker.SEVERITY_ERROR;
+
 		marker.setAttributes(
 			new String[] {IMarker.MESSAGE, IMarker.SEVERITY, IMarker.CHAR_START, IMarker.CHAR_END},
 			new Object[] {message, new Integer(severity), new Integer(0), new Integer(1)});
@@ -219,7 +227,7 @@ protected void createErrorFor(IResource resource, String message) {
 	}
 }
 
-protected void finishedWith(String sourceLocator, CompilationResult result, char[] mainTypeName, ArrayList definedTypeNames, ArrayList duplicateTypeNames) throws CoreException {
+protected void finishedWith(String sourceLocator, CompilationResult result, char[] mainTypeName, ArrayList definedTypeNames, ArrayList duplicateTypeNames) {
 	if (duplicateTypeNames == null) {
 		newState.record(sourceLocator, result.qualifiedReferences, result.simpleNameReferences, mainTypeName, definedTypeNames);
 		return;
@@ -398,7 +406,7 @@ protected void storeTasksFor(SourceFile sourceFile, IProblem[] tasks) throws Cor
 				new Object[] { 
 					task.getMessage(),
 					new Integer(priority),
-					new Boolean(false),
+					org.eclipse.jdt.internal.compiler.util.Util.toBoolean(false),
 					new Integer(task.getSourceStart()),
 					new Integer(task.getSourceEnd() + 1),
 					new Integer(task.getSourceLineNumber()),
@@ -423,22 +431,23 @@ protected void updateTasksFor(SourceFile sourceFile, CompilationResult result) t
 	storeTasksFor(sourceFile, tasks);
 }
 
-protected char[] writeClassFile(ClassFile classFile, IContainer outputFolder, boolean isSecondaryType) throws CoreException {
+protected char[] writeClassFile(ClassFile classFile, SourceFile compilationUnit, boolean isSecondaryType) throws CoreException {
 	String fileName = new String(classFile.fileName()); // the qualified type name "p1/p2/A"
 	IPath filePath = new Path(fileName);
+	IContainer outputFolder = compilationUnit.sourceLocation.binaryFolder; 
 	IContainer container = outputFolder;
 	if (filePath.segmentCount() > 1) {
 		container = createFolder(filePath.removeLastSegments(1), outputFolder);
 		filePath = new Path(filePath.lastSegment());
 	}
 
-	IFile file = container.getFile(filePath.addFileExtension(JavaBuilder.CLASS_EXTENSION));
-	writeClassFileBytes(classFile.getBytes(), file, fileName, isSecondaryType);
+	IFile file = container.getFile(filePath.addFileExtension(SuffixConstants.EXTENSION_class));
+	writeClassFileBytes(classFile.getBytes(), file, fileName, isSecondaryType, compilationUnit.updateClassFile);
 	// answer the name of the class file as in Y or Y$M
 	return filePath.lastSegment().toCharArray();
 }
 
-protected void writeClassFileBytes(byte[] bytes, IFile file, String qualifiedFileName, boolean isSecondaryType) throws CoreException {
+protected void writeClassFileBytes(byte[] bytes, IFile file, String qualifiedFileName, boolean isSecondaryType, boolean updateClassFile) throws CoreException {
 	if (file.exists()) {
 		// Deal with shared output folders... last one wins... no collision cases detected
 		if (JavaBuilder.DEBUG)

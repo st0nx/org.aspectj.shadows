@@ -24,6 +24,7 @@ import org.eclipse.jdt.internal.compiler.util.Util;
 public class ClassFileReader extends ClassFileStruct implements AttributeNamesConstants, IBinaryType {
 	private int constantPoolCount;
 	private int[] constantPoolOffsets;
+	private long version;
 	private int accessFlags;
 	private char[] className;
 	private char[] superclassName;
@@ -60,6 +61,7 @@ public ClassFileReader(byte[] classFileBytes, char[] fileName, boolean fullyInit
 	this.classFileName = fileName;
 	int readOffset = 10;
 	try {
+		this.version = ((long)this.u2At(6) << 16) + this.u2At(4); // major<<16 + minor
 		constantPoolCount = this.u2At(8);
 		// Pass #1 - Fill in all primitive constants
 		this.constantPoolOffsets = new int[constantPoolCount];
@@ -404,6 +406,14 @@ public char[] getSuperclassName() {
 	return this.superclassName;
 }
 /**
+ * Answer the major/minor version defined in this class file according to the VM spec.
+ * as a long: (major<<16)+minor
+ * @return the major/minor version found
+ */
+public long getVersion() {
+	return this.version;
+}
+/**
  * Answer true if the receiver is an anonymous type, false otherwise
  *
  * @return <CODE>boolean</CODE>
@@ -578,8 +588,8 @@ public boolean hasStructuralChanges(byte[] newBytes, boolean orderRequired, bool
 		}
 
 		// member types
-		IBinaryNestedType[] currentMemberTypes = (IBinaryNestedType[]) this.getMemberTypes();
-		IBinaryNestedType[] otherMemberTypes = (IBinaryNestedType[]) newClassFile.getMemberTypes();
+		IBinaryNestedType[] currentMemberTypes = this.getMemberTypes();
+		IBinaryNestedType[] otherMemberTypes = newClassFile.getMemberTypes();
 		if (currentMemberTypes != otherMemberTypes) { // TypeConstants.NoMemberTypes
 			int currentMemberTypeLength = currentMemberTypes == null ? 0 : currentMemberTypes.length;
 			int otherMemberTypeLength = otherMemberTypes == null ? 0 : otherMemberTypes.length;
@@ -706,10 +716,10 @@ private boolean hasStructuralFieldChanges(FieldInfo currentFieldInfo, FieldInfo 
 				return currentConstant.shortValue() != otherConstant.shortValue();
 			case TypeIds.T_char :
 				return currentConstant.charValue() != otherConstant.charValue();
-			case TypeIds.T_float :
-				return currentConstant.floatValue() != otherConstant.floatValue();
 			case TypeIds.T_long :
 				return currentConstant.longValue() != otherConstant.longValue();
+			case TypeIds.T_float :
+				return currentConstant.floatValue() != otherConstant.floatValue();
 			case TypeIds.T_double :
 				return currentConstant.doubleValue() != otherConstant.doubleValue();
 			case TypeIds.T_boolean :

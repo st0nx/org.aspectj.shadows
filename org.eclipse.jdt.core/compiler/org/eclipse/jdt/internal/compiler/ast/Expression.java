@@ -19,7 +19,7 @@ import org.eclipse.jdt.internal.compiler.util.Util;
 
 public abstract class Expression extends Statement {
 	
-	//some expression may not be used - from a java semantic point
+	//Some expression may not be used - from a java semantic point
 	//of view only - as statements. Other may. In order to avoid the creation
 	//of wrappers around expression in order to tune them as expression
 	//Expression is a subclass of Statement. See the message isValidJavaStatement()
@@ -48,10 +48,9 @@ public abstract class Expression extends Statement {
 	 * since it is not strictly equivalent to the definition of constant expressions.
 	 * In particular, some side-effects may be required to occur (only the end value
 	 * is known).
-	 * Constant is known to be of boolean type
+	 * @return Constant known to be of boolean type
 	 */ 
 	public Constant optimizedBooleanConstant() {
-
 		return this.constant;
 	}
 
@@ -250,6 +249,11 @@ public abstract class Expression extends Statement {
 
 	/**
 	 * Default generation of a boolean value
+	 * @param currentScope
+	 * @param codeStream
+	 * @param trueLabel
+	 * @param falseLabel
+	 * @param valueRequired
 	 */
 	public void generateOptimizedBoolean(
 		BlockScope currentScope,
@@ -318,6 +322,9 @@ public abstract class Expression extends Statement {
 		org.eclipse.jdt.internal.compiler.codegen.CodeStream codeStream,
 		int typeID) {
 
+		if (typeID == T_String && this.constant != NotAConstant && this.constant.stringValue().length() == 0) {
+			return; // optimize str + ""
+		}
 		generateCode(blockScope, codeStream, true);
 		codeStream.invokeStringBufferAppendForType(typeID);
 	}
@@ -346,7 +353,12 @@ public abstract class Expression extends Statement {
 		codeStream.dup();
 		if (typeID == T_String || typeID == T_null) {
 			if (constant != NotAConstant) {
-				codeStream.ldc(constant.stringValue());
+				String stringValue = constant.stringValue();
+				if (stringValue.length() == 0) {  // optimize ""+<str> 
+					codeStream.invokeStringBufferDefaultConstructor();
+					return;
+				}
+				codeStream.ldc(stringValue);
 			} else {
 				generateCode(blockScope, codeStream, true);
 				codeStream.invokeStringValueOf(T_Object);
@@ -440,6 +452,11 @@ public abstract class Expression extends Statement {
 		return null;
 	}
 
+	public TypeBinding resolveType(ClassScope classScope) {
+		// by default... subclasses should implement a better TB if required.
+		return null;
+	}
+
 	public TypeBinding resolveTypeExpecting(
 		BlockScope scope,
 		TypeBinding expectedType) {
@@ -455,30 +472,15 @@ public abstract class Expression extends Statement {
 		return expressionType;
 	}
 
-	public String toString(int tab) {
-
-		//Subclass re-define toStringExpression
-		String s = tabString(tab);
-		if (constant != null)
-			//before TC has runned
-			if (constant != NotAConstant)
-				//after the TC has runned
-				s += " /*cst:" + constant.toString() + "*/ "; //$NON-NLS-1$ //$NON-NLS-2$
-		return s + toStringExpression(tab);
+	public StringBuffer print(int indent, StringBuffer output) {
+		printIndent(indent, output);
+		return printExpression(indent, output);
 	}
 
-	//Subclass re-define toStringExpression
-	//This method is abstract and should never be called
-	//but we provide some code that is running.....just in case
-	//of developpement time (while every  thing is not built)
-	public String toStringExpression() {
-
-		return super.toString(0);
-	}
-
-	public String toStringExpression(int tab) {
-		// default is regular toString expression (qualified allocation expressions redifine this method)
-		return this.toStringExpression();
+	public abstract StringBuffer printExpression(int indent, StringBuffer output);
+	
+	public StringBuffer printStatement(int indent, StringBuffer output) {
+		return print(indent, output).append(";"); //$NON-NLS-1$
 	}
 
 	public Expression toTypeReference() {

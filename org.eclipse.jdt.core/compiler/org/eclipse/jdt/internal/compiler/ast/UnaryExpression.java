@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
@@ -198,20 +198,28 @@ public class UnaryExpression extends OperatorExpression {
 		}
 	}
 
+	public StringBuffer printExpressionNoParenthesis(int indent, StringBuffer output) {
+		
+		output.append(operatorToString()).append(' ');
+		return this.expression.printExpression(0, output);
+	} 
+	
 	public TypeBinding resolveType(BlockScope scope) {
 		
+		boolean expressionIsCast;
+		if ((expressionIsCast = this.expression instanceof CastExpression) == true) this.expression.bits |= IgnoreNeedForCastCheckMASK; // will check later on
 		TypeBinding expressionType = this.expression.resolveType(scope);
 		if (expressionType == null) {
 			this.constant = NotAConstant;
 			return null;
 		}
-		int expressionId = expressionType.id;
-		if (expressionId > 15) {
+		int expressionTypeId = expressionType.id;
+		if (expressionTypeId > 15) {
 			this.constant = NotAConstant;
 			scope.problemReporter().invalidOperator(this, expressionType);
 			return null;
 		}
-
+	
 		int tableId;
 		switch ((bits & OperatorMASK) >> OperatorSHIFT) {
 			case NOT :
@@ -223,15 +231,15 @@ public class UnaryExpression extends OperatorExpression {
 			default :
 				tableId = MINUS;
 		} //+ and - cases
-
+	
 		// the code is an int
 		// (cast)  left   Op (cast)  rigth --> result
 		//  0000   0000       0000   0000      0000
 		//  <<16   <<12       <<8    <<4       <<0
-		int result = ResolveTypeTables[tableId][(expressionId << 4) + expressionId];
-		this.expression.implicitConversion = result >>> 12;
-		this.bits |= result & 0xF;
-		switch (result & 0xF) { // only switch on possible result type.....
+		int operatorSignature = OperatorSignatures[tableId][(expressionTypeId << 4) + expressionTypeId];
+		this.expression.implicitConversion = operatorSignature >>> 12;
+		this.bits |= operatorSignature & 0xF;
+		switch (operatorSignature & 0xF) { // only switch on possible result type.....
 			case T_boolean :
 				this.resolvedType = BooleanBinding;
 				break;
@@ -255,7 +263,7 @@ public class UnaryExpression extends OperatorExpression {
 				break;
 			default : //error........
 				this.constant = Constant.NotAConstant;
-				if (expressionId != T_undefined)
+				if (expressionTypeId != T_undefined)
 					scope.problemReporter().invalidOperator(this, expressionType);
 				return null;
 		}
@@ -264,7 +272,7 @@ public class UnaryExpression extends OperatorExpression {
 			this.constant =
 				Constant.computeConstantOperation(
 					this.expression.constant,
-					expressionId,
+					expressionTypeId,
 					(bits & OperatorMASK) >> OperatorSHIFT);
 		} else {
 			this.constant = Constant.NotAConstant;
@@ -274,16 +282,15 @@ public class UnaryExpression extends OperatorExpression {
 					this.optimizedBooleanConstant = Constant.fromValue(!cst.booleanValue());
 			}
 		}
+		if (expressionIsCast) {
+		// check need for operand cast
+			CastExpression.checkNeedForArgumentCast(scope, tableId, operatorSignature, this.expression, expressionTypeId);
+		}
 		return this.resolvedType;
 	}
 
-	public String toStringExpressionNoParenthesis() {
-		
-		return operatorToString() + " " + this.expression.toStringExpression(); //$NON-NLS-1$
-	} 
-	
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		BlockScope blockScope) {
 			
 		if (visitor.visit(this, blockScope)) {

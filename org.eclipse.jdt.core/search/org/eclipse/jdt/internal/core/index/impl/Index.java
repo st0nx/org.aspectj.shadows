@@ -15,11 +15,9 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.eclipse.jdt.internal.core.index.IDocument;
-import org.eclipse.jdt.internal.core.index.IEntryResult;
+import org.eclipse.jdt.core.search.SearchDocument;
 import org.eclipse.jdt.internal.core.index.IIndex;
 import org.eclipse.jdt.internal.core.index.IIndexer;
-import org.eclipse.jdt.internal.core.index.IQueryResult;
 
 /**
  * An Index is used to create an index on the disk, and to make queries. It uses a set of 
@@ -89,11 +87,11 @@ public class Index implements IIndex {
 	 * If the document already exists in the index, it overrides the previous one. The changes will be 
 	 * taken into account after a merge.
 	 */
-	public void add(IDocument document, IIndexer indexer) throws IOException {
+	public void add(SearchDocument document, IIndexer indexer) throws IOException {
 		if (timeToMerge()) {
 			merge();
 		}
-		IndexedFile indexedFile= addsIndex.getIndexedFile(document.getName());
+		IndexedFile indexedFile= addsIndex.getIndexedFile(document.getPath());
 		if (indexedFile != null /*&& removedInAdds.get(document.getName()) == null*/
 			)
 			remove(indexedFile, MergeFactory.ADDS_INDEX);
@@ -112,56 +110,30 @@ public class Index implements IIndex {
 	/**
 	 * Initialises the indexGenerator.
 	 */
-	public void empty() throws IOException {
-
-		if (indexFile.exists()){
-			indexFile.delete();
-			//initialisation of mainIndex
-			InMemoryIndex mainIndex= new InMemoryIndex();
-			IndexOutput mainIndexOutput= new BlocksIndexOutput(indexFile);
-			if (!indexFile.exists())
-				mainIndex.save(mainIndexOutput);
-		}
-
-		//initialisation of addsIndex
-		addsIndex= new InMemoryIndex();
-		addsIndexInput= new SimpleIndexInput(addsIndex);
-
-		//vectors who keep track of the removed Files
-		removedInAdds= new HashMap(11);
-		removedInOld= new HashMap(11);
-	}
+//	public void empty() throws IOException {
+//
+//		if (indexFile.exists()){
+//			indexFile.delete();
+//			//initialisation of mainIndex
+//			InMemoryIndex mainIndex= new InMemoryIndex();
+//			IndexOutput mainIndexOutput= new BlocksIndexOutput(indexFile);
+//			if (!indexFile.exists())
+//				mainIndex.save(mainIndexOutput);
+//		}
+//
+//		//initialisation of addsIndex
+//		addsIndex= new InMemoryIndex();
+//		addsIndexInput= new SimpleIndexInput(addsIndex);
+//
+//		//vectors who keep track of the removed Files
+//		removedInAdds= new HashMap(11);
+//		removedInOld= new HashMap(11);
+//	}
 	/**
 	 * @see IIndex#getIndexFile
 	 */
 	public File getIndexFile() {
 		return indexFile;
-	}
-	/**
-	 * @see IIndex#getNumDocuments
-	 */
-	public int getNumDocuments() throws IOException {
-		//save();
-		IndexInput input= new BlocksIndexInput(indexFile);
-		try {
-			input.open();
-			return input.getNumFiles();
-		} finally {
-			input.close();
-		}		
-	}
-	/**
-	 * @see IIndex#getNumWords
-	 */
-	public int getNumWords() throws IOException {
-		//save();
-		IndexInput input= new BlocksIndexInput(indexFile);
-		try {
-			input.open();
-			return input.getNumWords();
-		} finally {
-			input.close();
-		}		
 	}
 	/**
 	 * Returns the path corresponding to a given document number
@@ -259,7 +231,7 @@ public class Index implements IIndex {
 	/**
 	 * @see IIndex#query
 	 */
-	public IQueryResult[] query(String word) throws IOException {
+	public String[] query(String word) throws IOException {
 		//save();
 		IndexInput input= new BlocksIndexInput(indexFile);
 		try {
@@ -268,7 +240,7 @@ public class Index implements IIndex {
 			input.close();
 		}
 	}
-	public IEntryResult[] queryEntries(char[] prefix) throws IOException {
+	public EntryResult[] queryEntries(char[] prefix) throws IOException {
 		//save();
 		IndexInput input= new BlocksIndexInput(indexFile);
 		try {
@@ -280,7 +252,7 @@ public class Index implements IIndex {
 	/**
 	 * @see IIndex#queryInDocumentNames
 	 */
-	public IQueryResult[] queryInDocumentNames(String word) throws IOException {
+	public String[] queryInDocumentNames(String word) throws IOException {
 		//save();
 		IndexInput input= new BlocksIndexInput(indexFile);
 		try {
@@ -292,7 +264,7 @@ public class Index implements IIndex {
 	/**
 	 * @see IIndex#queryPrefix
 	 */
-	public IQueryResult[] queryPrefix(char[] prefix) throws IOException {
+	public String[] queryPrefix(char[] prefix) throws IOException {
 		//save();
 		IndexInput input= new BlocksIndexInput(indexFile);
 		try {
@@ -304,7 +276,7 @@ public class Index implements IIndex {
 	/**
 	 * @see IIndex#remove
 	 */
-	public void remove(String documentName) throws IOException {
+	public void remove(String documentName) {
 		IndexedFile file= addsIndex.getIndexedFile(documentName);
 		if (file != null) {
 			//the file is in the adds Index, we remove it from this one
@@ -325,7 +297,7 @@ public class Index implements IIndex {
 	 * Removes the given document from the given index (MergeFactory.ADDS_INDEX for the
 	 * in memory index, MergeFactory.OLD_INDEX for the index on the disk).
 	 */
-	protected void remove(IndexedFile file, int index) throws IOException {
+	protected void remove(IndexedFile file, int index) {
 		String name= file.getPath();
 		if (index == MergeFactory.ADDS_INDEX) {
 			Int lastRemoved= (Int) removedInAdds.get(name);

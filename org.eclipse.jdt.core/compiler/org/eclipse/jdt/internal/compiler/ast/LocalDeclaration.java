@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
@@ -19,23 +19,16 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 public class LocalDeclaration extends AbstractVariableDeclaration {
 
 	public LocalVariableBinding binding;
-
+	
 	public LocalDeclaration(
-		Expression expr,
 		char[] name,
 		int sourceStart,
 		int sourceEnd) {
 
-		initialization = expr;
 		this.name = name;
 		this.sourceStart = sourceStart;
 		this.sourceEnd = sourceEnd;
-		if (initialization != null) {
-			this.declarationSourceEnd = initialization.sourceEnd;
-			this.declarationEnd = initialization.sourceEnd;
-		} else {
-			this.declarationEnd = sourceEnd;
-		}
+		this.declarationEnd = sourceEnd;
 	}
 
 	public FlowInfo analyseCode(
@@ -78,7 +71,7 @@ public class LocalDeclaration extends AbstractVariableDeclaration {
 
 	/**
 	 * Code generation for a local declaration:
-	 *	  normal assignment to a local variable + unused variable handling 
+	 *	i.e.&nbsp;normal assignment to a local variable + unused variable handling 
 	 */
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 
@@ -138,45 +131,47 @@ public class LocalDeclaration extends AbstractVariableDeclaration {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
-	public String name() {
-
-		return String.valueOf(name);
-	}
-
 	public void resolve(BlockScope scope) {
 
 		// create a binding and add it to the scope
-		TypeBinding tb = type.resolveType(scope);
+		TypeBinding typeBinding = type.resolveType(scope);
 
 		checkModifiers();
 
-		if (tb != null) {
-			if (tb == VoidBinding) {
+		if (typeBinding != null) {
+			if (typeBinding == VoidBinding) {
 				scope.problemReporter().variableTypeCannotBeVoid(this);
 				return;
 			}
-			if (tb.isArrayType() && ((ArrayBinding) tb).leafComponentType == VoidBinding) {
+			if (typeBinding.isArrayType() && ((ArrayBinding) typeBinding).leafComponentType == VoidBinding) {
 				scope.problemReporter().variableTypeCannotBeVoidArray(this);
 				return;
 			}
 		}
-
-		// duplicate checks
-		if ((binding = scope.duplicateName(name)) != null) {
-			// the name already exists... may carry on with the first binding...
-			scope.problemReporter().redefineLocal(this);
-		} else {
+		
+		Binding existingVariable = scope.getBinding(name, BindingIds.VARIABLE, this, false /*do not resolve hidden field*/);
+		boolean shouldInsertInScope = true;
+		if (existingVariable != null && existingVariable.isValidBinding()){
+			if (existingVariable instanceof LocalVariableBinding && this.hiddenVariableDepth == 0) {
+				shouldInsertInScope = false;
+				scope.problemReporter().redefineLocal(this);
+			} else {
+				scope.problemReporter().localVariableHiding(this, existingVariable, false);
+			}
+		}
+				
+		if (shouldInsertInScope) {
 			if ((modifiers & AccFinal)!= 0 && this.initialization == null) {
 				modifiers |= AccBlankFinal;
 			}
-			binding = new LocalVariableBinding(this, tb, modifiers, false);
+			binding = new LocalVariableBinding(this, typeBinding, modifiers, false);
 			scope.addLocalVariable(binding);
 			binding.constant = NotAConstant;
 			// allow to recursivelly target the binding....
 			// the correct constant is harmed if correctly computed at the end of this method
 		}
 
-		if (tb == null) {
+		if (typeBinding == null) {
 			if (initialization != null)
 				initialization.resolveType(scope); // want to report all possible errors
 			return;
@@ -185,34 +180,36 @@ public class LocalDeclaration extends AbstractVariableDeclaration {
 		// store the constant for final locals 	
 		if (initialization != null) {
 			if (initialization instanceof ArrayInitializer) {
-				TypeBinding initTb = initialization.resolveTypeExpecting(scope, tb);
-				if (initTb != null) {
-					((ArrayInitializer) initialization).binding = (ArrayBinding) initTb;
-					initialization.implicitWidening(tb, initTb);
+				TypeBinding initializationType = initialization.resolveTypeExpecting(scope, typeBinding);
+				if (initializationType != null) {
+					((ArrayInitializer) initialization).binding = (ArrayBinding) initializationType;
+					initialization.implicitWidening(typeBinding, initializationType);
 				}
 			} else {
-				TypeBinding initTb = initialization.resolveType(scope);
-				if (initTb != null) {
-					if (initialization.isConstantValueOfTypeAssignableToType(initTb, tb)
-						|| (tb.isBaseType() && BaseTypeBinding.isWidening(tb.id, initTb.id))
-						|| initTb.isCompatibleWith(tb))
-						initialization.implicitWidening(tb, initTb);
+				TypeBinding initializationType = initialization.resolveType(scope);
+				if (initializationType != null) {
+					if (initialization.isConstantValueOfTypeAssignableToType(initializationType, typeBinding)
+						|| (typeBinding.isBaseType() && BaseTypeBinding.isWidening(typeBinding.id, initializationType.id))
+						|| initializationType.isCompatibleWith(typeBinding))
+						initialization.implicitWidening(typeBinding, initializationType);
 					else
-						scope.problemReporter().typeMismatchError(initTb, tb, this);
+						scope.problemReporter().typeMismatchError(initializationType, typeBinding, this);
 				}
 			}
 
 			// change the constant in the binding when it is final
 			// (the optimization of the constant propagation will be done later on)
 			// cast from constant actual type to variable type
-			binding.constant =
-				binding.isFinal()
-					? initialization.constant.castTo((tb.id << 4) + initialization.constant.typeID())
-					: NotAConstant;
+			if (binding != null) {
+				binding.constant =
+					binding.isFinal()
+						? initialization.constant.castTo((typeBinding.id << 4) + initialization.constant.typeID())
+						: NotAConstant;
+			}
 		}
 	}
 
-	public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope scope) {
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
 
 		if (visitor.visit(this, scope)) {
 			type.traverse(visitor, scope);

@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
@@ -215,22 +215,20 @@ public class Clinit extends AbstractMethodDeclaration {
 		//the clinit is filled by hand .... 
 	}
 
-	public void resolve(ClassScope scope) {
+	public StringBuffer print(int tab, StringBuffer output) {
 
-		this.scope = new MethodScope(scope, scope.referenceContext, true);
+		printIndent(tab, output).append("<clinit>()"); //$NON-NLS-1$
+		printBody(tab + 1, output);
+		return output;
 	}
 
-	public String toString(int tab) {
+	public void resolve(ClassScope classScope) {
 
-		String s = ""; //$NON-NLS-1$
-		s = s + tabString(tab);
-		s = s + "<clinit>()"; //$NON-NLS-1$
-		s = s + toStringStatements(tab + 1);
-		return s;
+		this.scope = new MethodScope(classScope, classScope.referenceContext, true);
 	}
 
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		ClassScope classScope) {
 
 		visitor.visit(this, classScope);
@@ -238,7 +236,7 @@ public class Clinit extends AbstractMethodDeclaration {
 	}
 
 	// 1.4 feature
-	public void addSupportForAssertion(FieldBinding assertionSyntheticFieldBinding) {
+	public void setAssertionSupport(FieldBinding assertionSyntheticFieldBinding) {
 
 		this.assertionSyntheticFieldBinding = assertionSyntheticFieldBinding;
 

@@ -10,10 +10,10 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * This operation renames resources (Package fragments and compilation units).
@@ -58,7 +58,8 @@ protected void verify(IJavaElement element) throws JavaModelException {
 		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
 	}
 	if (elementType == IJavaElement.COMPILATION_UNIT) {
-		if (((ICompilationUnit) element).isWorkingCopy()) {
+		CompilationUnit cu = (CompilationUnit)element;
+		if (cu.isWorkingCopy() && !cu.isPrimary()) {
 			error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
 		}
 	}

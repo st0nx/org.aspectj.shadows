@@ -7,6 +7,9 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ * 
+ * TODO missing 2.1 and subsequent contributions
+ * COMPILER_FAILURE
  *******************************************************************************/
 package org.eclipse.jdt.core;
 
@@ -75,7 +78,7 @@ public interface IJavaModelStatusConstants {
 	 * supplied do not exist. 
 	 * The element(s) can be retrieved using <code>getElements</code> on the status object.
 	 *
-	 * @see IJavaModelStatus#isDoesNotExist
+	 * @see IJavaModelStatus#isDoesNotExist()
 	 */
 	public static final int ELEMENT_DOES_NOT_EXIST = 969;
 
@@ -280,4 +283,18 @@ public interface IJavaModelStatusConstants {
 	 * @since 2.1
 	 */
 	public static final int DISABLED_CP_MULTIPLE_OUTPUT_LOCATIONS = 1003;
+	
+	/**
+	 * Status constant indicating that a project is prerequisiting some library for which the
+	 * classfile JDK version level is more recent than the project JDK target level setting. 
+	 * This can indicate some binary incompatibility issues later on.
+	 * @since 3.0
+	 */
+	public static final int INCOMPATIBLE_JDK_LEVEL	= 1004;
+	
+	/**
+	 * Status constant indicating that a compiler failure occurred.
+	 * @since 3.0
+	 */
+	public static final int COMPILER_FAILURE	= 1005;	
 }

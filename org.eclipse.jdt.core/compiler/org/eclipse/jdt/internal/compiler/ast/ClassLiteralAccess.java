@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -62,6 +62,11 @@ public class ClassLiteralAccess extends Expression {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
+	public StringBuffer printExpression(int indent, StringBuffer output) {
+
+		return type.print(0, output).append(".class"); //$NON-NLS-1$
+	}
+
 	public TypeBinding resolveType(BlockScope scope) {
 
 		constant = NotAConstant;
@@ -77,15 +82,8 @@ public class ClassLiteralAccess extends Expression {
 		return this.resolvedType = scope.getJavaLangClass();
 	}
 
-	public String toStringExpression() {
-
-		String s = ""; //$NON-NLS-1$
-		s = s + type.toString(0) + ".class"; //$NON-NLS-1$
-		return s;
-	}
-
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		BlockScope blockScope) {
 
 		if (visitor.visit(this, blockScope)) {

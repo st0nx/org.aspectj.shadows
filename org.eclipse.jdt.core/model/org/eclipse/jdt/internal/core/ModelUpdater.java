@@ -92,10 +92,7 @@ public class ModelUpdater {
 			case IJavaElement.PACKAGE_FRAGMENT :
 				// get rid of namelookup since it holds onto obsolete cached info 
 				JavaProject project = (JavaProject) element.getJavaProject();
-				try {
-					project.getJavaProjectElementInfo().setNameLookup(null);
-				} catch (JavaModelException e) {
-				}
+				project.resetNameLookup();
 				break;
 		}
 	}
@@ -140,10 +137,7 @@ public class ModelUpdater {
 			case IJavaElement.PACKAGE_FRAGMENT :
 				//1G1TW2T - get rid of namelookup since it holds onto obsolete cached info 
 				JavaProject project = (JavaProject) element.getJavaProject();
-				try {
-					project.getJavaProjectElementInfo().setNameLookup(null);
-				} catch (JavaModelException e) {
-				}
+				project.resetNameLookup();
 				break;
 		}
 	}
@@ -214,8 +208,9 @@ public class ModelUpdater {
 				root = (IPackageFragmentRoot) element;
 				break;
 			case IJavaElement.COMPILATION_UNIT :
-				// filter out working copies (we don't want to add/remove them to/from the package fragment
-				if (((IWorkingCopy)element).isWorkingCopy()) {
+				// filter out working copies that are not primary (we don't want to add/remove them to/from the package fragment
+				CompilationUnit cu = (CompilationUnit)element;
+				if (cu.isWorkingCopy() && !cu.isPrimary()) {
 					return;
 				}
 			case IJavaElement.CLASS_FILE :

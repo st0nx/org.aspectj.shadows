@@ -15,7 +15,7 @@ import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
-import org.eclipse.jdt.internal.core.Util;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class BuildNotifier {
 
@@ -256,9 +256,9 @@ protected void updateProblemCounts(IMarker[] oldProblems, IProblem[] newProblems
 	}
 }
 
-public void updateProgress(float percentComplete) {
-	if (percentComplete > this.percentComplete) {
-		this.percentComplete = Math.min(percentComplete, 1.0f);
+public void updateProgress(float newPercentComplete) {
+	if (newPercentComplete > this.percentComplete) {
+		this.percentComplete = Math.min(newPercentComplete, 1.0f);
 		int work = Math.round(this.percentComplete * this.totalWork);
 		if (work > this.workDone) {
 			if (monitor != null)

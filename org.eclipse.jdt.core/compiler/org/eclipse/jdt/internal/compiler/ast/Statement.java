@@ -15,16 +15,31 @@ import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
-public abstract class Statement extends AstNode {
-	
-	/**
-	 * Statement constructor comment.
-	 */
-	public Statement() {
-		super();
-	}
+public abstract class Statement extends ASTNode {
 	
 	public abstract FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, FlowInfo flowInfo);
+	
+	/**
+	 * INTERNAL USE ONLY.
+	 * This is used to redirect inter-statements jumps.
+	 */
+	public void branchChainTo(Label label) {
+		// do nothing by default
+	}
+	
+	// Report an error if necessary
+	public boolean complainIfUnreachable(FlowInfo flowInfo, BlockScope scope, boolean didAlreadyComplain) {
+	
+		if ((flowInfo.reachMode() & FlowInfo.UNREACHABLE) != 0) {
+			this.bits &= ~ASTNode.IsReachableMASK;
+			boolean reported = flowInfo == FlowInfo.DEAD_END;
+			if (!didAlreadyComplain && reported) {
+				scope.problemReporter().unreachableCode(this);
+			}
+			return reported; // keep going for fake reachable
+		}
+		return false;
+	}
 	
 	public abstract void generateCode(BlockScope currentScope, CodeStream codeStream);
 	
@@ -47,6 +62,15 @@ public abstract class Statement extends AstNode {
 		return true;
 	}
 	
+	public StringBuffer print(int indent, StringBuffer output) {
+		return printStatement(indent, output);
+	}
+	public abstract StringBuffer printStatement(int indent, StringBuffer output);
+
+	public void resetStateForCodeGeneration() {
+		// do nothing by default
+	}
+	
 	public abstract void resolve(BlockScope scope);
 	
 	public Constant resolveCase(BlockScope scope, TypeBinding testType, SwitchStatement switchStatement) {
@@ -55,14 +79,5 @@ public abstract class Statement extends AstNode {
 		resolve(scope);
 		return null;
 	}
-	
-	public void resetStateForCodeGeneration() {
-	}
-	
-	/**
-	 * INTERNAL USE ONLY.
-	 * Do nothing by default. This is used to redirect inter-statements jumps.
-	 */
-	public void branchChainTo(Label label) {
-	}
+
 }

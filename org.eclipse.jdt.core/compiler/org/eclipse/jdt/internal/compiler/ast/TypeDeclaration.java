@@ -11,7 +11,7 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.core.compiler.*;
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
@@ -24,14 +24,16 @@ public class TypeDeclaration
 	extends Statement
 	implements ProblemSeverities, ReferenceContext {
 
-	public int modifiers;
+	public static final char[] ANONYMOUS_EMPTY_NAME = new char[] {};
+
+	public int modifiers = AccDefault;
 	public int modifiersSourceStart;
 	public char[] name;
 	public TypeReference superclass;
 	public TypeReference[] superInterfaces;
 	public FieldDeclaration[] fields;
 	public AbstractMethodDeclaration[] methods;
-	public MemberTypeDeclaration[] memberTypes;
+	public TypeDeclaration[] memberTypes;
 	public SourceTypeBinding binding;
 	public ClassScope scope;
 	public MethodScope initializerScope;
@@ -45,7 +47,11 @@ public class TypeDeclaration
 	protected boolean hasBeenGenerated = false;
 	public CompilationResult compilationResult;
 	private MethodDeclaration[] missingAbstractMethods;
+	public Javadoc javadoc;	
 
+	public QualifiedAllocationExpression allocation; // for anonymous only
+	public TypeDeclaration enclosingType; // for member types only
+	
 	public TypeDeclaration(CompilationResult compilationResult){
 		this.compilationResult = compilationResult;
 	}
@@ -55,22 +61,15 @@ public class TypeDeclaration
 	 */
 	public void abort(int abortLevel) {
 
-		if (scope == null) {
-			throw new AbortCompilation(); // cannot do better
-		}
-
-		CompilationResult compilationResult =
-			scope.referenceCompilationUnit().compilationResult;
-
 		switch (abortLevel) {
 			case AbortCompilation :
-				throw new AbortCompilation(compilationResult);
+				throw new AbortCompilation(this.compilationResult);
 			case AbortCompilationUnit :
-				throw new AbortCompilationUnit(compilationResult);
+				throw new AbortCompilationUnit(this.compilationResult);
 			case AbortMethod :
-				throw new AbortMethod(compilationResult);
+				throw new AbortMethod(this.compilationResult);
 			default :
-				throw new AbortType(compilationResult);
+				throw new AbortType(this.compilationResult);
 		}
 	}
 	/**
@@ -88,219 +87,30 @@ public class TypeDeclaration
 		//see comment on needClassInitMethod
 		if (needClassInitMethod()) {
 			int length;
-			AbstractMethodDeclaration[] methods;
-			if ((methods = this.methods) == null) {
+			AbstractMethodDeclaration[] methodDeclarations;
+			if ((methodDeclarations = this.methods) == null) {
 				length = 0;
-				methods = new AbstractMethodDeclaration[1];
+				methodDeclarations = new AbstractMethodDeclaration[1];
 			} else {
-				length = methods.length;
+				length = methodDeclarations.length;
 				System.arraycopy(
-					methods,
+					methodDeclarations,
 					0,
-					(methods = new AbstractMethodDeclaration[length + 1]),
+					(methodDeclarations = new AbstractMethodDeclaration[length + 1]),
 					1,
 					length);
 			}
 			Clinit clinit = new Clinit(this.compilationResult);
-			methods[0] = clinit;
+			methodDeclarations[0] = clinit;
 			// clinit is added in first location, so as to minimize the use of ldcw (big consumer of constant inits)
 			clinit.declarationSourceStart = clinit.sourceStart = sourceStart;
 			clinit.declarationSourceEnd = clinit.sourceEnd = sourceEnd;
 			clinit.bodyEnd = sourceEnd;
-			this.methods = methods;
-		}
-	}
-
-	/**
-	 *	Flow analysis for a local innertype
-	 *
-	 */
-	public FlowInfo analyseCode(
-		BlockScope currentScope,
-		FlowContext flowContext,
-		FlowInfo flowInfo) {
-
-		if (ignoreFurtherInvestigation)
-			return flowInfo;
-		try {
-			bits |= IsReachableMASK;
-			LocalTypeBinding localType = (LocalTypeBinding) binding;
-			
-			localType.setConstantPoolName(currentScope.compilationUnitScope().computeConstantPoolName(localType));
-			manageEnclosingInstanceAccessIfNecessary(currentScope);
-			
-			updateMaxFieldCount(); // propagate down the max field count
-			internalAnalyseCode(flowContext, flowInfo); 
-		} catch (AbortType e) {
-			this.ignoreFurtherInvestigation = true;
-		}
-		return flowInfo;
-	}
-
-	/**
-	 *	Flow analysis for a member innertype
-	 *
-	 */
-	public void analyseCode(ClassScope enclosingClassScope) {
-
-		if (ignoreFurtherInvestigation)
-			return;
-		try {
-			// propagate down the max field count
-			updateMaxFieldCount();
-			internalAnalyseCode(null, FlowInfo.initial(maxFieldCount));
-		} catch (AbortType e) {
-			this.ignoreFurtherInvestigation = true;
-		}
-	}
-
-	/**
-	 *	Flow analysis for a local member innertype
-	 *
-	 */
-	public void analyseCode(
-		ClassScope currentScope,
-		FlowContext flowContext,
-		FlowInfo flowInfo) {
-
-		if (ignoreFurtherInvestigation)
-			return;
-		try {
-			bits |= IsReachableMASK;
-			LocalTypeBinding localType = (LocalTypeBinding) binding;
-
-			localType.setConstantPoolName(currentScope.compilationUnitScope().computeConstantPoolName(localType));
-			manageEnclosingInstanceAccessIfNecessary(currentScope);
-			
-			updateMaxFieldCount(); // propagate down the max field count
-			internalAnalyseCode(flowContext, flowInfo);
-		} catch (AbortType e) {
-			this.ignoreFurtherInvestigation = true;
-		}
-	}
-
-	/**
-	 *	Flow analysis for a package member type
-	 *
-	 */
-	public void analyseCode(CompilationUnitScope unitScope) {
-
-		if (ignoreFurtherInvestigation)
-			return;
-		try {
-			internalAnalyseCode(null, FlowInfo.initial(maxFieldCount));
-		} catch (AbortType e) {
-			this.ignoreFurtherInvestigation = true;
+			this.methods = methodDeclarations;
 		}
 	}
 
 	/*
-	 * Check for constructor vs. method with no return type.
-	 * Answers true if at least one constructor is defined
-	 */
-	public boolean checkConstructors(Parser parser) {
-
-		//if a constructor has not the name of the type,
-		//convert it into a method with 'null' as its return type
-		boolean hasConstructor = false;
-		if (methods != null) {
-			for (int i = methods.length; --i >= 0;) {
-				AbstractMethodDeclaration am;
-				if ((am = methods[i]).isConstructor()) {
-					if (!CharOperation.equals(am.selector, name)) {
-						// the constructor was in fact a method with no return type
-						// unless an explicit constructor call was supplied
-						ConstructorDeclaration c = (ConstructorDeclaration) am;
-						if ((c.constructorCall == null)
-							|| (c.constructorCall.isImplicitSuper())) { //changed to a method
-							MethodDeclaration m = new MethodDeclaration(this.compilationResult);
-							m.sourceStart = c.sourceStart;
-							m.sourceEnd = c.sourceEnd;
-							m.bodyStart = c.bodyStart;
-							m.bodyEnd = c.bodyEnd;
-							m.declarationSourceEnd = c.declarationSourceEnd;
-							m.declarationSourceStart = c.declarationSourceStart;
-							m.selector = c.selector;
-							m.statements = c.statements;
-							m.modifiers = c.modifiers;
-							m.arguments = c.arguments;
-							m.thrownExceptions = c.thrownExceptions;
-							m.explicitDeclarations = c.explicitDeclarations;
-							m.returnType = null;
-							methods[i] = m;
-						}
-					} else {
-						if (this.isInterface()) {
-							// report the problem and continue the parsing
-							parser.problemReporter().interfaceCannotHaveConstructors(
-								(ConstructorDeclaration) am);
-						}
-						hasConstructor = true;
-					}
-				}
-			}
-		}
-		return hasConstructor;
-	}
-
-	public CompilationResult compilationResult() {
-
-		return this.compilationResult;
-	}
-
-	public ConstructorDeclaration createsInternalConstructor(
-		boolean needExplicitConstructorCall,
-		boolean needToInsert) {
-
-		//Add to method'set, the default constuctor that just recall the
-		//super constructor with no arguments
-		//The arguments' type will be positionned by the TC so just use
-		//the default int instead of just null (consistency purpose)
-
-		//the constructor
-		ConstructorDeclaration constructor = new ConstructorDeclaration(this.compilationResult);
-		constructor.isDefaultConstructor = true;
-		constructor.selector = name;
-		if (modifiers != AccDefault) {
-			constructor.modifiers =
-				((this instanceof MemberTypeDeclaration) && (modifiers & AccPrivate) != 0)
-					? AccDefault
-					: modifiers & AccVisibilityMASK;
-		}
-
-		//if you change this setting, please update the 
-		//SourceIndexer2.buildTypeDeclaration(TypeDeclaration,char[]) method
-		constructor.declarationSourceStart = constructor.sourceStart = sourceStart;
-		constructor.declarationSourceEnd =
-			constructor.sourceEnd = constructor.bodyEnd = sourceEnd;
-
-		//the super call inside the constructor
-		if (needExplicitConstructorCall) {
-			constructor.constructorCall = SuperReference.implicitSuperConstructorCall();
-			constructor.constructorCall.sourceStart = sourceStart;
-			constructor.constructorCall.sourceEnd = sourceEnd;
-		}
-
-		//adding the constructor in the methods list
-		if (needToInsert) {
-			if (methods == null) {
-				methods = new AbstractMethodDeclaration[] { constructor };
-			} else {
-				AbstractMethodDeclaration[] newMethods;
-				System.arraycopy(
-					methods,
-					0,
-					newMethods = new AbstractMethodDeclaration[methods.length + 1],
-					1,
-					methods.length);
-				newMethods[0] = constructor;
-				methods = newMethods;
-			}
-		}
-		return constructor;
-	}
-
-	/**
 	 * INTERNAL USE ONLY - Creates a fake method declaration for the corresponding binding.
 	 * It is used to report errors for missing abstract methods.
 	 */
@@ -366,7 +176,262 @@ public class TypeDeclaration
 
 		return methodDeclaration;
 	}
+
+	/**
+	 *	Flow analysis for a local innertype
+	 *
+	 */
+	public FlowInfo analyseCode(
+		BlockScope currentScope,
+		FlowContext flowContext,
+		FlowInfo flowInfo) {
+
+		if (ignoreFurtherInvestigation)
+			return flowInfo;
+		try {
+			if (flowInfo.isReachable()) {
+				bits |= IsReachableMASK;
+				LocalTypeBinding localType = (LocalTypeBinding) binding;
+				localType.setConstantPoolName(currentScope.compilationUnitScope().computeConstantPoolName(localType));
+			}
+			manageEnclosingInstanceAccessIfNecessary(currentScope, flowInfo);
+			updateMaxFieldCount(); // propagate down the max field count
+			internalAnalyseCode(flowContext, flowInfo); 
+		} catch (AbortType e) {
+			this.ignoreFurtherInvestigation = true;
+		}
+		return flowInfo;
+	}
+
+	/**
+	 *	Flow analysis for a member innertype
+	 *
+	 */
+	public void analyseCode(ClassScope enclosingClassScope) {
+
+		if (ignoreFurtherInvestigation)
+			return;
+		try {
+			// propagate down the max field count
+			updateMaxFieldCount();
+			internalAnalyseCode(null, FlowInfo.initial(maxFieldCount));
+		} catch (AbortType e) {
+			this.ignoreFurtherInvestigation = true;
+		}
+	}
+
+	/**
+	 *	Flow analysis for a local member innertype
+	 *
+	 */
+	public void analyseCode(
+		ClassScope currentScope,
+		FlowContext flowContext,
+		FlowInfo flowInfo) {
+
+		if (ignoreFurtherInvestigation)
+			return;
+		try {
+			if (flowInfo.isReachable()) {
+				bits |= IsReachableMASK;
+				LocalTypeBinding localType = (LocalTypeBinding) binding;
+				localType.setConstantPoolName(currentScope.compilationUnitScope().computeConstantPoolName(localType));
+			}
+			manageEnclosingInstanceAccessIfNecessary(currentScope, flowInfo);
+			updateMaxFieldCount(); // propagate down the max field count
+			internalAnalyseCode(flowContext, flowInfo);
+		} catch (AbortType e) {
+			this.ignoreFurtherInvestigation = true;
+		}
+	}
+
+	/**
+	 *	Flow analysis for a package member type
+	 *
+	 */
+	public void analyseCode(CompilationUnitScope unitScope) {
+
+		if (ignoreFurtherInvestigation)
+			return;
+		try {
+			internalAnalyseCode(null, FlowInfo.initial(maxFieldCount));
+		} catch (AbortType e) {
+			this.ignoreFurtherInvestigation = true;
+		}
+	}
+
+	/*
+	 * Check for constructor vs. method with no return type.
+	 * Answers true if at least one constructor is defined
+	 */
+	public boolean checkConstructors(Parser parser) {
+
+		//if a constructor has not the name of the type,
+		//convert it into a method with 'null' as its return type
+		boolean hasConstructor = false;
+		if (methods != null) {
+			for (int i = methods.length; --i >= 0;) {
+				AbstractMethodDeclaration am;
+				if ((am = methods[i]).isConstructor()) {
+					if (!CharOperation.equals(am.selector, name)) {
+						// the constructor was in fact a method with no return type
+						// unless an explicit constructor call was supplied
+						ConstructorDeclaration c = (ConstructorDeclaration) am;
+						if (c.constructorCall == null || c.constructorCall.isImplicitSuper()) { //changed to a method
+							MethodDeclaration m = parser.convertToMethodDeclaration(c, this.compilationResult);
+							methods[i] = m;
+						}
+					} else {
+						if (this.isInterface()) {
+							// report the problem and continue the parsing
+							parser.problemReporter().interfaceCannotHaveConstructors(
+								(ConstructorDeclaration) am);
+						}
+						hasConstructor = true;
+					}
+				}
+			}
+		}
+		return hasConstructor;
+	}
+
+	public CompilationResult compilationResult() {
+
+		return this.compilationResult;
+	}
+
+	public ConstructorDeclaration createsInternalConstructor(
+		boolean needExplicitConstructorCall,
+		boolean needToInsert) {
+
+		//Add to method'set, the default constuctor that just recall the
+		//super constructor with no arguments
+		//The arguments' type will be positionned by the TC so just use
+		//the default int instead of just null (consistency purpose)
+
+		//the constructor
+		ConstructorDeclaration constructor = new ConstructorDeclaration(this.compilationResult);
+		constructor.isDefaultConstructor = true;
+		constructor.selector = name;
+		if (modifiers != AccDefault) {
+			constructor.modifiers =
+				(((this.bits & ASTNode.IsMemberTypeMASK) != 0) && (modifiers & AccPrivate) != 0)
+					? AccDefault
+					: modifiers & AccVisibilityMASK;
+		}
+
+		//if you change this setting, please update the 
+		//SourceIndexer2.buildTypeDeclaration(TypeDeclaration,char[]) method
+		constructor.declarationSourceStart = constructor.sourceStart = sourceStart;
+		constructor.declarationSourceEnd =
+			constructor.sourceEnd = constructor.bodyEnd = sourceEnd;
+
+		//the super call inside the constructor
+		if (needExplicitConstructorCall) {
+			constructor.constructorCall = SuperReference.implicitSuperConstructorCall();
+			constructor.constructorCall.sourceStart = sourceStart;
+			constructor.constructorCall.sourceEnd = sourceEnd;
+		}
+
+		//adding the constructor in the methods list
+		if (needToInsert) {
+			if (methods == null) {
+				methods = new AbstractMethodDeclaration[] { constructor };
+			} else {
+				AbstractMethodDeclaration[] newMethods;
+				System.arraycopy(
+					methods,
+					0,
+					newMethods = new AbstractMethodDeclaration[methods.length + 1],
+					1,
+					methods.length);
+				newMethods[0] = constructor;
+				methods = newMethods;
+			}
+		}
+		return constructor;
+	}
 	
+	// anonymous type constructor creation
+	public MethodBinding createsInternalConstructorWithBinding(MethodBinding inheritedConstructorBinding) {
+
+		//Add to method'set, the default constuctor that just recall the
+		//super constructor with the same arguments
+		String baseName = "$anonymous"; //$NON-NLS-1$
+		TypeBinding[] argumentTypes = inheritedConstructorBinding.parameters;
+		int argumentsLength = argumentTypes.length;
+		//the constructor
+		ConstructorDeclaration cd = new ConstructorDeclaration(this.compilationResult);
+		cd.selector = new char[] { 'x' }; //no maining
+		cd.sourceStart = sourceStart;
+		cd.sourceEnd = sourceEnd;
+		cd.modifiers = modifiers & AccVisibilityMASK;
+		cd.isDefaultConstructor = true;
+
+		if (argumentsLength > 0) {
+			Argument[] arguments = (cd.arguments = new Argument[argumentsLength]);
+			for (int i = argumentsLength; --i >= 0;) {
+				arguments[i] = new Argument((baseName + i).toCharArray(), 0L, null /*type ref*/, AccDefault);
+			}
+		}
+
+		//the super call inside the constructor
+		cd.constructorCall = SuperReference.implicitSuperConstructorCall();
+		cd.constructorCall.sourceStart = sourceStart;
+		cd.constructorCall.sourceEnd = sourceEnd;
+
+		if (argumentsLength > 0) {
+			Expression[] args;
+			args = cd.constructorCall.arguments = new Expression[argumentsLength];
+			for (int i = argumentsLength; --i >= 0;) {
+				args[i] = new SingleNameReference((baseName + i).toCharArray(), 0L);
+			}
+		}
+
+		//adding the constructor in the methods list
+		if (methods == null) {
+			methods = new AbstractMethodDeclaration[] { cd };
+		} else {
+			AbstractMethodDeclaration[] newMethods;
+			System.arraycopy(
+				methods,
+				0,
+				newMethods = new AbstractMethodDeclaration[methods.length + 1],
+				1,
+				methods.length);
+			newMethods[0] = cd;
+			methods = newMethods;
+		}
+
+		//============BINDING UPDATE==========================
+		cd.binding = new MethodBinding(
+				cd.modifiers, //methodDeclaration
+				argumentsLength == 0 ? NoParameters : argumentTypes, //arguments bindings
+				inheritedConstructorBinding.thrownExceptions, //exceptions
+				binding); //declaringClass
+				
+		cd.scope = new MethodScope(scope, cd, true);
+		cd.bindArguments();
+		cd.constructorCall.resolve(cd.scope);
+
+		if (binding.methods == null) {
+			binding.methods = new MethodBinding[] { cd.binding };
+		} else {
+			MethodBinding[] newMethods;
+			System.arraycopy(
+				binding.methods,
+				0,
+				newMethods = new MethodBinding[binding.methods.length + 1],
+				1,
+				binding.methods.length);
+			newMethods[0] = cd.binding;
+			binding.methods = newMethods;
+		}
+		//===================================================
+
+		return cd.binding;
+	}
+
 	/*
 	 * Find the matching parse node, answers null if nothing found
 	 */
@@ -514,6 +579,9 @@ public class TypeDeclaration
 	 */
 	public void generateCode(BlockScope blockScope, CodeStream codeStream) {
 
+		if ((this.bits & IsReachableMASK) == 0) {
+			return;
+		}		
 		if (hasBeenGenerated) return;
 		int pc = codeStream.position;
 		if (binding != null) ((NestedTypeBinding) binding).computeSyntheticArgumentSlotSizes();
@@ -642,8 +710,9 @@ public class TypeDeclaration
 	 * with an enclosing instance.
 	 * 15.9.2
 	 */
-	public void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope) {
+	public void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 
+		if (!flowInfo.isReachable()) return;
 		NestedTypeBinding nestedType = (NestedTypeBinding) binding;
 		
 		MethodScope methodScope = currentScope.methodScope();
@@ -653,12 +722,12 @@ public class TypeDeclaration
 		}
 		// add superclass enclosing instance arg for anonymous types (if necessary)
 		if (binding.isAnonymousType()) { 
-			ReferenceBinding superclass = binding.superclass;
-			if (superclass.enclosingType() != null && !superclass.isStatic()) {
-				if (!binding.superclass.isLocalType()
-						|| ((NestedTypeBinding)binding.superclass).getSyntheticField(superclass.enclosingType(), true) != null){
+			ReferenceBinding superclassBinding = binding.superclass;
+			if (superclassBinding.enclosingType() != null && !superclassBinding.isStatic()) {
+				if (!superclassBinding.isLocalType()
+						|| ((NestedTypeBinding)superclassBinding).getSyntheticField(superclassBinding.enclosingType(), true) != null){
 
-					nestedType.addSyntheticArgument(superclass.enclosingType());	
+					nestedType.addSyntheticArgument(superclassBinding.enclosingType());	
 				}
 			}
 		}
@@ -673,8 +742,9 @@ public class TypeDeclaration
 	 * 
 	 * Local member cannot be static.
 	 */
-	public void manageEnclosingInstanceAccessIfNecessary(ClassScope currentScope) {
+	public void manageEnclosingInstanceAccessIfNecessary(ClassScope currentScope, FlowInfo flowInfo) {
 
+		if (!flowInfo.isReachable()) return;
 		NestedTypeBinding nestedType = (NestedTypeBinding) binding;
 		nestedType.addSyntheticArgumentAndField(binding.enclosingType());
 	}	
@@ -736,74 +806,147 @@ public class TypeDeclaration
 		}
 	}
 
+	public StringBuffer print(int indent, StringBuffer output) {
+
+		if ((this.bits & IsAnonymousTypeMASK) == 0) {
+			printIndent(indent, output);
+			printHeader(0, output);
+		}
+		return printBody(indent, output);
+	}
+
+	public StringBuffer printBody(int indent, StringBuffer output) {
+
+		output.append(" {"); //$NON-NLS-1$
+		if (memberTypes != null) {
+			for (int i = 0; i < memberTypes.length; i++) {
+				if (memberTypes[i] != null) {
+					output.append('\n');
+					memberTypes[i].print(indent + 1, output);
+				}
+			}
+		}
+		if (fields != null) {
+			for (int fieldI = 0; fieldI < fields.length; fieldI++) {
+				if (fields[fieldI] != null) {
+					output.append('\n');
+					fields[fieldI].print(indent + 1, output);
+				}
+			}
+		}
+		if (methods != null) {
+			for (int i = 0; i < methods.length; i++) {
+				if (methods[i] != null) {
+					output.append('\n');
+					methods[i].print(indent + 1, output); 
+				}
+			}
+		}
+		output.append('\n');
+		return printIndent(indent, output).append('}');
+	}
+
+	public StringBuffer printHeader(int indent, StringBuffer output) {
+
+		printModifiers(this.modifiers, output);
+		output.append(isInterface() ? "interface " : "class "); //$NON-NLS-1$ //$NON-NLS-2$
+		output.append(name);
+		if (superclass != null) {
+			output.append(" extends ");  //$NON-NLS-1$
+			superclass.print(0, output);
+		}
+		if (superInterfaces != null && superInterfaces.length > 0) {
+			output.append(isInterface() ? " extends " : " implements ");//$NON-NLS-2$ //$NON-NLS-1$
+			for (int i = 0; i < superInterfaces.length; i++) {
+				if (i > 0) output.append( ", "); //$NON-NLS-1$
+				superInterfaces[i].print(0, output);
+			}
+		}
+		return output;
+	}
+
+	public StringBuffer printStatement(int tab, StringBuffer output) {
+		return print(tab, output);
+	}
+
 	public void resolve() {
 
-		if (binding == null) {
-			ignoreFurtherInvestigation = true;
+		if (this.binding == null) {
+			this.ignoreFurtherInvestigation = true;
 			return;
 		}
-
 		try {
+			if ((this.bits & UndocumentedEmptyBlockMASK) != 0) {
+				this.scope.problemReporter().undocumentedEmptyBlock(this.bodyStart-1, this.bodyEnd+1);
+			}
 			// check superclass & interfaces
-			if (binding.superclass != null) // watch out for Object ! (and other roots)	
-				if (isTypeUseDeprecated(binding.superclass, scope))
-					scope.problemReporter().deprecatedType(binding.superclass, superclass);
-			if (superInterfaces != null)
-				for (int i = superInterfaces.length; --i >= 0;)
-					if (superInterfaces[i].resolvedType != null)
-						if (isTypeUseDeprecated(superInterfaces[i].resolvedType, scope))
-							scope.problemReporter().deprecatedType(
-								superInterfaces[i].resolvedType,
-								superInterfaces[i]);
-			maxFieldCount = 0;
-			int lastFieldID = -1;
-			if (fields != null) {
-				for (int i = 0, count = fields.length; i < count; i++) {
-					FieldDeclaration field = fields[i];
+			if (this.binding.superclass != null) // watch out for Object ! (and other roots)	
+				if (isTypeUseDeprecated(this.binding.superclass, this.scope))
+					this.scope.problemReporter().deprecatedType(this.binding.superclass, this.superclass);
+			if (this.superInterfaces != null)
+				for (int i = this.superInterfaces.length; --i >= 0;)
+					if (this.superInterfaces[i].resolvedType != null)
+						if (isTypeUseDeprecated(this.superInterfaces[i].resolvedType, this.scope))
+							this.scope.problemReporter().deprecatedType(
+								this.superInterfaces[i].resolvedType,
+								this.superInterfaces[i]);
+			this.maxFieldCount = 0;
+			int lastVisibleFieldID = -1;
+			if (this.fields != null) {
+				for (int i = 0, count = this.fields.length; i < count; i++) {
+					FieldDeclaration field = this.fields[i];
 					if (field.isField()) {
 						if (field.binding == null) {
 							// still discover secondary errors
-							if (field.initialization != null) field.initialization.resolve(field.isStatic() ? staticInitializerScope : initializerScope);
-							ignoreFurtherInvestigation = true;
+							if (field.initialization != null) field.initialization.resolve(field.isStatic() ? this.staticInitializerScope : this.initializerScope);
+							this.ignoreFurtherInvestigation = true;
 							continue;
 						}
-						maxFieldCount++;
-						lastFieldID = field.binding.id;
+						this.maxFieldCount++;
+						lastVisibleFieldID = field.binding.id;
 					} else { // initializer
-						 ((Initializer) field).lastFieldID = lastFieldID + 1;
+						 ((Initializer) field).lastVisibleFieldID = lastVisibleFieldID + 1;
 					}
-					field.resolve(field.isStatic() ? staticInitializerScope : initializerScope);
+					field.resolve(field.isStatic() ? this.staticInitializerScope : this.initializerScope);
 				}
 			}
-			if (memberTypes != null) {
-				for (int i = 0, count = memberTypes.length; i < count; i++) {
-					memberTypes[i].resolve(scope);
+			if (this.memberTypes != null) {
+				for (int i = 0, count = this.memberTypes.length; i < count; i++) {
+					this.memberTypes[i].resolve(this.scope);
 				}
 			}
 			int missingAbstractMethodslength = this.missingAbstractMethods == null ? 0 : this.missingAbstractMethods.length;
-			int methodsLength = this.methods == null ? 0 : methods.length;
+			int methodsLength = this.methods == null ? 0 : this.methods.length;
 			if ((methodsLength + missingAbstractMethodslength) > 0xFFFF) {
-				scope.problemReporter().tooManyMethods(this);
+				this.scope.problemReporter().tooManyMethods(this);
 			}
 			
-			if (methods != null) {
-				for (int i = 0, count = methods.length; i < count; i++) {
-					methods[i].resolve(scope);
+			if (this.methods != null) {
+				for (int i = 0, count = this.methods.length; i < count; i++) {
+					this.methods[i].resolve(this.scope);
 				}
 			}
+			// Resolve javadoc
+			if (this.javadoc != null) {
+				if (this.scope != null) {
+					this.javadoc.resolve(this.scope);
+				}
+			} else if (this.binding != null && !this.binding.isLocalType()) {
+				this.scope.problemReporter().javadocMissing(this.sourceStart, this.sourceEnd, this.binding.modifiers);
+			}
+			
 		} catch (AbortType e) {
 			this.ignoreFurtherInvestigation = true;
 			return;
-		};
+		}
 	}
 
 	public void resolve(BlockScope blockScope) {
 		// local type declaration
 
 		// need to build its scope first and proceed with binding's creation
-		blockScope.addLocalType(this);
+		if ((this.bits & IsAnonymousTypeMASK) == 0) blockScope.addLocalType(this);
 
-		// and TC....
 		if (binding != null) {
 			// remember local types binding for innerclass emulation propagation
 			blockScope.referenceCompilationUnit().record((LocalTypeBinding)binding);
@@ -813,7 +956,7 @@ public class TypeDeclaration
 			updateMaxFieldCount();
 		}
 	}
-
+	
 	public void resolve(ClassScope upperScope) {
 		// member scopes are already created
 		// request the construction of a binding if local member type
@@ -837,67 +980,13 @@ public class TypeDeclaration
 		ignoreFurtherInvestigation = true;
 	}
 
-	public String toString(int tab) {
-
-		return tabString(tab) + toStringHeader() + toStringBody(tab);
-	}
-
-	public String toStringBody(int tab) {
-
-		String s = " {"; //$NON-NLS-1$
-		if (memberTypes != null) {
-			for (int i = 0; i < memberTypes.length; i++) {
-				if (memberTypes[i] != null) {
-					s += "\n" + memberTypes[i].toString(tab + 1); //$NON-NLS-1$
-				}
-			}
-		}
-		if (fields != null) {
-			for (int fieldI = 0; fieldI < fields.length; fieldI++) {
-				if (fields[fieldI] != null) {
-					s += "\n" + fields[fieldI].toString(tab + 1); //$NON-NLS-1$
-					if (fields[fieldI].isField())
-						s += ";"; //$NON-NLS-1$
-				}
-			}
-		}
-		if (methods != null) {
-			for (int i = 0; i < methods.length; i++) {
-				if (methods[i] != null) {
-					s += "\n" + methods[i].toString(tab + 1); //$NON-NLS-1$
-				}
-			}
-		}
-		s += "\n" + tabString(tab) + "}"; //$NON-NLS-2$ //$NON-NLS-1$
-		return s;
-	}
-
-	public String toStringHeader() {
-
-		String s = ""; //$NON-NLS-1$
-		if (modifiers != AccDefault) {
-			s += modifiersString(modifiers);
-		}
-		s += (isInterface() ? "interface " : "class ") + new String(name);//$NON-NLS-1$ //$NON-NLS-2$
-		if (superclass != null)
-			s += " extends " + superclass.toString(0); //$NON-NLS-1$
-		if (superInterfaces != null && superInterfaces.length > 0) {
-			s += (isInterface() ? " extends " : " implements ");//$NON-NLS-2$ //$NON-NLS-1$
-			for (int i = 0; i < superInterfaces.length; i++) {
-				s += superInterfaces[i].toString(0);
-				if (i != superInterfaces.length - 1)
-					s += ", "; //$NON-NLS-1$
-			};
-		};
-		return s;
-	}
 
 	/**
 	 *	Iteration for a package member type
 	 *
 	 */
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		CompilationUnitScope unitScope) {
 
 		if (ignoreFurtherInvestigation)
@@ -935,8 +1024,97 @@ public class TypeDeclaration
 			}
 			visitor.endVisit(this, unitScope);
 		} catch (AbortType e) {
+			// silent abort
 		}
 	}
+
+	/**
+	 *	Iteration for a local innertype
+	 *
+	 */
+	public void traverse(ASTVisitor visitor, BlockScope blockScope) {
+		if (ignoreFurtherInvestigation)
+			return;
+		try {
+			if (visitor.visit(this, blockScope)) {
+				if (superclass != null)
+					superclass.traverse(visitor, scope);
+				if (superInterfaces != null) {
+					int superInterfaceLength = superInterfaces.length;
+					for (int i = 0; i < superInterfaceLength; i++)
+						superInterfaces[i].traverse(visitor, scope);
+				}
+				if (memberTypes != null) {
+					int memberTypesLength = memberTypes.length;
+					for (int i = 0; i < memberTypesLength; i++)
+						memberTypes[i].traverse(visitor, scope);
+				}
+				if (fields != null) {
+					int fieldsLength = fields.length;
+					for (int i = 0; i < fieldsLength; i++) {
+						FieldDeclaration field;
+						if ((field = fields[i]).isStatic()) {
+							// local type cannot have static fields
+						} else {
+							field.traverse(visitor, initializerScope);
+						}
+					}
+				}
+				if (methods != null) {
+					int methodsLength = methods.length;
+					for (int i = 0; i < methodsLength; i++)
+						methods[i].traverse(visitor, scope);
+				}
+			}
+			visitor.endVisit(this, blockScope);
+		} catch (AbortType e) {
+			// silent abort
+		}
+	}
+
+	/**
+	 *	Iteration for a member innertype
+	 *
+	 */
+	public void traverse(ASTVisitor visitor, ClassScope classScope) {
+		if (ignoreFurtherInvestigation)
+			return;
+		try {
+			if (visitor.visit(this, classScope)) {
+				if (superclass != null)
+					superclass.traverse(visitor, scope);
+				if (superInterfaces != null) {
+					int superInterfaceLength = superInterfaces.length;
+					for (int i = 0; i < superInterfaceLength; i++)
+						superInterfaces[i].traverse(visitor, scope);
+				}
+				if (memberTypes != null) {
+					int memberTypesLength = memberTypes.length;
+					for (int i = 0; i < memberTypesLength; i++)
+						memberTypes[i].traverse(visitor, scope);
+				}
+				if (fields != null) {
+					int fieldsLength = fields.length;
+					for (int i = 0; i < fieldsLength; i++) {
+						FieldDeclaration field;
+						if ((field = fields[i]).isStatic()) {
+							field.traverse(visitor, staticInitializerScope);
+						} else {
+							field.traverse(visitor, initializerScope);
+						}
+					}
+				}
+				if (methods != null) {
+					int methodsLength = methods.length;
+					for (int i = 0; i < methodsLength; i++)
+						methods[i].traverse(visitor, scope);
+				}
+			}
+			visitor.endVisit(this, classScope);
+		} catch (AbortType e) {
+			// silent abort
+		}
+	}	
 
 	/**
 	 * MaxFieldCount's computation is necessary so as to reserve space for
@@ -958,5 +1136,5 @@ public class TypeDeclaration
 		} else {
 			maxFieldCount = outerMostType.maxFieldCount; // down
 		}
-	}
+	}	
 }

@@ -10,7 +10,8 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.flow;
 
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
+import org.eclipse.jdt.internal.compiler.ast.SubRoutineStatement;
 
 /**
  * Reflects the context of code analysis, keeping track of enclosing
@@ -22,7 +23,7 @@ public class InsideSubRoutineFlowContext extends FlowContext {
 	
 	public InsideSubRoutineFlowContext(
 		FlowContext parent,
-		AstNode associatedNode) {
+		ASTNode associatedNode) {
 		super(parent, associatedNode);
 		this.initsOnReturn = FlowInfo.DEAD_END;				
 	}
@@ -39,11 +40,11 @@ public class InsideSubRoutineFlowContext extends FlowContext {
 	}
 		
 	public boolean isNonReturningContext() {
-		return associatedNode.cannotReturn();
+		return subRoutine().isSubRoutineEscaping();
 	}
 	
-	public AstNode subRoutine() {
-		return associatedNode;
+	public SubRoutineStatement subRoutine() {
+		return (SubRoutineStatement)associatedNode;
 	}
 	
 	public void recordReturnFrom(FlowInfo flowInfo) {
@@ -52,7 +53,7 @@ public class InsideSubRoutineFlowContext extends FlowContext {
 		if (initsOnReturn == FlowInfo.DEAD_END) {
 			initsOnReturn = flowInfo.copy().unconditionalInits();
 		} else {
-			initsOnReturn = initsOnReturn.mergedWith(flowInfo.unconditionalInits());
+			initsOnReturn = initsOnReturn.mergedWith(flowInfo.copy().unconditionalInits());
 		}
 	}
 }

@@ -14,12 +14,10 @@ package org.eclipse.jdt.internal.compiler.parser;
  * Internal field structure for parsing recovery 
  */
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.AnonymousLocalTypeDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ImportReference;
-import org.eclipse.jdt.internal.compiler.ast.LocalTypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 
 public class RecoveredUnit extends RecoveredElement {
@@ -37,57 +35,57 @@ public RecoveredUnit(CompilationUnitDeclaration unitDeclaration, int bracketBala
 /*
  *	Record a method declaration: should be attached to last type
  */
-public RecoveredElement add(AbstractMethodDeclaration methodDeclaration, int bracketBalance) {
+public RecoveredElement add(AbstractMethodDeclaration methodDeclaration, int bracketBalanceValue) {
 
 	/* attach it to last type - if any */
-	if (typeCount > 0){
-		RecoveredType type = this.types[typeCount -1];
+	if (this.typeCount > 0){
+		RecoveredType type = this.types[this.typeCount -1];
 		type.bodyEnd = 0; // reset position
 		type.typeDeclaration.declarationSourceEnd = 0; // reset position
 		type.typeDeclaration.bodyEnd = 0;
-		return type.add(methodDeclaration, bracketBalance);
+		return type.add(methodDeclaration, bracketBalanceValue);
 	}
 	return this; // ignore
 }
 /*
  *	Record a field declaration: should be attached to last type
  */
-public RecoveredElement add(FieldDeclaration fieldDeclaration, int bracketBalance) {
+public RecoveredElement add(FieldDeclaration fieldDeclaration, int bracketBalanceValue) {
 
 	/* attach it to last type - if any */
-	if (typeCount > 0){
-		RecoveredType type = this.types[typeCount -1];
+	if (this.typeCount > 0){
+		RecoveredType type = this.types[this.typeCount -1];
 		type.bodyEnd = 0; // reset position
 		type.typeDeclaration.declarationSourceEnd = 0; // reset position
 		type.typeDeclaration.bodyEnd = 0;
-		return type.add(fieldDeclaration, bracketBalance);
+		return type.add(fieldDeclaration, bracketBalanceValue);
 	}
 	return this; // ignore
 }
-public RecoveredElement add(ImportReference importReference, int bracketBalance) {
-	if (imports == null) {
-		imports = new RecoveredImport[5];
-		importCount = 0;
+public RecoveredElement add(ImportReference importReference, int bracketBalanceValue) {
+	if (this.imports == null) {
+		this.imports = new RecoveredImport[5];
+		this.importCount = 0;
 	} else {
-		if (importCount == imports.length) {
+		if (this.importCount == this.imports.length) {
 			System.arraycopy(
-				imports, 
+				this.imports, 
 				0, 
-				(imports = new RecoveredImport[2 * importCount]), 
+				(this.imports = new RecoveredImport[2 * this.importCount]), 
 				0, 
-				importCount); 
+				this.importCount); 
 		}
 	}
-	RecoveredImport element = new RecoveredImport(importReference, this, bracketBalance);
-	imports[importCount++] = element;
+	RecoveredImport element = new RecoveredImport(importReference, this, bracketBalanceValue);
+	this.imports[this.importCount++] = element;
 
 	/* if import not finished, then import becomes current */
 	if (importReference.declarationSourceEnd == 0) return element;
 	return this;		
 }
-public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalance) {
+public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalanceValue) {
 	
-	if (typeDeclaration instanceof AnonymousLocalTypeDeclaration){
+	if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0){
 		if (this.typeCount > 0) {
 			// add it to the last type
 			RecoveredType lastType = this.types[this.typeCount-1];
@@ -95,24 +93,24 @@ public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalance)
 			lastType.typeDeclaration.bodyEnd = 0; // reopen type
 			lastType.typeDeclaration.declarationSourceEnd = 0; // reopen type
 			lastType.bracketBalance++; // expect one closing brace
-			return lastType.add(typeDeclaration, bracketBalance);
+			return lastType.add(typeDeclaration, bracketBalanceValue);
 		}
 	}
-	if (types == null) {
-		types = new RecoveredType[5];
-		typeCount = 0;
+	if (this.types == null) {
+		this.types = new RecoveredType[5];
+		this.typeCount = 0;
 	} else {
-		if (typeCount == types.length) {
+		if (this.typeCount == this.types.length) {
 			System.arraycopy(
-				types, 
+				this.types, 
 				0, 
-				(types = new RecoveredType[2 * typeCount]), 
+				(this.types = new RecoveredType[2 * this.typeCount]), 
 				0, 
-				typeCount); 
+				this.typeCount); 
 		}
 	}
-	RecoveredType element = new RecoveredType(typeDeclaration, this, bracketBalance);
-	types[typeCount++] = element;
+	RecoveredType element = new RecoveredType(typeDeclaration, this, bracketBalanceValue);
+	this.types[this.typeCount++] = element;
 
 	/* if type not finished, then type becomes current */
 	if (typeDeclaration.declarationSourceEnd == 0) return element;
@@ -121,8 +119,8 @@ public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalance)
 /* 
  * Answer the associated parsed structure
  */
-public AstNode parseTree(){
-	return unitDeclaration;
+public ASTNode parseTree(){
+	return this.unitDeclaration;
 }
 /*
  * Answer the very source end of the corresponding parse node
@@ -133,7 +131,7 @@ public int sourceEnd(){
 public String toString(int tab) {
 	StringBuffer result = new StringBuffer(tabString(tab));
 	result.append("Recovered unit: [\n"); //$NON-NLS-1$
-	result.append(unitDeclaration.toString(tab + 1));
+	result.append(this.unitDeclaration.print(tab + 1, result));
 	result.append(tabString(tab + 1));
 	result.append("]"); //$NON-NLS-1$
 	if (this.imports != null) {
@@ -153,34 +151,34 @@ public String toString(int tab) {
 public CompilationUnitDeclaration updatedCompilationUnitDeclaration(){
 
 	/* update imports */
-	if (importCount > 0){
-		ImportReference[] importRefences = new ImportReference[importCount];
-		for (int i = 0; i < importCount; i++){
-			importRefences[i] = imports[i].updatedImportReference();
+	if (this.importCount > 0){
+		ImportReference[] importRefences = new ImportReference[this.importCount];
+		for (int i = 0; i < this.importCount; i++){
+			importRefences[i] = this.imports[i].updatedImportReference();
 		}
-		unitDeclaration.imports = importRefences;
+		this.unitDeclaration.imports = importRefences;
 	}
 	/* update types */
-	if (typeCount > 0){
-		int existingCount = unitDeclaration.types == null ? 0 : unitDeclaration.types.length;
-		TypeDeclaration[] typeDeclarations = new TypeDeclaration[existingCount + typeCount];
+	if (this.typeCount > 0){
+		int existingCount = this.unitDeclaration.types == null ? 0 : this.unitDeclaration.types.length;
+		TypeDeclaration[] typeDeclarations = new TypeDeclaration[existingCount + this.typeCount];
 		if (existingCount > 0){
-			System.arraycopy(unitDeclaration.types, 0, typeDeclarations, 0, existingCount);
+			System.arraycopy(this.unitDeclaration.types, 0, typeDeclarations, 0, existingCount);
 		}
 		// may need to update the declarationSourceEnd of the last type
-		if (types[typeCount - 1].typeDeclaration.declarationSourceEnd == 0){
-			types[typeCount - 1].typeDeclaration.declarationSourceEnd = unitDeclaration.sourceEnd;
-			types[typeCount - 1].typeDeclaration.bodyEnd = unitDeclaration.sourceEnd;
+		if (this.types[this.typeCount - 1].typeDeclaration.declarationSourceEnd == 0){
+			this.types[this.typeCount - 1].typeDeclaration.declarationSourceEnd = this.unitDeclaration.sourceEnd;
+			this.types[this.typeCount - 1].typeDeclaration.bodyEnd = this.unitDeclaration.sourceEnd;
 		}
 		int actualCount = existingCount;
-		for (int i = 0; i < typeCount; i++){
-			TypeDeclaration typeDecl = types[i].updatedTypeDeclaration();
+		for (int i = 0; i < this.typeCount; i++){
+			TypeDeclaration typeDecl = this.types[i].updatedTypeDeclaration();
 			// filter out local types (12454)
-			if (!(typeDecl instanceof LocalTypeDeclaration)){
+			if ((typeDecl.bits & ASTNode.IsLocalTypeMASK) == 0){
 				typeDeclarations[actualCount++] = typeDecl;
 			}
 		}
-		if (actualCount != typeCount){
+		if (actualCount != this.typeCount){
 			System.arraycopy(
 				typeDeclarations, 
 				0, 
@@ -188,9 +186,9 @@ public CompilationUnitDeclaration updatedCompilationUnitDeclaration(){
 				0, 
 				existingCount+actualCount);
 		}
-		unitDeclaration.types = typeDeclarations;
+		this.unitDeclaration.types = typeDeclarations;
 	}
-	return unitDeclaration;
+	return this.unitDeclaration;
 }
 public void updateParseTree(){
 	this.updatedCompilationUnitDeclaration();
@@ -198,8 +196,8 @@ public void updateParseTree(){
 /*
  * Update the sourceEnd of the corresponding parse node
  */
-public void updateSourceEndIfNecessary(int sourceEnd){
+public void updateSourceEndIfNecessary(int bodyStart, int bodyEnd){
 	if (this.unitDeclaration.sourceEnd == 0)
-		this.unitDeclaration.sourceEnd = sourceEnd;
+		this.unitDeclaration.sourceEnd = bodyEnd;
 }
 }

@@ -11,7 +11,9 @@
 package org.eclipse.jdt.internal.core;
 
 import java.util.ArrayList;
+import java.util.StringTokenizer;
 
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.IJavaElement;
@@ -29,9 +31,9 @@ import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
  * @see IMember
  */
 
-/* package */ abstract class Member extends SourceRefElement implements IMember {
-protected Member(int type, IJavaElement parent, String name) {
-	super(type, parent, name);
+public abstract class Member extends SourceRefElement implements IMember {
+protected Member(JavaElement parent, String name) {
+	super(parent, name);
 }
 protected boolean areSimilarMethods(
 	String name1, String[] params1, 
@@ -92,7 +94,7 @@ protected static Object convertConstant(Constant constant) {
 /**
  * @see JavaElement#equalsDOMNode
  */
-protected boolean equalsDOMNode(IDOMNode node) throws JavaModelException {
+protected boolean equalsDOMNode(IDOMNode node) {
 	return getElementName().equals(node.getName());
 }
 /*
@@ -137,9 +139,9 @@ public IClassFile getClassFile() {
  * @see IMember
  */
 public IType getDeclaringType() {
-	JavaElement parent = (JavaElement)getParent();
-	if (parent.fLEType == TYPE) {
-		return (IType) parent;
+	JavaElement parentElement = (JavaElement)getParent();
+	if (parentElement.getElementType() == TYPE) {
+		return (IType) parentElement;
 	}
 	return null;
 }
@@ -150,11 +152,82 @@ public int getFlags() throws JavaModelException {
 	MemberElementInfo info = (MemberElementInfo) getElementInfo();
 	return info.getModifiers();
 }
+/*
+ * @see JavaElement
+ */
+public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner workingCopyOwner) {
+	switch (token.charAt(0)) {
+		case JEM_COUNT:
+			return getHandleUpdatingCountFromMemento(memento, workingCopyOwner);
+		case JEM_TYPE:
+			String typeName;
+			if (memento.hasMoreTokens()) {
+				typeName = memento.nextToken();
+				char firstChar = typeName.charAt(0);
+				if (firstChar == JEM_FIELD || firstChar == JEM_INITIALIZER || firstChar == JEM_METHOD || firstChar == JEM_TYPE || firstChar == JEM_COUNT) {
+					token = typeName;
+					typeName = ""; //$NON-NLS-1$
+				} else {
+					token = null;
+				}
+			} else {
+				typeName = ""; //$NON-NLS-1$
+				token = null;
+			}
+			JavaElement type = (JavaElement)getType(typeName, 1);
+			if (token == null) {
+				return type.getHandleFromMemento(memento, workingCopyOwner);
+			} else {
+				return type.getHandleFromMemento(token, memento, workingCopyOwner);
+			}
+		case JEM_LOCALVARIABLE:
+			String varName = memento.nextToken();
+			memento.nextToken(); // JEM_COUNT
+			int declarationStart = Integer.parseInt(memento.nextToken());
+			memento.nextToken(); // JEM_COUNT
+			int declarationEnd = Integer.parseInt(memento.nextToken());
+			memento.nextToken(); // JEM_COUNT
+			int nameStart = Integer.parseInt(memento.nextToken());
+			memento.nextToken(); // JEM_COUNT
+			int nameEnd = Integer.parseInt(memento.nextToken());
+			memento.nextToken(); // JEM_COUNT
+			String typeSignature = memento.nextToken();
+			return new LocalVariable(this, varName, declarationStart, declarationEnd, nameStart, nameEnd, typeSignature);
+	}
+	return null;
+}
 /**
  * @see JavaElement#getHandleMemento()
  */
 protected char getHandleMementoDelimiter() {
 	return JavaElement.JEM_TYPE;
+}
+/*
+ * Returns the outermost context defining a local element. Per construction, it can only be a
+ * method/field/initializarer member; thus, returns null if this member is already a top-level type or member type.
+ * e.g for X.java/X/Y/foo()/Z/bar()/T, it will return X.java/X/Y/foo()
+ */
+public Member getOuterMostLocalContext() {
+	IJavaElement current = this;
+	Member lastLocalContext = null;
+	parentLoop: while (true) {
+		switch (current.getElementType()) {
+			case CLASS_FILE:
+			case COMPILATION_UNIT:
+				break parentLoop; // done recursing
+			case TYPE:
+				// cannot be a local context
+				break;
+			case INITIALIZER:
+			case FIELD:
+			case METHOD:
+				 // these elements can define local members
+				lastLocalContext = (Member) current;
+				break;
+		}		
+		current = current.getParent();
+	} 
+	return lastLocalContext;
 }
 /**
  * @see IMember
@@ -162,6 +235,19 @@ protected char getHandleMementoDelimiter() {
 public ISourceRange getNameRange() throws JavaModelException {
 	MemberElementInfo info= (MemberElementInfo)getElementInfo();
 	return new SourceRange(info.getNameSourceStart(), info.getNameSourceEnd() - info.getNameSourceStart() + 1);
+}
+/**
+ * @see IMember
+ */
+public IType getType(String typeName, int count) {
+	// TODO (jerome) disable after M6
+//	if (isBinary()) {
+//		throw new IllegalArgumentException("Not a source member " + toStringWithAncestors()); //$NON-NLS-1$
+//	} else {
+		SourceType type = new SourceType(this, typeName);
+		type.occurrenceCount = count;
+		return type;
+//	}
 }
 /**
  * @see IMember
@@ -175,8 +261,8 @@ protected boolean isMainMethod(IMethod method) throws JavaModelException {
 		if (Flags.isStatic(flags) && Flags.isPublic(flags)) {
 			String[] paramTypes= method.getParameterTypes();
 			if (paramTypes.length == 1) {
-				String name=  Signature.toString(paramTypes[0]);
-				return "String[]".equals(Signature.getSimpleName(name)); //$NON-NLS-1$
+				String typeSignature=  Signature.toString(paramTypes[0]);
+				return "String[]".equals(Signature.getSimpleName(typeSignature)); //$NON-NLS-1$
 			}
 		}
 	}

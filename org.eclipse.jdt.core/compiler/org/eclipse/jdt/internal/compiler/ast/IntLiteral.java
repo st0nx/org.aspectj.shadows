@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -63,7 +63,7 @@ public void computeConstant() {
 		while (source[j]=='0') 
 		{	j++; //jump over redondant zero
 			if (j == length)
-			{	//watch for 000000000000000000 	:-(
+			{	//watch for 000000000000000000
 				constant = Constant.fromValue(value = (int)computedValue);
 				return ;}}
 		
@@ -134,14 +134,16 @@ public TypeBinding resolveType(BlockScope scope) {
 	}
 	return tb;
 }
-public String toStringExpression(){
+public StringBuffer printExpression(int indent, StringBuffer output){
 
-	if (source == null)
+	if (source == null) {
 	/* special optimized IntLiteral that are created by the compiler */
-		return String.valueOf(value);
-		
-	return super.toStringExpression();}
-public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope scope) {
+		return output.append(String.valueOf(value));
+	}
+	return super.printExpression(indent, output);
+}
+	
+public void traverse(ASTVisitor visitor, BlockScope scope) {
 	visitor.visit(this, scope);
 	visitor.endVisit(this, scope);
 }

@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class PrefixExpression extends CompoundAssignment {
@@ -39,18 +39,18 @@ public class PrefixExpression extends CompoundAssignment {
 		return "unknown operator"; //$NON-NLS-1$
 	}
 
+	public StringBuffer printExpressionNoParenthesis(int indent, StringBuffer output) {
+
+		output.append(operatorToString()).append(' ');
+		return lhs.printExpression(0, output); 
+	} 
+	
 	public boolean restrainUsageToNumericTypes() {
 
 		return true;
 	}
 
-	public String toStringExpressionNoParenthesis() {
-
-		return operatorToString() + " " + lhs.toStringExpression(); //$NON-NLS-1$
-
-	}
-
-	public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope scope) {
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
 
 		if (visitor.visit(this, scope)) {
 			lhs.traverse(visitor, scope);

@@ -43,7 +43,7 @@ public SelectionOnSingleNameReference(char[] source, long pos) {
 }
 public TypeBinding resolveType(BlockScope scope) {
 	// it can be a package, type, member type, local variable or field
-	binding = scope.getBinding(token, VARIABLE | TYPE | PACKAGE, this);
+	binding = scope.getBinding(token, VARIABLE | TYPE | PACKAGE, this, true /*resolve*/);
 	if (!binding.isValidBinding()) {
 		if (binding instanceof ProblemFieldBinding) {
 			// tolerate some error cases
@@ -68,7 +68,8 @@ public TypeBinding resolveType(BlockScope scope) {
 
 	throw new SelectionNodeFound(binding);
 }
-public String toStringExpression() {
-	return "<SelectOnName:" + super.toStringExpression() + ">"; //$NON-NLS-2$ //$NON-NLS-1$
+public StringBuffer printExpression(int indent, StringBuffer output) {
+	output.append("<SelectOnName:"); //$NON-NLS-1$
+	return super.printExpression(0, output).append('>');
 }
 }

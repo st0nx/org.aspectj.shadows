@@ -224,7 +224,8 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 					constantPoolEntry = this.constantPool.decodeEntry(index);
 					if (constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_Float
 						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_Integer
-						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_String) {
+						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_String
+						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_Class) {
 							throw new ClassFormatException(ClassFormatException.INVALID_CONSTANT_POOL_ENTRY);
 					}
 					visitor._ldc_w(pc - this.codeOffset, index, constantPoolEntry);
@@ -1096,12 +1097,12 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 					pc+=3;
 					break;
 				case IOpcodeMnemonics.GOTO_W :
-					branchOffset = (int) i4At(this.classFileBytes, 1, pc);
+					branchOffset = i4At(this.classFileBytes, 1, pc);
 					visitor._goto_w(pc - this.codeOffset, branchOffset);
 					pc+=5;
 					break;
 				case IOpcodeMnemonics.JSR_W :
-					branchOffset = (int) i4At(this.classFileBytes, 1, pc);
+					branchOffset = i4At(this.classFileBytes, 1, pc);
 					visitor._jsr_w(pc - this.codeOffset, branchOffset);
 					pc+=5;
 					break;

@@ -66,9 +66,9 @@ public abstract class Engine implements ITypeRequestor {
 		CompilationUnitDeclaration unit =
 			SourceTypeConverter.buildCompilationUnit(
 				sourceTypes,//sourceTypes[0] is always toplevel here
-				true, // need field and methods
-				true, // need member types
-				false, // no need for field initialization
+				SourceTypeConverter.FIELD_AND_METHOD // need field and methods
+				| SourceTypeConverter.MEMBER_TYPE, // need member types
+				// no need for field initialization
 				lookupEnvironment.problemReporter,
 				result);
 
@@ -126,7 +126,12 @@ public abstract class Engine implements ITypeRequestor {
 		return true;
 	}
 
-	protected void parseMethod(CompilationUnitDeclaration unit, int position) {
+	/*
+	 * Find the node (a field, a method or an initializer) at the given position 
+	 * and parse its block statements if it is a method or an initializer.
+	 * Returns the node or null if not found
+	 */
+	protected ASTNode parseBlockStatements(CompilationUnitDeclaration unit, int position) {
 		int length = unit.types.length;
 		for (int i = 0; i < length; i++) {
 			TypeDeclaration type = unit.types[i];
@@ -134,13 +139,13 @@ public abstract class Engine implements ITypeRequestor {
 				&& type.declarationSourceEnd >= position) {
 				getParser().scanner.setSource(
 					unit.compilationResult.compilationUnit.getContents());
-				parseMethod(type, unit, position);
-				return;
+				return parseBlockStatements(type, unit, position);
 			}
 		}
+		return null;
 	}
 
-	private void parseMethod(
+	private ASTNode parseBlockStatements(
 		TypeDeclaration type,
 		CompilationUnitDeclaration unit,
 		int position) {
@@ -153,8 +158,7 @@ public abstract class Engine implements ITypeRequestor {
 				if (memberType.bodyStart > position)
 					continue;
 				if (memberType.declarationSourceEnd >= position) {
-					parseMethod(memberType, unit, position);
-					return;
+					return parseBlockStatements(memberType, unit, position);
 				}
 			}
 		}
@@ -168,7 +172,7 @@ public abstract class Engine implements ITypeRequestor {
 					continue;
 				if (method.declarationSourceEnd >= position) {
 					getParser().parseBlockStatements(method, unit);
-					return;
+					return method;
 				}
 			}
 		}
@@ -177,17 +181,18 @@ public abstract class Engine implements ITypeRequestor {
 		if (fields != null) {
 			int length = fields.length;
 			for (int i = 0; i < length; i++) {
-				if (!(fields[i] instanceof Initializer))
+				FieldDeclaration field = fields[i];
+				if (field.sourceStart > position)
 					continue;
-				Initializer initializer = (Initializer) fields[i];
-				if (initializer.bodyStart > position)
-					continue;
-				if (initializer.declarationSourceEnd >= position) {
-					getParser().parseBlockStatements(initializer, type, unit);
-					return;
+				if (field.declarationSourceEnd >= position) {
+					if (field instanceof Initializer) {
+						getParser().parseBlockStatements((Initializer)field, type, unit);
+					}
+					return field;
 				}
 			}
 		}
+		return null;
 	}
 
 	protected void reset() {

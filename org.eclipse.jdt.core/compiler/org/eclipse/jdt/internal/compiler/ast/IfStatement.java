@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
@@ -40,6 +40,8 @@ public class IfStatement extends Statement {
 
 		this.condition = condition;
 		this.thenStatement = thenStatement;
+		// remember useful empty statement
+		if (thenStatement instanceof EmptyStatement) thenStatement.bits |= IsUsefulEmptyStatementMASK;
 		sourceStart = s;
 		sourceEnd = e;
 	}
@@ -53,6 +55,8 @@ public class IfStatement extends Statement {
 
 		this.condition = condition;
 		this.thenStatement = thenStatement;
+		// remember useful empty statement
+		if (thenStatement instanceof EmptyStatement) thenStatement.bits |= IsUsefulEmptyStatementMASK;
 		this.elseStatement = elseStatement;
 		sourceEnd = e;
 		sourceStart = s;
@@ -79,13 +83,13 @@ public class IfStatement extends Statement {
 			// Save info for code gen
 			thenInitStateIndex =
 				currentScope.methodScope().recordInitializationStates(thenFlowInfo);
-			if (!thenFlowInfo.complainIfUnreachable(thenStatement, currentScope, false)) {
+			if (!thenStatement.complainIfUnreachable(thenFlowInfo, currentScope, false)) {
 				thenFlowInfo =
 					thenStatement.analyseCode(currentScope, flowContext, thenFlowInfo);
 			}
-		};
-		// optimizing the jump around the ELSE part
-		this.thenExit = !thenFlowInfo.isReachable();
+		}
+		// code gen: optimizing the jump around the ELSE part
+		this.thenExit =  !thenFlowInfo.isReachable();
 
 		// process the ELSE part
 		FlowInfo elseFlowInfo = flowInfo.initsWhenFalse().copy();
@@ -96,53 +100,20 @@ public class IfStatement extends Statement {
 			// Save info for code gen
 			elseInitStateIndex =
 				currentScope.methodScope().recordInitializationStates(elseFlowInfo);
-			if (!elseFlowInfo.complainIfUnreachable(elseStatement, currentScope, false)) {
+			if (!elseStatement.complainIfUnreachable(elseFlowInfo, currentScope, false)) {
 				elseFlowInfo =
 					elseStatement.analyseCode(currentScope, flowContext, elseFlowInfo);
 			}
 		}
 
-		boolean elseExit = !elseFlowInfo.isReachable();
-		
 		// merge THEN & ELSE initializations
-		FlowInfo mergedInfo;
-//		if (isConditionOptimizedTrue){
-//			if (!this.thenExit) {
-//				mergedInfo = thenFlowInfo;
-//			} else {
-//				mergedInfo = elseFlowInfo.setReachMode(FlowInfo.UNREACHABLE);
-//			}
-//
-//		} else if (isConditionOptimizedFalse) {
-//			if (!elseExit) {
-//				mergedInfo = elseFlowInfo;
-//			} else {
-//				mergedInfo = thenFlowInfo.setReachMode(FlowInfo.UNREACHABLE);
-//			}
-//
-//		} else {
-//			mergedInfo = thenFlowInfo.mergedWith(elseFlowInfo.unconditionalInits());
-//		}
-		if (isConditionOptimizedTrue){
-			if (!this.thenExit) {
-				mergedInfo = thenFlowInfo.addPotentialInitializationsFrom(elseFlowInfo);
-			} else {
-				mergedInfo = elseFlowInfo.setReachMode(FlowInfo.UNREACHABLE);
-			}
-
-		} else if (isConditionOptimizedFalse) {
-			if (!elseExit) {
-				mergedInfo = elseFlowInfo.addPotentialInitializationsFrom(thenFlowInfo);
-			} else {
-				mergedInfo = thenFlowInfo.setReachMode(FlowInfo.UNREACHABLE);
-			}
-
-		} else {
-			mergedInfo = thenFlowInfo.mergedWith(elseFlowInfo.unconditionalInits());
-		}
-
-		mergedInitStateIndex =
-			currentScope.methodScope().recordInitializationStates(mergedInfo);
+		FlowInfo mergedInfo = FlowInfo.mergedOptimizedBranches(
+				thenFlowInfo, 
+				isConditionOptimizedTrue, 
+				elseFlowInfo, 
+				isConditionOptimizedFalse,
+				true /*if(true){ return; }  fake-reachable(); */);
+		mergedInitStateIndex = currentScope.methodScope().recordInitializationStates(mergedInfo);
 		return mergedInfo;
 	}
 
@@ -235,6 +206,20 @@ public class IfStatement extends Statement {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
+	public StringBuffer printStatement(int indent, StringBuffer output) {
+
+		printIndent(indent, output).append("if ("); //$NON-NLS-1$
+		condition.printExpression(0, output).append(")\n");	//$NON-NLS-1$ 
+		thenStatement.printStatement(indent + 2, output);
+		if (elseStatement != null) {
+			output.append('\n');
+			printIndent(indent, output);
+			output.append("else\n"); //$NON-NLS-1$
+			elseStatement.printStatement(indent + 2, output);
+		}
+		return output;
+	}
+
 	public void resolve(BlockScope scope) {
 
 		TypeBinding type = condition.resolveTypeExpecting(scope, BooleanBinding);
@@ -245,19 +230,8 @@ public class IfStatement extends Statement {
 			elseStatement.resolve(scope);
 	}
 
-	public String toString(int tab) {
-
-		String inFront, s = tabString(tab);
-		inFront = s;
-		s = s + "if (" + condition.toStringExpression() + ") \n";	//$NON-NLS-1$ //$NON-NLS-2$
-		s = s + thenStatement.toString(tab + 2) + ";"; //$NON-NLS-1$
-		if (elseStatement != null)
-			s = s + "\n" + inFront + "else\n" + elseStatement.toString(tab + 2) + ";"; //$NON-NLS-2$ //$NON-NLS-1$ //$NON-NLS-3$
-		return s;
-	}
-
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		BlockScope blockScope) {
 
 		if (visitor.visit(this, blockScope)) {

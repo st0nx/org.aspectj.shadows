@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IType;
@@ -17,6 +18,7 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.jdom.IDOMMethod;
 import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * @see IMethod
@@ -35,8 +37,8 @@ import org.eclipse.jdt.core.jdom.IDOMNode;
 	 * An empty list of Strings
 	 */
 	protected static final String[] fgEmptyList= new String[] {};
-protected SourceMethod(IType parent, String name, String[] parameterTypes) {
-	super(METHOD, parent, name);
+protected SourceMethod(JavaElement parent, String name, String[] parameterTypes) {
+	super(parent, name);
 	Assert.isTrue(name.indexOf('.') == -1);
 	if (parameterTypes == null) {
 		fParameterTypes= fgEmptyList;
@@ -45,25 +47,36 @@ protected SourceMethod(IType parent, String name, String[] parameterTypes) {
 	}
 }
 public boolean equals(Object o) {
+	if (!(o instanceof SourceMethod)) return false;
 	return super.equals(o) && Util.equalArraysOrNull(fParameterTypes, ((SourceMethod)o).fParameterTypes);
 }
 /**
  * @see JavaElement#equalsDOMNode
  */
-protected boolean equalsDOMNode(IDOMNode node) throws JavaModelException {
+protected boolean equalsDOMNode(IDOMNode node) {
 	if (node.getNodeType() == IDOMNode.METHOD) {
-		IDOMMethod m = (IDOMMethod)node;
-		if (isConstructor()) {
-			return 
-				(m.isConstructor() || m.getName().equals(this.getElementName()) /* case of a constructor that is being renamed */) 
-					&& signatureEquals(m);
-		} else {
-			return super.equalsDOMNode(node) && signatureEquals(m);
+		try {
+			IDOMMethod m = (IDOMMethod)node;
+			if (isConstructor()) {
+				return 
+					(m.isConstructor() || m.getName().equals(this.getElementName()) /* case of a constructor that is being renamed */) 
+						&& signatureEquals(m);
+			} else {
+				return super.equalsDOMNode(node) && signatureEquals(m);
+			}
+		} catch (JavaModelException e) {
+			return false;
 		}
 	} else {
 		return false;
 	}
 
+}
+/**
+ * @see IJavaElement
+ */
+public int getElementType() {
+	return METHOD;
 }
 /**
  * @see IMethod
@@ -83,6 +96,10 @@ public String getHandleMemento() {
 	for (int i = 0; i < fParameterTypes.length; i++) {
 		buff.append(getHandleMementoDelimiter());
 		buff.append(fParameterTypes[i]);
+	}
+	if (this.occurrenceCount > 1) {
+		buff.append(JEM_COUNT);
+		buff.append(this.occurrenceCount);
 	}
 	return buff.toString();
 }
@@ -118,6 +135,17 @@ public String[] getParameterNames() throws JavaModelException {
  */
 public String[] getParameterTypes() {
 	return fParameterTypes;
+}
+/*
+ * @see JavaElement#getPrimaryElement(boolean)
+ */
+public IJavaElement getPrimaryElement(boolean checkOwner) {
+	if (checkOwner) {
+		CompilationUnit cu = (CompilationUnit)getAncestor(COMPILATION_UNIT);
+		if (cu.isPrimary()) return this;
+	}
+	IJavaElement primaryParent = this.parent.getPrimaryElement(false);
+	return ((IType)primaryParent).getMethod(this.name, fParameterTypes);
 }
 /**
  * @see IMethod
@@ -181,7 +209,7 @@ public String readableName() {
  * Returns <code>true</code> if the signature of this <code>SourceMethod</code> matches that of the given
  * <code>IDOMMethod</code>, otherwise <code>false</code>. 
  */
-protected boolean signatureEquals(IDOMMethod method) throws JavaModelException {
+protected boolean signatureEquals(IDOMMethod method) {
 	String[] otherTypes= method.getParameterTypes();
 	String[] types= getParameterTypes();
 	boolean ok= true;
@@ -218,9 +246,11 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 	buffer.append(this.tabString(tab));
 	if (info == null) {
 		buffer.append(getElementName());
+			toStringParameters(buffer);
 		buffer.append(" (not open)"); //$NON-NLS-1$
 	} else if (info == NO_INFO) {
 		buffer.append(getElementName());
+			toStringParameters(buffer);
 	} else {
 		try {
 			if (Flags.isStatic(this.getFlags())) {
@@ -231,21 +261,24 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 				buffer.append(' ');
 			}
 			buffer.append(this.getElementName());
-			buffer.append('(');
-			String[] parameterTypes = this.getParameterTypes();
-			int length;
-			if (parameterTypes != null && (length = parameterTypes.length) > 0) {
-				for (int i = 0; i < length; i++) {
-					buffer.append(Signature.toString(parameterTypes[i]));
-					if (i < length - 1) {
-						buffer.append(", "); //$NON-NLS-1$
-					}
-				}
-			}
-			buffer.append(')');
+			toStringParameters(buffer);
 		} catch (JavaModelException e) {
 			buffer.append("<JavaModelException in toString of " + getElementName()); //$NON-NLS-1$
 		}
 	}
+}
+private void toStringParameters(StringBuffer buffer) {
+	buffer.append('(');
+	String[] parameterTypes = this.getParameterTypes();
+	int length;
+	if (parameterTypes != null && (length = parameterTypes.length) > 0) {
+		for (int i = 0; i < length; i++) {
+			buffer.append(Signature.toString(parameterTypes[i]));
+			if (i < length - 1) {
+				buffer.append(", "); //$NON-NLS-1$
+			}
+		}
+	}
+	buffer.append(')');
 }
 }

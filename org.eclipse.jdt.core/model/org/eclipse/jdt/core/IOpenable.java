@@ -97,7 +97,7 @@ boolean hasUnsavedChanges() throws JavaModelException;
  * @exception JavaModelException if this element does not exist or if an
  *		exception occurs while accessing its corresponding resource.
  * @return true if the element is consistent with its underlying resource or buffer, false otherwise.
- * @see IOpenable#makeConsistent
+ * @see IOpenable#makeConsistent(IProgressMonitor)
  */
 boolean isConsistent() throws JavaModelException;
 /**
@@ -108,14 +108,20 @@ boolean isOpen();
 /**
  * Makes this element consistent with its underlying resource or buffer 
  * by updating the element's structure and properties as necessary.
- *
+ *<p>
+ * Note: Using this functionality on a working copy will interfere with any
+ * subsequent reconciling operation. Indeed, the next <code>ICompilationUnit#reconcile()</code> 
+ * operation will not account for changes which occurred before an
+ * explicit use of <code>#makeConsistent(IProgressMonitor)</code>
+ * <p>
  * @param progress the given progress monitor
  * @exception JavaModelException if the element is unable to access the contents
  * 		of its underlying resource. Reasons include:
  * <ul>
  *  <li>This Java element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
  * </ul>
- * @see IOpenable#isConsistent
+ * @see IOpenable#isConsistent()
+ * @see ICompilationUnit#reconcile(boolean, IProgressMonitor)
  */
 void makeConsistent(IProgressMonitor progress) throws JavaModelException;
 /**

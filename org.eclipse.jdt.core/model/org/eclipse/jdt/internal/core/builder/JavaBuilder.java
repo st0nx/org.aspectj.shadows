@@ -17,6 +17,7 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
+import org.eclipse.jdt.internal.core.util.Util;
 
 import java.io.*;
 import java.util.*;
@@ -33,8 +34,6 @@ BuildNotifier notifier;
 char[][] extraResourceFileFilters;
 String[] extraResourceFolderFilters;
 
-public static final String CLASS_EXTENSION = "class"; //$NON-NLS-1$
-
 public static boolean DEBUG = false;
 
 /**
@@ -48,7 +47,9 @@ public static IMarker[] getProblemsFor(IResource resource) {
 	try {
 		if (resource != null && resource.exists())
 			return resource.findMarkers(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER, false, IResource.DEPTH_INFINITE);
-	} catch (CoreException e) {} // assume there are no problems
+	} catch (CoreException e) {
+		// assume there are no problems
+	}
 	return new IMarker[0];
 }
 
@@ -56,11 +57,26 @@ public static IMarker[] getTasksFor(IResource resource) {
 	try {
 		if (resource != null && resource.exists())
 			return resource.findMarkers(IJavaModelMarker.TASK_MARKER, false, IResource.DEPTH_INFINITE);
-	} catch (CoreException e) {} // assume there are no tasks
+	} catch (CoreException e) {
+		// assume there are no tasks
+	}
 	return new IMarker[0];
 }
 
-public static void finishedBuilding(IResourceChangeEvent event) {
+/**
+ * Hook allowing to initialize some static state before a complete build iteration.
+ * This hook is invoked during PRE_AUTO_BUILD notification
+ */
+public static void buildStarting() {
+	// do nothing
+	// TODO (philippe) is it still needed?
+}
+
+/**
+ * Hook allowing to reset some static state after a complete build iteration.
+ * This hook is invoked during POST_AUTO_BUILD notification
+ */
+public static void buildFinished() {
 	BuildNotifier.resetProblemCounters();
 }
 
@@ -68,14 +84,18 @@ public static void removeProblemsFor(IResource resource) {
 	try {
 		if (resource != null && resource.exists())
 			resource.deleteMarkers(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER, false, IResource.DEPTH_INFINITE);
-	} catch (CoreException e) {} // assume there were no problems
+	} catch (CoreException e) {
+		// assume there were no problems
+	}
 }
 
 public static void removeTasksFor(IResource resource) {
 	try {
 		if (resource != null && resource.exists())
 			resource.deleteMarkers(IJavaModelMarker.TASK_MARKER, false, IResource.DEPTH_INFINITE);
-	} catch (CoreException e) {} // assume there were no problems
+	} catch (CoreException e) {
+		// assume there were no problems
+	}
 }
 
 public static void removeProblemsAndTasksFor(IResource resource) {
@@ -84,7 +104,9 @@ public static void removeProblemsAndTasksFor(IResource resource) {
 			resource.deleteMarkers(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER, false, IResource.DEPTH_INFINITE);
 			resource.deleteMarkers(IJavaModelMarker.TASK_MARKER, false, IResource.DEPTH_INFINITE);
 		}
-	} catch (CoreException e) {} // assume there were no problems
+	} catch (CoreException e) {
+		// assume there were no problems
+	}
 }
 
 public static State readState(IProject project, DataInputStream in) throws IOException {
@@ -93,9 +115,6 @@ public static State readState(IProject project, DataInputStream in) throws IOExc
 
 public static void writeState(Object state, DataOutputStream out) throws IOException {
 	((State) state).write(out);
-}
-
-public JavaBuilder() {
 }
 
 protected IProject[] build(int kind, Map ignored, IProgressMonitor monitor) throws CoreException {
@@ -299,7 +318,7 @@ private SimpleLookupTable findDeltas() {
 	return deltas;
 }
 
-private State getLastState(IProject project) {
+public State getLastState(IProject project) {
 	return (State) JavaModelManager.getJavaModelManager().getLastBuiltState(project, notifier.monitor);
 }
 
@@ -355,7 +374,8 @@ private boolean hasClasspathChanged() {
 				o--;
 				continue;
 			}
-		} catch (CoreException ignore) {}
+		} catch (CoreException ignore) { // skip it
+		}
 		if (DEBUG)
 			System.out.println(newSourceLocations[n] + " != " + oldSourceLocations[o]); //$NON-NLS-1$
 		return true;
@@ -366,7 +386,8 @@ private boolean hasClasspathChanged() {
 				n++;
 				continue;
 			}
-		} catch (CoreException ignore) {}
+		} catch (CoreException ignore) { // skip it
+		}
 		if (DEBUG)
 			System.out.println("Added non-empty source folder"); //$NON-NLS-1$
 		return true;
@@ -480,7 +501,7 @@ private boolean isWorthBuilding() throws CoreException {
 		if (DEBUG)
 			System.out.println("Aborted build because project has classpath errors (incomplete or involved in cycle)"); //$NON-NLS-1$
 
-		JavaModelManager.getJavaModelManager().deltaProcessor.addForRefresh(javaProject);
+		JavaModelManager.getJavaModelManager().getDeltaProcessor().addForRefresh(javaProject);
 
 		removeProblemsAndTasksFor(currentProject); // remove all compilation problems
 
@@ -523,13 +544,13 @@ private boolean isWorthBuilding() throws CoreException {
  */
 void mustPropagateStructuralChanges() {
 	HashSet cycleParticipants = new HashSet(3);
-	javaProject.updateCycleParticipants(null, new ArrayList(), cycleParticipants, workspaceRoot, new HashSet(3));
+	javaProject.updateCycleParticipants(new ArrayList(), cycleParticipants, workspaceRoot, new HashSet(3), null);
 	IPath currentPath = javaProject.getPath();
 	Iterator i= cycleParticipants.iterator();
 	while (i.hasNext()) {
 		IPath participantPath = (IPath) i.next();
 		if (participantPath != currentPath) {
-			IProject project = this.workspaceRoot.getProject(participantPath.segment(0));
+			IProject project = workspaceRoot.getProject(participantPath.segment(0));
 			if (hasBeenBuilt(project)) {
 				if (DEBUG) 
 					System.out.println("Requesting another build iteration since cycle participant " + project.getName() //$NON-NLS-1$

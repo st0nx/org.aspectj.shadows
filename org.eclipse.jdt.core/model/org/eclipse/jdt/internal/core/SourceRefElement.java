@@ -10,24 +10,40 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.util.HashMap;
+import java.util.StringTokenizer;
+
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IBuffer;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IOpenable;
 import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.ISourceReference;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * Abstract class for Java elements which implement ISourceReference.
  */
 /* package */ abstract class SourceRefElement extends JavaElement implements ISourceReference {
-protected SourceRefElement(int type, IJavaElement parent, String name) {
-	super(type, parent, name);
+protected SourceRefElement(JavaElement parent, String name) {
+	super(parent, name);
+}
+/**
+ * This element is being closed.  Do any necessary cleanup.
+ */
+protected void closing(Object info) throws JavaModelException {
+	// Do any necessary cleanup
+}
+/**
+ * Returns a new element info for this element.
+ */
+protected Object createElementInfo() {
+	return null; // not used for source ref elements
 }
 /**
  * @see ISourceManipulation
@@ -55,6 +71,18 @@ public void delete(boolean force, IProgressMonitor monitor) throws JavaModelExce
 	IJavaElement[] elements = new IJavaElement[] {this};
 	getJavaModel().delete(elements, force, monitor);
 }
+/*
+ * @see JavaElement#generateInfos
+ */
+protected void generateInfos(Object info, HashMap newElements, IProgressMonitor pm) throws JavaModelException {
+	Openable openableParent = (Openable)getOpenableParent();
+	if (openableParent == null) return;
+
+	JavaElementInfo openableParentInfo = (JavaElementInfo) JavaModelManager.getJavaModelManager().getInfo(openableParent);
+	if (openableParentInfo == null) {
+		openableParent.generateInfos(openableParent.createElementInfo(), newElements, pm);
+	}
+}
 /**
  * @see IMember
  */
@@ -70,6 +98,16 @@ public ICompilationUnit getCompilationUnit() {
 public IResource getCorrespondingResource() throws JavaModelException {
 	if (!exists()) throw newNotPresentException();
 	return null;
+}
+/*
+ * @see JavaElement
+ */
+public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner workingCopyOwner) {
+	switch (token.charAt(0)) {
+		case JEM_COUNT:
+			return getHandleUpdatingCountFromMemento(memento, workingCopyOwner);
+	}
+	return this;
 }
 /**
  * Return the first instance of IOpenable in the hierarchy of this
@@ -112,7 +150,11 @@ public String getSource() throws JavaModelException {
 	if (offset == -1 || length == 0 ) {
 		return null;
 	}
-	return buffer.getText(offset, length);
+	try {
+		return buffer.getText(offset, length);
+	} catch(RuntimeException e) {
+		return null;
+	}
 }
 /**
  * @see ISourceReference
@@ -150,20 +192,13 @@ public void move(IJavaElement container, IJavaElement sibling, String rename, bo
 /**
  * @see ISourceManipulation
  */
-public void rename(String name, boolean force, IProgressMonitor monitor) throws JavaModelException {
-	if (name == null) {
+public void rename(String newName, boolean force, IProgressMonitor monitor) throws JavaModelException {
+	if (newName == null) {
 		throw new IllegalArgumentException(Util.bind("element.nullName")); //$NON-NLS-1$
 	}
 	IJavaElement[] elements= new IJavaElement[] {this};
 	IJavaElement[] dests= new IJavaElement[] {this.getParent()};
-	String[] renamings= new String[] {name};
+	String[] renamings= new String[] {newName};
 	getJavaModel().rename(elements, dests, renamings, force, monitor);
-}
-/*
- * @see JavaElement#rootedAt(IJavaProject)
- */
-public IJavaElement rootedAt(IJavaProject project) {
-	// not needed
-	return null;
 }
 }

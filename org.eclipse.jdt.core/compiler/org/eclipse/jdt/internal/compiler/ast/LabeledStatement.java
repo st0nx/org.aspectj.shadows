@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -27,12 +27,14 @@ public class LabeledStatement extends Statement {
 	/**
 	 * LabeledStatement constructor comment.
 	 */
-	public LabeledStatement(char[] l, Statement st, int s, int e) {
+	public LabeledStatement(char[] label, Statement statement, int sourceStart, int sourceEnd) {
 		
-		this.statement = st;
-		this.label = l;
-		this.sourceStart = s;
-		this.sourceEnd = e;
+		this.statement = statement;
+		// remember useful empty statement
+		if (statement instanceof EmptyStatement) statement.bits |= IsUsefulEmptyStatementMASK;
+		this.label = label;
+		this.sourceStart = sourceStart;
+		this.sourceEnd = sourceEnd;
 	}
 	
 	public FlowInfo analyseCode(
@@ -65,7 +67,7 @@ public class LabeledStatement extends Statement {
 		}
 	}
 	
-	public AstNode concreteStatement() {
+	public ASTNode concreteStatement() {
 		
 		// return statement.concreteStatement(); // for supporting nested labels:   a:b:c: someStatement (see 21912)
 		return statement;
@@ -98,24 +100,30 @@ public class LabeledStatement extends Statement {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 	
-	public void resolve(BlockScope scope) {
-		
-		statement.resolve(scope);
+	public StringBuffer printStatement(int tab, StringBuffer output) {
+
+		printIndent(tab, output).append(label).append(": "); //$NON-NLS-1$
+		if (this.statement == null) 
+			output.append(';');
+		else 
+			this.statement.printStatement(0, output); 
+		return output;
 	}
 	
-	public String toString(int tab) {
-
-		String s = tabString(tab);
-		s += new String(label) + ": " + statement.toString(0); //$NON-NLS-1$
-		return s;
+	public void resolve(BlockScope scope) {
+		
+		if (this.statement != null) {
+			this.statement.resolve(scope);
+		}
 	}
 
+
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		BlockScope blockScope) {
 
 		if (visitor.visit(this, blockScope)) {
-			statement.traverse(visitor, blockScope);
+			if (this.statement != null) this.statement.traverse(visitor, blockScope);
 		}
 		visitor.endVisit(this, blockScope);
 	}

@@ -49,7 +49,7 @@ public abstract class CreateTypeMemberOperation extends CreateElementInCUOperati
 public CreateTypeMemberOperation(IJavaElement parentElement, String source, boolean force) {
 	super(parentElement);
 	fSource= source;
-	fForce= force;
+	this.force= force;
 }
 /**
  * @see CreateElementInCUOperation#generateNewCompilationUnitDOM
@@ -77,7 +77,7 @@ protected void generateNewCompilationUnitDOM(ICompilationUnit cu) throws JavaMod
  * Generates a <code>IDOMNode</code> based on the source of this operation
  * when there is likely a syntax error in the source.
  */
-protected IDOMNode generateSyntaxIncorrectDOM() throws JavaModelException {
+protected IDOMNode generateSyntaxIncorrectDOM() {
 	//create some dummy source to generate a dom node
 	StringBuffer buff = new StringBuffer();
 	buff.append(Util.LINE_SEPARATOR + " public class A {" + Util.LINE_SEPARATOR); //$NON-NLS-1$
@@ -117,17 +117,21 @@ public IJavaModelStatus verify() {
 	if (!status.isOK()) {
 		return status;
 	}
+	IJavaElement parent = getParentElement(); // non-null since check was done in supper
+	Member localContext;
+	if (parent instanceof Member && (localContext = ((Member)parent).getOuterMostLocalContext()) != null && localContext != parent) {
+		// JDOM doesn't support source manipulation in local/anonymous types
+		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, parent);
+	}
 	if (fSource == null) {
 		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS);
 	}
-	if (!fForce) {
+	if (!force) {
 		//check for name collisions
 		try {
-			IDOMNode node= generateElementDOM();
-			if (node == null) {
-				return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS);
-			}
+			generateElementDOM();
 		} catch (JavaModelException jme) {
+			return jme.getJavaModelStatus();
 		}
 		return verifyNameCollision();
 	}

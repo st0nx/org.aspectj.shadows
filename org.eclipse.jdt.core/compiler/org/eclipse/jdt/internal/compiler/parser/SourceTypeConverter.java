@@ -25,6 +25,7 @@ package org.eclipse.jdt.internal.compiler.parser;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Argument;
 import org.eclipse.jdt.internal.compiler.ast.ArrayQualifiedTypeReference;
@@ -33,28 +34,36 @@ import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ImportReference;
-import org.eclipse.jdt.internal.compiler.ast.MemberTypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.QualifiedTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.SingleTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 import org.eclipse.jdt.internal.compiler.env.ISourceField;
+import org.eclipse.jdt.internal.compiler.env.ISourceImport;
 import org.eclipse.jdt.internal.compiler.env.ISourceMethod;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
-import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
+
 import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 
 public class SourceTypeConverter implements CompilerModifiers {
 	
-	private boolean needFieldInitialization;
+	public static final int FIELD = 0x01;
+	public static final int CONSTRUCTOR = 0x02;
+	public static final int METHOD = 0x04;
+	public static final int MEMBER_TYPE = 0x08;
+	public static final int FIELD_INITIALIZATION = 0x10;
+	public static final int FIELD_AND_METHOD = FIELD | CONSTRUCTOR | METHOD;
+	public static final int NONE = 0;
+	
+	private int flags;
 	private CompilationUnitDeclaration unit;
 	private Parser parser;
 	private ProblemReporter problemReporter;
 	
-	private SourceTypeConverter(boolean needFieldInitialization, ProblemReporter problemReporter) {
-		this.needFieldInitialization = needFieldInitialization;
+	private SourceTypeConverter(int flags, ProblemReporter problemReporter) {
+		this.flags = flags;
 		this.problemReporter = problemReporter;
 	}
 
@@ -66,18 +75,12 @@ public class SourceTypeConverter implements CompilerModifiers {
 	 */
 	public static CompilationUnitDeclaration buildCompilationUnit(
 		ISourceType[] sourceTypes,
-		boolean needFieldsAndMethods,
-		boolean needMemberTypes,
-		boolean needFieldInitialization,
+		int flags,
 		ProblemReporter problemReporter,
 		CompilationResult compilationResult) {
 			
 		return 
-			new SourceTypeConverter(needFieldInitialization, problemReporter).convert(
-				sourceTypes, 
-				needFieldsAndMethods,
-				needMemberTypes,
-				compilationResult);
+			new SourceTypeConverter(flags, problemReporter).convert(sourceTypes, compilationResult);
 	}
 
 	/*
@@ -85,16 +88,12 @@ public class SourceTypeConverter implements CompilerModifiers {
 	 * The argument types are then all grouped in the same unit. The argument types must 
 	 * at least contain one type.
 	 */
-	private CompilationUnitDeclaration convert(
-		ISourceType[] sourceTypes,
-		boolean needFieldsAndMethods,
-		boolean needMemberTypes,
-		CompilationResult compilationResult) {
+	private CompilationUnitDeclaration convert(ISourceType[] sourceTypes, CompilationResult compilationResult) {
 		ISourceType sourceType = sourceTypes[0];
 		if (sourceType.getName() == null)
 			return null; // do a basic test that the sourceType is valid
 
-		this.unit = new CompilationUnitDeclaration(problemReporter, compilationResult, 0);
+		this.unit = new CompilationUnitDeclaration(this.problemReporter, compilationResult, 0);
 		// not filled at this point
 
 		/* only positions available */
@@ -106,18 +105,25 @@ public class SourceTypeConverter implements CompilerModifiers {
 			&& sourceType.getPackageName().length > 0)
 			// if its null then it is defined in the default package
 			this.unit.currentPackage =
-				createImportReference(sourceType.getPackageName(), start, end);
-		char[][] importNames = sourceType.getImports();
-		int importCount = importNames == null ? 0 : importNames.length;
+				createImportReference(sourceType.getPackageName(), start, end, false, AccDefault);
+		ISourceImport[]  sourceImports = sourceType.getImports();
+		int importCount = sourceImports == null ? 0 : sourceImports.length;
 		this.unit.imports = new ImportReference[importCount];
-		for (int i = 0; i < importCount; i++)
-			this.unit.imports[i] = createImportReference(importNames[i], start, end);
+		for (int i = 0; i < importCount; i++) {
+			ISourceImport sourceImport = sourceImports[i];
+			this.unit.imports[i] = createImportReference(
+				sourceImport.getName(), 
+				sourceImport.getDeclarationSourceStart(),
+				sourceImport.getDeclarationSourceEnd(),
+				sourceImport.onDemand(),
+				sourceImport.getModifiers());
+		}
 		/* convert type(s) */
 		int typeCount = sourceTypes.length;
 		this.unit.types = new TypeDeclaration[typeCount];
 		for (int i = 0; i < typeCount; i++) {
 			this.unit.types[i] =
-				convert(sourceTypes[i], needFieldsAndMethods, needMemberTypes, compilationResult);
+				convert(sourceTypes[i], compilationResult);
 		}
 		return this.unit;
 	}
@@ -140,16 +146,12 @@ public class SourceTypeConverter implements CompilerModifiers {
 		field.declarationSourceEnd = sourceField.getDeclarationSourceEnd();
 		field.modifiers = sourceField.getModifiers();
 
-		if (this.needFieldInitialization) {
+		if ((this.flags & FIELD_INITIALIZATION) != 0) {
 			/* conversion of field constant */
 			char[] initializationSource = sourceField.getInitializationSource();
 			if (initializationSource != null) {
 				if (this.parser == null) {
-					this.parser = 
-						new Parser(
-							this.problemReporter, 
-							true, 
-							this.problemReporter.options.sourceLevel >= CompilerOptions.JDK1_4);
+					this.parser = new Parser(this.problemReporter, true);
 				}
 				this.parser.parse(field, type, this.unit, initializationSource);
 			}
@@ -216,20 +218,12 @@ public class SourceTypeConverter implements CompilerModifiers {
 
 	/*
 	 * Convert a source element type into a parsed type declaration
-	 *
-	 * Can optionally ignore fields & methods
 	 */
-	private TypeDeclaration convert(
-		ISourceType sourceType,
-		boolean needFieldsAndMethods,
-		boolean needMemberTypes,
-		CompilationResult compilationResult) {
+	private TypeDeclaration convert(ISourceType sourceType, CompilationResult compilationResult) {
 		/* create type declaration - can be member type */
-		TypeDeclaration type;
-		if (sourceType.getEnclosingType() == null) {
-			type = new TypeDeclaration(compilationResult);
-		} else {
-			type = new MemberTypeDeclaration(compilationResult);
+		TypeDeclaration type = type = new TypeDeclaration(compilationResult);
+		if (sourceType.getEnclosingType() != null) {
+			type.bits |= ASTNode.IsMemberTypeMASK;
 		}
 		type.name = sourceType.getName();
 		int start, end; // only positions available
@@ -251,59 +245,72 @@ public class SourceTypeConverter implements CompilerModifiers {
 			type.superInterfaces[i] = createTypeReference(interfaceNames[i], start, end);
 		}
 		/* convert member types */
-		if (needMemberTypes) {
+		if ((this.flags & MEMBER_TYPE) != 0) {
 			ISourceType[] sourceMemberTypes = sourceType.getMemberTypes();
 			int sourceMemberTypeCount =
 				sourceMemberTypes == null ? 0 : sourceMemberTypes.length;
-			type.memberTypes = new MemberTypeDeclaration[sourceMemberTypeCount];
+			type.memberTypes = new TypeDeclaration[sourceMemberTypeCount];
 			for (int i = 0; i < sourceMemberTypeCount; i++) {
-				type.memberTypes[i] =
-					(MemberTypeDeclaration) convert(sourceMemberTypes[i],
-						needFieldsAndMethods,
-						true,
-						compilationResult);
+				type.memberTypes[i] = convert(sourceMemberTypes[i], compilationResult);
 			}
 		}
-		/* convert fields and methods */
-		if (needFieldsAndMethods) {
-			/* convert fields */
+
+		/* convert fields */
+		if ((this.flags & FIELD) != 0) {
 			ISourceField[] sourceFields = sourceType.getFields();
 			int sourceFieldCount = sourceFields == null ? 0 : sourceFields.length;
 			type.fields = new FieldDeclaration[sourceFieldCount];
 			for (int i = 0; i < sourceFieldCount; i++) {
 				type.fields[i] = convert(sourceFields[i], type);
 			}
+		}
 
-			/* convert methods - need to add default constructor if necessary */
+		/* convert methods - need to add default constructor if necessary */
+		boolean needConstructor = (this.flags & CONSTRUCTOR) != 0;
+		boolean needMethod = (this.flags & METHOD) != 0;
+		if (needConstructor || needMethod) {
+			
 			ISourceMethod[] sourceMethods = sourceType.getMethods();
 			int sourceMethodCount = sourceMethods == null ? 0 : sourceMethods.length;
-
+	
 			/* source type has a constructor ?           */
 			/* by default, we assume that one is needed. */
-			int neededCount = 0;
-			if (!type.isInterface()) {
-				neededCount = 1;
+			int extraConstructor = 0;
+			int methodCount = 0;
+			boolean isInterface = type.isInterface();
+			if (!isInterface) {
+				extraConstructor = needConstructor ? 1 : 0;
 				for (int i = 0; i < sourceMethodCount; i++) {
 					if (sourceMethods[i].isConstructor()) {
-						neededCount = 0;
-						// Does not need the extra constructor since one constructor already exists.
-						break;
+						if (needConstructor) {
+							extraConstructor = 0; // Does not need the extra constructor since one constructor already exists.
+							methodCount++;
+						}
+					} else if (needMethod) {
+						methodCount++;
 					}
 				}
+			} else {
+				methodCount = needMethod ? sourceMethodCount : 0;
 			}
-			type.methods = new AbstractMethodDeclaration[sourceMethodCount + neededCount];
-			if (neededCount != 0) { // add default constructor in first position
+			type.methods = new AbstractMethodDeclaration[methodCount + extraConstructor];
+			if (extraConstructor != 0) { // add default constructor in first position
 				type.methods[0] = type.createsInternalConstructor(false, false);
 			}
-			boolean isInterface = type.isInterface();
+			int index = 0;
 			for (int i = 0; i < sourceMethodCount; i++) {
-				AbstractMethodDeclaration method =convert(sourceMethods[i], compilationResult);
-				if (isInterface || method.isAbstract()) { // fix-up flag 
-					method.modifiers |= AccSemicolonBody;
+				ISourceMethod sourceMethod = sourceMethods[i];
+				boolean isConstructor = sourceMethod.isConstructor();
+				if ((isConstructor && needConstructor) || (!isConstructor && needMethod)) {
+					AbstractMethodDeclaration method =convert(sourceMethod, compilationResult);
+					if (isInterface || method.isAbstract()) { // fix-up flag 
+						method.modifiers |= AccSemicolonBody;
+					}
+					type.methods[extraConstructor + index++] = method;
 				}
-				type.methods[neededCount + i] = method;
 			}
 		}
+		
 		return type;
 	}
 
@@ -313,29 +320,21 @@ public class SourceTypeConverter implements CompilerModifiers {
 	private ImportReference createImportReference(
 		char[] importName,
 		int start,
-		int end) {
-
-		/* count identifiers */
-		int max = importName.length;
-		int identCount = 0;
-		for (int i = 0; i < max; i++) {
-			if (importName[i] == '.')
-				identCount++;
-		}
-		/* import on demand? */
-		boolean onDemand = importName[max - 1] == '*';
-		if (!onDemand)
-			identCount++; // one more ident than dots
-
-		long[] positions = new long[identCount];
+		int end, 
+		boolean onDemand,
+		int modifiers) {
+	
+		char[][] qImportName = CharOperation.splitOn('.', importName);
+		long[] positions = new long[qImportName.length];
 		long position = (long) start << 32 + end;
-		for (int i = 0; i < identCount; i++) {
-			positions[i] = position;
+		for (int i = 0; i < qImportName.length; i++) {
+			positions[i] = position; // dummy positions
 		}
 		return new ImportReference(
-			CharOperation.splitOn('.', importName, 0, max - (onDemand ? 2 : 0)),
+			qImportName,
 			positions,
-			onDemand);
+			onDemand,
+			modifiers);
 	}
 
 	/*

@@ -23,7 +23,7 @@ import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.Compiler;
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.ICompilerRequestor;
 import org.eclipse.jdt.internal.compiler.IErrorHandlingPolicy;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
@@ -89,10 +89,10 @@ public class CompilationUnitVisitor extends Compiler {
 		CompilationUnitDeclaration unit =
 			SourceTypeConverter.buildCompilationUnit(
 				sourceTypes,//sourceTypes[0] is always toplevel here
-				true, // need field and methods
-				true, // need member types
-				false, // no need for field initialization
-				lookupEnvironment.problemReporter,
+				SourceTypeConverter.FIELD_AND_METHOD // need field and methods
+				| SourceTypeConverter.MEMBER_TYPE, // need member types
+				// no need for field initialization
+				this.lookupEnvironment.problemReporter,
 				result);
 
 		if (unit != null) {
@@ -129,13 +129,14 @@ public class CompilationUnitVisitor extends Compiler {
 	protected static ICompilerRequestor getRequestor() {
 		return new ICompilerRequestor() {
 			public void acceptResult(CompilationResult compilationResult) {
+				// nothing to do
 			}
 		};
 	}
 
 	public static void visit(
 		ICompilationUnit unitElement,
-		IAbstractSyntaxTreeVisitor visitor)
+		ASTVisitor visitor)
 		throws JavaModelException {
 
 		IJavaProject project = unitElement.getJavaProject();
@@ -176,7 +177,7 @@ public class CompilationUnitVisitor extends Compiler {
 		}
 	}
 
-	protected static IProblemFactory getProblemFactory(final IAbstractSyntaxTreeVisitor visitor) {
+	protected static IProblemFactory getProblemFactory(final ASTVisitor visitor) {
 
 		return new DefaultProblemFactory(Locale.getDefault()) {
 			public IProblem createProblem(

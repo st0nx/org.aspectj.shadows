@@ -140,13 +140,13 @@ protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, IProbl
  * @see org.eclipse.jdt.internal.eval.Evaluator
  */
 protected char[] getClassName() {
-	return CharOperation.concat(EvaluationContext.GLOBAL_VARS_CLASS_NAME_PREFIX, Integer.toString(EvaluationContext.VAR_CLASS_COUNTER + 1).toCharArray());
+	return CharOperation.concat(EvaluationConstants.GLOBAL_VARS_CLASS_NAME_PREFIX, Integer.toString(EvaluationContext.VAR_CLASS_COUNTER + 1).toCharArray());
 }
 /**
  * Creates and returns a compiler for this evaluator.
  */
-Compiler getCompiler(ICompilerRequestor requestor) {
-	Compiler compiler = super.getCompiler(requestor);
+Compiler getCompiler(ICompilerRequestor compilerRequestor) {
+	Compiler compiler = super.getCompiler(compilerRequestor);
 	
 	// Initialize the compiler's lookup environment with the already compiled super class
 	IBinaryType binaryType = this.context.getRootCodeSnippetBinary();
@@ -212,7 +212,7 @@ protected char[] getSource() {
 	buffer.append(ROOT_CLASS_NAME);
 	buffer.append(" {").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
 	lineNumberOffset++;
-	startPosOffset = buffer.length();
+	this.startPosOffset = buffer.length();
 
 	// field declarations
 	GlobalVariable[] vars = this.context.variables;

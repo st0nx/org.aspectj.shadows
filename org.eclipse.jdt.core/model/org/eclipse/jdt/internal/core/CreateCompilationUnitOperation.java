@@ -29,6 +29,7 @@ import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.JavaConventions;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * <p>This operation creates a compilation unit (CU).
@@ -83,16 +84,16 @@ protected void executeOperation() throws JavaModelException {
 		IFile compilationUnitFile = folder.getFile(new Path(fName));
 		if (compilationUnitFile.exists()) {
 			// update the contents of the existing unit if fForce is true
-			if (fForce) {
+			if (force) {
 				IBuffer buffer = unit.getBuffer();
 				if (buffer == null) return;
 				buffer.setContents(fSource);
 				unit.save(new NullProgressMonitor(), false);
-				fResultElements = new IJavaElement[] {unit};
+				resultElements = new IJavaElement[] {unit};
 				if (!Util.isExcluded(unit)
 						&& unit.getParent().exists()) {
-					for (int i = 0; i < fResultElements.length; i++) {
-						delta.changed(fResultElements[i], IJavaElementDelta.F_CONTENT);
+					for (int i = 0; i < resultElements.length; i++) {
+						delta.changed(resultElements[i], IJavaElementDelta.F_CONTENT);
 					}
 					addDelta(delta);
 				}
@@ -105,12 +106,12 @@ protected void executeOperation() throws JavaModelException {
 			try {
 				String encoding = unit.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
 				InputStream stream = new ByteArrayInputStream(encoding == null ? fSource.getBytes() : fSource.getBytes(encoding));
-				createFile(folder, unit.getElementName(), stream, false);
-				fResultElements = new IJavaElement[] {unit};
+				createFile(folder, unit.getElementName(), stream, force);
+				resultElements = new IJavaElement[] {unit};
 				if (!Util.isExcluded(unit)
 						&& unit.getParent().exists()) {
-					for (int i = 0; i < fResultElements.length; i++) {
-						delta.added(fResultElements[i]);
+					for (int i = 0; i < resultElements.length; i++) {
+						delta.added(resultElements[i]);
 					}
 					addDelta(delta);
 				}

@@ -19,13 +19,13 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IWorkingCopy;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.SourceElementParser;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.core.builder.ProblemFactory;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * This operation is used to sort elements in a compilation unit according to
@@ -36,7 +36,6 @@ import org.eclipse.jdt.internal.core.builder.ProblemFactory;
 public class SortElementsOperation extends JavaModelOperation {
 	
 	Comparator comparator;
-	boolean hasChanged;
 	int[] positions;
 	
 	/**
@@ -54,7 +53,7 @@ public class SortElementsOperation extends JavaModelOperation {
 	 * progress reporting.
 	 */
 	protected int getMainAmountOfWork(){
-		return fElementsToProcess.length;
+		return elementsToProcess.length;
 	}
 	
 	/**
@@ -63,8 +62,8 @@ public class SortElementsOperation extends JavaModelOperation {
 	protected void executeOperation() throws JavaModelException {
 		try {
 			beginTask(Util.bind("operation.sortelements"), getMainAmountOfWork()); //$NON-NLS-1$
-			WorkingCopy copy = (WorkingCopy) fElementsToProcess[0];
-			ICompilationUnit unit = (ICompilationUnit) copy.getOriginalElement();
+			CompilationUnit copy = (CompilationUnit) elementsToProcess[0];
+			ICompilationUnit unit = copy.getPrimary();
 			IBuffer buffer = copy.getBuffer();
 			if (buffer  == null) { 
 				return;
@@ -85,8 +84,7 @@ public class SortElementsOperation extends JavaModelOperation {
 	 * @param unit
 	 * @param bufferContents
 	 */
-	private String processElement(ICompilationUnit unit, int[] positionsToMap, char[] source) throws JavaModelException {
-		this.hasChanged = false;
+	private String processElement(ICompilationUnit unit, int[] positionsToMap, char[] source) {
 		SortElementBuilder builder = new SortElementBuilder(source, positionsToMap, comparator);
 		SourceElementParser parser = new SourceElementParser(builder,
 			ProblemFactory.getProblemFactory(Locale.getDefault()), new CompilerOptions(JavaCore.getOptions()), true);
@@ -103,7 +101,7 @@ public class SortElementsOperation extends JavaModelOperation {
 					expectedPackageName,
 					unit.getElementName(),
 					null),
-				false);
+				false/*diet parse*/);
 		} else {
 			parser.parseCompilationUnit(
 				new BasicCompilationUnit(
@@ -111,7 +109,7 @@ public class SortElementsOperation extends JavaModelOperation {
 					null,
 					"",//$NON-NLS-1$
 					null),
-				false);
+				false/*diet parse*/);
 		}
 		return builder.getSource();
 	}
@@ -126,14 +124,14 @@ public class SortElementsOperation extends JavaModelOperation {
 	 * @see JavaConventions
 	 */
 	public IJavaModelStatus verify() {
-		if (fElementsToProcess.length != 1) {
+		if (elementsToProcess.length != 1) {
 			return new JavaModelStatus(IJavaModelStatusConstants.NO_ELEMENTS_TO_PROCESS);
 		}
-		if (fElementsToProcess[0] == null) {
+		if (elementsToProcess[0] == null) {
 			return new JavaModelStatus(IJavaModelStatusConstants.NO_ELEMENTS_TO_PROCESS);
 		}
-		if (!(fElementsToProcess[0] instanceof IWorkingCopy) || !((IWorkingCopy) fElementsToProcess[0]).isWorkingCopy()) {
-			return new JavaModelStatus(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, fElementsToProcess[0]);
+		if (!(elementsToProcess[0] instanceof ICompilationUnit) || !((ICompilationUnit) elementsToProcess[0]).isWorkingCopy()) {
+			return new JavaModelStatus(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, elementsToProcess[0]);
 		}
 		return JavaModelStatus.VERIFIED_OK;
 	}

@@ -14,13 +14,12 @@ import java.util.Enumeration;
 
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.jdom.DOMException;
 import org.eclipse.jdt.core.jdom.IDOMField;
 import org.eclipse.jdt.core.jdom.IDOMNode;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
-import org.eclipse.jdt.internal.core.util.CharArrayOps;
-
 /**
  * DOMField provides an implementation of IDOMField.
  *
@@ -60,6 +59,7 @@ class DOMField extends DOMMember implements IDOMField {
  * Constructs an empty field node.
  */
 DOMField() {
+	// Constructs an empty field node
 }
 /**
  * Creates a new detailed FIELD document fragment on the given range of the document.
@@ -150,7 +150,9 @@ DOMField(char[] document, int[] sourceRange, String name, int[] nameRange, int f
  *
  * @see DOMMember#appendMemberBodyContents(CharArrayBuffer)
  */
-protected void appendMemberBodyContents(CharArrayBuffer buffer) {}
+protected void appendMemberBodyContents(CharArrayBuffer buffer) {
+	// nothing to do
+}
 /**
  * @see DOMMember#appendMemberDeclarationContents(CharArrayBuffer)
  */
@@ -308,7 +310,7 @@ public String getInitializer() {
 		if (fInitializer != null) {
 			return fInitializer;
 		} else {
-			return CharArrayOps.substring(fDocument, fInitializerRange[0], fInitializerRange[1] + 1 - fInitializerRange[0]);
+			return new String(CharOperation.subarray(fDocument, fInitializerRange[0], fInitializerRange[1] + 1));
 		}
 	} else {
 		return null;
@@ -405,7 +407,7 @@ protected char[] getTypeContents() {
 	if (isTypeAltered()) {
 		return fType.toCharArray();
 	} else {
-		return CharArrayOps.subarray(fDocument, fTypeRange[0], fTypeRange[1] + 1 - fTypeRange[0]); 
+		return CharOperation.subarray(fDocument, fTypeRange[0], fTypeRange[1] + 1);
 	}
 }
 /**

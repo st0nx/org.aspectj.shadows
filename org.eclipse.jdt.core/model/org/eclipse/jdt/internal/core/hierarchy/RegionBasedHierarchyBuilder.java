@@ -12,6 +12,7 @@ package org.eclipse.jdt.internal.core.hierarchy;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.SubProgressMonitor;
@@ -22,14 +23,11 @@ import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.IWorkingCopy;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.core.CompilationUnit;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.JavaProject;
 import org.eclipse.jdt.internal.core.Openable;
-import org.eclipse.jdt.internal.core.Util;
 
 public class RegionBasedHierarchyBuilder extends HierarchyBuilder {
 	
@@ -46,7 +44,7 @@ public void build(boolean computeSubtypes) {
 		// optimize access to zip files while building hierarchy
 		manager.cacheZipFiles();
 				
-		if (this.hierarchy.type == null || computeSubtypes) {
+		if (this.hierarchy.focusType == null || computeSubtypes) {
 			IProgressMonitor typeInRegionMonitor = 
 				this.hierarchy.progressMonitor == null ? 
 					null : 
@@ -76,77 +74,43 @@ private void createTypeHierarchyBasedOnRegion(ArrayList allTypesInRegion, IProgr
 	if (size != 0) {
 		this.infoToHandle = new HashMap(size);
 	}
-	IType[] types = new IType[size];
-	allTypesInRegion.toArray(types);
-
-	/*
-	 * NOTE: To workaround pb with hierarchy resolver that requests top  
-	 * level types in the process of caching an enclosing type, this needs to
-	 * be sorted in reverse alphabetical order so that top level types are cached
-	 * before their inner types.
-	 */
-	Util.sort(
-		types,
-		new Util.Comparer() {
-			/**
-			 * @see Comparer#compare(Object, Object)
-			 */
-			public int compare(Object a, Object b) {
-				return - ((IJavaElement)a).getParent().getElementName().compareTo(((IJavaElement)b).getParent().getElementName());
-			}
+	HashSet existingOpenables = new HashSet(size);
+	Openable[] openables = new Openable[size];
+	int openableIndex = 0;
+	for (int i = 0; i < size; i++) {
+		IType type = (IType)allTypesInRegion.get(i);
+		Openable openable;
+		if (type.isBinary()) {
+			openable = (Openable)type.getClassFile();
+		} else {
+			openable = (Openable)type.getCompilationUnit();
 		}
-	);
-
-	// collect infos and compilation units
-	ArrayList infos = new ArrayList();
-	ArrayList units = new ArrayList();
-	types : for (int i = 0; i < size; i++) {
-		try {
-			IType type = types[i];
-			this.addInfoFromElement((Openable)type.getOpenable(), infos, units, type.getPath().toString());
-		} catch (JavaModelException npe) {
-			continue types;
+		if (existingOpenables.add(openable)) {
+			openables[openableIndex++] = openable;
 		}
 	}
-
-	// copy vectors into arrays
-	IGenericType[] genericTypes;
-	int infosSize = infos.size();
-	if (infosSize > 0) {
-		genericTypes = new IGenericType[infosSize];
-		infos.toArray(genericTypes);
-	} else {
-		genericTypes = new IGenericType[0];
-	}
-	org.eclipse.jdt.internal.compiler.env.ICompilationUnit[] compilationUnits;
-	int unitsSize = units.size();
-	if (unitsSize > 0) {
-		compilationUnits = new org.eclipse.jdt.internal.compiler.env.ICompilationUnit[unitsSize];
-		units.toArray(compilationUnits);
-	} else {
-		compilationUnits = new org.eclipse.jdt.internal.compiler.env.ICompilationUnit[0];
+	if (openableIndex < size) {
+		System.arraycopy(openables, 0, openables = new Openable[openableIndex], 0, openableIndex);
 	}
 
 	try {
 		// resolve
-		if (monitor != null) monitor.beginTask("", (infosSize+unitsSize) * 2/* 1 for build binding, 1 for connect hierarchy*/); //$NON-NLS-1$
-		if (infosSize > 0 || unitsSize > 0) {
+		if (monitor != null) monitor.beginTask("", openableIndex * 2/* 1 for build binding, 1 for connect hierarchy*/); //$NON-NLS-1$
+		if (openableIndex > 0) {
 			IType focusType = this.getType();
 			CompilationUnit unitToLookInside = null;
 			if (focusType != null) {
 				unitToLookInside = (CompilationUnit)focusType.getCompilationUnit();
 			}
 			if (this.nameLookup != null && unitToLookInside != null) {
-				synchronized(this.nameLookup) { // prevent 2 concurrent accesses to name lookup while the working copies are set
-					try {
-						nameLookup.setUnitsToLookInside(new IWorkingCopy[] {unitToLookInside});
-						this.hierarchyResolver.resolve(genericTypes, compilationUnits, monitor);
-					} finally {
-						nameLookup.setUnitsToLookInside(null);
-					}
+				try {
+					nameLookup.setUnitsToLookInside(new ICompilationUnit[] {unitToLookInside}); // NB: this uses a PerThreadObject, so it is thread safe
+					this.hierarchyResolver.resolve(openables, null, monitor);
+				} finally {
+					nameLookup.setUnitsToLookInside(null);
 				}
 			} else {
-				this.hierarchyResolver.resolve(genericTypes, compilationUnits, monitor);
+				this.hierarchyResolver.resolve(openables, null, monitor);
 			}
 		}
 	} finally {
@@ -162,7 +126,7 @@ private void createTypeHierarchyBasedOnRegion(ArrayList allTypesInRegion, IProgr
 		try {
 			ArrayList types = new ArrayList();
 			IJavaElement[] roots =
-				((RegionBasedTypeHierarchy) this.hierarchy).fRegion.getElements();
+				((RegionBasedTypeHierarchy) this.hierarchy).region.getElements();
 			int length = roots.length;
 			if (monitor != null) monitor.beginTask("", length); //$NON-NLS-1$
 			for (int i = 0; i <length; i++) {
@@ -222,6 +186,7 @@ private void createTypeHierarchyBasedOnRegion(ArrayList allTypesInRegion, IProgr
 				injectAllTypesForPackageFragmentRoot(root, types);
 			}
 		} catch (JavaModelException e) {
+			// ignore
 		}
 	}
 	
@@ -247,6 +212,7 @@ private void createTypeHierarchyBasedOnRegion(ArrayList allTypesInRegion, IProgr
 				}
 			}
 		} catch (JavaModelException e) {
+			// ignore
 		}
 	}
 	
@@ -281,6 +247,7 @@ private void createTypeHierarchyBasedOnRegion(ArrayList allTypesInRegion, IProgr
 				types.add(cf.getType());
 			}
 		} catch (JavaModelException e) {
+			// ignore
 		}
 	}
 	
@@ -300,6 +267,7 @@ private void createTypeHierarchyBasedOnRegion(ArrayList allTypesInRegion, IProgr
 				}
 			}
 		} catch (JavaModelException e) {
+			// ignore
 		}
 	}
 }

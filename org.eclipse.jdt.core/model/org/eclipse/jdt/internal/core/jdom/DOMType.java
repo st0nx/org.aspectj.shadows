@@ -15,16 +15,15 @@ import java.util.Enumeration;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.core.jdom.IDOMMethod;
 import org.eclipse.jdt.core.jdom.IDOMNode;
 import org.eclipse.jdt.core.jdom.IDOMType;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
-import org.eclipse.jdt.internal.core.Util;
 import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
-import org.eclipse.jdt.internal.core.util.CharArrayOps;
-
+import org.eclipse.jdt.internal.core.util.Util;
 /**
  * DOMType provides an implementation of IDOMType.
  *
@@ -34,6 +33,7 @@ import org.eclipse.jdt.internal.core.util.CharArrayOps;
  
 /* package */ class DOMType extends DOMMember implements IDOMType {
 
+	private static final String[] EMPTY_SUPERINTERFACES = new String[] {};
 	/**
 	 * The 'class' or 'interface' keyword if altered
 	 * from the documents contents, otherwise <code>null</code>.
@@ -126,7 +126,7 @@ import org.eclipse.jdt.internal.core.util.CharArrayOps;
  * Constructs an empty type node.
  */
 DOMType() {
-
+	// Constructs an empty type node
 }
 /**
  * Creates a new detailed TYPE document fragment on the given range of the document.
@@ -272,9 +272,8 @@ protected void appendMemberDeclarationContents(CharArrayBuffer  buffer) {
 	buffer.append(getName());
 
 	if (isClass()) {
-		boolean hasSuperclass = false, hasInterfaces = false;
+		boolean hasInterfaces = false;
 		if (getMask(MASK_TYPE_HAS_SUPERCLASS)) {
-			hasSuperclass = true;
 			if (fExtendsRange[0] < 0) {
 				buffer.append(" extends "); //$NON-NLS-1$
 			} else {
@@ -306,14 +305,10 @@ protected void appendMemberDeclarationContents(CharArrayBuffer  buffer) {
 				buffer.append(fDocument, fInterfacesRange[1] + 1, fOpenBodyRange[0] - fInterfacesRange[1] - 1);
 			}
 		} else {
-			if (hasSuperclass) {
-				if (fSuperclassRange[0] < 0) {
-					buffer.append(' ');
-				} else {
-					buffer.append(fDocument, fSuperclassRange[1] + 1, fOpenBodyRange[0] - fSuperclassRange[1] - 1);
-				}
+			if (fSuperclassRange[0] < 0) {
+				buffer.append(' ');
 			} else {
-				buffer.append(fDocument, fNameRange[1] + 1, fOpenBodyRange[0] - fNameRange[1] - 1);
+				buffer.append(fDocument, fSuperclassRange[1] + 1, fOpenBodyRange[0] - fSuperclassRange[1] - 1);
 			}
 		}
 	} else {
@@ -386,12 +381,14 @@ public int getInsertionPosition() {
  * @see IDOMNode#getJavaElement
  */
 public IJavaElement getJavaElement(IJavaElement parent) throws IllegalArgumentException {
-	if (parent.getElementType() == IJavaElement.TYPE) {
-		return ((IType)parent).getType(getName());
-	} else if (parent.getElementType() == IJavaElement.COMPILATION_UNIT) {
-		return ((ICompilationUnit)parent).getType(getName());
-	} else {
-		throw new IllegalArgumentException(Util.bind("element.illegalParent")); //$NON-NLS-1$
+	switch (parent.getElementType()) {
+		case IJavaElement.COMPILATION_UNIT:
+			return ((ICompilationUnit)parent).getType(getName());
+		case IJavaElement.TYPE:
+			return ((IType)parent).getType(getName());
+		// Note: creating local/anonymous type is not supported 
+		default:
+			throw new IllegalArgumentException(Util.bind("element.illegalParent")); //$NON-NLS-1$
 	}
 }
 /**
@@ -421,7 +418,7 @@ public String getSuperclass() {
 		if (fSuperclass != null) {
 			return fSuperclass;
 		} else {
-			return CharArrayOps.substring(fDocument, fSuperclassRange[0], fSuperclassRange[1] + 1 - fSuperclassRange[0]);
+			return new String(CharOperation.subarray(fDocument, fSuperclassRange[0], fSuperclassRange[1] + 1));
 		}
 	} else {
 		return null;
@@ -672,9 +669,9 @@ public void setSuperInterfaces(String[] names) {
 	}
 	fragment();
 	fSuperInterfaces= names;
-	if (names == null || names.length == 0) {
+	if (names.length == 0) {
 		fInterfaces= null;
-		fSuperInterfaces= null;
+		fSuperInterfaces= EMPTY_SUPERINTERFACES;
 		setMask(MASK_TYPE_HAS_INTERFACES, false);
 	} else {
 		setMask(MASK_TYPE_HAS_INTERFACES, true);

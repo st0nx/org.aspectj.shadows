@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -24,9 +24,6 @@ public class AllocationExpression
 	public MethodBinding binding;
 
 	MethodBinding syntheticAccessor;
-
-	public AllocationExpression() {
-	}
 
 	public FlowInfo analyseCode(
 		BlockScope currentScope,
@@ -55,8 +52,8 @@ public class AllocationExpression
 				flowInfo,
 				currentScope);
 		}
-		manageEnclosingInstanceAccessIfNecessary(currentScope);
-		manageSyntheticAccessIfNecessary(currentScope);
+		manageEnclosingInstanceAccessIfNecessary(currentScope, flowInfo);
+		manageSyntheticAccessIfNecessary(currentScope, flowInfo);
 		
 		return flowInfo;
 	}
@@ -154,8 +151,9 @@ public class AllocationExpression
 	 * types, since by the time we reach them, we might not yet know their
 	 * exact need.
 	 */
-	public void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope) {
+	public void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 
+		if (!flowInfo.isReachable()) return;
 		ReferenceBinding allocatedType;
 
 		// perform some emulation work in case there is some and we are inside a local type only
@@ -173,8 +171,9 @@ public class AllocationExpression
 		}
 	}
 
-	public void manageSyntheticAccessIfNecessary(BlockScope currentScope) {
+	public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 
+		if (!flowInfo.isReachable()) return;
 		if (binding.isPrivate()
 			&& (currentScope.enclosingSourceType() != binding.declaringClass)) {
 
@@ -192,6 +191,20 @@ public class AllocationExpression
 		}
 	}
 
+	public StringBuffer printExpression(int indent, StringBuffer output) {
+
+		output.append("new "); //$NON-NLS-1$
+		type.printExpression(0, output); 
+		output.append('(');
+		if (arguments != null) {
+			for (int i = 0; i < arguments.length; i++) {
+				if (i > 0) output.append(", "); //$NON-NLS-1$
+				arguments[i].printExpression(0, output);
+			}
+		}
+		return output.append(')');
+	}
+	
 	public TypeBinding resolveType(BlockScope scope) {
 
 		// Propagate the type checking to the arguments, and check if the constructor is defined.
@@ -200,16 +213,25 @@ public class AllocationExpression
 		// will check for null after args are resolved
 
 		// buffering the arguments' types
+		boolean argsContainCast = false;
 		TypeBinding[] argumentTypes = NoParameters;
 		if (arguments != null) {
 			boolean argHasError = false;
 			int length = arguments.length;
 			argumentTypes = new TypeBinding[length];
-			for (int i = 0; i < length; i++)
-				if ((argumentTypes[i] = arguments[i].resolveType(scope)) == null)
+			for (int i = 0; i < length; i++) {
+				Expression argument = this.arguments[i];
+				if (argument instanceof CastExpression) {
+					argument.bits |= IgnoreNeedForCastCheckMASK; // will check later on
+					argsContainCast = true;
+				}
+				if ((argumentTypes[i] = argument.resolveType(scope)) == null) {
 					argHasError = true;
-			if (argHasError)
+				}
+			}
+			if (argHasError) {
 				return this.resolvedType;
+			}
 		}
 		if (this.resolvedType == null)
 			return null;
@@ -218,21 +240,26 @@ public class AllocationExpression
 			scope.problemReporter().cannotInstantiate(type, this.resolvedType);
 			return this.resolvedType;
 		}
-		ReferenceBinding allocatedType = (ReferenceBinding) this.resolvedType;
-		if (!(binding = scope.getConstructor(allocatedType, argumentTypes, this))
+		ReferenceBinding allocationType = (ReferenceBinding) this.resolvedType;
+		if (!(binding = scope.getConstructor(allocationType, argumentTypes, this))
 			.isValidBinding()) {
 			if (binding.declaringClass == null)
-				binding.declaringClass = allocatedType;
+				binding.declaringClass = allocationType;
 			scope.problemReporter().invalidConstructor(this, binding);
 			return this.resolvedType;
 		}
 		if (isMethodUseDeprecated(binding, scope))
 			scope.problemReporter().deprecatedMethod(binding, this);
 
-		if (arguments != null)
-			for (int i = 0; i < arguments.length; i++)
+		if (arguments != null) {
+			for (int i = 0; i < arguments.length; i++) {
 				arguments[i].implicitWidening(binding.parameters[i], argumentTypes[i]);
-		return allocatedType;
+			}
+			if (argsContainCast) {
+				CastExpression.checkNeedForArgumentCasts(scope, null, allocationType, binding, this.arguments, argumentTypes, this);
+			}
+		}
+		return allocationType;
 	}
 
 	public void setActualReceiverType(ReferenceBinding receiverType) {
@@ -247,25 +274,7 @@ public class AllocationExpression
 		// ignored
 	}
 
-	public String toStringExpression() {
-
-		String s = "new " + type.toString(0); //$NON-NLS-1$
-		if (arguments == null)
-			s = s + "()"; //$NON-NLS-1$
-		else {
-			s = s + "("; //$NON-NLS-1$
-			for (int i = 0; i < arguments.length; i++) {
-				s = s + arguments[i].toStringExpression();
-				if (i == (arguments.length - 1))
-					s = s + ")"; //$NON-NLS-1$
-				else
-					s = s + ", "; //$NON-NLS-1$
-			}
-		}
-		return s;
-	}
-
-	public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope scope) {
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
 
 		if (visitor.visit(this, scope)) {
 			int argumentsLength;

@@ -10,7 +10,6 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.Locale;
 import java.util.Map;
 
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -28,9 +27,10 @@ import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
 import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
+import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
-import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * Responsible for resolving types inside a compilation unit being reconciled,
@@ -98,15 +98,15 @@ public class CompilationUnitProblemFinder extends Compiler {
 		CompilationUnitDeclaration unit =
 			SourceTypeConverter.buildCompilationUnit(
 				sourceTypes,//sourceTypes[0] is always toplevel here
-				true, // need field and methods
-				true, // need member types
-				true, // need field initialization
-				lookupEnvironment.problemReporter,
+				SourceTypeConverter.FIELD_AND_METHOD // need field and methods
+				| SourceTypeConverter.MEMBER_TYPE // need member types
+				| SourceTypeConverter.FIELD_INITIALIZATION, // need field initialization
+				this.lookupEnvironment.problemReporter,
 				result);
 
 		if (unit != null) {
 			this.lookupEnvironment.buildTypeBindings(unit);
-			this.lookupEnvironment.completeTypeBindings(unit, true);
+			this.lookupEnvironment.completeTypeBindings(unit);
 		}
 	}
 
@@ -129,59 +129,17 @@ public class CompilationUnitProblemFinder extends Compiler {
 	protected static ICompilerRequestor getRequestor() {
 		return new ICompilerRequestor() {
 			public void acceptResult(CompilationResult compilationResult) {
-			}
-		};
-	}
-
-	protected static IProblemFactory getProblemFactory(
-		final char[] fileName, 
-		final IProblemRequestor problemRequestor,
-		final IProgressMonitor monitor) {
-
-		return new DefaultProblemFactory(Locale.getDefault()) {
-			public IProblem createProblem(
-				char[] originatingFileName,
-				int problemId,
-				String[] problemArguments,
-				String[] messageArguments,
-				int severity,
-				int startPosition,
-				int endPosition,
-				int lineNumber) {
-
-				if (monitor != null && monitor.isCanceled()){
-					throw new AbortCompilation(true, null); // silent abort
-				}
-				
-				IProblem problem =
-					super.createProblem(
-						originatingFileName,
-						problemId,
-						problemArguments,
-						messageArguments,
-						severity,
-						startPosition,
-						endPosition,
-						lineNumber);
-				// only report local problems
-				if (CharOperation.equals(originatingFileName, fileName)){
-					if (JavaModelManager.VERBOSE){
-						System.out.println("PROBLEM FOUND while reconciling : "+problem.getMessage());//$NON-NLS-1$
-					}
-					problemRequestor.acceptProblem(problem);
-				}
-				if (monitor != null && monitor.isCanceled()){
-					throw new AbortCompilation(true, null); // silent abort
-				}
-
-				return problem;
+				// default requestor doesn't handle compilation results back
 			}
 		};
 	}
 
 	public static CompilationUnitDeclaration process(
+		CompilationUnitDeclaration unit,
 		ICompilationUnit unitElement, 
+		Parser parser,
 		IProblemRequestor problemRequestor,
+		IProblemFactory problemFactory,
 		IProgressMonitor monitor)
 		throws JavaModelException {
 
@@ -194,9 +152,11 @@ public class CompilationUnitProblemFinder extends Compiler {
 				getHandlingPolicy(),
 				project.getOptions(true),
 				getRequestor(),
-				getProblemFactory(fileName, problemRequestor, monitor));
+				problemFactory);
+		if (parser != null) {
+			problemFinder.parser = parser;
+		}
 
-		CompilationUnitDeclaration unit = null;
 		try {
 			String encoding = project.getOption(JavaCore.CORE_ENCODING, true);
 			
@@ -205,7 +165,8 @@ public class CompilationUnitProblemFinder extends Compiler {
 			if (packageFragment != null){
 				expectedPackageName = CharOperation.splitOn('.', packageFragment.getElementName().toCharArray());
 			}
-			unit = problemFinder.resolve(
+			if (unit == null) {
+				unit = problemFinder.resolve(
 					new BasicCompilationUnit(
 						unitElement.getSource().toCharArray(),
 						expectedPackageName,
@@ -214,7 +175,20 @@ public class CompilationUnitProblemFinder extends Compiler {
 					true, // verify methods
 					true, // analyze code
 					true); // generate code
+			} else {
+				problemFinder.resolve(
+					unit,
+					null, // no need for source
+					true, // verify methods
+					true, // analyze code
+					true); // generate code
+			}
+			reportProblems(unit, problemRequestor, monitor);
 			return unit;
+		} catch(RuntimeException e) { 
+			// avoid breaking other tools due to internal compiler failure (40334)
+			Util.log(e, "Exception occurred during problem detection: "); //$NON-NLS-1$ 
+			throw new JavaModelException(e, IJavaModelStatusConstants.COMPILER_FAILURE);
 		} finally {
 			if (unit != null) {
 				unit.cleanUp();
@@ -222,5 +196,28 @@ public class CompilationUnitProblemFinder extends Compiler {
 			problemFinder.lookupEnvironment.reset();			
 		}
 	}
+
+	public static CompilationUnitDeclaration process(
+		ICompilationUnit unitElement, 
+		IProblemRequestor problemRequestor,
+		IProgressMonitor monitor)
+		throws JavaModelException {
+			
+		return process(null/*no CompilationUnitDeclaration*/, unitElement, null/*use default Parser*/,problemRequestor, new DefaultProblemFactory(), monitor);
+	}
+
+	
+	private static void reportProblems(CompilationUnitDeclaration unit, IProblemRequestor problemRequestor, IProgressMonitor monitor) {
+		CompilationResult unitResult = unit.compilationResult;
+		IProblem[] problems = unitResult.getAllProblems();
+		for (int i = 0, problemLength = problems == null ? 0 : problems.length; i < problemLength; i++) {
+			if (JavaModelManager.VERBOSE){
+				System.out.println("PROBLEM FOUND while reconciling : "+problems[i].getMessage());//$NON-NLS-1$
+			}
+			if (monitor != null && monitor.isCanceled()) break;
+			problemRequestor.acceptProblem(problems[i]);				
+		}
+	}
+
 }	
 

@@ -10,10 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.flow;
 
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
-import org.eclipse.jdt.internal.compiler.ast.Statement;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
-import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
 import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
@@ -31,7 +28,7 @@ public class UnconditionalFlowInfo extends FlowInfo {
 	public long extraDefiniteInits[];
 	public long extraPotentialInits[];
 	
-	public int reachMode = REACHABLE; // by default
+	public int reachMode; // by default
 
 	public int maxFieldCount;
 	
@@ -39,6 +36,7 @@ public class UnconditionalFlowInfo extends FlowInfo {
 	public static final int BitCacheSize = 64; // 64 bits in a long.
 
 	UnconditionalFlowInfo() {
+		this.reachMode = REACHABLE;
 	}
 
 	// unions of both sets of initialization - used for try/finally
@@ -140,20 +138,6 @@ public class UnconditionalFlowInfo extends FlowInfo {
 		return this;
 	}
 
-	// Report an error if necessary
-	public boolean complainIfUnreachable(Statement statement, BlockScope scope, boolean didAlreadyComplain) {
-	
-		if ((this.reachMode & UNREACHABLE) != 0) {
-			statement.bits &= ~AstNode.IsReachableMASK;
-			boolean reported = this == DEAD_END;
-			if (!didAlreadyComplain && reported) {
-				scope.problemReporter().unreachableCode(statement);
-			}
-			return reported; // keep going for fake reachable
-		}
-		return false;
-	}
-	
 	/**
 	 * Answers a copy of the current instance
 	 */
@@ -176,7 +160,7 @@ public class UnconditionalFlowInfo extends FlowInfo {
 			int length;
 			System.arraycopy(this.extraDefiniteInits, 0, (copy.extraDefiniteInits = new long[ (length = extraDefiniteInits.length)]), 0, length);
 			System.arraycopy(this.extraPotentialInits, 0, (copy.extraPotentialInits = new long[length]), 0, length);
-		};
+		}
 		return copy;
 	}
 	

@@ -29,6 +29,24 @@ public interface IImportDeclaration extends IJavaElement, ISourceReference, ISou
  */
 String getElementName();
 /**
+ * Returns the modifier flags for this import. The flags can be examined using class
+ * <code>Flags</code>. Only the static flag is meaningful for import declarations.
+ * <p>
+ * Note: Static imports are an experimental language feature 
+ * under discussion in JSR-201 and under consideration for inclusion
+ * in the 1.5 release of J2SE. The support here is therefore tentative
+ * and subject to change.
+ * </p>
+ * @exception JavaModelException if this element does not exist or if an
+ *      exception occurs while accessing its corresponding resource.
+ * @return the modifier flags for this import
+ * @see Flags
+ * @since 3.0
+ */
+// TODO 1.5 feature disabled for now, will re-enable at a later stage
+//int getFlags() throws JavaModelException;
+
+/**
  * Returns whether the import is on-demand. An import is on-demand if it ends
  * with <code>".*"</code>.
  * @return true if the import is on-demand, false otherwise

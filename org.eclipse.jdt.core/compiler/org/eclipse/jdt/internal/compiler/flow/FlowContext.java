@@ -12,8 +12,9 @@ package org.eclipse.jdt.internal.compiler.flow;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.Reference;
+import org.eclipse.jdt.internal.compiler.ast.SubRoutineStatement;
 import org.eclipse.jdt.internal.compiler.ast.TryStatement;
 import org.eclipse.jdt.internal.compiler.codegen.Label;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
@@ -29,12 +30,12 @@ import org.eclipse.jdt.internal.compiler.lookup.VariableBinding;
  */
 public class FlowContext implements TypeConstants {
 	
-	public AstNode associatedNode;
+	public ASTNode associatedNode;
 	public FlowContext parent;
 
 	public final static FlowContext NotContinuableContext = new FlowContext(null, null);
 		
-	public FlowContext(FlowContext parent, AstNode associatedNode) {
+	public FlowContext(FlowContext parent, ASTNode associatedNode) {
 
 		this.parent = parent;
 		this.associatedNode = associatedNode;
@@ -47,7 +48,7 @@ public class FlowContext implements TypeConstants {
 	
 	public void checkExceptionHandlers(
 		TypeBinding[] raisedExceptions,
-		AstNode location,
+		ASTNode location,
 		FlowInfo flowInfo,
 		BlockScope scope) {
 
@@ -73,8 +74,8 @@ public class FlowContext implements TypeConstants {
 		FlowContext traversedContext = this;
 
 		while (traversedContext != null) {
-			AstNode sub;
-			if (((sub = traversedContext.subRoutine()) != null) && sub.cannotReturn()) {
+			SubRoutineStatement sub;
+			if (((sub = traversedContext.subRoutine()) != null) && sub.isSubRoutineEscaping()) {
 				// traversing a non-returning subroutine means that all unhandled 
 				// exceptions will actually never get sent...
 				return;
@@ -182,7 +183,7 @@ public class FlowContext implements TypeConstants {
 
 	public void checkExceptionHandlers(
 		TypeBinding raisedException,
-		AstNode location,
+		ASTNode location,
 		FlowInfo flowInfo,
 		BlockScope scope) {
 
@@ -193,8 +194,8 @@ public class FlowContext implements TypeConstants {
 		// until the point where it is safely handled (Smarter - see comment at the end)
 		FlowContext traversedContext = this;
 		while (traversedContext != null) {
-			AstNode sub;
-			if (((sub = traversedContext.subRoutine()) != null) && sub.cannotReturn()) {
+			SubRoutineStatement sub;
+			if (((sub = traversedContext.subRoutine()) != null) && sub.isSubRoutineEscaping()) {
 				// traversing a non-returning subroutine means that all unhandled 
 				// exceptions will actually never get sent...
 				return;
@@ -424,9 +425,11 @@ public class FlowContext implements TypeConstants {
 	}
 
 	public void recordBreakFrom(FlowInfo flowInfo) {
+		// default implementation: do nothing
 	}
 
 	public void recordContinueFrom(FlowInfo flowInfo) {
+		// default implementation: do nothing
 	}
 
 	boolean recordFinalAssignment(
@@ -437,11 +440,15 @@ public class FlowContext implements TypeConstants {
 	}
 
 	public void recordReturnFrom(FlowInfo flowInfo) {
+		// default implementation: do nothing
 	}
 
 	public void recordSettingFinal(
 		VariableBinding variable,
-		Reference finalReference) {
+		Reference finalReference,
+		FlowInfo flowInfo) {
+
+		if (!flowInfo.isReachable()) return;
 
 		// for initialization inside looping statement that effectively loops
 		FlowContext context = this;
@@ -454,9 +461,10 @@ public class FlowContext implements TypeConstants {
 	}
 
 	void removeFinalAssignmentIfAny(Reference reference) {
+		// default implementation: do nothing
 	}
 
-	public AstNode subRoutine() {
+	public SubRoutineStatement subRoutine() {
 
 		return null;
 	}

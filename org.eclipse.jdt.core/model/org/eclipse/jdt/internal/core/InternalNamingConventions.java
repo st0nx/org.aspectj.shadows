@@ -31,7 +31,7 @@ public class InternalNamingConventions {
 				false /*comment*/, 
 				false /*whitespace*/, 
 				false /*nls*/, 
-				compilerOptions.sourceLevel >= CompilerOptions.JDK1_4 /*assert*/, 
+				compilerOptions.sourceLevel /*sourceLevel*/, 
 				null /*taskTags*/, 
 				null/*taskPriorities*/);
 	}
@@ -135,6 +135,7 @@ public class InternalNamingConventions {
 					break;
 			}	
 		} catch(InvalidInputException e){
+			// ignore
 		}
 
 		// compute variable name for non base type

@@ -11,7 +11,7 @@
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.internal.compiler.ast.AnonymousLocalTypeDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
 public final class LocalTypeBinding extends NestedTypeBinding {
@@ -26,7 +26,7 @@ public LocalTypeBinding(ClassScope scope, SourceTypeBinding enclosingType) {
 		scope,
 		enclosingType);
 
-	if (this.sourceName == AnonymousLocalTypeDeclaration.ANONYMOUS_EMPTY_NAME)
+	if (this.sourceName == TypeDeclaration.ANONYMOUS_EMPTY_NAME)
 		this.tagBits |= AnonymousTypeMask;
 	else
 		this.tagBits |= LocalTypeMask;
@@ -36,7 +36,7 @@ public LocalTypeBinding(ClassScope scope, SourceTypeBinding enclosingType) {
 * all its dependents so as to update them (see updateInnerEmulationDependents()).
 */
 
-public void addInnerEmulationDependent(BlockScope scope, boolean wasEnclosingInstanceSupplied) {
+public void addInnerEmulationDependent(BlockScope dependentScope, boolean wasEnclosingInstanceSupplied) {
 	int index;
 	if (dependents == null) {
 		index = 0;
@@ -44,11 +44,11 @@ public void addInnerEmulationDependent(BlockScope scope, boolean wasEnclosingIns
 	} else {
 		index = dependents.length;
 		for (int i = 0; i < index; i++)
-			if (dependents[i].scope == scope)
+			if (dependents[i].scope == dependentScope)
 				return; // already stored
 		System.arraycopy(dependents, 0, (dependents = new InnerEmulationDependency[index + 1]), 0, index);
 	}
-	dependents[index] = new InnerEmulationDependency(scope, wasEnclosingInstanceSupplied);
+	dependents[index] = new InnerEmulationDependency(dependentScope, wasEnclosingInstanceSupplied);
 	//  System.out.println("Adding dependency: "+ new String(scope.enclosingType().readableName()) + " --> " + new String(this.readableName()));
 }
 /* Answer the receiver's constant pool name.

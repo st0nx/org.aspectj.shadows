@@ -22,6 +22,7 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.jdom.DOMFactory;
 import org.eclipse.jdt.core.jdom.IDOMImport;
 import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * <p>This operation adds an import declaration to an existing compilation unit.
@@ -57,7 +58,7 @@ public CreateImportOperation(String importName, ICompilationUnit parentElement) 
 /**
  * @see CreateTypeMemberOperation#generateElementDOM
  */
-protected IDOMNode generateElementDOM() throws JavaModelException {
+protected IDOMNode generateElementDOM() {
 	if (fCUDOM.getChild(fImportName) == null) {
 		DOMFactory factory = new DOMFactory();
 		//not a duplicate
@@ -111,7 +112,8 @@ protected void initializeDefaultPosition() {
 				return;
 			}
 		}
-	} catch (JavaModelException npe) {
+	} catch (JavaModelException e) {
+		// cu doesn't exit: ignore
 	}
 }
 /**

@@ -16,12 +16,13 @@ import java.util.StringTokenizer;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.ast.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.impl.StringConstant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
-import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
+import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
 /**
@@ -73,6 +74,7 @@ public class ClassFile
 	 * This methods creates a new instance of the receiver.
 	 */
 	public ClassFile() {
+		// default constructor for subclasses
 	}
 
 	/**
@@ -94,35 +96,15 @@ public class ClassFile
 		header[headerOffset++] = (byte) (0xCAFEBABEL >> 16);
 		header[headerOffset++] = (byte) (0xCAFEBABEL >> 8);
 		header[headerOffset++] = (byte) (0xCAFEBABEL >> 0);
-		switch(((SourceTypeBinding) referenceBinding).scope.environment().options.targetJDK) {
-			case CompilerOptions.JDK1_4 :
-				// Compatible with JDK 1.4
-				header[headerOffset++] = 0;
-				header[headerOffset++] = 0;
-				header[headerOffset++] = 0;
-				header[headerOffset++] = 48;
-				break;
-			case CompilerOptions.JDK1_3 :
-				// Compatible with JDK 1.3
-				header[headerOffset++] = 0;
-				header[headerOffset++] = 0;
-				header[headerOffset++] = 0;
-				header[headerOffset++] = 47;
-				break;
-			case CompilerOptions.JDK1_2 :
-				// Compatible with JDK 1.2
-				header[headerOffset++] = 0;
-				header[headerOffset++] = 0;
-				header[headerOffset++] = 0;
-				header[headerOffset++] = 46;
-				break;
-			case CompilerOptions.JDK1_1 :
-				// Compatible with JDK 1.1
-				header[headerOffset++] = 0;
-				header[headerOffset++] = 3;
-				header[headerOffset++] = 0;
-				header[headerOffset++] = 45;
-		}
+		
+		long targetJDK = referenceBinding.scope.environment().options.targetJDK;
+		// TODO[1.5]  until a 1.5 VM is released (accepting 49.0 files), will instead generate 1.4 (48.0) classfiles
+		if (targetJDK == ClassFileConstants.JDK1_5) targetJDK = ClassFileConstants.JDK1_4;
+		header[headerOffset++] = (byte) (targetJDK >> 8); // minor high
+		header[headerOffset++] = (byte) (targetJDK >> 0); // minor low
+		header[headerOffset++] = (byte) (targetJDK >> 24); // major high
+		header[headerOffset++] = (byte) (targetJDK >> 16); // major low
+
 		constantPoolOffset = headerOffset;
 		headerOffset += 2;
 		constantPool = new ConstantPool(this);
@@ -146,7 +128,9 @@ public class ClassFile
 					| AccNative);
 					
 		// set the AccSuper flag (has to be done after clearing AccSynchronized - since same value)
-		accessFlags |= AccSuper;
+		if (aType.isClass()) {
+			accessFlags |= AccSuper;
+		}
 		
 		this.enclosingClassFile = enclosingClassFile;
 		// innerclasses get their names computed at code gen time
@@ -171,19 +155,12 @@ public class ClassFile
 		int interfacesCount = superInterfacesBinding.length;
 		contents[contentsOffset++] = (byte) (interfacesCount >> 8);
 		contents[contentsOffset++] = (byte) interfacesCount;
-		if (superInterfacesBinding != null) {
-			for (int i = 0; i < interfacesCount; i++) {
-				int interfaceIndex = constantPool.literalIndex(superInterfacesBinding[i]);
-				contents[contentsOffset++] = (byte) (interfaceIndex >> 8);
-				contents[contentsOffset++] = (byte) interfaceIndex;
-			}
+		for (int i = 0; i < interfacesCount; i++) {
+			int interfaceIndex = constantPool.literalIndex(superInterfacesBinding[i]);
+			contents[contentsOffset++] = (byte) (interfaceIndex >> 8);
+			contents[contentsOffset++] = (byte) interfaceIndex;
 		}
-		produceDebugAttributes =
-			((SourceTypeBinding) referenceBinding)
-				.scope
-				.environment()
-				.options
-				.produceDebugAttributes;
+		produceDebugAttributes = referenceBinding.scope.environment().options.produceDebugAttributes;
 		innerClassesBindings = new ReferenceBinding[INNER_CLASSES_SIZE];
 		this.creatingProblemType = creatingProblemType;
 		codeStream = new CodeStream(this);
@@ -577,10 +554,10 @@ public class ClassFile
 	 * have to be generated for the inner classes attributes.
 	 * @param referenceBinding org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding 
 	 */
-	public void addInnerClasses(ReferenceBinding referenceBinding) {
+	public void addInnerClasses(ReferenceBinding refBinding) {
 		// check first if that reference binding is there
 		for (int i = 0; i < numberOfInnerClasses; i++) {
-			if (innerClassesBindings[i] == referenceBinding)
+			if (innerClassesBindings[i] == refBinding)
 				return;
 		}
 		int length = innerClassesBindings.length;
@@ -592,7 +569,7 @@ public class ClassFile
 				0,
 				length);
 		}
-		innerClassesBindings[numberOfInnerClasses++] = referenceBinding;
+		innerClassesBindings[numberOfInnerClasses++] = refBinding;
 	}
 
 	/**
@@ -674,7 +651,6 @@ public class ClassFile
 		attributeNumber++;
 		int codeAttributeOffset = contentsOffset;
 		generateCodeAttributeHeader();
-		final ProblemReporter problemReporter = method.scope.problemReporter();
 		codeStream.reset(method, this);
 		String problemString = "" ; //$NON-NLS-1$
 		if (problems != null) {
@@ -747,7 +723,7 @@ public class ClassFile
 		MethodBinding methodBinding,
 		IProblem[] problems) {
 		if (methodBinding.isAbstract() && methodBinding.declaringClass.isInterface()) {
-			method.abort(AbstractMethodDeclaration.AbortType);
+			method.abort(ProblemSeverities.AbortType);
 		}
 		// always clear the strictfp/native/abstract bit for a problem method
 		methodBinding.modifiers &= ~(AccStrictfp | AccNative | AccAbstract);
@@ -761,7 +737,6 @@ public class ClassFile
 		
 		int codeAttributeOffset = contentsOffset;
 		generateCodeAttributeHeader();
-		final ProblemReporter problemReporter = method.scope.problemReporter();
 		codeStream.reset(method, this);
 		String problemString = "" ; //$NON-NLS-1$
 		if (problems != null) {
@@ -922,7 +897,6 @@ public class ClassFile
 		String problemString = buffer.toString();
 		this.problemLine = problem.getSourceLineNumber();
 		
-		final ProblemReporter problemReporter = methodDeclaration.scope.problemReporter();
 		codeStream.init(this);
 		codeStream.preserveUnusedLocals = true;
 		codeStream.initializeMaxLocals(methodBinding);
@@ -970,6 +944,7 @@ public class ClassFile
 				0,
 				contentsLength);
 		}
+
 		localContents[localContentsOffset++] = 0;
 		localContents[localContentsOffset++] = 0;
 		// debug attributes
@@ -1321,7 +1296,7 @@ public class ClassFile
 				localContents[localContentsOffset++] = 0;
 			} else {
 				int nameIndex;
-				if (exceptionHandler.exceptionType == TypeBinding.NullBinding) {
+				if (exceptionHandler.exceptionType == BaseTypes.NullBinding) {
 					/* represents ClassNotFoundException, see class literal access*/
 					nameIndex = constantPool.literalIndexForJavaLangClassNotFoundException();
 				} else {
@@ -1448,7 +1423,7 @@ public class ClassFile
 						if (endPC == -1) {
 							localVariable.declaringScope.problemReporter().abortDueToInternalError(
 								Util.bind("abort.invalidAttribute" , new String(localVariable.name)), //$NON-NLS-1$
-								(AstNode) localVariable.declaringScope.methodScope().referenceContext);
+								(ASTNode) localVariable.declaringScope.methodScope().referenceContext);
 						}
 						if (localContentsOffset + 10 >= (contentsLength = localContents.length)) {
 							System.arraycopy(
@@ -1592,7 +1567,7 @@ public class ClassFile
 				localContents[localContentsOffset++] = 0;
 			} else {
 				int nameIndex;
-				if (exceptionHandler.exceptionType == TypeBinding.NullBinding) {
+				if (exceptionHandler.exceptionType == BaseTypes.NullBinding) {
 					/* represents denote ClassNotFoundException, see class literal access*/
 					nameIndex = constantPool.literalIndexForJavaLangClassNotFoundException();
 				} else {
@@ -1697,7 +1672,7 @@ public class ClassFile
 							if (endPC == -1) {
 								localVariable.declaringScope.problemReporter().abortDueToInternalError(
 									Util.bind("abort.invalidAttribute" , new String(localVariable.name)), //$NON-NLS-1$
-									(AstNode) localVariable.declaringScope.methodScope().referenceContext);
+									(ASTNode) localVariable.declaringScope.methodScope().referenceContext);
 							}
 							if (localContentsOffset + 10 >= (contentsLength = localContents.length)) {
 								System.arraycopy(
@@ -1812,6 +1787,7 @@ public class ClassFile
 		// write the exception table
 		localContents[localContentsOffset++] = 0;
 		localContents[localContentsOffset++] = 0;
+
 		// debug attributes
 		int codeAttributeAttributeOffset = localContentsOffset;
 		int attributeNumber = 0; // leave two bytes for the attribute_length
@@ -1939,9 +1915,10 @@ public class ClassFile
 				0,
 				contentsLength);
 		}
+
+		// write the exception table
 		localContents[localContentsOffset++] = 0;
 		localContents[localContentsOffset++] = 0;
-		
 		// debug attributes
 		int codeAttributeAttributeOffset = localContentsOffset;
 		int attributeNumber = 0; // leave two bytes for the attribute_length
@@ -2099,8 +2076,8 @@ public class ClassFile
 						localContents[localContentsOffset++] = (byte) (descriptorIndex >> 8);
 						localContents[localContentsOffset++] = (byte) descriptorIndex;
 						int resolvedPosition = argSize;
-						if ((argumentBinding == TypeBinding.LongBinding)
-							|| (argumentBinding == TypeBinding.DoubleBinding))
+						if ((argumentBinding == BaseTypes.LongBinding)
+							|| (argumentBinding == BaseTypes.DoubleBinding))
 							argSize += 2;
 						else
 							argSize++;
@@ -2249,7 +2226,7 @@ public class ClassFile
 						if (endPC == -1) {
 							localVariable.declaringScope.problemReporter().abortDueToInternalError(
 								Util.bind("abort.invalidAttribute" , new String(localVariable.name)), //$NON-NLS-1$
-								(AstNode) localVariable.declaringScope.methodScope().referenceContext);
+								(ASTNode) localVariable.declaringScope.methodScope().referenceContext);
 						}
 						if (localContentsOffset + 10 > (contentsLength = contents.length)) {
 							System.arraycopy(
@@ -2338,8 +2315,8 @@ public class ClassFile
 		SourceTypeBinding typeBinding = typeDeclaration.binding;
 		ClassFile classFile = new ClassFile(typeBinding, null, true);
 
-		// TODO: (olivier) handle cases where a field cannot be generated (name too long)
-		// TODO: (olivier) handle too many methods
+		// TODO (olivier) handle cases where a field cannot be generated (name too long)
+		// TODO (olivier) handle too many methods
 		// inner attributes
 		if (typeBinding.isMemberType())
 			classFile.recordEnclosingTypeAttributes(typeBinding);

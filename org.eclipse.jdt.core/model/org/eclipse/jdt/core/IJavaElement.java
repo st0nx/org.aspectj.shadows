@@ -109,6 +109,13 @@ public interface IJavaElement extends IAdaptable {
 	 * A Java element with this type can be safely cast to <code>IImportDeclaration</code>.
 	 */
 	int IMPORT_DECLARATION = 13;
+	
+	/**
+	 * Constant representing a local variable declaration.
+	 * A Java element with this type can be safely cast to <code>ILocalVariable</code>.
+	 * @since 3.0
+	 */
+	int LOCAL_VARIABLE = 14;
 
 	/**
 	 * Returns whether this Java element exists in the model.
@@ -245,6 +252,19 @@ public interface IJavaElement extends IAdaptable {
 	 * @since 2.0
 	 */
 	IPath getPath();
+	
+	/**
+	 * Returns the primary element (whose compilation unit is the primary compilation unit)
+	 * this working copy element was created from, or this element if it is a descendant of a
+	 * primary compilation unit or if it is not a descendant of a working copy (e.g. it is a
+	 * binary member).
+	 * The returned element may or may not exist.
+	 * 
+	 * @return the primary element this working copy element was created from, or this
+	 * 			element.
+	 * @since 3.0
+	 */
+	IJavaElement getPrimaryElement();
 
 	/**
 	 * Returns the innermost resource enclosing this element. 
@@ -252,11 +272,10 @@ public interface IJavaElement extends IAdaptable {
 	 * this is the underlying resource corresponding to the archive. 
 	 * If this element is included in an external archive, <code>null</code>
 	 * is returned.
-	 * If this element is a working copy, <code>null</code> is returned.
 	 * This is a handle-only method.
 	 * 
 	 * @return the innermost resource enclosing this element, <code>null</code> if this 
-	 * element is a working copy or is included in an external archive
+	 * element is included in an external archive
 	 * @since 2.0
 	 */
 	IResource getResource();
@@ -299,6 +318,6 @@ public interface IJavaElement extends IAdaptable {
 	 * @return <code>true</code> if the structure of this element is known
 	 * @exception JavaModelException if this element does not exist or if an
 	 *		exception occurs while accessing its corresponding resource
-	 */
+	 */// TODO (philippe) predicate shouldn't throw an exception
 	boolean isStructureKnown() throws JavaModelException;
 }

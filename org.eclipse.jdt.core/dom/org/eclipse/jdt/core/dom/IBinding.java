@@ -109,10 +109,17 @@ public interface IBinding {
 	/**
 	 * Returns whether this binding is synthetic. A synthetic binding is one that
 	 * was made up by the compiler, rather than something declared in the 
-	 * source code.
+	 * source code. Note that default constructors (the 0-argument constructor that
+	 * the compiler generates for class declarations with no explicit constructors
+	 * declarations) are not generally considered synthetic (although they
+	 * may be if the class itself is synthetic). 
+	 * But see {@link IMethodBinding#isDefaultConstructor IMethodBinding.isDefaultConstructor}
+	 * for cases where the compiled-generated default constructor can be recognized
+	 * instead.
 	 * 
 	 * @return <code>true</code> if this binding is synthetic, and 
 	 *    <code>false</code> otherwise
+	 * @see IMethodBinding#isDefaultConstructor
 	 */
 	public boolean isSynthetic();
 	
@@ -144,12 +151,13 @@ public interface IBinding {
 	 *   type, and the keys of the parameter types</li>
 	 * <li>constructors - the key of its declaring class, and the 
 	 *   keys of the parameter types</li>
+	 * <li>local variables - the name of the local variable, the index of the 
+	 *   declaring block relative to its parent, the key of its method</li>
+	 * <li>local types - the name of the type, the index of the declaring
+	 *   block relative to its parent, the key of its method</li>
+	 * <li>anonymous types - the occurence count of the anonymous 
+	 *   type relative to its declaring type, the key of its declaring type</li>
 	 * </ul>
-	 * Some bindings, like ones that correspond to declarations occurring
-	 * within the body of a method, are problematic because of the lack of
-	 * any universally acceptable way of assigning keys that are both
-	 * predictable and stable. The keys for bindings to local variables, 
-	 * local types, etc. is unspecified, and may be <code>null</code>.
 	 * </p>
 	 * 
 	 * @return the key for this binding, or <code>null</code> if none

@@ -14,7 +14,7 @@ import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 
 public class AssertStatement extends Statement {
 	
@@ -73,7 +73,7 @@ public class AssertStatement extends Statement {
 		}
 		
 		// add the assert support in the clinit
-		manageSyntheticAccessIfNecessary(currentScope);
+		manageSyntheticAccessIfNecessary(currentScope, flowInfo);
 		if (isOptimizedFalseAssertion) {
 			return flowInfo; // if assertions are enabled, the following code will be unreachable
 		} else {
@@ -92,18 +92,25 @@ public class AssertStatement extends Statement {
 			Label assertionActivationLabel = new Label(codeStream);
 			codeStream.getstatic(this.assertionSyntheticFieldBinding);
 			codeStream.ifne(assertionActivationLabel);
-			Label falseLabel = new Label(codeStream);
-			assertExpression.generateOptimizedBoolean(currentScope, codeStream, (falseLabel = new Label(codeStream)), null , true);
-			codeStream.newJavaLangAssertionError();
-			codeStream.dup();
-			if (exceptionArgument != null) {
-				exceptionArgument.generateCode(currentScope, codeStream, true);
-				codeStream.invokeJavaLangAssertionErrorConstructor(exceptionArgument.implicitConversion & 0xF);
+			
+			Constant cst = this.assertExpression.optimizedBooleanConstant();		
+			boolean isOptimizedTrueAssertion = cst != NotAConstant && cst.booleanValue() == true;
+			if (isOptimizedTrueAssertion) {
+				this.assertExpression.generateCode(currentScope, codeStream, false);
 			} else {
-				codeStream.invokeJavaLangAssertionErrorDefaultConstructor();
-			}
-			codeStream.athrow();
-			falseLabel.place();
+				Label falseLabel = new Label(codeStream);
+				this.assertExpression.generateOptimizedBoolean(currentScope, codeStream, (falseLabel = new Label(codeStream)), null , true);
+				codeStream.newJavaLangAssertionError();
+				codeStream.dup();
+				if (exceptionArgument != null) {
+					exceptionArgument.generateCode(currentScope, codeStream, true);
+					codeStream.invokeJavaLangAssertionErrorConstructor(exceptionArgument.implicitConversion & 0xF);
+				} else {
+					codeStream.invokeJavaLangAssertionErrorDefaultConstructor();
+				}
+				codeStream.athrow();
+				falseLabel.place();
+			}			
 			assertionActivationLabel.place();
 		}
 		
@@ -128,7 +135,7 @@ public class AssertStatement extends Statement {
 		}
 	}
 	
-	public void traverse(IAbstractSyntaxTreeVisitor visitor, BlockScope scope) {
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
 
 		if (visitor.visit(this, scope)) {
 			assertExpression.traverse(visitor, scope);
@@ -139,8 +146,10 @@ public class AssertStatement extends Statement {
 		visitor.endVisit(this, scope);
 	}	
 	
-	public void manageSyntheticAccessIfNecessary(BlockScope currentScope) {
+	public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 
+		if (!flowInfo.isReachable()) return;
+		
 		// need assertion flag: $assertionsDisabled on outer most source clas
 		// (in case of static member of interface, will use the outermost static member - bug 22334)
 		SourceTypeBinding outerMostClass = currentScope.enclosingSourceType();
@@ -158,23 +167,22 @@ public class AssertStatement extends Statement {
 		for (int i = 0, max = methods.length; i < max; i++) {
 			AbstractMethodDeclaration method = methods[i];
 			if (method.isClinit()) {
-				((Clinit) method).addSupportForAssertion(assertionSyntheticFieldBinding);
+				((Clinit) method).setAssertionSupport(assertionSyntheticFieldBinding);
 				break;
 			}
 		}
 	}
 
-	public String toString(int tab) {
+	public StringBuffer printStatement(int tab, StringBuffer output) {
 
-		StringBuffer buffer = new StringBuffer(tabString(tab));
-		buffer.append("assert "); //$NON-NLS-1$
-		buffer.append(this.assertExpression);
+		printIndent(tab, output);
+		output.append("assert "); //$NON-NLS-1$
+		this.assertExpression.printExpression(0, output);
 		if (this.exceptionArgument != null) {
-			buffer.append(":"); //$NON-NLS-1$
-			buffer.append(this.exceptionArgument);
-			buffer.append(";"); //$NON-NLS-1$
+			output.append(": "); //$NON-NLS-1$
+			this.exceptionArgument.printExpression(0, output);
 		}
-		return buffer.toString();
+		return output.append(';');
 	}
 	
 }

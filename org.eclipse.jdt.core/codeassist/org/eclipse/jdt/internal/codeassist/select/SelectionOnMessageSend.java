@@ -43,9 +43,9 @@ public class SelectionOnMessageSend extends MessageSend {
 	 * Cannot answer default abstract match, iterate in superinterfaces of declaring class
 	 * for a better match (default abstract match came from scope lookups).
 	 */
-	private MethodBinding findNonDefaultAbstractMethod(MethodBinding binding) {
+	private MethodBinding findNonDefaultAbstractMethod(MethodBinding methodBinding) {
 
-		ReferenceBinding[] itsInterfaces = binding.declaringClass.superInterfaces();
+		ReferenceBinding[] itsInterfaces = methodBinding.declaringClass.superInterfaces();
 		if (itsInterfaces != NoSuperInterfaces) {
 			ReferenceBinding[][] interfacesToVisit = new ReferenceBinding[5][];
 			int lastPosition = 0;
@@ -61,10 +61,10 @@ public class SelectionOnMessageSend extends MessageSend {
 						// if interface as not already been visited
 						currentType.tagBits |= TagBits.InterfaceVisited;
 
-						MethodBinding[] methods = currentType.getMethods(binding.selector);;
+						MethodBinding[] methods = currentType.getMethods(methodBinding.selector);
 						if(methods != null) {
 							for (int k = 0; k < methods.length; k++) {
-								if(binding.areParametersEqual(methods[k])) {
+								if(methodBinding.areParametersEqual(methods[k])) {
 									return methods[k];
 								}
 							}
@@ -86,7 +86,21 @@ public class SelectionOnMessageSend extends MessageSend {
 				}
 			}
 		}
-		return binding;
+		return methodBinding;
+	}
+	
+	public StringBuffer printExpression(int indent, StringBuffer output) {
+
+		output.append("<SelectOnMessageSend:"); //$NON-NLS-1$
+		if (!receiver.isImplicitThis()) receiver.printExpression(0, output).append('.');
+		output.append(this.selector).append('(');
+		if (arguments != null) {
+			for (int i = 0; i < arguments.length; i++) {
+				if (i > 0) output.append(", "); //$NON-NLS-1$
+				arguments[i].printExpression(0, output);
+			}
+		}
+		return output.append(")>"); //$NON-NLS-1$
 	}
 	
 	public TypeBinding resolveType(BlockScope scope) {
@@ -108,23 +122,5 @@ public class SelectionOnMessageSend extends MessageSend {
 				throw new SelectionNodeFound(binding);
 			}
 		}
-	}
-	
-	public String toStringExpression() {
-
-		String s = "<SelectOnMessageSend:"; //$NON-NLS-1$
-		if (!receiver.isImplicitThis())
-			s = s + receiver.toStringExpression() + "."; //$NON-NLS-1$
-		s = s + new String(selector) + "("; //$NON-NLS-1$
-		if (arguments != null) {
-			for (int i = 0; i < arguments.length; i++) {
-				s += arguments[i].toStringExpression();
-				if (i != arguments.length - 1) {
-					s += ", "; //$NON-NLS-1$
-				}
-			};
-		}
-		s = s + ")>"; //$NON-NLS-1$
-		return s;
 	}
 }

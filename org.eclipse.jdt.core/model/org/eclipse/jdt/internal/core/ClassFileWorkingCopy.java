@@ -14,8 +14,8 @@ import org.eclipse.core.resources.IMarker;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IBuffer;
-import org.eclipse.jdt.core.IBufferFactory;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.ICompletionRequestor;
 import org.eclipse.jdt.core.IImportContainer;
@@ -26,7 +26,6 @@ import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IOpenable;
 import org.eclipse.jdt.core.IPackageDeclaration;
-import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IProblemRequestor;
 import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.IType;
@@ -41,7 +40,13 @@ public class ClassFileWorkingCopy implements ICompilationUnit {
 	
 	public IBuffer buffer;
 	
-
+	/*
+	 * @see ICompilationUnit#becomeWorkingCopy(IProblemRequestor, IProgressMonitor)
+	 */
+	public void becomeWorkingCopy(IProblemRequestor problemRequestor, IProgressMonitor monitor) throws JavaModelException {
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
+	}
+	
 	/*
 	 * @see ICompilationUnit#createImport(String, IJavaElement, IProgressMonitor)
 	 */
@@ -75,6 +80,13 @@ public class ClassFileWorkingCopy implements ICompilationUnit {
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
 	}
 
+	/*
+	 * @see ICompilationUnit#discardWorkingCopy
+	 */
+	public void discardWorkingCopy() throws JavaModelException {
+		// not a real working copy: ignore
+	}
+	
 	/*
 	 * @see ICompilationUnit#getAllTypes()
 	 */
@@ -114,6 +126,13 @@ public class ClassFileWorkingCopy implements ICompilationUnit {
 	 * @see IJavaElement#getOpenable()
 	 */
 	public IOpenable getOpenable() {
+		return null;
+	}
+
+	/*
+	 * @see ICompilationUnit#getOwner()
+	 */
+	public WorkingCopyOwner getOwner() {
 		return null;
 	}
 
@@ -213,18 +232,34 @@ public IType findPrimaryType() {
 	public IJavaElement getParent() {
 		return null;
 	}
-/*
- * @see IJavaElement
- */
-public IPath getPath() {
-	return null;
-}
-/*
- * @see IJavaElement
- */
-public IResource getResource() {
-	return null;
-}
+
+	/*
+	 * @see IJavaElement
+	 */
+	public IPath getPath() {
+		return null;
+	}
+
+	/*
+	 * @see ICompilationUnit#getPrimary()
+	 */
+	public ICompilationUnit getPrimary() {
+		return this;
+	}
+	
+	/*
+	 * @see ICompilationUnit#getPrimaryElement()
+	 */
+	public IJavaElement getPrimaryElement() {
+		return getPrimary();
+	}
+	
+	/*
+	 * @see IJavaElement
+	 */
+	public IResource getResource() {
+		return null;
+	}
 
 	/*
 	 * @see IJavaElement#getUnderlyingResource()
@@ -243,7 +278,7 @@ public IResource getResource() {
 	/*
 	 * @see IJavaElement#isStructureKnown()
 	 */
-	public boolean isStructureKnown() throws JavaModelException {
+	public boolean isStructureKnown() {
 		return false;
 	}
 
@@ -279,26 +314,34 @@ public IResource getResource() {
 	 * @see IOpenable#close()
 	 */
 	public void close() throws JavaModelException {
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
 	}
 
 	/*
 	 * @see IOpenable#getBuffer()
 	 */
-	public IBuffer getBuffer() throws JavaModelException {
+	public IBuffer getBuffer() {
 		return this.buffer;
 	}
 
 	/*
+	 * @see ICompilationUnit#hasResourceChanged()
+	 */
+	public boolean hasResourceChanged() {
+		return false;
+	}
+	
+	/*
 	 * @see IOpenable#hasUnsavedChanges()
 	 */
-	public boolean hasUnsavedChanges() throws JavaModelException {
+	public boolean hasUnsavedChanges() {
 		return false;
 	}
 
 	/*
 	 * @see IOpenable#isConsistent()
 	 */
-	public boolean isConsistent() throws JavaModelException {
+	public boolean isConsistent() {
 		return false;
 	}
 
@@ -332,43 +375,64 @@ public IResource getResource() {
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
 	}
 
-	/*
+	/**
 	 * @see IWorkingCopy#commit(boolean, IProgressMonitor)
+	 * @deprecated
 	 */
-	public void commit(boolean force, IProgressMonitor monitor)
+	public void commit(boolean force, IProgressMonitor monitor) throws JavaModelException {
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
+	}
+	
+	/*
+	 * @see IWorkingCopy#commitWorkingCopy(boolean, IProgressMonitor)
+	 */
+	public void commitWorkingCopy(boolean force, IProgressMonitor monitor)
 		throws JavaModelException {
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
 	}
 
-	/*
+	/**
 	 * @see IWorkingCopy#destroy()
+	 * @deprecated
 	 */
 	public void destroy() {
+		// not a real working copy: ignore
 	}
 
-	/*
+	/**
 	 * @see IWorkingCopy#findSharedWorkingCopy(IBufferFactory)
+	 * @deprecated
 	 */
 	public IJavaElement findSharedWorkingCopy(IBufferFactory bufferFactory) {
 		return null;
 	}
+	
+	/**
+	 * @see ICompilationUnit#findWorkingCopy(WorkingCopyOwner)
+	 */
+	public ICompilationUnit findWorkingCopy(WorkingCopyOwner owner) {
+		return null;
+	}
 
-	/*
+	/**
 	 * @see IWorkingCopy#getOriginal(IJavaElement)
+	 * @deprecated
 	 */
 	public IJavaElement getOriginal(IJavaElement workingCopyElement) {
 		return null;
 	}
 
-	/*
+	/**
 	 * @see IWorkingCopy#getOriginalElement()
+	 * @deprecated
 	 */
 	public IJavaElement getOriginalElement() {
-		return new ClassFile((IPackageFragment)getParent(), getElementName());
+		return getPrimaryElement();
 	}
 
-		/*
+	/**
 	 * @see IWorkingCopy#getSharedWorkingCopy(IProgressMonitor, IBufferFactory)
+	 * @deprecated
 	 */
 	public IJavaElement getSharedWorkingCopy(
 		IProgressMonitor monitor,
@@ -378,28 +442,39 @@ public IResource getResource() {
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
 	}
 
-	/*
+	/**
 	 * @see IWorkingCopy#getWorkingCopy()
+	 * @deprecated
 	 */
 	public IJavaElement getWorkingCopy() throws JavaModelException {
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
 	}
-	/*
-	 * @see IWorkingCopy#getWorkingCopy(IProgressMonitor, IBufferFactory, IProblemRequestor)
+	
+	/**
+	 * @see ICompilationUnit#getWorkingCopy(IProgressMonitor)
 	 */
-	public IJavaElement getWorkingCopy(
-		IProgressMonitor monitor,
-		IBufferFactory factory,
-		IProblemRequestor problemRequestor) 
-		throws JavaModelException {
+	public ICompilationUnit getWorkingCopy(IProgressMonitor monitor) throws JavaModelException {
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
 	}
-	/*
-	 * @see IWorkingCopy#hasManagedWorkingCopy()
-	 */
 
-	/*
+	/**
+	 * @see IWorkingCopy#getWorkingCopy(IProgressMonitor, IBufferFactory, IProblemRequestor)
+	 * @deprecated
+	 */
+	public IJavaElement getWorkingCopy(IProgressMonitor monitor, IBufferFactory factory, IProblemRequestor problemRequestor) throws JavaModelException {
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
+	}
+
+	/**
+	 * @see IWorkingCopy#getWorkingCopy(WorkingCopyOwner, IProblemRequestor, IProgressMonitor)
+	 */
+	public ICompilationUnit getWorkingCopy(WorkingCopyOwner owner, IProblemRequestor problemRequestor, IProgressMonitor monitor) throws JavaModelException {
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
+	}
+
+	/**
 	 * @see IWorkingCopy#isBasedOn(IResource)
+	 * @deprecated
 	 */
 	public boolean isBasedOn(IResource resource) {
 		return false;
@@ -414,16 +489,28 @@ public IResource getResource() {
 
 	/**
 	 * @see org.eclipse.jdt.core.IWorkingCopy#reconcile()
+	 * @deprecated
 	 */
 	public IMarker[] reconcile() throws JavaModelException {
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
 	}
 
 	/**
-	 * @see IWorkingCopy#reconcile(boolean, IProgressMonitor)
+	 * @see ICompilationUnit#reconcile(boolean, IProgressMonitor)
 	 */
 	public void reconcile(
 		boolean forceProblemDetection,
+		IProgressMonitor monitor)
+		throws JavaModelException {
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
+	}
+
+	/**
+	 * @see ICompilationUnit#reconcile(boolean, WorkingCopyOwner, IProgressMonitor)
+	 */
+	public void reconcile(
+		boolean forceProblemDetection,
+		WorkingCopyOwner owner,
 		IProgressMonitor monitor)
 		throws JavaModelException {
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
@@ -487,9 +574,25 @@ public IResource getResource() {
 	}
 
 	/**
+	 * @see org.eclipse.jdt.core.ICodeAssist#codeComplete(int, ICompletionRequestor, WorkingCopyOwner)
+	 */
+	public void codeComplete(int offset, ICompletionRequestor requestor, WorkingCopyOwner owner)
+		throws JavaModelException {
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
+	}
+
+	/**
 	 * @see org.eclipse.jdt.core.ICodeAssist#codeSelect(int, int)
 	 */
 	public IJavaElement[] codeSelect(int offset, int length)
+		throws JavaModelException {
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
+	}
+
+	/**
+	 * @see org.eclipse.jdt.core.ICodeAssist#codeSelect(int, int, WorkingCopyOwner)
+	 */
+	public IJavaElement[] codeSelect(int offset, int length, WorkingCopyOwner owner)
 		throws JavaModelException {
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
 	}
