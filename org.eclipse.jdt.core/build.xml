@@ -3,6 +3,7 @@
     <property name="plugins.dir" value="${eclipse.dir}/plugins"/>
     <property name="eclipse.version" value="3.0.0"/>
     <property name="plugins.src.dir" value="${plugins.dir}/org.eclipse.platform.source_${eclipse.version}/src"/>
+    <property name="aspectjtools.jar" value=""/>
 
     <target name="makeJdtDepends">
         <delete file="lib/jdtDepends.jar"/>
@@ -60,4 +61,23 @@
             <zipfileset src="lib/jdtDepends-src.zip" excludes="org/apache/**,org/w3c/**,org/xml/**"/>
       	</jar>
     </target>
+    
+    <target name="make.ajdtcore.jar" 
+            description="build the ajdtcore.jar and jdtcore.jar used by the org.eclipse.ajdt.core plugin">
+        <delete file="lib/ajdtcore.jar"/>
+        <jar destfile="lib/ajdtcore.jar">
+            <zipfileset src="${aspectjtools.jar}">
+              <include name = "org/aspectj/asm/**" />
+              <include name = "org/aspectj/bridge/**" />
+              <include name = "org/aspectj/ajdt/**" />
+              <include name = "org/aspectj/tools/**" />
+              <include name = "org/aspectj/lang/**" />
+              <include name = "org/aspectj/runtime/**" />
+              <include name = "org/aspectj/util/**" />
+              <include name = "org/aspectj/weaver/**" />
+            </zipfileset>
+            <fileset dir="bin"/>
+        </jar>                        
+    </target>
+    
 </project>
