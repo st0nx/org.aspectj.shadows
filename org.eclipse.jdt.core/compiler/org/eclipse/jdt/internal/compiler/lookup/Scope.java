@@ -1040,7 +1040,7 @@ public abstract class Scope
 								}
 							}
 						    depth+=classScope.addDepth(); // AspectJ Extension
-							insideStaticContext |= enclosingType.isStatic();
+							insideStaticContext |= invocationType()/*enclosingType*/.isStatic(); // AspectJ Extension
 							// 1EX5I8Z - accessing outer fields within a constructor call is permitted
 							// in order to do so, we change the flag as we exit from the type, not the method
 							// itself, because the class scope is used to retrieve the fields.
