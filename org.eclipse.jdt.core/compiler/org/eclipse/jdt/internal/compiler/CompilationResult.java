@@ -361,8 +361,10 @@ public class CompilationResult {
 	public void record(char[] typeName, ClassFile classFile) {
 
 	    SourceTypeBinding sourceType = classFile.referenceBinding;
-	    if (!sourceType.isLocalType() && sourceType.isHierarchyInconsistent()) {
-	        this.hasInconsistentToplevelHierarchies = true;
+	    if (sourceType != null) { // AspectJ Extension - does this matter???
+		    if (!sourceType.isLocalType() && sourceType.isHierarchyInconsistent()) {
+		        this.hasInconsistentToplevelHierarchies = true;
+		    }
 	    }
 		compiledTypes.put(typeName, classFile);
 	}

@@ -28,7 +28,7 @@ public class MessageSend extends Expression implements InvocationSite {
 	public char[] selector ;
 	public Expression[] arguments ;
 	public MethodBinding binding;							// exact binding resulting from lookup
-	protected MethodBinding codegenBinding;		// actual binding used for code generation (if no synthetic accessor)
+	public MethodBinding codegenBinding; // AspectJ Extension - raise visibility		// actual binding used for code generation (if no synthetic accessor)
 	public MethodBinding syntheticAccessor; // AspectJ Extension - raise visibility						// synthetic accessor for inner-emulation
 	public TypeBinding expectedType;					// for generic method invocation (return type inference)
 
@@ -173,6 +173,7 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo f
 	//	AspectJ Extension
 	if (binding.alwaysNeedsAccessMethod()) {
 		syntheticAccessor = binding.getAccessMethod(isSuperAccess());
+		this.codegenBinding = this.binding;//.original();
 		return;
 	}
 	//	End AspectJ Extension
@@ -462,8 +463,7 @@ public void traverse(ASTVisitor visitor, BlockScope blockScope) {
 protected void resolveMethodBinding(
 	BlockScope scope,
 	TypeBinding[] argumentTypes) {
-	// note, also set this.codegenBinding in previous version
-	this.binding = 
+	this.binding = this.codegenBinding =
 		receiver.isImplicitThis()
 			? scope.getImplicitMethod(selector, argumentTypes, this)
 			: scope.getMethod(this.actualReceiverType, selector, argumentTypes, this); 

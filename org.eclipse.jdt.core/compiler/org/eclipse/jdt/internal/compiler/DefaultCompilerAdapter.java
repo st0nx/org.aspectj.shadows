@@ -33,7 +33,7 @@ public class DefaultCompilerAdapter implements ICompilerAdapter {
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.ICompilerAdapter#afterCompiling()
 	 */
-	public void afterCompiling() {}
+	public void afterCompiling(CompilationUnitDeclaration[] units) {}
 	
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.ICompilerAdapter#beforeProcessing(org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration)
@@ -44,6 +44,7 @@ public class DefaultCompilerAdapter implements ICompilerAdapter {
 	 * @see org.eclipse.jdt.internal.compiler.ICompilerAdapter#afterProcessing(org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration)
 	 */
 	public void afterProcessing(CompilationUnitDeclaration unit, int unitIndex) {
+		unit.cleanUp();
 		compiler.requestor.acceptResult(unit.compilationResult.tagAsAccepted());
 		compiler.unitsToProcess[unitIndex] = null;
 	}

@@ -365,7 +365,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 					process(unit, i);
 				} finally {
 					// cleanup compilation unit result
-					unit.cleanUp();
+					//unit.cleanUp(); AspectJ Extension -moved to afterProcessing
 				}
 				// AspectJ Extension
 				//unitsToProcess[i] = null; // release reference to processed unit declaration
@@ -382,7 +382,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 								new String(unit.getFileName())}));
 			}
 			// AspectJ Extension 
-			compilerAdapter.afterCompiling();
+			compilerAdapter.afterCompiling(unitsToProcess);
 			// End AspectJ Extension 
 		} catch (AbortCompilation e) {
 			this.handleInternalException(e, unit);

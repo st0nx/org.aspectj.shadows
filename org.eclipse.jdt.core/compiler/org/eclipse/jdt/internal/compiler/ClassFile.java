@@ -414,13 +414,13 @@ public class ClassFile
 	     ReferenceBinding superclass = null;
 	     if (aType.originalSuperclass!=null) superclass=aType.originalSuperclass;
 	     else superclass=aType.superclass;
-	     // End AspectJ extension
 	 		if (aType.isInterface()) {
 			superclassNameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangObjectConstantPoolName);
 		} else {
 			superclassNameIndex =
-				(aType.superclass == null ? 0 : constantPool.literalIndexForType(aType.superclass.constantPoolName()));
+				(superclass == null ? 0 : constantPool.literalIndexForType(superclass.constantPoolName()));
 		}
+        // End AspectJ extension
 		contents[contentsOffset++] = (byte) (superclassNameIndex >> 8);
 		contents[contentsOffset++] = (byte) superclassNameIndex;
 //		 AspectJ extension

@@ -91,7 +91,15 @@ public int dimensions() {
 public char [][] getParameterizedTypeName(){
 	return getTypeName();
 }
-protected abstract TypeBinding getTypeBinding(Scope scope);
+
+// AspectJ Extension
+// raise visibility without upsetting rest of hierarchy
+public TypeBinding getTypeBindingPublic(Scope scope) {
+	return getTypeBinding(scope);
+}
+// End AspectJ Extension
+
+protected abstract TypeBinding getTypeBinding(Scope scope); 
 /**
  * @return char[][]
  */

@@ -199,6 +199,7 @@ public class ExplicitConstructorCall extends Statement implements InvocationSite
 		// AspectJ Extension
 		if (binding.alwaysNeedsAccessMethod()) {
 			syntheticAccessor = binding.getAccessMethod(true);
+			this.codegenBinding = this.binding.original();
 			return;
 		}
 		// End AspectJ Extension

@@ -413,8 +413,10 @@ public class FieldReference extends Reference implements InvocationSite {
 		// AspectJ Extension
 		//System.err.println("manage synthetic: " + this + " with " + binding + ", " + binding.getClass());
 		if (binding.alwaysNeedsAccessMethod(false)) {
+			if (syntheticAccessors == null) syntheticAccessors = new MethodBinding[2];
 			syntheticAccessors[isReadAccess ? READ : WRITE] = 
-				binding.getAccessMethod(false);
+				binding.getAccessMethod(isReadAccess);
+			this.codegenBinding = this.binding.original();
 			return;
 		}
 		// End AspectJ Extension

@@ -702,12 +702,22 @@ public class QualifiedNameReference extends NameReference {
 		//	AspectJ Extension
 		if (index < 0) {
 			if (fieldBinding.alwaysNeedsAccessMethod(false)) {
-				setSyntheticAccessor(fieldBinding,index,fieldBinding.getAccessMethod(false));
+				SyntheticMethodBinding newBinding = fieldBinding.getAccessMethod(false);
+				setSyntheticAccessor(fieldBinding,index,newBinding);
+				FieldBinding originalField = fieldBinding.original();
+				if (originalField != fieldBinding) {
+					setCodegenBinding(index < 0 ? (this.otherBindings == null ? 0 : this.otherBindings.length) : index, originalField);
+				}
 				return;
 			}
 		} else {
 			if (fieldBinding.alwaysNeedsAccessMethod(true)) {
-				setSyntheticAccessor(fieldBinding,index,fieldBinding.getAccessMethod(true));
+				SyntheticMethodBinding newBinding = fieldBinding.getAccessMethod(true);
+				setSyntheticAccessor(fieldBinding,index,newBinding);
+				FieldBinding originalField = fieldBinding.original();
+				if (originalField != fieldBinding) {
+					setCodegenBinding(index < 0 ? (this.otherBindings == null ? 0 : this.otherBindings.length) : index, originalField);
+				}
 				return;
 			}
 		}

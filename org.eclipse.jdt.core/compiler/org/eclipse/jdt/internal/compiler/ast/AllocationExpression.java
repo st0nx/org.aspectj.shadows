@@ -193,6 +193,7 @@ public class AllocationExpression extends Expression implements InvocationSite {
 		// AspectJ Extension
 		if (binding.alwaysNeedsAccessMethod()) {
 			syntheticAccessor = binding.getAccessMethod(true);
+			this.codegenBinding = binding.original();
 			return;
 		}
 		// End AspectJ Extension
