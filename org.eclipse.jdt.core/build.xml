@@ -1,14 +1,6 @@
-<project name="ShadowJdtCore" basedir="." default="get.tag">
-    <property name="tag" value="v_308"/>
+<project name="ShadowJdtCore" basedir="." default="make.jdtcore.jar">
     <property name="eclipse.dir" value="c:\aspectj\2.1rc3b"/>
-    <property name="temp.dir" value="/temp"/>
-
     <property name="plugins.dir" value="${eclipse.dir}/eclipse/plugins"/>
-
-    <property name="package" value="org.eclipse.jdt.core"/>
-
-    <property name="eclipse.root" value=":pserver:anonymous@dev.eclipse.org:/home/eclipse"/>
-    <property name="new.dir" value="."/>
 
     <target name="makeJdtDepends">
         <jar destfile="lib/jdtDepends.jar">
@@ -27,22 +19,4 @@
             <zipfileset src="lib/jdtDepends.jar"/>
         </jar>
     </target>
-
-
-
-    <target name="get.tag">
-        <delete>
-             <fileset dir="${new.dir}/${package}"/>
-        </delete>
-        <delete>
-             <fileset dir="${temp.dir}" defaultexcludes="no"/>
-        </delete>
-
-        <cvs cvsRoot="${eclipse.root}" package="${package}" dest="${temp.dir}" tag="${tag}"/>
-
-        <copy todir="${new.dir}">
-             <fileset dir="${temp.dir}"/>
-        </copy>
-    </target>
-
 </project>
