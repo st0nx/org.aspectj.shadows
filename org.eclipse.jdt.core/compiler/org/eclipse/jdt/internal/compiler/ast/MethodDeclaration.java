@@ -1,20 +1,24 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.flow.ExceptionHandlingFlowContext;
+import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
+import org.eclipse.jdt.internal.compiler.flow.InitializationFlowContext;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
-import org.eclipse.jdt.internal.compiler.util.*;
+import org.eclipse.jdt.internal.compiler.problem.AbortMethod;
 
 public class MethodDeclaration extends AbstractMethodDeclaration {
 	
@@ -27,6 +31,61 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 		super(compilationResult);
 	}
 
+	public void analyseCode(
+		ClassScope classScope,
+		InitializationFlowContext initializationContext,
+		FlowInfo flowInfo) {
+
+		// starting of the code analysis for methods
+		if (ignoreFurtherInvestigation)
+			return;
+		try {
+			if (binding == null)
+				return;
+				
+			if (this.binding.isPrivate() && !this.binding.isPrivateUsed()) {
+				if (!classScope.referenceCompilationUnit().compilationResult.hasSyntaxError()) {
+					scope.problemReporter().unusedPrivateMethod(this);
+				}
+			}
+				
+			// may be in a non necessary <clinit> for innerclass with static final constant fields
+			if (binding.isAbstract() || binding.isNative())
+				return;
+
+			ExceptionHandlingFlowContext methodContext =
+				new ExceptionHandlingFlowContext(
+					initializationContext,
+					this,
+					binding.thrownExceptions,
+					scope,
+					FlowInfo.DEAD_END);
+
+			// propagate to statements
+			if (statements != null) {
+				boolean didAlreadyComplain = false;
+				for (int i = 0, count = statements.length; i < count; i++) {
+					Statement stat;
+					if (!flowInfo.complainIfUnreachable((stat = statements[i]), scope, didAlreadyComplain)) {
+						flowInfo = stat.analyseCode(scope, methodContext, flowInfo);
+					} else {
+						didAlreadyComplain = true;
+					}
+				}
+			}
+			// check for missing returning path
+			TypeBinding returnType = binding.returnType;
+			if ((returnType == VoidBinding) || isAbstract()) {
+				this.needFreeReturn = flowInfo.isReachable();
+			} else {
+				if (flowInfo != FlowInfo.DEAD_END) { 
+					scope.problemReporter().shouldReturn(returnType, this);
+				}
+			}
+		} catch (AbortMethod e) {
+			this.ignoreFurtherInvestigation = true;
+		}
+	}
 
 	public void parseStatements(Parser parser, CompilationUnitDeclaration unit) {
 
@@ -36,11 +95,11 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 		parser.parse(this, unit);
 	}
 
-	public void resolveStatements(ClassScope upperScope) {
+	public void resolveStatements() {
 
 		// ========= abort on fatal error =============
 		if (this.returnType != null && this.binding != null) {
-			this.returnType.binding = this.binding.returnType;
+			this.returnType.resolvedType = this.binding.returnType;
 			// record the return type binding
 		}
 		// look if the name of the method is correct
@@ -65,7 +124,7 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 					scope.problemReporter().methodNeedingNoBody(this);
 			}
 		}
-		super.resolveStatements(upperScope); 
+		super.resolveStatements(); 
 	}
 
 	public String returnTypeToString(int tab) {

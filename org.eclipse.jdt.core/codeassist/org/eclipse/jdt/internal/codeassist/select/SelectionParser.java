@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.codeassist.select;
 
 /*
@@ -23,13 +23,13 @@ package org.eclipse.jdt.internal.codeassist.select;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.env.*;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.codeassist.impl.*;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 public class SelectionParser extends AssistParser {
 
@@ -143,12 +143,27 @@ protected void classInstanceCreation(boolean alwaysQualified) {
 		super.classInstanceCreation(alwaysQualified);
 	}
 }
+protected void consumeArrayCreationExpressionWithoutInitializer() {
+	// ArrayCreationWithoutArrayInitializer ::= 'new' PrimitiveType DimWithOrWithOutExprs
+	// ArrayCreationWithoutArrayInitializer ::= 'new' ClassOrInterfaceType DimWithOrWithOutExprs
 
-protected void consumeArrayCreationExpression() {
-	// ArrayCreationExpression ::= 'new' PrimitiveType DimWithOrWithOutExprs ArrayInitializeropt
-	// ArrayCreationExpression ::= 'new' ClassOrInterfaceType DimWithOrWithOutExprs ArrayInitializeropt
+	super.consumeArrayCreationExpressionWithoutInitializer();
 
-	super.consumeArrayCreationExpression();
+	ArrayAllocationExpression alloc = (ArrayAllocationExpression)expressionStack[expressionPtr];
+	if (alloc.type == assistNode){
+		if (!diet){
+			this.restartRecovery	= true;	// force to restart in recovery mode
+			this.lastIgnoredToken = -1;	
+		}
+		this.isOrphanCompletionNode = true;
+	}
+}
+
+protected void consumeArrayCreationExpressionWithInitializer() {
+	// ArrayCreationWithArrayInitializer ::= 'new' PrimitiveType DimWithOrWithOutExprs ArrayInitializer
+	// ArrayCreationWithArrayInitializer ::= 'new' ClassOrInterfaceType DimWithOrWithOutExprs ArrayInitializer
+
+	super.consumeArrayCreationExpressionWithInitializer();
 
 	ArrayAllocationExpression alloc = (ArrayAllocationExpression)expressionStack[expressionPtr];
 	if (alloc.type == assistNode){
@@ -171,7 +186,7 @@ protected void consumeEnterAnonymousClassBody() {
 		new AnonymousLocalTypeDeclaration(this.compilationUnit.compilationResult); 
 	alloc = 
 		anonymousType.allocation = new SelectionOnQualifiedAllocationExpression(anonymousType); 
-	markCurrentMethodWithLocalType();
+	markEnclosingMemberWithLocalType();
 	pushOnAstStack(anonymousType);
 
 	alloc.sourceEnd = rParenPos; //the position has been stored explicitly
@@ -201,16 +216,18 @@ protected void consumeEnterAnonymousClassBody() {
 	this.lastCheckPoint = alloc.sourceEnd + 1;
 	if (!diet){
 		this.restartRecovery	= true;	// force to restart in recovery mode
-		this.lastIgnoredToken = -1;	
+		this.lastIgnoredToken = -1;
+		currentToken = 0; // opening brace already taken into account
+		hasReportedError = true;
 	}
-	this.isOrphanCompletionNode = true;
-		
-	anonymousType.bodyStart = scanner.currentPosition;	
+
+	anonymousType.bodyStart = scanner.currentPosition;
 	listLength = 0; // will be updated when reading super-interfaces
 	// recovery
-	if (currentElement != null){ 
+	if (currentElement != null){
 		lastCheckPoint = anonymousType.bodyStart;
-		currentElement = currentElement.add(anonymousType, 0); // the recoveryTokenCheck will deal with the open brace
+		currentElement = currentElement.add(anonymousType, 0);
+		currentToken = 0; // opening brace already taken into account
 		lastIgnoredToken = -1;		
 	}
 }
@@ -277,6 +294,14 @@ protected void consumeFieldAccess(boolean isSuperAccess) {
 protected void consumeFormalParameter() {
 	if (this.indexOfAssistIdentifier() < 0) {
 		super.consumeFormalParameter();
+		if((!diet || dietInt != 0) && astPtr > -1) {
+			Argument argument = (Argument) astStack[astPtr];
+			if(argument.type == assistNode) {
+				isOrphanCompletionNode = true;
+				this.restartRecovery	= true;	// force to restart in recovery mode
+				this.lastIgnoredToken = -1;	
+			}
+		}
 	} else {
 
 		identifierLengthPtr--;
@@ -544,7 +569,7 @@ protected NameReference getUnspecifiedReference() {
 			this.lastIgnoredToken = -1;		
 		}
 		this.isOrphanCompletionNode = true;
-		return new SingleNameReference(new char[0], 0); // dummy reference
+		return new SingleNameReference(CharOperation.NO_CHAR, 0); // dummy reference
 	}
 	NameReference nameReference;
 	/* retrieve identifiers subset and whole positions, the completion node positions
@@ -676,6 +701,12 @@ protected void updateRecoveryState() {
 	/* may be able to retrieve completionNode as an orphan, and then attach it */
 	this.selectionIdentifierCheck();
 	this.attachOrphanCompletionNode();
+	
+	// if an assist node has been found and a recovered element exists,
+	// mark enclosing blocks as to be preserved
+	if (this.assistNode != null && this.currentElement != null) {
+		currentElement.preserveEnclosingBlocks();
+	}
 	
 	/* check and update recovered state based on current token,
 		this action is also performed when shifting token after recovery

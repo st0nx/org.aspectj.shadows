@@ -1,20 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
-import org.eclipse.jdt.internal.compiler.util.*;
 
 public class CompilationUnitDeclaration
 	extends AstNode
@@ -31,7 +31,9 @@ public class CompilationUnitDeclaration
 	public ProblemReporter problemReporter;
 	public CompilationResult compilationResult;
 
-	private LocalTypeBinding[] allLocalTypes;
+	private LocalTypeBinding[] localTypes;
+	int localTypeCount = 0;
+	
 	public boolean isPropagatingInnerClassEmulation;
 
 	public CompilationUnitDeclaration(
@@ -89,17 +91,34 @@ public class CompilationUnitDeclaration
 	 * to compiler structures.
 	 */
 	public void cleanUp() {
-
+		if (this.types != null) {
+			for (int i = 0, max = this.types.length; i < max; i++) {
+				cleanUp(this.types[i]);
+			}
+			for (int i = 0, max = this.localTypeCount; i < max; i++) {
+				// null out the type's scope backpointers
+				localTypes[i].scope = null; // local members are already in the list
+			}
+		}
 		ClassFile[] classFiles = compilationResult.getClassFiles();
 		for (int i = 0, max = classFiles.length; i < max; i++) {
 			// clear the classFile back pointer to the bindings
 			ClassFile classFile = classFiles[i];
-			// null out the type's scope backpointers
-			 ((SourceTypeBinding) classFile.referenceBinding).scope = null;
 			// null out the classfile backpointer to a type binding
 			classFile.referenceBinding = null;
 			classFile.codeStream = null; // codeStream holds onto ast and scopes
 			classFile.innerClassesBindings = null;
+		}
+	}
+	private void cleanUp(TypeDeclaration type) {
+		if (type.memberTypes != null) {
+			for (int i = 0, max = type.memberTypes.length; i < max; i++){
+				cleanUp(type.memberTypes[i]);
+			}
+		}
+		if (type.binding != null) {
+			// null out the type's scope backpointers
+			type.binding.scope = null;
 		}
 	}
 
@@ -200,9 +219,12 @@ public class CompilationUnitDeclaration
 	public void propagateInnerEmulationForAllLocalTypes() {
 
 		isPropagatingInnerClassEmulation = true;
-		if (allLocalTypes != null) {
-			for (int i = 0, max = allLocalTypes.length; i < max; i++) {
-				allLocalTypes[i].updateInnerEmulationDependents();
+		for (int i = 0, max = this.localTypeCount; i < max; i++) {
+				
+			LocalTypeBinding localType = localTypes[i];
+			// only propagate for reachable local types
+			if ((localType.scope.referenceType().bits & IsReachableMASK) != 0) {
+				localType.updateInnerEmulationDependents();
 			}
 		}
 	}
@@ -213,18 +235,12 @@ public class CompilationUnitDeclaration
 	 */
 	public void record(LocalTypeBinding localType) {
 
-		if (allLocalTypes == null) {
-			allLocalTypes = new LocalTypeBinding[] { localType };
-		} else {
-			int length = allLocalTypes.length;
-			System.arraycopy(
-				allLocalTypes,
-				0,
-				(allLocalTypes = new LocalTypeBinding[length + 1]),
-				0,
-				length);
-			allLocalTypes[length] = localType;
+		if (this.localTypeCount == 0) {
+			this.localTypes = new LocalTypeBinding[5];
+		} else if (this.localTypeCount == this.localTypes.length) {
+			System.arraycopy(this.localTypes, 0, (this.localTypes = new LocalTypeBinding[this.localTypeCount * 2]), 0, this.localTypeCount);
 		}
+		this.localTypes[this.localTypeCount++] = localType;
 	}
 
 	public void resolve() {
@@ -235,7 +251,7 @@ public class CompilationUnitDeclaration
 					types[i].resolve(scope);
 				}
 			}
-			checkUnusedImports();
+			if (!this.compilationResult.hasSyntaxError()) checkUnusedImports();
 		} catch (AbortCompilationUnit e) {
 			this.ignoreFurtherInvestigation = true;
 			return;
@@ -272,15 +288,20 @@ public class CompilationUnitDeclaration
 			return;
 		try {
 			if (visitor.visit(this, scope)) {
+				if (currentPackage != null) {
+					currentPackage.traverse(visitor, scope);
+				}
 				if (imports != null) {
 					int importLength = imports.length;
-					for (int i = 0; i < importLength; i++)
+					for (int i = 0; i < importLength; i++) {
 						imports[i].traverse(visitor, scope);
+					}
 				}
 				if (types != null) {
 					int typesLength = types.length;
-					for (int i = 0; i < typesLength; i++)
+					for (int i = 0; i < typesLength; i++) {
 						types[i].traverse(visitor, scope);
+					}
 				}
 			}
 			visitor.endVisit(this, scope);

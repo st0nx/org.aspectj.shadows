@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.core.resources.IFile;
@@ -40,7 +40,7 @@ protected DeleteResourceElementsOperation(IJavaElement[] elementsToProcess, bool
  */
 private void deletePackageFragment(IPackageFragment frag)
 	throws JavaModelException {
-	IResource res = frag.getCorrespondingResource();
+	IResource res = frag.getResource();
 	if (res != null && res.getType() == IResource.FOLDER) {
 		// collect the children to remove
 		IJavaElement[] childrenOfInterest = frag.getChildren();
@@ -83,7 +83,10 @@ private void deletePackageFragment(IPackageFragment frag)
 		}
 		if (isEmpty) {
 			// delete recursively empty folders
-			deleteEmptyPackageFragment(frag, false);
+			IResource fragResource =  frag.getResource();
+			if (fragResource != null) {
+				deleteEmptyPackageFragment(frag, false, fragResource.getParent());
+			}
 		}
 	}
 }
@@ -101,7 +104,7 @@ protected void processElement(IJavaElement element) throws JavaModelException {
 	switch (element.getElementType()) {
 		case IJavaElement.CLASS_FILE :
 		case IJavaElement.COMPILATION_UNIT :
-			deleteResource(element.getCorrespondingResource(), fForce ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY);
+			deleteResource(element.getResource(), fForce ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY);
 			break;
 		case IJavaElement.PACKAGE_FRAGMENT :
 			deletePackageFragment((IPackageFragment) element);
@@ -126,5 +129,11 @@ protected void verify(IJavaElement element) throws JavaModelException {
 		error(JavaModelStatus.INVALID_ELEMENT_TYPES, element);
 	else if (type == IJavaElement.PACKAGE_FRAGMENT && element instanceof JarPackageFragment)
 		error(JavaModelStatus.INVALID_ELEMENT_TYPES, element);
+	IResource resource = element.getResource();
+	if (resource instanceof IFolder) {
+		if (resource.isLinked()) {
+			error(JavaModelStatus.INVALID_RESOURCE, element);
+		}
+	}
 }
 }

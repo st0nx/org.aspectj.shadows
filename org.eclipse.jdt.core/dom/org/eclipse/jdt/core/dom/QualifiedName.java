@@ -1,15 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2001 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
+
 
 /**
  * AST node for a qualified name. A qualified name is defined recursively
@@ -19,10 +20,12 @@ package org.eclipse.jdt.core.dom;
  * QualifiedName:
  *    Name <b>.</b> SimpleName
  * </pre>
- *
- * Range 0: first character of qualified name through the last character
- * of the simple name.
- *
+ * <p>
+ * See <code>FieldAccess</code> for guidelines on handling other expressions
+ * that resemble qualified names.
+ * </p>
+ * 
+ * @see FieldAccess
  * @since 2.0
  */
 public class QualifiedName extends Name {
@@ -64,6 +67,7 @@ public class QualifiedName extends Name {
 	 */
 	ASTNode clone(AST target) {
 		QualifiedName result = new QualifiedName(target);
+		result.setSourceRange(this.getStartPosition(), this.getLength());
 		result.setQualifier((Name) getQualifier().clone(target));
 		result.setName((SimpleName) getName().clone(target));
 		return result;
@@ -98,7 +102,9 @@ public class QualifiedName extends Name {
 	public Name getQualifier() {
 		if (qualifier == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setQualifier(new SimpleName(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return qualifier;
 	}
@@ -131,7 +137,9 @@ public class QualifiedName extends Name {
 	public SimpleName getName() {
 		if (name == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setName(new SimpleName(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return name;
 	}
@@ -158,7 +166,7 @@ public class QualifiedName extends Name {
 	 * Method declared on ASTNode.
 	 */
 	int memSize() {
-		return BASE_NODE_SIZE + 2 * 4;
+		return BASE_NODE_SIZE + 3 * 4;
 	}
 	
 	/* (omit javadoc for this method)

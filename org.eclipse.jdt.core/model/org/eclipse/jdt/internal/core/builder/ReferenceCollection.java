@@ -1,17 +1,17 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 import java.util.*;
 
@@ -42,13 +42,13 @@ boolean includes(char[][][] qualifiedNames, char[][] simpleNames) {
 	if (simpleNames == null || qualifiedNames == null) {
 		if (simpleNames == null && qualifiedNames == null) {
 			if (JavaBuilder.DEBUG)
-				System.out.println("  found well known match"); //$NON-NLS-1$
+				System.out.println("Found well known match"); //$NON-NLS-1$
 			return true;
 		} else if (qualifiedNames == null) {
 			for (int i = 0, l = simpleNames.length; i < l; i++) {
 				if (includes(simpleNames[i])) {
 					if (JavaBuilder.DEBUG)
-						System.out.println("  found match in well known package to " + new String(simpleNames[i])); //$NON-NLS-1$
+						System.out.println("Found match in well known package to " + new String(simpleNames[i])); //$NON-NLS-1$
 					return true;
 				}
 			}
@@ -57,7 +57,7 @@ boolean includes(char[][][] qualifiedNames, char[][] simpleNames) {
 				char[][] qualifiedName = qualifiedNames[i];
 				if (qualifiedName.length == 1 ? includes(qualifiedName[0]) : includes(qualifiedName)) {
 					if (JavaBuilder.DEBUG)
-						System.out.println("  found well known match in " + CharOperation.toString(qualifiedName)); //$NON-NLS-1$
+						System.out.println("Found well known match in " + CharOperation.toString(qualifiedName)); //$NON-NLS-1$
 					return true;
 				}
 			}
@@ -69,7 +69,7 @@ boolean includes(char[][][] qualifiedNames, char[][] simpleNames) {
 					char[][] qualifiedName = qualifiedNames[j];
 					if (qualifiedName.length == 1 ? includes(qualifiedName[0]) : includes(qualifiedName)) {
 						if (JavaBuilder.DEBUG)
-							System.out.println("  found match in " + CharOperation.toString(qualifiedName) //$NON-NLS-1$
+							System.out.println("Found match in " + CharOperation.toString(qualifiedName) //$NON-NLS-1$
 								+ " to " + new String(simpleNames[i])); //$NON-NLS-1$
 						return true;
 					}
@@ -94,7 +94,7 @@ static final char[][][] WellKnownQualifiedNames = new char[][][] {
 	new char[][] {TypeConstants.JAVA},
 	new char[][] {new char[] {'o', 'r', 'g'}},
 	new char[][] {new char[] {'c', 'o', 'm'}},
-	TypeConstants.NoCharChar}; // default package
+	CharOperation.NO_CHAR_CHAR}; // default package
 static final char[][] WellKnownSimpleNames = new char[][] {
 	TypeConstants.JAVA_LANG_RUNTIMEEXCEPTION[2],
 	TypeConstants.JAVA_LANG_THROWABLE[2],
@@ -105,7 +105,7 @@ static final char[][] WellKnownSimpleNames = new char[][] {
 	new char[] {'c', 'o', 'm'}};
 
 static final char[][][] EmptyQualifiedNames = new char[0][][];
-static final char[][] EmptySimpleNames = new char[0][];
+static final char[][] EmptySimpleNames = CharOperation.NO_CHAR_CHAR;
 
 // each array contains qualified char[][], one for size 2, 3, 4, 5, 6, 7 & the rest
 static final int MaxQualifiedNames = 7;
@@ -118,7 +118,7 @@ static {
 		InternedQualifiedNames[i] = new ArrayList(37);
 	for (int i = 0; i < MaxSimpleNames; i++)
 		InternedSimpleNames[i] = new ArrayList(11);
-};
+}
 
 static char[][][] internQualifiedNames(ArrayList qualifiedStrings) {
 	if (qualifiedStrings == null) return EmptyQualifiedNames;
@@ -141,7 +141,7 @@ static char[][][] internQualifiedNames(char[][][] qualifiedNames) {
 	next : for (int i = 0; i < length; i++) {
 		char[][] qualifiedName = qualifiedNames[i];
 		int qLength = qualifiedName.length;
-		for (int j = 0, k = WellKnownQualifiedNames.length; j < k; j++) {
+		for (int j = 0, m = WellKnownQualifiedNames.length; j < m; j++) {
 			char[][] wellKnownName = WellKnownQualifiedNames[j];
 			if (qLength > wellKnownName.length)
 				break; // all remaining well known names are shorter
@@ -153,7 +153,7 @@ static char[][][] internQualifiedNames(char[][][] qualifiedNames) {
 		// InternedQualifiedNames[1] is for size 2...
 		// InternedQualifiedNames[6] is for size 7
 		ArrayList internedNames = InternedQualifiedNames[qLength <= MaxQualifiedNames ? qLength - 1 : 0];
-		for (int j = 0, k = internedNames.size(); j < k; j++) {
+		for (int j = 0, m = internedNames.size(); j < m; j++) {
 			char[][] internedName = (char[][]) internedNames.get(j);
 			if (CharOperation.equals(qualifiedName, internedName)) {
 				keepers[index++] = internedName;
@@ -192,7 +192,7 @@ static char[][] internSimpleNames(char[][] simpleNames, boolean removeWellKnown)
 	next : for (int i = 0; i < length; i++) {
 		char[] name = simpleNames[i];
 		int sLength = name.length;
-		for (int j = 0, k = WellKnownSimpleNames.length; j < k; j++) {
+		for (int j = 0, m = WellKnownSimpleNames.length; j < m; j++) {
 			char[] wellKnownName = WellKnownSimpleNames[j];
 			if (sLength > wellKnownName.length)
 				break; // all remaining well known names are shorter
@@ -207,7 +207,7 @@ static char[][] internSimpleNames(char[][] simpleNames, boolean removeWellKnown)
 		// InternedSimpleNames[1] is for size 1...
 		// InternedSimpleNames[29] is for size 29
 		ArrayList internedNames = InternedSimpleNames[sLength < MaxSimpleNames ? sLength : 0];
-		for (int j = 0, k = internedNames.size(); j < k; j++) {
+		for (int j = 0, m = internedNames.size(); j < m; j++) {
 			char[] internedName = (char[]) internedNames.get(j);
 			if (CharOperation.equals(name, internedName)) {
 				keepers[index++] = internedName;

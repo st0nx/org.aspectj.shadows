@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2001 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
@@ -17,9 +17,6 @@ import org.eclipse.jdt.internal.compiler.parser.Scanner;
 /**
  * AST node for a simple name. A simple name is an identifier other than
  * a keyword, boolean literal ("true", "false") or null literal ("null").
- * <p>
- * Range 0: first character through last character of identifier.
- * </p>
  * <pre>
  * SimpleName:
  *     Identifier
@@ -66,12 +63,8 @@ public class SimpleName extends Name {
 	 */
 	ASTNode clone(AST target) {
 		SimpleName result = new SimpleName(target);
+		result.setSourceRange(this.getStartPosition(), this.getLength());
 		result.setIdentifier(getIdentifier());
-		int startPosition = getStartPosition();
-		int length = getLength();
-		if (startPosition >= 0 && length > 0) {
-			result.setSourceRange(startPosition, length);
-		}
 		return result;
 	}
 	
@@ -87,7 +80,7 @@ public class SimpleName extends Name {
 	 * Method declared on ASTNode.
 	 */
 	void accept0(ASTVisitor visitor) {
-		boolean visitChildren = visitor.visit(this);
+		visitor.visit(this);
 		visitor.endVisit(this);
 	}
 
@@ -191,7 +184,7 @@ public class SimpleName extends Name {
 	int memSize() {
 		int size = BASE_NODE_SIZE + 1 * 4;
 		if (identifier != null) {
-			size += HEADERS + 2 * 4 + HEADERS + 2 * identifier.length();
+			size += HEADERS + 3 * 4 + HEADERS + 2 * identifier.length();
 		}
 		return size;
 	}

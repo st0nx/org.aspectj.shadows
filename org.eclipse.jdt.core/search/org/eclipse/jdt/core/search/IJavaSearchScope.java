@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core.search;
 
 import org.eclipse.core.runtime.IPath;
@@ -44,15 +44,28 @@ public boolean encloses(String resourcePath);
 /**
  * Checks whether this scope encloses the given element.
  *
- * @param element the element
+ * @param element the given element
  * @return <code>true</code> if the element is in this scope
  */
 public boolean encloses(IJavaElement element);
 /**
  * Returns the paths to the enclosing projects and JARs for this search scope.
+ * <ul>
+ * <li> If the path is a project path, this is the full path of the project
+ *       (see <code>IResource.getFullPath()</code>).
+ *        E.g. /MyProject
+ * </li>
+ * <li> If the path is a JAR path and this JAR is internal to the workspace,
+ *        this is the full path of the JAR file (see <code>IResource.getFullPath()</code>).
+ *        E.g. /MyProject/mylib.jar
+ * </li>
+ * <li> If the path is a JAR path and this JAR is external to the workspace,
+ *        this is the full OS path to the JAR file on the file system.
+ *        E.g. d:\libs\mylib.jar
+ * </li>
+ * </ul>
  * 
- * @return an array of paths to the enclosing projects and JARS. A project path is
- *			the full path to the project. A JAR path is the full OS path to the JAR file.			
+ * @return an array of paths to the enclosing projects and JARS.
  */
 IPath[] enclosingProjectsAndJars();
 /**
@@ -60,7 +73,8 @@ IPath[] enclosingProjectsAndJars();
  * in folders or within JARs).
  * 
  * @return whether this scope contains any <code>.class</code> files
- * @deprecated
+ * @deprecated Use SearchEngine.createJavaSearchScope(IJavaElement[]) with the package fragment
+ * 				roots that correspond to the binaries instead
  */
 boolean includesBinaries();
 /**
@@ -68,7 +82,8 @@ boolean includesBinaries();
  * the projects of the resources of this search scope.
  * 
  * @return whether this scope includes classpaths
- * @deprecated 
+ * @deprecated Use SearchEngine.createJavaSearchScope(IJavaElement[]) 
+ * 				with a java project instead
  */
 boolean includesClasspaths();
 /**

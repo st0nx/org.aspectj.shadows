@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2001 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
@@ -41,7 +41,10 @@ import java.util.Map;
  * For nodes with properties that include a list of children (for example,
  * <code>Block</code> whose <code>statements</code> property is a list
  * of statements), adding or removing an element to/for the list property
- * automatically updates the parent links.
+ * automatically updates the parent links. These lists support the 
+ * <code>List.set</code> method; however, the constraint that the same
+ * node cannot appear more than once means that this method cannot be used
+ * to swap elements without first removing the node.
  * </p>
  * <p>
  * ASTs must not contain cycles. All operations that could create a cycle
@@ -96,6 +99,13 @@ import java.util.Map;
  * <p>
  * ASTs also support the visitor pattern; see the class <code>ASTVisitor</code>
  * for details.
+ * </p>
+ * <p>
+ * Note that there is no built-in way to serialize a modified AST to a source
+ * code string. Naive serialization of a newly-constructed AST to a string is
+ * a straightforward application of an AST visitor. However, preserving comments
+ * and formatting from the originating source code string is a challenging
+ * problem (support for this is planned for a future release).
  * </p>
  * 
  * @see AST#parseCompilationUnit
@@ -620,8 +630,13 @@ public abstract class ASTNode {
 		 * <p>
 		 * Be stingy on storage - assume that list will be empty.
 		 * </p>
+		 * <p>
+		 * This field declared default visibility (rather than private)
+		 * so that accesses from <code>NodeList.Cursor</code> do not require
+		 * a synthetic accessor method.
+		 * </p>
 		 */
-		private ArrayList store = new ArrayList(0);
+		ArrayList store = new ArrayList(0);
 		
 		/**
 		 * Indicated whether cycles are a risk. A cycle is possible
@@ -1262,7 +1277,8 @@ public abstract class ASTNode {
 	 * which may be different from the ASTs of the given node. 
 	 * Even if the given node has a parent, the result node will be unparented.
 	 * <p>
-	 * Note that client properties are not carried over to the new nodes.
+	 * Source range information on the original nodes is automatically copied to the new
+	 * nodes. Client properties (<code>properties</code>) are not carried over.
 	 * </p>
 	 * 
 	 * @param target the AST that is to own the nodes in the result
@@ -1285,7 +1301,8 @@ public abstract class ASTNode {
 	 * Even if the nodes in the list have parents, the nodes in the result
 	 * will be unparented.
 	 * <p>
-	 * Note that client properties are not carried over to the new nodes.
+	 * Source range information on the original nodes is automatically copied to the new
+	 * nodes. Client properties (<code>properties</code>) are not carried over.
 	 * </p>
 	 * 
 	 * @param target the AST that is to own the nodes in the result

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.indexing;
 
 import java.io.IOException;
@@ -15,59 +15,40 @@ import java.io.IOException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.internal.core.index.IIndex;
-import org.eclipse.jdt.internal.core.search.processing.IJob;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
 
-class RemoveFromIndex implements IJob {
+class RemoveFromIndex extends IndexRequest {
 	String resourceName;
-	IPath indexedContainer;
-	IndexManager manager;
-	public RemoveFromIndex(
-		String resourceName,
-		IPath indexedContainer,
-		IndexManager manager) {
+
+	public RemoveFromIndex(String resourceName, IPath indexPath, IndexManager manager) {
+		super(indexPath, manager);
 		this.resourceName = resourceName;
-		this.indexedContainer = indexedContainer;
-		this.manager = manager;
-	}
-	public boolean belongsTo(String jobFamily) {
-		return jobFamily.equals(indexedContainer.segment(0));
 	}
 	public boolean execute(IProgressMonitor progressMonitor) {
-		
-		if (progressMonitor != null && progressMonitor.isCanceled()) return COMPLETE;
-		
-		try {
-			IIndex index = manager.getIndex(this.indexedContainer, true /*reuse index file*/, true /*create if none*/);
-			if (index == null)
-				return COMPLETE;
 
-			/* ensure no concurrent write access to index */
-			ReadWriteMonitor monitor = manager.getMonitorFor(index);
-			if (monitor == null)
-				return COMPLETE; // index got deleted since acquired
-			try {
-				monitor.enterWrite(); // ask permission to write
-				index.remove(resourceName);
-			} finally {
-				monitor.exitWrite(); // free write lock
-			}
+		if (progressMonitor != null && progressMonitor.isCanceled()) return true;
+
+		/* ensure no concurrent write access to index */
+		IIndex index = manager.getIndex(this.indexPath, true, /*reuse index file*/ false /*create if none*/);
+		if (index == null) return true;
+		ReadWriteMonitor monitor = manager.getMonitorFor(index);
+		if (monitor == null) return true; // index got deleted since acquired
+
+		try {
+			monitor.enterWrite(); // ask permission to write
+			index.remove(resourceName);
 		} catch (IOException e) {
 			if (JobManager.VERBOSE) {
 				JobManager.verbose("-> failed to remove " + this.resourceName + " from index because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
 				e.printStackTrace();
 			}
-			return FAILED;
+			return false;
+		} finally {
+			monitor.exitWrite(); // free write lock
 		}
-		return COMPLETE;
+		return true;
 	}
 	public String toString() {
-		return "removing from index " + resourceName; //$NON-NLS-1$
+		return "removing " + this.resourceName + " from index " + this.indexPath; //$NON-NLS-1$ //$NON-NLS-2$
 	}
-	/*
-	 * @see IJob#cancel()
-	 */
-	public void cancel() {
-	}
-
 }

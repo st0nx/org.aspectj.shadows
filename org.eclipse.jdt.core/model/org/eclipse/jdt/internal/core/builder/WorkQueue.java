@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
 import java.util.*;
@@ -22,12 +22,12 @@ public WorkQueue() {
 	this.compiledList = new ArrayList(11);
 }
 
-public void add(String element) {
+public void add(SourceFile element) {
 	needsCompileList.add(element);
 }
 
-public void addAll(String[] elements) {
-	for (int i = 0, length = elements.length; i < length; i++)
+public void addAll(SourceFile[] elements) {
+	for (int i = 0, l = elements.length; i < l; i++)
 		add(elements[i]);
 }
 
@@ -36,16 +36,16 @@ public void clear() {
 	this.compiledList.clear();
 }	
 
-public void finished(String element) {
+public void finished(SourceFile element) {
 	needsCompileList.remove(element);
 	compiledList.add(element);
 }
 
-public boolean isCompiled(String element) {
+public boolean isCompiled(SourceFile element) {
 	return compiledList.contains(element);
 }
 
-public boolean isWaiting(String element) {
+public boolean isWaiting(SourceFile element) {
 	return needsCompileList.contains(element);
 }
 

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -102,9 +102,10 @@ public class ExplicitConstructorCall
 			codeStream.aload_0();
 
 			// handling innerclass constructor invocation
-			ReferenceBinding targetType;
-			if ((targetType = binding.declaringClass).isNestedType()) {
-				codeStream.generateSyntheticArgumentValues(
+			ReferenceBinding targetType = binding.declaringClass;
+			// handling innerclass instance allocation - enclosing instance arguments
+			if (targetType.isNestedType()) {
+				codeStream.generateSyntheticEnclosingInstanceValues(
 					currentScope,
 					targetType,
 					discardEnclosingInstance ? null : qualification,
@@ -115,6 +116,13 @@ public class ExplicitConstructorCall
 				for (int i = 0, max = arguments.length; i < max; i++) {
 					arguments[i].generateCode(currentScope, codeStream, true);
 				}
+			}
+			// handling innerclass instance allocation - outer local arguments
+			if (targetType.isNestedType()) {
+				codeStream.generateSyntheticOuterArgumentValues(
+					currentScope,
+					targetType,
+					this);
 			}
 			if (syntheticAccessor != null) {
 				// synthetic accessor got some extra arguments appended to its signature, which need values
@@ -165,16 +173,10 @@ public class ExplicitConstructorCall
 			&& currentScope.enclosingSourceType().isLocalType()) {
 
 			if (superType.isLocalType()) {
-				((LocalTypeBinding) superType).addInnerEmulationDependent(
-					currentScope,
-					qualification != null,
-					true);
-				// request direct access
+				((LocalTypeBinding) superType).addInnerEmulationDependent(currentScope, qualification != null);
 			} else {
 				// locally propagate, since we already now the desired shape for sure
-				currentScope.propagateInnerEmulation(superType, qualification != null, true);
-				// request direct access
-
+				currentScope.propagateInnerEmulation(superType, qualification != null);
 			}
 		}
 	}
@@ -192,7 +194,7 @@ public class ExplicitConstructorCall
 				// constructor will not be dumped as private, no emulation required thus
 			} else {
 				syntheticAccessor =
-					((SourceTypeBinding) binding.declaringClass).addSyntheticMethod(binding);
+					((SourceTypeBinding) binding.declaringClass).addSyntheticMethod(binding, isSuperAccess());
 				currentScope.problemReporter().needToEmulateMethodAccess(binding, this);
 			}
 		}
@@ -257,6 +259,9 @@ public class ExplicitConstructorCall
 					for (int i = 0; i < length; i++)
 						arguments[i].implicitWidening(paramTypes[i], argTypes[i]);
 				}
+				if (binding.isPrivate()) {
+					binding.modifiers |= AccPrivateUsed;
+				}				
 			} else {
 				if (binding.declaringClass == null)
 					binding.declaringClass = receiverType;

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -26,7 +26,6 @@ public class AllocationExpression
 	MethodBinding syntheticAccessor;
 
 	public AllocationExpression() {
-		super();
 	}
 
 	public FlowInfo analyseCode(
@@ -34,7 +33,8 @@ public class AllocationExpression
 		FlowContext flowContext,
 		FlowInfo flowInfo) {
 
-		// must verify that exceptions potentially thrown by this expression are caught in the method
+		// check captured variables are initialized in current context (26134)
+		checkCapturedLocalInitializationIfNecessary(this.binding.declaringClass, currentScope, flowInfo);
 
 		// process arguments
 		if (arguments != null) {
@@ -47,7 +47,7 @@ public class AllocationExpression
 		}
 		// record some dependency information for exception types
 		ReferenceBinding[] thrownExceptions;
-		if (((thrownExceptions = binding.thrownExceptions).length) != 0) {
+		if (((thrownExceptions = this.binding.thrownExceptions).length) != 0) {
 			// check exception handling
 			flowContext.checkExceptionHandlers(
 				thrownExceptions,
@@ -57,9 +57,30 @@ public class AllocationExpression
 		}
 		manageEnclosingInstanceAccessIfNecessary(currentScope);
 		manageSyntheticAccessIfNecessary(currentScope);
+		
 		return flowInfo;
 	}
 
+	public void checkCapturedLocalInitializationIfNecessary(ReferenceBinding checkedType, BlockScope currentScope, FlowInfo flowInfo) {
+
+		if (checkedType.isLocalType() 
+				&& !checkedType.isAnonymousType()
+				&& !currentScope.isDefinedInType(checkedType)) { // only check external allocations
+			NestedTypeBinding nestedType = (NestedTypeBinding) checkedType;
+			SyntheticArgumentBinding[] syntheticArguments = nestedType.syntheticOuterLocalVariables();
+			if (syntheticArguments != null) 
+				for (int i = 0, count = syntheticArguments.length; i < count; i++){
+					SyntheticArgumentBinding syntheticArgument = syntheticArguments[i];
+					LocalVariableBinding targetLocal;
+					if ((targetLocal = syntheticArgument.actualOuterLocalVariable) == null) continue;
+					if (targetLocal.declaration != null && !flowInfo.isDefinitelyAssigned(targetLocal)){
+						currentScope.problemReporter().uninitializedLocalVariable(targetLocal, this);
+					}
+				}
+						
+		}
+	}
+	
 	public Expression enclosingInstance() {
 		return null;
 	}
@@ -79,9 +100,9 @@ public class AllocationExpression
 		// better highlight for allocation: display the type individually
 		codeStream.recordPositionsFrom(pc, type.sourceStart);
 
-		// handling innerclass instance allocation
+		// handling innerclass instance allocation - enclosing instance arguments
 		if (allocatedType.isNestedType()) {
-			codeStream.generateSyntheticArgumentValues(
+			codeStream.generateSyntheticEnclosingInstanceValues(
 				currentScope,
 				allocatedType,
 				enclosingInstance(),
@@ -92,6 +113,13 @@ public class AllocationExpression
 			for (int i = 0, count = arguments.length; i < count; i++) {
 				arguments[i].generateCode(currentScope, codeStream, true);
 			}
+		}
+		// handling innerclass instance allocation - outer local arguments
+		if (allocatedType.isNestedType()) {
+			codeStream.generateSyntheticOuterArgumentValues(
+				currentScope,
+				allocatedType,
+				this);
 		}
 		// invoke constructor
 		if (syntheticAccessor == null) {
@@ -135,14 +163,11 @@ public class AllocationExpression
 			&& currentScope.enclosingSourceType().isLocalType()) {
 
 			if (allocatedType.isLocalType()) {
-				((LocalTypeBinding) allocatedType).addInnerEmulationDependent(
-					currentScope,
-					false,
-					false);
+				((LocalTypeBinding) allocatedType).addInnerEmulationDependent(currentScope, false);
 				// request cascade of accesses
 			} else {
 				// locally propagate, since we already now the desired shape for sure
-				currentScope.propagateInnerEmulation(allocatedType, false, false);
+				currentScope.propagateInnerEmulation(allocatedType, false);
 				// request cascade of accesses
 			}
 		}
@@ -161,7 +186,7 @@ public class AllocationExpression
 				// constructor will not be dumped as private, no emulation required thus
 			} else {
 				syntheticAccessor =
-					((SourceTypeBinding) binding.declaringClass).addSyntheticMethod(binding);
+					((SourceTypeBinding) binding.declaringClass).addSyntheticMethod(binding, isSuperAccess());
 				currentScope.problemReporter().needToEmulateMethodAccess(binding, this);
 			}
 		}
@@ -171,7 +196,7 @@ public class AllocationExpression
 
 		// Propagate the type checking to the arguments, and check if the constructor is defined.
 		constant = NotAConstant;
-		TypeBinding typeBinding = type.resolveType(scope);
+		this.resolvedType = type.resolveType(scope);
 		// will check for null after args are resolved
 
 		// buffering the arguments' types
@@ -184,22 +209,22 @@ public class AllocationExpression
 				if ((argumentTypes[i] = arguments[i].resolveType(scope)) == null)
 					argHasError = true;
 			if (argHasError)
-				return typeBinding;
+				return this.resolvedType;
 		}
-		if (typeBinding == null)
+		if (this.resolvedType == null)
 			return null;
 
-		if (!typeBinding.canBeInstantiated()) {
-			scope.problemReporter().cannotInstantiate(type, typeBinding);
-			return typeBinding;
+		if (!this.resolvedType.canBeInstantiated()) {
+			scope.problemReporter().cannotInstantiate(type, this.resolvedType);
+			return this.resolvedType;
 		}
-		ReferenceBinding allocatedType = (ReferenceBinding) typeBinding;
+		ReferenceBinding allocatedType = (ReferenceBinding) this.resolvedType;
 		if (!(binding = scope.getConstructor(allocatedType, argumentTypes, this))
 			.isValidBinding()) {
 			if (binding.declaringClass == null)
 				binding.declaringClass = allocatedType;
 			scope.problemReporter().invalidConstructor(this, binding);
-			return typeBinding;
+			return this.resolvedType;
 		}
 		if (isMethodUseDeprecated(binding, scope))
 			scope.problemReporter().deprecatedMethod(binding, this);

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 import org.eclipse.jdt.internal.compiler.env.IConstants;
@@ -17,6 +17,12 @@ import org.eclipse.jdt.internal.compiler.env.IConstants;
  * <p>
  * This class provides static methods only; it is not intended to be
  * instantiated or subclassed by clients.
+ * </p>
+ * <p>
+ * Note that the numeric values of these flags match the ones for class files
+ * as described in the Java Virtual Machine Specification. The AST class
+ * <code>Modifier</code> provides the same functionality as this class, only in
+ * the <code>org.eclipse.jdt.core.dom</code> package.
  * </p>
  *
  * @see IMember#getFlags

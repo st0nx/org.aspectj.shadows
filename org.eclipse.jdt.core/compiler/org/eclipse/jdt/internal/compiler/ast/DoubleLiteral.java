@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -30,7 +30,7 @@ public void computeConstant() {
 
 	if (computedValue.doubleValue() > Double.MAX_VALUE) return ; //may be Infinity
 	if (computedValue.doubleValue() < Double.MIN_VALUE)
-	{	//only a true 0 can be made of zeros :-)
+	{	//only a true 0 can be made of zeros
 		//2.00000000000000000e-324 is illegal .... 
 		label :
 			for (int i=0;i<source.length;i++)

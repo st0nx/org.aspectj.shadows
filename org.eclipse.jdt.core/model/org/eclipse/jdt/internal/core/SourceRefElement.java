@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.core.resources.IResource;
@@ -68,6 +68,7 @@ public ICompilationUnit getCompilationUnit() {
  * @see IJavaElement
  */
 public IResource getCorrespondingResource() throws JavaModelException {
+	if (!exists()) throw newNotPresentException();
 	return null;
 }
 /**
@@ -124,6 +125,7 @@ public ISourceRange getSourceRange() throws JavaModelException {
  * @see IJavaElement
  */
 public IResource getUnderlyingResource() throws JavaModelException {
+	if (!exists()) throw newNotPresentException();
 	return getParent().getUnderlyingResource();
 }
 /**
@@ -146,46 +148,6 @@ public void move(IJavaElement container, IJavaElement sibling, String rename, bo
 	getJavaModel().move(elements, containers, siblings, renamings, force, monitor);
 }
 /**
- * Changes the source end index of this element, all children (following
- * <code>child</code>), and all following elements.
- */
-public void offsetSourceEndAndChildren(int amount, IJavaElement child) {
-	try {
-		SourceRefElementInfo info = (SourceRefElementInfo) getRawInfo();
-		info.setSourceRangeEnd(info.getDeclarationSourceEnd() + amount);
-		IJavaElement[] children = getChildren();
-		boolean afterChild = false;
-		for (int i = 0; i < children.length; i++) {
-			IJavaElement aChild = children[i];
-			if (afterChild) {
-				((JavaElement) aChild).offsetSourceRange(amount);
-			} else {
-				afterChild = aChild.equals(child);
-			}
-		}
-		((JavaElement) getParent()).offsetSourceEndAndChildren(amount, this);
-	} catch (JavaModelException npe) {
-		return;
-	}
-}
-/**
- * Changes the source indexes of this element and all children elements.
- */
-public void offsetSourceRange(int amount) {
-	try {
-		SourceRefElementInfo info = (SourceRefElementInfo) getRawInfo();
-		info.setSourceRangeStart(info.getDeclarationSourceStart() + amount);
-		info.setSourceRangeEnd(info.getDeclarationSourceEnd() + amount);
-		IJavaElement[] children = getChildren();
-		for (int i = 0; i < children.length; i++) {
-			IJavaElement aChild = children[i];
-			((JavaElement) aChild).offsetSourceRange(amount);
-		}
-	} catch (JavaModelException npe) {
-		return;
-	}
-}
-/**
  * @see ISourceManipulation
  */
 public void rename(String name, boolean force, IProgressMonitor monitor) throws JavaModelException {
@@ -203,30 +165,5 @@ public void rename(String name, boolean force, IProgressMonitor monitor) throws 
 public IJavaElement rootedAt(IJavaProject project) {
 	// not needed
 	return null;
-}
-/**
- * Updates the end source index for this element, and all following elements.
- */
-public void triggerSourceEndOffset(int amount, int nameStart, int nameEnd) {
-	try {
-		SourceRefElementInfo info = (SourceRefElementInfo) getRawInfo();
-		info.setSourceRangeEnd(info.getDeclarationSourceEnd() + amount);
-		((JavaElement) getParent()).offsetSourceEndAndChildren(amount, this);
-	} catch (JavaModelException npe) {
-		return;
-	}
-}
-/**
- * Updates the source indexes of this element and all following elements.
- */
-public void triggerSourceRangeOffset(int amount, int nameStart, int nameEnd) {
-	try {
-		SourceRefElementInfo info = (SourceRefElementInfo) getRawInfo();
-		info.setSourceRangeStart(info.getDeclarationSourceStart() + amount);
-		info.setSourceRangeEnd(info.getDeclarationSourceEnd() + amount);
-		((JavaElement) getParent()).offsetSourceEndAndChildren(amount, this);
-	} catch (JavaModelException npe) {
-		return;
-	}
 }
 }

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.ArrayList;
@@ -67,10 +67,12 @@ protected boolean computeChildren(OpenableElementInfo info, IResource resource) 
 		extType = "class"; //$NON-NLS-1$
 	}
 	try {
+		char[][] exclusionPatterns = ((PackageFragmentRoot)getPackageFragmentRoot()).fullExclusionPatternChars();
 		IResource[] members = ((IContainer) resource).members();
 		for (int i = 0, max = members.length; i < max; i++) {
 			IResource child = members[i];
-			if (child.getType() != IResource.FOLDER) {
+			if (child.getType() != IResource.FOLDER
+					&& !Util.isExcluded(child, exclusionPatterns)) {
 				String extension = child.getProjectRelativePath().getFileExtension();
 				if (extension != null) {
 					if (extension.equalsIgnoreCase(extType)) {
@@ -210,7 +212,7 @@ public Object[] getNonJavaResources() throws JavaModelException {
 		// We don't want to show non java resources of the default package (see PR #1G58NB8)
 		return JavaElementInfo.NO_NON_JAVA_RESOURCES;
 	} else {
-		return ((PackageFragmentInfo) getElementInfo()).getNonJavaResources(getUnderlyingResource());
+		return ((PackageFragmentInfo) getElementInfo()).getNonJavaResources(getResource(), (PackageFragmentRoot)getPackageFragmentRoot());
 	}
 }
 /**
@@ -307,6 +309,10 @@ public void move(IJavaElement container, IJavaElement sibling, String rename, bo
 	}
 	getJavaModel().move(elements, containers, siblings, renamings, force, monitor);
 }
+protected void openWhenClosed(IProgressMonitor pm) throws JavaModelException {
+	if (!this.resourceExists()) throw newNotPresentException();
+	super.openWhenClosed(pm);
+}
 /**
  * Recomputes the children of this element, based on the current state
  * of the workbench.
@@ -314,7 +320,7 @@ public void move(IJavaElement container, IJavaElement sibling, String rename, bo
 public void refreshChildren() {
 	try {
 		OpenableElementInfo info= (OpenableElementInfo)getElementInfo();
-		computeChildren(info, getUnderlyingResource());
+		computeChildren(info, getResource());
 	} catch (JavaModelException e) {
 		// do nothing.
 	}

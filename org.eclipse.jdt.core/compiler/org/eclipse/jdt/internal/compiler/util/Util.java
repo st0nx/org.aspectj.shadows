@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.util;
 
 import java.io.BufferedInputStream;
@@ -22,6 +22,8 @@ import java.util.MissingResourceException;
 import java.util.ResourceBundle;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+
+import org.eclipse.jdt.core.compiler.CharOperation;
 
 public class Util {
 
@@ -38,7 +40,8 @@ public class Util {
 		
 	private final static char[] DOUBLE_QUOTES = "''".toCharArray(); //$NON-NLS-1$
 	private final static char[] SINGLE_QUOTE = "'".toCharArray(); //$NON-NLS-1$
-
+	private static final int DEFAULT_READING_SIZE = 8192;
+	
 	/* Bundle containing messages */
 	protected static ResourceBundle bundle;
 	private final static String bundleName =
@@ -121,7 +124,12 @@ public class Util {
 	 * Creates a NLS catalog for the given locale.
 	 */
 	public static void relocalize() {
-		bundle = ResourceBundle.getBundle(bundleName, Locale.getDefault());
+		try {
+			bundle = ResourceBundle.getBundle(bundleName, Locale.getDefault());
+		} catch(MissingResourceException e) {
+			System.out.println("Missing resource : " + bundleName.replace('.', '/') + ".properties for locale " + Locale.getDefault()); //$NON-NLS-1$//$NON-NLS-2$
+			throw e;
+		}
 	}
 	/**
 	 * Returns the given bytes as a char array using a given encoding (null means platform default).
@@ -181,28 +189,28 @@ public class Util {
 		if (length == -1) {
 			contents = new byte[0];
 			int contentsLength = 0;
-			int bytesRead = -1;
+			int amountRead = -1;
 			do {
-				int available = stream.available();
-
+				int amountRequested = Math.max(stream.available(), DEFAULT_READING_SIZE);  // read at least 8K
+				
 				// resize contents if needed
-				if (contentsLength + available > contents.length) {
+				if (contentsLength + amountRequested > contents.length) {
 					System.arraycopy(
 						contents,
 						0,
-						contents = new byte[contentsLength + available],
+						contents = new byte[contentsLength + amountRequested],
 						0,
 						contentsLength);
 				}
 
 				// read as many bytes as possible
-				bytesRead = stream.read(contents, contentsLength, available);
+				amountRead = stream.read(contents, contentsLength, amountRequested);
 
-				if (bytesRead > 0) {
+				if (amountRead > 0) {
 					// remember length of contents
-					contentsLength += bytesRead;
+					contentsLength += amountRead;
 				}
-			} while (bytesRead > 0);
+			} while (amountRead != -1); 
 
 			// resize contents if necessary
 			if (contentsLength < contents.length) {
@@ -242,30 +250,30 @@ public class Util {
 					: new InputStreamReader(stream, encoding);
 		char[] contents;
 		if (length == -1) {
-			contents = new char[0];
+			contents = CharOperation.NO_CHAR;
 			int contentsLength = 0;
-			int charsRead = -1;
+			int amountRead = -1;
 			do {
-				int available = stream.available();
+				int amountRequested = Math.max(stream.available(), DEFAULT_READING_SIZE);  // read at least 8K
 
 				// resize contents if needed
-				if (contentsLength + available > contents.length) {
+				if (contentsLength + amountRequested > contents.length) {
 					System.arraycopy(
 						contents,
 						0,
-						contents = new char[contentsLength + available],
+						contents = new char[contentsLength + amountRequested],
 						0,
 						contentsLength);
 				}
 
 				// read as many chars as possible
-				charsRead = reader.read(contents, contentsLength, available);
+				amountRead = reader.read(contents, contentsLength, amountRequested);
 
-				if (charsRead > 0) {
+				if (amountRead > 0) {
 					// remember length of contents
-					contentsLength += charsRead;
+					contentsLength += amountRead;
 				}
-			} while (charsRead > 0);
+			} while (amountRead != -1);
 
 			// resize contents if necessary
 			if (contentsLength < contents.length) {

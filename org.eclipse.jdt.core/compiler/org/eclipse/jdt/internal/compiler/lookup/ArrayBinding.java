@@ -1,17 +1,17 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 public final class ArrayBinding extends TypeBinding {
 	// creation and initialization of the length field
@@ -47,6 +47,10 @@ String debugName() {
 		brackets.append("[]"); //$NON-NLS-1$
 	return leafComponentType.debugName() + brackets.toString();
 }
+public int dimensions() {
+	return this.dimensions;
+}
+
 /* Answer an array whose dimension size is one less than the receiver.
 *
 * When the receiver's dimension size is one then answer the leaf component type.
@@ -64,7 +68,7 @@ public PackageBinding getPackage() {
 /* Answer true if the receiver type can be assigned to the argument type (right)
 */
 
-boolean isCompatibleWith(TypeBinding right) {
+public boolean isCompatibleWith(TypeBinding right) {
 	if (this == right)
 		return true;
 
@@ -128,6 +132,14 @@ public char[] readableName() /* java.lang.Object[] */ {
 		brackets[i - 1] = '[';
 	}
 	return CharOperation.concat(leafComponentType.readableName(), brackets);
+}
+public char[] shortReadableName(){
+	char[] brackets = new char[dimensions * 2];
+	for (int i = dimensions * 2 - 1; i >= 0; i -= 2) {
+		brackets[i] = ']';
+		brackets[i - 1] = '[';
+	}
+	return CharOperation.concat(leafComponentType.shortReadableName(), brackets);
 }
 public char[] sourceName() {
 	char[] brackets = new char[dimensions * 2];

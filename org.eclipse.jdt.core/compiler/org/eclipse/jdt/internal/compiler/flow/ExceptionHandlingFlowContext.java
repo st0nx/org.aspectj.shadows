@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.flow;
 
 import java.util.ArrayList;
@@ -26,7 +26,7 @@ import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
  */
 public class ExceptionHandlingFlowContext extends FlowContext {
 	
-	ReferenceBinding[] handledExceptions;
+	public ReferenceBinding[] handledExceptions;
 	
 	public final static int BitCacheSize = 32; // 32 bits per int
 	int[] isReached;
@@ -63,11 +63,11 @@ public class ExceptionHandlingFlowContext extends FlowContext {
 				isReached[cacheIndex] |= bitMask;
 				this.initsOnExceptions[i] = flowInfo.copy().unconditionalInits();
 			} else {
-				this.initsOnExceptions[i] = FlowInfo.DeadEnd;
+				this.initsOnExceptions[i] = FlowInfo.DEAD_END;
 			}
 		}
 		System.arraycopy(this.isReached, 0, this.isNeeded, 0, cacheSize);
-		this.initsOnReturn = FlowInfo.DeadEnd;	
+		this.initsOnReturn = FlowInfo.DEAD_END;	
 	}
 
 	public void complainIfUnusedExceptionHandlers(
@@ -114,6 +114,7 @@ public class ExceptionHandlingFlowContext extends FlowContext {
 			}
 			buffer.append('-').append(initsOnExceptions[i].toString()).append(']');
 		}
+		buffer.append("[initsOnReturn -").append(initsOnReturn.toString()).append(']'); //$NON-NLS-1$
 		return buffer.toString();
 	}
 
@@ -121,11 +122,15 @@ public class ExceptionHandlingFlowContext extends FlowContext {
 		
 		int index;
 		if ((index = indexes.get(exceptionType)) < 0) {
-			return FlowInfo.DeadEnd;
+			return FlowInfo.DEAD_END;
 		}
 		return initsOnExceptions[index];
 	}
 
+	public UnconditionalFlowInfo initsOnReturn(){
+		return this.initsOnReturn;
+	}
+	
 	public void recordHandlingException(
 		ReferenceBinding exceptionType,
 		UnconditionalFlowInfo flowInfo,
@@ -141,16 +146,21 @@ public class ExceptionHandlingFlowContext extends FlowContext {
 			this.isNeeded[cacheIndex] |= bitMask;
 		}
 		this.isReached[cacheIndex] |= bitMask;
+		
 		initsOnExceptions[index] =
-			initsOnExceptions[index] == FlowInfo.DeadEnd
+			initsOnExceptions[index] == FlowInfo.DEAD_END
 				? flowInfo.copy().unconditionalInits()
 				: initsOnExceptions[index].mergedWith(flowInfo);
 	}
 	
-	public void recordReturnFrom(UnconditionalFlowInfo flowInfo) {
-		
-		// record initializations which were performed at the return point
-		initsOnReturn = initsOnReturn.mergedWith(flowInfo);
+	public void recordReturnFrom(FlowInfo flowInfo) {
+
+		if (!flowInfo.isReachable()) return; 
+		if (initsOnReturn == FlowInfo.DEAD_END) {
+			initsOnReturn = flowInfo.copy().unconditionalInits();
+		} else {
+			initsOnReturn.mergedWith(flowInfo.unconditionalInits());
+		}
 	}
 	
 	/*

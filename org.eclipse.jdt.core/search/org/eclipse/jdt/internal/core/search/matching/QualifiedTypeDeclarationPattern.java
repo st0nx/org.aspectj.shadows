@@ -1,19 +1,19 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.core.index.IEntryResult;
 
 public class QualifiedTypeDeclarationPattern extends TypeDeclarationPattern {
@@ -47,7 +47,7 @@ public void decodeIndexEntry(IEntryResult entryResult){
 	int slash = CharOperation.indexOf(SEPARATOR, word, oldSlash+1);
 	char[] pkgName;
 	if (slash == oldSlash+1){ 
-		pkgName = NO_CHAR;
+		pkgName = CharOperation.NO_CHAR;
 	} else {
 		pkgName = CharOperation.subarray(word, oldSlash+1, slash);
 	}
@@ -61,7 +61,7 @@ public void decodeIndexEntry(IEntryResult entryResult){
 			enclosingTypeNames = CharOperation.splitOn('/', CharOperation.subarray(word, slash+1, size-1));
 		}
 	} else {
-		enclosingTypeNames = NO_CHAR_CHAR;
+		enclosingTypeNames = CharOperation.NO_CHAR_CHAR;
 	}
 	this.decodedQualification = CharOperation.concatWith(pkgName, enclosingTypeNames, '.');
 }

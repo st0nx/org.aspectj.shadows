@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.index.impl;
 
 import java.io.DataInput;
@@ -290,23 +290,6 @@ public class Util {
 	public static void sort(WordEntry[] list) {
 		if (list.length > 1)
 			quickSort(list, 0, list.length - 1);
-	}
-	public static int startsWith(char[] str, char[] prefix) {
-		int len1= str.length;
-		int len2= prefix.length;
-		int n= Math.min(len1, len2);
-		int i= 0;
-		while (n-- != 0) {
-			char c1= str[i];
-			char c2= prefix[i++];
-			if (c1 != c2) {
-				return c1 - c2;
-			}
-		}
-		if (len2 == i)
-			return 0;
-			
-		return 1;	
 	}
 	/**
 	 * Writes a string to the given output stream using UTF-8 

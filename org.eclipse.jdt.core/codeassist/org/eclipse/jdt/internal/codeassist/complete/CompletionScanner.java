@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.codeassist.complete;
 
 /*
@@ -20,6 +20,7 @@ package org.eclipse.jdt.internal.codeassist.complete;
  *	0  means completion behind the first character
  *  n  means completion behind the n-th character
  */
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 
@@ -27,6 +28,7 @@ public class CompletionScanner extends Scanner {
 
 	public char[] completionIdentifier;
 	public int cursorLocation;
+	public int endOfEmptyToken = -1;
 		
 	/* Source positions of the completedIdentifier
 	 * if inside actual identifier, end goes to the actual identifier 
@@ -37,7 +39,13 @@ public class CompletionScanner extends Scanner {
 
 	public static final char[] EmptyCompletionIdentifier = {};
 public CompletionScanner(boolean assertMode) {
-	super(false, false, false, assertMode);
+	super(
+		false /*comment*/, 
+		false /*whitespace*/, 
+		false /*nls*/, 
+		assertMode /*assert*/, 
+		null /*taskTags*/, 
+		null/*taskPriorities*/);
 }
 /* 
  * Truncate the current identifier if it is containing the cursor location. Since completion is performed
@@ -173,7 +181,7 @@ public int getNextToken() throws InvalidInputException {
 						&& ((currentCharacter == '\r') || (currentCharacter == '\n')))
 						pushLineSeparator();
 					isWhiteSpace = 
-						(currentCharacter == ' ') || Character.isWhitespace(currentCharacter); 
+						(currentCharacter == ' ') || CharOperation.isWhitespace(currentCharacter); 
 				}
 				/* completion requesting strictly inside blanks */
 				if ((whiteStart != currentPosition)
@@ -197,6 +205,11 @@ public int getNextToken() throws InvalidInputException {
 				/* might be completing at eof (e.g. behind a dot) */
 				if (completionIdentifier == null && 
 					startPosition == cursorLocation + 1){
+					// compute end of empty identifier.
+					// if the empty identifier is at the start of a next token the end of
+					// empty identifier is the end of the next token (eg. "<empty token>next").
+				 	while(getNextCharAsJavaIdentifierPart()) {}
+				 	endOfEmptyToken = currentPosition - 1;
 					currentPosition = startPosition; // for being detected as empty free identifier
 					return TokenNameIdentifier;
 				}				
@@ -542,9 +555,11 @@ public int getNextToken() throws InvalidInputException {
 									currentPosition--; // reset one character behind
 									return TokenNameCOMMENT_LINE;
 								}
-							} catch (IndexOutOfBoundsException e) { //an eof will them be generated
+							} catch (IndexOutOfBoundsException e) {
+								recordComment(false);
+								if (this.taskTags != null) checkTaskTag(this.startPosition, this.currentPosition-1);
 								if (tokenizeComments) {
-									currentPosition--; // reset one character behind
+									this.currentPosition--; // reset one character behind
 									return TokenNameCOMMENT_LINE;
 								}
 							}

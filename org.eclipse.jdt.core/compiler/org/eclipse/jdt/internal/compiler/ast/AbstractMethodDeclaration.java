@@ -1,20 +1,21 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.*;
+import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
+import org.eclipse.jdt.internal.compiler.flow.InitializationFlowContext;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
-import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
@@ -38,7 +39,7 @@ public abstract class AbstractMethodDeclaration
 	public MethodBinding binding;
 	public boolean ignoreFurtherInvestigation = false;
 	public boolean needFreeReturn = false;
-
+	
 	public int bodyStart;
 	public int bodyEnd = -1;
 	public CompilationResult compilationResult;
@@ -71,61 +72,9 @@ public abstract class AbstractMethodDeclaration
 		}
 	}
 
-	public void analyseCode(
-		ClassScope currentScope,
-		FlowContext flowContext,
-		FlowInfo flowInfo) {
+	public abstract void analyseCode(ClassScope scope, InitializationFlowContext initializationContext, FlowInfo info);
 
-		// starting of the code analysis for methods
-		if (ignoreFurtherInvestigation)
-			return;
-		try {
-			if (binding == null)
-				return;
-			// may be in a non necessary <clinit> for innerclass with static final constant fields
-			if (binding.isAbstract() || binding.isNative())
-				return;
-
-			ExceptionHandlingFlowContext methodContext =
-				new ExceptionHandlingFlowContext(
-					flowContext,
-					this,
-					binding.thrownExceptions,
-					scope,
-					FlowInfo.DeadEnd);
-
-			// propagate to statements
-			if (statements != null) {
-				for (int i = 0, count = statements.length; i < count; i++) {
-					Statement stat;
-					if (!flowInfo.complainIfUnreachable((stat = statements[i]), scope)) {
-						flowInfo = stat.analyseCode(scope, methodContext, flowInfo);
-					}
-				}
-			}
-			// check for missing returning path
-			TypeBinding returnType = binding.returnType;
-			if ((returnType == VoidBinding) || isAbstract()) {
-				needFreeReturn =
-					!((flowInfo == FlowInfo.DeadEnd) || flowInfo.isFakeReachable());
-			} else {
-				if (flowInfo != FlowInfo.DeadEnd) {
-					// special test for empty methods that should return something
-					if ((statements == null) && (returnType != VoidBinding)) {
-						scope.problemReporter().shouldReturn(returnType, this);
-					} else {
-						scope.problemReporter().shouldReturn(
-							returnType,
-							statements[statements.length - 1]);
-					}
-				}
-			}
-		} catch (AbortMethod e) {
-			this.ignoreFurtherInvestigation = true;
-		}
-	}
-
-	/**
+		/**
 	 * Bind and add argument's binding into the scope of the method
 	 */
 	public void bindArguments() {
@@ -150,9 +99,34 @@ public abstract class AbstractMethodDeclaration
 		if (this.thrownExceptions != null
 			&& this.binding != null
 			&& this.binding.thrownExceptions != null) {
+			int thrownExceptionLength = this.thrownExceptions.length;
 			int length = this.binding.thrownExceptions.length;
-			for (int i = 0; i < length; i++) {
-				this.thrownExceptions[i].binding = this.binding.thrownExceptions[i];
+			if (length == thrownExceptionLength) {
+				for (int i = 0; i < length; i++) {
+					this.thrownExceptions[i].resolvedType = this.binding.thrownExceptions[i];
+				}
+			} else {
+				int bindingIndex = 0;
+				for (int i = 0; i < thrownExceptionLength && bindingIndex < length; i++) {
+					TypeReference thrownException = this.thrownExceptions[i];
+					ReferenceBinding thrownExceptionBinding = this.binding.thrownExceptions[bindingIndex];
+					char[][] bindingCompoundName = thrownExceptionBinding.compoundName;
+					if (thrownException instanceof SingleTypeReference) {
+						// single type reference
+						int lengthName = bindingCompoundName.length;
+						char[] thrownExceptionTypeName = thrownException.getTypeName()[0];
+						if (CharOperation.equals(thrownExceptionTypeName, bindingCompoundName[lengthName - 1])) {
+							thrownException.resolvedType = thrownExceptionBinding;
+							bindingIndex++;
+						}
+					} else {
+						// qualified type reference
+						if (CharOperation.equals(thrownException.getTypeName(), bindingCompoundName)) {
+							thrownException.resolvedType = thrownExceptionBinding;
+							bindingIndex++;
+						}						
+					}
+				}
 			}
 		}
 	}
@@ -198,7 +172,7 @@ public abstract class AbstractMethodDeclaration
 				} catch (AbortMethod e2) {
 					int problemsLength;
 					IProblem[] problems =
-						scope.referenceCompilationUnit().compilationResult.getProblems();
+						scope.referenceCompilationUnit().compilationResult.getAllProblems();
 					IProblem[] problemsCopy = new IProblem[problemsLength = problems.length];
 					System.arraycopy(problems, 0, problemsCopy, 0, problemsLength);
 					classFile.addProblemMethod(this, binding, problemsCopy, problemResetPC);
@@ -207,7 +181,7 @@ public abstract class AbstractMethodDeclaration
 				// produce a problem method accounting for this fatal error
 				int problemsLength;
 				IProblem[] problems =
-					scope.referenceCompilationUnit().compilationResult.getProblems();
+					scope.referenceCompilationUnit().compilationResult.getAllProblems();
 				IProblem[] problemsCopy = new IProblem[problemsLength = problems.length];
 				System.arraycopy(problems, 0, problemsCopy, 0, problemsLength);
 				classFile.addProblemMethod(this, binding, problemsCopy, problemResetPC);
@@ -226,7 +200,7 @@ public abstract class AbstractMethodDeclaration
 			CodeStream codeStream = classFile.codeStream;
 			codeStream.reset(this, classFile);
 			// initialize local positions
-			scope.computeLocalVariablePositions(binding.isStatic() ? 0 : 1, codeStream);
+			this.scope.computeLocalVariablePositions(binding.isStatic() ? 0 : 1, codeStream);
 
 			// arguments initialization for local variable debug attributes
 			if (arguments != null) {
@@ -240,14 +214,16 @@ public abstract class AbstractMethodDeclaration
 				for (int i = 0, max = statements.length; i < max; i++)
 					statements[i].generateCode(scope, codeStream);
 			}
-			if (needFreeReturn) {
+			if (this.needFreeReturn) {
 				codeStream.return_();
 			}
 			// local variable attributes
 			codeStream.exitUserScope(scope);
-			codeStream.recordPositionsFrom(0, this.bodyEnd);
+			codeStream.recordPositionsFrom(0, this.declarationSourceEnd);
 			classFile.completeCodeAttribute(codeAttributeOffset);
 			attributeNumber++;
+		} else {
+			checkArgumentsSize();
 		}
 		classFile.completeMethodInfo(methodAttributeOffset, attributeNumber);
 
@@ -257,6 +233,22 @@ public abstract class AbstractMethodDeclaration
 		}
 	}
 
+	private void checkArgumentsSize() {
+		TypeBinding[] parameters = binding.parameters;
+		int size = 1; // an abstact method or a native method cannot be static
+		for (int i = 0, max = parameters.length; i < max; i++) {
+			TypeBinding parameter = parameters[i];
+			if (parameter == LongBinding || parameter == DoubleBinding) {
+				size += 2;
+			} else {
+				size++;
+			}
+			if (size > 0xFF) {
+				scope.problemReporter().noMoreAvailableSpaceForArgument(scope.locals[i], scope.locals[i].declaration);
+			}
+		}
+	}
+	
 	public boolean hasErrors() {
 		return this.ignoreFurtherInvestigation;
 	}
@@ -318,13 +310,13 @@ public abstract class AbstractMethodDeclaration
 		try {
 			bindArguments(); 
 			bindThrownExceptions();
-			resolveStatements(upperScope);
+			resolveStatements();
 		} catch (AbortMethod e) {	// ========= abort on fatal error =============
 			this.ignoreFurtherInvestigation = true;
 		} 
 	}
 
-	public void resolveStatements(ClassScope upperScope) {
+	public void resolveStatements() {
 
 		if (statements != null) {
 			int i = 0, length = statements.length;

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.ArrayList;
@@ -81,8 +81,6 @@ protected static Object convertConstant(Constant constant) {
 			return new Integer(constant.intValue());
 		case TypeIds.T_long :
 			return new Long(constant.longValue());
-		case TypeIds.T_null :
-			return null;
 		case TypeIds.T_short :
 			return new Short(constant.shortValue());
 		case TypeIds.T_String :
@@ -162,7 +160,7 @@ protected char getHandleMementoDelimiter() {
  * @see IMember
  */
 public ISourceRange getNameRange() throws JavaModelException {
-	MemberElementInfo info= (MemberElementInfo)getRawInfo();
+	MemberElementInfo info= (MemberElementInfo)getElementInfo();
 	return new SourceRange(info.getNameSourceStart(), info.getNameSourceEnd() - info.getNameSourceStart() + 1);
 }
 /**
@@ -191,19 +189,6 @@ public boolean isReadOnly() {
 	return getClassFile() != null;
 }
 /**
- * Changes the source indexes of this element.  Updates the name range as well.
- */
-public void offsetSourceRange(int amount) {
-	super.offsetSourceRange(amount);
-	try {
-		MemberElementInfo info = (MemberElementInfo) getRawInfo();
-		info.setNameSourceStart(info.getNameSourceStart() + amount);
-		info.setNameSourceEnd(info.getNameSourceEnd() + amount);
-	} catch (JavaModelException npe) {
-		return;
-	}
-}
-/**
  */
 public String readableName() {
 
@@ -219,25 +204,11 @@ public String readableName() {
 	}
 }
 /**
- * Updates the source positions for this element.
- */
-public void triggerSourceEndOffset(int amount, int nameStart, int nameEnd) {
-	super.triggerSourceEndOffset(amount, nameStart, nameEnd);
-	updateNameRange(nameStart, nameEnd);
-}
-/**
- * Updates the source positions for this element.
- */
-public void triggerSourceRangeOffset(int amount, int nameStart, int nameEnd) {
-	super.triggerSourceRangeOffset(amount, nameStart, nameEnd);
-	updateNameRange(nameStart, nameEnd);
-}
-/**
  * Updates the name range for this element.
  */
 protected void updateNameRange(int nameStart, int nameEnd) {
 	try {
-		MemberElementInfo info = (MemberElementInfo) getRawInfo();
+		MemberElementInfo info = (MemberElementInfo) getElementInfo();
 		info.setNameSourceStart(nameStart);
 		info.setNameSourceEnd(nameEnd);
 	} catch (JavaModelException npe) {

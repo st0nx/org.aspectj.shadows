@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.parser;
 
 /**
@@ -15,6 +15,7 @@ package org.eclipse.jdt.internal.compiler.parser;
  */
 import org.eclipse.jdt.internal.compiler.ast.ArrayTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.AstNode;
+import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Statement;
 
@@ -26,6 +27,21 @@ public RecoveredLocalVariable(LocalDeclaration localDeclaration, RecoveredElemen
 	super(localDeclaration, parent, bracketBalance);
 	this.localDeclaration = localDeclaration;
 	this.alreadyCompletedLocalInitialization = localDeclaration.initialization != null;
+}
+/*
+ * Record an expression statement if local variable is expecting an initialization expression. 
+ */
+public RecoveredElement add(Statement statement, int bracketBalance) {
+
+	if (this.alreadyCompletedLocalInitialization || !(statement instanceof Expression)) {
+		return super.add(statement, bracketBalance);
+	} else {
+		this.alreadyCompletedLocalInitialization = true;
+		this.localDeclaration.initialization = (Expression)statement;
+		this.localDeclaration.declarationSourceEnd = statement.sourceEnd;
+		this.localDeclaration.declarationEnd = statement.sourceEnd;
+		return this;
+	}
 }
 /* 
  * Answer the associated parsed structure

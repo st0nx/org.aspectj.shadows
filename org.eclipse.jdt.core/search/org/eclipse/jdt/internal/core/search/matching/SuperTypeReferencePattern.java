@@ -1,22 +1,22 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import org.eclipse.jdt.internal.compiler.ast.*;
-import org.eclipse.jdt.internal.compiler.util.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 import org.eclipse.jdt.internal.core.index.*;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.search.*;
 import org.eclipse.jdt.internal.core.search.indexing.*;
 import org.eclipse.jdt.internal.core.index.impl.*;
@@ -132,7 +132,8 @@ public void findIndexMatches(IndexInput input, IIndexSearchRequestor requestor, 
 		}
 		this.entryResults.put(input, entries);
 	}
-	
+	if (entries == NO_ENTRY_RESULT) return;
+
 	/* only select entries which actually match the entire search pattern */
 	int slash = SUPER_REF.length;
 	char[] simpleName = this.superSimpleName;
@@ -262,7 +263,7 @@ public int matchLevel(AstNode node, boolean resolve) {
 
 	TypeReference typeRef = (TypeReference)node;
 	if (resolve) {
-		TypeBinding binding = typeRef.binding;
+		TypeBinding binding = typeRef.resolvedType;
 		if (binding == null) {
 			return INACCURATE_MATCH;
 		} else {

@@ -1,25 +1,28 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
 import java.io.*;
-import java.util.*;
+import java.util.StringTokenizer;
 
-import org.eclipse.jdt.internal.compiler.impl.*;
-import org.eclipse.jdt.core.compiler.*;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
+import org.eclipse.jdt.internal.compiler.impl.StringConstant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
-import org.eclipse.jdt.internal.compiler.problem.*;
-import org.eclipse.jdt.internal.compiler.util.*;
+import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 /**
  * Represents a class file wrapper on bytes, it is aware of its actual
@@ -62,7 +65,6 @@ public class ClassFile
 	public static final int INITIAL_HEADER_SIZE = 1000;
 	public static final int INCREMENT_SIZE = 1000;
 	public static final int INNER_CLASSES_SIZE = 5;
-	protected HashtableOfType nameUsage;
 	public CodeStream codeStream;
 	protected int problemLine;	// used to create line number attributes for problem methods
 
@@ -148,15 +150,7 @@ public class ClassFile
 		
 		this.enclosingClassFile = enclosingClassFile;
 		// innerclasses get their names computed at code gen time
-		if (aType.isLocalType()) {
-			((LocalTypeBinding) aType).constantPoolName(
-				computeConstantPoolName((LocalTypeBinding) aType));
-			ReferenceBinding[] memberTypes = aType.memberTypes();
-			for (int i = 0, max = memberTypes.length; i < max; i++) {
-				((LocalTypeBinding) memberTypes[i]).constantPoolName(
-					computeConstantPoolName((LocalTypeBinding) memberTypes[i]));
-			}
-		}
+
 		contents = new byte[INITIAL_CONTENTS_SIZE];
 		// now we continue to generate the bytes inside the contents array
 		contents[contentsOffset++] = (byte) (accessFlags >> 8);
@@ -442,8 +436,7 @@ public class ClassFile
 		int fieldAttributeOffset = contentsOffset;
 		contentsOffset += 2;
 		// 4.7.2 only static constant fields get a ConstantAttribute
-		if (fieldBinding.constant != Constant.NotAConstant
-			&& fieldBinding.constant.typeID() != T_null) {
+		if (fieldBinding.constant != Constant.NotAConstant){
 			// Now we generate the constant attribute corresponding to the fieldBinding
 			int constantValueNameIndex =
 				constantPool.literalIndex(AttributeNamesConstants.ConstantValueName);
@@ -561,6 +554,9 @@ public class ClassFile
 				+ (syntheticFields == null ? 0 : syntheticFields.length);
 
 		// write the number of fields
+		if (fieldCount > 0xFFFF) {
+			referenceBinding.scope.problemReporter().tooManyFields(referenceBinding.scope.referenceType());
+		}
 		contents[contentsOffset++] = (byte) (fieldCount >> 8);
 		contents[contentsOffset++] = (byte) fieldCount;
 
@@ -874,20 +870,21 @@ public class ClassFile
 				switch (accessMethodBinding.accessType) {
 					case SyntheticAccessMethodBinding.FieldReadAccess :
 						// generate a method info to emulate an reading access to
-						// a private field
+						// a non-accessible field
 						addSyntheticFieldReadAccessMethod(syntheticAccessMethods[i]);
 						break;
 					case SyntheticAccessMethodBinding.FieldWriteAccess :
 						// generate a method info to emulate an writing access to
-						// a private field
+						// a non-accessible field
 						addSyntheticFieldWriteAccessMethod(syntheticAccessMethods[i]);
 						break;
 					case SyntheticAccessMethodBinding.MethodAccess :
-						// generate a method info to emulate an access to a private method
+					case SyntheticAccessMethodBinding.SuperMethodAccess :
+						// generate a method info to emulate an access to a non-accessible method / super-method
 						addSyntheticMethodAccessMethod(syntheticAccessMethods[i]);
 						break;
 					case SyntheticAccessMethodBinding.ConstructorAccess :
-						// generate a method info to emulate an access to a private method
+						// generate a method info to emulate an access to a non-accessible constructor
 						addSyntheticConstructorAccessMethod(syntheticAccessMethods[i]);
 				}
 			}
@@ -1459,7 +1456,8 @@ public class ClassFile
 						0,
 						contentsLength);
 				}
-				localContentsOffset += 2; // the startPC for this is always 0
+				localContents[localContentsOffset++] = 0; // the startPC for this is always 0
+				localContents[localContentsOffset++] = 0;
 				localContents[localContentsOffset++] = (byte) (code_length >> 8);
 				localContents[localContentsOffset++] = (byte) code_length;
 				nameIndex = constantPool.literalIndex(QualifiedNamesConstants.This);
@@ -1470,7 +1468,8 @@ public class ClassFile
 						codeStream.methodDeclaration.binding.declaringClass.signature());
 				localContents[localContentsOffset++] = (byte) (descriptorIndex >> 8);
 				localContents[localContentsOffset++] = (byte) descriptorIndex;
-				localContentsOffset += 2; // the resolved position for this is always 0
+				localContents[localContentsOffset++] = 0;// the resolved position for this is always 0
+				localContents[localContentsOffset++] = 0;
 			}
 			for (int i = 0; i < codeStream.allLocalsCounter; i++) {
 				LocalVariableBinding localVariable = codeStream.locals[i];
@@ -1621,7 +1620,8 @@ public class ClassFile
 			localContents[localContentsOffset++] = (byte) handlerPC;
 			if (exceptionHandler.exceptionType == null) {
 				// any exception handler
-				localContentsOffset += 2;
+				localContents[localContentsOffset++] = 0;
+				localContents[localContentsOffset++] = 0;
 			} else {
 				int nameIndex;
 				if (exceptionHandler.exceptionType == TypeBinding.NullBinding) {
@@ -1865,6 +1865,14 @@ public class ClassFile
 
 		// first we handle the linenumber attribute
 		if (codeStream.generateLineNumberAttributes) {
+			if (localContentsOffset + 20 >= (contentsLength = localContents.length)) {
+				System.arraycopy(
+					contents,
+					0,
+					(localContents = contents = new byte[contentsLength + INCREMENT_SIZE]),
+					0,
+					contentsLength);
+			}			
 			/* Create and add the line number attribute (used for debugging) 
 			    * Build the pairs of:
 			    * (bytecodePC lineNumber)
@@ -1997,6 +2005,14 @@ public class ClassFile
 		localContentsOffset += 2; // first we handle the linenumber attribute
 
 		if (codeStream.generateLineNumberAttributes) {
+			if (localContentsOffset + 20 >= (contentsLength = localContents.length)) {
+				System.arraycopy(
+					contents,
+					0,
+					(localContents = contents = new byte[contentsLength + INCREMENT_SIZE]),
+					0,
+					contentsLength);
+			}			
 			/* Create and add the line number attribute (used for debugging) 
 			    * Build the pairs of:
 			    * (bytecodePC lineNumber)
@@ -2076,7 +2092,7 @@ public class ClassFile
 				ReferenceBinding declaringClass = binding.declaringClass;
 				if (declaringClass.isNestedType()) {
 					NestedTypeBinding methodDeclaringClass = (NestedTypeBinding) declaringClass;
-					argSize = methodDeclaringClass.syntheticArgumentsOffset;
+					argSize = methodDeclaringClass.enclosingInstancesSlotSize;
 					SyntheticArgumentBinding[] syntheticArguments;
 					if ((syntheticArguments = methodDeclaringClass.syntheticEnclosingInstances())
 						!= null) {
@@ -2228,7 +2244,8 @@ public class ClassFile
 		}
 		// there is no exception table, so we need to offset by 2 the current offset and move 
 		// on the attribute generation
-		localContentsOffset += 2;
+		contents[localContentsOffset++] = 0;
+		contents[localContentsOffset++] = 0;
 		// debug attributes
 		int codeAttributeAttributeOffset = localContentsOffset;
 		int attributeNumber = 0;
@@ -2365,67 +2382,6 @@ public class ClassFile
 		contents[methodAttributeOffset] = (byte) attributeNumber;
 	}
 
-	/*
-	 * INTERNAL USE-ONLY
-	 * Innerclasses get their name computed as they are generated, since some may not
-	 * be actually outputed if sitting inside unreachable code.
-	 *
-	 * @param localType org.eclipse.jdt.internal.compiler.lookup.LocalTypeBinding
-	 */
-	public char[] computeConstantPoolName(LocalTypeBinding localType) {
-		if (localType.constantPoolName() != null) {
-			return localType.constantPoolName();
-		}
-		// delegates to the outermost enclosing classfile, since it is the only one with a global vision of its innertypes.
-		if (enclosingClassFile != null) {
-			return this.outerMostEnclosingClassFile().computeConstantPoolName(localType);
-		}
-		if (nameUsage == null)
-			nameUsage = new HashtableOfType();
-
-		// ensure there is not already such a local type name defined by the user
-		int index = 0;
-		char[] candidateName;
-		while(true) {
-			if (localType.isMemberType()){
-				if (index == 0){
-					candidateName = CharOperation.concat(
-						localType.enclosingType().constantPoolName(),
-						localType.sourceName,
-						'$');
-				} else {
-					// in case of collision, then member name gets extra $1 inserted
-					// e.g. class X { { class L{} new X(){ class L{} } } }
-					candidateName = CharOperation.concat(
-						localType.enclosingType().constantPoolName(),
-						'$',
-						String.valueOf(index).toCharArray(),
-						'$',
-						localType.sourceName);
-				}
-			} else if (localType.isAnonymousType()){
-					candidateName = CharOperation.concat(
-						referenceBinding.constantPoolName(),
-						String.valueOf(index+1).toCharArray(),
-						'$');
-			} else {
-					candidateName = CharOperation.concat(
-						referenceBinding.constantPoolName(),
-						'$',
-						String.valueOf(index+1).toCharArray(),
-						'$',
-						localType.sourceName);
-			}						
-			if (nameUsage.get(candidateName) != null) {
-				index ++;
-			} else {
-				nameUsage.put(candidateName, localType);
-				break;
-			}
-		}
-		return candidateName;
-	}
-
 	/**
 	 * INTERNAL USE-ONLY
 	 * Request the creation of a ClassFile compatible representation of a problematic type
@@ -2439,6 +2395,8 @@ public class ClassFile
 		SourceTypeBinding typeBinding = typeDeclaration.binding;
 		ClassFile classFile = new ClassFile(typeBinding, null, true);
 
+		// TODO: (olivier) handle cases where a field cannot be generated (name too long)
+		// TODO: (olivier) handle too many methods
 		// inner attributes
 		if (typeBinding.isMemberType())
 			classFile.recordEnclosingTypeAttributes(typeBinding);
@@ -2448,7 +2406,7 @@ public class ClassFile
 		if ((fields != null) && (fields != NoFields)) {
 			for (int i = 0, max = fields.length; i < max; i++) {
 				if (fields[i].constant == null) {
-					FieldReference.getConstantFor(fields[i], false, null, null, 0);
+					FieldReference.getConstantFor(fields[i], null, false, null);
 				}
 			}
 			classFile.addFieldInfos();
@@ -2464,7 +2422,7 @@ public class ClassFile
 		AbstractMethodDeclaration[] methodDeclarations = typeDeclaration.methods;
 		int maxMethodDecl = methodDeclarations == null ? 0 : methodDeclarations.length;
 		int problemsLength;
-		IProblem[] problems = unitResult.getProblems();
+		IProblem[] problems = unitResult.getErrors();
 		if (problems == null) {
 			problems = new IProblem[0];
 		}

@@ -1,37 +1,25 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.io.InputStream;
 import java.util.ArrayList;
 
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.jdt.core.IClassFile;
-import org.eclipse.jdt.core.ICompletionRequestor;
-import org.eclipse.jdt.core.IField;
-import org.eclipse.jdt.core.IInitializer;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IJavaModelStatusConstants;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.IOpenable;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.ITypeHierarchy;
-import org.eclipse.jdt.core.IWorkingCopy;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
 
 /**
  * Parent is an IClassFile.
@@ -58,26 +46,36 @@ public void close() throws JavaModelException {
 	
 	Object info = JavaModelManager.getJavaModelManager().peekAtInfo(this);
 	if (info != null) {
-		ClassFileInfo cfi = getClassFileInfo();
-		if (cfi.hasReadBinaryChildren()) {
-			try {
-				IJavaElement[] children = getChildren();
-				for (int i = 0, size = children.length; i < size; ++i) {
-					JavaElement child = (JavaElement) children[i];
-					if (child instanceof BinaryType) {
-						((IOpenable)child.getParent()).close();
-					} else {
-						child.close();
-					}
-				}
-			} catch (JavaModelException e) {
+		boolean wasVerbose = false;
+		try {
+			if (JavaModelManager.VERBOSE) {
+				System.out.println("CLOSING Element ("+ Thread.currentThread()+"): " + this.toStringWithAncestors());  //$NON-NLS-1$//$NON-NLS-2$
+				wasVerbose = true;
+				JavaModelManager.VERBOSE = false;
 			}
-		}
-		closing(info);
-		JavaModelManager.getJavaModelManager().removeInfo(this);
-		if (JavaModelManager.VERBOSE){
-			System.out.println("-> Package cache size = " + JavaModelManager.getJavaModelManager().cache.pkgSize()); //$NON-NLS-1$
-			System.out.println("-> Openable cache filling ratio = " + JavaModelManager.getJavaModelManager().cache.openableFillingRatio() + "%"); //$NON-NLS-1$//$NON-NLS-2$
+			ClassFileInfo cfi = getClassFileInfo();
+			if (cfi.hasReadBinaryChildren()) {
+				try {
+					IJavaElement[] children = getChildren();
+					for (int i = 0, size = children.length; i < size; ++i) {
+						JavaElement child = (JavaElement) children[i];
+						if (child instanceof BinaryType) {
+							((IOpenable)child.getParent()).close();
+						} else {
+							child.close();
+						}
+					}
+				} catch (JavaModelException e) {
+				}
+			}
+			closing(info);
+			JavaModelManager.getJavaModelManager().removeInfo(this);
+			if (JavaModelManager.VERBOSE){
+				System.out.println("-> Package cache size = " + JavaModelManager.getJavaModelManager().cache.pkgSize()); //$NON-NLS-1$
+				System.out.println("-> Openable cache filling ratio = " + JavaModelManager.getJavaModelManager().cache.openableFillingRatio() + "%"); //$NON-NLS-1$//$NON-NLS-2$
+			}
+		} finally {
+			JavaModelManager.VERBOSE = wasVerbose;
 		}
 	}
 }
@@ -85,9 +83,6 @@ public void close() throws JavaModelException {
  * Remove my cached children from the Java Model
  */
 protected void closing(Object info) throws JavaModelException {
-	if (JavaModelManager.VERBOSE){
-		System.out.println("CLOSING Element ("+ Thread.currentThread()+"): " + this.toStringWithAncestors());  //$NON-NLS-1$//$NON-NLS-2$
-	}
 	ClassFileInfo cfi = getClassFileInfo();
 	cfi.removeBinaryChildren();
 	if (JavaModelManager.VERBOSE){
@@ -102,14 +97,14 @@ public void codeComplete(char[] snippet,int insertion,int position,char[][] loca
 	if (requestor == null) {
 		throw new IllegalArgumentException(Util.bind("codeAssist.nullRequestor")); //$NON-NLS-1$
 	}
-	
-	SearchableEnvironment environment = (SearchableEnvironment) ((JavaProject) getJavaProject()).getSearchableNameEnvironment();
-	NameLookup nameLookup = ((JavaProject) getJavaProject()).getNameLookup();
-	CompletionEngine engine = new CompletionEngine(environment, new CompletionRequestorWrapper(requestor,nameLookup), JavaCore.getOptions());
+	JavaProject project = (JavaProject) getJavaProject();
+	SearchableEnvironment environment = (SearchableEnvironment) project.getSearchableNameEnvironment();
+	NameLookup nameLookup = project.getNameLookup();
+	CompletionEngine engine = new CompletionEngine(environment, new CompletionRequestorWrapper(requestor,nameLookup), project.getOptions(true), project);
 	
 	String source = getClassFile().getSource();
 	if (source != null && insertion > -1 && insertion < source.length()) {
-		String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING); 
+		String encoding = project.getOption(JavaCore.CORE_ENCODING, true); 
 		
 		char[] prefix = CharOperation.concat(source.substring(0, insertion).toCharArray(), new char[]{'{'});
 		char[] suffix =  CharOperation.concat(new char[]{'}'}, source.substring(insertion).toCharArray());
@@ -186,7 +181,7 @@ public IType getDeclaringType() {
 	IClassFile classFile = this.getClassFile();
 	if (classFile.isOpen()) {
 		try {
-			char[] enclosingTypeName = ((IBinaryType) getRawInfo()).getEnclosingTypeName();
+			char[] enclosingTypeName = ((IBinaryType) getElementInfo()).getEnclosingTypeName();
 			if (enclosingTypeName == null) {
 				return null;
 			}
@@ -254,7 +249,7 @@ public IField[] getFields() throws JavaModelException {
  * @see IMember#getFlags()
  */
 public int getFlags() throws JavaModelException {
-	IBinaryType info = (IBinaryType) getRawInfo();
+	IBinaryType info = (IBinaryType) getElementInfo();
 	return info.getModifiers();
 }
 /**
@@ -325,7 +320,7 @@ public IPackageFragment getPackageFragment() {
  * @see IType#getSuperclassName()
  */
 public String getSuperclassName() throws JavaModelException {
-	IBinaryType info = (IBinaryType) getRawInfo();
+	IBinaryType info = (IBinaryType) getElementInfo();
 	char[] superclassName = info.getSuperclassName();
 	if (superclassName == null) {
 		return null;
@@ -336,7 +331,7 @@ public String getSuperclassName() throws JavaModelException {
  * @see IType#getSuperInterfaceNames()
  */
 public String[] getSuperInterfaceNames() throws JavaModelException {
-	IBinaryType info = (IBinaryType) getRawInfo();
+	IBinaryType info = (IBinaryType) getElementInfo();
 	char[][] names= info.getInterfaceNames();
 	int length;
 	if (names == null || (length = names.length) == 0) {
@@ -407,7 +402,7 @@ public boolean hasChildren() throws JavaModelException {
  * @see IType#isAnonymous()
  */
 public boolean isAnonymous() throws JavaModelException {
-	IBinaryType info = (IBinaryType) getRawInfo();
+	IBinaryType info = (IBinaryType) getElementInfo();
 	return info.isAnonymous();
 }
 /**
@@ -420,7 +415,7 @@ public boolean isClass() throws JavaModelException {
  * @see IType#isInterface()
  */
 public boolean isInterface() throws JavaModelException {
-	IBinaryType info = (IBinaryType) getRawInfo();
+	IBinaryType info = (IBinaryType) getElementInfo();
 	return info.isInterface();
 }
 
@@ -428,15 +423,21 @@ public boolean isInterface() throws JavaModelException {
  * @see IType#isLocal()
  */
 public boolean isLocal() throws JavaModelException {
-	IBinaryType info = (IBinaryType) getRawInfo();
+	IBinaryType info = (IBinaryType) getElementInfo();
 	return info.isLocal();
 }
 /**
  * @see IType#isMember()
  */
 public boolean isMember() throws JavaModelException {
-	IBinaryType info = (IBinaryType) getRawInfo();
+	IBinaryType info = (IBinaryType) getElementInfo();
 	return info.isMember();
+}
+/**
+ * @see IType
+ */
+public ITypeHierarchy loadTypeHierachy(InputStream input, IProgressMonitor monitor) throws JavaModelException {
+	return TypeHierarchy.load(this, input);
 }
 /**
  * @see IType#newSupertypeHierarchy(IProgressMonitor monitor)
@@ -485,8 +486,8 @@ public ITypeHierarchy newTypeHierarchy(IJavaProject project, IProgressMonitor mo
 	}
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(
 		this, 
-		null, // no working copies
-		SearchEngine.createJavaSearchScope(new IJavaElement[] {project}), 
+		(IWorkingCopy[])null, // no working copies
+		project, 
 		true);
 	runOperation(op, monitor);
 	return op.getResult();

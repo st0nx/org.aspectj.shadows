@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.io.File;
@@ -23,7 +23,6 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.resources.ResourcesPlugin;
-import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.Path;
@@ -35,7 +34,6 @@ import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 
 /**
@@ -66,14 +64,35 @@ public class JavaModel extends Openable implements IJavaModel {
 protected JavaModel() throws Error {
 	super(JAVA_MODEL, null, "" /*workspace has empty name*/); //$NON-NLS-1$
 }
-
-
-
+/*
+ * @see IJavaModel
+ */
+public boolean contains(IResource resource) {
+	switch (resource.getType()) {
+		case IResource.ROOT:
+		case IResource.PROJECT:
+			return true;
+	}
+	// file or folder
+	IJavaProject[] projects;
+	try {
+		projects = this.getJavaProjects();
+	} catch (JavaModelException e) {
+		return false;
+	}
+	for (int i = 0, length = projects.length; i < length; i++) {
+		JavaProject project = (JavaProject)projects[i];
+		if (!project.contains(resource)) {
+			return false;
+		}
+	}
+	return true;
+}
 /**
  * @see IJavaModel
  */
 public void copy(IJavaElement[] elements, IJavaElement[] containers, IJavaElement[] siblings, String[] renamings, boolean force, IProgressMonitor monitor) throws JavaModelException {
-	if (elements != null && elements[0] != null && elements[0].getElementType() < IJavaElement.TYPE) {
+	if (elements != null && elements.length > 0 && elements[0] != null && elements[0].getElementType() < IJavaElement.TYPE) {
 		runOperation(new CopyResourceElementsOperation(elements, containers, force), elements, siblings, renamings, monitor);
 	} else {
 		runOperation(new CopyElementsOperation(elements, containers, force), elements, siblings, renamings, monitor);
@@ -90,7 +109,7 @@ protected OpenableElementInfo createElementInfo() {
  * @see IJavaModel
  */
 public void delete(IJavaElement[] elements, boolean force, IProgressMonitor monitor) throws JavaModelException {
-	if (elements != null && elements[0] != null && elements[0].getElementType() < IJavaElement.TYPE) {
+	if (elements != null && elements.length > 0 && elements[0] != null && elements[0].getElementType() < IJavaElement.TYPE) {
 		runOperation(new DeleteResourceElementsOperation(elements, force), monitor);
 	} else {
 		runOperation(new DeleteElementsOperation(elements, force), monitor);
@@ -131,16 +150,12 @@ protected boolean generateInfos(
 
 	JavaModelManager.getJavaModelManager().putInfo(this, info);
 	// determine my children
-	try {
-		IProject[] projects = this.getWorkspace().getRoot().getProjects();
-		for (int i = 0, max = projects.length; i < max; i++) {
-			IProject project = projects[i];
-			if (project.isOpen() && project.hasNature(JavaCore.NATURE_ID)) {
-				info.addChild(getJavaProject(project));
-			}
+	IProject[] projects = ResourcesPlugin.getWorkspace().getRoot().getProjects();
+	for (int i = 0, max = projects.length; i < max; i++) {
+		IProject project = projects[i];
+		if (JavaProject.hasJavaNature(project)) {
+			info.addChild(getJavaProject(project));
 		}
-	} catch (CoreException e) {
-		throw new JavaModelException(e);
 	}
 	return true;
 }
@@ -203,6 +218,21 @@ protected IJavaElement getHandleFromMementoForBinaryMembers(String memento, IPac
 
 	//binary type
 	return cf.getType();
+}
+/**
+ * Returns the <code>IPackageFragmentRoot</code> represented by the <code>String</code>
+ * memento.
+ * @see getHandleMemento()
+ */
+protected IPackageFragmentRoot getHandleFromMementoForRoot(String memento, JavaProject project, int projectEnd, int rootEnd) {
+	String rootName = null;
+	if (rootEnd == projectEnd - 1) {
+		//default root
+		rootName = IPackageFragmentRoot.DEFAULT_PACKAGEROOT_PATH;
+	} else {
+		rootName = memento.substring(projectEnd + 1, rootEnd);
+	}
+	return project.getPackageFragmentRoot(new Path(rootName));
 }
 /**
  * Returns the <code>IJavaElement</code> represented by the <code>String</code>
@@ -315,26 +345,14 @@ public String getHandleMemento(){
  * contribution to a memento.
  */
 protected char getHandleMementoDelimiter(){
-	Assert.isTrue(false, Util.bind("assert.shouldNotImplement")); //$NON-NLS-1$
+	Assert.isTrue(false, "Should not be called"); //$NON-NLS-1$
 	return 0;
-}
-/**
- * @see IJavaElement
- */
-public IJavaModel getJavaModel() {
-	return this;
-}
-/**
- * @see IJavaElement
- */
-public IJavaProject getJavaProject() {
-	return null;
 }
 /**
  * @see IJavaModel
  */
 public IJavaProject getJavaProject(String name) {
-	return new JavaProject(this.getWorkspace().getRoot().getProject(name), this);
+	return new JavaProject(ResourcesPlugin.getWorkspace().getRoot().getProject(name), this);
 }
 /**
  * Returns the active Java project associated with the specified
@@ -345,14 +363,15 @@ public IJavaProject getJavaProject(String name) {
  * is not one of an IProject, IFolder, or IFile.
  */
 public IJavaProject getJavaProject(IResource resource) {
-	if (resource.getType() == IResource.FOLDER) {
-		return new JavaProject(((IFolder)resource).getProject(), this);
-	} else if (resource.getType() == IResource.FILE) {
-		return new JavaProject(((IFile)resource).getProject(), this);
-	} else if (resource.getType() == IResource.PROJECT) {
-		return new JavaProject((IProject)resource, this);
-	} else {
-		throw new IllegalArgumentException(Util.bind("element.invalidResourceForProject")); //$NON-NLS-1$
+	switch(resource.getType()){
+		case IResource.FOLDER:
+			return new JavaProject(((IFolder)resource).getProject(), this);
+		case IResource.FILE:
+			return new JavaProject(((IFile)resource).getProject(), this);
+		case IResource.PROJECT:
+			return new JavaProject((IProject)resource, this);
+		default:
+			throw new IllegalArgumentException(Util.bind("element.invalidResourceForProject")); //$NON-NLS-1$
 	}
 }
 /**
@@ -366,12 +385,19 @@ public IJavaProject[] getJavaProjects() throws JavaModelException {
 
 }
 /**
+ * @see IJavaModel
+ */
+public Object[] getNonJavaResources() throws JavaModelException {
+		return ((JavaModelInfo) getElementInfo()).getNonJavaResources();
+}
+
+/**
  * Workaround for bug 15168 circular errors not reported 
  * Returns the list of java projects before resource delta processing
  * has started.
  */
 public IJavaProject[] getOldJavaProjectsList() throws JavaModelException {
-	JavaModelManager manager = this.getJavaModelManager();
+	JavaModelManager manager = JavaModelManager.getJavaModelManager();
 	return 
 		manager.javaProjectsCache == null ? 
 			this.getJavaProjects() : 
@@ -406,7 +432,7 @@ public IWorkspace getWorkspace() {
  * @see IJavaModel
  */
 public void move(IJavaElement[] elements, IJavaElement[] containers, IJavaElement[] siblings, String[] renamings, boolean force, IProgressMonitor monitor) throws JavaModelException {
-	if (elements != null && elements[0] != null && elements[0].getElementType() < IJavaElement.TYPE) {
+	if (elements != null && elements.length > 0 && elements[0] != null && elements[0].getElementType() < IJavaElement.TYPE) {
 		runOperation(new MoveResourceElementsOperation(elements, containers, force), elements, siblings, renamings, monitor);
 	} else {
 		runOperation(new MoveElementsOperation(elements, containers, force), elements, siblings, renamings, monitor);
@@ -420,7 +446,7 @@ public void refreshExternalArchives(IJavaElement[] elementsScope, IProgressMonit
 	if (elementsScope == null){
 		elementsScope = new IJavaElement[] { this };
 	}
-	getJavaModelManager().deltaProcessor.checkExternalArchiveChanges(elementsScope, monitor);
+	JavaModelManager.getJavaModelManager().deltaProcessor.checkExternalArchiveChanges(elementsScope, monitor);
 }
 
 /**
@@ -428,7 +454,7 @@ public void refreshExternalArchives(IJavaElement[] elementsScope, IProgressMonit
  */
 public void rename(IJavaElement[] elements, IJavaElement[] destinations, String[] renamings, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	MultiOperation op;
-	if (elements != null && elements[0] != null && elements[0].getElementType() < IJavaElement.TYPE) {
+	if (elements != null && elements.length > 0 && elements[0] != null && elements[0].getElementType() < IJavaElement.TYPE) {
 		op = new RenameResourceElementsOperation(elements, destinations, renamings, force);
 	} else {
 		op = new RenameElementsOperation(elements, destinations, renamings, force);
@@ -476,11 +502,19 @@ public static Object getTarget(IContainer container, IPath path, boolean checkRe
 	if (path == null) return null;
 	
 	// lookup - inside the container
-	IResource resource = container.findMember(path);
-	if (resource != null){
-		if (!checkResourceExistence ||resource.exists()) return resource;
-		return null;
+	if (path.getDevice() == null) { // container relative paths should not contain a device 
+												// (see http://dev.eclipse.org/bugs/show_bug.cgi?id=18684)
+												// (case of a workspace rooted at d:\ )
+		IResource resource = container.findMember(path);
+		if (resource != null){
+			if (!checkResourceExistence ||resource.exists()) return resource;
+			return null;
+		}
 	}
+	
+	// if path is relative, it cannot be an external path
+	// (see http://dev.eclipse.org/bugs/show_bug.cgi?id=22517)
+	if (!path.isAbsolute()) return null; 
 
 	// lookup - outside the container
 	File externalFile = new File(path.toOSString());

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.io.File;
@@ -17,6 +17,7 @@ import java.util.Map;
 
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspace;
+import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.IClasspathEntry;
@@ -123,7 +124,7 @@ public class NameLookup {
 	 * @throws JavaModelException if the <code>IJavaProject</code> has no classpath.
 	 */
 	private void configureFromProject(IJavaProject project) throws JavaModelException {
-		workspace= project.getJavaModel().getWorkspace();
+		workspace= ResourcesPlugin.getWorkspace();
 		fPackageFragmentRoots= ((JavaProject) project).getAllPackageFragmentRoots();
 		fPackageFragments= new HashMap();
 		IPackageFragment[] frags = this.getPackageFragmentsInRoots(fPackageFragmentRoots, project);
@@ -273,7 +274,7 @@ public class NameLookup {
 						IClasspathEntry entry = project.getClasspathEntryFor(path);
 						if (entry != null) {
 							IPackageFragmentRoot root =
-								project.getPackageFragmentRoot(project.getUnderlyingResource());
+								project.getPackageFragmentRoot(project.getResource());
 							IPackageFragment[] pkgs = (IPackageFragment[]) fPackageFragments.get(IPackageFragment.DEFAULT_PACKAGE_NAME);
 							if (pkgs == null) {
 								return null;

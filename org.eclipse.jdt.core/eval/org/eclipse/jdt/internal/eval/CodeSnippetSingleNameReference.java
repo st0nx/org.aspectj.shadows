@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
 import org.eclipse.jdt.internal.compiler.ast.Assignment;
@@ -21,6 +21,7 @@ import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
 import org.eclipse.jdt.internal.compiler.flow.FlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
+import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.ClassScope;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
@@ -42,6 +43,7 @@ public class CodeSnippetSingleNameReference extends SingleNameReference implemen
 
 	EvaluationContext evaluationContext;
 	FieldBinding delegateThis;
+	
 public CodeSnippetSingleNameReference(char[] source, long pos, EvaluationContext evaluationContext) {
 	super(source, pos);
 	this.evaluationContext = evaluationContext;
@@ -52,7 +54,8 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 		case FIELD : // reading a field
 			// check if reading a final blank field
 			FieldBinding fieldBinding;
-			if ((fieldBinding = (FieldBinding) binding).isFinal() && currentScope.allowBlankFinalFieldAssignment(fieldBinding)) {
+			if ((fieldBinding = (FieldBinding) binding).isBlankFinal() 
+					&& currentScope.allowBlankFinalFieldAssignment(fieldBinding)) {
 				if (!flowInfo.isDefinitelyAssigned(fieldBinding)) {
 					currentScope.problemReporter().uninitializedBlankFinalField(fieldBinding, this);
 				}
@@ -63,7 +66,11 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 			if (!flowInfo.isDefinitelyAssigned(localBinding = (LocalVariableBinding) binding)) {
 				currentScope.problemReporter().uninitializedLocalVariable(localBinding, this);
 			}
-			if (!flowInfo.isFakeReachable()) localBinding.used = true;			
+			if (flowInfo.isReachable()) {
+				localBinding.useFlag = LocalVariableBinding.USED;
+			} else if (localBinding.useFlag == LocalVariableBinding.UNUSED) {
+				localBinding.useFlag = LocalVariableBinding.FAKE_USED;
+			}
 	}
 	return flowInfo;
 }
@@ -87,7 +94,7 @@ public TypeBinding checkFieldAccess(BlockScope scope) {
 			return null;
 		}
 	}
-	constant = FieldReference.getConstantFor(fieldBinding, true, this, scope, 0);
+	constant = FieldReference.getConstantFor(fieldBinding, this, true, scope);
 	if (isFieldUseDeprecated(fieldBinding, scope))
 		scope.problemReporter().deprecatedField(fieldBinding, this);
 
@@ -123,13 +130,9 @@ public void generateAssignment(BlockScope currentScope, CodeStream codeStream, A
 			if (fieldBinding.canBeSeenBy(getReceiverType(currentScope), this, currentScope)) {
 				if (!fieldBinding.isStatic()) { // need a receiver?
 					if ((bits & DepthMASK) != 0) {
-						Object[] emulationPath = currentScope.getExactEmulationPath(currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT));
-						if (emulationPath == null) {
-							// internal error, per construction we should have found it
-							currentScope.problemReporter().needImplementation();
-						} else {
-							codeStream.generateOuterAccess(emulationPath, this, currentScope);
-						}
+						ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
+						Object[] emulationPath = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
+						codeStream.generateOuterAccess(emulationPath, this, targetType, currentScope);
 					} else {
 						this.generateReceiver(codeStream);
 					}
@@ -220,13 +223,9 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 							boolean isStatic;
 							if (!(isStatic = fieldBinding.isStatic())) {
 								if ((bits & DepthMASK) != 0) {
-									Object[] emulationPath = currentScope.getExactEmulationPath(currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT));
-									if (emulationPath == null) {
-										// internal error, per construction we should have found it
-										currentScope.problemReporter().needImplementation();
-									} else {
-										codeStream.generateOuterAccess(emulationPath, this, currentScope);
-									}
+									ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
+									Object[] emulationPath = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
+									codeStream.generateOuterAccess(emulationPath, this, targetType, currentScope);
 								} else {
 									generateReceiver(codeStream);
 								}
@@ -265,12 +264,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 					if ((bits & DepthMASK) != 0) {
 						// outer local can be reached either through a synthetic arg or a synthetic field
 						VariableBinding[] path = currentScope.getEmulationPath(localBinding);
-						if (path == null) {
-							// emulation was not possible (should not happen per construction)
-							currentScope.problemReporter().needImplementation();
-						} else {
-							codeStream.generateOuterAccess(path, this, currentScope);
-						}
+						codeStream.generateOuterAccess(path, this, localBinding, currentScope);
 					} else {
 						// regular local variable read
 						codeStream.load(localBinding);
@@ -304,13 +298,9 @@ public void generateCompoundAssignment(BlockScope currentScope, CodeStream codeS
 			} else {
 				if (fieldBinding.canBeSeenBy(getReceiverType(currentScope), this, currentScope)) {
 					if ((bits & DepthMASK) != 0) {
-						Object[] emulationPath = currentScope.getExactEmulationPath(currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT));
-						if (emulationPath == null) {
-							// internal error, per construction we should have found it
-							currentScope.problemReporter().needImplementation();
-						} else {
-							codeStream.generateOuterAccess(emulationPath, this, currentScope);
-						}
+						ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
+						Object[] emulationPath = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
+						codeStream.generateOuterAccess(emulationPath, this, targetType, currentScope);
 					} else {
 						generateReceiver(codeStream);
 					}
@@ -429,13 +419,9 @@ public void generatePostIncrement(BlockScope currentScope, CodeStream codeStream
 					codeStream.getstatic(fieldBinding);
 				} else {
 					if ((bits & DepthMASK) != 0) {
-						Object[] emulationPath = currentScope.getExactEmulationPath(currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT));
-						if (emulationPath == null) {
-							// internal error, per construction we should have found it
-							currentScope.problemReporter().needImplementation();
-						} else {
-							codeStream.generateOuterAccess(emulationPath, this, currentScope);
-						}
+						ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
+						Object[] emulationPath = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
+						codeStream.generateOuterAccess(emulationPath, this, targetType, currentScope);
 					} else {
 						generateReceiver(codeStream);
 					}

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.codeassist.complete;
 
 /*
@@ -38,7 +38,13 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 public class CompletionOnMessageSend extends MessageSend {
 
 	public TypeBinding resolveType(BlockScope scope) {
-		if (receiver == ThisReference.ThisImplicit)
+		if (arguments != null) {
+			int argsLength = arguments.length;
+			for (int a = argsLength; --a >= 0;)
+				arguments[a].resolveType(scope);
+		}
+		
+		if (receiver.isImplicitThis())
 			throw new CompletionNodeFound(this, null, scope);
 
 		TypeBinding receiverType = receiver.resolveType(scope);
@@ -53,7 +59,7 @@ public class CompletionOnMessageSend extends MessageSend {
 	public String toStringExpression() {
 
 		String s = "<CompleteOnMessageSend:"; //$NON-NLS-1$
-		if (receiver != ThisReference.ThisImplicit)
+		if (!receiver.isImplicitThis())
 			s = s + receiver.toStringExpression() + "."; //$NON-NLS-1$
 		s = s + new String(selector) + "("; //$NON-NLS-1$
 		if (arguments != null) {

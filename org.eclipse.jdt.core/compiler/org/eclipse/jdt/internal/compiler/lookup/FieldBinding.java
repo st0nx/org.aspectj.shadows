@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
@@ -138,6 +138,7 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 public final int getAccessFlags() {
 	return modifiers & AccJustFlag;
 }
+
 /* Answer true if the receiver has default visibility
 */
 
@@ -155,6 +156,12 @@ public final boolean isDeprecated() {
 
 public final boolean isPrivate() {
 	return (modifiers & AccPrivate) != 0;
+}
+/* Answer true if the receiver has private visibility and is used locally
+*/
+
+public final boolean isPrivateUsed() {
+	return (modifiers & AccPrivateUsed) != 0;
 }
 /* Answer true if the receiver has protected visibility
 */

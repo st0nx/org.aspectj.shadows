@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -35,9 +35,12 @@ public void copy(IJavaElement container, IJavaElement sibling, String rename, bo
 /**
  * @see ISourceReference
  */
-public ISourceRange getNameRange() {
+public ISourceRange getNameRange() throws JavaModelException {
 	SourceMapper mapper= getSourceMapper();
 	if (mapper != null) {
+		// ensure the class file's buffer is open so that source ranges are computed
+		((ClassFile)getClassFile()).getBuffer();
+		
 		return mapper.getNameRange(this);
 	} else {
 		return SourceMapper.fgUnknownRange;
@@ -49,6 +52,9 @@ public ISourceRange getNameRange() {
 public ISourceRange getSourceRange() throws JavaModelException {
 	SourceMapper mapper= getSourceMapper();
 	if (mapper != null) {
+		// ensure the class file's buffer is open so that source ranges are computed
+		((ClassFile)getClassFile()).getBuffer();
+
 		return mapper.getSourceRange(this);
 	} else {
 		return SourceMapper.fgUnknownRange;

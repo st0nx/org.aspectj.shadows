@@ -1,20 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.codegen;
 
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.ClassFile;
 
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.lookup.*;
-import org.eclipse.jdt.internal.compiler.util.*;
 
 /**
  * This type is used to store all the constant pool entries.
@@ -701,7 +701,7 @@ public int literalIndex(char[] utf8Constant) {
 		}
 		if (length >= 65535) {
 			currentOffset = savedCurrentOffset - 1;
-			return -1;
+			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceForConstant(this.classFile.referenceBinding.scope.referenceType());
 		}
 		index = UTF8Cache.put(utf8Constant, currentIndex);
 		if (index > 0xFFFF){

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search;
 
 import java.io.IOException;
@@ -25,7 +25,6 @@ import org.eclipse.jdt.internal.core.index.impl.IndexInput;
 import org.eclipse.jdt.internal.core.search.indexing.IndexManager;
 import org.eclipse.jdt.internal.core.search.indexing.ReadWriteMonitor;
 import org.eclipse.jdt.internal.core.search.matching.SearchPattern;
-import org.eclipse.jdt.internal.core.search.processing.JobManager;
 
 public class SubTypeSearchJob extends PatternSearchJob {
 
@@ -33,8 +32,15 @@ public class SubTypeSearchJob extends PatternSearchJob {
 public SubTypeSearchJob(SearchPattern pattern, IJavaSearchScope scope, int detailLevel, IIndexSearchRequestor requestor, IndexManager indexManager) {
 	super(pattern, scope, detailLevel, requestor, indexManager);
 }
-public SubTypeSearchJob(SearchPattern pattern, IJavaSearchScope scope, IJavaElement focus, int detailLevel, IIndexSearchRequestor requestor, org.eclipse.jdt.internal.core.search.indexing.IndexManager indexManager) {
-	super(pattern, scope, focus, detailLevel, requestor, indexManager);
+public SubTypeSearchJob(SearchPattern pattern, IJavaSearchScope scope, IJavaElement focus, int detailLevel, IIndexSearchRequestor requestor, IndexManager indexManager) {
+	super(
+		pattern, 
+		scope, 
+		focus, 
+		false/*not a polymorphic search*/, 
+		detailLevel, 
+		requestor, 
+		indexManager);
 }
 public void closeAll(){
 
@@ -65,9 +71,7 @@ public boolean search(IIndex index, IProgressMonitor progressMonitor) {
 			try {
 				monitor.exitRead(); // free read lock
 				monitor.enterWrite(); // ask permission to write
-				if (IndexManager.VERBOSE) 
-					JobManager.verbose("-> merging index " + index.getIndexFile()); //$NON-NLS-1$
-				index.save();
+				this.indexManager.saveIndex(index);
 			} catch(IOException e){
 				return FAILED;
 			} finally {

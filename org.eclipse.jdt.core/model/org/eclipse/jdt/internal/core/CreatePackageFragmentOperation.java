@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.ArrayList;
@@ -23,7 +23,6 @@ import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaConventions;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.Signature;
 
 /**
  * This operation creates a new package fragment under a given package fragment root. 
@@ -65,13 +64,14 @@ public CreatePackageFragmentOperation(IPackageFragmentRoot parentElement, String
  * @exception JavaModelException if the operation is unable to complete
  */
 protected void executeOperation() throws JavaModelException {
-	JavaElementDelta delta = newJavaElementDelta();
+	JavaElementDelta delta = null;
 	IPackageFragmentRoot root = (IPackageFragmentRoot) getParentElement();
-	String[] names = Signature.getSimpleNames(fName);
+	String[] names = Util.getTrimmedSimpleNames(fName);
 	beginTask(Util.bind("operation.createPackageFragmentProgress"), names.length); //$NON-NLS-1$
-	IContainer parentFolder = (IContainer) root.getUnderlyingResource();
+	IContainer parentFolder = (IContainer) root.getResource();
 	String sideEffectPackageName = ""; //$NON-NLS-1$
 	ArrayList resultElements = new ArrayList(names.length);
+	char[][] exclusionPatterns = ((PackageFragmentRoot)root).fullExclusionPatternChars();
 	int i;
 	for (i = 0; i < names.length; i++) {
 		String subFolderName = names[i];
@@ -81,7 +81,12 @@ protected void executeOperation() throws JavaModelException {
 			createFolder(parentFolder, subFolderName, fForce);
 			parentFolder = parentFolder.getFolder(new Path(subFolderName));
 			IPackageFragment addedFrag = root.getPackageFragment(sideEffectPackageName);
-			delta.added(addedFrag);
+			if (!Util.isExcluded(parentFolder, exclusionPatterns)) {
+				if (delta == null) {
+					delta = newJavaElementDelta();
+				}
+				delta.added(addedFrag);
+			}
 			resultElements.add(addedFrag);
 		} else {
 			parentFolder = (IContainer) subFolder;
@@ -92,7 +97,9 @@ protected void executeOperation() throws JavaModelException {
 	if (resultElements.size() > 0) {
 		fResultElements = new IJavaElement[resultElements.size()];
 		resultElements.toArray(fResultElements);
-		addDelta(delta);
+		if (delta != null) {
+			addDelta(delta);
+		}
 	}
 	done();
 }
@@ -122,21 +129,19 @@ public IJavaModelStatus verify() {
 	if (root.isReadOnly()) {
 		return new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, root);
 	}
-	String[] names = Signature.getSimpleNames(fName);
-	try {
-		IContainer parentFolder = (IContainer) root.getUnderlyingResource();
-		int i;
-		for (i = 0; i < names.length; i++) {
-			IResource subFolder = parentFolder.findMember(names[i]);
-			if (subFolder != null) {
-				if (subFolder.getType() != IResource.FOLDER) {
-					return new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION);
-				}
-				parentFolder = (IContainer) subFolder;
+	String[] names = Util.getTrimmedSimpleNames(fName);
+	IContainer parentFolder = (IContainer) root.getResource();
+	int i;
+	for (i = 0; i < names.length; i++) {
+		IResource subFolder = parentFolder.findMember(names[i]);
+		if (subFolder != null) {
+			if (subFolder.getType() != IResource.FOLDER) {
+				return new JavaModelStatus(
+					IJavaModelStatusConstants.NAME_COLLISION, 
+					Util.bind("status.nameCollision", subFolder.getFullPath().toString())); //$NON-NLS-1$
 			}
+			parentFolder = (IContainer) subFolder;
 		}
-	} catch (JavaModelException npe) {
-		return npe.getJavaModelStatus();
 	}
 	return JavaModelStatus.VERIFIED_OK;
 }

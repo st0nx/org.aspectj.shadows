@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.Locale;
@@ -15,15 +15,12 @@ import java.util.Map;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IProblemRequestor;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.Compiler;
-import org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies;
 import org.eclipse.jdt.internal.compiler.ICompilerRequestor;
 import org.eclipse.jdt.internal.compiler.IErrorHandlingPolicy;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
@@ -34,7 +31,6 @@ import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 /**
  * Responsible for resolving types inside a compilation unit being reconciled,
@@ -91,14 +87,20 @@ public class CompilationUnitProblemFinder extends Compiler {
 	 * Add additional source types
 	 */
 	public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding) {
+		// ensure to jump back to toplevel type for first one (could be a member)
+//		while (sourceTypes[0].getEnclosingType() != null)
+//			sourceTypes[0] = sourceTypes[0].getEnclosingType();
+
 		CompilationResult result =
 			new CompilationResult(sourceTypes[0].getFileName(), 1, 1, this.options.maxProblemsPerUnit);
+
 		// need to hold onto this
 		CompilationUnitDeclaration unit =
 			SourceTypeConverter.buildCompilationUnit(
-				sourceTypes,
-				true,
-				true,
+				sourceTypes,//sourceTypes[0] is always toplevel here
+				true, // need field and methods
+				true, // need member types
+				true, // need field initialization
 				lookupEnvironment.problemReporter,
 				result);
 
@@ -131,46 +133,6 @@ public class CompilationUnitProblemFinder extends Compiler {
 		};
 	}
 
-	public static CompilationUnitDeclaration resolve(
-		ICompilationUnit unitElement, 
-		IProblemRequestor problemRequestor,
-		IProgressMonitor monitor)
-		throws JavaModelException {
-
-		char[] fileName = unitElement.getElementName().toCharArray();
-		
-		CompilationUnitProblemFinder problemFinder =
-			new CompilationUnitProblemFinder(
-				getNameEnvironment(unitElement),
-				getHandlingPolicy(),
-				JavaCore.getOptions(),
-				getRequestor(),
-				getProblemFactory(fileName, problemRequestor, monitor));
-
-		CompilationUnitDeclaration unit = null;
-		try {
-			String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
-			
-			IPackageFragment packageFragment = (IPackageFragment)unitElement.getAncestor(IJavaElement.PACKAGE_FRAGMENT);
-			char[][] expectedPackageName = null;
-			if (packageFragment != null){
-				expectedPackageName = CharOperation.splitOn('.', packageFragment.getElementName().toCharArray());
-			}
-			unit = problemFinder.resolve(
-					new BasicCompilationUnit(
-						unitElement.getSource().toCharArray(),
-						expectedPackageName,
-						new String(fileName),
-						encoding));
-			return unit;
-		} finally {
-			if (unit != null) {
-				unit.cleanUp();
-			}
-			problemFinder.lookupEnvironment.reset();			
-		}
-	}
-	
 	protected static IProblemFactory getProblemFactory(
 		final char[] fileName, 
 		final IProblemRequestor problemRequestor,
@@ -180,7 +142,8 @@ public class CompilationUnitProblemFinder extends Compiler {
 			public IProblem createProblem(
 				char[] originatingFileName,
 				int problemId,
-				String[] arguments,
+				String[] problemArguments,
+				String[] messageArguments,
 				int severity,
 				int startPosition,
 				int endPosition,
@@ -194,7 +157,8 @@ public class CompilationUnitProblemFinder extends Compiler {
 					super.createProblem(
 						originatingFileName,
 						problemId,
-						arguments,
+						problemArguments,
+						messageArguments,
 						severity,
 						startPosition,
 						endPosition,
@@ -215,5 +179,48 @@ public class CompilationUnitProblemFinder extends Compiler {
 		};
 	}
 
+	public static CompilationUnitDeclaration process(
+		ICompilationUnit unitElement, 
+		IProblemRequestor problemRequestor,
+		IProgressMonitor monitor)
+		throws JavaModelException {
+
+		char[] fileName = unitElement.getElementName().toCharArray();
+		
+		IJavaProject project = unitElement.getJavaProject();
+		CompilationUnitProblemFinder problemFinder =
+			new CompilationUnitProblemFinder(
+				getNameEnvironment(unitElement),
+				getHandlingPolicy(),
+				project.getOptions(true),
+				getRequestor(),
+				getProblemFactory(fileName, problemRequestor, monitor));
+
+		CompilationUnitDeclaration unit = null;
+		try {
+			String encoding = project.getOption(JavaCore.CORE_ENCODING, true);
+			
+			IPackageFragment packageFragment = (IPackageFragment)unitElement.getAncestor(IJavaElement.PACKAGE_FRAGMENT);
+			char[][] expectedPackageName = null;
+			if (packageFragment != null){
+				expectedPackageName = CharOperation.splitOn('.', packageFragment.getElementName().toCharArray());
+			}
+			unit = problemFinder.resolve(
+					new BasicCompilationUnit(
+						unitElement.getSource().toCharArray(),
+						expectedPackageName,
+						new String(fileName),
+						encoding),
+					true, // verify methods
+					true, // analyze code
+					true); // generate code
+			return unit;
+		} finally {
+			if (unit != null) {
+				unit.cleanUp();
+			}
+			problemFinder.lookupEnvironment.reset();			
+		}
+	}
 }	
 

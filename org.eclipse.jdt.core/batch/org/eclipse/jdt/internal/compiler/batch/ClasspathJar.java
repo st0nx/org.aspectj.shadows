@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.batch;
 
 import java.io.File;
@@ -35,7 +35,8 @@ public ClasspathJar(ZipFile zipFile, boolean closeZipFileAtEnd) throws IOExcepti
 	this.closeZipFileAtEnd = closeZipFileAtEnd;
 }	
 public NameEnvironmentAnswer findClass(char[] typeName, String qualifiedPackageName, String qualifiedBinaryFileName) {
-	if (!isPackage(qualifiedPackageName)) return null; // most common case
+	if (!isPackage(qualifiedPackageName)) 
+		return null; // most common case
 
 	try {
 		ClassFileReader reader = ClassFileReader.read(zipFile, qualifiedBinaryFileName);
@@ -73,6 +74,6 @@ public void reset() {
 	this.packageCache = null;
 }
 public String toString() {
-	return "Classpath for jar file " + zipFile; //$NON-NLS-1$
+	return "Classpath for jar file " + zipFile.getName(); //$NON-NLS-1$
 }
 }

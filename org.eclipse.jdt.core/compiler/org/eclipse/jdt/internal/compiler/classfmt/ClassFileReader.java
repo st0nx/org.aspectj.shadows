@@ -1,24 +1,25 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.classfmt;
 
-import org.eclipse.jdt.internal.compiler.codegen.*;
+import java.io.File;
+import java.io.IOException;
+import java.util.Arrays;
+
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.codegen.AttributeNamesConstants;
 import org.eclipse.jdt.internal.compiler.env.*;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
-import org.eclipse.jdt.internal.compiler.impl.NullConstant;
 import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
-import org.eclipse.jdt.internal.compiler.util.*;
-
-import java.io.*;
-import java.util.Arrays;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class ClassFileReader extends ClassFileStruct implements AttributeNamesConstants, IBinaryType {
 	private int constantPoolCount;
@@ -373,7 +374,11 @@ public IBinaryMethod[] getMethods() {
  */
 public int getModifiers() {
 	if (this.innerInfo != null) {
-		return this.innerInfo.getModifiers();
+		if ((this.accessFlags & AccDeprecated) != 0) {
+			return this.innerInfo.getModifiers() | AccDeprecated;
+		} else {
+			return this.innerInfo.getModifiers();
+		}
 	}
 	return this.accessFlags;
 }
@@ -709,8 +714,6 @@ private boolean hasStructuralFieldChanges(FieldInfo currentFieldInfo, FieldInfo 
 				return currentConstant.booleanValue() != otherConstant.booleanValue();
 			case TypeIds.T_String :
 				return !currentConstant.stringValue().equals(otherConstant.stringValue());
-			case TypeIds.T_null :
-				return otherConstant != NullConstant.Default;
 		}
 	}
 	return false;

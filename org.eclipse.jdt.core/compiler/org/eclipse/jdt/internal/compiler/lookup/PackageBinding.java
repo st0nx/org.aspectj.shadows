@@ -1,16 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfPackage;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfType;
 
@@ -36,15 +36,15 @@ public PackageBinding(char[] topLevelPackageName, LookupEnvironment environment)
 */
 
 public PackageBinding(LookupEnvironment environment) {
-	this(NoCharChar, null, environment);
+	this(CharOperation.NO_CHAR_CHAR, null, environment);
 }
 private void addNotFoundPackage(char[] simpleName) {
-	knownPackages.put(simpleName, environment.theNotFoundPackage);
+	knownPackages.put(simpleName, LookupEnvironment.TheNotFoundPackage);
 }
 private void addNotFoundType(char[] simpleName) {
 	if (knownTypes == null)
 		knownTypes = new HashtableOfType(25);
-	knownTypes.put(simpleName, environment.theNotFoundType);
+	knownTypes.put(simpleName, LookupEnvironment.TheNotFoundType);
 }
 void addPackage(PackageBinding element) {
 	knownPackages.put(element.compoundName[element.compoundName.length - 1], element);
@@ -79,7 +79,7 @@ private PackageBinding findPackage(char[] name) {
 PackageBinding getPackage(char[] name) {
 	PackageBinding binding = getPackage0(name);
 	if (binding != null) {
-		if (binding == environment.theNotFoundPackage)
+		if (binding == LookupEnvironment.TheNotFoundPackage)
 			return null;
 		else
 			return binding;
@@ -120,7 +120,7 @@ ReferenceBinding getType(char[] name) {
 		}
 	}
 
-	if (binding == environment.theNotFoundType)
+	if (binding == LookupEnvironment.TheNotFoundType)
 		return null;
 	if (binding instanceof UnresolvedReferenceBinding)
 		binding = ((UnresolvedReferenceBinding) binding).resolve(environment);
@@ -153,11 +153,11 @@ ReferenceBinding getType0(char[] name) {
 
 public Binding getTypeOrPackage(char[] name) {
 	PackageBinding packageBinding = getPackage0(name);
-	if (packageBinding != null && packageBinding != environment.theNotFoundPackage)
+	if (packageBinding != null && packageBinding != LookupEnvironment.TheNotFoundPackage)
 		return packageBinding;
 
 	ReferenceBinding typeBinding = getType0(name);
-	if (typeBinding != null && typeBinding != environment.theNotFoundType) {
+	if (typeBinding != null && typeBinding != LookupEnvironment.TheNotFoundType) {
 		if (typeBinding instanceof UnresolvedReferenceBinding)
 			typeBinding = ((UnresolvedReferenceBinding) typeBinding).resolve(environment);
 		if (typeBinding.isNestedType())
@@ -165,11 +165,10 @@ public Binding getTypeOrPackage(char[] name) {
 		return typeBinding;
 	}
 
-	if (typeBinding == null && packageBinding == null) {
-		// find the package
-		if ((packageBinding = findPackage(name)) != null)
-			return packageBinding;
-
+	// always look for the name as a sub-package if its not a known type
+	if (packageBinding == null && (packageBinding = findPackage(name)) != null)
+		return packageBinding;
+	if (typeBinding == null) {
 		// if no package was found, find the type named name relative to the receiver
 		if ((typeBinding = environment.askForType(this, name)) != null) {
 			if (typeBinding.isNestedType())
@@ -182,9 +181,9 @@ public Binding getTypeOrPackage(char[] name) {
 		addNotFoundPackage(name);
 		addNotFoundType(name);
 	} else {
-		if (packageBinding == environment.theNotFoundPackage)
+		if (packageBinding == LookupEnvironment.TheNotFoundPackage)
 			packageBinding = null;
-		if (typeBinding == environment.theNotFoundType)
+		if (typeBinding == LookupEnvironment.TheNotFoundType)
 			typeBinding = null;
 	}
 
@@ -197,7 +196,7 @@ public char[] readableName() /*java.lang*/ {
 	return CharOperation.concatWith(compoundName, '.');
 }
 public String toString() {
-	if (compoundName == NoCharChar)
+	if (compoundName == CharOperation.NO_CHAR_CHAR)
 		return "The Default Package"; //$NON-NLS-1$
 	else
 		return "package " + ((compoundName != null) ? CharOperation.toString(compoundName) : "UNNAMED"); //$NON-NLS-1$ //$NON-NLS-2$

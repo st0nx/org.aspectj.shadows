@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import java.io.IOException;
@@ -23,7 +23,7 @@ import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
-import org.eclipse.jdt.core.compiler.ITerminalSymbols;
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.core.search.IJavaSearchConstants;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
@@ -36,19 +36,22 @@ import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 import org.eclipse.jdt.internal.core.index.IEntryResult;
 import org.eclipse.jdt.internal.core.index.IIndex;
 import org.eclipse.jdt.internal.core.index.impl.BlocksIndexInput;
 import org.eclipse.jdt.internal.core.index.impl.IndexInput;
 import org.eclipse.jdt.internal.core.search.IIndexSearchRequestor;
-import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants; 
+import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
 public abstract class SearchPattern implements ISearchPattern, IIndexConstants, IJavaSearchConstants {
 
 	protected int matchMode;
 	protected boolean isCaseSensitive;
-	protected boolean needsResolve = true;
+	public boolean needsResolve = true;
+
+	/* focus element (used for reference patterns*/
+	public IJavaElement focus;
 
 	/* match level */
 	public static final int IMPOSSIBLE_MATCH = 0;
@@ -62,8 +65,6 @@ public abstract class SearchPattern implements ISearchPattern, IIndexConstants, 
 	public static final int FIELD = 4;
 	public static final int METHOD = 8;
 	
-
-
 public SearchPattern(int matchMode, boolean isCaseSensitive) {
 	this.matchMode = matchMode;
 	this.isCaseSensitive = isCaseSensitive;
@@ -75,7 +76,7 @@ public SearchPattern(int matchMode, boolean isCaseSensitive) {
  */
 private static SearchPattern createConstructorPattern(String patternString, int limitTo, int matchMode, boolean isCaseSensitive) {
 
-	Scanner scanner = new Scanner(false, true); // tokenize white spaces
+	Scanner scanner = new Scanner(false /*comment*/, true /*whitespace*/, false /*nls*/, false /*assert*/, null /*taskTags*/, null/*taskPriorities*/);
 	scanner.setSource(patternString.toCharArray());
 	final int InsideName = 1;
 	final int InsideParameter = 2;
@@ -91,13 +92,13 @@ private static SearchPattern createConstructorPattern(String patternString, int 
 	} catch (InvalidInputException e) {
 		return null;
 	}
-	while (token != ITerminalSymbols.TokenNameEOF){
+	while (token != TerminalTokens.TokenNameEOF){
 		switch(mode){
 
 			// read declaring type and selector
 			case InsideName :
 				switch (token) {
-					case ITerminalSymbols.TokenNameDOT:
+					case TerminalTokens.TokenNameDOT:
 						if (declaringQualification == null){
 							if (typeName == null) return null;
 							declaringQualification = typeName;
@@ -107,23 +108,19 @@ private static SearchPattern createConstructorPattern(String patternString, int 
 						}
 						typeName = null;
 						break;
-					case ITerminalSymbols.TokenNameLPAREN:
+					case TerminalTokens.TokenNameLPAREN:
 						parameterTypes = new String[5];
 						parameterCount = 0;
 						mode = InsideParameter;
 						break;
 					case Scanner.TokenNameWHITESPACE:
 						break;
-					case ITerminalSymbols.TokenNameIdentifier:
-					case ITerminalSymbols.TokenNameMULTIPLY:
+					default: // all other tokens are considered identifiers (see bug 21763 Problem in Java search [search])
 						if (typeName == null) {
 							typeName = new String(scanner.getCurrentTokenSource());
 						} else {
 							typeName += new String(scanner.getCurrentTokenSource());
 						}
-						break;
-					default:
-						return null;
 				}
 				break;
 			// read parameter types
@@ -131,7 +128,7 @@ private static SearchPattern createConstructorPattern(String patternString, int 
 				switch (token) {
 					case Scanner.TokenNameWHITESPACE:
 						break;
-					case ITerminalSymbols.TokenNameCOMMA:
+					case TerminalTokens.TokenNameCOMMA:
 						if (parameterType == null) return null;
 						if (parameterTypes.length == parameterCount){
 							System.arraycopy(parameterTypes, 0, parameterTypes = new String[parameterCount*2], 0, parameterCount);
@@ -139,7 +136,7 @@ private static SearchPattern createConstructorPattern(String patternString, int 
 						parameterTypes[parameterCount++] = parameterType;
 						parameterType = null;
 						break;
-					case ITerminalSymbols.TokenNameRPAREN:
+					case TerminalTokens.TokenNameRPAREN:
 						foundClosingParenthesis = true;
 						if (parameterType != null){
 							if (parameterTypes.length == parameterCount){
@@ -148,28 +145,12 @@ private static SearchPattern createConstructorPattern(String patternString, int 
 							parameterTypes[parameterCount++] = parameterType;
 						}
 						break;
-					case ITerminalSymbols.TokenNameDOT:
-					case ITerminalSymbols.TokenNameIdentifier:
-					case ITerminalSymbols.TokenNameMULTIPLY:
-					case ITerminalSymbols.TokenNameLBRACKET:
-					case ITerminalSymbols.TokenNameRBRACKET:
-					case ITerminalSymbols.TokenNameboolean:
-					case ITerminalSymbols.TokenNamebyte:
-					case ITerminalSymbols.TokenNamechar:
-					case ITerminalSymbols.TokenNamedouble:
-					case ITerminalSymbols.TokenNamefloat:
-					case ITerminalSymbols.TokenNameint:
-					case ITerminalSymbols.TokenNamelong:
-					case ITerminalSymbols.TokenNameshort:
-					case ITerminalSymbols.TokenNamevoid:
+					default: // all other tokens are considered identifiers (see bug 21763 Problem in Java search [search])
 						if (parameterType == null){
 							parameterType = new String(scanner.getCurrentTokenSource());
 						} else {
 							parameterType += new String(scanner.getCurrentTokenSource());
 						}
-						break;
-					default:
-						return null;
 				}
 				break;
 		}
@@ -266,7 +247,7 @@ private static SearchPattern createConstructorPattern(String patternString, int 
  */
 private static SearchPattern createFieldPattern(String patternString, int limitTo, int matchMode, boolean isCaseSensitive) {
 
-	Scanner scanner = new Scanner(false, true); // tokenize white spaces
+	Scanner scanner = new Scanner(false /*comment*/, true /*whitespace*/, false /*nls*/, false /*assert*/, null /*taskTags*/, null/*taskPriorities*/); 
 	scanner.setSource(patternString.toCharArray());
 	final int InsideDeclaringPart = 1;
 	final int InsideType = 2;
@@ -281,13 +262,13 @@ private static SearchPattern createFieldPattern(String patternString, int limitT
 	} catch (InvalidInputException e) {
 		return null;
 	}
-	while (token != ITerminalSymbols.TokenNameEOF){
+	while (token != TerminalTokens.TokenNameEOF){
 		switch(mode){
 
 			// read declaring type and fieldName
 			case InsideDeclaringPart :
 				switch (token) {
-					case ITerminalSymbols.TokenNameDOT:
+					case TerminalTokens.TokenNameDOT:
 						if (declaringType == null){
 							if (fieldName == null) return null;
 							declaringType = fieldName;
@@ -299,20 +280,16 @@ private static SearchPattern createFieldPattern(String patternString, int limitT
 						break;
 					case Scanner.TokenNameWHITESPACE:
 						if (!(Scanner.TokenNameWHITESPACE == lastToken 
-							|| ITerminalSymbols.TokenNameDOT == lastToken)){
+							|| TerminalTokens.TokenNameDOT == lastToken)){
 							mode = InsideType;
 						}
 						break;
-					case ITerminalSymbols.TokenNameIdentifier:
-					case ITerminalSymbols.TokenNameMULTIPLY:
+					default: // all other tokens are considered identifiers (see bug 21763 Problem in Java search [search])
 						if (fieldName == null) {
 							fieldName = new String(scanner.getCurrentTokenSource());
 						} else {
 							fieldName += new String(scanner.getCurrentTokenSource());
 						}
-						break;
-					default:
-						return null;
 				}
 				break;
 			// read type 
@@ -320,28 +297,12 @@ private static SearchPattern createFieldPattern(String patternString, int limitT
 				switch (token) {
 					case Scanner.TokenNameWHITESPACE:
 						break;
-					case ITerminalSymbols.TokenNameDOT:
-					case ITerminalSymbols.TokenNameIdentifier:
-					case ITerminalSymbols.TokenNameMULTIPLY:
-					case ITerminalSymbols.TokenNameLBRACKET:
-					case ITerminalSymbols.TokenNameRBRACKET:
-					case ITerminalSymbols.TokenNameboolean:
-					case ITerminalSymbols.TokenNamebyte:
-					case ITerminalSymbols.TokenNamechar:
-					case ITerminalSymbols.TokenNamedouble:
-					case ITerminalSymbols.TokenNamefloat:
-					case ITerminalSymbols.TokenNameint:
-					case ITerminalSymbols.TokenNamelong:
-					case ITerminalSymbols.TokenNameshort:
-					case ITerminalSymbols.TokenNamevoid:
+					default: // all other tokens are considered identifiers (see bug 21763 Problem in Java search [search])
 						if (type == null){
 							type = new String(scanner.getCurrentTokenSource());
 						} else {
 							type += new String(scanner.getCurrentTokenSource());
 						}
-						break;
-					default:
-						return null;
 				}
 				break;
 		}
@@ -478,7 +439,7 @@ private static SearchPattern createFieldPattern(String patternString, int limitT
  */
 private static SearchPattern createMethodPattern(String patternString, int limitTo, int matchMode, boolean isCaseSensitive) {
 
-	Scanner scanner = new Scanner(false, true); // tokenize white spaces
+	Scanner scanner = new Scanner(false /*comment*/, true /*whitespace*/, false /*nls*/, false /*assert*/, null /*taskTags*/, null/*taskPriorities*/); 
 	scanner.setSource(patternString.toCharArray());
 	final int InsideSelector = 1;
 	final int InsideParameter = 2;
@@ -497,13 +458,13 @@ private static SearchPattern createMethodPattern(String patternString, int limit
 	} catch (InvalidInputException e) {
 		return null;
 	}
-	while (token != ITerminalSymbols.TokenNameEOF){
+	while (token != TerminalTokens.TokenNameEOF){
 		switch(mode){
 
 			// read declaring type and selector
 			case InsideSelector :
 				switch (token) {
-					case ITerminalSymbols.TokenNameDOT:
+					case TerminalTokens.TokenNameDOT:
 						if (declaringType == null){
 							if (selector == null) return null;
 							declaringType = selector;
@@ -513,27 +474,24 @@ private static SearchPattern createMethodPattern(String patternString, int limit
 						}
 						selector = null;
 						break;
-					case ITerminalSymbols.TokenNameLPAREN:
+					case TerminalTokens.TokenNameLPAREN:
 						parameterTypes = new String[5];
 						parameterCount = 0;
 						mode = InsideParameter;
 						break;
 					case Scanner.TokenNameWHITESPACE:
 						if (!(Scanner.TokenNameWHITESPACE == lastToken 
-							|| ITerminalSymbols.TokenNameDOT == lastToken)){
+							|| TerminalTokens.TokenNameDOT == lastToken)){
 							mode = InsideReturnType;
 						}
 						break;
-					case ITerminalSymbols.TokenNameIdentifier:
-					case ITerminalSymbols.TokenNameMULTIPLY:
+					default: // all other tokens are considered identifiers (see bug 21763 Problem in Java search [search])
 						if (selector == null) {
 							selector = new String(scanner.getCurrentTokenSource());
 						} else {
 							selector += new String(scanner.getCurrentTokenSource());
 						}
 						break;
-					default:
-						return null;
 				}
 				break;
 			// read parameter types
@@ -541,7 +499,7 @@ private static SearchPattern createMethodPattern(String patternString, int limit
 				switch (token) {
 					case Scanner.TokenNameWHITESPACE:
 						break;
-					case ITerminalSymbols.TokenNameCOMMA:
+					case TerminalTokens.TokenNameCOMMA:
 						if (parameterType == null) return null;
 						if (parameterTypes.length == parameterCount){
 							System.arraycopy(parameterTypes, 0, parameterTypes = new String[parameterCount*2], 0, parameterCount);
@@ -549,7 +507,7 @@ private static SearchPattern createMethodPattern(String patternString, int limit
 						parameterTypes[parameterCount++] = parameterType;
 						parameterType = null;
 						break;
-					case ITerminalSymbols.TokenNameRPAREN:
+					case TerminalTokens.TokenNameRPAREN:
 						foundClosingParenthesis = true;
 						if (parameterType != null){
 							if (parameterTypes.length == parameterCount){
@@ -559,28 +517,12 @@ private static SearchPattern createMethodPattern(String patternString, int limit
 						}
 						mode = InsideReturnType;
 						break;
-					case ITerminalSymbols.TokenNameDOT:
-					case ITerminalSymbols.TokenNameIdentifier:
-					case ITerminalSymbols.TokenNameMULTIPLY:
-					case ITerminalSymbols.TokenNameLBRACKET:
-					case ITerminalSymbols.TokenNameRBRACKET:
-					case ITerminalSymbols.TokenNameboolean:
-					case ITerminalSymbols.TokenNamebyte:
-					case ITerminalSymbols.TokenNamechar:
-					case ITerminalSymbols.TokenNamedouble:
-					case ITerminalSymbols.TokenNamefloat:
-					case ITerminalSymbols.TokenNameint:
-					case ITerminalSymbols.TokenNamelong:
-					case ITerminalSymbols.TokenNameshort:
-					case ITerminalSymbols.TokenNamevoid:
+					default: // all other tokens are considered identifiers (see bug 21763 Problem in Java search [search])
 						if (parameterType == null){
 							parameterType = new String(scanner.getCurrentTokenSource());
 						} else {
 							parameterType += new String(scanner.getCurrentTokenSource());
 						}
-						break;
-					default:
-						return null;
 				}
 				break;
 			// read return type
@@ -588,28 +530,12 @@ private static SearchPattern createMethodPattern(String patternString, int limit
 				switch (token) {
 					case Scanner.TokenNameWHITESPACE:
 						break;
-					case ITerminalSymbols.TokenNameDOT:
-					case ITerminalSymbols.TokenNameIdentifier:
-					case ITerminalSymbols.TokenNameMULTIPLY:
-					case ITerminalSymbols.TokenNameLBRACKET:
-					case ITerminalSymbols.TokenNameRBRACKET:
-					case ITerminalSymbols.TokenNameboolean:
-					case ITerminalSymbols.TokenNamebyte:
-					case ITerminalSymbols.TokenNamechar:
-					case ITerminalSymbols.TokenNamedouble:
-					case ITerminalSymbols.TokenNamefloat:
-					case ITerminalSymbols.TokenNameint:
-					case ITerminalSymbols.TokenNamelong:
-					case ITerminalSymbols.TokenNameshort:
-					case ITerminalSymbols.TokenNamevoid:
+					default: // all other tokens are considered identifiers (see bug 21763 Problem in Java search [search])
 						if (returnType == null){
 							returnType = new String(scanner.getCurrentTokenSource());
 						} else {
 							returnType += new String(scanner.getCurrentTokenSource());
 						}
-						break;
-					default:
-						return null;
 				}
 				break;
 		}
@@ -798,7 +724,7 @@ public static SearchPattern createPattern(IJavaElement element, int limitTo) {
 			String fullDeclaringName = field.getDeclaringType().getFullyQualifiedName().replace('$', '.');
 			lastDot = fullDeclaringName.lastIndexOf('.');
 			char[] declaringSimpleName = (lastDot != -1 ? fullDeclaringName.substring(lastDot + 1) : fullDeclaringName).toCharArray();
-			char[] declaringQualification = lastDot != -1 ? fullDeclaringName.substring(0, lastDot).toCharArray() : NO_CHAR;
+			char[] declaringQualification = lastDot != -1 ? fullDeclaringName.substring(0, lastDot).toCharArray() : CharOperation.NO_CHAR;
 			char[] name = field.getElementName().toCharArray();
 			char[] typeSimpleName;
 			char[] typeQualification;
@@ -916,7 +842,7 @@ public static SearchPattern createPattern(IJavaElement element, int limitTo) {
 			fullDeclaringName = method.getDeclaringType().getFullyQualifiedName().replace('$', '.');
 			lastDot = fullDeclaringName.lastIndexOf('.');
 			declaringSimpleName = (lastDot != -1 ? fullDeclaringName.substring(lastDot + 1) : fullDeclaringName).toCharArray();
-			declaringQualification = lastDot != -1 ? fullDeclaringName.substring(0, lastDot).toCharArray() : NO_CHAR;
+			declaringQualification = lastDot != -1 ? fullDeclaringName.substring(0, lastDot).toCharArray() : CharOperation.NO_CHAR;
 			char[] selector = method.getElementName().toCharArray();
 			char[] returnSimpleName;
 			char[] returnQualification;
@@ -1058,6 +984,9 @@ public static SearchPattern createPattern(IJavaElement element, int limitTo) {
 			searchPattern = createPackagePattern(element.getElementName(), limitTo, EXACT_MATCH, CASE_SENSITIVE);
 			break;
 	}
+	if (searchPattern != null) {
+		searchPattern.focus = element;
+	}
 	return searchPattern;
 }
 private static SearchPattern createTypePattern(char[] simpleName, char[] packageName, char[][] enclosingTypeNames, int limitTo) {
@@ -1115,7 +1044,7 @@ private static SearchPattern createTypePattern(char[] simpleName, char[] package
  */
 private static SearchPattern createTypePattern(String patternString, int limitTo, int matchMode, boolean isCaseSensitive) {
 
-	Scanner scanner = new Scanner(false, true); // tokenize white spaces
+	Scanner scanner = new Scanner(false /*comment*/, true /*whitespace*/, false /*nls*/, false /*assert*/, null /*taskTags*/, null/*taskPriorities*/); 
 	scanner.setSource(patternString.toCharArray());
 	String type = null;
 	int token;
@@ -1124,32 +1053,16 @@ private static SearchPattern createTypePattern(String patternString, int limitTo
 	} catch (InvalidInputException e) {
 		return null;
 	}
-	while (token != ITerminalSymbols.TokenNameEOF){
+	while (token != TerminalTokens.TokenNameEOF){
 		switch (token) {
 			case Scanner.TokenNameWHITESPACE:
 				break;
-			case ITerminalSymbols.TokenNameDOT:
-			case ITerminalSymbols.TokenNameIdentifier:
-			case ITerminalSymbols.TokenNameMULTIPLY:
-			case ITerminalSymbols.TokenNameLBRACKET:
-			case ITerminalSymbols.TokenNameRBRACKET:
-			case ITerminalSymbols.TokenNameboolean:
-			case ITerminalSymbols.TokenNamebyte:
-			case ITerminalSymbols.TokenNamechar:
-			case ITerminalSymbols.TokenNamedouble:
-			case ITerminalSymbols.TokenNamefloat:
-			case ITerminalSymbols.TokenNameint:
-			case ITerminalSymbols.TokenNamelong:
-			case ITerminalSymbols.TokenNameshort:
-			case ITerminalSymbols.TokenNamevoid:
+			default: // all other tokens are considered identifiers (see bug 21763 Problem in Java search [search])
 				if (type == null){
 					type = new String(scanner.getCurrentTokenSource());
 				} else {
 					type += new String(scanner.getCurrentTokenSource());
 				}
-				break;
-			default:
-				return null;
 		}
 		try {
 			token = scanner.getNextToken();
@@ -1207,16 +1120,16 @@ private static char[][] enclosingTypeNames(IType type) {
 			// (see bug 20532  Declaration of member binary type not found)
 			IType declaringType = type.getDeclaringType();
 			if (declaringType == null) {
-				return NO_CHAR_CHAR;
+				return CharOperation.NO_CHAR_CHAR;
 			} else {
 				return CharOperation.arrayConcat(
 					enclosingTypeNames(declaringType), 
 					declaringType.getElementName().toCharArray());
 			}
 		case IJavaElement.COMPILATION_UNIT:
-			return 	NO_CHAR_CHAR;
+			return CharOperation.NO_CHAR_CHAR;
 		case IJavaElement.TYPE:
-			return 	CharOperation.arrayConcat(
+			return CharOperation.arrayConcat(
 				enclosingTypeNames((IType)parent), 
 				parent.getElementName().toCharArray());
 		default:
@@ -1304,6 +1217,7 @@ public boolean matchesBinary(Object binaryInfo, Object enclosingBinaryInfo) {
  * Returns whether the given name matches the given pattern.
  */
 protected boolean matchesName(char[] pattern, char[] name) {
+	if (pattern == null) return true; // null is as if it was "*"
 	if (name != null){
 		switch (this.matchMode) {
 			case EXACT_MATCH :
@@ -1311,6 +1225,9 @@ protected boolean matchesName(char[] pattern, char[] name) {
 			case PREFIX_MATCH :
 				return CharOperation.prefixEquals(pattern, name, this.isCaseSensitive);
 			case PATTERN_MATCH :
+				if (!this.isCaseSensitive) {
+					pattern = CharOperation.toLowerCase(pattern);
+				}
 				return CharOperation.match(pattern, name, this.isCaseSensitive);
 		}
 	}
@@ -1334,6 +1251,9 @@ protected boolean matchesType(char[] simpleNamePattern, char[] qualificationPatt
 		} else {
 			pattern = CharOperation.concat(qualificationPattern, simpleNamePattern, '.');
 		}
+	}
+	if (!this.isCaseSensitive) {
+		pattern = CharOperation.toLowerCase(pattern);
 	}
 	return 
 		CharOperation.match(
@@ -1379,17 +1299,18 @@ public String toString(){
 	return "SearchPattern"; //$NON-NLS-1$
 }
 
-
-
-
-
-
-
 /**
  * Initializes this search pattern so that polymorphic search can be performed.
  */ 
 public void initializePolymorphicSearch(MatchLocator locator, IProgressMonitor progressMonitor) {
 	// default is to do nothing
+}
+
+/*
+ * Returns whether this pattern is a polymorphic search pattern.
+ */
+public boolean isPolymorphicSearch() {
+	return false;
 }
 
 /**

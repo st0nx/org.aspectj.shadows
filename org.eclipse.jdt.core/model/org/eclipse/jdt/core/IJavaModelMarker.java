@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 /**
@@ -34,18 +34,31 @@ public interface IJavaModelMarker {
 	 * detected by the outliner, or a problem detected during a code completion)
 	 */
 	public static final String TRANSIENT_PROBLEM = JavaCore.PLUGIN_ID + ".transient_problem"; //$NON-NLS-1$
+
+	/**
+	 * Java model task marker type (value <code>"org.eclipse.jdt.core.task"</code>).
+	 * This can be used to recognize task markers in the workspace that correspond to tasks
+	 * specified in Java source comments and detected during compilation (e.g. 'TO-DO: ...').
+	 * Tasks are identified by a task tag, which can be customized through <code>JavaCore</code>
+	 * option <code>"org.eclipse.jdt.core.compiler.taskTag"</code>.
+	 * @since 2.1
+	 */
+	public static final String TASK_MARKER = JavaCore.PLUGIN_ID + ".task"; //$NON-NLS-1$
+
     
     /** 
 	 * Id marker attribute (value <code>"arguments"</code>).
-	 * Reserved for future use.
-	 * 
+	 * Arguments are concatenated into one String, prefixed with an argument count (followed with colon
+	 * separator) and separated with '#' characters.
+	 * e.g. 
+	 *     { "foo", "bar" } is encoded as "2:foo#bar",     
+	 *     {  } is encoded as "0: "
 	 * @since 2.0
 	 */
 	 public static final String ARGUMENTS = "arguments"; //$NON-NLS-1$
     
 	/** 
 	 * Id marker attribute (value <code>"id"</code>).
-	 * Reserved for future use.
 	 */
 	 public static final String ID = "id"; //$NON-NLS-1$
 

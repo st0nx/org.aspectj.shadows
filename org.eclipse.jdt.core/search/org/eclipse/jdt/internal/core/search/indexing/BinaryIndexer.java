@@ -1,23 +1,23 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.indexing;
 
 import java.io.IOException;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileStruct;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.compiler.classfmt.FieldInfo;
 import org.eclipse.jdt.internal.compiler.classfmt.MethodInfo;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.core.index.IDocument;
 
 public class BinaryIndexer extends AbstractIndexer {
@@ -413,8 +413,16 @@ private void extractReferenceFromConstantPool(byte[] contents, ClassFileReader r
 				}
 				break;
 			case ClassFileStruct.ClassTag :
+				// add a type reference 
 				name = replace('/', '.', extractClassReference(constantPoolOffsets, reader, i)); // so that it looks like java.lang.String
 				addTypeReference(name);
+				
+				// also add a simple reference on each segment of the qualification (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=24741)
+				char[][] qualification = CharOperation.splitOn('.', name);
+				for (int j = 0, length = qualification.length; j < length; j++) {
+					addNameReference(qualification[j]);
+				}
+				break;
 		}
 	}
 }
@@ -448,7 +456,7 @@ private void indexClassFile(byte[] contents, char[] documentName) throws IOExcep
 		char[] enclosingTypeName = null;
 		if (reader.isNestedType()) {
 			if (reader.isAnonymous()) {
-				name = NO_CHAR;
+				name = CharOperation.NO_CHAR;
 			} else {
 				name = reader.getInnerSourceName();
 			}

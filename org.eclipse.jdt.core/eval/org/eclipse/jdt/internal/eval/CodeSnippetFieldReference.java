@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
  
 import org.eclipse.jdt.internal.compiler.ast.Assignment;
@@ -15,7 +15,6 @@ import org.eclipse.jdt.internal.compiler.ast.CompoundAssignment;
 import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.FieldReference;
 import org.eclipse.jdt.internal.compiler.ast.IntLiteral;
-import org.eclipse.jdt.internal.compiler.ast.ThisReference;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
@@ -72,6 +71,7 @@ public void generateAssignment(BlockScope currentScope, CodeStream codeStream, A
  * @param valueRequired boolean
  */
 public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean valueRequired) {
+
 	int pc = codeStream.position;
 	if (constant != NotAConstant) {
 		if (valueRequired) {
@@ -79,7 +79,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 		}
 	} else {
 		boolean isStatic = this.codegenBinding.isStatic();
-		receiver.generateCode(currentScope, codeStream, valueRequired && (!isStatic) && (this.codegenBinding.constant == NotAConstant));
+		receiver.generateCode(currentScope, codeStream, !isStatic);
 		if (valueRequired) {
 			if (this.codegenBinding.constant == NotAConstant) {
 				if (this.codegenBinding.declaringClass == null) { // array length
@@ -101,12 +101,22 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 				}
 				codeStream.generateImplicitConversion(implicitConversion);
 			} else {
+				if (!isStatic) {
+					codeStream.invokeObjectGetClass(); // perform null check
+					codeStream.pop();
+				}
 				codeStream.generateConstant(this.codegenBinding.constant, implicitConversion);
+			}
+		} else {
+			if (!isStatic){
+				codeStream.invokeObjectGetClass(); // perform null check
+				codeStream.pop();
 			}
 		}
 	}
 	codeStream.recordPositionsFrom(pc, this.sourceStart);
 }
+
 public void generateCompoundAssignment(BlockScope currentScope, CodeStream codeStream, Expression expression, int operator, int assignmentImplicitConversion, boolean valueRequired) {
 	
 	boolean isStatic;
@@ -274,12 +284,12 @@ public void manageSyntheticReadAccessIfNecessary(BlockScope currentScope){
 
 	// if the binding declaring class is not visible, need special action
 	// for runtime compatibility on 1.2 VMs : change the declaring class of the binding
-	// NOTE: from 1.4 on, field's declaring class is touched if any different from receiver type
+	// NOTE: from target 1.2 on, field's declaring class is touched if any different from receiver type
 	if (binding.declaringClass != this.receiverType
 		&& !this.receiverType.isArrayType()
 		&& binding.declaringClass != null // array.length
 		&& binding.constant == NotAConstant
-		&& ((currentScope.environment().options.complianceLevel >= CompilerOptions.JDK1_4
+		&& ((currentScope.environment().options.targetJDK >= CompilerOptions.JDK1_2
 				&& binding.declaringClass.id != T_Object) //no change for Object fields (in case there was)
 			|| !binding.declaringClass.canBeSeenBy(currentScope))){
 			this.codegenBinding = currentScope.enclosingSourceType().getUpdatedFieldBinding(binding, (ReferenceBinding) this.receiverType);
@@ -293,12 +303,12 @@ public void manageSyntheticWriteAccessIfNecessary(BlockScope currentScope){
 
 	// if the binding declaring class is not visible, need special action
 	// for runtime compatibility on 1.2 VMs : change the declaring class of the binding
-	// NOTE: from 1.4 on, field's declaring class is touched if any different from receiver type
+	// NOTE: from target 1.2 on, field's declaring class is touched if any different from receiver type
 	if (binding.declaringClass != this.receiverType
 		&& !this.receiverType.isArrayType()
 		&& binding.declaringClass != null // array.length
 		&& binding.constant == NotAConstant
-		&& ((currentScope.environment().options.complianceLevel >= CompilerOptions.JDK1_4
+		&& ((currentScope.environment().options.targetJDK >= CompilerOptions.JDK1_2
 				&& binding.declaringClass.id != T_Object) //no change for Object fields (in case there was)
 			|| !binding.declaringClass.canBeSeenBy(currentScope))){
 			this.codegenBinding = currentScope.enclosingSourceType().getUpdatedFieldBinding(binding, (ReferenceBinding) this.receiverType);
@@ -353,10 +363,10 @@ public TypeBinding resolveType(BlockScope scope) {
 		scope.problemReporter().deprecatedField(binding, this);
 
 	// check for this.x in static is done in the resolution of the receiver
-	constant = FieldReference.getConstantFor(binding, receiver == ThisReference.ThisImplicit, this, scope, 0);
+	constant = FieldReference.getConstantFor(binding, this, receiver.isImplicitThis(), scope);
 	if (!receiver.isThis())
 		constant = NotAConstant;
 
-	return binding.type;
+	return this.resolvedType = binding.type;
 }
 }

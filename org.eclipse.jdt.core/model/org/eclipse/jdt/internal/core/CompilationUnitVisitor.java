@@ -1,23 +1,25 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.Locale;
 import java.util.Map;
 
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.Compiler;
@@ -31,7 +33,6 @@ import org.eclipse.jdt.internal.compiler.env.ISourceType;
 import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 public class CompilationUnitVisitor extends Compiler {
 	
@@ -87,9 +88,10 @@ public class CompilationUnitVisitor extends Compiler {
 		// need to hold onto this
 		CompilationUnitDeclaration unit =
 			SourceTypeConverter.buildCompilationUnit(
-				sourceTypes,
-				true,
-				true,
+				sourceTypes,//sourceTypes[0] is always toplevel here
+				true, // need field and methods
+				true, // need member types
+				false, // no need for field initialization
 				lookupEnvironment.problemReporter,
 				result);
 
@@ -136,17 +138,18 @@ public class CompilationUnitVisitor extends Compiler {
 		IAbstractSyntaxTreeVisitor visitor)
 		throws JavaModelException {
 
+		IJavaProject project = unitElement.getJavaProject();
 		CompilationUnitVisitor compilationUnitVisitor =
 			new CompilationUnitVisitor(
 				getNameEnvironment(unitElement),
 				getHandlingPolicy(),
-				JavaCore.getOptions(),
+				project.getOptions(true),
 				getRequestor(),
 				getProblemFactory(visitor));
 
 		CompilationUnitDeclaration unit = null;
 		try {
-			String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
+			String encoding = project.getOption(JavaCore.CORE_ENCODING, true);
 
 			IPackageFragment packageFragment = (IPackageFragment)unitElement.getAncestor(IJavaElement.PACKAGE_FRAGMENT);
 			char[][] expectedPackageName = null;
@@ -159,7 +162,10 @@ public class CompilationUnitVisitor extends Compiler {
 						unitElement.getSource().toCharArray(),
 						expectedPackageName,
 						unitElement.getElementName(),
-						encoding));
+						encoding),
+					true, // method verification
+					false, // no flow analysis
+					false); // no code generation
 			if (unit != null) {
 				unit.traverse(visitor, unit.scope);
 			}
@@ -176,7 +182,8 @@ public class CompilationUnitVisitor extends Compiler {
 			public IProblem createProblem(
 				char[] originatingFileName,
 				int problemId,
-				String[] arguments,
+				String[] problemArguments,
+				String[] messageArguments,
 				int severity,
 				int startPosition,
 				int endPosition,
@@ -186,7 +193,8 @@ public class CompilationUnitVisitor extends Compiler {
 					super.createProblem(
 						originatingFileName,
 						problemId,
-						arguments,
+						problemArguments,
+						messageArguments,
 						severity,
 						startPosition,
 						endPosition,

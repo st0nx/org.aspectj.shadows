@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.codegen;
 
 import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
@@ -64,8 +64,15 @@ void branch() {
 		// Leave two bytes free to generate the jump afterwards
 		codeStream.position += 2;
 		codeStream.classFileOffset += 2;
-	} else { //Position is set. Write it!
-		codeStream.writeSignedShort((short) (position - codeStream.position + 1));
+	} else {
+		/*
+		 * Position is set. Write it if it is not a wide branch.
+		 */
+		int offset = position - codeStream.position + 1;
+		if (Math.abs(offset) > 0x7FFF && !this.codeStream.wideMode) {
+			throw new AbortMethod(CodeStream.RESTART_IN_WIDE_MODE);
+		}
+		codeStream.writeSignedShort((short) offset);
 	}
 }
 /*
@@ -174,7 +181,7 @@ public void place() { // Currently lacking wide support.
 		}
 		for (int i = 0; i < forwardReferenceCount; i++) {
 			int offset = position - forwardReferences[i] + 1;
-			if (offset > 0x7FFF && !this.codeStream.wideMode) {
+			if (Math.abs(offset) > 0x7FFF && !this.codeStream.wideMode) {
 				throw new AbortMethod(CodeStream.RESTART_IN_WIDE_MODE);
 			}
 			if (this.codeStream.wideMode) {
@@ -205,7 +212,7 @@ public void place() { // Currently lacking wide support.
 						for (int j = 0; j < label.forwardReferenceCount; j++) {
 							int forwardPosition = label.forwardReferences[j];
 							int offset = position - forwardPosition + 1;
-							if (offset > 0x7FFF && !this.codeStream.wideMode) {
+							if (Math.abs(offset) > 0x7FFF && !this.codeStream.wideMode) {
 								throw new AbortMethod(CodeStream.RESTART_IN_WIDE_MODE);
 							}
 							if (this.codeStream.wideMode) {

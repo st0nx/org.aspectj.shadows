@@ -1,17 +1,17 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.IDependent;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 /*
 Not all fields defined by this type (& its subclasses) are initialized when it is created.
@@ -123,24 +123,20 @@ public final boolean canBeSeenBy(ReferenceBinding receiverType, SourceTypeBindin
 	} while ((type = type.superclass()) != null);
 	return false;
 }
-/* Answer true if the receiver is visible to the type provided by the scope.
-*
-* NOTE: Cannot invoke this method with a compilation unit scope.
-*/
+/* 
+ * Answer true if the receiver is visible to the type provided by the scope.
+ */
 
 public final boolean canBeSeenBy(Scope scope) {
+	
 	if (isPublic()) return true;
 
+	if (scope.kind == Scope.COMPILATION_UNIT_SCOPE){
+		return this.canBeSeenBy(((CompilationUnitScope)scope).fPackage);
+	}
+	
 	SourceTypeBinding invocationType = scope.enclosingSourceType();
 	if (invocationType == this) return true;
-
-	if (isProtected()) {
-		// answer true if the receiver (or its enclosing type) is the superclass 
-		//	of the invocationType or in the same package
-		return invocationType.fPackage == fPackage 
-				|| isSuperclassOf(invocationType)
-				|| enclosingType().isSuperclassOf(invocationType); // protected types always have an enclosing one
-	}
 
 	if (isProtected()) {
 		// answer true if the invocationType is the declaringClass or they are in the same package
@@ -444,7 +440,7 @@ public final boolean isClass() {
 /* Answer true if the receiver type can be assigned to the argument type (right)
 */
 	
-boolean isCompatibleWith(TypeBinding right) {
+public boolean isCompatibleWith(TypeBinding right) {
 	if (right == this)
 		return true;
 	if (right.id == T_Object)
@@ -494,6 +490,12 @@ public final boolean isNestedType() {
 
 public final boolean isPrivate() {
 	return (modifiers & AccPrivate) != 0;
+}
+/* Answer true if the receiver has private visibility and is used locally
+*/
+
+public final boolean isPrivateUsed() {
+	return (modifiers & AccPrivateUsed) != 0;
 }
 /* Answer true if the receiver has protected visibility
 */
@@ -564,6 +566,14 @@ public char[] readableName() /*java.lang.Object*/ {
 	else
 		return CharOperation.concatWith(compoundName, '.');
 }
+
+public char[] shortReadableName() /*Object*/ {
+	if (isMemberType())
+		return CharOperation.concat(enclosingType().shortReadableName(), sourceName, '.');
+	else
+		return sourceName;
+}
+
 /* Answer the receiver's signature.
 *
 * NOTE: This method should only be used during/after code gen.

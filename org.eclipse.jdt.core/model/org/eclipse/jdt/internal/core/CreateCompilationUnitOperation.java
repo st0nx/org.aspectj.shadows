@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.io.ByteArrayInputStream;
@@ -78,7 +78,7 @@ protected void executeOperation() throws JavaModelException {
 		JavaElementDelta delta = newJavaElementDelta();
 		ICompilationUnit unit = getCompilationUnit();
 		IPackageFragment pkg = (IPackageFragment) getParentElement();
-		IContainer folder = (IContainer) pkg.getUnderlyingResource();
+		IContainer folder = (IContainer) pkg.getResource();
 		worked(1);
 		IFile compilationUnitFile = folder.getFile(new Path(fName));
 		if (compilationUnitFile.exists()) {
@@ -89,22 +89,26 @@ protected void executeOperation() throws JavaModelException {
 				buffer.setContents(fSource);
 				unit.save(new NullProgressMonitor(), false);
 				fResultElements = new IJavaElement[] {unit};
-				if (unit.getParent().exists()) {
+				if (!Util.isExcluded(unit)
+						&& unit.getParent().exists()) {
 					for (int i = 0; i < fResultElements.length; i++) {
 						delta.changed(fResultElements[i], IJavaElementDelta.F_CONTENT);
 					}
 					addDelta(delta);
 				}
 			} else {
-				throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION));
+				throw new JavaModelException(new JavaModelStatus(
+					IJavaModelStatusConstants.NAME_COLLISION, 
+					Util.bind("status.nameCollision", compilationUnitFile.getFullPath().toString()))); //$NON-NLS-1$
 			}
 		} else {
 			try {
-				String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
+				String encoding = unit.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
 				InputStream stream = new ByteArrayInputStream(encoding == null ? fSource.getBytes() : fSource.getBytes(encoding));
 				createFile(folder, unit.getElementName(), stream, false);
 				fResultElements = new IJavaElement[] {unit};
-				if (unit.getParent().exists()) {
+				if (!Util.isExcluded(unit)
+						&& unit.getParent().exists()) {
 					for (int i = 0; i < fResultElements.length; i++) {
 						delta.added(fResultElements[i]);
 					}

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2001 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
@@ -24,8 +24,8 @@ import java.util.List;
  * 			[ ForUpdate ] <b>)</b>
  * 			Statement
  * ForInit:
- * 		( SingleVariableDeclaration | Expression )
- * 			{ <b>,</b> ( SingleVariableDeclaration | Expression ) }
+ * 		( VariableDeclarationExpression
+ * 			 | { Expression {<b>,</b> Expression } }
  * ForUpdate:
  * 		Expression { <b>,</b> Expression }
  * </pre>
@@ -82,7 +82,8 @@ public class ForStatement extends Statement {
 	 */
 	ASTNode clone(AST target) {
 		ForStatement result = new ForStatement(target);
-		result.setLeadingComment(getLeadingComment());
+		result.setSourceRange(this.getStartPosition(), this.getLength());
+		result.copyLeadingComment(this);
 		result.initializers().addAll(ASTNode.copySubtrees(target, initializers()));
 		result.setExpression(
 			(Expression) ASTNode.copySubtree(target, getExpression()));
@@ -120,9 +121,8 @@ public class ForStatement extends Statement {
 	 * statement.
 	 * <p>
 	 * The list should consist of either a list of so called statement 
-	 * expressions (JLS2, 14.8), or a list of variable declaration expressions
-	 * all with the same type. Otherwise, the for statement would have no Java
-	 * source equivalent.
+	 * expressions (JLS2, 14.8), or a single <code>VariableDeclarationExpression</code>. 
+	 * Otherwise, the for statement would have no Java source equivalent.
 	 * </p>
 	 * 
 	 * @return the live list of initializer expressions 
@@ -184,7 +184,9 @@ public class ForStatement extends Statement {
 	public Statement getBody() {
 		if (body == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setBody(new Block(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return body;
 	}

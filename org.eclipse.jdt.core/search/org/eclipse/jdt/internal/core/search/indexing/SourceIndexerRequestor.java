@@ -1,18 +1,18 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.indexing;
 
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.ISourceElementRequestor;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.core.index.IDocument;
 
 /**
@@ -135,6 +135,9 @@ public void enterClass(int declarationStart, int modifiers, char[] name, int nam
 	// eliminate possible qualifications, given they need to be fully resolved again
 	if (superclass != null){
 		superclass = CharOperation.lastSegment(superclass, '.');
+		
+		// add implicit constructor reference to default constructor
+		this.indexer.addConstructorReference(superclass, 0);
 	}
 	if (superinterfaces != null){
 		for (int i = 0, length = superinterfaces.length; i < length; i++){
@@ -221,7 +224,7 @@ public void exitConstructor(int declarationEnd) {
 /**
  * exitField method comment.
  */
-public void exitField(int declarationEnd) {
+public void exitField(int initializationStart, int declarationEnd, int declarationSourceEnd) {
 	this.methodDepth--;
 }
 /**

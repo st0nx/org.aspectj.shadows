@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.core.resources.IContainer;
@@ -31,11 +31,6 @@ import org.eclipse.jdt.core.JavaModelException;
 class JavaProjectElementInfo extends OpenableElementInfo {
 
 	/**
-	 * The classpath for this project
-	 */
-	protected IClasspathEntry[] fClasspath;
-
-	/**
 	 * The name lookup facility to use with this project.
 	 */
 	protected NameLookup fNameLookup = null;
@@ -47,16 +42,9 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 	protected SearchableEnvironment fSearchableEnvironment = null;
 
 	/**
-	 * The output location for this project.
-	 */
-	protected IPath fOutputLocation = null;
-
-	/**
 	 * A array with all the non-java resources contained by this PackageFragment
 	 */
 	private Object[] fNonJavaResources;
-
-	public IClasspathEntry[] lastResolvedClasspath = null;
 
 	/**
 	 * Create and initialize a new instance of the receiver
@@ -74,16 +62,21 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 		IPath projectPath = project.getProject().getFullPath();
 		boolean srcIsProject = false;
 		boolean binIsProject = false;
+		char[][] exclusionPatterns = null;
+		IClasspathEntry[] classpath = null;
+		IPath projectOutput = null;
 		try {
-			IClasspathEntry[] classpath = project.getExpandedClasspath(true);
+			classpath = project.getResolvedClasspath(true/*ignore unresolved variable*/);
 			for (int i = 0; i < classpath.length; i++) {
 				IClasspathEntry entry = classpath[i];
 				if (projectPath.equals(entry.getPath())) {
 					srcIsProject = true;
+					exclusionPatterns = ((ClasspathEntry)entry).fullExclusionPatternChars();
 					break;
 				}
 			}
-			binIsProject = projectPath.equals(project.getOutputLocation());
+			projectOutput = project.getOutputLocation();
+			binIsProject = projectPath.equals(projectOutput);
 		} catch (JavaModelException e) {
 			// ignore
 		}
@@ -91,52 +84,59 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 		Object[] nonJavaResources = new IResource[5];
 		int nonJavaResourcesCounter = 0;
 		try {
-			IResource[] members = ((IContainer) project.getUnderlyingResource()).members();
+			IResource[] members = ((IContainer) project.getResource()).members();
 			for (int i = 0, max = members.length; i < max; i++) {
 				IResource res = members[i];
 				switch (res.getType()) {
 					case IResource.FILE :
-						// check if this file might be a jar or a zip inside the build path
 						IPath resFullPath = res.getFullPath();
-						if (project.findPackageFragmentRoot0(resFullPath) == null) {
-							String resName = res.getName();
-							// ignore .java file if src == project
-							if (srcIsProject && Util.isValidCompilationUnitName(resName)) {
-								break;
-							}
-							// ignore .class file if bin == project
-							if (binIsProject && Util.isValidClassFileName(resName)) {
-								break;
-							}
-							// else add non java resource
-							if (nonJavaResources.length == nonJavaResourcesCounter) {
-								// resize
-								System.arraycopy(
-									nonJavaResources,
-									0,
-									(nonJavaResources = new IResource[nonJavaResourcesCounter * 2]),
-									0,
-									nonJavaResourcesCounter);
-							}
-							nonJavaResources[nonJavaResourcesCounter++] = res;
+						String resName = res.getName();
+						
+						// ignore a jar file on the classpath
+						if (Util.isArchiveFileName(resName) && this.isClasspathEntryOrOutputLocation(resFullPath, classpath, projectOutput)) {
+							break;
 						}
+						// ignore .java file if src == project
+						if (srcIsProject 
+							&& Util.isValidCompilationUnitName(resName)
+							&& !Util.isExcluded(res, exclusionPatterns)) {
+							break;
+						}
+						// ignore .class file if bin == project
+						if (binIsProject && Util.isValidClassFileName(resName)) {
+							break;
+						}
+						// else add non java resource
+						if (nonJavaResources.length == nonJavaResourcesCounter) {
+							// resize
+							System.arraycopy(
+								nonJavaResources,
+								0,
+								(nonJavaResources = new IResource[nonJavaResourcesCounter * 2]),
+								0,
+								nonJavaResourcesCounter);
+						}
+						nonJavaResources[nonJavaResourcesCounter++] = res;
 						break;
 					case IResource.FOLDER :
 						resFullPath = res.getFullPath();
-						if (!resFullPath.equals(project.getOutputLocation())
-							&& project.findPackageFragmentRoot0(resFullPath) == null
-							&& project.findPackageFragment0(resFullPath) == null) {
-							if (nonJavaResources.length == nonJavaResourcesCounter) {
-								// resize
-								System.arraycopy(
-									nonJavaResources,
-									0,
-									(nonJavaResources = new IResource[nonJavaResourcesCounter * 2]),
-									0,
-									nonJavaResourcesCounter);
-							}
-							nonJavaResources[nonJavaResourcesCounter++] = res;
+						
+						// ignore non-excluded folders on the classpath or that correspond to an output location
+						if ((srcIsProject && !Util.isExcluded(res, exclusionPatterns) && Util.isValidFolderNameForPackage(res.getName()))
+								|| this.isClasspathEntryOrOutputLocation(resFullPath, classpath, projectOutput)) {
+							break;
 						}
+						// else add non java resource
+						if (nonJavaResources.length == nonJavaResourcesCounter) {
+							// resize
+							System.arraycopy(
+								nonJavaResources,
+								0,
+								(nonJavaResources = new IResource[nonJavaResourcesCounter * 2]),
+								0,
+								nonJavaResourcesCounter);
+						}
+						nonJavaResources[nonJavaResourcesCounter++] = res;
 				}
 			}
 			if (nonJavaResources.length != nonJavaResourcesCounter) {
@@ -176,27 +176,28 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 	}
 	
 	/**
-	 * @see IJavaProject
-	 */
-	protected IPath getOutputLocation() {
-
-		return fOutputLocation;
-	}
-	
-	/**
-	 * Returns the classpath for this project
-	 */
-	protected IClasspathEntry[] getRawClasspath() {
-
-		return fClasspath;
-	}
-	
-	/**
 	 * @see IJavaProject 
 	 */
 	protected SearchableEnvironment getSearchableEnvironment() {
 
 		return fSearchableEnvironment;
+	}
+	/*
+	 * Returns whether the given path is a classpath entry or an output location.
+	 */
+	private boolean isClasspathEntryOrOutputLocation(IPath path, IClasspathEntry[] resolvedClasspath, IPath projectOutput) {
+		if (projectOutput.equals(path)) return true;
+		for (int i = 0, length = resolvedClasspath.length; i < length; i++) {
+			IClasspathEntry entry = resolvedClasspath[i];
+			if (entry.getPath().equals(path)) {
+				return true;
+			}
+			IPath output;
+			if ((output = entry.getOutputLocation()) != null && output.equals(path)) {
+				return true;
+			}
+		}
+		return false;
 	}
 	
 	protected void setNameLookup(NameLookup newNameLookup) {
@@ -214,19 +215,6 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 	synchronized void setNonJavaResources(Object[] resources) {
 
 		fNonJavaResources = resources;
-	}
-	
-	protected void setOutputLocation(IPath newOutputLocation) {
-
-		fOutputLocation = newOutputLocation;
-	}
-	/**
-	 * Sets the classpath for this project
-	 */
-
-	protected void setRawClasspath(IClasspathEntry[] newClasspath) {
-
-		this.fClasspath = newClasspath;
 	}
 	
 	protected void setSearchableEnvironment(SearchableEnvironment newSearchableEnvironment) {

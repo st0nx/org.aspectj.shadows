@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.Flags;
@@ -103,7 +103,7 @@ public boolean equals(Object o) {
  */
 public String[] getExceptionTypes() throws JavaModelException {
 	if (fExceptionTypes == null) {
-		IBinaryMethod info = (IBinaryMethod) getRawInfo();
+		IBinaryMethod info = (IBinaryMethod) getElementInfo();
 		char[][] eTypeNames = info.getExceptionTypeNames();
 		if (eTypeNames == null || eTypeNames.length == 0) {
 			fExceptionTypes = fgEmptyList;
@@ -127,7 +127,7 @@ public String[] getExceptionTypes() throws JavaModelException {
  * @see IMember
  */
 public int getFlags() throws JavaModelException {
-	IBinaryMethod info = (IBinaryMethod) getRawInfo();
+	IBinaryMethod info = (IBinaryMethod) getElementInfo();
 	return info.getModifiers();
 }
 /**
@@ -187,7 +187,7 @@ public String[] getParameterNames() throws JavaModelException {
 		}
 		// if still no parameter names, produce fake ones
 		if (fParameterNames == null) {
-			IBinaryMethod info = (IBinaryMethod) getRawInfo();
+			IBinaryMethod info = (IBinaryMethod) getElementInfo();
 			int paramCount = Signature.getParameterCount(new String(info.getMethodDescriptor()));
 			fParameterNames = new String[paramCount];
 			for (int i = 0; i < paramCount; i++) {
@@ -207,7 +207,7 @@ public String[] getParameterTypes() {
  * @see IMethod
  */
 public String getReturnType() throws JavaModelException {
-	IBinaryMethod info = (IBinaryMethod) getRawInfo();
+	IBinaryMethod info = (IBinaryMethod) getElementInfo();
 	if (fReturnType == null) {
 		String returnType= Signature.getReturnType(new String(info.getMethodDescriptor()));
 		fReturnType= new String(ClassFile.translatedName(returnType.toCharArray()));
@@ -218,14 +218,14 @@ public String getReturnType() throws JavaModelException {
  * @see IMethod
  */
 public String getSignature() throws JavaModelException {
-	IBinaryMethod info = (IBinaryMethod) getRawInfo();
+	IBinaryMethod info = (IBinaryMethod) getElementInfo();
 	return new String(info.getMethodDescriptor());
 }
 /**
  * @see IMethod
  */
 public boolean isConstructor() throws JavaModelException {
-	IBinaryMethod info = (IBinaryMethod) getRawInfo();
+	IBinaryMethod info = (IBinaryMethod) getElementInfo();
 	return info.isConstructor();
 }
 /**

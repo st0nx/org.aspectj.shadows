@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import org.eclipse.core.resources.IFile;
@@ -19,6 +19,7 @@ import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.IJavaSearchConstants;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.core.search.SearchEngine;
@@ -45,8 +46,6 @@ import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
-import org.eclipse.jdt.internal.core.BinaryType;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.JavaProject;
 import org.eclipse.jdt.internal.core.Openable;
@@ -139,8 +138,8 @@ public SuperTypeNamesCollector(
 private CompilationUnitDeclaration buildBindings(ICompilationUnit compilationUnit) throws JavaModelException {
 	final IFile file = 
 		compilationUnit.isWorkingCopy() ?
-			(IFile)compilationUnit.getOriginalElement().getUnderlyingResource() :
-			(IFile)compilationUnit.getUnderlyingResource();
+			(IFile)compilationUnit.getOriginalElement().getResource() :
+			(IFile)compilationUnit.getResource();
 	
 	// get main type name
 	final String fileName = file.getFullPath().lastSegment();
@@ -178,15 +177,7 @@ private CompilationUnitDeclaration buildBindings(ICompilationUnit compilationUni
 	}
 	return unit;
 }
-private BinaryTypeBinding cacheBinaryType(IType type) throws JavaModelException {
-	IType enclosingType = type.getDeclaringType();
-	if (enclosingType != null) {
-		// force caching of enclosing types first, so that binary type can be found in lookup enviroment
-		this.cacheBinaryType(enclosingType);
-	}
-	IBinaryType binaryType = (IBinaryType)((BinaryType)type).getRawInfo();
-	return this.locator.lookupEnvironment.cacheBinaryType(binaryType);
-}
+
 
 protected char[][][] collect() throws JavaModelException {
 	
@@ -195,13 +186,16 @@ protected char[][][] collect() throws JavaModelException {
 		this.result = new char[1][][];
 		this.resultIndex = 0;
 		JavaProject javaProject = (JavaProject)this.type.getJavaProject();
-		this.locator.createParser(javaProject);
+		this.locator.initializeNameEnvironment(javaProject);
+		this.locator.initialize(javaProject);
 		synchronized(this.locator.nameLookup) { // prevent 2 concurrent accesses to name lookup while the working copies are set
 			this.locator.nameLookup.setUnitsToLookInside(this.locator.workingCopies);
 			try {
 				if (this.type.isBinary()) {
-					BinaryTypeBinding binding = this.cacheBinaryType(this.type);
-					this.collectSuperTypeNames(binding);
+					BinaryTypeBinding binding = this.locator.cacheBinaryType(this.type);
+					if (binding != null) {
+						this.collectSuperTypeNames(binding);
+					}
 				} else {
 					ICompilationUnit unit = this.type.getCompilationUnit();
 					CompilationUnitDeclaration parsedUnit = this.buildBindings(unit);
@@ -232,7 +226,7 @@ protected char[][][] collect() throws JavaModelException {
 			try {
 				for (int i = 0, length = paths.length; i < length; i++) {
 					try {
-						Openable openable = this.locator.handleFactory.createOpenable(paths[i]);
+						Openable openable = this.locator.handleFactory.createOpenable(paths[i], this.locator.scope);
 						if (openable == null)
 							continue; // outside classpath
 						IJavaProject project = openable.getJavaProject();
@@ -241,7 +235,8 @@ protected char[][][] collect() throws JavaModelException {
 								this.locator.nameLookup.setUnitsToLookInside(null);
 							}
 							previousProject = (JavaProject)project;
-							this.locator.createParser(previousProject);
+							this.locator.initializeNameEnvironment(previousProject);
+							this.locator.initialize(previousProject);
 							this.locator.nameLookup.setUnitsToLookInside(this.locator.workingCopies);
 						}
 						if (openable instanceof ICompilationUnit) {
@@ -252,7 +247,7 @@ protected char[][][] collect() throws JavaModelException {
 							}
 						} else if (openable instanceof IClassFile) {
 							IClassFile classFile = (IClassFile)openable;
-							BinaryTypeBinding binding = this.cacheBinaryType(classFile.getType());
+							BinaryTypeBinding binding = this.locator.cacheBinaryType(classFile.getType());
 							if (this.matches(binding)) {
 								this.collectSuperTypeNames(binding);
 							}
@@ -424,7 +419,13 @@ public void accept(org.eclipse.jdt.internal.compiler.env.ICompilationUnit source
 public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding) {
 	CompilationResult result = new CompilationResult(sourceTypes[0].getFileName(), 1, 1, 0);
 	CompilationUnitDeclaration unit =
-		SourceTypeConverter.buildCompilationUnit(sourceTypes, false, true, this.locator.lookupEnvironment.problemReporter, result);
+		SourceTypeConverter.buildCompilationUnit(
+			sourceTypes, //sourceTypes[0] is always toplevel here
+			false, // no need for field and methods
+			true, // need member types
+			false, // no need for field initialization
+			this.locator.lookupEnvironment.problemReporter, 
+			result);
 
 	if (unit != null) {
 		this.locator.lookupEnvironment.buildTypeBindings(unit);

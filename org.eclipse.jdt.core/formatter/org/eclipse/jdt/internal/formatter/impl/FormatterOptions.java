@@ -1,18 +1,22 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.formatter.impl;
-import java.util.Map;
+
+import java.util.Map;
+
+import org.eclipse.jdt.core.JavaCore;
 
 public class FormatterOptions {	
-	/**
+
+	/**
 	 * Option IDs
 	 */
 	public static final String OPTION_InsertNewlineBeforeOpeningBrace = "org.eclipse.jdt.core.formatter.newline.openingBrace"; //$NON-NLS-1$
@@ -24,6 +28,7 @@ public class FormatterOptions {
 	public static final String OPTION_CompactAssignment = "org.eclipse.jdt.core.formatter.style.assignment"; //$NON-NLS-1$
 	public static final String OPTION_TabulationChar = "org.eclipse.jdt.core.formatter.tabulation.char"; //$NON-NLS-1$
 	public static final String OPTION_TabulationSize = "org.eclipse.jdt.core.formatter.tabulation.size"; //$NON-NLS-1$
+	public static final String OPTION_InsertSpaceAfterCast = "org.eclipse.jdt.core.formatter.space.castexpression"; //$NON-NLS-1$
 	
 	public static final String INSERT = "insert"; //$NON-NLS-1$
 	public static final String DO_NOT_INSERT = "do not insert"; //$NON-NLS-1$
@@ -54,7 +59,9 @@ public class FormatterOptions {
 
 	public boolean compactElseIfMode = true; // if true, else and if are kept on the same line.
 	public boolean newLineInEmptyBlockMode = true; // if false, no new line in {} if it's empty.
-	
+
+	public boolean spaceInCastExpression = false;
+		
 	public char[] lineSeparatorSequence = System.getProperty("line.separator").toCharArray(); //$NON-NLS-1$
 /** 
  * Initializing the formatter options with default settings
@@ -65,10 +72,29 @@ public FormatterOptions(){
  * Initializing the formatter options with external settings
  */
 public FormatterOptions(Map settings){
-	if (settings == null) return;
+	Map javaCoreOptions = JavaCore.getOptions();
+	
+	if (settings != null) {
+		Object[] presetEntries = settings.entrySet().toArray();
+		
+		for (int i = 0, max = presetEntries.length; i < max; i++){
+			Map.Entry entry = (Map.Entry)presetEntries[i];
+			if (!(entry.getKey() instanceof String)) continue;
+			if (!(entry.getValue() instanceof String)) continue;
+			String optionID = (String) entry.getKey();
+			String optionValue = (String) entry.getValue();
+	
+			javaCoreOptions.put(optionID, optionValue);
+		}	
+	}
+
+	Object[] entries = javaCoreOptions.entrySet().toArray();
+
+	if (entries == null) {
+		return;
+	}
 
 	// filter options which are related to the assist component
-	Object[] entries = settings.entrySet().toArray();
 	for (int i = 0, max = entries.length; i < max; i++){
 		Map.Entry entry = (Map.Entry)entries[i];
 		if (!(entry.getKey() instanceof String)) continue;
@@ -146,6 +172,14 @@ public FormatterOptions(Map settings){
 			} catch(NumberFormatException e){
 			}
 		}
+		if(optionID.equals(OPTION_InsertSpaceAfterCast)){
+			if (optionValue.equals(INSERT)){
+				this.spaceInCastExpression = true;
+			} else if (optionValue.equals(DO_NOT_INSERT)){
+				this.spaceInCastExpression = false;
+			}
+			continue;
+		}		
 	}
 }
 
@@ -167,6 +201,9 @@ public boolean isAddingNewLineInControlStatement() {
 }
 public boolean isAddingNewLineInEmptyBlock() {
 	return newLineInEmptyBlockMode;
+}
+public boolean isAddindSpaceInCastExpression() {
+	return spaceInCastExpression;
 }
 public boolean isClearingAllBlankLines() {
 	return clearAllBlankLinesMode;

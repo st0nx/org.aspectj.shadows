@@ -1,14 +1,37 @@
-/**********************************************************************
-Copyright (c) 2002 IBM Corp. and others.
-All rights reserved.   This program and the accompanying materials
-are made available under the terms of the Common Public License v0.5
-which accompanies this distribution, and is available at
-http://www.eclipse.org/legal/cpl-v05.html
- 
-Contributors:
-     IBM Corporation - initial API and implementation
-**********************************************************************/
-
+/*******************************************************************************
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials 
+ * are made available under the terms of the Common Public License v1.0
+ * which accompanies this distribution, and is available at
+ * http://www.eclipse.org/legal/cpl-v10.html
+ * 
+ * Contributors:
+ *     IBM Corporation - initial API and implementation
+ *     IBM Corporation - added the following constants
+ *                                 NonStaticAccessToStaticField
+ *                                 NonStaticAccessToStaticMethod
+ *                                 Task
+ * 								   ExpressionShouldBeAVariable
+ * 								   AssignmentHasNoEffect
+ *     IBM Corporation - added the following constants
+ * 								   TooManySyntheticArgumentSlots
+ * 								   TooManyArrayDimensions
+ * 								   TooManyBytesForStringConstant
+ * 								   TooManyMethods
+ * 								   TooManyFields
+ * 								   NonBlankFinalLocalAssignment
+ * 								   ObjectCannotHaveSuperTypes
+ * 								   MissingSemiColon
+ *								   InvalidParenthesizedExpression
+ *								   EnclosingInstanceInConstructorCall
+ *								   BytecodeExceeds64KLimitForConstructor
+ *								   IncompatibleReturnTypeForNonInheritedInterfaceMethod
+ *								   UnusedPrivateMethod
+ *								   UnusedPrivateConstructor
+ *								   UnusedPrivateType
+ *								   UnusedPrivateField
+ *								   IncompatibleExceptionInThrowsClauseForNonInheritedInterfaceMethod
+ *******************************************************************************/
 package org.eclipse.jdt.core.compiler;
  
 import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
@@ -162,7 +185,9 @@ public interface IProblem {
 	int AmbiguousType = TypeRelated + 4;
 	int UsingDeprecatedType = TypeRelated + 5;
 	int InternalTypeNameProvided = TypeRelated + 6;
-
+	/** @since 2.1 */
+	int UnusedPrivateType = Internal + TypeRelated + 7;
+	
 	int IncompatibleTypesInEqualityOperator = TypeRelated + 15;
 	int IncompatibleTypesInConditionalOperator = TypeRelated + 16;
 	int TypeMismatch = TypeRelated + 17;
@@ -178,6 +203,8 @@ public interface IProblem {
 	int OuterLocalMustBeFinal = Internal + 25;
 	int CannotDefineInterfaceInLocalType = Internal + 26;
 	int IllegalPrimitiveOrArrayTypeForEnclosingInstance = TypeRelated + 27;
+	/** @since 2.1 */
+	int EnclosingInstanceInConstructorCall = Internal + 28;
 	int AnonymousClassCannotExtendFinalClass = TypeRelated + 29;
 
 	// variables
@@ -189,8 +216,10 @@ public interface IProblem {
 	// local variables
 	int RedefinedLocal = Internal + 55;
 	int RedefinedArgument = Internal + 56;
-	int DuplicateFinalLocalInitialization = Internal + 57;
 	// final local variables
+	int DuplicateFinalLocalInitialization = Internal + 57;
+	/** @since 2.1 */
+	int NonBlankFinalLocalAssignment = Internal + 58;
 	int FinalOuterLocalAssignment = Internal + 60;
 	int LocalVariableIsNeverUsed = Internal + 61;
 	int ArgumentIsNeverUsed = Internal + 62;
@@ -198,6 +227,12 @@ public interface IProblem {
 	int BytecodeExceeds64KLimitForClinit = Internal + 64;
 	int TooManyArgumentSlots = Internal + 65;
 	int TooManyLocalVariableSlots = Internal + 66;
+	/** @since 2.1 */
+	int TooManySyntheticArgumentSlots = Internal + 67;
+	/** @since 2.1 */
+	int TooManyArrayDimensions = Internal + 68;
+	/** @since 2.1 */
+	int BytecodeExceeds64KLimitForConstructor = Internal + 69;
 
 	// fields
 	int UndefinedField = FieldRelated + 70;
@@ -206,7 +241,11 @@ public interface IProblem {
 	int UsingDeprecatedField = FieldRelated + 73;
 	int NonStaticFieldFromStaticInvocation = FieldRelated + 74;
 	int ReferenceToForwardField = FieldRelated + Internal + 75;
-
+	/** @since 2.1 */
+	int NonStaticAccessToStaticField = Internal + FieldRelated + 76;
+	/** @since 2.1 */
+	int UnusedPrivateField = Internal + FieldRelated + 77;
+	
 	// blank final fields
 	int FinalFieldAssignment = FieldRelated + 80;
 	int UninitializedBlankFinalField = FieldRelated + 81;
@@ -229,12 +268,18 @@ public interface IProblem {
 	int NoMessageSendOnBaseType = MethodRelated + 114;
 	int ParameterMismatch = MethodRelated + 115;
 	int NoMessageSendOnArrayType = MethodRelated + 116;
-    
+	/** @since 2.1 */
+    int NonStaticAccessToStaticMethod = Internal + MethodRelated + 117;
+	/** @since 2.1 */
+	int UnusedPrivateMethod = Internal + MethodRelated + 118;
+	    
 	// constructors
 	int UndefinedConstructor = ConstructorRelated + 130;
 	int NotVisibleConstructor = ConstructorRelated + 131;
 	int AmbiguousConstructor = ConstructorRelated + 132;
 	int UsingDeprecatedConstructor = ConstructorRelated + 133;
+	/** @since 2.1 */
+	int UnusedPrivateConstructor = Internal + MethodRelated + 134;
 	// explicit constructor calls
 	int InstanceFieldDuringConstructorInvocation = ConstructorRelated + 135;
 	int InstanceMethodDuringConstructorInvocation = ConstructorRelated + 136;
@@ -290,7 +335,10 @@ public interface IProblem {
 	int InvalidNullToSynchronized = Internal + 176;
 	// throw
 	int CannotThrowNull = Internal + 177;
-
+	// assignment
+	/** @since 2.1 */
+	int AssignmentHasNoEffect = Internal + 178;
+	
 	// inner emulation
 	int NeedToEmulateFieldReadAccess = FieldRelated + 190;
 	int NeedToEmulateFieldWriteAccess = FieldRelated + 191;
@@ -320,6 +368,12 @@ public interface IProblem {
 	int UnmatchedBracket = Syntax + Internal + 220;
 	int NoFieldOnBaseType = FieldRelated + 221;
 	int InvalidExpressionAsStatement = Syntax + Internal + 222;
+	/** @since 2.1 */
+	int ExpressionShouldBeAVariable = Syntax + Internal + 223;
+	/** @since 2.1 */
+	int MissingSemiColon = Syntax + Internal + 224;
+	/** @since 2.1 */
+	int InvalidParenthesizedExpression = Syntax + Internal + 225;
     
 	// scanner errors
 	int EndOfSource = Syntax + Internal + 250;
@@ -364,6 +418,8 @@ public interface IProblem {
 	int MustSpecifyPackage = 326;
 	int HierarchyHasProblems = TypeRelated + 327;
 	int PackageIsNotExpectedPackage = 328;
+	/** @since 2.1 */
+	int ObjectCannotHaveSuperTypes = 329;
 
 	// int InvalidSuperclassBase = TypeRelated + 329; // reserved to 334 included
 	int SuperclassNotFound =  TypeRelated + 329 + ProblemReasons.NotFound; // TypeRelated + 330
@@ -464,7 +520,11 @@ public interface IProblem {
 	int OverridingNonVisibleMethod = MethodRelated + 410;
 	int AbstractMethodCannotBeOverridden = MethodRelated + 411;
 	int OverridingDeprecatedMethod = MethodRelated + 412;
-
+	/** @since 2.1 */
+	int IncompatibleReturnTypeForNonInheritedInterfaceMethod = MethodRelated + 413;
+	/** @since 2.1 */
+	int IncompatibleExceptionInThrowsClauseForNonInheritedInterfaceMethod = MethodRelated + 414;
+	
 	// code snippet support
 	int CodeSnippetMissingClass = Internal + 420;
 	int CodeSnippetMissingMethod = Internal + 421;
@@ -473,8 +533,20 @@ public interface IProblem {
 	
 	//constant pool
 	int TooManyConstantsInConstantPool = Internal + 430;
-	
+	/** @since 2.1 */
+	int TooManyBytesForStringConstant = Internal + 431;
+
+	// static constraints
+	/** @since 2.1 */
+	int TooManyFields = Internal + 432;
+	/** @since 2.1 */
+	int TooManyMethods = Internal + 433; 
+		
 	// 1.4 features
 	// assertion warning
 	int UseAssertAsAnIdentifier = Internal + 440;
+	
+	// detected task
+	/** @since 2.1 */
+	int Task = Internal + 450;
 }

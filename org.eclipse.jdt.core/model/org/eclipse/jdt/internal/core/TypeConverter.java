@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.IField;
@@ -15,6 +15,7 @@ import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Argument;
@@ -31,8 +32,6 @@ import org.eclipse.jdt.internal.compiler.ast.SingleTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
-import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 /**
  * Converter from a type to an AST type declaration.
@@ -42,7 +41,7 @@ public class TypeConverter {
 	/**
 	 * Convert a type into an AST type declaration and put it in the given compilation unit.
 	 */
-	public static TypeDeclaration buildTypeDeclaration(IType type, CompilationUnitDeclaration compilationUnit, CompilationResult compilationResult, ProblemReporter problemReporter)  throws JavaModelException {
+	public static TypeDeclaration buildTypeDeclaration(IType type, CompilationUnitDeclaration compilationUnit, CompilationResult compilationResult)  throws JavaModelException {
 		char[] packageName = type.getPackageFragment().getElementName().toCharArray();
 		
 		if (packageName != null && packageName.length > 0) { 
@@ -199,7 +198,6 @@ public class TypeConverter {
 	private static TypeReference createTypeReference(char[] type, IType contextType) {
 		try {
 			String[][] resolvedName = contextType.resolveType(new String(type));
-			char[] superClassName = null;
 			if(resolvedName != null && resolvedName.length == 1) {
 				type= CharOperation.concat(resolvedName[0][0].toCharArray(), resolvedName[0][1].toCharArray(), '.');
 			}
@@ -234,7 +232,7 @@ public class TypeConverter {
 				return new ArrayTypeReference(identifier, dim, 0);
 			}
 		} else { // qualified type reference
-			char[][] identifiers =	CharOperation.splitOn('.', type, 0, dimStart - 1);
+			char[][] identifiers =	CharOperation.splitOn('.', type, 0, dimStart);
 			if (dim == 0) {
 				return new QualifiedTypeReference(identifiers, new long[]{0});
 			} else {

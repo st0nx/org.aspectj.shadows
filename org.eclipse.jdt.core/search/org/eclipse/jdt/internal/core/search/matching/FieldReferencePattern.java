@@ -1,19 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import java.io.IOException;
 
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.IJavaSearchResultCollector;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.internal.compiler.ast.Assignment;
@@ -29,7 +30,6 @@ import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
 import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.core.index.IEntryResult;
 import org.eclipse.jdt.internal.core.index.impl.IndexInput;
 import org.eclipse.jdt.internal.core.index.impl.IndexedFile;
@@ -79,7 +79,7 @@ public FieldReferencePattern(
 	this.readAccess = readAccess;
 	this.writeAccess = writeAccess;
 
-	this.needsResolve = this.needsResolve();
+	this.needsResolve = true; // always resolve (in case of a simple name reference being a potential match)
 }
 /**
  * Either decode ref/name, fieldRef/name 
@@ -268,20 +268,6 @@ protected void matchReportReference(AstNode reference, IJavaElement element, int
 	}
 }
 /**
- * Returns whether a field reference or name reference will need to be resolved to 
- * find out if this method pattern matches it.
- */
-private boolean needsResolve() {
-
-	// declaring type
-	if (declaringSimpleName != null || declaringQualification != null) return true;
-
-	// return type
-	if (typeSimpleName != null || typeQualification != null) return true;
-
-	return false;
-}
-/**
  * @see AndPattern#resetQuery
  */
 protected void resetQuery() {
@@ -432,20 +418,27 @@ private int matchLevel(NameReference nameRef, boolean resolve) {
 			} else { // QualifiedNameReference
 				QualifiedNameReference qNameRef = (QualifiedNameReference)nameRef;
 				FieldBinding fieldBinding = null;
-				if (binding instanceof FieldBinding && this.matchesName(this.name, (fieldBinding = (FieldBinding)binding).name)) {
-					return this.matchLevel(fieldBinding);
-				} else {
-					int otherLevel = IMPOSSIBLE_MATCH;
-					int otherMax = qNameRef.otherBindings == null ? 0 : qNameRef.otherBindings.length;
-					for (int i = 0; i < otherMax && (otherLevel == IMPOSSIBLE_MATCH); i++){
-						char[] token = qNameRef.tokens[i + qNameRef.indexOfFirstFieldBinding];
-						if (this.matchesName(this.name, token)) {
-							FieldBinding otherBinding = qNameRef.otherBindings[i];
-							otherLevel = this.matchLevel(otherBinding);
-						}
+				if (binding instanceof FieldBinding) {
+					fieldBinding = (FieldBinding)binding;
+					char[] name = fieldBinding.name;
+					int lastDot = CharOperation.lastIndexOf('.', name);
+					if (lastDot > -1) {
+						name = CharOperation.subarray(name, lastDot+1, name.length);
 					}
-					return otherLevel;
+					if (this.matchesName(this.name, name)) {
+						return this.matchLevel(fieldBinding);
+					} 
+				} 
+				int otherLevel = IMPOSSIBLE_MATCH;
+				int otherMax = qNameRef.otherBindings == null ? 0 : qNameRef.otherBindings.length;
+				for (int i = 0; i < otherMax && (otherLevel == IMPOSSIBLE_MATCH); i++){
+					char[] token = qNameRef.tokens[i + qNameRef.indexOfFirstFieldBinding];
+					if (this.matchesName(this.name, token)) {
+						FieldBinding otherBinding = qNameRef.otherBindings[i];
+						otherLevel = this.matchLevel(otherBinding);
+					}
 				}
+				return otherLevel;
 			}
 		}
 	}

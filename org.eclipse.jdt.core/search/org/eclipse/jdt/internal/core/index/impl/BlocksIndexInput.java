@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.index.impl;
 
 import java.io.File;
@@ -15,7 +15,7 @@ import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.ArrayList;
 
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.core.index.IDocument;
 import org.eclipse.jdt.internal.core.index.IEntryResult;
 import org.eclipse.jdt.internal.core.index.IQueryResult;
@@ -51,9 +51,10 @@ public class BlocksIndexInput extends IndexInput {
 	 */
 	public void close() throws IOException {
 		if (opened) {
-			raf.close();
 			summary= null;
 			opened= false;
+			if (raf != null)
+				raf.close();
 		}
 	}
 	/**
@@ -268,7 +269,7 @@ public class BlocksIndexInput extends IndexInput {
 		}
 		return entries;
 	}
-	public IEntryResult[] queryEntriesPrefixedBy(char[] prefix/*, boolean isCaseSensitive*/) throws IOException {
+	public IEntryResult[] queryEntriesPrefixedBy(char[] prefix) throws IOException {
 		open();
 		
 		int blockLoc = summary.getFirstBlockLocationForPrefix(prefix);
@@ -282,7 +283,7 @@ public class BlocksIndexInput extends IndexInput {
 			boolean found = false;
 			WordEntry entry = new WordEntry();
 			while (block.nextEntry(entry)) {
-				if (CharOperation.prefixEquals(prefix, entry.getWord()/*, isCaseSensitive*/)) {
+				if (CharOperation.prefixEquals(prefix, entry.getWord())) {
 					if (count == entries.length){
 						System.arraycopy(entries, 0, entries = new IEntryResult[count*2], 0, count);
 					}

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.indexing;
 
 public interface IIndexConstants {
@@ -37,8 +37,6 @@ public interface IIndexConstants {
 
 	char[] ONE_STAR = new char[] {'*'};
 	char[][] ONE_STAR_CHAR = new char[][] {ONE_STAR};
-	char[] NO_CHAR = new char[0];
-	char[][] NO_CHAR_CHAR = new char[0][];
 
 	// used as special marker for enclosing type name of local and anonymous classes
 	char[] ONE_ZERO = new char[] {'0'}; 

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 public final class Assert {
@@ -61,7 +61,7 @@ public static void isNotNull(Object object) {
  */
 public static void isNotNull(Object object, String message) {
 	if (object == null)
-		throw new AssertionFailedException(Util.bind("assert.nullArgument",message)); //$NON-NLS-1$
+		throw new AssertionFailedException("null argument; " + message); //$NON-NLS-1$
 }
 /** Asserts that the given boolean is <code>true</code>. If this
  * is not the case, some kind of unchecked exception is thrown.
@@ -84,7 +84,7 @@ public static boolean isTrue(boolean expression) {
  */
 public static boolean isTrue(boolean expression, String message) {
 	if (!expression)
-		throw new AssertionFailedException(Util.bind("assert.failed", message)); //$NON-NLS-1$
+		throw new AssertionFailedException("Assertion failed; " + message); //$NON-NLS-1$
 	return expression;
 }
 

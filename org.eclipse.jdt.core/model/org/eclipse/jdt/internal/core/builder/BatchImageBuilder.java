@@ -1,18 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
 import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 
+import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.Util;
 
 import java.util.*;
@@ -21,6 +23,7 @@ public class BatchImageBuilder extends AbstractImageBuilder {
 
 protected BatchImageBuilder(JavaBuilder javaBuilder) {
 	super(javaBuilder);
+	this.nameEnvironment.isIncrementalBuild = false;
 }
 
 public void build() {
@@ -28,27 +31,28 @@ public void build() {
 		System.out.println("FULL build"); //$NON-NLS-1$
 
 	try {
-		notifier.subTask(Util.bind("build.scrubbingOutput")); //$NON-NLS-1$
-		JavaBuilder.removeProblemsFor(javaBuilder.currentProject);
-		scrubOutputFolder();
+		notifier.subTask(Util.bind("build.cleaningOutput")); //$NON-NLS-1$
+		JavaModelManager.getJavaModelManager().deltaProcessor.addForRefresh(javaBuilder.javaProject);
+		JavaBuilder.removeProblemsAndTasksFor(javaBuilder.currentProject);
+		cleanOutputFolders();
 		notifier.updateProgressDelta(0.1f);
 
 		notifier.subTask(Util.bind("build.analyzingSources")); //$NON-NLS-1$
-		ArrayList locations = new ArrayList(33);
-		ArrayList typeNames = new ArrayList(33);
-		addAllSourceFiles(locations, typeNames);
+		ArrayList sourceFiles = new ArrayList(33);
+		addAllSourceFiles(sourceFiles);
 		notifier.updateProgressDelta(0.15f);
 
-		if (locations.size() > 0) {
-			String[] allSourceFiles = new String[locations.size()];
-			locations.toArray(allSourceFiles);
-			String[] initialTypeNames = new String[typeNames.size()];
-			typeNames.toArray(initialTypeNames);
+		if (sourceFiles.size() > 0) {
+			SourceFile[] allSourceFiles = new SourceFile[sourceFiles.size()];
+			sourceFiles.toArray(allSourceFiles);
 
 			notifier.setProgressPerCompilationUnit(0.75f / allSourceFiles.length);
 			workQueue.addAll(allSourceFiles);
-			compile(allSourceFiles, initialTypeNames);
+			compile(allSourceFiles);
 		}
+
+		if (javaBuilder.javaProject.hasCycleMarker())
+			javaBuilder.mustPropagateStructuralChanges();
 	} catch (CoreException e) {
 		throw internalException(e);
 	} finally {
@@ -56,94 +60,181 @@ public void build() {
 	}
 }
 
-protected void addAllSourceFiles(final ArrayList locations, final ArrayList typeNames) throws CoreException {
-	for (int i = 0, length = sourceFolders.length; i < length; i++) {
-		final int srcFolderLength = sourceFolders[i].getLocation().addTrailingSeparator().toString().length();
-		sourceFolders[i].accept(
-			new IResourceVisitor() {
-				public boolean visit(IResource resource) {
-					if (resource.getType() == IResource.FILE) {
-						if (JavaBuilder.JAVA_EXTENSION.equalsIgnoreCase(resource.getFileExtension())) {
-							String sourceLocation = resource.getLocation().toString();
-							locations.add(sourceLocation);
-							typeNames.add(sourceLocation.substring(srcFolderLength, sourceLocation.length() - 5)); // length of .java
-						}
-						return false;
+protected void addAllSourceFiles(final ArrayList sourceFiles) throws CoreException {
+	for (int i = 0, l = sourceLocations.length; i < l; i++) {
+		final ClasspathMultiDirectory sourceLocation = sourceLocations[i];
+		final char[][] exclusionPatterns = sourceLocation.exclusionPatterns;
+		final boolean isAlsoProject = sourceLocation.sourceFolder.equals(javaBuilder.currentProject);
+		sourceLocation.sourceFolder.accept(
+			new IResourceProxyVisitor() {
+				public boolean visit(IResourceProxy proxy) throws CoreException {
+					IResource resource = null;
+					if (exclusionPatterns != null) {
+						resource = proxy.requestResource();
+						if (Util.isExcluded(resource, exclusionPatterns)) return false;
 					}
-					return true;
-				}
-			}
-		);
-		notifier.checkCancel();
-	}
-}
-
-protected void scrubOutputFolder() throws CoreException {
-	if (hasSeparateOutputFolder) {
-		// outputPath is not on the class path so wipe it clean then copy extra resources back
-		IResource[] members = outputFolder.members(); 
-		for (int i = 0, length = members.length; i < length; i++)
-			members[i].delete(IResource.FORCE, null);
-		notifier.checkCancel();
-		copyExtraResourcesBack();
-	} else {
-		// outputPath == a source folder so just remove class files
-		outputFolder.accept(
-			new IResourceVisitor() {
-				public boolean visit(IResource resource) throws CoreException {
-					if (resource.getType() == IResource.FILE) {
-						if (JavaBuilder.CLASS_EXTENSION.equalsIgnoreCase(resource.getFileExtension()))
-							resource.delete(IResource.FORCE, null);
-						return false;
-					}
-					return true;
-				}
-			}
-		);
-	}
-	notifier.checkCancel();
-}
-
-protected void copyExtraResourcesBack() throws CoreException {
-	// When, if ever, does a builder need to copy resources files (not .java or .class) into the output folder?
-	// If we wipe the output folder at the beginning of the build then all 'extra' resources must be copied to the output folder.
-
-	final IPath outputPath = outputFolder.getFullPath();
-	for (int i = 0, length = sourceFolders.length; i < length; i++) {
-		IContainer sourceFolder = sourceFolders[i];
-		final IPath sourcePath = sourceFolder.getFullPath();
-		final int segmentCount = sourcePath.segmentCount();
-		sourceFolder.accept(
-			new IResourceVisitor() {
-				public boolean visit(IResource resource) throws CoreException {
-					switch(resource.getType()) {
+					switch(proxy.getType()) {
 						case IResource.FILE :
-							String extension = resource.getFileExtension();
-							if (JavaBuilder.JAVA_EXTENSION.equalsIgnoreCase(extension)) return false;
-							if (JavaBuilder.CLASS_EXTENSION.equalsIgnoreCase(extension)) return false;
-							if (javaBuilder.filterResource(resource)) return false;
-
-							IPath partialPath = resource.getFullPath().removeFirstSegments(segmentCount);
-							IResource copiedResource = outputFolder.getFile(partialPath);
-							if (copiedResource.exists()) {
-								createErrorFor(resource, Util.bind("build.duplicateResource")); //$NON-NLS-1$
-							} else {
-								resource.copy(copiedResource.getFullPath(), IResource.FORCE, null);
-								copiedResource.setDerived(true);
+							if (Util.isJavaFileName(proxy.getName())) {
+								if (resource == null)
+									resource = proxy.requestResource();
+								sourceFiles.add(new SourceFile((IFile) resource, sourceLocation, encoding));
 							}
 							return false;
 						case IResource.FOLDER :
-							if (resource.getFullPath().equals(outputPath)) return false;
-							if (resource.getFullPath().equals(sourcePath)) return true;
-							if (javaBuilder.filterResource(resource)) return false;
-
-							getOutputFolder(resource.getFullPath().removeFirstSegments(segmentCount));
+							if (isAlsoProject && isExcludedFromProject(proxy.requestFullPath())) return false;
 					}
 					return true;
 				}
-			}
+			},
+			IResource.NONE
 		);
+		notifier.checkCancel();
 	}
+}
+
+protected void cleanOutputFolders() throws CoreException {
+	boolean deleteAll = JavaCore.CLEAN.equals(
+		javaBuilder.javaProject.getOption(JavaCore.CORE_JAVA_BUILD_CLEAN_OUTPUT_FOLDER, true));
+	if (deleteAll) {
+		ArrayList visited = new ArrayList(sourceLocations.length);
+		for (int i = 0, l = sourceLocations.length; i < l; i++) {
+			notifier.subTask(Util.bind("build.cleaningOutput")); //$NON-NLS-1$
+			ClasspathMultiDirectory sourceLocation = sourceLocations[i];
+			if (sourceLocation.hasIndependentOutputFolder) {
+				IContainer outputFolder = sourceLocation.binaryFolder;
+				if (!visited.contains(outputFolder)) {
+					visited.add(outputFolder);
+					IResource[] members = outputFolder.members(); 
+					for (int j = 0, m = members.length; j < m; j++)
+						members[j].delete(IResource.FORCE, null);
+				}
+				notifier.checkCancel();
+				copyExtraResourcesBack(sourceLocation, deleteAll);
+			} else {
+				boolean isOutputFolder = sourceLocation.sourceFolder.equals(sourceLocation.binaryFolder);
+				final char[][] exclusionPatterns =
+					isOutputFolder
+						? sourceLocation.exclusionPatterns
+						: null; // ignore exclusionPatterns if output folder == another source folder... not this one
+				sourceLocation.binaryFolder.accept(
+					new IResourceProxyVisitor() {
+						public boolean visit(IResourceProxy proxy) throws CoreException {
+							IResource resource = null;
+							if (exclusionPatterns != null) {
+								resource = proxy.requestResource();
+								if (Util.isExcluded(resource, exclusionPatterns)) return false;
+							}
+							if (proxy.getType() == IResource.FILE) {
+								if (Util.isClassFileName(proxy.getName())) {
+									if (resource == null)
+										resource = proxy.requestResource();
+									resource.delete(IResource.FORCE, null);
+								}
+								return false;
+							}
+							notifier.checkCancel();
+							return true;
+						}
+					},
+					IResource.NONE
+				);
+				if (!isOutputFolder) {
+					notifier.checkCancel();
+					copyPackages(sourceLocation);
+				}
+			}
+			notifier.checkCancel();
+		}
+	} else {
+		for (int i = 0, l = sourceLocations.length; i < l; i++) {
+			ClasspathMultiDirectory sourceLocation = sourceLocations[i];
+			if (sourceLocation.hasIndependentOutputFolder)
+				copyExtraResourcesBack(sourceLocation, deleteAll);
+			else if (!sourceLocation.sourceFolder.equals(sourceLocation.binaryFolder))
+				copyPackages(sourceLocation); // output folder is different from source folder
+			notifier.checkCancel();
+		}
+	}
+}
+
+protected void copyExtraResourcesBack(ClasspathMultiDirectory sourceLocation, final boolean deletedAll) throws CoreException {
+	// When, if ever, does a builder need to copy resources files (not .java or .class) into the output folder?
+	// If we wipe the output folder at the beginning of the build then all 'extra' resources must be copied to the output folder.
+
+	notifier.subTask(Util.bind("build.copyingResources")); //$NON-NLS-1$
+	final int segmentCount = sourceLocation.sourceFolder.getFullPath().segmentCount();
+	final char[][] exclusionPatterns = sourceLocation.exclusionPatterns;
+	final IContainer outputFolder = sourceLocation.binaryFolder;
+	final boolean isAlsoProject = sourceLocation.sourceFolder.equals(javaBuilder.currentProject);
+	sourceLocation.sourceFolder.accept(
+		new IResourceProxyVisitor() {
+			public boolean visit(IResourceProxy proxy) throws CoreException {
+				IResource resource = null;
+				switch(proxy.getType()) {
+					case IResource.FILE :
+						if (Util.isJavaFileName(proxy.getName()) || Util.isClassFileName(proxy.getName())) return false;
+
+						resource = proxy.requestResource();
+						if (javaBuilder.filterExtraResource(resource)) return false;
+						if (exclusionPatterns != null && Util.isExcluded(resource, exclusionPatterns))
+							return false;
+
+						IPath partialPath = resource.getFullPath().removeFirstSegments(segmentCount);
+						IResource copiedResource = outputFolder.getFile(partialPath);
+						if (copiedResource.exists()) {
+							if (deletedAll) {
+								createErrorFor(resource, Util.bind("build.duplicateResource")); //$NON-NLS-1$
+								return false;
+							}
+							copiedResource.delete(IResource.FORCE, null); // last one wins
+						}
+						resource.copy(copiedResource.getFullPath(), IResource.FORCE, null);
+						copiedResource.setDerived(true);
+						return false;
+					case IResource.FOLDER :
+						resource = proxy.requestResource();
+						if (javaBuilder.filterExtraResource(resource)) return false;
+						if (exclusionPatterns != null && Util.isExcluded(resource, exclusionPatterns))
+							return false;
+
+						IPath folderPath = resource.getFullPath();
+						if (isAlsoProject && isExcludedFromProject(folderPath)) return false; // the sourceFolder == project
+						createFolder(folderPath.removeFirstSegments(segmentCount), outputFolder);
+				}
+				return true;
+			}
+		},
+		IResource.NONE
+	);
+}
+
+protected void copyPackages(ClasspathMultiDirectory sourceLocation) throws CoreException {
+	final int segmentCount = sourceLocation.sourceFolder.getFullPath().segmentCount();
+	final char[][] exclusionPatterns = sourceLocation.exclusionPatterns;
+	final IContainer outputFolder = sourceLocation.binaryFolder;
+	final boolean isAlsoProject = sourceLocation.sourceFolder.equals(javaBuilder.currentProject);
+	sourceLocation.sourceFolder.accept(
+		new IResourceProxyVisitor() {
+			public boolean visit(IResourceProxy proxy) throws CoreException {
+				switch(proxy.getType()) {
+					case IResource.FILE :
+						return false;
+					case IResource.FOLDER :
+						IResource resource = proxy.requestResource();
+						if (javaBuilder.filterExtraResource(resource)) return false;
+						if (exclusionPatterns != null && Util.isExcluded(resource, exclusionPatterns))
+							return false;
+
+						IPath folderPath = resource.getFullPath();
+						if (isAlsoProject && isExcludedFromProject(folderPath)) return false; // the sourceFolder == project
+						createFolder(folderPath.removeFirstSegments(segmentCount), outputFolder);
+				}
+				return true;
+			}
+		},
+		IResource.NONE
+	);
 }
 
 public String toString() {

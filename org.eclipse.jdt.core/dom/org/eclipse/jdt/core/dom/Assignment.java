@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2001 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
@@ -94,10 +94,10 @@ public class Assignment extends Expression {
 		/** &lt;&lt;== operator. */
 		public static final Operator LEFT_SHIFT_ASSIGN =
 			new Operator("<<=");//$NON-NLS-1$
-		/** &gt;&gt;== operator. */
+		/** &gt;&gt;= operator. */
 		public static final Operator RIGHT_SHIFT_SIGNED_ASSIGN =
 			new Operator(">>=");//$NON-NLS-1$
-		/** &gt;&gt;&gt;== operator. */
+		/** &gt;&gt;&gt;= operator. */
 		public static final Operator RIGHT_SHIFT_UNSIGNED_ASSIGN =
 			new Operator(">>>=");//$NON-NLS-1$
 		
@@ -184,6 +184,7 @@ public class Assignment extends Expression {
 	 */
 	ASTNode clone(AST target) {
 		Assignment result = new Assignment(target);
+		result.setSourceRange(this.getStartPosition(), this.getLength());
 		result.setOperator(getOperator());
 		result.setLeftHandSide((Expression) getLeftHandSide().clone(target));
 		result.setRightHandSide((Expression) getRightHandSide().clone(target));
@@ -242,7 +243,9 @@ public class Assignment extends Expression {
 	public Expression getLeftHandSide() {
 		if (leftHandSide  == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setLeftHandSide(new SimpleName(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return leftHandSide;
 	}
@@ -275,7 +278,9 @@ public class Assignment extends Expression {
 	public Expression getRightHandSide() {
 		if (rightHandSide  == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setRightHandSide(new SimpleName(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return rightHandSide;
 	}

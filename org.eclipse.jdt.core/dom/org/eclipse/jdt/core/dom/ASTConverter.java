@@ -1,21 +1,29 @@
 /*******************************************************************************
- * Copyright (c) 2001 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
+import java.util.*;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Set;
+
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.compiler.ast.*;
+import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
+import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 
 /**
  * Internal class for converting internal compiler ASTs into public ASTs.
@@ -26,10 +34,18 @@ class ASTConverter {
 	private char[] compilationUnitSource;
 	private Scanner scanner;
 	private boolean resolveBindings;
+	private Set pendingThisExpressionScopeResolution;
+	private Set pendingNameScopeResolution;	
 	
-	public ASTConverter(boolean resolveBindings) {
+	public ASTConverter(Map options, boolean resolveBindings) {
 		this.resolveBindings = resolveBindings;
-		scanner = new Scanner(true, false);
+		scanner = new Scanner(
+					true /*comment*/,
+					false /*whitespace*/,
+					false /*nls*/,
+					JavaCore.VERSION_1_4.equals(options.get(JavaCore.COMPILER_SOURCE)) /*assert*/, 
+					null /*taskTags*/,
+					null/*taskPriorities*/);
 	}
 	
 	public void setAST(AST ast) {
@@ -46,7 +62,8 @@ class ASTConverter {
 			recordNodes(compilationUnit, unit);
 		}
 		if (unit.currentPackage != null) {
-			compilationUnit.setPackage(convertPackage(unit.currentPackage));
+			PackageDeclaration packageDeclaration = convertPackage(unit);
+			compilationUnit.setPackage(packageDeclaration);
 		}
 		ImportReference[] imports = unit.imports;
 		if (imports != null) {
@@ -67,10 +84,14 @@ class ASTConverter {
 		if (unit.compilationResult.problemCount != 0) {
 			propagateErrors(compilationUnit, unit.compilationResult.problems, unit.compilationResult.problemCount);
 		}
+		if (resolveBindings) {
+			lookupForScopes();
+		}
 		return compilationUnit;
 	}
 	
-	public PackageDeclaration convertPackage(ImportReference importReference) {
+	public PackageDeclaration convertPackage(CompilationUnitDeclaration compilationUnitDeclaration) {
+		ImportReference importReference = compilationUnitDeclaration.currentPackage;
 		PackageDeclaration packageDeclaration = this.ast.newPackageDeclaration();
 		char[][] tokens = importReference.tokens;
 		int length = importReference.tokens.length;
@@ -88,6 +109,7 @@ class ASTConverter {
 		packageDeclaration.setName(name);
 		if (resolveBindings) {
 			recordNodes(packageDeclaration, importReference);
+			recordNodes(name, compilationUnitDeclaration);
 		}
 		return packageDeclaration;
 	}
@@ -126,6 +148,8 @@ class ASTConverter {
 		 * This handles cases where the parser built nodes with invalid modifiers.
 		 */
 		try {
+			// AccJustFlag doesn't flush Modifier.TRANSIENT or Modifier.VOLATILE.
+			// Therefore we need to handle these cases
 			typeDecl.setModifiers(modifiers);
 		} catch(IllegalArgumentException e) {
 			int legalModifiers =
@@ -138,7 +162,7 @@ class ASTConverter {
 		typeDecl.setInterface(typeDeclaration.isInterface());
 		SimpleName typeName = this.ast.newSimpleName(new String(typeDeclaration.name));
 		typeName.setSourceRange(typeDeclaration.sourceStart, typeDeclaration.sourceEnd - typeDeclaration.sourceStart + 1);
-		typeDecl.setName(this.ast.newSimpleName(new String(typeDeclaration.name)));
+		typeDecl.setName(typeName);
 		typeDecl.setSourceRange(typeDeclaration.declarationSourceStart, typeDeclaration.bodyEnd - typeDeclaration.declarationSourceStart + 1);
 		
 		// need to set the superclass and super interfaces here since we cannot distinguish them at
@@ -158,6 +182,7 @@ class ASTConverter {
 		setJavaDocComment(typeDecl);
 		if (resolveBindings) {
 			recordNodes(typeDecl, typeDeclaration);
+			recordNodes(typeName, typeDeclaration);
 			typeDecl.resolveBinding();
 		}
 		return typeDecl;
@@ -303,34 +328,54 @@ class ASTConverter {
 	private QualifiedName setQualifiedNameNameAndSourceRanges(char[][] typeName, long[] positions, AstNode node) {
 		int length = typeName.length;
 		SimpleName firstToken = this.ast.newSimpleName(new String(typeName[0]));
+		firstToken.index = length - 1;
 		int start0 = (int)(positions[0]>>>32);
 		int start = start0;
 		int end = (int)(positions[0] & 0xFFFFFFFF);
 		firstToken.setSourceRange(start, end - start + 1);
 		SimpleName secondToken = this.ast.newSimpleName(new String(typeName[1]));
+		secondToken.index = length - 2;
 		start = (int)(positions[1]>>>32);
 		end = (int)(positions[1] & 0xFFFFFFFF);
 		secondToken.setSourceRange(start, end - start + 1);
 		QualifiedName qualifiedName = this.ast.newQualifiedName(firstToken, secondToken);
+		if (this.resolveBindings) {
+			recordNodes(qualifiedName, node);
+			recordPendingNameScopeResolution(qualifiedName);
+			recordNodes(firstToken, node);
+			recordNodes(secondToken, node);
+			recordPendingNameScopeResolution(firstToken);
+			recordPendingNameScopeResolution(secondToken);
+		}
+		qualifiedName.index = length - 2;
 		qualifiedName.setSourceRange(start0, end - start0 + 1);
 		SimpleName newPart = null;
 		for (int i = 2; i < length; i++) {
 			newPart = this.ast.newSimpleName(new String(typeName[i]));
+			newPart.index = length - i - 1;
 			start = (int)(positions[i]>>>32);
 			end = (int)(positions[i] & 0xFFFFFFFF);
 			newPart.setSourceRange(start,  end - start + 1);
 			qualifiedName = this.ast.newQualifiedName(qualifiedName, newPart);
+			qualifiedName.index = newPart.index;
 			qualifiedName.setSourceRange(start0, end - start0 + 1);
+			if (this.resolveBindings) {
+				recordNodes(qualifiedName, node);
+				recordNodes(newPart, node);				
+				recordPendingNameScopeResolution(qualifiedName);
+				recordPendingNameScopeResolution(newPart);
+			}
 		}
 		QualifiedName name = qualifiedName;
 		if (this.resolveBindings) {
 			recordNodes(name, node);
+			recordPendingNameScopeResolution(name);
 		}
 		return name;
 	}
 	
 	public Expression convert(ThisReference reference) {
-		if (reference == ThisReference.ThisImplicit) {
+		if (reference.isImplicitThis()) {
 			// There is no source associated with an implicit this
 			return null;
 		} else if (reference instanceof QualifiedSuperReference) {
@@ -339,21 +384,23 @@ class ASTConverter {
 			return convert((QualifiedThisReference) reference);
 		}  else {
 			ThisExpression thisExpression = this.ast.newThisExpression();
+			thisExpression.setSourceRange(reference.sourceStart, reference.sourceEnd - reference.sourceStart + 1);
 			if (this.resolveBindings) {
 				recordNodes(thisExpression, reference);
+				recordPendingThisExpressionScopeResolution(thisExpression);
 			}
-			thisExpression.setSourceRange(reference.sourceStart, reference.sourceEnd - reference.sourceStart + 1);
 			return thisExpression;
 		}
 	}
 
 	public ThisExpression convert(QualifiedThisReference reference) {
 		ThisExpression thisExpression = this.ast.newThisExpression();
-		if (this.resolveBindings) {
-			recordNodes(thisExpression, reference);
-		}
 		thisExpression.setSourceRange(reference.sourceStart, reference.sourceEnd - reference.sourceStart + 1);
 		thisExpression.setQualifier(convert(reference.qualification));
+		if (this.resolveBindings) {
+			recordNodes(thisExpression, reference);
+			recordPendingThisExpressionScopeResolution(thisExpression);
+		}
 		return thisExpression;
 	}
 
@@ -451,6 +498,8 @@ class ASTConverter {
 		 * This handles cases where the parser built nodes with invalid modifiers.
 		 */
 		try {
+			// AccJustFlag doesn't flush Modifier.TRANSIENT or Modifier.VOLATILE.
+			// Therefore we need to handle these cases
 			typeDecl.setModifiers(modifiers);
 		} catch(IllegalArgumentException e) {
 			int legalModifiers =
@@ -463,7 +512,7 @@ class ASTConverter {
 		typeDecl.setInterface(typeDeclaration.isInterface());
 		SimpleName typeName = this.ast.newSimpleName(new String(typeDeclaration.name));
 		typeName.setSourceRange(typeDeclaration.sourceStart, typeDeclaration.sourceEnd - typeDeclaration.sourceStart + 1);
-		typeDecl.setName(this.ast.newSimpleName(new String(typeDeclaration.name)));
+		typeDecl.setName(typeName);
 		typeDecl.setSourceRange(typeDeclaration.declarationSourceStart, typeDeclaration.bodyEnd - typeDeclaration.declarationSourceStart + 1);
 		
 		// need to set the superclass and super interfaces here since we cannot distinguish them at
@@ -482,11 +531,24 @@ class ASTConverter {
 		setJavaDocComment(typeDecl);
 		if (this.resolveBindings) {
 			recordNodes(typeDecl, typeDeclaration);
+			recordNodes(typeName, typeDeclaration);
 			typeDecl.resolveBinding();
 		}
 		return typeDecl;
 	}
 
+	private void completeRecord(ArrayType arrayType, AstNode astNode) {
+		ArrayType array = arrayType;
+		int dimensions = array.getDimensions();
+		for (int i = 0; i < dimensions; i++) {
+			Type componentType = array.getComponentType();
+			this.recordNodes(componentType, astNode);
+			if (componentType.isArrayType()) {
+				array = (ArrayType) componentType;
+			}
+		}
+	}
+	
 	public Type convertType(TypeReference typeReference) {
 		Type type = null;				
 		int sourceStart = -1;
@@ -500,19 +562,23 @@ class ASTConverter {
 			if (dimensions != 0) {
 				// need to find out if this is an array type of primitive types or not
 				if (isPrimitiveType(name)) {
-					int end = retrieveStartingLeftBracketPosition(sourceStart, sourceStart + length);
+					int end = retrieveEndOfElementTypeNamePosition(sourceStart, sourceStart + length);
 					if (end == -1) {
-						end = sourceStart + length;
+						end = sourceStart + length - 1;
 					}					
 					PrimitiveType primitiveType = this.ast.newPrimitiveType(getPrimitiveTypeCode(name));
 					primitiveType.setSourceRange(sourceStart, end - sourceStart + 1);
 					type = this.ast.newArrayType(primitiveType, dimensions);
+					if (resolveBindings) {
+						// store keys for inner types
+						completeRecord((ArrayType) type, typeReference);
+					}
 					type.setSourceRange(sourceStart, length);
 				} else {
 					SimpleName simpleName = this.ast.newSimpleName(new String(name));
 					// we need to search for the starting position of the first brace in order to set the proper length
 					// PR http://dev.eclipse.org/bugs/show_bug.cgi?id=10759
-					int end = retrieveStartingLeftBracketPosition(sourceStart, sourceStart + length);
+					int end = retrieveEndOfElementTypeNamePosition(sourceStart, sourceStart + length);
 					if (end == -1) {
 						end = sourceStart + length - 1;
 					}
@@ -522,6 +588,7 @@ class ASTConverter {
 					type = this.ast.newArrayType(simpleType, dimensions);
 					type.setSourceRange(sourceStart, length);
 					if (this.resolveBindings) {
+						completeRecord((ArrayType) type, typeReference);
 						this.recordNodes(simpleName, typeReference);
 					}
 				}
@@ -545,12 +612,15 @@ class ASTConverter {
 			long[] positions = ((QualifiedTypeReference) typeReference).sourcePositions;
 			sourceStart = (int)(positions[0]>>>32);
 			length = (int)(positions[nameLength - 1] & 0xFFFFFFFF) - sourceStart + 1;
+			Name qualifiedName = this.setQualifiedNameNameAndSourceRanges(name, positions, typeReference);
 			if (dimensions != 0) {
 				// need to find out if this is an array type of primitive types or not
-				Name qualifiedName = this.setQualifiedNameNameAndSourceRanges(name, positions, typeReference);
 				SimpleType simpleType = this.ast.newSimpleType(qualifiedName);
 				simpleType.setSourceRange(sourceStart, length);
 				type = this.ast.newArrayType(simpleType, dimensions);
+				if (this.resolveBindings) {
+					completeRecord((ArrayType) type, typeReference);
+				}				
 				int end = retrieveEndOfDimensionsPosition(sourceStart+length, this.compilationUnitSource.length);
 				if (end != -1) {
 					type.setSourceRange(sourceStart, end - sourceStart + 1);
@@ -558,7 +628,6 @@ class ASTConverter {
 					type.setSourceRange(sourceStart, length);
 				}
 			} else {
-				Name qualifiedName = this.setQualifiedNameNameAndSourceRanges(name, positions, typeReference);
 				type = this.ast.newSimpleType(qualifiedName);
 				type.setSourceRange(sourceStart, length);
 			}
@@ -576,6 +645,7 @@ class ASTConverter {
 		 * This handles cases where the parser built nodes with invalid modifiers.
 		 */
 		try {
+			// if Modifier.VOLATILE is set, setModifiers is not allowed, but the code has no syntax error.
 			methodDecl.setModifiers(methodDeclaration.modifiers & org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers.AccJustFlag);
 		} catch(IllegalArgumentException e) {
 			int legalModifiers =
@@ -588,7 +658,9 @@ class ASTConverter {
 		boolean isConstructor = methodDeclaration.isConstructor();
 		methodDecl.setConstructor(isConstructor);
 		SimpleName methodName = this.ast.newSimpleName(new String(methodDeclaration.selector));
-		methodName.setSourceRange(methodDeclaration.sourceStart, methodDeclaration.sourceEnd - methodDeclaration.sourceStart + 1);
+		int start = methodDeclaration.sourceStart;
+		int end = retrieveIdentifierEndPosition(start, methodDeclaration.sourceEnd);
+		methodName.setSourceRange(start, end - start + 1);
 		methodDecl.setName(methodName);
 		TypeReference[] thrownExceptions = methodDeclaration.thrownExceptions;
 		if (thrownExceptions != null) {
@@ -607,14 +679,21 @@ class ASTConverter {
 		ExplicitConstructorCall explicitConstructorCall = null;
 		if (isConstructor) {
 			// set the return type to VOID
-			methodDecl.setReturnType(this.ast.newPrimitiveType(PrimitiveType.VOID));
+			PrimitiveType returnType = this.ast.newPrimitiveType(PrimitiveType.VOID);
+			returnType.setSourceRange(methodDeclaration.sourceStart, 0);
+			methodDecl.setReturnType(returnType);
 			ConstructorDeclaration constructorDeclaration = (ConstructorDeclaration) methodDeclaration;
 			explicitConstructorCall = constructorDeclaration.constructorCall;
 		} else {
 			org.eclipse.jdt.internal.compiler.ast.MethodDeclaration method = (org.eclipse.jdt.internal.compiler.ast.MethodDeclaration) methodDeclaration;
 			TypeReference typeReference = method.returnType;
 			if (typeReference != null) {
-				methodDecl.setReturnType(convertType(typeReference));
+				Type returnType = convertType(typeReference);
+				// get the positions of the right parenthesis
+				int rightParenthesisPosition = retrieveEndOfRightParenthesisPosition(end, method.bodyEnd);
+				int extraDimensions = retrieveExtraDimension(rightParenthesisPosition, method.bodyEnd);
+				methodDecl.setExtraDimensions(extraDimensions);
+				setTypeForMethodDeclaration(methodDecl, returnType, extraDimensions);
 			}
 		}
 		int declarationSourceStart = methodDeclaration.declarationSourceStart;
@@ -626,10 +705,10 @@ class ASTConverter {
 		
 		if (statements != null || explicitConstructorCall != null) {
 			Block block = this.ast.newBlock();
-			int start = retrieveStartBlockPosition(methodDeclaration.sourceStart, declarationSourceEnd);
-			int end = retrieveEndBlockPosition(methodDeclaration.sourceStart, this.compilationUnitSource.length);
+			start = retrieveStartBlockPosition(methodDeclaration.sourceStart, declarationSourceEnd);
+			end = retrieveEndBlockPosition(methodDeclaration.sourceStart, this.compilationUnitSource.length);
 			block.setSourceRange(start, end - start + 1);
-			if (explicitConstructorCall != null) {
+			if (explicitConstructorCall != null && explicitConstructorCall.accessMode != ExplicitConstructorCall.ImplicitSuper) {
 				block.statements().add(convert(explicitConstructorCall));
 			}
 			int statementsLength = statements == null ? 0 : statements.length;
@@ -642,8 +721,8 @@ class ASTConverter {
 			}
 			methodDecl.setBody(block);
 		} else if (!methodDeclaration.isNative() && !methodDeclaration.isAbstract()) {
-			int start = retrieveStartBlockPosition(methodDeclaration.sourceStart, declarationSourceEnd);
-			int end = retrieveEndBlockPosition(methodDeclaration.sourceStart, this.compilationUnitSource.length);
+			start = retrieveStartBlockPosition(methodDeclaration.sourceStart, declarationSourceEnd);
+			end = retrieveEndBlockPosition(methodDeclaration.sourceStart, this.compilationUnitSource.length);
 			if (start != -1 && end != -1) {
 				/*
 				 * start or end can be equal to -1 if we have an interface's method.
@@ -656,13 +735,14 @@ class ASTConverter {
 		setJavaDocComment(methodDecl);
 		if (this.resolveBindings) {
 			recordNodes(methodDecl, methodDeclaration);
+			recordNodes(methodName, methodDeclaration);
 			methodDecl.resolveBinding();
 		}
 		return methodDecl;
 	}	
 
 	public Expression convert(org.eclipse.jdt.internal.compiler.ast.Expression expression) {
-		if (checkForParenthesis(expression)) {
+		if ((expression.bits & AstNode.ParenthesizedMASK) != 0) {
 			return convertToParenthesizedExpression(expression);
 		}
 		if (expression instanceof org.eclipse.jdt.internal.compiler.ast.CastExpression) {
@@ -772,6 +852,11 @@ class ASTConverter {
 		}
 		parenthesizedExpression.setSourceRange(expression.sourceStart, expression.sourceEnd - expression.sourceStart + 1);
 		adjustSourcePositionsForParent(expression);
+		removeExtraBlanks(expression);
+		// decrement the number of parenthesis
+		int numberOfParenthesis = (expression.bits & AstNode.ParenthesizedMASK) >> AstNode.ParenthesizedSHIFT;
+		expression.bits &= ~AstNode.ParenthesizedMASK;
+		expression.bits |= (numberOfParenthesis - 1) << AstNode.ParenthesizedSHIFT;
 		parenthesizedExpression.setExpression(convert(expression));
 		return parenthesizedExpression;
 	}
@@ -910,6 +995,9 @@ class ASTConverter {
 			arrayType = (ArrayType) type;
 		} else {
 			arrayType = this.ast.newArrayType(type, dimensionsLength);
+			if (this.resolveBindings) {
+				completeRecord(arrayType, expression);
+			}			
 			int start = type.getStartPosition();
 			int end = type.getStartPosition() + type.getLength();
 			int previousSearchStart = end;
@@ -924,9 +1012,6 @@ class ASTConverter {
 		if (this.resolveBindings) {
 			recordNodes(arrayType, expression);
 		}	
-		if (expression.initializer != null) {
-			arrayCreation.setInitializer(convert(expression.initializer));
-		}
 		if (expression.initializer != null) {
 			arrayCreation.setInitializer(convert(expression.initializer));
 		}
@@ -952,12 +1037,20 @@ class ASTConverter {
 		
 		variableDecl.setModifiers(argument.modifiers);
 		SimpleName name = this.ast.newSimpleName(argument.name());
-		name.setSourceRange(argument.sourceStart, argument.sourceEnd - argument.sourceStart + 1);
+		int start = argument.sourceStart;
+		int nameEnd = argument.sourceEnd;
+		name.setSourceRange(start, nameEnd - start + 1);
 		variableDecl.setName(name);
+		final int extraDimensions = retrieveExtraDimension(nameEnd + 1, argument.type.sourceEnd);
+		variableDecl.setExtraDimensions(extraDimensions);
 		Type type = convertType(argument.type);
-		variableDecl.setType(type);
 		int typeEnd = type.getStartPosition() + type.getLength() - 1;
 		int rightEnd = Math.max(typeEnd, argument.declarationSourceEnd);
+		/*
+		 * There is extra work to do to set the proper type positions
+		 * See PR http://bugs.eclipse.org/bugs/show_bug.cgi?id=23284
+		 */
+		setTypeForSingleVariableDeclaration(variableDecl, type, extraDimensions);
 		variableDecl.setSourceRange(argument.declarationSourceStart, rightEnd - argument.declarationSourceStart + 1);
 		if (this.resolveBindings) {
 			recordNodes(name, argument);
@@ -1113,10 +1206,11 @@ class ASTConverter {
 		CastExpression castExpression = this.ast.newCastExpression();
 		castExpression.setSourceRange(expression.sourceStart, expression.sourceEnd - expression.sourceStart + 1);
 		org.eclipse.jdt.internal.compiler.ast.Expression type = expression.type;
+		removeExtraBlanks(type);
 		if (type instanceof TypeReference ) {
-			castExpression.setType(convertType((TypeReference)expression.type));
+			castExpression.setType(convertType((TypeReference)type));
 		} else if (type instanceof NameReference) {
-			castExpression.setType(convertToType((NameReference)expression.type));
+			castExpression.setType(convertToType((NameReference)type));
 		}
 		castExpression.setExpression(convert(expression.expression));
 		if (this.resolveBindings) {
@@ -1295,7 +1389,7 @@ class ASTConverter {
 		return literal;
 	}
 	
-	public InfixExpression convert(BinaryExpression expression) {
+	public Expression convert(BinaryExpression expression) {
 		InfixExpression infixExpression = this.ast.newInfixExpression();
 		if (this.resolveBindings) {
 			this.recordNodes(infixExpression, expression);
@@ -1361,42 +1455,62 @@ class ASTConverter {
 				infixExpression.setOperator(InfixExpression.Operator.LESS);
 		};
 		
-		if (expression.left instanceof BinaryExpression) {
+		if (expression.left instanceof BinaryExpression && ((expression.left.bits & AstNode.ParenthesizedMASK) == 0)) {
 			// create an extended string literal equivalent => use the extended operands list
 			infixExpression.extendedOperands().add(convert(expression.right));
 			org.eclipse.jdt.internal.compiler.ast.Expression leftOperand = expression.left;
 			org.eclipse.jdt.internal.compiler.ast.Expression rightOperand = null;
 			do {
-				if (((leftOperand.bits & OperatorExpression.OperatorMASK) >> OperatorExpression.OperatorSHIFT) != expressionOperatorID) {
-					infixExpression.extendedOperands().clear();
-					Expression leftExpression = convert(expression.left);
-					infixExpression.setLeftOperand(leftExpression);
-					infixExpression.setRightOperand(convert(expression.right));
-					int startPosition = leftExpression.getStartPosition();
+				rightOperand = ((BinaryExpression) leftOperand).right;
+				if ((((leftOperand.bits & OperatorExpression.OperatorMASK) >> OperatorExpression.OperatorSHIFT) != expressionOperatorID && ((leftOperand.bits & AstNode.ParenthesizedMASK) == 0))
+				 || ((rightOperand instanceof BinaryExpression && ((rightOperand.bits & OperatorExpression.OperatorMASK) >> OperatorExpression.OperatorSHIFT) != expressionOperatorID) && ((rightOperand.bits & AstNode.ParenthesizedMASK) == 0))) {
+				 	List extendedOperands = infixExpression.extendedOperands();
+				 	InfixExpression temp = this.ast.newInfixExpression();
+					if (this.resolveBindings) {
+						this.recordNodes(temp, expression);
+					}
+				 	temp.setOperator(getOperatorFor(expressionOperatorID));
+				 	Expression leftSide = convert(leftOperand);
+					temp.setLeftOperand(leftSide);
+					temp.setSourceRange(leftSide.getStartPosition(), leftSide.getLength());
+					int size = extendedOperands.size();
+				 	for (int i = 0; i < size - 1; i++) {
+				 		Expression expr = temp;
+				 		temp = this.ast.newInfixExpression();
+				 		
+						if (this.resolveBindings) {
+							this.recordNodes(temp, expression);
+						}				 	
+				 		temp.setLeftOperand(expr);
+					 	temp.setOperator(getOperatorFor(expressionOperatorID));
+						temp.setSourceRange(expr.getStartPosition(), expr.getLength());
+				 	}
+				 	infixExpression = temp;
+				 	for (int i = 0; i < size; i++) {
+				 		Expression extendedOperand = (Expression) extendedOperands.remove(size - 1 - i);
+				 		temp.setRightOperand(extendedOperand);
+				 		int startPosition = temp.getLeftOperand().getStartPosition();
+				 		temp.setSourceRange(startPosition, extendedOperand.getStartPosition() + extendedOperand.getLength() - startPosition);
+				 		if (temp.getLeftOperand().getNodeType() == ASTNode.INFIX_EXPRESSION) {
+				 			temp = (InfixExpression) temp.getLeftOperand();
+				 		}
+				 	}
+					int startPosition = infixExpression.getLeftOperand().getStartPosition();
 					infixExpression.setSourceRange(startPosition, expression.sourceEnd - startPosition + 1);
+					if (this.resolveBindings) {
+						this.recordNodes(infixExpression, expression);
+					}
 					return infixExpression;
 				}
-				rightOperand = ((BinaryExpression) leftOperand).right;
 				infixExpression.extendedOperands().add(0, convert(rightOperand));
 				leftOperand = ((BinaryExpression) leftOperand).left;
-			} while (leftOperand instanceof BinaryExpression);
-			// check that the right operand wasn't a BinaryExpression
-			if (rightOperand instanceof BinaryExpression) {
-				infixExpression.extendedOperands().clear();
-				Expression leftExpression = convert(expression.left);
-				infixExpression.setLeftOperand(leftExpression);
-				infixExpression.setRightOperand(convert(expression.right));
-				int startPosition = leftExpression.getStartPosition();
-				infixExpression.setSourceRange(startPosition, expression.sourceEnd - startPosition + 1);
-				return infixExpression;
-			} else {
-				Expression leftExpression = convert(leftOperand);
-				infixExpression.setLeftOperand(leftExpression);
-				infixExpression.setRightOperand((Expression)infixExpression.extendedOperands().remove(0));
-				int startPosition = leftExpression.getStartPosition();
-				infixExpression.setSourceRange(startPosition, expression.sourceEnd - startPosition + 1);
-				return infixExpression;
-			}
+			} while (leftOperand instanceof BinaryExpression && ((leftOperand.bits & AstNode.ParenthesizedMASK) == 0));
+			Expression leftExpression = convert(leftOperand);
+			infixExpression.setLeftOperand(leftExpression);
+			infixExpression.setRightOperand((Expression)infixExpression.extendedOperands().remove(0));
+			int startPosition = leftExpression.getStartPosition();
+			infixExpression.setSourceRange(startPosition, expression.sourceEnd - startPosition + 1);
+			return infixExpression;
 		}		
 		Expression leftExpression = convert(expression.left);
 		infixExpression.setLeftOperand(leftExpression);
@@ -1457,6 +1571,7 @@ class ASTConverter {
 	public Expression convert(MessageSend expression) {
 		// will return a MethodInvocation or a SuperMethodInvocation or
 		Expression expr;
+		int sourceStart = expression.sourceStart;
 		if (expression.isSuperAccess()) {
 			// returns a SuperMethodInvocation
 			SuperMethodInvocation superMethodInvocation = this.ast.newSuperMethodInvocation();
@@ -1479,6 +1594,9 @@ class ASTConverter {
 				if (this.resolveBindings) {
 					recordNodes(qualifier, expression.receiver);
 				}
+				if (qualifier != null) {
+					sourceStart = qualifier.getStartPosition();
+				}			
 			}
 			org.eclipse.jdt.internal.compiler.ast.Expression[] arguments = expression.arguments;
 			if (arguments != null) {
@@ -1522,9 +1640,12 @@ class ASTConverter {
 				recordNodes(qualifier, expression.receiver);
 			}
 			methodInvocation.setExpression(qualifier);
+			if (qualifier != null) {
+				sourceStart = qualifier.getStartPosition();
+			}
 			expr = methodInvocation;
 		}
-		expr.setSourceRange(expression.sourceStart, expression.sourceEnd - expression.sourceStart + 1);	
+		expr.setSourceRange(sourceStart, expression.sourceEnd - sourceStart + 1);	
 		removeTrailingCommentFromExpressionEndingWithAParen(expr);
 		return expr;
 	}
@@ -1669,11 +1790,15 @@ class ASTConverter {
 	public AssertStatement convert(org.eclipse.jdt.internal.compiler.ast.AssertStatement statement) {
 		AssertStatement assertStatement = this.ast.newAssertStatement();
 		assertStatement.setExpression(convert(statement.assertExpression));
+		int end = statement.assertExpression.sourceEnd + 1;
 		org.eclipse.jdt.internal.compiler.ast.Expression exceptionArgument = statement.exceptionArgument;
 		if (exceptionArgument != null) {
 			assertStatement.setMessage(convert(exceptionArgument));
+			end = exceptionArgument.sourceEnd + 1;
 		}
-		assertStatement.setSourceRange(statement.sourceStart, statement.sourceEnd - statement.sourceStart + 1);
+		int start = statement.sourceStart;
+		int sourceEnd = retrieveEndingSemiColonPosition(end, compilationUnitSource.length);
+		assertStatement.setSourceRange(start, sourceEnd - start + 1);
 		return assertStatement;
 	}
 
@@ -1704,6 +1829,7 @@ class ASTConverter {
 			retrieveIdentifierAndSetPositions(statement.sourceStart, statement.sourceEnd, name);
 			breakStatement.setLabel(name);
 		}
+		retrieveSemiColonPosition(breakStatement);
 		return breakStatement;
 	}
 
@@ -1715,6 +1841,7 @@ class ASTConverter {
 			retrieveIdentifierAndSetPositions(statement.sourceStart, statement.sourceEnd, name);
 			continueStatement.setLabel(name);
 		}
+		retrieveSemiColonPosition(continueStatement);
 		return continueStatement;
 	}
 		
@@ -1723,6 +1850,7 @@ class ASTConverter {
 		SwitchCase switchCase = this.ast.newSwitchCase();
 		switchCase.setSourceRange(statement.sourceStart, statement.sourceEnd - statement.sourceStart + 1);
 		switchCase.setExpression(convert(statement.constantExpression));
+		retrieveColonPosition(switchCase);
 		return switchCase;
 	}
 	
@@ -1730,6 +1858,7 @@ class ASTConverter {
 		SwitchCase switchCase = this.ast.newSwitchCase();
 		switchCase.setExpression(null);
 		switchCase.setSourceRange(statement.sourceStart, statement.sourceEnd - statement.sourceStart + 1);
+		retrieveColonPosition(switchCase);		
 		return switchCase;
 	}
 	
@@ -1737,8 +1866,15 @@ class ASTConverter {
 		DoStatement doStatement = this.ast.newDoStatement();
 		doStatement.setSourceRange(statement.sourceStart, statement.sourceEnd - statement.sourceStart + 1);
 		doStatement.setExpression(convert(statement.condition));
-		if (statement.action != null) {
+		org.eclipse.jdt.internal.compiler.ast.Statement action = statement.action;
+		if (action != null) {
 			doStatement.setBody(convert(statement.action));
+		} else {
+			EmptyStatement emptyStatement = this.ast.newEmptyStatement();
+			int start = retrieveStartingSemiColonPosition(statement.sourceStart, statement.sourceEnd);
+			int end = retrieveEndingSemiColonPosition(start, statement.sourceEnd);
+			emptyStatement.setSourceRange(start, end - start + 1);
+			doStatement.setBody(emptyStatement);
 		}
 		retrieveSemiColonPosition(doStatement);
 		return doStatement;
@@ -1752,7 +1888,7 @@ class ASTConverter {
 	
 	public Statement convert(ExplicitConstructorCall statement) {
 		Statement newStatement;
-		if (statement.isSuperAccess() || statement.isSuper() || statement.isImplicitSuper()) {
+		if (statement.isSuperAccess() || statement.isSuper()) {
 			SuperConstructorInvocation superConstructorInvocation = this.ast.newSuperConstructorInvocation();
 			if (statement.qualification != null) {
 				superConstructorInvocation.setExpression(convert(statement.qualification));
@@ -1777,6 +1913,7 @@ class ASTConverter {
 			newStatement = constructorInvocation;
 		}
 		newStatement.setSourceRange(statement.sourceStart, statement.sourceEnd - statement.sourceStart + 1);
+		retrieveSemiColonPosition(newStatement);
 		if (this.resolveBindings) {
 			recordNodes(newStatement, statement);
 		}
@@ -1788,9 +1925,19 @@ class ASTConverter {
 		forStatement.setSourceRange(statement.sourceStart, statement.sourceEnd - statement.sourceStart + 1);
 		org.eclipse.jdt.internal.compiler.ast.Statement[] initializations = statement.initializations;
 		if (initializations != null) {
-			int initializationsLength = initializations.length;
-			for (int i = 0; i < initializationsLength; i++) {
-				forStatement.initializers().add(convertToExpression(initializations[i]));
+			// we know that we have at least one initialization
+			if (initializations[0] instanceof LocalDeclaration) {
+				VariableDeclarationExpression variableDeclarationExpression = convertToVariableDeclarationExpression((LocalDeclaration) initializations[0]);
+				int initializationsLength = initializations.length;
+				for (int i = 1; i < initializationsLength; i++) {
+					variableDeclarationExpression.fragments().add(convertToVariableDeclarationFragment((LocalDeclaration)initializations[i]));
+				}
+				forStatement.initializers().add(variableDeclarationExpression);
+			} else {
+				int initializationsLength = initializations.length;
+				for (int i = 0; i < initializationsLength; i++) {
+					forStatement.initializers().add(convertToExpression(initializations[i]));
+				}
 			}
 		}
 		if (statement.condition != null) {
@@ -1806,12 +1953,12 @@ class ASTConverter {
 		org.eclipse.jdt.internal.compiler.ast.Statement action = statement.action;
 		if (action != null) {
 			forStatement.setBody(convert(statement.action));
-			if (!(action instanceof org.eclipse.jdt.internal.compiler.ast.Block)) {
-				// set the end position of the for statement on the semi-colon
-				retrieveSemiColonPosition(forStatement);
-			}
 		} else {
-			retrieveSemiColonPosition(forStatement);
+			EmptyStatement emptyStatement = this.ast.newEmptyStatement();
+			int start = retrieveStartingSemiColonPosition(statement.sourceStart, compilationUnitSource.length);
+			int end = retrieveEndingSemiColonPosition(start, compilationUnitSource.length);
+			emptyStatement.setSourceRange(start, end - start + 1);
+			forStatement.setBody(emptyStatement);
 		}
 		return forStatement;
 	}
@@ -1819,41 +1966,9 @@ class ASTConverter {
 	public Expression convertToExpression(org.eclipse.jdt.internal.compiler.ast.Statement statement) {
 		if (statement instanceof org.eclipse.jdt.internal.compiler.ast.Expression) {
 			return convert((org.eclipse.jdt.internal.compiler.ast.Expression) statement);
-		} else if (statement instanceof LocalDeclaration) {
-			LocalDeclaration localDeclaration = (LocalDeclaration) statement;
-			VariableDeclarationFragment variableDeclarationFragment = this.ast.newVariableDeclarationFragment();
-			SimpleName name = this.ast.newSimpleName(localDeclaration.name());
-			name.setSourceRange(localDeclaration.sourceStart, localDeclaration.sourceEnd - localDeclaration.sourceStart + 1);
-			variableDeclarationFragment.setName(name);
-			variableDeclarationFragment.setSourceRange(localDeclaration.declarationSourceStart, localDeclaration.declarationSourceEnd - localDeclaration.declarationSourceStart + 1);
-			if (localDeclaration.initialization != null) {
-				variableDeclarationFragment.setInitializer(convert(localDeclaration.initialization));
-			}
-			VariableDeclarationExpression variableDeclarationExpression = this.ast.newVariableDeclarationExpression(variableDeclarationFragment);
-			if (this.resolveBindings) {
-				recordNodes(variableDeclarationFragment, localDeclaration);
-			}
-			variableDeclarationExpression.setSourceRange(localDeclaration.declarationSourceStart, localDeclaration.declarationSourceEnd - localDeclaration.declarationSourceStart + 1);
-			/**
-			 * http://dev.eclipse.org/bugs/show_bug.cgi?id=13233
-			 * This handles cases where the parser built variables with invalid modifiers.
-			 * The compilation unit is tagged as having wrong modifiers for the local.
-			 * Only final is allowed in this case.
-			 */
-			try {
-				variableDeclarationExpression.setModifiers(localDeclaration.modifiers);
-			} catch(IllegalArgumentException e) {
-				variableDeclarationExpression.setModifiers(localDeclaration.modifiers & Modifier.FINAL);
-				variableDeclarationExpression.setFlags(ASTNode.MALFORMED);
-			}
-			variableDeclarationFragment.setExtraDimensions(retrieveExtraDimension(localDeclaration.sourceEnd + 1, this.compilationUnitSource.length));
-			Type type = convertType(localDeclaration.type);
-			setTypeForVariableDeclarationExpression(variableDeclarationExpression, type, variableDeclarationFragment.getExtraDimensions());
-			return variableDeclarationExpression;
-		} else {
-			// unsupported
-			throw new IllegalArgumentException("Not yet implemented: convert(" + statement.getClass() + ")");//$NON-NLS-1$//$NON-NLS-2$
 		}
+		// unsupported
+		throw new IllegalArgumentException("Not yet implemented: convert(" + statement.getClass() + ")");//$NON-NLS-1$//$NON-NLS-2$
 	}
 	
 	public IfStatement convert(org.eclipse.jdt.internal.compiler.ast.IfStatement statement) {
@@ -1864,14 +1979,24 @@ class ASTConverter {
 		org.eclipse.jdt.internal.compiler.ast.Statement elseStatement = statement.elseStatement;
 		if (thenStatement != null) {
 			if (thenStatement == org.eclipse.jdt.internal.compiler.ast.Block.None) {
-				ifStatement.setThenStatement(this.ast.newEmptyStatement());
+				EmptyStatement emptyStatement = this.ast.newEmptyStatement();
+				int start = retrieveStartingSemiColonPosition(statement.sourceStart, statement.sourceEnd);
+				int end = retrieveEndingSemiColonPosition(start, statement.sourceEnd);
+				emptyStatement.setSourceRange(start, end - start + 1);
+				ifStatement.setThenStatement(emptyStatement);
 			} else {
 				ifStatement.setThenStatement(convert(statement.thenStatement));
 			}
 		}
 		if (elseStatement != null) {
 			if (elseStatement == org.eclipse.jdt.internal.compiler.ast.Block.None) {
-				ifStatement.setElseStatement(this.ast.newEmptyStatement());
+				// retrieve the else position
+				EmptyStatement emptyStatement = this.ast.newEmptyStatement();
+				int start = retrieveElseEndingPosition(statement.sourceStart, statement.sourceEnd);
+				start = retrieveStartingSemiColonPosition(statement.sourceStart, statement.sourceEnd);
+				int end = retrieveEndingSemiColonPosition(start, statement.sourceEnd);
+				emptyStatement.setSourceRange(start, end - start + 1);
+				ifStatement.setElseStatement(emptyStatement);
 			} else {
 				ifStatement.setElseStatement(convert(elseStatement));
 			}
@@ -1882,7 +2007,16 @@ class ASTConverter {
 	public LabeledStatement convert(org.eclipse.jdt.internal.compiler.ast.LabeledStatement statement) {
 		LabeledStatement labeledStatement = this.ast.newLabeledStatement();
 		labeledStatement.setSourceRange(statement.sourceStart, statement.sourceEnd - statement.sourceStart + 1);	
-		labeledStatement.setBody(convert(statement.statement));
+		org.eclipse.jdt.internal.compiler.ast.Statement body = statement.statement;
+		if (body == org.eclipse.jdt.internal.compiler.ast.Block.None) {
+			EmptyStatement emptyStatement = this.ast.newEmptyStatement();
+			int start = retrieveStartingSemiColonPosition(statement.sourceStart, statement.sourceEnd);
+			int end = retrieveEndingSemiColonPosition(start, statement.sourceEnd);
+			emptyStatement.setSourceRange(start, end - start + 1);
+			labeledStatement.setBody(emptyStatement);
+		} else {
+			labeledStatement.setBody(convert(body));
+		}
 		SimpleName name = this.ast.newSimpleName(new String(statement.label));
 		retrieveIdentifierAndSetPositions(statement.sourceStart, statement.sourceEnd, name);
 		labeledStatement.setLabel(name);
@@ -1966,6 +2100,13 @@ class ASTConverter {
 				// set the end position of the for statement on the semi-colon
 				retrieveSemiColonPosition(whileStatement);
 			}
+		} else {
+			EmptyStatement emptyStatement = this.ast.newEmptyStatement();
+			retrieveSemiColonPosition(whileStatement);
+			int start = retrieveStartingSemiColonPosition(statement.sourceStart, compilationUnitSource.length);
+			int end = retrieveEndingSemiColonPosition(start, compilationUnitSource.length);
+			emptyStatement.setSourceRange(start, end - start + 1);
+			whileStatement.setBody(emptyStatement);
 		}
 		return whileStatement;
 	}
@@ -2136,30 +2277,30 @@ class ASTConverter {
 		scanner.resetTo(end, this.compilationUnitSource.length);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameSEMICOLON:
+					case TerminalTokens.TokenNameSEMICOLON:
 						if (count == 0) {
 							node.setSourceRange(start, scanner.currentPosition - start);
 							return;
 						}
 						break;
-					case Scanner.TokenNameLBRACE :
+					case TerminalTokens.TokenNameLBRACE :
 						count++;
 						break;
-					case Scanner.TokenNameRBRACE :
+					case TerminalTokens.TokenNameRBRACE :
 						count--;
 						break;
-					case Scanner.TokenNameLPAREN :
+					case TerminalTokens.TokenNameLPAREN :
 						count++;
 						break;
-					case Scanner.TokenNameRPAREN :
+					case TerminalTokens.TokenNameRPAREN :
 						count--;
 						break;
-					case Scanner.TokenNameLBRACKET :
+					case TerminalTokens.TokenNameLBRACKET :
 						count++;
 						break;
-					case Scanner.TokenNameRBRACKET :
+					case TerminalTokens.TokenNameRBRACKET :
 						count--;
 				}
 			}
@@ -2168,19 +2309,20 @@ class ASTConverter {
 	}
 
 	/**
-	 * This method is used to set the right end position for switch and 
-	 * try statements. They don't include the close }. 
+	 * This method is used to set the right end position for expression
+	 * statement. The actual AST nodes don't include the trailing semicolon.
+	 * This method fixes the length of the corresponding node.
 	 */
-	private void retrieveRightBracePosition(ASTNode node) {
+	private void retrieveColonPosition(ASTNode node) {
 		int start = node.getStartPosition();
 		int length = node.getLength();
 		int end = start + length;
 		scanner.resetTo(end, this.compilationUnitSource.length);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameRBRACE:
+					case TerminalTokens.TokenNameCOLON:
 						node.setSourceRange(start, scanner.currentPosition - start);
 						return;
 				}
@@ -2189,6 +2331,93 @@ class ASTConverter {
 		}
 	}
 
+	private int retrieveStartingSemiColonPosition(int start, int end) {
+		int count = 0;
+		scanner.resetTo(start, end);
+		try {
+			int token;
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+				switch(token) {
+					case TerminalTokens.TokenNameSEMICOLON:
+						if (count == 0) {
+							return scanner.startPosition;
+						}
+						break;
+					case TerminalTokens.TokenNameLBRACE :
+						count++;
+						break;
+					case TerminalTokens.TokenNameRBRACE :
+						count--;
+						break;
+					case TerminalTokens.TokenNameLPAREN :
+						count++;
+						break;
+					case TerminalTokens.TokenNameRPAREN :
+						count--;
+						break;
+					case TerminalTokens.TokenNameLBRACKET :
+						count++;
+						break;
+					case TerminalTokens.TokenNameRBRACKET :
+						count--;
+				}
+			}
+		} catch(InvalidInputException e) {
+		}
+		return -1;
+	}
+
+	private int retrieveEndingSemiColonPosition(int start, int end) {
+		int count = 0;
+		scanner.resetTo(start, end);
+		try {
+			int token;
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+				switch(token) {
+					case TerminalTokens.TokenNameSEMICOLON:
+						if (count == 0) {
+							return scanner.currentPosition - 1;
+						}
+						break;
+					case TerminalTokens.TokenNameLBRACE :
+						count++;
+						break;
+					case TerminalTokens.TokenNameRBRACE :
+						count--;
+						break;
+					case TerminalTokens.TokenNameLPAREN :
+						count++;
+						break;
+					case TerminalTokens.TokenNameRPAREN :
+						count--;
+						break;
+					case TerminalTokens.TokenNameLBRACKET :
+						count++;
+						break;
+					case TerminalTokens.TokenNameRBRACKET :
+						count--;
+				}
+			}
+		} catch(InvalidInputException e) {
+		}
+		return -1;
+	}
+
+	private int retrieveElseEndingPosition(int start, int end) {
+		scanner.resetTo(start, end);
+		try {
+			int token;
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+				switch(token) {
+					case TerminalTokens.TokenNameelse:
+						return scanner.currentPosition - 1;
+				}
+			}
+		} catch(InvalidInputException e) {
+		}
+		return -1;
+	}
+	
 	/**
 	 * This method is used to retrieve the array dimension declared after the
 	 * name of a local or a field declaration.
@@ -2202,15 +2431,16 @@ class ASTConverter {
 		int dimensions = 0;
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameRBRACKET://166 
+					case TerminalTokens.TokenNameRBRACKET://166 
 						dimensions++;
 						break;
-					case Scanner.TokenNameCOMMA ://90
-					case Scanner.TokenNameEQUAL ://167
-					case Scanner.TokenNameSEMICOLON ://64
-					case Scanner.TokenNameRPAREN : //86
+					case TerminalTokens.TokenNameLBRACE ://90						
+					case TerminalTokens.TokenNameCOMMA ://90
+					case TerminalTokens.TokenNameEQUAL ://167
+					case TerminalTokens.TokenNameSEMICOLON ://64
+					case TerminalTokens.TokenNameRPAREN : //86
 						return dimensions;
 				}
 			}
@@ -2231,14 +2461,14 @@ class ASTConverter {
 		int foundPosition = -1;
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameLBRACKET:
-					case Scanner.TokenNameCOMMENT_BLOCK:
-					case Scanner.TokenNameCOMMENT_JAVADOC:
-					case Scanner.TokenNameCOMMENT_LINE:
+					case TerminalTokens.TokenNameLBRACKET:
+					case TerminalTokens.TokenNameCOMMENT_BLOCK:
+					case TerminalTokens.TokenNameCOMMENT_JAVADOC:
+					case TerminalTokens.TokenNameCOMMENT_LINE:
 						break;
-					case Scanner.TokenNameRBRACKET://166
+					case TerminalTokens.TokenNameRBRACKET://166
 						foundPosition = scanner.currentPosition - 1;
 						break;
 					default:
@@ -2258,9 +2488,9 @@ class ASTConverter {
 		scanner.resetTo(start, end);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNamecatch://225
+					case TerminalTokens.TokenNamecatch://225
 						return scanner.startPosition;
 				}
 			}
@@ -2273,14 +2503,21 @@ class ASTConverter {
 	 * This method is used to retrieve the position just before the left bracket.
 	 * @return int the dimension found, -1 if none
 	 */
-	private int retrieveStartingLeftBracketPosition(int start, int end) {
+	private int retrieveEndOfElementTypeNamePosition(int start, int end) {
 		scanner.resetTo(start, end);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameLBRACKET://225
-						return scanner.startPosition - 1;
+					case TerminalTokens.TokenNameIdentifier:
+					case TerminalTokens.TokenNamebyte:
+					case TerminalTokens.TokenNamechar:
+					case TerminalTokens.TokenNamedouble:
+					case TerminalTokens.TokenNamefloat:
+					case TerminalTokens.TokenNameint:
+					case TerminalTokens.TokenNamelong:
+					case TerminalTokens.TokenNameshort:
+						return scanner.currentPosition - 1;
 				}
 			}
 		} catch(InvalidInputException e) {
@@ -2296,10 +2533,29 @@ class ASTConverter {
 		scanner.resetTo(start, end);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameRBRACKET:
+					case TerminalTokens.TokenNameRBRACKET:
 						return scanner.currentPosition - 1;
+				}
+			}
+		} catch(InvalidInputException e) {
+		}
+		return -1;
+	}
+
+	/**
+	 * This method is used to retrieve the position after the right parenthesis.
+	 * @return int the position found
+	 */
+	private int retrieveEndOfRightParenthesisPosition(int start, int end) {
+		scanner.resetTo(start, end);
+		try {
+			int token;
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+				switch(token) {
+					case TerminalTokens.TokenNameRPAREN:
+						return scanner.currentPosition;
 				}
 			}
 		} catch(InvalidInputException e) {
@@ -2311,9 +2567,9 @@ class ASTConverter {
 		scanner.resetTo(start, end);
 		try {
 			int token, count = 0;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameRBRACKET:
+					case TerminalTokens.TokenNameRBRACKET:
 						count++;
 						if (count == bracketNumber) {
 							return scanner.currentPosition - 1;
@@ -2333,9 +2589,9 @@ class ASTConverter {
 		scanner.resetTo(start, end);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameLBRACE://110
+					case TerminalTokens.TokenNameLBRACE://110
 						return scanner.startPosition;
 				}
 			}
@@ -2343,6 +2599,25 @@ class ASTConverter {
 		}
 		return -1;
 	}
+	
+	/**
+	 * This method is used to retrieve the start position of the block.
+	 * @return int the dimension found, -1 if none
+	 */
+	private int retrieveIdentifierEndPosition(int start, int end) {
+		scanner.resetTo(start, end);
+		try {
+			int token;
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+				switch(token) {
+					case TerminalTokens.TokenNameIdentifier://110
+						return scanner.getCurrentTokenEndPosition();
+				}
+			}
+		} catch(InvalidInputException e) {
+		}
+		return -1;
+	}	
 	
 	/**
 	 * This method is used to retrieve the end position of the block.
@@ -2353,12 +2628,12 @@ class ASTConverter {
 		int count = 0;
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameLBRACE://110
+					case TerminalTokens.TokenNameLBRACE://110
 						count++;
 						break;
-					case Scanner.TokenNameRBRACE://95
+					case TerminalTokens.TokenNameRBRACE://95
 						count--;
 						if (count == 0) {
 							return scanner.currentPosition - 1;
@@ -2380,19 +2655,19 @@ class ASTConverter {
 		try {
 			int token;
 			int braceCounter = 0;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameLBRACE :
+					case TerminalTokens.TokenNameLBRACE :
 						braceCounter++;
 						break;
-					case Scanner.TokenNameRBRACE :
+					case TerminalTokens.TokenNameRBRACE :
 						braceCounter--;
 						if (braceCounter == 0) {
 							node.setSourceRange(start, scanner.currentPosition - start);
 							return;
 						}
 						break;
-					case Scanner.TokenNameSEMICOLON :
+					case TerminalTokens.TokenNameSEMICOLON :
 						if (braceCounter == 0) {
 							node.setSourceRange(start, scanner.currentPosition - start);
 							return;
@@ -2412,28 +2687,28 @@ class ASTConverter {
 		int braceCounter = 0;
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameLBRACE :
+					case TerminalTokens.TokenNameLBRACE :
 						braceCounter++;
 						break;
-					case Scanner.TokenNameRBRACE :
+					case TerminalTokens.TokenNameRBRACE :
 						braceCounter--;
 						break;
-					case Scanner.TokenNameLPAREN :
+					case TerminalTokens.TokenNameLPAREN :
 						braceCounter++;
 						break;
-					case Scanner.TokenNameRPAREN :
+					case TerminalTokens.TokenNameRPAREN :
 						braceCounter--;
 						break;
-					case Scanner.TokenNameLBRACKET :
+					case TerminalTokens.TokenNameLBRACKET :
 						braceCounter++;
 						break;
-					case Scanner.TokenNameRBRACKET :
+					case TerminalTokens.TokenNameRBRACKET :
 						braceCounter--;
 						break;
-					case Scanner.TokenNameCOMMA :
-					case Scanner.TokenNameSEMICOLON :
+					case TerminalTokens.TokenNameCOMMA :
+					case TerminalTokens.TokenNameSEMICOLON :
 						if (braceCounter == 0) {
 							return scanner.startPosition - 1;
 						}
@@ -2489,6 +2764,7 @@ class ASTConverter {
 		variableDeclarationFragment.setExtraDimensions(retrieveExtraDimension(localDeclaration.sourceEnd + 1, this.compilationUnitSource.length));
 		if (this.resolveBindings) {
 			recordNodes(variableDeclarationFragment, localDeclaration);
+			recordNodes(name, localDeclaration);
 			variableDeclarationFragment.resolveBinding();
 		}
 		return variableDeclarationFragment;
@@ -2538,13 +2814,37 @@ class ASTConverter {
 		 * Only final is allowed in this case.
 		 */
 		try {
-			variableDeclarationStatement.setModifiers(localDeclaration.modifiers);
+			variableDeclarationStatement.setModifiers(localDeclaration.modifiers & ~CompilerModifiers.AccBlankFinal);
 		} catch(IllegalArgumentException e) {
 			variableDeclarationStatement.setModifiers(localDeclaration.modifiers & Modifier.FINAL);
 			variableDeclarationStatement.setFlags(ASTNode.MALFORMED);
 		}
 		retrieveSemiColonPosition(variableDeclarationStatement);
 		return variableDeclarationStatement;
+	}
+	
+	private VariableDeclarationExpression convertToVariableDeclarationExpression(LocalDeclaration localDeclaration) {
+		VariableDeclarationFragment variableDeclarationFragment = convertToVariableDeclarationFragment(localDeclaration);
+		VariableDeclarationExpression variableDeclarationExpression = this.ast.newVariableDeclarationExpression(variableDeclarationFragment);
+		if (this.resolveBindings) {
+			recordNodes(variableDeclarationFragment, localDeclaration);
+		}
+		variableDeclarationExpression.setSourceRange(localDeclaration.declarationSourceStart, localDeclaration.declarationSourceEnd - localDeclaration.declarationSourceStart + 1);
+		Type type = convertType(localDeclaration.type);
+		setTypeForVariableDeclarationExpression(variableDeclarationExpression, type, variableDeclarationFragment.getExtraDimensions());
+		/**
+		 * http://dev.eclipse.org/bugs/show_bug.cgi?id=13233
+		 * This handles cases where the parser built variables with invalid modifiers.
+		 * The compilation unit is tagged as having wrong modifiers for the local.
+		 * Only final is allowed in this case.
+		 */
+		try {
+			variableDeclarationExpression.setModifiers(localDeclaration.modifiers & ~CompilerModifiers.AccBlankFinal);
+		} catch(IllegalArgumentException e) {
+			variableDeclarationExpression.setModifiers(localDeclaration.modifiers & Modifier.FINAL);
+			variableDeclarationExpression.setFlags(ASTNode.MALFORMED);
+		}
+		return variableDeclarationExpression;
 	}
 	
 	private void setTypeForField(FieldDeclaration fieldDeclaration, Type type, int extraDimension) {
@@ -2578,6 +2878,74 @@ class ASTConverter {
 			}
 		} else {
 			fieldDeclaration.setType(type);
+		}
+	}
+
+	private void setTypeForSingleVariableDeclaration(SingleVariableDeclaration singleVariableDeclaration, Type type, int extraDimension) {
+		if (extraDimension != 0) {
+			if (type.isArrayType()) {
+				ArrayType arrayType = (ArrayType) type;
+				int remainingDimensions = arrayType.getDimensions() - extraDimension;
+				if (remainingDimensions == 0)  {
+					// the dimensions are after the name so the type of the fieldDeclaration is a simpleType
+					Type elementType = arrayType.getElementType();
+					elementType.setParent(null);
+					this.ast.getBindingResolver().updateKey(type, elementType);
+					singleVariableDeclaration.setType(elementType);
+				} else {
+					int start = type.getStartPosition();
+					int length = type.getLength();
+					ArrayType subarrayType = arrayType;
+					int index = extraDimension;
+					while (index > 0) {
+						subarrayType = (ArrayType) subarrayType.getComponentType();
+						index--;
+					}
+					int end = retrieveProperRightBracketPosition(remainingDimensions, start, start + length);
+					subarrayType.setSourceRange(start, end - start + 1);
+					subarrayType.setParent(null);
+					singleVariableDeclaration.setType(subarrayType);
+					this.ast.getBindingResolver().updateKey(type, subarrayType);
+				}
+			} else {
+				singleVariableDeclaration.setType(type);
+			}
+		} else {
+			singleVariableDeclaration.setType(type);
+		}
+	}
+
+	private void setTypeForMethodDeclaration(MethodDeclaration methodDeclaration, Type type, int extraDimension) {
+		if (extraDimension != 0) {
+			if (type.isArrayType()) {
+				ArrayType arrayType = (ArrayType) type;
+				int remainingDimensions = arrayType.getDimensions() - extraDimension;
+				if (remainingDimensions == 0)  {
+					// the dimensions are after the name so the type of the fieldDeclaration is a simpleType
+					Type elementType = arrayType.getElementType();
+					elementType.setParent(null);
+					this.ast.getBindingResolver().updateKey(type, elementType);
+					methodDeclaration.setReturnType(elementType);
+				} else {
+					int start = type.getStartPosition();
+					int length = type.getLength();
+					ArrayType subarrayType = arrayType;
+					int index = extraDimension;
+					while (index > 0) {
+						subarrayType = (ArrayType) subarrayType.getComponentType();
+						index--;
+					}
+					int end = retrieveProperRightBracketPosition(remainingDimensions, start, start + length);
+					subarrayType.setSourceRange(start, end - start + 1);
+					subarrayType.setParent(null);
+					methodDeclaration.setReturnType(subarrayType);
+					this.ast.getBindingResolver().updateKey(type, subarrayType);
+				}
+			} else {
+				methodDeclaration.setReturnType(type);
+			}
+		} else {
+			methodDeclaration.setReturnType(type);
 		}
 	}
 
@@ -2653,9 +3021,9 @@ class ASTConverter {
 		scanner.resetTo(bodyDeclaration.getStartPosition(), bodyDeclaration.getStartPosition() + bodyDeclaration.getLength());
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != Scanner.TokenNameEOF) {
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
-					case Scanner.TokenNameCOMMENT_JAVADOC: //1003
+					case TerminalTokens.TokenNameCOMMENT_JAVADOC: //1003
 						Javadoc javadocComment = this.ast.newJavadoc();
 						int start = scanner.startPosition;
 						int length = scanner.currentPosition - start;
@@ -2664,6 +3032,8 @@ class ASTConverter {
 						javadocComment.setComment(new String(contents));
 						javadocComment.setSourceRange(start, length);
 						bodyDeclaration.setJavadoc(javadocComment);
+						return;
+					default :
 						return;
 				}
 			}
@@ -2682,62 +3052,51 @@ class ASTConverter {
 		ASTSyntaxErrorPropagator syntaxErrorPropagator = new ASTSyntaxErrorPropagator(resizeProblems);
 		unit.accept(syntaxErrorPropagator);
 		// store the messages error on the compulation unit
-		Message[] messages = new Message[problemLength];
-		for (int i = 0; i < problemLength; i++) {
-			IProblem problem = problems[i];
-			int start = problem.getSourceStart();
-			int end = problem.getSourceEnd();
-			messages[i] = new Message(problem.getMessage(), start, end - start + 1);
-		}
-		unit.setMessages(messages);
-	}
-	
-	private boolean checkAndTagAsMalformed(ASTNode node, int position) {
-		int start = node.getStartPosition();
-		int end = start + node.getLength();
-		if ((start <= position) && (position <= end)) {
-			node.setFlags(ASTNode.MALFORMED);
-			return true;
-		}
-		return false;
+		unit.setProblems(resizeProblems);
 	}
 	
 	private void recordNodes(ASTNode node, org.eclipse.jdt.internal.compiler.ast.AstNode oldASTNode) {
 		this.ast.getBindingResolver().store(node, oldASTNode);
 	}
 	
-	private boolean checkForParenthesis(org.eclipse.jdt.internal.compiler.ast.Expression expression) {
-		/*
-		 * We need to handle multiple parenthesis
-		 */
+	/**
+	 * Remove whitespaces before and after the expression.
+	 */	
+	private void removeExtraBlanks(org.eclipse.jdt.internal.compiler.ast.Expression expression) {
 		int start = expression.sourceStart;
 		int end = expression.sourceEnd;
-		scanner.resetTo(start, end);
-		int dangling = 0, token;
+		int token;
+		int trimLeftPosition = expression.sourceStart;
+		int trimRigthPosition = expression.sourceEnd;
 		boolean first = true;
+		Scanner removeBlankScanner = this.ast.scanner;
 		try {
+			removeBlankScanner.setSource(this.compilationUnitSource);
+			removeBlankScanner.resetTo(start, end);
 			while (true) {
-				token = scanner.getNextToken();
+				token = removeBlankScanner.getNextToken();
 				switch (token) {
-					case Scanner.TokenNameLPAREN :
-						dangling ++;
+					case TerminalTokens.TokenNameWHITESPACE :
+						if (first) {
+							trimLeftPosition = removeBlankScanner.currentPosition;
+						}
+						trimRigthPosition = removeBlankScanner.startPosition - 1;
 						break;
-					case Scanner.TokenNameRPAREN :
-						if (first) return false;
-						dangling --;
-						break;
-					case Scanner.TokenNameEOF :
-						if (first) return false;
-						return dangling == 0;
+					case TerminalTokens.TokenNameEOF :
+						expression.sourceStart = trimLeftPosition;
+						expression.sourceEnd = trimRigthPosition;
+						return;
 					default :
-						if (first) return false;
-						if (dangling == 0) return false;
+						/*
+						 * if we find something else than a whitespace, then we reset the trimRigthPosition
+						 * to the expression source end.
+						 */
+						trimRigthPosition = expression.sourceEnd;
 				}
 				first = false;
 			}
 		} catch (InvalidInputException e){
 		}
-		return false;
 	}
 	
 	private void adjustSourcePositionsForParent(org.eclipse.jdt.internal.compiler.ast.Expression expression) {
@@ -2750,12 +3109,12 @@ class ASTConverter {
 			int token = scanner.getNextToken();
 			expression.sourceStart = scanner.currentPosition;
 			boolean stop = false;
-			while (!stop && ((token  = scanner.getNextToken()) != Scanner.TokenNameEOF)) {
+			while (!stop && ((token  = scanner.getNextToken()) != TerminalTokens.TokenNameEOF)) {
 				switch(token) {
-					case Scanner.TokenNameLPAREN:
+					case TerminalTokens.TokenNameLPAREN:
 						leftParentCount++;
 						break;
-					case Scanner.TokenNameRPAREN:
+					case TerminalTokens.TokenNameRPAREN:
 						rightParentCount++;
 						if (rightParentCount == leftParentCount) {
 							// we found the matching parenthesis
@@ -2774,8 +3133,8 @@ class ASTConverter {
 		int token;
 		int index = 0;
 		try {
-			while((token = scanner.getNextToken()) != Scanner.TokenNameEOF)  {
-				if (token == Scanner.TokenNameIdentifier) {
+			while((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF)  {
+				if (token == TerminalTokens.TokenNameIdentifier) {
 					positions[index] = (((long) scanner.startPosition) << 32) + (scanner.currentPosition - 1);
 					index++;
 				}
@@ -2789,8 +3148,8 @@ class ASTConverter {
 		scanner.resetTo(start, end);
 		int token;
 		try {
-			while((token = scanner.getNextToken()) != Scanner.TokenNameEOF)  {
-				if (token == Scanner.TokenNameIdentifier) {
+			while((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF)  {
+				if (token == TerminalTokens.TokenNameIdentifier) {
 					int startName = scanner.startPosition;
 					int endName = scanner.currentPosition - 1;
 					name.setSourceRange(startName, endName - startName + 1);
@@ -2810,12 +3169,12 @@ class ASTConverter {
 		int token;
 		int parenCounter = 0;
 		try {
-			while((token = scanner.getNextToken()) != Scanner.TokenNameEOF)  {
+			while((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF)  {
 				switch(token) {
-					case Scanner.TokenNameLPAREN :
+					case TerminalTokens.TokenNameLPAREN :
 						parenCounter++;
 						break;
-					case Scanner.TokenNameRPAREN :
+					case TerminalTokens.TokenNameRPAREN :
 						parenCounter--;
 						if (parenCounter == 0) {
 							int end = scanner.currentPosition - 1;
@@ -2836,26 +3195,100 @@ class ASTConverter {
 		int token;
 		int startPosition = -1;
 		try {
-			while((token = scanner.getNextToken()) != Scanner.TokenNameEOF)  {
+			while((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF)  {
 				switch(token) {
-					case Scanner.TokenNameIntegerLiteral :
-					case Scanner.TokenNameFloatingPointLiteral :
-					case Scanner.TokenNameLongLiteral :
-					case Scanner.TokenNameDoubleLiteral :
-					case Scanner.TokenNameCharacterLiteral :
+					case TerminalTokens.TokenNameIntegerLiteral :
+					case TerminalTokens.TokenNameFloatingPointLiteral :
+					case TerminalTokens.TokenNameLongLiteral :
+					case TerminalTokens.TokenNameDoubleLiteral :
+					case TerminalTokens.TokenNameCharacterLiteral :
 						if (startPosition == -1) {
 							startPosition = scanner.startPosition;
 						}
 						int end = scanner.currentPosition;
 						node.setSourceRange(startPosition, end - startPosition);
 						return;
-					case Scanner.TokenNameMINUS :
+					case TerminalTokens.TokenNameMINUS :
 						startPosition = scanner.startPosition;
 						break;
 				}
 			}
 		} catch(InvalidInputException e) {
 		}
+	}
+	
+	private void recordPendingThisExpressionScopeResolution(ThisExpression thisExpression) {
+		if (this.pendingThisExpressionScopeResolution == null) {
+			this.pendingThisExpressionScopeResolution = new HashSet();
+		}
+		this.pendingThisExpressionScopeResolution.add(thisExpression);
+	}
+	
+	private void recordPendingNameScopeResolution(Name name) {
+		if (this.pendingNameScopeResolution == null) {
+			this.pendingNameScopeResolution = new HashSet();
+		}
+		this.pendingNameScopeResolution.add(name);
+	}
+	
+	private void lookupForScopes() {
+		if (this.pendingNameScopeResolution != null) {
+			for (Iterator iterator = this.pendingNameScopeResolution.iterator(); iterator.hasNext(); ) {
+				Name name = (Name) iterator.next();
+				this.ast.getBindingResolver().recordScope(name, name.lookupScope());
+			}
+		}
+		if (this.pendingThisExpressionScopeResolution != null) {
+			for (Iterator iterator = this.pendingThisExpressionScopeResolution.iterator(); iterator.hasNext(); ) {
+				ThisExpression thisExpression = (ThisExpression) iterator.next();
+				this.ast.getBindingResolver().recordScope(thisExpression, thisExpression.lookupScope());
+			}
+		}
+		
+	}
+	
+	private InfixExpression.Operator getOperatorFor(int operatorID) {
+		switch (operatorID) {
+			case OperatorIds.EQUAL_EQUAL :
+				return InfixExpression.Operator.EQUALS;
+			case OperatorIds.LESS_EQUAL :
+				return InfixExpression.Operator.LESS_EQUALS;
+			case OperatorIds.GREATER_EQUAL :
+				return InfixExpression.Operator.GREATER_EQUALS;
+			case OperatorIds.NOT_EQUAL :
+				return InfixExpression.Operator.NOT_EQUALS;
+			case OperatorIds.LEFT_SHIFT :
+				return InfixExpression.Operator.LEFT_SHIFT;
+			case OperatorIds.RIGHT_SHIFT :
+				return InfixExpression.Operator.RIGHT_SHIFT_SIGNED;
+			case OperatorIds.UNSIGNED_RIGHT_SHIFT :
+				return InfixExpression.Operator.RIGHT_SHIFT_UNSIGNED;
+			case OperatorIds.OR_OR :
+				return InfixExpression.Operator.CONDITIONAL_OR;
+			case OperatorIds.AND_AND :
+				return InfixExpression.Operator.CONDITIONAL_AND;
+			case OperatorIds.PLUS :
+				return InfixExpression.Operator.PLUS;
+			case OperatorIds.MINUS :
+				return InfixExpression.Operator.MINUS;
+			case OperatorIds.REMAINDER :
+				return InfixExpression.Operator.REMAINDER;
+			case OperatorIds.XOR :
+				return InfixExpression.Operator.XOR;
+			case OperatorIds.AND :
+				return InfixExpression.Operator.AND;
+			case OperatorIds.MULTIPLY :
+				return InfixExpression.Operator.TIMES;
+			case OperatorIds.OR :
+				return InfixExpression.Operator.OR;
+			case OperatorIds.DIVIDE :
+				return InfixExpression.Operator.DIVIDE;
+			case OperatorIds.GREATER :
+				return InfixExpression.Operator.GREATER;
+			case OperatorIds.LESS :
+				return InfixExpression.Operator.LESS;
+		};
+		return null;
 	}
 }
 

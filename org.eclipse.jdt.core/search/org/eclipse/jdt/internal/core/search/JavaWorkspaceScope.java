@@ -1,25 +1,23 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search;
 
 import java.util.HashSet;
 
-import org.eclipse.core.resources.IProject;
-import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaElementDelta;
-import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.JavaModelManager;
+import org.eclipse.jdt.core.IJavaProject;
 
 /**
  * A Java-specific scope for searching the entire workspace.
@@ -72,20 +70,13 @@ public boolean equals(Object o) {
 public int hashCode() {
 	return JavaWorkspaceScope.class.hashCode();
 }
-
-
 public void initialize() {
 	super.initialize();
-	JavaCore javaCore = JavaCore.getJavaCore();
-	IProject[] projects = ResourcesPlugin.getWorkspace().getRoot().getProjects();
-	for (int i = 0, length = projects.length; i < length; i++) {
-		IProject project = projects[i];
-		if (project.isAccessible()) {
-			try {
-				this.add(javaCore.create(project), false, new HashSet(2));
-			} catch (JavaModelException e) {
-			}
-		}
+	try {
+		IJavaProject[] projects = JavaModelManager.getJavaModelManager().getJavaModel().getJavaProjects();
+		for (int i = 0, length = projects.length; i < length; i++)
+			this.add(projects[i], false, new HashSet(2));
+	} catch (JavaModelException ignored) {
 	}
 	this.needsInitialize = false;
 }

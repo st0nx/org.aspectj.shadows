@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -49,63 +49,54 @@ public class DoStatement extends Statement {
 				continueLabel,
 				currentScope);
 
-		Constant conditionConstant = condition.constant;
-		Constant conditionalConstant = condition.conditionalConstant();
-		boolean isFalseCondition =
-			((conditionConstant != NotAConstant)
-				&& (conditionConstant.booleanValue() == false))
-				|| ((conditionalConstant != NotAConstant)
-					&& (conditionalConstant.booleanValue() == false));
+		Constant cst = condition.constant;
+		boolean isConditionTrue = cst != NotAConstant && cst.booleanValue() == true;
+		cst = condition.optimizedBooleanConstant();
+		boolean isConditionOptimizedTrue = cst != NotAConstant && cst.booleanValue() == true;
+		boolean isConditionOptimizedFalse = cst != NotAConstant && cst.booleanValue() == false;
 
+		int previousMode = flowInfo.reachMode();
+				
 		if ((action != null) && !action.isEmptyBlock()) {
-			flowInfo = action.analyseCode(currentScope, loopingContext, flowInfo.copy());
+			flowInfo = action.analyseCode(currentScope, loopingContext, flowInfo);
 
 			// code generation can be optimized when no need to continue in the loop
-			if ((flowInfo == FlowInfo.DeadEnd) || flowInfo.isFakeReachable()) {
-				if ((loopingContext.initsOnContinue == FlowInfo.DeadEnd)
-					|| loopingContext.initsOnContinue.isFakeReachable()) {
-					continueLabel = null;
-				} else {
-					flowInfo = loopingContext.initsOnContinue; // for condition
-					if (isFalseCondition) {
-						//	continueLabel = null; - cannot nil the label since may be targeted already by 'continue' statements
-					} else {
-						loopingContext.complainOnFinalAssignmentsInLoop(currentScope, flowInfo);
-					}
-				}
-			} else {
-				if (isFalseCondition) {
-					//	continueLabel = null; - cannot nil the label since may be targeted already by 'continue' statements
-				} else {
-					loopingContext.complainOnFinalAssignmentsInLoop(currentScope, flowInfo);
-				}
+			if (!flowInfo.isReachable() && !loopingContext.initsOnContinue.isReachable()) {
+				continueLabel = null;
 			}
 		}
-		LoopingFlowContext condLoopContext;
+		/* Reset reach mode, to address following scenario.
+		 *   final blank;
+		 *   do { if (true) break; else blank = 0; } while(false);
+		 *   blank = 1; // may be initialized already 
+		 */
+		flowInfo.setReachMode(previousMode);
+		
 		flowInfo =
 			condition.analyseCode(
 				currentScope,
-				(condLoopContext =
-					new LoopingFlowContext(flowContext, this, null, null, currentScope)),
+				loopingContext,
 				(action == null
 					? flowInfo
 					: (flowInfo.mergedWith(loopingContext.initsOnContinue))));
-		condLoopContext.complainOnFinalAssignmentsInLoop(currentScope, flowInfo);
+		if (!isConditionOptimizedFalse && continueLabel != null) {
+			loopingContext.complainOnFinalAssignmentsInLoop(currentScope, flowInfo);
+		}
 
 		// infinite loop
 		FlowInfo mergedInfo;
-		if ((condition.constant != NotAConstant)
-			&& (condition.constant.booleanValue() == true)) {
+		if (isConditionTrue) {
 			mergedInfo = loopingContext.initsOnBreak;
-			mergedInitStateIndex =
-				currentScope.methodScope().recordInitializationStates(mergedInfo);
-			return mergedInfo;
+			if (!mergedInfo.isReachable()) mergedInfo.addPotentialInitializationsFrom(flowInfo.initsWhenFalse());
+		} else {
+			// end of loop: either condition false or break
+			mergedInfo =
+				flowInfo.initsWhenFalse().unconditionalInits().mergedWith(
+					loopingContext.initsOnBreak);
+			if (isConditionOptimizedTrue && !loopingContext.initsOnBreak.isReachable()) {
+				mergedInfo.setReachMode(FlowInfo.UNREACHABLE);
+			}
 		}
-
-		// end of loop: either condition false or break
-		mergedInfo =
-			flowInfo.initsWhenFalse().unconditionalInits().mergedWith(
-				loopingContext.initsOnBreak);
 		mergedInitStateIndex =
 			currentScope.methodScope().recordInitializationStates(mergedInfo);
 		return mergedInfo;
@@ -157,9 +148,12 @@ public class DoStatement extends Statement {
 	}
 
 	public void resetStateForCodeGeneration() {
-
-		this.breakLabel.resetStateForCodeGeneration();
-		this.continueLabel.resetStateForCodeGeneration();
+		if (this.breakLabel != null) {
+			this.breakLabel.resetStateForCodeGeneration();
+		}
+		if (this.continueLabel != null) {
+			this.continueLabel.resetStateForCodeGeneration();
+		}
 	}
 
 	public void resolve(BlockScope scope) {

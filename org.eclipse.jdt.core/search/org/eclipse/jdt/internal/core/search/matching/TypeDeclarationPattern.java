@@ -1,24 +1,24 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import java.io.IOException;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.internal.compiler.ast.AstNode;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.core.index.IEntryResult;
 import org.eclipse.jdt.internal.core.index.impl.IndexInput;
 import org.eclipse.jdt.internal.core.index.impl.IndexedFile;
@@ -78,7 +78,7 @@ public void decodeIndexEntry(IEntryResult entryResult){
 	int oldSlash = TYPE_DECL_LENGTH+1;
 	int slash = CharOperation.indexOf(SEPARATOR, word, oldSlash+1);
 	if (slash == oldSlash+1){ 
-		this.decodedPackage = NO_CHAR;
+		this.decodedPackage = CharOperation.NO_CHAR;
 	} else {
 		this.decodedPackage = CharOperation.subarray(word, oldSlash+1, slash);
 	}
@@ -91,7 +91,7 @@ public void decodeIndexEntry(IEntryResult entryResult){
 			this.decodedEnclosingTypeNames = CharOperation.splitOn('/', CharOperation.subarray(word, slash+1, size-1));
 		}
 	} else {
-		this.decodedEnclosingTypeNames = NO_CHAR_CHAR;
+		this.decodedEnclosingTypeNames = CharOperation.NO_CHAR_CHAR;
 	}
 }
 /**
@@ -196,7 +196,7 @@ protected boolean matchIndexEntry(){
 	if (enclosingTypeNames != null){
 		// empty char[][] means no enclosing type, i.e. the decoded one is the empty char array
 		if (enclosingTypeNames.length == 0){
-			if (decodedEnclosingTypeNames != NO_CHAR_CHAR) return false;
+			if (decodedEnclosingTypeNames != CharOperation.NO_CHAR_CHAR) return false;
 		} else {
 			if (!CharOperation.equals(enclosingTypeNames, decodedEnclosingTypeNames, isCaseSensitive)) return false;
 		}

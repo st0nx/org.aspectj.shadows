@@ -1,22 +1,22 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
 import org.eclipse.jdt.internal.compiler.env.IBinaryField;
 import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
 import org.eclipse.jdt.internal.compiler.env.IBinaryNestedType;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 /*
 Not all fields defined by this type are initialized when it is created.
@@ -220,17 +220,28 @@ private MethodBinding createMethod(IBinaryMethod method) {
 			this);
 	return binding;
 }
+/**
+ * Create method bindings for binary type, filtering out <clinit> and synthetics
+ */
 private void createMethods(IBinaryMethod[] iMethods) {
-	int total = 0;
-	int clinitIndex = -1;
+	int total = 0, initialTotal = 0, iClinit = -1;
+	int[] toSkip = null;
 	if (iMethods != null) {
-		total = iMethods.length;
+		total = initialTotal = iMethods.length;
 		for (int i = total; --i >= 0;) {
-			char[] methodName = iMethods[i].getSelector();
-			if (methodName[0] == '<' && methodName.length == 8) { // Can only match <clinit>
+			IBinaryMethod method = iMethods[i];
+			if ((method.getModifiers() & AccSynthetic) != 0) {
+				// discard synthetics methods
+				if (toSkip == null) toSkip = new int[iMethods.length];
+				toSkip[i] = -1;
 				total--;
-				clinitIndex = i;
-				break;
+			} else if (iClinit == -1) {
+				char[] methodName = method.getSelector();
+				if (methodName.length == 8 && methodName[0] == '<') {
+					// discard <clinit>
+					iClinit = i;
+					total--;
+				}
 			}
 		}
 	}
@@ -240,10 +251,14 @@ private void createMethods(IBinaryMethod[] iMethods) {
 	}
 
 	this.methods = new MethodBinding[total];
-	int next = 0;
-	for (int i = 0, length = iMethods.length; i < length; i++)
-		if (i != clinitIndex)
-			this.methods[next++] = createMethod(iMethods[i]);
+	if (total == initialTotal) {
+		for (int i = 0; i < initialTotal; i++)
+			this.methods[i] = createMethod(iMethods[i]);
+	} else {
+		for (int i = 0, index = 0; i < initialTotal; i++)
+			if (iClinit != i && (toSkip == null || toSkip[i] != -1))
+				this.methods[index++] = createMethod(iMethods[i]);
+	}
 	modifiers |= AccUnresolved; // until methods() is sent
 }
 /* Answer the receiver's enclosing type... null if the receiver is a top level type.

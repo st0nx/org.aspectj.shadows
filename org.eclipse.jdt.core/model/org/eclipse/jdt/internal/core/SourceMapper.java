@@ -1,34 +1,35 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.io.File;
+import java.io.FilenameFilter;
 import java.io.IOException;
+import java.util.Enumeration;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import org.eclipse.core.resources.*;
+import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IMember;
-import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IPackageFragmentRoot;
-import org.eclipse.jdt.core.ISourceRange;
-import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.Signature;
+import org.eclipse.core.runtime.Path;
+import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.ISourceElementRequestor;
@@ -36,7 +37,6 @@ import org.eclipse.jdt.internal.compiler.SourceElementParser;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.util.ReferenceInfoAdapter;
 
@@ -52,6 +52,15 @@ import org.eclipse.jdt.internal.core.util.ReferenceInfoAdapter;
 public class SourceMapper
 	extends ReferenceInfoAdapter
 	implements ISourceElementRequestor {
+		
+	public static boolean VERBOSE = false;
+
+	/**
+	 * Specifies the location of the package fragment roots within
+	 * the zip (empty specifies the default root). <code>null</code> is
+	 * not a valid root path.
+	 */
+	protected HashSet rootPaths;
 
 	/**
 	 * The binary type source is being mapped for
@@ -61,13 +70,13 @@ public class SourceMapper
 	/**
 	 * The location of the zip file containing source.
 	 */
-	protected IPath fZipPath;
+	protected IPath sourcePath;
 	/**
 	 * Specifies the location of the package fragment root within
 	 * the zip (empty specifies the default root). <code>null</code> is
 	 * not a valid root path.
 	 */
-	protected String fRootPath;
+	protected String rootPath;
 
 	/**
 	 * Used for efficiency
@@ -145,28 +154,48 @@ public class SourceMapper
 	int anonymousClassName;
 	
 	/**
-	 * File encoding to be used
+	 *Options to be used
 	 */
 	String encoding;
+	Map options;
+	
+	/**
+	 * Use to handle root paths inference
+	 */
+	private boolean areRootPathsComputed;
+	private FilenameFilter filenameFilter;
+		
+	public SourceMapper() {
+		this.areRootPathsComputed = false;
+		this.filenameFilter = new FilenameFilter() {
+			public boolean accept(File dir, String name) {
+				return name.endsWith(".java"); //$NON-NLS-1$
+			}
+		};
+	}
 	
 	/**
 	 * Creates a <code>SourceMapper</code> that locates source in the zip file
 	 * at the given location in the specified package fragment root.
 	 */
-	public SourceMapper(IPath zipPath, String rootPath) {
-		this.fZipPath = zipPath;
-		this.fRootPath = rootPath.replace('\\', '/');
-		if (this.fRootPath.endsWith("/" )) { //$NON-NLS-1$
-			this.fRootPath = this.fRootPath.substring(0, this.fRootPath.lastIndexOf('/'));
+	public SourceMapper(IPath sourcePath, String rootPath, Map options) {
+		this.areRootPathsComputed = false;
+		this.filenameFilter = new FilenameFilter() {
+			public boolean accept(File dir, String name) {
+				return name.endsWith(".java"); //$NON-NLS-1$
+			}
+		};
+		this.options = options;
+		this.encoding = (String)options.get(JavaCore.CORE_ENCODING);
+		if (rootPath != null) {
+			this.rootPaths = new HashSet();
+			this.rootPaths.add(rootPath);
 		}
+		this.sourcePath = sourcePath;
 		this.fSourceRanges = new HashMap();
 		this.fParameterNames = new HashMap();
 		this.importsTable = new HashMap();
 		this.importsCounterTable = new HashMap();
-		
-		IResource zipResource = ResourcesPlugin.getWorkspace().getRoot().findMember(zipPath);
-
-		this.encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
 	}
 	
 	/**
@@ -256,12 +285,196 @@ public class SourceMapper
 			if (lastIndex == -1) {
 				typeSigs[i] = typeSig;
 			} else {
-				typeSigs[i] = Signature.C_UNRESOLVED + typeSig.substring(lastIndex + 1, typeSig.length());
+				int arrayEnd = 0;
+				while(typeSig.charAt(arrayEnd) == Signature.C_ARRAY) arrayEnd++;
+				typeSigs[i] = typeSig.substring(0, arrayEnd) + Signature.C_UNRESOLVED + typeSig.substring(lastIndex + 1, typeSig.length());
 			}
 		}
 		return typeSigs;
 	}
 	
+	private void computeAllRootPaths(IType type) {
+		IPackageFragmentRoot root = (IPackageFragmentRoot) type.getPackageFragment().getParent();
+		this.rootPaths = new HashSet();
+		long time = 0;
+		if (VERBOSE) {
+			System.out.println("compute all root paths for " + root.getElementName()); //$NON-NLS-1$
+			time = System.currentTimeMillis();
+		}
+		final HashSet firstLevelPackageNames = new HashSet();
+		boolean containsADefaultPackage = false;
+
+		if (root.isArchive()) {
+			JarPackageFragmentRoot jarPackageFragmentRoot = (JarPackageFragmentRoot) root;
+			JavaModelManager manager = JavaModelManager.getJavaModelManager();
+			ZipFile zip = null;
+			try {
+				zip = manager.getZipFile(jarPackageFragmentRoot.getPath());
+				for (Enumeration entries = zip.entries(); entries.hasMoreElements(); ) {
+					ZipEntry entry = (ZipEntry) entries.nextElement();
+					String entryName = entry.getName();
+					if (!entry.isDirectory()) {
+						int index = entryName.indexOf('/');
+						if (index != -1) {
+							String firstLevelPackageName = entryName.substring(0, index);
+							if (JavaConventions.validatePackageName(firstLevelPackageName).isOK()) {
+								firstLevelPackageNames.add(firstLevelPackageName);
+							}
+						} else if (Util.isClassFileName(entryName)) {
+							containsADefaultPackage = true;
+						}						
+					}
+				}
+			} catch (CoreException e) {
+			} finally {
+				manager.closeZipFile(zip); // handle null case
+			}
+		} else {
+			Object target = JavaModel.getTarget(ResourcesPlugin.getWorkspace().getRoot(), root.getPath(), true);
+			if (target instanceof IFolder) {
+				IResource resource = root.getResource();
+				if (resource.getType() == IResource.FOLDER) {
+					try {
+						IResource[] members = ((IFolder) resource).members();
+						for (int i = 0, max = members.length; i < max; i++) {
+							IResource member = members[i];
+							if (member.getType() == IResource.FOLDER) {
+								firstLevelPackageNames.add(member.getName());
+							} else if (Util.isClassFileName(member.getName())) {
+								containsADefaultPackage = true;
+							}
+						}
+					} catch (CoreException e) {
+					}
+				}
+			} else if (target instanceof File) {
+				File file = (File)target;
+				if (file.isDirectory()) {
+					File[] files = file.listFiles();
+					for (int i = 0, max = files.length; i < max; i++) {
+						File currentFile = files[i];
+						if (currentFile.isDirectory()) {
+							firstLevelPackageNames.add(currentFile.getName());
+						} else if (Util.isClassFileName(currentFile.getName())) {
+							containsADefaultPackage = true;
+						}
+					}
+				}
+			}
+		}
+
+		if (Util.isArchiveFileName(this.sourcePath.lastSegment())) {
+			JavaModelManager manager = JavaModelManager.getJavaModelManager();
+			ZipFile zip = null;
+			try {
+				zip = manager.getZipFile(this.sourcePath);
+				for (Enumeration entries = zip.entries(); entries.hasMoreElements(); ) {
+					ZipEntry entry = (ZipEntry) entries.nextElement();
+					if (!entry.isDirectory()) {
+						IPath path = new Path(entry.getName());
+						int segmentCount = path.segmentCount();
+						if (segmentCount > 1) {
+							loop: for (int i = 0, max = path.segmentCount() - 1; i < max; i++) {
+								if (firstLevelPackageNames.contains(path.segment(i))) {
+									this.rootPaths.add(path.uptoSegment(i).toString());
+									break loop;
+								}
+								if (i == max - 1 && containsADefaultPackage) {
+									this.rootPaths.add(path.uptoSegment(max).toString());
+								}
+							}
+						} else if (containsADefaultPackage) {
+							this.rootPaths.add(""); //$NON-NLS-1$
+						}
+					}
+				}
+			} catch (CoreException e) {
+			} finally {
+				manager.closeZipFile(zip); // handle null case
+			}
+		} else {
+			Object target = JavaModel.getTarget(ResourcesPlugin.getWorkspace().getRoot(), this.sourcePath, true);
+			if (target instanceof IFolder) {
+				computeRootPath((IFolder)target, firstLevelPackageNames, containsADefaultPackage);
+			} else if (target instanceof File) {
+				File file = (File)target;
+				if (file.isDirectory()) {
+					computeRootPath(file, firstLevelPackageNames, containsADefaultPackage);
+				}
+			}
+		}
+		if (VERBOSE) {
+			System.out.println("Found " + this.rootPaths.size() + " root paths");	//$NON-NLS-1$ //$NON-NLS-2$
+			System.out.println("Spent " + (System.currentTimeMillis() - time) + "ms"); //$NON-NLS-1$ //$NON-NLS-2$
+		}
+		this.areRootPathsComputed = true;
+	}
+	
+	private void computeRootPath(File directory, HashSet firstLevelPackageNames, boolean hasDefaultPackage) {
+		File[] files = directory.listFiles();
+		boolean hasSubDirectories = false;
+		loop: for (int i = 0, max = files.length; i < max; i++) {
+			File file = files[i];
+			if (file.isDirectory()) {
+				hasSubDirectories = true;
+				if (firstLevelPackageNames.contains(file.getName())) {
+					IPath fullPath = new Path(file.getParentFile().getPath());
+					IPath rootPathEntry = fullPath.removeFirstSegments(this.sourcePath.segmentCount()).setDevice(null);
+					this.rootPaths.add(rootPathEntry.toString());
+					break loop;
+				} else {
+					computeRootPath(file, firstLevelPackageNames, hasDefaultPackage);
+				}
+			} else if (i == max - 1 && !hasSubDirectories && hasDefaultPackage) {
+				File parentDir = file.getParentFile();
+				if (parentDir.list(this.filenameFilter).length != 0) {
+					IPath fullPath = new Path(parentDir.getPath());
+					IPath rootPathEntry = fullPath.removeFirstSegments(this.sourcePath.segmentCount()).setDevice(null);
+					this.rootPaths.add(rootPathEntry.toString());
+				}
+			}
+		}
+	}	
+
+	private void computeRootPath(IFolder directory, HashSet firstLevelPackageNames, boolean hasDefaultPackage) {
+		try {
+			IResource[] resources = directory.members();
+			boolean hasSubDirectories = false;
+			loop: for (int i = 0, max = resources.length; i < max; i++) {
+				IResource resource = resources[i];
+				if (resource.getType() == IResource.FOLDER) {
+					hasSubDirectories = true;
+					if (firstLevelPackageNames.contains(resource.getName())) {
+						IPath fullPath = resource.getParent().getFullPath();
+						IPath rootPathEntry = fullPath.removeFirstSegments(this.sourcePath.segmentCount()).setDevice(null);
+						this.rootPaths.add(rootPathEntry.toString());
+						break loop;
+					} else {
+						computeRootPath((IFolder) resource, firstLevelPackageNames, hasDefaultPackage);
+					}
+				}
+				if (i == max - 1 && !hasSubDirectories && hasDefaultPackage) {
+					IContainer container = resource.getParent();
+					// check if one member is a .java file
+					IResource[] members = container.members();
+					boolean hasJavaSourceFile = false;
+					for (int j = 0, max2 = members.length; j < max2; j++) {
+						if (Util.isJavaFileName(members[i].getName())) {
+							hasJavaSourceFile = true;
+							break;
+						}
+					}
+					if (hasJavaSourceFile) {
+						IPath fullPath = container.getFullPath();
+						IPath rootPathEntry = fullPath.removeFirstSegments(this.sourcePath.segmentCount()).setDevice(null);
+						this.rootPaths.add(rootPathEntry.toString());
+					}
+				}
+			}
+		} catch (CoreException e) {
+		}
+	}	
+
 	/**
 	 * @see ISourceElementRequestor
 	 */
@@ -474,7 +687,7 @@ public class SourceMapper
 	/**
 	 * @see ISourceElementRequestor
 	 */
-	public void exitField(int declarationEnd) {
+	public void exitField(int initializationStart, int declarationEnd, int declarationSourceEnd) {
 		if (typeDepth >= 0) {
 			IType currentType = this.types[typeDepth];
 			setSourceRange(
@@ -539,65 +752,163 @@ public class SourceMapper
 		}
 		IBinaryType info = null;
 		try {
-			info = (IBinaryType) declType.getRawInfo();
+			info = (IBinaryType) declType.getElementInfo();
 		} catch (JavaModelException e) {
 			return null;
 		}
-		return this.findSource(type, info);
+		String simpleSourceFileName = findSourceFileName(type, info);
+		if (simpleSourceFileName == null) {
+			return null;
+		}
+		return this.findSource(type, simpleSourceFileName);
 	}
 	
 	/**
 	 * Locates and returns source code for the given (binary) type, in this
 	 * SourceMapper's ZIP file, or returns <code>null</code> if source
 	 * code cannot be found.
+	 * The given simpleSourceFileName is the .java file name (without the enclosing
+	 * folder) used to create the given type (e.g. "A.java" for x/y/A$Inner.class)
 	 */
-	public char[] findSource(IType type, IBinaryType info) {
-		char[] sourceFileName = info.sourceFileName();
-		if (sourceFileName == null)
-			return null; // no source file attribute
-		String name = new String(sourceFileName);
-
+	public char[] findSource(IType type, String simpleSourceFileName) {
+		long time = 0;
+		if (VERBOSE) {
+			time = System.currentTimeMillis();
+		}
+		String name = simpleSourceFileName;
 		IPackageFragment pkgFrag = type.getPackageFragment();
 		if (!pkgFrag.isDefaultPackage()) {
-			String pkg = type.getPackageFragment().getElementName().replace('.', '/');
+			String pkg = pkgFrag.getElementName().replace('.', '/');
 			name = pkg + '/' + name;
 		}
-		// try to get the entry
-		ZipEntry entry = null;
-		ZipFile zip = null;
+	
 		char[] source = null;
-		try {
-			String fullName;
-			//add the root path if specified
-			if (!fRootPath.equals(IPackageFragmentRoot.DEFAULT_PACKAGEROOT_PATH)) {
-				fullName = fRootPath + '/' + name;
-			} else {
-				fullName = name;
-			}
-			zip = getZip();
-			entry = zip.getEntry(fullName);
-			if (entry != null) {
-				// now read the source code
-				byte[] bytes = null;
-				try {
-					bytes = Util.getZipEntryByteContent(entry, zip);
-				} catch (IOException e) {
-				}
-				if (bytes != null) {
-					try {
-						source = Util.bytesToChar(bytes, this.encoding);
-					} catch (IOException e) {
-						source = null;
+		
+		if (!areRootPathsComputed) {
+			computeAllRootPaths(type);
+		}
+		
+		if (this.rootPath != null) {
+			source = getSourceForRootPath(this.rootPath, name);
+		}
+
+		if (source == null) {
+			/*
+			 * We should try all existing root paths. If none works, try to recompute it.
+			 * If it still doesn't work, then return null
+			 */
+			if (this.rootPaths != null) {
+				loop: for (Iterator iterator = this.rootPaths.iterator(); iterator.hasNext(); ) {
+					String currentRootPath = (String) iterator.next();
+					if (!currentRootPath.equals(this.rootPath)) {
+						source = getSourceForRootPath(currentRootPath, name);
+						if (source != null) {
+							// remember right root path
+							this.rootPath = currentRootPath;
+							break loop;
+						}
 					}
 				}
 			}
-		} catch (CoreException e) {
-			return null;
-		} finally {
-			JavaModelManager.getJavaModelManager().closeZipFile(zip);
+		}
+		if (VERBOSE) {
+			System.out.println("spent " + (System.currentTimeMillis() - time) + "ms for " + type.getElementName()); //$NON-NLS-1$ //$NON-NLS-2$
 		}
 		return source;
 	}
+
+	/*
+	 * Finds the source file name (i.e. the simple .java file name) for the given IBinaryType.
+	 * Returns null if not found.
+	 */
+	public String findSourceFileName(IType type, IBinaryType info) {
+		char[] sourceFileName = info.sourceFileName();
+		if (sourceFileName == null) {
+			/*
+			 * We assume that this type has been compiled from a file with its name
+			 * For example, A.class comes from A.java and p.A.class comes from a file A.java
+			 * in the folder p.
+			 */
+			try {
+				if (type.isMember()) {
+					IType enclosingType = type.getDeclaringType();
+					while (enclosingType.getDeclaringType() != null) {
+						enclosingType = enclosingType.getDeclaringType();
+					}
+					return enclosingType.getElementName() + ".java"; //$NON-NLS-1$
+				} else if (type.isLocal() || type.isAnonymous()){
+					String typeQualifiedName = type.getTypeQualifiedName();
+					return typeQualifiedName.substring(0, typeQualifiedName.indexOf('$')) + ".java"; //$NON-NLS-1$
+				} else {
+					return type.getElementName() + ".java"; //$NON-NLS-1$
+				}
+			} catch (JavaModelException e) {
+			}
+		} else {
+			return  new String(sourceFileName);
+		}
+		return null;
+	}
+
+	private char[] getSourceForRootPath(String currentRootPath, String name) {
+		String newFullName;
+		if (!currentRootPath.equals(IPackageFragmentRoot.DEFAULT_PACKAGEROOT_PATH)) {
+			if (currentRootPath.endsWith("/")) { //$NON-NLS-1$
+				newFullName = currentRootPath + name;
+			} else {
+				newFullName = currentRootPath + '/' + name;
+			}
+		} else {
+			newFullName = name;
+		}
+		return this.findSource(newFullName);
+	}
+	
+	public char[] findSource(String fullName) {
+		char[] source = null;
+		if (Util.isArchiveFileName(this.sourcePath.lastSegment())) {
+			// try to get the entry
+			ZipEntry entry = null;
+			ZipFile zip = null;
+			JavaModelManager manager = JavaModelManager.getJavaModelManager();
+			try {
+				zip = manager.getZipFile(this.sourcePath);
+				entry = zip.getEntry(fullName);
+				if (entry != null) {
+					// now read the source code
+					source = readSource(entry, zip);
+				}
+			} catch (CoreException e) {
+				return null;
+			} finally {
+				manager.closeZipFile(zip); // handle null case
+			}
+		} else {
+			Object target = JavaModel.getTarget(ResourcesPlugin.getWorkspace().getRoot(), this.sourcePath, true);
+			if (target instanceof IFolder) {
+				IFolder folder = (IFolder)target;
+				IResource res = folder.findMember(fullName);
+				if (res instanceof IFile) {
+					try {
+						source = org.eclipse.jdt.internal.core.Util.getResourceContentsAsCharArray((IFile)res, this.encoding);
+					} catch (JavaModelException e) {
+					}
+				}
+			} else if (target instanceof File) {
+				File file = (File)target;
+				if (file.isDirectory()) {
+					File sourceFile = new File(file, fullName);
+					try {
+						source = Util.getFileCharContent(sourceFile, this.encoding);
+					} catch (IOException e) {
+					}
+				}
+			}
+		}
+		return source;
+	}
+
+
 	
 	/**
 	 * Returns the SourceRange for the name of the given element, or
@@ -717,14 +1028,7 @@ public class SourceMapper
 		}
 		return result;
 	}
-	
-	/**
-	 * Returns the <code>ZipFile</code> that source is located in.
-	 */
-	public ZipFile getZip() throws CoreException {
-		return JavaModelManager.getJavaModelManager().getZipFile(fZipPath);
-	}
-	
+		
 	/**
 	 * Maps the given source code to the given binary type and its children.
 	 */
@@ -737,7 +1041,7 @@ public class SourceMapper
 	 * If a non-null java element is passed, finds the name range for the 
 	 * given java element without storing it.
 	 */
-	public ISourceRange mapSource(
+	public synchronized ISourceRange mapSource(
 		IType type,
 		char[] contents,
 		IJavaElement searchedElement) {
@@ -769,7 +1073,7 @@ public class SourceMapper
 			char[] fullName = null;
 			this.anonymousClassName = 0;
 			try {
-				IBinaryType binType = (IBinaryType) fType.getRawInfo();
+				IBinaryType binType = (IBinaryType) fType.getElementInfo();
 				isAnonymousClass = binType.isAnonymous();
 				fullName = binType.getName();
 			} catch(JavaModelException e) {
@@ -783,7 +1087,7 @@ public class SourceMapper
 				}
 			}
 			boolean doFullParse = hasToRetrieveSourceRangesForLocalClass(fullName);
-			parser = new SourceElementParser(this, factory, new CompilerOptions(JavaCore.getOptions()), doFullParse);
+			parser = new SourceElementParser(this, factory, new CompilerOptions(this.options), doFullParse);
 			parser.parseCompilationUnit(
 				new BasicCompilationUnit(contents, null, type.getElementName() + ".java", encoding), //$NON-NLS-1$
 				doFullParse);
@@ -805,6 +1109,16 @@ public class SourceMapper
 			this.typeDepth = -1;
 		}
 	}
+	private char[] readSource(ZipEntry entry, ZipFile zip) {
+		try {
+			byte[] bytes = Util.getZipEntryByteContent(entry, zip);
+			if (bytes != null) {
+				return Util.bytesToChar(bytes, this.encoding);
+			}
+		} catch (IOException e) {
+		}
+		return null;
+	}	
 	
 	/** 
 	 * Sets the mapping for this method to its parameter names.
@@ -815,7 +1129,7 @@ public class SourceMapper
 		IMethod method,
 		char[][] parameterNames) {
 		if (parameterNames == null) {
-			parameterNames = new char[0][];
+			parameterNames = CharOperation.NO_CHAR_CHAR;
 		}
 		fParameterNames.put(method, parameterNames);
 	}

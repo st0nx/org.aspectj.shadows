@@ -1,15 +1,18 @@
 /*******************************************************************************
- * Copyright (c) 2001 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
+
+import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
+import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 
 /**
  * Simple or qualified "this" AST node type.
@@ -18,7 +21,12 @@ package org.eclipse.jdt.core.dom;
  * ThisExpression:
  *     [ ClassName <b>.</b> ] <b>this</b>
  * </pre>
+ * <p>
+ * See <code>FieldAccess</code> for guidelines on handling other expressions
+ * that resemble qualified names.
+ * </p>
  * 
+ * @see FieldAccess
  * @since 2.0
  */
 public class ThisExpression extends Expression {
@@ -50,6 +58,7 @@ public class ThisExpression extends Expression {
 	 */
 	ASTNode clone(AST target) {
 		ThisExpression result = new ThisExpression(target);
+		result.setSourceRange(this.getStartPosition(), this.getLength());
 		result.setQualifier((Name) ASTNode.copySubtree(target, getQualifier()));
 		return result;
 	}
@@ -116,4 +125,42 @@ public class ThisExpression extends Expression {
 			memSize()
 			+ (optionalQualifier == null ? 0 : getQualifier().treeSize());
 	}
+
+	BlockScope lookupScope() {
+		ASTNode currentNode = this;
+		while(currentNode != null
+			&&!(currentNode instanceof MethodDeclaration)
+			&& !(currentNode instanceof Initializer)
+			&& !(currentNode instanceof FieldDeclaration)) {
+			currentNode = currentNode.getParent();
+		}
+		if (currentNode == null) {
+			return null;
+		}
+		if (currentNode instanceof Initializer) {
+			Initializer initializer = (Initializer) currentNode;
+			while(!(currentNode instanceof TypeDeclaration)) {
+				currentNode = currentNode.getParent();
+			}
+			org.eclipse.jdt.internal.compiler.ast.TypeDeclaration typeDecl = (org.eclipse.jdt.internal.compiler.ast.TypeDeclaration) this.getAST().getBindingResolver().getCorrespondingNode(currentNode);
+			if ((initializer.getModifiers() & Modifier.STATIC) != 0) {
+				return typeDecl.staticInitializerScope;
+			} else {
+				return typeDecl.initializerScope;
+			}
+		} else if (currentNode instanceof FieldDeclaration) {
+			FieldDeclaration fieldDeclaration = (FieldDeclaration) currentNode;
+			while(!(currentNode instanceof TypeDeclaration)) {
+				currentNode = currentNode.getParent();
+			}
+			org.eclipse.jdt.internal.compiler.ast.TypeDeclaration typeDecl = (org.eclipse.jdt.internal.compiler.ast.TypeDeclaration) this.getAST().getBindingResolver().getCorrespondingNode(currentNode);
+			if ((fieldDeclaration.getModifiers() & Modifier.STATIC) != 0) {
+				return typeDecl.staticInitializerScope;
+			} else {
+				return typeDecl.initializerScope;
+			}
+		}
+		AbstractMethodDeclaration abstractMethodDeclaration = (AbstractMethodDeclaration) this.getAST().getBindingResolver().getCorrespondingNode(currentNode);
+		return abstractMethodDeclaration.scope;
+	}	
 }

@@ -1,15 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
+import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.runtime.IProgressMonitor;
 
@@ -33,6 +34,22 @@ import org.eclipse.core.runtime.IProgressMonitor;
  * @see JavaCore#create(org.eclipse.core.resources.IWorkspaceRoot)
  */
 public interface IJavaModel extends IJavaElement, IOpenable, IParent {
+/**
+ * Returns whether this Java model contains an <code>IJavaElement</code> whose
+ * resource is the given resource or a non-Java resource which is the given resource.
+ * <p>
+ * Note: no existency check is performed on the argument resource. If it is not accessible 
+ * (see <code>IResource.isAccessible()</code>) yet but would be located in Java model 
+ * range, then it will return <code>true</code>.
+ * </p><p>
+ * If the resource is accessible, it can be reached by navigating the Java model down using the
+ * <code>getChildren()</code> and/or <code>getNonJavaResources()</code> methods.
+ * </p>
+ * @param resource the resource to check
+ * @return true if the resource is accessible through the Java model
+ * @since 2.1
+ */
+boolean contains(IResource resource);
 /**
  * Copies the given elements to the specified container(s).
  * If one container is specified, all elements are copied to that
@@ -68,14 +85,15 @@ public interface IJavaModel extends IJavaElement, IOpenable, IParent {
  * @param monitor a progress monitor
  * @exception JavaModelException if an element could not be copied. Reasons include:
  * <ul>
+ * <li> There is no element to process (NO_ELEMENTS_TO_PROCESS). The given elements is null or empty</li>
  * <li> A specified element, container, or sibling does not exist (ELEMENT_DOES_NOT_EXIST)</li>
- * <li> A <code>CoreException</code> occurred while updating an underlying resource
- * <li> A container is of an incompatible type (<code>INVALID_DESTINATION</code>)
- * <li> A sibling is not a child of it associated container (<code>INVALID_SIBLING</code>)
- * <li> A new name is invalid (<code>INVALID_NAME</code>)
+ * <li> A <code>CoreException</code> occurred while updating an underlying resource</li>
+ * <li> A container is of an incompatible type (<code>INVALID_DESTINATION</code>)</li>
+ * <li> A sibling is not a child of it associated container (<code>INVALID_SIBLING</code>)</li>
+ * <li> A new name is invalid (<code>INVALID_NAME</code>)</li>
  * <li> A child in its associated container already exists with the same
- * 		name and <code>replace</code> has been specified as <code>false</code> (<code>NAME_COLLISION</code>)
- * <li> A container or element is read-only (<code>READ_ONLY</code>) 
+ * 		name and <code>replace</code> has been specified as <code>false</code> (<code>NAME_COLLISION</code>)</li>
+ * <li> A container or element is read-only (<code>READ_ONLY</code>) </li>
  * </ul>
  */
 void copy(IJavaElement[] elements, IJavaElement[] containers, IJavaElement[] siblings, String[] renamings, boolean replace, IProgressMonitor monitor) throws JavaModelException;
@@ -88,9 +106,10 @@ void copy(IJavaElement[] elements, IJavaElement[] containers, IJavaElement[] sib
  * @param monitor a progress monitor
  * @exception JavaModelException if an element could not be deleted. Reasons include:
  * <ul>
+ * <li> There is no element to process (NO_ELEMENTS_TO_PROCESS). The given elements is null or empty</li>
  * <li> A specified element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
- * <li> A <code>CoreException</code> occurred while updating an underlying resource
- * <li> An element is read-only (<code>READ_ONLY</code>) 
+ * <li> A <code>CoreException</code> occurred while updating an underlying resource</li>
+ * <li> An element is read-only (<code>READ_ONLY</code>) </li>
  * </ul>
  */
 void delete(IJavaElement[] elements, boolean force, IProgressMonitor monitor) throws JavaModelException;
@@ -110,6 +129,20 @@ IJavaProject getJavaProject(String name);
  * @exception JavaModelException if this request fails.
  */
 IJavaProject[] getJavaProjects() throws JavaModelException;
+/**
+ * Returns an array of non-Java resources (i.e. non-Java projects) in
+ * the workspace.
+ * <p>
+ * Non-Java projects include all projects that are closed (even if they have the
+ * Java nature).
+ * </p>
+ * 
+ * @return an array of non-Java projects contained in the workspace.
+ * @throws JavaModelException if this element does not exist or if an
+ *		exception occurs while accessing its corresponding resource
+ * @since 2.1
+ */
+Object[] getNonJavaResources() throws JavaModelException;
 /**
  * Returns the workspace associated with this Java model.
  * 
@@ -151,14 +184,15 @@ IWorkspace getWorkspace();
  * @param monitor a progress monitor
  * @exception JavaModelException if an element could not be moved. Reasons include:
  * <ul>
+ * <li> There is no element to process (NO_ELEMENTS_TO_PROCESS). The given elements is null or empty</li>
  * <li> A specified element, container, or sibling does not exist (ELEMENT_DOES_NOT_EXIST)</li>
- * <li> A <code>CoreException</code> occurred while updating an underlying resource
- * <li> A container is of an incompatible type (<code>INVALID_DESTINATION</code>)
- * <li> A sibling is not a child of it associated container (<code>INVALID_SIBLING</code>)
- * <li> A new name is invalid (<code>INVALID_NAME</code>)
+ * <li> A <code>CoreException</code> occurred while updating an underlying resource</li>
+ * <li> A container is of an incompatible type (<code>INVALID_DESTINATION</code>)</li>
+ * <li> A sibling is not a child of it associated container (<code>INVALID_SIBLING</code>)</li>
+ * <li> A new name is invalid (<code>INVALID_NAME</code>)</li>
  * <li> A child in its associated container already exists with the same
- * 		name and <code>replace</code> has been specified as <code>false</code> (<code>NAME_COLLISION</code>)
- * <li> A container or element is read-only (<code>READ_ONLY</code>) 
+ * 		name and <code>replace</code> has been specified as <code>false</code> (<code>NAME_COLLISION</code>)</li>
+ * <li> A container or element is read-only (<code>READ_ONLY</code>) </li>
  * </ul>
  *
  * @exception IllegalArgumentException any element or container is <code>null</code>
@@ -209,6 +243,7 @@ void refreshExternalArchives(IJavaElement[] elementsScope, IProgressMonitor moni
  * @param monitor a progress monitor
  * @exception JavaModelException if an element could not be renamed. Reasons include:
  * <ul>
+ * <li> There is no element to process (NO_ELEMENTS_TO_PROCESS). The given elements is null or empty</li>
  * <li> A specified element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
  * <li> A <code>CoreException</code> occurred while updating an underlying resource
  * <li> A new name is invalid (<code>INVALID_NAME</code>)

@@ -1,19 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import java.io.IOException;
 
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.internal.compiler.ast.AstNode;
 import org.eclipse.jdt.internal.compiler.ast.ImportReference;
@@ -28,8 +29,6 @@ import org.eclipse.jdt.internal.compiler.lookup.ProblemBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ProblemReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
-import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.core.index.IEntryResult;
 import org.eclipse.jdt.internal.core.index.impl.IndexInput;
 import org.eclipse.jdt.internal.core.index.impl.IndexedFile;
@@ -46,9 +45,12 @@ public class PackageReferencePattern extends AndPattern {
 	
 public PackageReferencePattern(char[] pkgName, int matchMode, boolean isCaseSensitive) {
 	super(matchMode, isCaseSensitive);
+	if (!isCaseSensitive) {
+		pkgName = CharOperation.toLowerCase(pkgName);
+	}
 	this.pkgName = pkgName;
 	char[][] splittedName = CharOperation.splitOn('.', pkgName);
-	this.segments = splittedName == TypeConstants.NoCharChar ? new char[][]{ pkgName } : splittedName;
+	this.segments = splittedName == CharOperation.NO_CHAR_CHAR ? new char[][]{ pkgName } : splittedName;
 	this.needsResolve = pkgName != null;
 }
 /**
@@ -182,7 +184,7 @@ protected void matchReportReference(AstNode reference, IJavaElement element, int
 		}
 	} else if (reference instanceof QualifiedTypeReference) {
 		QualifiedTypeReference qTypeRef = (QualifiedTypeReference)reference;
-		TypeBinding typeBinding = qTypeRef.binding;
+		TypeBinding typeBinding = qTypeRef.resolvedType;
 		if (typeBinding instanceof ArrayBinding) {
 			typeBinding = ((ArrayBinding)typeBinding).leafComponentType;
 		}
@@ -196,7 +198,7 @@ protected void matchReportReference(AstNode reference, IJavaElement element, int
 			tokens = qTypeRef.tokens;
 		}
 	}
-	if (tokens == null) tokens = NO_CHAR_CHAR;
+	if (tokens == null) tokens = CharOperation.NO_CHAR_CHAR;
 	locator.reportAccurateReference(reference.sourceStart, reference.sourceEnd, tokens, element, accuracy);
 }
 /**
@@ -389,7 +391,7 @@ private int matchLevel(QualifiedTypeReference typeRef, boolean resolve) {
 			}
 		}
 	} else {
-		return this.matchLevel(typeRef.binding);
+		return this.matchLevel(typeRef.resolvedType);
 	}
 }
 /**

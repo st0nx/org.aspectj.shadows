@@ -1,15 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Argument;
 import org.eclipse.jdt.internal.compiler.ast.AstNode;
@@ -19,7 +20,6 @@ import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 public class BlockScope extends Scope {
 
@@ -30,10 +30,13 @@ public class BlockScope extends Scope {
 	public int offset; // for variable allocation throughout scopes
 	public int maxOffset; // for variable allocation throughout scopes
 
-	// finally scopes must be shifted behind respective try scope
+	// finally scopes must be shifted behind respective try&catch scope(s) so as to avoid
+	// collisions of secret variables (return address, save value).
 	public BlockScope[] shiftScopes; 
 
 	public final static VariableBinding[] EmulationPathToImplicitThis = {};
+	public final static VariableBinding[] NoEnclosingInstanceInConstructorCall = {};
+	public final static VariableBinding[] NoEnclosingInstanceInStaticContext = {};
 
 	public Scope[] subscopes = new Scope[1]; // need access from code assist
 	public int scopeIndex = 0; // need access from code assist
@@ -100,8 +103,8 @@ public class BlockScope extends Scope {
 		} while ((scope = scope.parent) instanceof BlockScope);
 
 		ClassScope localTypeScope = new ClassScope(this, localType);
-		localTypeScope.buildLocalTypeBinding(enclosingSourceType());
 		addSubscope(localTypeScope);
+		localTypeScope.buildLocalTypeBinding(enclosingSourceType());
 	}
 
 	/* Insert a local variable into a given scope, updating its position
@@ -151,9 +154,8 @@ public class BlockScope extends Scope {
 		if (methodScope.isStatic != binding.isStatic())
 			return false;
 		return methodScope.isInsideInitializer() // inside initializer
-		|| ((AbstractMethodDeclaration) methodScope.referenceContext)
-			.isInitializationMethod();
-		// inside constructor or clinit
+				|| ((AbstractMethodDeclaration) methodScope.referenceContext)
+					.isInitializationMethod(); // inside constructor or clinit
 	}
 	String basicToString(int tab) {
 		String newLine = "\n"; //$NON-NLS-1$
@@ -187,27 +189,20 @@ public class BlockScope extends Scope {
 	/* Compute variable positions in scopes given an initial position offset
 	 * ignoring unused local variables.
 	 * 
-	 * Special treatment to have Try secret return address variables located at non
-	 * colliding positions. Return addresses are not allocated initially, but gathered
-	 * and allocated behind all other variables.
+	 * No argument is expected here (ilocal is the first non-argument local of the outermost scope)
+	 * Arguments are managed by the MethodScope method
 	 */
-	public void computeLocalVariablePositions(
-		int initOffset,
-		CodeStream codeStream) {
+	void computeLocalVariablePositions(int ilocal, int initOffset, CodeStream codeStream) {
 
 		this.offset = initOffset;
 		this.maxOffset = initOffset;
 
 		// local variable init
-		int ilocal = 0, maxLocals = 0, localsLength = locals.length;
-		while ((maxLocals < localsLength) && (locals[maxLocals] != null))
-			maxLocals++;
-		boolean hasMoreVariables = maxLocals > 0;
+		int maxLocals = this.localIndex;
+		boolean hasMoreVariables = ilocal < maxLocals;
 
 		// scope init
-		int iscope = 0, maxScopes = 0, subscopesLength = subscopes.length;
-		while ((maxScopes < subscopesLength) && (subscopes[maxScopes] != null))
-			maxScopes++;
+		int iscope = 0, maxScopes = this.scopeIndex;
 		boolean hasMoreScopes = maxScopes > 0;
 
 		// iterate scopes and variables in parallel
@@ -218,59 +213,54 @@ public class BlockScope extends Scope {
 				if (subscopes[iscope] instanceof BlockScope) {
 					BlockScope subscope = (BlockScope) subscopes[iscope];
 					int subOffset = subscope.shiftScopes == null ? this.offset : subscope.maxShiftedOffset();
-					subscope.computeLocalVariablePositions(subOffset, codeStream);
+					subscope.computeLocalVariablePositions(0, subOffset, codeStream);
 					if (subscope.maxOffset > this.maxOffset)
 						this.maxOffset = subscope.maxOffset;
 				}
 				hasMoreScopes = ++iscope < maxScopes;
 			} else {
+				
 				// consider variable first
-				LocalVariableBinding local = locals[ilocal];
-
+				LocalVariableBinding local = locals[ilocal]; // if no local at all, will be locals[ilocal]==null
+				
 				// check if variable is actually used, and may force it to be preserved
-				boolean generatesLocal =
-					(local.used && (local.constant == Constant.NotAConstant)) || local.isArgument;
-				if (!local.used
+				boolean generateCurrentLocalVar = (local.useFlag == LocalVariableBinding.USED && (local.constant == Constant.NotAConstant));
+					
+				// do not report fake used variable
+				if (local.useFlag == LocalVariableBinding.UNUSED
 					&& (local.declaration != null) // unused (and non secret) local
 					&& ((local.declaration.bits & AstNode.IsLocalDeclarationReachableMASK) != 0)) { // declaration is reachable
-					if (local.isArgument) // method argument
-						this.problemReporter().unusedArgument(local.declaration);
-					else if (!(local.declaration instanceof Argument))  // do not report unused catch arguments
+						
+					if (!(local.declaration instanceof Argument))  // do not report unused catch arguments
 						this.problemReporter().unusedLocalVariable(local.declaration);
 				}
-				if (!generatesLocal) {
-					if (local.declaration != null
-						&& environment().options.preserveAllLocalVariables) {
-						generatesLocal = true; // force it to be preserved in the generated code
-						local.used = true;
+				
+				// could be optimized out, but does need to preserve unread variables ?
+				if (!generateCurrentLocalVar) {
+					if (local.declaration != null && environment().options.preserveAllLocalVariables) {
+						generateCurrentLocalVar = true; // force it to be preserved in the generated code
+						local.useFlag = LocalVariableBinding.USED;
 					}
 				}
-				if (generatesLocal) {
+				
+				// allocate variable
+				if (generateCurrentLocalVar) {
 
 					if (local.declaration != null) {
-						codeStream.record(local);
-						// record user local variables for attribute generation
+						codeStream.record(local); // record user-defined local variables for attribute generation
 					}
-					// allocate variable position
+					// assign variable position
 					local.resolvedPosition = this.offset;
 
-					// check for too many arguments/local variables
-					if (local.isArgument) {
-						if (this.offset > 0xFF) { // no more than 255 words of arguments
-							this.problemReporter().noMoreAvailableSpaceForArgument(local, local.declaration);
-						}
-					} else {
-						if (this.offset > 0xFFFF) { // no more than 65535 words of locals
-							this.problemReporter().noMoreAvailableSpaceForLocal(
-								local, local.declaration == null ? (AstNode)this.methodScope().referenceContext : local.declaration);
-						}
-					}
-
-					// increment offset
 					if ((local.type == LongBinding) || (local.type == DoubleBinding)) {
 						this.offset += 2;
 					} else {
 						this.offset++;
+					}
+					if (this.offset > 0xFFFF) { // no more than 65535 words of locals
+						this.problemReporter().noMoreAvailableSpaceForLocal(
+							local, 
+							local.declaration == null ? (AstNode)this.methodScope().referenceContext : local.declaration);
 					}
 				} else {
 					local.resolvedPosition = -1; // not generated
@@ -318,57 +308,6 @@ public class BlockScope extends Scope {
 				currentType.addSyntheticArgumentAndField(outerLocalVariable);
 			} else {
 				currentType.addSyntheticArgument(outerLocalVariable);
-			}
-		}
-	}
-
-	/*
-	 * Record the suitable binding denoting a synthetic field or constructor argument,
-	 * mapping to a given actual enclosing instance type in the scope context.
-	 * Skip it if the enclosingType is actually the current scope's enclosing type.
-	 */
-
-	public void emulateOuterAccess(
-		ReferenceBinding targetEnclosingType,
-		boolean useDirectReference) {
-
-		ReferenceBinding currentType = enclosingSourceType();
-		if (currentType.isNestedType()
-			&& currentType != targetEnclosingType){
-			/*&& !targetEnclosingType.isSuperclassOf(currentType)*/
-
-			if (useDirectReference) {
-				// the target enclosing type is not in scope, we directly refer it
-				// must also add a synthetic field if we're not inside a constructor
-				NestedTypeBinding currentNestedType = (NestedTypeBinding) currentType;
-				if (methodScope().isInsideInitializerOrConstructor())
-					currentNestedType.addSyntheticArgument(targetEnclosingType);
-				else
-					currentNestedType.addSyntheticArgumentAndField(targetEnclosingType);
-					
-			} else { // indirect reference sequence
-				int depth = 0;
-				
-				// saturate all the way up until reaching compatible enclosing type
-				while (currentType.isLocalType()){
-					NestedTypeBinding currentNestedType = (NestedTypeBinding) currentType;
-					currentType = currentNestedType.enclosingType;
-					
-					if (depth == 0){
-						if (methodScope().isInsideInitializerOrConstructor()) {
-							// must also add a synthetic field if we're not inside a constructor
-							currentNestedType.addSyntheticArgument(currentType);
-						} else {
-							currentNestedType.addSyntheticArgumentAndField(currentType);
-						}					
-					} else if (currentNestedType == targetEnclosingType 
-										|| targetEnclosingType.isSuperclassOf(currentNestedType)) {
-							break;
-					} else {
-						currentNestedType.addSyntheticArgumentAndField(currentType);
-					} 
-					depth++;
-				}
 			}
 		}
 	}
@@ -824,86 +763,6 @@ public class BlockScope extends Scope {
 		else
 			return new ProblemBinding(name, enclosingSourceType(), NotFound);
 	}
-	
-	/*
-	 * This retrieves the argument that maps to an enclosing instance of the suitable type,
-	 * 	if not found then answers nil -- do not create one
-	 *
-	 *		#implicitThis		  	 					:  the implicit this will be ok
-	 *		#((arg) this$n)								: available as a constructor arg
-	 * 		#((arg) this$n access$m... access$p) 		: available as as a constructor arg + a sequence of synthetic accessors to synthetic fields
-	 * 		#((fieldDescr) this$n access#m... access$p)	: available as a first synthetic field + a sequence of synthetic accessors to synthetic fields
-	 * 		nil 		 														: not found
-	 *
-	 */
-	public Object[] getCompatibleEmulationPath(ReferenceBinding targetEnclosingType) {
-
-		MethodScope currentMethodScope = this.methodScope();
-		SourceTypeBinding sourceType = currentMethodScope.enclosingSourceType();
-
-		// identity check
-		if (!currentMethodScope.isStatic 
-			&& !currentMethodScope.isConstructorCall
-			&& (sourceType == targetEnclosingType
-				|| targetEnclosingType.isSuperclassOf(sourceType))) {
-			return EmulationPathToImplicitThis; // implicit this is good enough
-		}
-		if (!sourceType.isNestedType()
-			|| sourceType.isStatic()) { // no emulation from within non-inner types
-			return null;
-		}
-		boolean insideConstructor =
-			currentMethodScope.isInsideInitializerOrConstructor();
-		// use synthetic constructor arguments if possible
-		if (insideConstructor) {
-			SyntheticArgumentBinding syntheticArg;
-			if ((syntheticArg = ((NestedTypeBinding) sourceType).getSyntheticArgument(targetEnclosingType, this, false)) != null) {
-				return new Object[] { syntheticArg };
-			}
-		}
-
-		// use a direct synthetic field then
-		if (!currentMethodScope.isStatic) {
-			FieldBinding syntheticField;
-			if ((syntheticField = sourceType.getSyntheticField(targetEnclosingType, this, false)) != null) {
-				return new Object[] { syntheticField };
-			}
-			// could be reached through a sequence of enclosing instance link (nested members)
-			Object[] path = new Object[2]; // probably at least 2 of them
-			ReferenceBinding currentType = sourceType.enclosingType();
-			if (insideConstructor) {
-				path[0] = ((NestedTypeBinding) sourceType).getSyntheticArgument((SourceTypeBinding) currentType, this, false);
-			} else {
-				path[0] =
-					sourceType.getSyntheticField((SourceTypeBinding) currentType, this, false);
-			}
-			if (path[0] != null) { // keep accumulating
-				int count = 1;
-				ReferenceBinding currentEnclosingType;
-				while ((currentEnclosingType = currentType.enclosingType()) != null) {
-					//done?
-					if (currentType == targetEnclosingType
-						|| targetEnclosingType.isSuperclassOf(currentType))
-						break;
-					syntheticField = ((NestedTypeBinding) currentType).getSyntheticField((SourceTypeBinding) currentEnclosingType, this, false);
-					if (syntheticField == null)
-						break;
-					// append inside the path
-					if (count == path.length) {
-						System.arraycopy(path, 0, (path = new Object[count + 1]), 0, count);
-					}
-					// private access emulation is necessary since synthetic field is private
-					path[count++] = ((SourceTypeBinding) syntheticField.declaringClass).addSyntheticMethod(syntheticField, true);
-					currentType = currentEnclosingType;
-				}
-				if (currentType == targetEnclosingType
-					|| targetEnclosingType.isSuperclassOf(currentType)) {
-					return path;
-				}
-			}
-		}
-		return null;
-	}
 
 	/* API
 	 *
@@ -922,18 +781,18 @@ public class BlockScope extends Scope {
 		compilationUnitScope().recordTypeReference(receiverType);
 		compilationUnitScope().recordTypeReferences(argumentTypes);
 		MethodBinding methodBinding = receiverType.getExactConstructor(argumentTypes);
-		if (methodBinding != null)
+		if (methodBinding != null) {
 			if (methodBinding.canBeSeenBy(invocationSite, this))
 				return methodBinding;
-
+		}
 		MethodBinding[] methods =
 			receiverType.getMethods(ConstructorDeclaration.ConstantPoolName);
-		if (methods == NoMethods)
+		if (methods == NoMethods) {
 			return new ProblemMethodBinding(
 				ConstructorDeclaration.ConstantPoolName,
 				argumentTypes,
 				NotFound);
-
+		}
 		MethodBinding[] compatible = new MethodBinding[methods.length];
 		int compatibleIndex = 0;
 		for (int i = 0, length = methods.length; i < length; i++)
@@ -957,8 +816,9 @@ public class BlockScope extends Scope {
 			return visible[0];
 		if (visibleIndex == 0)
 			return new ProblemMethodBinding(
+				compatible[0],
 				ConstructorDeclaration.ConstantPoolName,
-				argumentTypes,
+				compatible[0].parameters,
 				NotVisible);
 		return mostSpecificClassMethodBinding(visible, visibleIndex);
 	}
@@ -967,9 +827,9 @@ public class BlockScope extends Scope {
 	 * This retrieves the argument that maps to an enclosing instance of the suitable type,
 	 * 	if not found then answers nil -- do not create one
      *	
-	 *			#implicitThis		  	 						:  the implicit this will be ok
-	 *			#((arg) this$n)								: available as a constructor arg
-	 * 		#((arg) this$n ... this$p) 				: available as as a constructor arg + a sequence of fields
+	 *		#implicitThis		  	 			: the implicit this will be ok
+	 *		#((arg) this$n)						: available as a constructor arg
+	 * 		#((arg) this$n ... this$p) 			: available as as a constructor arg + a sequence of fields
 	 * 		#((fieldDescr) this$n ... this$p) 	: available as a sequence of fields
 	 * 		nil 		 											: not found
 	 *
@@ -1012,80 +872,108 @@ public class BlockScope extends Scope {
 	 * This retrieves the argument that maps to an enclosing instance of the suitable type,
 	 * 	if not found then answers nil -- do not create one
 	 *
-	 *		#implicitThis								:  the implicit this will be ok
+	 *		#implicitThis		  	 					:  the implicit this will be ok
 	 *		#((arg) this$n)								: available as a constructor arg
 	 * 		#((arg) this$n access$m... access$p) 		: available as as a constructor arg + a sequence of synthetic accessors to synthetic fields
 	 * 		#((fieldDescr) this$n access#m... access$p)	: available as a first synthetic field + a sequence of synthetic accessors to synthetic fields
-	 * 		nil 		 								: not found
-	 *
-	 *	EXACT MATCH VERSION - no type compatibility is performed
+	 * 		nil 		 														: not found
+	 *	jls 15.9.2
 	 */
-	public Object[] getExactEmulationPath(ReferenceBinding targetEnclosingType) {
-
+	public Object[] getEmulationPath(
+			ReferenceBinding targetEnclosingType, 
+			boolean onlyExactMatch,
+			boolean ignoreEnclosingArgInConstructorCall) {
+		//TODO: (philippe) investigate why exactly test76 fails if ignoreEnclosingArgInConstructorCall is always false
 		MethodScope currentMethodScope = this.methodScope();
 		SourceTypeBinding sourceType = currentMethodScope.enclosingSourceType();
 
 		// identity check
 		if (!currentMethodScope.isStatic 
-			&& !currentMethodScope.isConstructorCall
-			&& (sourceType == targetEnclosingType)) {
+			&& (!currentMethodScope.isConstructorCall || ignoreEnclosingArgInConstructorCall)
+			&& (sourceType == targetEnclosingType
+				|| (!onlyExactMatch && targetEnclosingType.isSuperclassOf(sourceType)))) {
+			if (currentMethodScope.isConstructorCall) {
+				return NoEnclosingInstanceInConstructorCall;
+			}
+			if (currentMethodScope.isStatic){
+				return NoEnclosingInstanceInStaticContext;
+			}
 			return EmulationPathToImplicitThis; // implicit this is good enough
 		}
-		if (!sourceType.isNestedType()
-			|| sourceType.isStatic()) { // no emulation from within non-inner types
+		if (!sourceType.isNestedType() || sourceType.isStatic()) { // no emulation from within non-inner types
+			if (currentMethodScope.isConstructorCall) {
+				return NoEnclosingInstanceInConstructorCall;
+			}
+				if (currentMethodScope.isStatic){
+					return NoEnclosingInstanceInStaticContext;
+				}
 			return null;
 		}
-
-		boolean insideConstructor =
-			currentMethodScope.isInsideInitializerOrConstructor();
+		boolean insideConstructor = currentMethodScope.isInsideInitializerOrConstructor();
 		// use synthetic constructor arguments if possible
 		if (insideConstructor) {
 			SyntheticArgumentBinding syntheticArg;
-			if ((syntheticArg = ((NestedTypeBinding) sourceType).getSyntheticArgument(targetEnclosingType, this, true)) != null) {
+			if ((syntheticArg = ((NestedTypeBinding) sourceType).getSyntheticArgument(targetEnclosingType, onlyExactMatch)) != null) {
 				return new Object[] { syntheticArg };
 			}
 		}
+
 		// use a direct synthetic field then
-		if (!currentMethodScope.isStatic) {
-			FieldBinding syntheticField;
-			if ((syntheticField = sourceType.getSyntheticField(targetEnclosingType, this, true)) != null) {
-				return new Object[] { syntheticField };
+		if (currentMethodScope.isStatic) {
+			return NoEnclosingInstanceInStaticContext;
+		}
+		FieldBinding syntheticField = sourceType.getSyntheticField(targetEnclosingType, onlyExactMatch);
+		if (syntheticField != null) {
+			if (currentMethodScope.isConstructorCall){
+				return NoEnclosingInstanceInConstructorCall;
 			}
-			// could be reached through a sequence of enclosing instance link (nested members)
-			Object[] path = new Object[2]; // probably at least 2 of them
-			ReferenceBinding currentType = sourceType.enclosingType();
-			if (insideConstructor) {
-				path[0] =
-					((NestedTypeBinding) sourceType).getSyntheticArgument((SourceTypeBinding) currentType,	this, true);
-			} else {
-				path[0] =
-					sourceType.getSyntheticField((SourceTypeBinding) currentType, this, true);
+			return new Object[] { syntheticField };
+		}
+		// could be reached through a sequence of enclosing instance link (nested members)
+		Object[] path = new Object[2]; // probably at least 2 of them
+		ReferenceBinding currentType = sourceType.enclosingType();
+		if (insideConstructor) {
+			path[0] = ((NestedTypeBinding) sourceType).getSyntheticArgument((SourceTypeBinding) currentType, onlyExactMatch);
+		} else {
+			if (currentMethodScope.isConstructorCall){
+				return NoEnclosingInstanceInConstructorCall;
 			}
-			if (path[0] != null) { // keep accumulating
-				int count = 1;
-				ReferenceBinding currentEnclosingType;
-				while ((currentEnclosingType = currentType.enclosingType()) != null) {
-					//done?
-					if (currentType == targetEnclosingType)
-						break;
-					syntheticField =
-						((NestedTypeBinding) currentType).getSyntheticField(
-							(SourceTypeBinding) currentEnclosingType,
-							this,
-							true);
-					if (syntheticField == null)
-						break;
-					// append inside the path
-					if (count == path.length) {
-						System.arraycopy(path, 0, (path = new Object[count + 1]), 0, count);
+			path[0] = sourceType.getSyntheticField((SourceTypeBinding) currentType, onlyExactMatch);
+		}
+		if (path[0] != null) { // keep accumulating
+			
+			int count = 1;
+			ReferenceBinding currentEnclosingType;
+			while ((currentEnclosingType = currentType.enclosingType()) != null) {
+
+				//done?
+				if (currentType == targetEnclosingType
+					|| (!onlyExactMatch && targetEnclosingType.isSuperclassOf(currentType)))	break;
+
+				if (currentMethodScope != null) {
+					currentMethodScope = currentMethodScope.enclosingMethodScope();
+					if (currentMethodScope != null && currentMethodScope.isConstructorCall){
+						return NoEnclosingInstanceInConstructorCall;
 					}
-					// private access emulation is necessary since synthetic field is private
-					path[count++] = ((SourceTypeBinding) syntheticField.declaringClass).addSyntheticMethod(syntheticField, true);
-					currentType = currentEnclosingType;
+					if (currentMethodScope != null && currentMethodScope.isStatic){
+						return NoEnclosingInstanceInStaticContext;
+					}
 				}
-				if (currentType == targetEnclosingType) {
-					return path;
+				
+				syntheticField = ((NestedTypeBinding) currentType).getSyntheticField((SourceTypeBinding) currentEnclosingType, onlyExactMatch);
+				if (syntheticField == null) break;
+
+				// append inside the path
+				if (count == path.length) {
+					System.arraycopy(path, 0, (path = new Object[count + 1]), 0, count);
 				}
+				// private access emulation is necessary since synthetic field is private
+				path[count++] = ((SourceTypeBinding) syntheticField.declaringClass).addSyntheticMethod(syntheticField, true);
+				currentType = currentEnclosingType;
+			}
+			if (currentType == targetEnclosingType
+				|| (!onlyExactMatch && targetEnclosingType.isSuperclassOf(currentType))) {
+				return path;
 			}
 		}
 		return null;
@@ -1202,15 +1090,15 @@ public class BlockScope extends Scope {
 										return new ProblemMethodBinding(methodBinding, selector, argumentTypes, NotFound);
 									}
 									// make the user qualify the method, likely wants the first inherited method (javac generates an ambiguous error instead)
-									fuzzyProblem = new ProblemMethodBinding(selector, argumentTypes, InheritedNameHidesEnclosingName);
+									fuzzyProblem = new ProblemMethodBinding(selector, methodBinding.parameters, InheritedNameHidesEnclosingName);
 
 								} else if (!methodBinding.canBeSeenBy(receiverType, invocationSite, classScope)) {
 									// using <classScope> instead of <this> for visibility check does grant all access to innerclass
 									fuzzyProblem =
 										new ProblemMethodBinding(
+											methodBinding,
 											selector,
-											argumentTypes,
-											methodBinding.declaringClass,
+											methodBinding.parameters,
 											NotVisible);
 								}
 							}
@@ -1327,8 +1215,7 @@ public class BlockScope extends Scope {
 
 		ReferenceBinding currentType = (ReferenceBinding) receiverType;
 		if (!currentType.canBeSeenBy(this))
-			return new ProblemMethodBinding(selector, argumentTypes, NotVisible);
-		// *** Need a new problem id - TypeNotVisible?
+			return new ProblemMethodBinding(selector, argumentTypes, ReceiverTypeNotVisible);
 
 		// retrieve an exact visible match (if possible)
 		MethodBinding methodBinding =
@@ -1350,9 +1237,9 @@ public class BlockScope extends Scope {
 					NotFound);
 			if (!methodBinding.canBeSeenBy(currentType, invocationSite, this))
 				return new ProblemMethodBinding(
+					methodBinding,
 					selector,
-					argumentTypes,
-					methodBinding.declaringClass,
+					methodBinding.parameters,
 					NotVisible);
 		}
 		return methodBinding;
@@ -1384,25 +1271,10 @@ public class BlockScope extends Scope {
 	 * Code responsible to request some more emulation work inside the invocation type, so as to supply
 	 * correct synthetic arguments to any allocation of the target type.
 	 */
-	public void propagateInnerEmulation(
-		ReferenceBinding targetType,
-		boolean isEnclosingInstanceSupplied,
-		boolean useDirectReference) {
+	public void propagateInnerEmulation(ReferenceBinding targetType, boolean isEnclosingInstanceSupplied) {
 
-		// perform some emulation work in case there is some and we are inside a local type only
-		// propage emulation of the enclosing instances
-		ReferenceBinding[] syntheticArgumentTypes;
-		if ((syntheticArgumentTypes = targetType.syntheticEnclosingInstanceTypes())
-			!= null) {
-			for (int i = 0, max = syntheticArgumentTypes.length; i < max; i++) {
-				ReferenceBinding syntheticArgType = syntheticArgumentTypes[i];
-				// need to filter out the one that could match a supplied enclosing instance
-				if (!(isEnclosingInstanceSupplied
-					&& (syntheticArgType == targetType.enclosingType()))) {
-					this.emulateOuterAccess(syntheticArgType, useDirectReference);
-				}
-			}
-		}
+		// no need to propagate enclosing instances, they got eagerly allocated already.
+		
 		SyntheticArgumentBinding[] syntheticArguments;
 		if ((syntheticArguments = targetType.syntheticOuterLocalVariables()) != null) {
 			for (int i = 0, max = syntheticArguments.length; i < max; i++) {

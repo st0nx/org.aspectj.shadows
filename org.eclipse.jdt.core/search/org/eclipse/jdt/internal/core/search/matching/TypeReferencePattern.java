@@ -1,19 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import java.io.IOException;
 
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.internal.compiler.ast.ArrayTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.AstNode;
@@ -24,6 +25,7 @@ import org.eclipse.jdt.internal.compiler.ast.QualifiedTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.SingleNameReference;
 import org.eclipse.jdt.internal.compiler.ast.SingleTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
+import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.lookup.ArrayBinding;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.BindingIds;
@@ -31,7 +33,6 @@ import org.eclipse.jdt.internal.compiler.lookup.ProblemBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ProblemReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.core.index.IEntryResult;
 import org.eclipse.jdt.internal.core.index.impl.IndexInput;
 import org.eclipse.jdt.internal.core.index.impl.IndexedFile;
@@ -43,7 +44,6 @@ public class TypeReferencePattern extends MultipleSearchPattern {
 	private char[] qualification;
 	private char[] simpleName;
 
-	private char[] decodedQualification;
 	private char[] decodedSimpleName;
 
 	private static char[][] TAGS = { TYPE_REF, SUPER_REF, REF, CONSTRUCTOR_REF };
@@ -66,10 +66,10 @@ public TypeReferencePattern(
 	this.simpleName = isCaseSensitive ? simpleName : CharOperation.toLowerCase(simpleName);
 
 	if (simpleName == null) {
-		this.segments = qualification == null ? ONE_STAR_CHAR : CharOperation.splitOn('.', qualification);
+		this.segments = this.qualification == null ? ONE_STAR_CHAR : CharOperation.splitOn('.', this.qualification);
 	}
 	
-	this.needsResolve = qualification != null;
+	this.needsResolve = true; // always resolve (in case of a simple name reference being a potential match)
 }
 /**
  * Either decode ref/name, typeRef/name or superRef/superName/name
@@ -278,7 +278,7 @@ protected void matchReportReference(QualifiedNameReference qNameRef, IJavaElemen
  */
 protected void matchReportReference(QualifiedTypeReference qTypeRef, IJavaElement element, int accuracy, MatchLocator locator) throws CoreException {
 	char[][] tokens = null;
-	TypeBinding typeBinding = qTypeRef.binding;
+	TypeBinding typeBinding = qTypeRef.resolvedType;
 	if (typeBinding instanceof ArrayBinding) {
 		typeBinding = ((ArrayBinding)typeBinding).leafComponentType;
 	}
@@ -372,8 +372,6 @@ public int matchLevel(AstNode node, boolean resolve) {
  */
 private int matchLevel(ImportReference importRef, boolean resolve) {
 
-	if (importRef.onDemand) return IMPOSSIBLE_MATCH;
-
 	char[][] tokens = importRef.tokens;
 	int importLength = tokens.length;
 	
@@ -446,12 +444,15 @@ private int matchLevel(NameReference nameRef, boolean resolve) {
 		Binding binding = nameRef.binding;
 
 		if (nameRef instanceof SingleNameReference) {
-			if (binding == null || binding instanceof ProblemBinding){
+			if (binding instanceof ProblemReferenceBinding) {
+				binding = ((ProblemReferenceBinding)binding).original;
+			}
+			if (binding instanceof VariableBinding) {
+				return IMPOSSIBLE_MATCH;
+			} else if (!(binding instanceof TypeBinding)){
 				return INACCURATE_MATCH;
-			} else if (binding instanceof TypeBinding) {
-				return this.matchLevelForType(this.simpleName, this.qualification, (TypeBinding) binding);
 			} else {
-				return IMPOSSIBLE_MATCH; // must be a type binding
+				return this.matchLevelForType(this.simpleName, this.qualification, (TypeBinding) binding);
 			}
 		} else { // QualifiedNameReference
 			TypeBinding typeBinding = null;
@@ -469,6 +470,12 @@ private int matchLevel(NameReference nameRef, boolean resolve) {
 				case BindingIds.LOCAL : // reading a local variable
 					return IMPOSSIBLE_MATCH; // no type match in it
 				case BindingIds.TYPE : //=============only type ==============
+					if (binding instanceof ProblemReferenceBinding) {
+						binding = ((ProblemReferenceBinding)binding).original;
+					}
+					if (!(binding instanceof TypeBinding)) {
+						return INACCURATE_MATCH;
+					}
 					typeBinding = (TypeBinding)binding;
 					break;
 				/*
@@ -482,6 +489,16 @@ private int matchLevel(NameReference nameRef, boolean resolve) {
 						typeBinding = pbBinding.searchType; // second chance with recorded type so far
 						char[] partialQualifiedName = pbBinding.name;
 						lastIndex = CharOperation.occurencesOf('.', partialQualifiedName) - 1; // index of last bound token is one before the pb token
+						if (typeBinding == null || lastIndex < 0) return INACCURATE_MATCH;
+					} else if (binding instanceof ProblemReferenceBinding) {
+						ProblemReferenceBinding pbBinding = (ProblemReferenceBinding)binding;
+						binding = pbBinding.original;
+						if (!(binding instanceof TypeBinding)) {
+							return INACCURATE_MATCH;
+						}
+						typeBinding = (TypeBinding)binding;
+						char[][] partialQualifiedName = pbBinding.compoundName;
+						lastIndex = partialQualifiedName == null ? -1 : partialQualifiedName.length - 1; // index of last bound token is one before the pb token
 						if (typeBinding == null || lastIndex < 0) return INACCURATE_MATCH;
 					}
 					break;
@@ -509,7 +526,7 @@ private int matchLevel(NameReference nameRef, boolean resolve) {
  * Reports the match of the given array type reference.
  */
 protected void matchReportReference(ArrayTypeReference arrayRef, IJavaElement element, int accuracy, MatchLocator locator) throws CoreException {
-	char[][] tokens = this.simpleName == null ? NO_CHAR_CHAR : new char[][] {this.simpleName};
+	char[][] tokens = this.simpleName == null ? CharOperation.NO_CHAR_CHAR : new char[][] {this.simpleName};
 	locator.reportAccurateReference(arrayRef.sourceStart, arrayRef.sourceEnd, tokens, element, accuracy);
 }
 
@@ -541,35 +558,43 @@ private int matchLevel(TypeReference typeRef, boolean resolve) {
 			}				
 		} 
 	} else {
-		TypeBinding typeBinding = typeRef.binding;
+		TypeBinding typeBinding = typeRef.resolvedType;
+		if (typeBinding instanceof ArrayBinding) {
+			typeBinding = ((ArrayBinding)typeBinding).leafComponentType;
+		}
+		if (typeBinding instanceof ProblemReferenceBinding) {
+			Binding binding = ((ProblemReferenceBinding)typeBinding).original;
+			if (binding instanceof TypeBinding) {
+				typeBinding = (TypeBinding)binding;
+			} else if (binding == null) {
+				typeBinding = null;
+			}
+		}
 		if (typeBinding == null) {
 			return INACCURATE_MATCH;
-		} else {
-			if (typeBinding instanceof ArrayBinding) typeBinding = ((ArrayBinding)typeBinding).leafComponentType;
-			if (typeBinding instanceof ProblemReferenceBinding) return INACCURATE_MATCH;
-			if (typeRef instanceof SingleTypeReference){
-				return this.matchLevelForType(this.simpleName, this.qualification, typeBinding);
-			} else { // QualifiedTypeReference
-				QualifiedTypeReference qTypeRef = (QualifiedTypeReference)typeRef;
-				char[][] tokens = qTypeRef.tokens;
-				int lastIndex = tokens.length-1;
-				// try to match all enclosing types for which the token matches as well.
-				while (typeBinding != null && lastIndex >= 0){
-					if (matchesName(this.simpleName, tokens[lastIndex--])) {
-						int level = this.matchLevelForType(this.simpleName, this.qualification, typeBinding);
-						if (level != IMPOSSIBLE_MATCH) {
-							return level;
-						}
-					}
-					if (typeBinding instanceof ReferenceBinding){
-						typeBinding = ((ReferenceBinding)typeBinding).enclosingType();
-					} else {
-						typeBinding = null;
+		}
+		if (typeRef instanceof SingleTypeReference){
+			return this.matchLevelForType(this.simpleName, this.qualification, typeBinding);
+		} else { // QualifiedTypeReference
+			QualifiedTypeReference qTypeRef = (QualifiedTypeReference)typeRef;
+			char[][] tokens = qTypeRef.tokens;
+			int lastIndex = tokens.length-1;
+			// try to match all enclosing types for which the token matches as well.
+			while (typeBinding != null && lastIndex >= 0){
+				if (matchesName(this.simpleName, tokens[lastIndex--])) {
+					int level = this.matchLevelForType(this.simpleName, this.qualification, typeBinding);
+					if (level != IMPOSSIBLE_MATCH) {
+						return level;
 					}
 				}
-				return IMPOSSIBLE_MATCH;
-			} 
-		}
+				if (typeBinding instanceof ReferenceBinding){
+					typeBinding = ((ReferenceBinding)typeBinding).enclosingType();
+				} else {
+					typeBinding = null;
+				}
+			}
+			return IMPOSSIBLE_MATCH;
+		} 
 			
 	}
 }

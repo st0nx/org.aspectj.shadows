@@ -1,15 +1,19 @@
 /*******************************************************************************
- * Copyright (c) 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
+
+import org.eclipse.jdt.core.compiler.InvalidInputException;
+import org.eclipse.jdt.internal.compiler.parser.Scanner;
+import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 
 /**
  * AST node for a Javadoc comment.
@@ -51,6 +55,7 @@ public class Javadoc extends ASTNode {
 	 */
 	ASTNode clone(AST target) {
 		Javadoc result = new Javadoc(target);
+		result.setSourceRange(this.getStartPosition(), this.getLength());
 		result.setComment(getComment());
 		return result;
 	}
@@ -67,7 +72,7 @@ public class Javadoc extends ASTNode {
 	 * Method declared on ASTNode.
 	 */
 	void accept0(ASTVisitor visitor) {
-		boolean visitChildren = visitor.visit(this);
+		visitor.visit(this);
 		visitor.endVisit(this);
 	}
 
@@ -93,7 +98,29 @@ public class Javadoc extends ASTNode {
 		if (javadocComment == null) {
 			throw new IllegalArgumentException();
 		}
-		if (javadocComment.length() < 5 || !javadocComment.startsWith("/**") || !javadocComment.endsWith("*/")) {//$NON-NLS-1$//$NON-NLS-2$
+		char[] source = javadocComment.toCharArray();
+		Scanner scanner = this.getAST().scanner;
+		scanner.resetTo(0, source.length);
+		scanner.setSource(source);
+		try {
+			int token;
+			boolean onlyOneComment = false;
+			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+				switch(token) {
+					case TerminalTokens.TokenNameCOMMENT_JAVADOC :
+						if (onlyOneComment) {
+							throw new IllegalArgumentException();
+						}
+						onlyOneComment = true;
+						break;
+					default:
+						onlyOneComment = false;
+				}
+			}
+			if (!onlyOneComment) {
+				throw new IllegalArgumentException();
+			}
+		} catch (InvalidInputException e) {
 			throw new IllegalArgumentException();
 		}
 		modifying();

@@ -1,15 +1,18 @@
 /*******************************************************************************
- * Copyright (c) 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
+
+import org.eclipse.jdt.internal.compiler.ast.AstNode;
+import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 
 /**
  * A binding resolver is an internal mechanism for figuring out the binding
@@ -50,7 +53,7 @@ class BindingResolver {
 	 * @param newNode the new AST node
 	 * @param oldNode the old AST node
 	 */
-	void store(ASTNode newNode, org.eclipse.jdt.internal.compiler.ast.AstNode oldASTNode) {
+	void store(ASTNode newNode, AstNode oldASTNode) {
 	}
 
 	/**
@@ -180,7 +183,46 @@ class BindingResolver {
 	IMethodBinding resolveMethod(MethodDeclaration method) {
 		return null;
 	}
-	
+	/**
+	 * Resolves the given method invocation and returns the binding for it.
+	 * <p>
+	 * The implementation of <code>MethodInvocation.resolveMethodBinding</code>
+	 * forwards to this method. How the method resolves is often a function of
+	 * the context in which the method invocation node is embedded as well as
+	 * the method invocation subtree itself.
+	 * </p>
+	 * <p>
+	 * The default implementation of this method returns <code>null</code>.
+	 * Subclasses may reimplement.
+	 * </p>
+	 * 
+	 * @param method the method invocation of interest
+	 * @return the binding for the given method invocation, or 
+	 *    <code>null</code> if no binding is available
+	 */
+	IMethodBinding resolveMethod(MethodInvocation method) {
+		return null;
+	}
+	/**
+	 * Resolves the given method invocation and returns the binding for it.
+	 * <p>
+	 * The implementation of <code>MethodInvocation.resolveMethodBinding</code>
+	 * forwards to this method. How the method resolves is often a function of
+	 * the context in which the method invocation node is embedded as well as
+	 * the method invocation subtree itself.
+	 * </p>
+	 * <p>
+	 * The default implementation of this method returns <code>null</code>.
+	 * Subclasses may reimplement.
+	 * </p>
+	 * 
+	 * @param method the method invocation of interest
+	 * @return the binding for the given method invocation, or 
+	 *    <code>null</code> if no binding is available
+	 */
+	IMethodBinding resolveMethod(SuperMethodInvocation method) {
+		return null;
+	}	
 	/**
 	 * Resolves the given variable declaration and returns the binding for it.
 	 * <p>
@@ -396,6 +438,21 @@ class BindingResolver {
 	}
 
 	/**
+	 * Finds the corresponding AST node from which the given binding key originated.
+	 * 
+	 * The default implementation of this method returns <code>null</code>.
+	 * Subclasses may reimplement.
+	 * </p>
+	 * 
+	 * @param bindingKey the binding key
+	 * @return the corresponding node where the bindings is declared, 
+	 *    or <code>null</code> if none
+	 */
+	ASTNode findDeclaringNode(String bindingKey) {
+		return null;
+	}
+	
+	/**
 	 * Returns the new type binding corresponding to the given old type binding.
 	 * <p>
 	 * The default implementation of this method returns <code>null</code>.
@@ -463,5 +520,31 @@ class BindingResolver {
 	 * @param newNode the new AST node
 	 */
 	void updateKey(ASTNode node, ASTNode newNode) {
+	}
+	
+	/**
+	 * Allows the user to get information about the given old/new pair of
+	 * AST nodes.
+	 * <p>
+	 * The default implementation of this method does nothing.
+	 * Subclasses may reimplement.
+	 * </p>
+	 *
+	 * @param currentNode the new node
+	 * @return AstNode
+	 */
+	AstNode getCorrespondingNode(ASTNode currentNode) {
+		return null;
+	} 
+
+	/**
+	 * This method is used to record the scope and its corresponding node.
+	 * <p>
+	 * The default implementation of this method does nothing.
+	 * Subclasses may reimplement.
+	 * </p>
+	 * @param astNode
+	 */	
+	void recordScope(ASTNode astNode, BlockScope blockScope) {
 	}
 }

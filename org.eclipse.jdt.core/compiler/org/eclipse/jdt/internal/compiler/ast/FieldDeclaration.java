@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -55,6 +55,11 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 		FlowContext flowContext,
 		FlowInfo flowInfo) {
 
+		if (this.binding != null && this.binding.isPrivate() && !this.binding.isPrivateUsed()) {
+			if (!initializationScope.referenceCompilationUnit().compilationResult.hasSyntaxError()) {
+				initializationScope.problemReporter().unusedPrivateField(this);
+			}
+		}
 		// cannot define static non-constant field inside nested class
 		if (binding != null
 			&& binding.isValidBinding()
@@ -74,9 +79,6 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 					.analyseCode(initializationScope, flowContext, flowInfo)
 					.unconditionalInits();
 			flowInfo.markAsDefinitelyAssigned(binding);
-		} else {
-			flowInfo.markAsDefinitelyNotAssigned(binding);
-			// clear the bit in case it was already set (from enclosing info)
 		}
 		return flowInfo;
 	}
@@ -150,7 +152,7 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 			if (isTypeUseDeprecated(this.binding.type, initializationScope))
 				initializationScope.problemReporter().deprecatedType(this.binding.type, this.type);
 
-			this.type.binding = this.binding.type; // update binding for type reference
+			this.type.resolvedType = this.binding.type; // update binding for type reference
 
 			// the resolution of the initialization hasn't been done
 			if (this.initialization == null) {
@@ -168,7 +170,7 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 					
 					if (initialization instanceof ArrayInitializer) {
 
-						if ((initializationTypeBinding = this.initialization.resolveTypeExpecting(initializationScope, typeBinding)) 	!= null) {
+						if ((initializationTypeBinding = this.initialization.resolveTypeExpecting(initializationScope, typeBinding)) != null) {
 							((ArrayInitializer) this.initialization).binding = (ArrayBinding) initializationTypeBinding;
 							this.initialization.implicitWidening(typeBinding, initializationTypeBinding);
 						}
@@ -179,7 +181,7 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 
 							this.initialization.implicitWidening(typeBinding, initializationTypeBinding);
 
-						}	else if (initializationScope.areTypesCompatible(initializationTypeBinding, typeBinding)) {
+						}	else if (initializationTypeBinding.isCompatibleWith(typeBinding)) {
 							this.initialization.implicitWidening(typeBinding, initializationTypeBinding);
 
 						} else {

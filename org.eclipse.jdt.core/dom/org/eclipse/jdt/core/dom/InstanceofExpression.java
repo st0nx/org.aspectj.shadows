@@ -1,22 +1,18 @@
 /*******************************************************************************
- * Copyright (c) 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
 /**
  * Instanceof expression AST node type.
- *
- * Range 0: first character of left operand expression through last character
- * of the right operand expression.
- *
  * <pre>
  * InstanceofExpression:
  *    Expression <b>instanceof</b> Type
@@ -61,6 +57,7 @@ public class InstanceofExpression extends Expression {
 	 */
 	ASTNode clone(AST target) {
 		InstanceofExpression result = new InstanceofExpression(target);
+		result.setSourceRange(this.getStartPosition(), this.getLength());
 		result.setLeftOperand((Expression) getLeftOperand().clone(target));
 		result.setRightOperand((Type) getRightOperand().clone(target));
 		return result;
@@ -95,7 +92,9 @@ public class InstanceofExpression extends Expression {
 	public Expression getLeftOperand() {
 		if (leftOperand  == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setLeftOperand(new SimpleName(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return leftOperand;
 	}
@@ -128,7 +127,9 @@ public class InstanceofExpression extends Expression {
 	public Type getRightOperand() {
 		if (rightOperand  == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setRightOperand(new SimpleType(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return rightOperand;
 	}

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.io.IOException;
@@ -26,7 +26,6 @@ import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.IBuffer;
 import org.eclipse.jdt.core.IBufferFactory;
 import org.eclipse.jdt.core.IClassFile;
-import org.eclipse.jdt.core.ICodeCompletionRequestor;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.ICompletionRequestor;
 import org.eclipse.jdt.core.IJavaElement;
@@ -69,13 +68,13 @@ protected ClassFile(IPackageFragment parent, String name) {
 public void codeComplete(int offset, ICompletionRequestor requestor) throws JavaModelException {
 	String source = getSource();
 	if (source != null) {
-		String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
-		
+		String encoding = this.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
+		String elementName = getElementName();
 		BasicCompilationUnit cu = 
 			new BasicCompilationUnit(
 				getSource().toCharArray(), 
 				null,
-				getElementName() + ".java", //$NON-NLS-1$
+				elementName.substring(0, elementName.length()-".class".length()) + ".java", //$NON-NLS-1$ //$NON-NLS-2$
 				encoding); 
 		codeComplete(cu, cu, offset, requestor);
 	}
@@ -240,6 +239,9 @@ public IJavaElement getElementAt(int position) throws JavaModelException {
 	if (mapper == null) {
 		return null;
 	} else {
+		// ensure this class file's buffer is open so that source ranges are computed
+		getBuffer();
+
 		IType type = getType();
 		return findElement(type, position, mapper);
 	}
@@ -417,6 +419,11 @@ protected IBuffer openBuffer(IProgressMonitor pm) throws JavaModelException {
 	}
 	return null;
 }
+protected void openWhenClosed(IProgressMonitor pm) throws JavaModelException {
+	IResource resource = this.getResource();
+	if (resource != null && !resource.isAccessible()) throw newNotPresentException();
+	super.openWhenClosed(pm);
+}
 /*
  * @see JavaElement#rootedAt(IJavaProject)
  */
@@ -526,7 +533,7 @@ public static char[] translatedName(char[] name) {
  * @see ICodeAssist#codeComplete(int, ICodeCompletionRequestor)
  * @deprecated - should use codeComplete(int, ICompletionRequestor) instead
  */
-public void codeComplete(int offset, final ICodeCompletionRequestor requestor) throws JavaModelException {
+public void codeComplete(int offset, final org.eclipse.jdt.core.ICodeCompletionRequestor requestor) throws JavaModelException {
 	
 	if (requestor == null){
 		codeComplete(offset, (ICompletionRequestor)null);

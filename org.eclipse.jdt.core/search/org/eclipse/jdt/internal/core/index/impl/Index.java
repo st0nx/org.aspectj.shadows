@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.index.impl;
 
 import java.io.File;
@@ -64,7 +64,7 @@ public class Index implements IIndex {
 	/**
 	 * String representation of this index.
 	 */
-	private String toString;
+	public String toString;
 	public Index(File indexDirectory, boolean reuseExistingFile) throws IOException {
 		this(indexDirectory,".index", reuseExistingFile); //$NON-NLS-1$
 	}
@@ -211,14 +211,8 @@ public class Index implements IIndex {
 					input.opened = false;
 				}
 				indexFile.delete();
-				if (org.eclipse.jdt.internal.core.search.Util.bind("exception.wrongFormat").equals(e.getMessage())) { //$NON-NLS-1$
-					InMemoryIndex mainIndex= new InMemoryIndex();			
-					IndexOutput mainIndexOutput= new BlocksIndexOutput(indexFile);
-					mainIndex.save(mainIndexOutput);
-				} else {
-					mainIndexInput = null;
-					throw e;
-				}
+				mainIndexInput = null;
+				throw e;
 			}
 			mainIndexInput.close();
 		} else {
@@ -361,7 +355,9 @@ public class Index implements IIndex {
 		return (addsIndex.getFootprint() >= MAX_FOOTPRINT);
 	}
 public String toString() {
-	if (this.toString == null) return super.toString();
-	return this.toString;
+	String str = this.toString;
+	if (str == null) str = super.toString();
+	str += "(length: "+ getIndexFile().length() +")"; //$NON-NLS-1$ //$NON-NLS-2$
+	return str;
 }
 }

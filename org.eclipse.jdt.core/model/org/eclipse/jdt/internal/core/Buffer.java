@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.io.ByteArrayInputStream;
@@ -20,13 +20,7 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.ISafeRunnable;
 import org.eclipse.core.runtime.Platform;
-import org.eclipse.jdt.core.BufferChangedEvent;
-import org.eclipse.jdt.core.IBuffer;
-import org.eclipse.jdt.core.IBufferChangedListener;
-import org.eclipse.jdt.core.IJavaModelStatusConstants;
-import org.eclipse.jdt.core.IOpenable;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.*;
 
 /**
  * @see IBuffer
@@ -336,7 +330,7 @@ public void save(IProgressMonitor progress, boolean force) throws JavaModelExcep
 			
 		// use a platform operation to update the resource contents
 		try {
-			String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
+			String encoding = ((IJavaElement)this.owner).getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
 			String contents = this.getContents();
 			if (contents == null) return;
 			byte[] bytes = encoding == null 

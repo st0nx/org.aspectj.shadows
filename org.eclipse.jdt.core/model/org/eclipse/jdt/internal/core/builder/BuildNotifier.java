@@ -1,27 +1,25 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
 import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.core.compiler.IProblem;
-import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.core.Util;
 
 public class BuildNotifier {
 
 protected IProgressMonitor monitor;
-protected int rootPathLength;
 protected boolean cancelling;
 protected float percentComplete;
 protected float progressPerCompilationUnit;
@@ -33,23 +31,25 @@ protected int workDone;
 protected int totalWork;
 protected String previousSubtask;
 
+public static int NewErrorCount = 0;
+public static int FixedErrorCount = 0;
+public static int NewWarningCount = 0;
+public static int FixedWarningCount = 0;
+
+public static void resetProblemCounters() {
+	NewErrorCount = 0;
+	FixedErrorCount = 0;
+	NewWarningCount = 0;
+	FixedWarningCount = 0;
+}
+
 public BuildNotifier(IProgressMonitor monitor, IProject project) {
 	this.monitor = monitor;
-	try {
-		IPath location = project.getDescription().getLocation();
-		if (location == null)
-			location = project.getParent().getLocation(); // default workspace location
-		else if (project.getName().equalsIgnoreCase(location.lastSegment()))
-			location = location.removeLastSegments(1); // want to show project name if possible
-		this.rootPathLength = location.addTrailingSeparator().toString().length();
-	} catch(CoreException e) {
-		this.rootPathLength = 0;
-	}
 	this.cancelling = false;
-	this.newErrorCount = 0;
-	this.fixedErrorCount = 0;
-	this.newWarningCount = 0;
-	this.fixedWarningCount = 0;
+	this.newErrorCount = NewErrorCount;
+	this.fixedErrorCount = FixedErrorCount;
+	this.newWarningCount = NewWarningCount;
+	this.fixedWarningCount = FixedWarningCount;
 	this.workDone = 0;
 	this.totalWork = 1000000;
 }
@@ -57,12 +57,8 @@ public BuildNotifier(IProgressMonitor monitor, IProject project) {
 /**
  * Notification before a compile that a unit is about to be compiled.
  */
-public void aboutToCompile(ICompilationUnit unit) {
-	String message = new String(unit.getFileName());
-	message = message.replace('\\', '/');
-	int end = message.lastIndexOf('/');
-	message = Util.bind("build.compiling", //$NON-NLS-1$
-		message.substring(rootPathLength, end <= rootPathLength ? message.length() : end));
+public void aboutToCompile(SourceFile unit) {
+	String message = Util.bind("build.compiling", unit.resource.getFullPath().removeLastSegments(1).makeRelative().toString()); //$NON-NLS-1$
 	subTask(message);
 }
 
@@ -97,18 +93,19 @@ public void checkCancelWithinCompiler() {
 /**
  * Notification while within a compile that a unit has finished being compiled.
  */
-public void compiled(ICompilationUnit unit) {
-	String message = new String(unit.getFileName());
-	message = message.replace('\\', '/');
-	int end = message.lastIndexOf('/');
-	message = Util.bind("build.compiling", //$NON-NLS-1$
-		message.substring(rootPathLength, end <= rootPathLength ? message.length() : end));
+public void compiled(SourceFile unit) {
+	String message = Util.bind("build.compiling", unit.resource.getFullPath().removeLastSegments(1).makeRelative().toString()); //$NON-NLS-1$
 	subTask(message);
 	updateProgressDelta(progressPerCompilationUnit);
 	checkCancelWithinCompiler();
 }
 
 public void done() {
+	NewErrorCount = this.newErrorCount;
+	FixedErrorCount = this.fixedErrorCount;
+	NewWarningCount = this.newWarningCount;
+	FixedWarningCount = this.fixedWarningCount;
+
 	updateProgress(1.0f);
 	subTask(Util.bind("build.done")); //$NON-NLS-1$
 	if (monitor != null)
@@ -123,22 +120,58 @@ protected String problemsMessage() {
 	int numNew = newErrorCount + newWarningCount;
 	int numFixed = fixedErrorCount + fixedWarningCount;
 	if (numNew == 0 && numFixed == 0) return ""; //$NON-NLS-1$
-	if (numFixed == 0)
-		return '(' + (numNew == 1
-			? Util.bind("build.oneProblemFound", String.valueOf(numNew)) //$NON-NLS-1$
-			: Util.bind("build.problemsFound", String.valueOf(numNew))) + ')'; //$NON-NLS-1$
-	if (numNew == 0)
-		return '(' + (numFixed == 1
-			? Util.bind("build.oneProblemFixed", String.valueOf(numFixed)) //$NON-NLS-1$
-			: Util.bind("build.problemsFixed", String.valueOf(numFixed))) + ')'; //$NON-NLS-1$
-	return
-		'(' + (numFixed == 1
-			? Util.bind("build.oneProblemFixed", String.valueOf(numFixed)) //$NON-NLS-1$
-			: Util.bind("build.problemsFixed", String.valueOf(numFixed))) //$NON-NLS-1$
-		+ ", " //$NON-NLS-1$
-		+ (numNew == 1
-			? Util.bind("build.oneProblemFound", String.valueOf(numNew)) //$NON-NLS-1$
-			: Util.bind("build.problemsFound", String.valueOf(numNew))) + ')'; //$NON-NLS-1$
+
+	boolean displayBoth = numNew > 0 && numFixed > 0;
+	StringBuffer buffer = new StringBuffer();
+	buffer.append('(');
+	if (numNew > 0) {
+		// (Found x errors + y warnings)
+		buffer.append(Util.bind("build.foundHeader")); //$NON-NLS-1$
+		buffer.append(' ');
+		if (displayBoth || newErrorCount > 0) {
+			if (newErrorCount == 1)
+				buffer.append(Util.bind("build.oneError")); //$NON-NLS-1$
+			else
+				buffer.append(Util.bind("build.multipleErrors", String.valueOf(newErrorCount))); //$NON-NLS-1$
+			if (displayBoth || newWarningCount > 0)
+				buffer.append(" + "); //$NON-NLS-1$
+		}
+		if (displayBoth || newWarningCount > 0) {
+			if (newWarningCount == 1)
+				buffer.append(Util.bind("build.oneWarning")); //$NON-NLS-1$
+			else
+				buffer.append(Util.bind("build.multipleWarnings", String.valueOf(newWarningCount))); //$NON-NLS-1$
+		}
+		if (numFixed > 0)
+			buffer.append(", "); //$NON-NLS-1$
+	}
+	if (numFixed > 0) {
+		// (Fixed x errors + y warnings) or (Found x errors + y warnings, Fixed x + y)
+		buffer.append(Util.bind("build.fixedHeader")); //$NON-NLS-1$
+		buffer.append(' ');
+		if (displayBoth) {
+			buffer.append(String.valueOf(fixedErrorCount));
+			buffer.append(" + "); //$NON-NLS-1$
+			buffer.append(String.valueOf(fixedWarningCount));
+		} else {
+			if (fixedErrorCount > 0) {
+				if (fixedErrorCount == 1)
+					buffer.append(Util.bind("build.oneError")); //$NON-NLS-1$
+				else
+					buffer.append(Util.bind("build.multipleErrors", String.valueOf(fixedErrorCount))); //$NON-NLS-1$
+				if (fixedWarningCount > 0)
+					buffer.append(" + "); //$NON-NLS-1$
+			}
+			if (fixedWarningCount > 0) {
+				if (fixedWarningCount == 1)
+					buffer.append(Util.bind("build.oneWarning")); //$NON-NLS-1$
+				else
+					buffer.append(Util.bind("build.multipleWarnings", String.valueOf(fixedWarningCount))); //$NON-NLS-1$
+			}
+		}
+	}
+	buffer.append(')');
+	return buffer.toString();
 }
 
 /**
@@ -171,7 +204,7 @@ public void subTask(String message) {
 }
 
 protected void updateProblemCounts(IProblem[] newProblems) {
-	for (int i = 0, newSize = newProblems.length; i < newSize; ++i)
+	for (int i = 0, l = newProblems.length; i < l; i++)
 		if (newProblems[i].isError()) newErrorCount++; else newWarningCount++;
 }
 
@@ -181,13 +214,14 @@ protected void updateProblemCounts(IProblem[] newProblems) {
  */
 protected void updateProblemCounts(IMarker[] oldProblems, IProblem[] newProblems) {
 	if (newProblems != null) {
-		next : for (int i = 0, newSize = newProblems.length; i < newSize; ++i) {
+		next : for (int i = 0, l = newProblems.length; i < l; i++) {
 			IProblem newProblem = newProblems[i];
+			if (newProblem.getID() == IProblem.Task) continue; // skip task
 			boolean isError = newProblem.isError();
 			String message = newProblem.getMessage();
 
 			if (oldProblems != null) {
-				for (int j = 0, oldSize = oldProblems.length; j < oldSize; ++j) {
+				for (int j = 0, m = oldProblems.length; j < m; j++) {
 					IMarker pb = oldProblems[j];
 					if (pb == null) continue; // already matched up with a new problem
 					boolean wasError = IMarker.SEVERITY_ERROR
@@ -202,7 +236,7 @@ protected void updateProblemCounts(IMarker[] oldProblems, IProblem[] newProblems
 		}
 	}
 	if (oldProblems != null) {
-		next : for (int i = 0, oldSize = oldProblems.length; i < oldSize; ++i) {
+		next : for (int i = 0, l = oldProblems.length; i < l; i++) {
 			IMarker oldProblem = oldProblems[i];
 			if (oldProblem == null) continue next; // already matched up with a new problem
 			boolean wasError = IMarker.SEVERITY_ERROR
@@ -210,8 +244,9 @@ protected void updateProblemCounts(IMarker[] oldProblems, IProblem[] newProblems
 			String message = oldProblem.getAttribute(IMarker.MESSAGE, ""); //$NON-NLS-1$
 
 			if (newProblems != null) {
-				for (int j = 0, newSize = newProblems.length; j < newSize; ++j) {
+				for (int j = 0, m = newProblems.length; j < m; j++) {
 					IProblem pb = newProblems[j];
+					if (pb.getID() == IProblem.Task) continue; // skip task
 					if (wasError == pb.isError() && message.equals(pb.getMessage()))
 						continue next;
 				}

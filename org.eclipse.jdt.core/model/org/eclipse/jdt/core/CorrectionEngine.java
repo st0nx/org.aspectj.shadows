@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 import java.util.Map;
@@ -18,7 +18,6 @@ import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
 import org.eclipse.jdt.internal.compiler.parser.*;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.core.*;
 
 /**
@@ -260,17 +259,17 @@ public class CorrectionEngine implements ProblemReasons {
 			
 			scanner.resetTo(correctionStart, correctionEnd);
 			int token = 0;
-			char[] argumentSource = new char[0];
+			char[] argumentSource = CharOperation.NO_CHAR;
 			
 			// search last segment position
 			while(true) {
 				token = scanner.getNextToken();
-				if (token == ITerminalSymbols.TokenNameEOF) return;
+				if (token == TerminalTokens.TokenNameEOF) return;
 				
 				char[] tokenSource = scanner.getCurrentTokenSource();
 				
 				argumentSource = CharOperation.concat(argumentSource, tokenSource);
-				if(!CharOperation.startsWith(argument, argumentSource))
+				if(!CharOperation.prefixEquals(argumentSource, argument))
 					return;
 				
 				if(CharOperation.equals(argument, argumentSource)) {
@@ -411,4 +410,19 @@ public class CorrectionEngine implements ProblemReasons {
 		public void acceptType(char[] packageName,char[] typeName,char[] completionName,int completionStart,int completionEnd, int relevance) {}
 		public void acceptVariableName(char[] typePackageName,char[] typeName,char[] name,char[] completionName,int completionStart,int completionEnd, int relevance) {}
 	};
+	
+	/**
+	 * Helper method for decoding problem marker attributes. Returns an array of String arguments
+	 * extracted from the problem marker "arguments" attribute, or <code>null</code> if the marker 
+	 * "arguments" attribute is missing or ill-formed.
+	 * 
+	 * @param problemMarker
+	 * 		the problem marker to decode arguments from.
+	 * @return an array of String arguments, or <code>null</code> if unable to extract arguments
+	 * @since 2.1
+	 */
+	public static String[] getProblemArguments(IMarker problemMarker){
+		String argumentsString = problemMarker.getAttribute(IJavaModelMarker.ARGUMENTS, null);
+		return Util.getProblemArgumentsFromMarker(argumentsString);
+	}	
 }

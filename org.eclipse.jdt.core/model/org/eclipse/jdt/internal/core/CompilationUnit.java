@@ -1,50 +1,21 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
+import java.util.*;
 
-import org.eclipse.core.resources.IContainer;
-import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.IMarker;
-import org.eclipse.core.resources.IResource;
-import org.eclipse.core.resources.ResourcesPlugin;
-import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IPath;
-import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.core.runtime.Path;
-import org.eclipse.jdt.core.IBuffer;
-import org.eclipse.jdt.core.IBufferFactory;
-import org.eclipse.jdt.core.ICodeCompletionRequestor;
-import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.ICompletionRequestor;
-import org.eclipse.jdt.core.IImportContainer;
-import org.eclipse.jdt.core.IImportDeclaration;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IJavaModelMarker;
-import org.eclipse.jdt.core.IJavaModelStatusConstants;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.IPackageDeclaration;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IPackageFragmentRoot;
-import org.eclipse.jdt.core.IProblemRequestor;
-import org.eclipse.jdt.core.ISourceRange;
-import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.Signature;
+import org.eclipse.core.resources.*;
+import org.eclipse.core.runtime.*;
+import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.jdom.IDOMNode;
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -52,6 +23,7 @@ import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.SourceElementParser;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
+
 /**
  * @see ICompilationUnit
  */
@@ -59,6 +31,9 @@ import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 public class CompilationUnit extends Openable implements ICompilationUnit, org.eclipse.jdt.internal.compiler.env.ICompilationUnit {
 	
 	public static boolean SHARED_WC_VERBOSE = false;
+	
+	// TODO: Remove when we are certain that every client is ready for this fix
+	public static final boolean FIX_BUG25184 = true;
 
 /**
  * Constructs a handle to a compilation unit with the given name in the
@@ -99,23 +74,13 @@ protected void buildStructure(OpenableElementInfo info, IProgressMonitor monitor
 	removeInfo();
 
 	HashMap newElements = new HashMap(11);
-	info.setIsStructureKnown(generateInfos(info, monitor, newElements, getUnderlyingResource()));
+	info.setIsStructureKnown(generateInfos(info, monitor, newElements, getResource()));
 	JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().remove(this);
 	for (Iterator iter = newElements.keySet().iterator(); iter.hasNext();) {
 		IJavaElement key = (IJavaElement) iter.next();
 		Object value = newElements.get(key);
 		JavaModelManager.getJavaModelManager().putInfo(key, value);
 	}
-	// problem detection 
-	if (monitor != null && monitor.isCanceled()) return;
-
-	IProblemRequestor problemRequestor = this.getProblemRequestor();
-	if (problemRequestor != null && problemRequestor.isActive()){
-		problemRequestor.beginReporting();
-		CompilationUnitProblemFinder.resolve(this, problemRequestor, monitor);
-		problemRequestor.endReporting();
-	}
-	
 	// add the info for this at the end, to ensure that a getInfo cannot reply null in case the LRU cache needs
 	// to be flushed. Might lead to performance issues.
 	// see PR 1G2K5S7: ITPJCORE:ALL - NPE when accessing source for a binary type
@@ -343,14 +308,13 @@ protected boolean generateInfos(OpenableElementInfo info, IProgressMonitor pm, M
 		// generate structure
 		CompilationUnitStructureRequestor requestor = new CompilationUnitStructureRequestor(this, unitInfo, newElements);
 		IProblemFactory factory = new DefaultProblemFactory();
-		SourceElementParser parser = new SourceElementParser(requestor, factory, new CompilerOptions(JavaCore.getOptions()));
+		SourceElementParser parser = new SourceElementParser(requestor, factory, new CompilerOptions(getJavaProject().getOptions(true)));
+		requestor.parser = parser;
 		parser.parseCompilationUnit(this, false);
 		if (isWorkingCopy()) {
 			CompilationUnit original = (CompilationUnit) getOriginalElement();
-			unitInfo.fTimestamp = ((IFile) original.getUnderlyingResource()).getModificationStamp();
-			if(unitInfo.fTimestamp == IResource.NULL_STAMP){
-				throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_RESOURCE));
-			}
+			// might be IResource.NULL_STAMP if original does not exist
+			unitInfo.fTimestamp = ((IFile) original.getResource()).getModificationStamp();
 		}
 		return unitInfo.isStructureKnown();
 	}
@@ -392,10 +356,8 @@ public char[] getContents() {
 	try {
 		IBuffer buffer = this.getBuffer();
 		return buffer == null ? null : buffer.getCharacters();
-	} catch (NullPointerException e) { // buffer could be null
-		return new char[0];
 	} catch (JavaModelException e) {
-		return new char[0];
+		return CharOperation.NO_CHAR;
 	}
 }
 /**
@@ -533,13 +495,6 @@ public IResource getResource() {
 	}
 }
 
-/*
- * Answer requestor to notify with problems
- */
-public IProblemRequestor getProblemRequestor(){
-	return null;
-}
-
 /**
  * @see ISourceReference#getSource()
  */
@@ -568,6 +523,13 @@ public IType[] getTypes() throws JavaModelException {
 	IType[] array= new IType[list.size()];
 	list.toArray(array);
 	return array;
+}
+public IResource getUnderlyingResource() throws JavaModelException {
+	if (FIX_BUG25184) {
+		return super.getUnderlyingResource();
+	} else {
+		return getResource();
+	}
 }
 /**
  * @see IWorkingCopy#getSharedWorkingCopy(IProgressMonitor, IBufferFactory, IProblemRequestor)
@@ -599,19 +561,9 @@ public IJavaElement getSharedWorkingCopy(IProgressMonitor pm, IBufferFactory fac
 
 		return workingCopy;
 	} else {
-		workingCopy = (WorkingCopy)this.getWorkingCopy(pm, factory, problemRequestor);
-		perFactoryWorkingCopies.put(this, workingCopy);
-
-		if (SHARED_WC_VERBOSE) {
-			System.out.println("Creating shared working copy " + workingCopy.toStringWithAncestors()); //$NON-NLS-1$
-		}
-
-		// report added java delta
-		JavaElementDelta delta = new JavaElementDelta(this.getJavaModel());
-		delta.added(workingCopy);
-		manager.fire(delta, JavaModelManager.DEFAULT_CHANGE_EVENT);
-
-		return workingCopy;
+		CreateWorkingCopyOperation op = new CreateWorkingCopyOperation(this, perFactoryWorkingCopies, factory, problemRequestor);
+		runOperation(op, pm);
+		return op.getResultElements()[0];
 	}
 }
 /**
@@ -625,10 +577,9 @@ public IJavaElement getWorkingCopy() throws JavaModelException {
  * @see IWorkingCopy#getWorkingCopy(IProgressMonitor, IBufferFactory, IProblemRequestor)
  */
 public IJavaElement getWorkingCopy(IProgressMonitor pm, IBufferFactory factory, IProblemRequestor problemRequestor) throws JavaModelException {
-	WorkingCopy workingCopy = new WorkingCopy((IPackageFragment)getParent(), getElementName(), factory, problemRequestor);
-	// open the working copy now to ensure contents are that of the current state of this element
-	workingCopy.open(pm);
-	return workingCopy;
+	CreateWorkingCopyOperation op = new CreateWorkingCopyOperation(this, null, factory, problemRequestor);
+	runOperation(op, pm);
+	return op.getResultElements()[0];
 }
 
 /**
@@ -678,11 +629,11 @@ public boolean isWorkingCopy() {
 /**
  * @see IOpenable#makeConsistent(IProgressMonitor)
  */
-public void makeConsistent(IProgressMonitor pm) throws JavaModelException {
-	if (!isConsistent()) {
+public void makeConsistent(IProgressMonitor monitor) throws JavaModelException {
+	if (!isConsistent()) { // TODO: this code isn't synchronized with regular opening of a working copy
 		// create a new info and make it the current info
 		OpenableElementInfo info = createElementInfo();
-		buildStructure(info, pm);
+		buildStructure(info, monitor);
 	}
 }
 
@@ -704,45 +655,6 @@ public void move(IJavaElement container, IJavaElement sibling, String rename, bo
 }
 
 /**
- * Changes the source end index of this element and all children (following
- * <code>child</code>). 
- */
-public void offsetSourceEndAndChildren(int amount, IJavaElement child) {
-	try {
-		CompilationUnitElementInfo cuInfo = (CompilationUnitElementInfo) getElementInfo();
-		cuInfo.setSourceLength(cuInfo.getSourceLength() + amount);
-		IJavaElement[] children = getChildren();
-		boolean afterChild = false;
-		for (int i = 0; i < children.length; i++) {
-			IJavaElement aChild = children[i];
-			if (child == null || aChild.equals(child)) {
-				afterChild = true;
-			} else
-				if (afterChild) {
-					((JavaElement) aChild).offsetSourceRange(amount);
-				}
-		}
-	} catch (JavaModelException npe) {
-		return;
-	}
-}
-/**
- * Changes the source indexes of this element and all children elements.
- */
-public void offsetSourceRange(int amount) {
-	try {
-		CompilationUnitElementInfo cuInfo = (CompilationUnitElementInfo) getElementInfo();
-		cuInfo.setSourceLength(cuInfo.getSourceLength() + amount);
-		IJavaElement[] children = getChildren();
-		for (int i = 0; i < children.length; i++) {
-			IJavaElement aChild = children[i];
-			((JavaElement) aChild).offsetSourceRange(amount);
-		}
-	} catch (JavaModelException npe) {
-		return;
-	}
-}
-/**
  * @see Openable#openBuffer(IProgressMonitor)
  */
 protected IBuffer openBuffer(IProgressMonitor pm) throws JavaModelException {
@@ -754,7 +666,9 @@ protected IBuffer openBuffer(IProgressMonitor pm) throws JavaModelException {
 	
 	// set the buffer source
 	if (buffer.getCharacters() == null){
-		buffer.setContents(Util.getResourceContentsAsCharArray((IFile)this.getResource()));
+		IFile file = (IFile)this.getResource();
+		if (file == null || !file.exists()) throw newNotPresentException();
+		buffer.setContents(Util.getResourceContentsAsCharArray(file));
 	}
 
 	// add buffer to buffer cache
@@ -765,27 +679,26 @@ protected IBuffer openBuffer(IProgressMonitor pm) throws JavaModelException {
 	
 	return buffer;
 }
-/*
- * @see Openable#openParent(IProgressMonitor)
- */
 protected void openParent(IProgressMonitor pm) throws JavaModelException {
-	try {
+	if (FIX_BUG25184) {
 		super.openParent(pm);
-	} catch(JavaModelException e){
-		// allow parent to not exist for fake units defined outside classpath
-		// will be ok for both working copies and compilation units
-		if (!e.isDoesNotExist()){ 
-			throw e;
+	} else {
+		try {
+			super.openParent(pm);
+		} catch(JavaModelException e){
+			// allow parent to not exist for compilation units defined outside classpath
+			if (!e.isDoesNotExist()){ 
+				throw e;
+			}
 		}
 	}
 }
-/**
- *  Answers true if the parent exists (null parent is answering true)
- * 
- */
-protected boolean parentExists(){
-	
-	return true; // tolerate units outside classpath
+protected boolean parentExists() {
+	if (FIX_BUG25184) {
+		return super.parentExists();
+	} else {
+		return true; // tolerate units outside classpath
+	}
 }
 
 /**
@@ -824,23 +737,6 @@ public void rename(String name, boolean force, IProgressMonitor monitor) throws 
  * @see IWorkingCopy#restore()
  */
 public void restore () throws JavaModelException {
-}
-/**
- * Updates the source end index for this element.
- */
-public void triggerSourceEndOffset(int amount, int nameStart, int nameEnd) {
-	try {
-		CompilationUnitElementInfo cuInfo = (CompilationUnitElementInfo) getRawInfo();
-		cuInfo.setSourceLength(cuInfo.getSourceLength() + amount);
-	} catch (JavaModelException npe) {
-		return;
-	}
-}
-/**
- * Updates the source indexes for this element.
- */
-public void triggerSourceRangeOffset(int amount, int nameStart, int nameEnd) {
-	triggerSourceEndOffset(amount, nameStart, nameEnd);
 }
 /**
  * @see ICodeAssist#codeComplete(int, ICodeCompletionRequestor)

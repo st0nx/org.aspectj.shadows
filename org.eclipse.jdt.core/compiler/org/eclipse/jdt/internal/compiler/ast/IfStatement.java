@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -63,86 +63,84 @@ public class IfStatement extends Statement {
 		FlowContext flowContext,
 		FlowInfo flowInfo) {
 
-		FlowInfo thenFlowInfo, elseFlowInfo;
-
 		// process the condition
 		flowInfo = condition.analyseCode(currentScope, flowContext, flowInfo);
 
+		Constant cst = this.condition.optimizedBooleanConstant();
+		boolean isConditionOptimizedTrue = cst != NotAConstant && cst.booleanValue() == true;
+		boolean isConditionOptimizedFalse = cst != NotAConstant && cst.booleanValue() == false;
+		
 		// process the THEN part
-		if (thenStatement == null) {
-			thenFlowInfo = flowInfo.initsWhenTrue();
-		} else {
-			Constant cst;
-			thenFlowInfo =
-				((((cst = condition.constant) != NotAConstant)
-					&& (cst.booleanValue() == false))
-					|| (((cst = condition.conditionalConstant()) != NotAConstant)
-						&& (cst.booleanValue() == false)))
-					? (flowInfo.initsWhenTrue().copy().markAsFakeReachable(true))
-					: flowInfo.initsWhenTrue().copy();
+		FlowInfo thenFlowInfo = flowInfo.initsWhenTrue().copy();
+		if (isConditionOptimizedFalse) {
+			thenFlowInfo.setReachMode(FlowInfo.UNREACHABLE); 
+		}
+		if (this.thenStatement != null) {
 			// Save info for code gen
 			thenInitStateIndex =
 				currentScope.methodScope().recordInitializationStates(thenFlowInfo);
-			if (!thenFlowInfo.complainIfUnreachable(thenStatement, currentScope)) {
+			if (!thenFlowInfo.complainIfUnreachable(thenStatement, currentScope, false)) {
 				thenFlowInfo =
 					thenStatement.analyseCode(currentScope, flowContext, thenFlowInfo);
 			}
 		};
 		// optimizing the jump around the ELSE part
-		thenExit = (thenFlowInfo == FlowInfo.DeadEnd) || thenFlowInfo.isFakeReachable();
+		this.thenExit = !thenFlowInfo.isReachable();
 
 		// process the ELSE part
-		if (elseStatement == null) {
-			elseFlowInfo = flowInfo.initsWhenFalse();
-		} else {
-			Constant cst;
-			elseFlowInfo =
-				((((cst = condition.constant) != NotAConstant) && (cst.booleanValue() == true))
-					|| (((cst = condition.conditionalConstant()) != NotAConstant)
-						&& (cst.booleanValue() == true)))
-					? (flowInfo.initsWhenFalse().copy().markAsFakeReachable(true))
-					: flowInfo.initsWhenFalse().copy();
+		FlowInfo elseFlowInfo = flowInfo.initsWhenFalse().copy();
+		if (isConditionOptimizedTrue) {
+			elseFlowInfo.setReachMode(FlowInfo.UNREACHABLE); 
+		}
+		if (this.elseStatement != null) {
 			// Save info for code gen
 			elseInitStateIndex =
 				currentScope.methodScope().recordInitializationStates(elseFlowInfo);
-			if (!elseFlowInfo.complainIfUnreachable(elseStatement, currentScope)) {
+			if (!elseFlowInfo.complainIfUnreachable(elseStatement, currentScope, false)) {
 				elseFlowInfo =
 					elseStatement.analyseCode(currentScope, flowContext, elseFlowInfo);
 			}
 		}
 
+		boolean elseExit = !elseFlowInfo.isReachable();
+		
 		// merge THEN & ELSE initializations
 		FlowInfo mergedInfo;
-		if ((condition.constant != NotAConstant)
-			&& (condition.constant.booleanValue() == true)) {
-			// IF (TRUE)
-			if (thenExit) {
-				mergedInfo = elseFlowInfo.markAsFakeReachable(true);
-				mergedInitStateIndex =
-					currentScope.methodScope().recordInitializationStates(mergedInfo);
-				return mergedInfo;
+//		if (isConditionOptimizedTrue){
+//			if (!this.thenExit) {
+//				mergedInfo = thenFlowInfo;
+//			} else {
+//				mergedInfo = elseFlowInfo.setReachMode(FlowInfo.UNREACHABLE);
+//			}
+//
+//		} else if (isConditionOptimizedFalse) {
+//			if (!elseExit) {
+//				mergedInfo = elseFlowInfo;
+//			} else {
+//				mergedInfo = thenFlowInfo.setReachMode(FlowInfo.UNREACHABLE);
+//			}
+//
+//		} else {
+//			mergedInfo = thenFlowInfo.mergedWith(elseFlowInfo.unconditionalInits());
+//		}
+		if (isConditionOptimizedTrue){
+			if (!this.thenExit) {
+				mergedInfo = thenFlowInfo.addPotentialInitializationsFrom(elseFlowInfo);
 			} else {
-				mergedInitStateIndex =
-					currentScope.methodScope().recordInitializationStates(thenFlowInfo);
-				return thenFlowInfo;
+				mergedInfo = elseFlowInfo.setReachMode(FlowInfo.UNREACHABLE);
 			}
+
+		} else if (isConditionOptimizedFalse) {
+			if (!elseExit) {
+				mergedInfo = elseFlowInfo.addPotentialInitializationsFrom(thenFlowInfo);
+			} else {
+				mergedInfo = thenFlowInfo.setReachMode(FlowInfo.UNREACHABLE);
+			}
+
 		} else {
-			// IF (FALSE)
-			if ((condition.constant != NotAConstant)
-				&& (condition.constant.booleanValue() == false)) {
-				if (elseFlowInfo.isDeadEnd()) {
-					mergedInfo = thenFlowInfo.markAsFakeReachable(true);
-					mergedInitStateIndex =
-						currentScope.methodScope().recordInitializationStates(mergedInfo);
-					return mergedInfo;
-				} else {
-					mergedInitStateIndex =
-						currentScope.methodScope().recordInitializationStates(elseFlowInfo);
-					return elseFlowInfo;
-				}
-			}
+			mergedInfo = thenFlowInfo.mergedWith(elseFlowInfo.unconditionalInits());
 		}
-		mergedInfo = thenFlowInfo.mergedWith(elseFlowInfo.unconditionalInits());
+
 		mergedInitStateIndex =
 			currentScope.methodScope().recordInitializationStates(mergedInfo);
 		return mergedInfo;
@@ -156,32 +154,28 @@ public class IfStatement extends Statement {
 	 */
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 
-		if ((bits & IsReachableMASK) == 0) {
+		if ((this.bits & IsReachableMASK) == 0) {
 			return;
 		}
 		int pc = codeStream.position;
 		Label endifLabel = new Label(codeStream);
 
 		// optimizing the then/else part code gen
-		Constant cst, condCst;
-		boolean hasThenPart =
-			!((((cst = condition.constant) != NotAConstant)
-				&& (cst.booleanValue() == false))
-				|| (thenStatement == null)
-				|| (thenStatement.isEmptyBlock())
-				|| (((condCst = condition.conditionalConstant()) != NotAConstant)
-					&& (condCst.booleanValue() == false)));
+		Constant cst;
+		boolean hasThenPart = 
+			!(((cst = this.condition.optimizedBooleanConstant()) != NotAConstant
+					&& cst.booleanValue() == false)
+				|| this.thenStatement == null
+				|| this.thenStatement.isEmptyBlock());
 		boolean hasElsePart =
-			!(((cst != NotAConstant) && (cst.booleanValue() == true))
-				|| (elseStatement == null)
-				|| (elseStatement.isEmptyBlock())
-				|| (((condCst = condition.conditionalConstant()) != NotAConstant)
-					&& (condCst.booleanValue() == true)));
+			!((cst != NotAConstant && cst.booleanValue() == true)
+				|| this.elseStatement == null
+				|| this.elseStatement.isEmptyBlock());
 
 		if (hasThenPart) {
 			Label falseLabel;
 			// generate boolean condition
-			condition.generateOptimizedBoolean(
+			this.condition.generateOptimizedBoolean(
 				currentScope,
 				codeStream,
 				null,
@@ -195,10 +189,10 @@ public class IfStatement extends Statement {
 				codeStream.addDefinitelyAssignedVariables(currentScope, thenInitStateIndex);
 			}
 			// generate then statement
-			thenStatement.generateCode(currentScope, codeStream);
+			this.thenStatement.generateCode(currentScope, codeStream);
 			// jump around the else statement
 			if (hasElsePart && !thenExit) {
-				thenStatement.branchChainTo(endifLabel);
+				this.thenStatement.branchChainTo(endifLabel);
 				int position = codeStream.position;
 				codeStream.goto_(endifLabel);
 				codeStream.updateLastRecordedEndPC(position);
@@ -208,7 +202,7 @@ public class IfStatement extends Statement {
 		} else {
 			if (hasElsePart) {
 				// generate boolean condition
-				condition.generateOptimizedBoolean(
+				this.condition.generateOptimizedBoolean(
 					currentScope,
 					codeStream,
 					endifLabel,
@@ -216,7 +210,7 @@ public class IfStatement extends Statement {
 					true);
 			} else {
 				// generate condition side-effects
-				condition.generateCode(currentScope, codeStream, false);
+				this.condition.generateCode(currentScope, codeStream, false);
 				codeStream.recordPositionsFrom(pc, this.sourceStart);
 			}
 		}
@@ -229,7 +223,7 @@ public class IfStatement extends Statement {
 					elseInitStateIndex);
 				codeStream.addDefinitelyAssignedVariables(currentScope, elseInitStateIndex);
 			}
-			elseStatement.generateCode(currentScope, codeStream);
+			this.elseStatement.generateCode(currentScope, codeStream);
 		}
 		endifLabel.place();
 		// May loose some local variable initializations : affecting the local variable attributes

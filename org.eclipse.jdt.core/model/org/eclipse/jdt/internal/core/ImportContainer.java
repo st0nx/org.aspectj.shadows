@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.ICompilationUnit;
@@ -35,7 +35,7 @@ public String getHandleMemento(){
  * @see JavaElement#getHandleMemento()
  */
 protected char getHandleMementoDelimiter() {
-	Assert.isTrue(false, Util.bind("assert.shouldNotImplement")); //$NON-NLS-1$
+	Assert.isTrue(false, "Should not be called"); //$NON-NLS-1$
 	return 0;
 }
 /**
@@ -77,6 +77,16 @@ protected void toString(int tab, StringBuffer buffer) {
 	for (int i = 0; i < children.length; i++) {
 		if (i > 0) buffer.append("\n"); //$NON-NLS-1$
 		((JavaElement)children[i]).toString(tab, buffer);
+	}
+}
+/**
+ *  Debugging purposes
+ */
+protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
+	buffer.append(this.tabString(tab));
+	buffer.append("[import container]"); //$NON-NLS-1$
+	if (info == null) {
+		buffer.append(" (not open)"); //$NON-NLS-1$
 	}
 }
 }

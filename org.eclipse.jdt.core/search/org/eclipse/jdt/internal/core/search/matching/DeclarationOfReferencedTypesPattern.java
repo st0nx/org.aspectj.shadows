@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import java.util.HashSet;
@@ -16,6 +16,7 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.IJavaSearchResultCollector;
 import org.eclipse.jdt.internal.compiler.ast.AstNode;
 import org.eclipse.jdt.internal.compiler.ast.ImportReference;
@@ -33,7 +34,6 @@ import org.eclipse.jdt.internal.compiler.lookup.ProblemBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 public class DeclarationOfReferencedTypesPattern extends TypeReferencePattern {
 	HashSet knownTypes;
@@ -51,6 +51,12 @@ protected void matchReportImportRef(ImportReference importRef, Binding binding, 
 	// need accurate match to be able to open on type ref
 	if (accuracy == IJavaSearchResultCollector.POTENTIAL_MATCH) return;
 	
+	// element that references the type must be included in the enclosing element
+	while (element != null && !this.enclosingElement.equals(element)) {
+		element = element.getParent();
+	}
+	if (element == null) return;
+
 	while (binding instanceof ReferenceBinding) {
 		ReferenceBinding typeBinding = (ReferenceBinding)binding;
 		this.reportDeclaration(typeBinding, 1, locator);
@@ -74,7 +80,7 @@ protected void matchReportReference(AstNode reference, IJavaElement element, int
 	int maxType = -1;
 	TypeBinding typeBinding = null;
 	if (reference instanceof TypeReference) {
-		typeBinding = ((TypeReference)reference).binding;
+		typeBinding = ((TypeReference)reference).resolvedType;
 		maxType = Integer.MAX_VALUE;
 	} else if (reference instanceof QualifiedNameReference) {
 		QualifiedNameReference qNameRef = (QualifiedNameReference)reference;
@@ -114,7 +120,7 @@ protected void matchReportReference(AstNode reference, IJavaElement element, int
 private void reportDeclaration(TypeBinding typeBinding, int maxType, MatchLocator locator) throws CoreException {
 	IType type = locator.lookupType(typeBinding);
 	if (type == null) return; // case of a secondary type
-	IResource resource = type.getUnderlyingResource();
+	IResource resource = type.getResource();
 	boolean isBinary = type.isBinary();
 	IBinaryType info = null;
 	if (isBinary) {

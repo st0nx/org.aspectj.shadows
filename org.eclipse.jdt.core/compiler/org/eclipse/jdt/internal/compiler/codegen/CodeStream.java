@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.codegen;
 
 import org.eclipse.jdt.internal.compiler.*;
@@ -1484,14 +1484,8 @@ public void generateConstant(Constant constant, int implicitConversionCode) {
 		case T_double :
 			generateInlinedValue(constant.doubleValue());
 			break;
-		case T_String :
-			this.ldc(constant.stringValue());
-			break;
-		default : //reference object (constant can be from T_null or T_String)
-			if (constant.typeID() == T_String)
-				ldc(constant.stringValue());
-			else
-				aconst_null();
+		default : //String or Object
+			ldc(constant.stringValue());
 	}
 }
 /**
@@ -1773,21 +1767,28 @@ public void generateInlinedValue(boolean inlinedValue) {
 	else
 		this.iconst_0();
 }
-public void generateOuterAccess(Object[] mappingSequence, AstNode invocationSite, Scope scope) {
-	if (mappingSequence == null)
-		return;
-	if (mappingSequence == BlockScope.EmulationPathToImplicitThis) {
-		if (scope.methodScope().isConstructorCall){
-			scope.problemReporter().errorThisSuperInStatic(invocationSite);
+public void generateOuterAccess(Object[] mappingSequence, AstNode invocationSite, Binding target, Scope scope) {
+	if (mappingSequence == null) {
+		if (target instanceof LocalVariableBinding) {
+			scope.problemReporter().needImplementation(); //TODO: (philippe) should improve local emulation failure reporting
+		} else {
+			scope.problemReporter().noSuchEnclosingInstance((ReferenceBinding)target, invocationSite, false);
 		}
-		this.aload_0();
 		return;
 	}
-	if (mappingSequence[0] instanceof FieldBinding) {
+	if (mappingSequence == BlockScope.NoEnclosingInstanceInConstructorCall) {
+		scope.problemReporter().noSuchEnclosingInstance((ReferenceBinding)target, invocationSite, true);
+		return;
+	} else if (mappingSequence == BlockScope.NoEnclosingInstanceInStaticContext) {
+		scope.problemReporter().noSuchEnclosingInstance((ReferenceBinding)target, invocationSite, false);
+		return;
+	}
+	
+	if (mappingSequence == BlockScope.EmulationPathToImplicitThis) {
+		this.aload_0();
+		return;
+	} else if (mappingSequence[0] instanceof FieldBinding) {
 		FieldBinding fieldBinding = (FieldBinding) mappingSequence[0];
-		if (scope.methodScope().isConstructorCall){
-			scope.problemReporter().errorThisSuperInStatic(invocationSite);
-		}
 		this.aload_0();
 		this.getfield(fieldBinding);
 	} else {
@@ -1802,6 +1803,7 @@ public void generateOuterAccess(Object[] mappingSequence, AstNode invocationSite
 		}
 	}
 }
+
 /**
  * The equivalent code performs a string conversion:
  *
@@ -1832,72 +1834,70 @@ public void generateStringAppend(BlockScope blockScope, Expression oper1, Expres
 	this.invokeStringBufferToString();
 }
 /**
- * Code responsible to generate the suitable code to supply values for the synthetic arguments of
- * a constructor invocation of a nested type.
+ * Code responsible to generate the suitable code to supply values for the synthetic enclosing
+ * instance arguments of a constructor invocation of a nested type.
  */
-public void generateSyntheticArgumentValues(BlockScope currentScope, ReferenceBinding targetType, Expression enclosingInstance, AstNode invocationSite) {
+public void generateSyntheticEnclosingInstanceValues(BlockScope currentScope, ReferenceBinding targetType, Expression enclosingInstance, AstNode invocationSite) {
+
+	// supplying enclosing instance for the anonymous type's superclass
+	ReferenceBinding checkedTargetType = targetType.isAnonymousType() ? targetType.superclass() : targetType;
+	boolean hasExtraEnclosingInstance = enclosingInstance != null;
+	if (hasExtraEnclosingInstance 
+			&& (!checkedTargetType.isNestedType() || checkedTargetType.isStatic())) {
+		currentScope.problemReporter().unnecessaryEnclosingInstanceSpecification(enclosingInstance, checkedTargetType);
+		return;
+	}
 
 	// perform some emulation work in case there is some and we are inside a local type only
 	ReferenceBinding[] syntheticArgumentTypes;
-
-	// generate the enclosing instance first
 	if ((syntheticArgumentTypes = targetType.syntheticEnclosingInstanceTypes()) != null) {
 
-		ReferenceBinding targetEnclosingType = targetType.isAnonymousType() ? 
-				targetType.superclass().enclosingType() // supplying enclosing instance for the anonymous type's superclass
-				: targetType.enclosingType();
-				
+		ReferenceBinding targetEnclosingType = checkedTargetType.enclosingType();
+		boolean needEnclosingInstanceNullCheck = currentScope.environment().options.complianceLevel >= CompilerOptions.JDK1_4;
+						
 		for (int i = 0, max = syntheticArgumentTypes.length; i < max; i++) {
 			ReferenceBinding syntheticArgType = syntheticArgumentTypes[i];
-			if (enclosingInstance != null && i == 0) {
-				if (syntheticArgType != targetEnclosingType) {
-					currentScope.problemReporter().unnecessaryEnclosingInstanceSpecification(enclosingInstance, targetType);
-				}
-				//if (currentScope.environment().options.complianceLevel >= CompilerOptions.JDK1_4){
+			if (hasExtraEnclosingInstance && syntheticArgType == targetEnclosingType) {
+				hasExtraEnclosingInstance = false;
 				enclosingInstance.generateCode(currentScope, this, true);
-				if (syntheticArgType == targetEnclosingType){
-					this.dup();
-				} 
-				this.invokeObjectGetClass(); // causes null check for all explicit enclosing instances
-				this.pop();
-				//} else {
-				//	enclosingInstance.generateCode(currentScope, this, syntheticArgType == targetEnclosingType);
-				//}			
-			} else {
-				Object[] emulationPath = currentScope.getCompatibleEmulationPath(syntheticArgType);
-				if (emulationPath == null) {
-					currentScope.problemReporter().missingEnclosingInstanceSpecification(syntheticArgType, invocationSite);
-				} else {
-					this.generateOuterAccess(emulationPath, invocationSite, currentScope);
+				if (needEnclosingInstanceNullCheck){
+					dup();
+					invokeObjectGetClass(); // will perform null check
+					pop();
 				}
+				
+			} else {
+				Object[] emulationPath = currentScope.getEmulationPath(
+					syntheticArgType, 
+					false /*not only exact match (i.e. allow compatible)*/,
+					targetType.isAnonymousType());
+				this.generateOuterAccess(emulationPath, invocationSite, syntheticArgType, currentScope);
 			}
 		}
-	} else { // we may still have an enclosing instance to consider
-		if (enclosingInstance != null) {
-			currentScope.problemReporter().unnecessaryEnclosingInstanceSpecification(enclosingInstance, targetType);
-			//if (currentScope.environment().options.complianceLevel >= CompilerOptions.JDK1_4){
-			enclosingInstance.generateCode(currentScope, this, true);
-			this.invokeObjectGetClass(); // causes null check for all explicit enclosing instances
-			this.pop();
-			//} else {
-			//	enclosingInstance.generateCode(currentScope, this, false); // do not want the value
-			//}			
+		if (hasExtraEnclosingInstance){
+			currentScope.problemReporter().unnecessaryEnclosingInstanceSpecification(enclosingInstance, checkedTargetType);
 		}
 	}
+}
+
+/**
+ * Code responsible to generate the suitable code to supply values for the synthetic outer local
+ * variable arguments of a constructor invocation of a nested type.
+ * (bug 26122) - synthetic values for outer locals must be passed after user arguments, e.g. new X(i = 1){}
+ */
+public void generateSyntheticOuterArgumentValues(BlockScope currentScope, ReferenceBinding targetType, AstNode invocationSite) {
+
 	// generate the synthetic outer arguments then
 	SyntheticArgumentBinding syntheticArguments[];
 	if ((syntheticArguments = targetType.syntheticOuterLocalVariables()) != null) {
 		for (int i = 0, max = syntheticArguments.length; i < max; i++) {
-			VariableBinding[] emulationPath = currentScope.getEmulationPath(syntheticArguments[i].actualOuterLocalVariable);
-			if (emulationPath == null) {
-				// could not emulate a path to a given outer local variable (internal error)
-				currentScope.problemReporter().needImplementation();
-			} else {
-				this.generateOuterAccess(emulationPath, invocationSite, currentScope);
-			}
+			LocalVariableBinding targetVariable = syntheticArguments[i].actualOuterLocalVariable;
+			VariableBinding[] emulationPath = currentScope.getEmulationPath(targetVariable);
+			this.generateOuterAccess(emulationPath, invocationSite, targetVariable, currentScope);
 		}
 	}
 }
+
 /**
  * @param parameters org.eclipse.jdt.internal.compiler.lookup.TypeBinding[]
  * @param constructorBinding org.eclipse.jdt.internal.compiler.lookup.MethodBinding
@@ -1922,7 +1922,18 @@ public void generateSyntheticBodyForConstructorAccess(SyntheticAccessMethodBindi
 			else
 				resolvedPosition++;
 		}
-		syntheticArguments = nestedType.syntheticOuterLocalVariables();
+	}
+	for (int i = 0; i < length; i++) {
+		load(parameters[i], resolvedPosition);
+		if ((parameters[i] == DoubleBinding) || (parameters[i] == LongBinding))
+			resolvedPosition += 2;
+		else
+			resolvedPosition++;
+	}
+	
+	if (constructorBinding.declaringClass.isNestedType()) {
+		NestedTypeBinding nestedType = (NestedTypeBinding) constructorBinding.declaringClass;
+		SyntheticArgumentBinding[] syntheticArguments = nestedType.syntheticOuterLocalVariables();
 		for (int i = 0; i < (syntheticArguments == null ? 0 : syntheticArguments.length); i++) {
 			TypeBinding type;
 			load((type = syntheticArguments[i].type), resolvedPosition);
@@ -1931,13 +1942,6 @@ public void generateSyntheticBodyForConstructorAccess(SyntheticAccessMethodBindi
 			else
 				resolvedPosition++;
 		}
-	}
-	for (int i = 0; i < length; i++) {
-		load(parameters[i], resolvedPosition);
-		if ((parameters[i] == DoubleBinding) || (parameters[i] == LongBinding))
-			resolvedPosition += 2;
-		else
-			resolvedPosition++;
 	}
 	this.invokespecial(constructorBinding);
 	this.return_();
@@ -2009,7 +2013,7 @@ public void generateSyntheticBodyForMethodAccess(SyntheticAccessMethodBinding ac
 		if (methodBinding.isConstructor()
 			|| methodBinding.isPrivate()
 			// qualified super "X.super.foo()" targets methods from superclass
-			|| (methodBinding.declaringClass != methodDeclaration.binding.declaringClass)){
+			|| accessBinding.accessType == SyntheticAccessMethodBinding.SuperMethodAccess){
 			this.invokespecial(methodBinding);
 		} else {
 			if (methodBinding.declaringClass.isInterface()){
@@ -3014,8 +3018,12 @@ final public void invokeinterface(MethodBinding methodBinding) {
 	writeUnsignedByte(argCount);
 	// Generate a  0 into the byte array. Like the array is already fill with 0, we just need to increment
 	// the number of bytes.
-	position++;
-	classFileOffset++;
+	try {
+		position++;
+		bCodeStream[classFileOffset++] = 0;
+	} catch (IndexOutOfBoundsException e) {
+		resizeByteArray((byte)0);
+	}
 	if (((id = methodBinding.returnType.id) == T_double) || (id == T_long))
 		stackDepth += (2 - argCount);
 	else
@@ -3504,6 +3512,10 @@ final public void ixor() {
 	}
 }
 final public void jsr(Label lbl) {
+	if (this.wideMode) {
+		this.jsr_w(lbl);
+		return;
+	}
 	countLabels = 0;
 	try {
 		position++;
@@ -4018,6 +4030,9 @@ public final void load(LocalVariableBinding localBinding) {
 			case 3 :
 				this.iload_3();
 				break;
+			//case -1 :
+			// internal failure: trying to load variable not supposed to be generated
+			//	break;
 			default :
 				this.iload(resolvedPosition);
 		}
@@ -4296,8 +4311,12 @@ final public void lookupswitch(CaseLabel defaultLabel, int[] keys, int[] sortedI
 		resizeByteArray(OPC_lookupswitch);
 	}
 	for (int i = (3 - (pos % 4)); i > 0; i--) {
-		position++; // Padding
-		classFileOffset++;
+		try {
+			position++;
+			bCodeStream[classFileOffset++] = 0;
+		} catch (IndexOutOfBoundsException e) {
+			resizeByteArray((byte)0);
+		}
 	}
 	defaultLabel.branch();
 	writeSignedWord(length);
@@ -4808,12 +4827,19 @@ public void recordPositionsFrom(int startPC, int sourcePos) {
 				if (insertionIndex != -1) {
 					// widen the existing entry
 					// we have to figure out if we need to move the last entry at another location to keep a sorted table
-					if ((pcToSourceMapSize > 4) && (pcToSourceMap[pcToSourceMapSize - 4] > startPC)) {
-						System.arraycopy(pcToSourceMap, insertionIndex, pcToSourceMap, insertionIndex + 2, pcToSourceMapSize - 2 - insertionIndex);
-						pcToSourceMap[insertionIndex++] = startPC;
-						pcToSourceMap[insertionIndex] = newLine;						
-					} else {
-						pcToSourceMap[pcToSourceMapSize - 2] = startPC;
+					/* First we need to check if at the insertion position there is not an existing entry
+					 * that includes the one we want to insert. This is the case if pcToSourceMap[insertionIndex - 1] == newLine.
+					 * In this case we don't want to change the table. If not, we want to insert a new entry. Prior to insertion
+					 * we want to check if it is worth doing an arraycopy. If not we simply update the recorded pc.
+					 */
+					if (!((insertionIndex > 1) && (pcToSourceMap[insertionIndex - 1] == newLine))) {
+						if ((pcToSourceMapSize > 4) && (pcToSourceMap[pcToSourceMapSize - 4] > startPC)) {
+							System.arraycopy(pcToSourceMap, insertionIndex, pcToSourceMap, insertionIndex + 2, pcToSourceMapSize - 2 - insertionIndex);
+							pcToSourceMap[insertionIndex++] = startPC;
+							pcToSourceMap[insertionIndex] = newLine;						
+						} else {
+							pcToSourceMap[pcToSourceMapSize - 2] = startPC;
+						}
 					}
 				}
 			}
@@ -5134,115 +5160,118 @@ public static final void sort(int[] tab, int lo0, int hi0, int[] result) {
 			sort(tab, lo, hi0, result);
 	}
 }
+
 public final void store(LocalVariableBinding localBinding, boolean valueRequired) {
-	TypeBinding type = localBinding.type;
 	int position = localBinding.resolvedPosition;
 	// Using dedicated int bytecode
-	if ((type == IntBinding) || (type == CharBinding) || (type == ByteBinding) || (type == ShortBinding) || (type == BooleanBinding)) {
-		if (valueRequired)
-			this.dup();
-		switch (position) {
-			case 0 :
-				this.istore_0();
-				break;
-			case 1 :
-				this.istore_1();
-				break;
-			case 2 :
-				this.istore_2();
-				break;
-			case 3 :
-				this.istore_3();
-				break;
-			default :
-				this.istore(position);
-		}
-		return;
-	}
-	// Using dedicated float bytecode
-	if (type == FloatBinding) {
-		if (valueRequired)
-			this.dup();
-		switch (position) {
-			case 0 :
-				this.fstore_0();
-				break;
-			case 1 :
-				this.fstore_1();
-				break;
-			case 2 :
-				this.fstore_2();
-				break;
-			case 3 :
-				this.fstore_3();
-				break;
-			default :
-				this.fstore(position);
-		}
-		return;
-	}
-	// Using dedicated long bytecode
-	if (type == LongBinding) {
-		if (valueRequired)
-			this.dup2();
-		switch (position) {
-			case 0 :
-				this.lstore_0();
-				break;
-			case 1 :
-				this.lstore_1();
-				break;
-			case 2 :
-				this.lstore_2();
-				break;
-			case 3 :
-				this.lstore_3();
-				break;
-			default :
-				this.lstore(position);
-		}
-		return;
-	}
-	// Using dedicated double bytecode
-	if (type == DoubleBinding) {
-		if (valueRequired)
-			this.dup2();
-		switch (position) {
-			case 0 :
-				this.dstore_0();
-				break;
-			case 1 :
-				this.dstore_1();
-				break;
-			case 2 :
-				this.dstore_2();
-				break;
-			case 3 :
-				this.dstore_3();
-				break;
-			default :
-				this.dstore(position);
-		}
-		return;
-	}
-	// Reference object
-	if (valueRequired)
-		this.dup();
-	switch (position) {
-		case 0 :
-			this.astore_0();
+	switch(localBinding.type.id) {
+		case TypeIds.T_int :
+		case TypeIds.T_char :
+		case TypeIds.T_byte :
+		case TypeIds.T_short :
+		case TypeIds.T_boolean :
+			if (valueRequired)
+				this.dup();
+			switch (position) {
+				case 0 :
+					this.istore_0();
+					break;
+				case 1 :
+					this.istore_1();
+					break;
+				case 2 :
+					this.istore_2();
+					break;
+				case 3 :
+					this.istore_3();
+					break;
+				//case -1 :
+				// internal failure: trying to store into variable not supposed to be generated
+				//	break;
+				default :
+					this.istore(position);
+			}
 			break;
-		case 1 :
-			this.astore_1();
+		case TypeIds.T_float :
+			if (valueRequired)
+				this.dup();
+			switch (position) {
+				case 0 :
+					this.fstore_0();
+					break;
+				case 1 :
+					this.fstore_1();
+					break;
+				case 2 :
+					this.fstore_2();
+					break;
+				case 3 :
+					this.fstore_3();
+					break;
+				default :
+					this.fstore(position);
+			}
 			break;
-		case 2 :
-			this.astore_2();
+		case TypeIds.T_double :
+			if (valueRequired)
+				this.dup2();
+			switch (position) {
+				case 0 :
+					this.dstore_0();
+					break;
+				case 1 :
+					this.dstore_1();
+					break;
+				case 2 :
+					this.dstore_2();
+					break;
+				case 3 :
+					this.dstore_3();
+					break;
+				default :
+					this.dstore(position);
+			}
 			break;
-		case 3 :
-			this.astore_3();
+		case TypeIds.T_long :
+			if (valueRequired)
+				this.dup2();
+			switch (position) {
+				case 0 :
+					this.lstore_0();
+					break;
+				case 1 :
+					this.lstore_1();
+					break;
+				case 2 :
+					this.lstore_2();
+					break;
+				case 3 :
+					this.lstore_3();
+					break;
+				default :
+					this.lstore(position);
+			}
 			break;
-		default :
-			this.astore(position);
+		default:
+			// Reference object
+			if (valueRequired)
+				this.dup();
+			switch (position) {
+				case 0 :
+					this.astore_0();
+					break;
+				case 1 :
+					this.astore_1();
+					break;
+				case 2 :
+					this.astore_2();
+					break;
+				case 3 :
+					this.astore_3();
+					break;
+				default :
+					this.astore(position);
+			}
 	}
 }
 public final void store(TypeBinding type, int position) {
@@ -5413,8 +5442,12 @@ final public void tableswitch(CaseLabel defaultLabel, int low, int high, int[] k
 		resizeByteArray(OPC_tableswitch);
 	}
 	for (int i = (3 - (pos % 4)); i > 0; i--) {
-		position++; // Padding
-		classFileOffset++;
+		try {
+			position++;
+			bCodeStream[classFileOffset++] = 0;
+		} catch (IndexOutOfBoundsException e) {
+			resizeByteArray((byte)0);
+		}
 	}
 	defaultLabel.branch();
 	writeSignedWord(low);

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -27,6 +27,7 @@ public CompoundAssignment(Expression lhs, Expression expression,int operator, in
 	//but is build as an expression ==> the checkcast cannot fail
 
 	super(lhs, expression, sourceEnd);
+	lhs.bits &= ~IsStrictlyAssignedMASK; // tag lhs as NON assigned - it is also a read access
 	this.operator = operator ;
 }
 public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, FlowInfo flowInfo) {
@@ -34,7 +35,7 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 	// a field reference, a blank final field reference, a field of an enclosing instance or 
 	// just a local variable.
 
-	return lhs.analyseAssignment(currentScope, flowContext, flowInfo, this, true).unconditionalInits();
+	return  ((Reference) lhs).analyseAssignment(currentScope, flowContext, flowInfo, this, true).unconditionalInits();
 }
 public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean valueRequired) {
 
@@ -43,7 +44,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 	// just a local variable.
 
 	int pc = codeStream.position;
-	lhs.generateCompoundAssignment(currentScope, codeStream, expression, operator, assignmentImplicitConversion, valueRequired);
+	 ((Reference) lhs).generateCompoundAssignment(currentScope, codeStream, expression, operator, assignmentImplicitConversion, valueRequired);
 	if (valueRequired) {
 		codeStream.generateImplicitConversion(implicitConversion);
 	}
@@ -78,6 +79,9 @@ public String operatorToString() {
 }
 public TypeBinding resolveType(BlockScope scope) {
 	constant = NotAConstant;
+	if (!(this.lhs instanceof Reference)) {
+		scope.problemReporter().expressionShouldBeAVariable(this.lhs);
+	}
 	TypeBinding lhsType = lhs.resolveType(scope);
 	TypeBinding expressionType = expression.resolveType(scope);
 	if (lhsType == null || expressionType == null)
@@ -122,7 +126,7 @@ public TypeBinding resolveType(BlockScope scope) {
 	lhs.implicitConversion = result >>> 12;
 	expression.implicitConversion = (result >>> 4) & 0x000FF;
 	assignmentImplicitConversion = (lhsId << 4) + (result & 0x0000F);
-	return lhsType;
+	return this.resolvedType = lhsType;
 }
 public boolean restrainUsageToNumericTypes(){
 	return false ;}

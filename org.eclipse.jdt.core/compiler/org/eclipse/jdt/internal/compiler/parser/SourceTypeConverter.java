@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.parser;
 
 /**
@@ -23,6 +23,7 @@ package org.eclipse.jdt.internal.compiler.parser;
  *
  */
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Argument;
@@ -41,31 +42,59 @@ import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 import org.eclipse.jdt.internal.compiler.env.ISourceField;
 import org.eclipse.jdt.internal.compiler.env.ISourceMethod;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 public class SourceTypeConverter implements CompilerModifiers {
+	
+	private boolean needFieldInitialization;
+	private CompilationUnitDeclaration unit;
+	private Parser parser;
+	private ProblemReporter problemReporter;
+	
+	private SourceTypeConverter(boolean needFieldInitialization, ProblemReporter problemReporter) {
+		this.needFieldInitialization = needFieldInitialization;
+		this.problemReporter = problemReporter;
+	}
 
 	/*
 	 * Convert a set of source element types into a parsed compilation unit declaration
 	 * The argument types are then all grouped in the same unit. The argument types must 
 	 * at least contain one type.
-	 * Can optionally ignore fields & methods or member types
+	 * Can optionally ignore fields & methods or member types or field initialization
 	 */
 	public static CompilationUnitDeclaration buildCompilationUnit(
 		ISourceType[] sourceTypes,
 		boolean needFieldsAndMethods,
 		boolean needMemberTypes,
+		boolean needFieldInitialization,
 		ProblemReporter problemReporter,
 		CompilationResult compilationResult) {
+			
+		return 
+			new SourceTypeConverter(needFieldInitialization, problemReporter).convert(
+				sourceTypes, 
+				needFieldsAndMethods,
+				needMemberTypes,
+				compilationResult);
+	}
 
+	/*
+	 * Convert a set of source element types into a parsed compilation unit declaration
+	 * The argument types are then all grouped in the same unit. The argument types must 
+	 * at least contain one type.
+	 */
+	private CompilationUnitDeclaration convert(
+		ISourceType[] sourceTypes,
+		boolean needFieldsAndMethods,
+		boolean needMemberTypes,
+		CompilationResult compilationResult) {
 		ISourceType sourceType = sourceTypes[0];
 		if (sourceType.getName() == null)
 			return null; // do a basic test that the sourceType is valid
 
-		CompilationUnitDeclaration compilationUnit =
-			new CompilationUnitDeclaration(problemReporter, compilationResult, 0);
+		this.unit = new CompilationUnitDeclaration(problemReporter, compilationResult, 0);
 		// not filled at this point
 
 		/* only positions available */
@@ -76,27 +105,27 @@ public class SourceTypeConverter implements CompilerModifiers {
 		if (sourceType.getPackageName() != null
 			&& sourceType.getPackageName().length > 0)
 			// if its null then it is defined in the default package
-			compilationUnit.currentPackage =
+			this.unit.currentPackage =
 				createImportReference(sourceType.getPackageName(), start, end);
 		char[][] importNames = sourceType.getImports();
 		int importCount = importNames == null ? 0 : importNames.length;
-		compilationUnit.imports = new ImportReference[importCount];
+		this.unit.imports = new ImportReference[importCount];
 		for (int i = 0; i < importCount; i++)
-			compilationUnit.imports[i] = createImportReference(importNames[i], start, end);
+			this.unit.imports[i] = createImportReference(importNames[i], start, end);
 		/* convert type(s) */
 		int typeCount = sourceTypes.length;
-		compilationUnit.types = new TypeDeclaration[typeCount];
+		this.unit.types = new TypeDeclaration[typeCount];
 		for (int i = 0; i < typeCount; i++) {
-			compilationUnit.types[i] =
+			this.unit.types[i] =
 				convert(sourceTypes[i], needFieldsAndMethods, needMemberTypes, compilationResult);
 		}
-		return compilationUnit;
+		return this.unit;
 	}
 	
 	/*
 	 * Convert a field source element into a parsed field declaration
 	 */
-	private static FieldDeclaration convert(ISourceField sourceField) {
+	private FieldDeclaration convert(ISourceField sourceField, TypeDeclaration type) {
 
 		FieldDeclaration field = new FieldDeclaration();
 
@@ -111,20 +140,28 @@ public class SourceTypeConverter implements CompilerModifiers {
 		field.declarationSourceEnd = sourceField.getDeclarationSourceEnd();
 		field.modifiers = sourceField.getModifiers();
 
-		/* conversion of field constant: if not present, then cannot generate binary against 
-			converted parse nodes */
-		/*
-		if (field.modifiers & AccFinal){
+		if (this.needFieldInitialization) {
+			/* conversion of field constant */
 			char[] initializationSource = sourceField.getInitializationSource();
+			if (initializationSource != null) {
+				if (this.parser == null) {
+					this.parser = 
+						new Parser(
+							this.problemReporter, 
+							true, 
+							this.problemReporter.options.sourceLevel >= CompilerOptions.JDK1_4);
+				}
+				this.parser.parse(field, type, this.unit, initializationSource);
+			}
 		}
-		*/
+		
 		return field;
 	}
 
 	/*
 	 * Convert a method source element into a parsed method/constructor declaration 
 	 */
-	private static AbstractMethodDeclaration convert(ISourceMethod sourceMethod, CompilationResult compilationResult) {
+	private AbstractMethodDeclaration convert(ISourceMethod sourceMethod, CompilationResult compilationResult) {
 
 		AbstractMethodDeclaration method;
 
@@ -182,7 +219,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 	 *
 	 * Can optionally ignore fields & methods
 	 */
-	private static TypeDeclaration convert(
+	private TypeDeclaration convert(
 		ISourceType sourceType,
 		boolean needFieldsAndMethods,
 		boolean needMemberTypes,
@@ -234,7 +271,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 			int sourceFieldCount = sourceFields == null ? 0 : sourceFields.length;
 			type.fields = new FieldDeclaration[sourceFieldCount];
 			for (int i = 0; i < sourceFieldCount; i++) {
-				type.fields[i] = convert(sourceFields[i]);
+				type.fields[i] = convert(sourceFields[i], type);
 			}
 
 			/* convert methods - need to add default constructor if necessary */
@@ -243,12 +280,15 @@ public class SourceTypeConverter implements CompilerModifiers {
 
 			/* source type has a constructor ?           */
 			/* by default, we assume that one is needed. */
-			int neededCount = 1;
-			for (int i = 0; i < sourceMethodCount; i++) {
-				if (sourceMethods[i].isConstructor()) {
-					neededCount = 0;
-					// Does not need the extra constructor since one constructor already exists.
-					break;
+			int neededCount = 0;
+			if (!type.isInterface()) {
+				neededCount = 1;
+				for (int i = 0; i < sourceMethodCount; i++) {
+					if (sourceMethods[i].isConstructor()) {
+						neededCount = 0;
+						// Does not need the extra constructor since one constructor already exists.
+						break;
+					}
 				}
 			}
 			type.methods = new AbstractMethodDeclaration[sourceMethodCount + neededCount];
@@ -270,7 +310,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 	/*
 	 * Build an import reference from an import name, e.g. java.lang.*
 	 */
-	private static ImportReference createImportReference(
+	private ImportReference createImportReference(
 		char[] importName,
 		int start,
 		int end) {
@@ -293,7 +333,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 			positions[i] = position;
 		}
 		return new ImportReference(
-			CharOperation.splitOn('.', importName, 0, max - (onDemand ? 3 : 1)),
+			CharOperation.splitOn('.', importName, 0, max - (onDemand ? 2 : 0)),
 			positions,
 			onDemand);
 	}
@@ -301,7 +341,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 	/*
 	 * Build a type reference from a readable name, e.g. java.lang.Object[][]
 	 */
-	private static TypeReference createTypeReference(
+	private TypeReference createTypeReference(
 		char[] typeSignature,
 		int start,
 		int end) {
@@ -339,7 +379,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 				positions[i] = pos;
 			}
 			char[][] identifiers =
-				CharOperation.splitOn('.', typeSignature, 0, dimStart - 1);
+				CharOperation.splitOn('.', typeSignature, 0, dimStart);
 			if (dim == 0) {
 				return new QualifiedTypeReference(identifiers, positions);
 			} else {

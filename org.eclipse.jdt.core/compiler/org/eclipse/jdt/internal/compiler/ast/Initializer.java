@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -25,7 +25,7 @@ public class Initializer extends FieldDeclaration {
 		this.block = block;
 		this.modifiers = modifiers;
 
-		declarationSourceStart = sourceStart = block.sourceStart;
+		declarationSourceStart = sourceStart = bodyStart = block.sourceStart;
 	}
 
 	public FlowInfo analyseCode(
@@ -111,6 +111,6 @@ public class Initializer extends FieldDeclaration {
 		if (visitor.visit(this, scope)) {
 			block.traverse(visitor, scope);
 		}
-		visitor.visit(this, scope);
+		visitor.endVisit(this, scope);
 	}
 }

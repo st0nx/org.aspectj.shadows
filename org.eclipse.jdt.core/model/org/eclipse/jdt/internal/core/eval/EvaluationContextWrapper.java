@@ -1,21 +1,21 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.eval;
-import java.util.Locale;
+
+import java.util.Locale;
 
 import org.eclipse.core.resources.IMarker;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.jdt.core.ICodeCompletionRequestor;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.ICompletionRequestor;
 import org.eclipse.jdt.core.IImportDeclaration;
@@ -24,7 +24,6 @@ import org.eclipse.jdt.core.IJavaModelMarker;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.eval.ICodeSnippetRequestor;
@@ -88,7 +87,8 @@ public void codeComplete(String codeSnippet, int position, ICompletionRequestor 
 		position,
 		this.project.getSearchableNameEnvironment(),
 		new CompletionRequestorWrapper(requestor,this.project.getNameLookup()),
-		JavaCore.getOptions()
+		this.project.getOptions(true),
+		this.project
 	);
 }
 /**
@@ -102,7 +102,7 @@ public IJavaElement[] codeSelect(String codeSnippet, int offset, int length) thr
 		offset + length - 1,
 		this.project.getSearchableNameEnvironment(),
 		requestor,
-		JavaCore.getOptions()
+		this.project.getOptions(true)
 	);
 	return requestor.getElements();
 }
@@ -183,7 +183,7 @@ public void evaluateCodeSnippet(
 			isStatic,
 			isConstructorCall,
 			environment = getBuildNameEnvironment(), 
-			JavaCore.getOptions(), 
+			this.project.getOptions(true), 
 			getInfrastructureEvaluationRequestor(requestor), 
 			getProblemFactory());
 	} catch (InstallException e) {
@@ -203,7 +203,7 @@ public void evaluateCodeSnippet(String codeSnippet, ICodeSnippetRequestor reques
 		this.context.evaluate(
 			codeSnippet.toCharArray(), 
 			environment = getBuildNameEnvironment(), 
-			JavaCore.getOptions(), 
+			this.project.getOptions(true), 
 			getInfrastructureEvaluationRequestor(requestor), 
 			getProblemFactory());
 	} catch (InstallException e) {
@@ -223,7 +223,7 @@ public void evaluateVariable(IGlobalVariable variable, ICodeSnippetRequestor req
 		this.context.evaluateVariable(
 			((GlobalVariableWrapper)variable).variable, 
 			environment = getBuildNameEnvironment(), 
-			JavaCore.getOptions(), 
+			this.project.getOptions(true), 
 			getInfrastructureEvaluationRequestor(requestor), 
 			getProblemFactory());
 	} catch (InstallException e) {
@@ -337,7 +337,7 @@ public void validateImports(ICodeSnippetRequestor requestor) throws JavaModelExc
  * @see IEvaluationContext#codeComplete(String, int, ICodeCompletionRequestor)
  * @deprecated - use codeComplete(String, int, ICompletionRequestor) instead
  */
-public void codeComplete(String codeSnippet, int position, final ICodeCompletionRequestor requestor) throws JavaModelException {
+public void codeComplete(String codeSnippet, int position, final org.eclipse.jdt.core.ICodeCompletionRequestor requestor) throws JavaModelException {
 
 	if (requestor == null){
 		codeComplete(codeSnippet, position, (ICompletionRequestor)null);

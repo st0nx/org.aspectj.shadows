@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.ArrayList;
@@ -235,6 +235,12 @@ public void changed(IJavaElement element, int changeFlag) {
 	insertDeltaTree(element, changedDelta);
 }
 /**
+ * Mark this delta as a content changed delta.
+ */
+public void contentChanged() {
+	fChangeFlags |= F_CONTENT;
+}
+/**
  * Clone this delta so that its elements are rooted at the given project.
  */
 public IJavaElementDelta clone(IJavaProject project) {
@@ -324,6 +330,9 @@ protected JavaElementDelta find(IJavaElement e) {
  * Mark this delta as a fine-grained delta.
  */
 public void fineGrained() {
+	if (fKind == 0) { // if not set yet
+		fKind = CHANGED;
+	}
 	fChangeFlags |= F_FINE_GRAINED;
 }
 /**
@@ -646,10 +655,10 @@ public String toDebugString(int depth) {
 		buffer.append("REMOVED FROM CLASSPATH"); //$NON-NLS-1$
 		prev = true;
 	}
-	if ((changeFlags & IJavaElementDelta.F_CLASSPATH_REORDER) != 0) {
+	if ((changeFlags & IJavaElementDelta.F_REORDER) != 0) {
 		if (prev)
 			buffer.append(" | "); //$NON-NLS-1$
-		buffer.append("REORDERED IN CLASSPATH"); //$NON-NLS-1$
+		buffer.append("REORDERED"); //$NON-NLS-1$
 		prev = true;
 	}
 	if ((changeFlags & IJavaElementDelta.F_ARCHIVE_CONTENT_CHANGED) != 0) {

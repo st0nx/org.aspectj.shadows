@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.codeassist.complete;
 
 /*
@@ -35,8 +35,15 @@ import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
  
 public class CompletionOnSingleNameReference extends SingleNameReference {
+public char[][] possibleKeywords;
+public boolean canBeExplicitConstructor;
 public CompletionOnSingleNameReference(char[] source, long pos) {
+	this(source, pos, null, false);
+}
+public CompletionOnSingleNameReference(char[] source, long pos, char[][] possibleKeywords, boolean canBeExplicitConstructor) {
 	super(source, pos);
+	this.possibleKeywords = possibleKeywords;
+	this.canBeExplicitConstructor = canBeExplicitConstructor;
 }
 public TypeBinding resolveType(BlockScope scope) {
 	throw new CompletionNodeFound(this, scope);

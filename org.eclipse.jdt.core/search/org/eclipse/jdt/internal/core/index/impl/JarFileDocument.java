@@ -1,19 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.index.impl;
 
 import java.io.File;
 import java.io.IOException;
 
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.runtime.IPath;
 
 /**
  * An <code>JarFileDocument</code> represents an jar file.
@@ -41,8 +42,20 @@ public class JarFileDocument extends PropertyDocument {
 	public char[] getCharContent() throws IOException {
 		return null;
 	}
+	/**
+	 * @see org.eclipse.jdt.internal.core.index.IDocument#getEncoding()
+	 */
+	public String getEncoding() {
+		return null;
+	}
+
 	public File getFile() {
-		return file.getLocation().toFile();
+		IPath location = file.getLocation();
+		if (location == null) {
+			return null;
+		} else {
+			return location.toFile();
+		}
 	}
 	/**
 	 * @see org.eclipse.jdt.internal.core.index.IDocument#getName()

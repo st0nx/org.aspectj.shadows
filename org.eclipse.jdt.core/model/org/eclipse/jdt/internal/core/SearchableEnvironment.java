@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -17,6 +17,7 @@ import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.IJavaSearchConstants;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.core.search.ITypeNameRequestor;
@@ -28,7 +29,6 @@ import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.env.IConstants;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 /**
  *	This class provides a <code>SearchableBuilderEnvironment</code> for code assist which
@@ -70,14 +70,14 @@ public class SearchableEnvironment
 			if (type instanceof BinaryType) {
 				try {
 					return new NameEnvironmentAnswer(
-						(IBinaryType) ((BinaryType) type).getRawInfo());
+						(IBinaryType) ((BinaryType) type).getElementInfo());
 				} catch (JavaModelException npe) {
 					return null;
 				}
 			} else { //SourceType
 				try {
 					// retrieve the requested type
-					SourceTypeElementInfo sourceType = (SourceTypeElementInfo)((SourceType)type).getRawInfo();
+					SourceTypeElementInfo sourceType = (SourceTypeElementInfo)((SourceType)type).getElementInfo();
 					ISourceType topLevelType = sourceType;
 					while (topLevelType.getEnclosingType() != null) {
 						topLevelType = topLevelType.getEnclosingType();
@@ -90,7 +90,7 @@ public class SearchableEnvironment
 					sourceTypes[0] = sourceType;
 					for (int i = 0, index = 1; i < types.length; i++) {
 						ISourceType otherType =
-							(ISourceType) ((JavaElement) types[i]).getRawInfo();
+							(ISourceType) ((JavaElement) types[i]).getElementInfo();
 						if (!otherType.equals(topLevelType))
 							sourceTypes[index++] = otherType;
 					}
@@ -167,11 +167,7 @@ public class SearchableEnvironment
 						NameLookup.ACCEPT_CLASSES | NameLookup.ACCEPT_INTERFACES);
 					return;
 				}
-				excludePath =
-					((IJavaElement) this.unitToSkip)
-						.getUnderlyingResource()
-						.getFullPath()
-						.toString();
+				excludePath = ((IJavaElement) this.unitToSkip).getPath().toString();
 			} else {
 				excludePath = null;
 			}
@@ -234,7 +230,7 @@ public class SearchableEnvironment
 			};
 			try {
 				new SearchEngine().searchAllTypeNames(
-					this.project.getUnderlyingResource().getWorkspace(),
+					this.project.getProject().getWorkspace(),
 					qualification,
 					simpleName,
 					PREFIX_MATCH,

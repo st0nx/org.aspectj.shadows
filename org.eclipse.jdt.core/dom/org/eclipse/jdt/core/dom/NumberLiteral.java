@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2001 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
@@ -51,6 +51,7 @@ public class NumberLiteral extends Expression {
 	 */
 	ASTNode clone(AST target) {
 		NumberLiteral result = new NumberLiteral(target);
+		result.setSourceRange(this.getStartPosition(), this.getLength());
 		result.setToken(getToken());
 		return result;
 	}
@@ -67,7 +68,7 @@ public class NumberLiteral extends Expression {
 	 * Method declared on ASTNode.
 	 */
 	void accept0(ASTVisitor visitor) {
-		boolean visitChildren = visitor.visit(this);
+		visitor.visit(this);
 		visitor.endVisit(this);
 	}
 	
@@ -96,6 +97,8 @@ public class NumberLiteral extends Expression {
 		char[] source = token.toCharArray();
 		scanner.setSource(source);
 		scanner.resetTo(0, source.length);
+		scanner.tokenizeComments = false;
+		scanner.tokenizeWhiteSpace = false;
 		try {
 			int tokenType = scanner.getNextToken();
 			switch(tokenType) {
@@ -121,6 +124,9 @@ public class NumberLiteral extends Expression {
 			}
 		} catch(InvalidInputException e) {
 			throw new IllegalArgumentException();
+		} finally {
+			scanner.tokenizeComments = true;
+			scanner.tokenizeWhiteSpace = true;
 		}
 		modifying();
 		this.tokenValue = token;

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.IField;
@@ -32,14 +32,14 @@ protected BinaryField(IType parent, String name) {
  * @see IField
  */
 public Object getConstant() throws JavaModelException {
-	IBinaryField info = (IBinaryField) getRawInfo();
+	IBinaryField info = (IBinaryField) getElementInfo();
 	return convertConstant(info.getConstant());
 }
 /**
  * @see IMember
  */
 public int getFlags() throws JavaModelException {
-	IBinaryField info = (IBinaryField) getRawInfo();
+	IBinaryField info = (IBinaryField) getElementInfo();
 	return info.getModifiers();
 }
 /**
@@ -52,7 +52,7 @@ protected char getHandleMementoDelimiter() {
  * @see IField
  */
 public String getTypeSignature() throws JavaModelException {
-	IBinaryField info = (IBinaryField) getRawInfo();
+	IBinaryField info = (IBinaryField) getElementInfo();
 	return new String(ClassFile.translatedName(info.getTypeName()));
 }
 /**

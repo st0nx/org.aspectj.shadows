@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2001 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
@@ -67,6 +67,7 @@ public class SuperMethodInvocation extends Expression {
 	 */
 	ASTNode clone(AST target) {
 		SuperMethodInvocation result = new SuperMethodInvocation(target);
+		result.setSourceRange(this.getStartPosition(), this.getLength());
 		result.setName((SimpleName) getName().clone(target));
 		result.setQualifier((Name) ASTNode.copySubtree(target, getQualifier()));
 		result.arguments().addAll(ASTNode.copySubtrees(target, arguments()));
@@ -130,7 +131,9 @@ public class SuperMethodInvocation extends Expression {
 	public SimpleName getName() {
 		if (methodName == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setName(new SimpleName(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return methodName;
 	}
@@ -163,6 +166,22 @@ public class SuperMethodInvocation extends Expression {
 	 */ 
 	public List arguments() {
 		return arguments;
+	}
+
+	/**
+	 * Resolves and returns the binding for the method invoked by this
+	 * expression.
+	 * <p>
+	 * Note that bindings are generally unavailable unless requested when the
+	 * AST is being built.
+	 * </p>
+	 *
+	 * @return the method binding, or <code>null</code> if the binding cannot
+	 * be resolved
+	 * @since 2.1
+	 */
+	public IMethodBinding resolveMethodBinding() {
+		return getAST().getBindingResolver().resolveMethod(this);
 	}
 
 	/* (omit javadoc for this method)

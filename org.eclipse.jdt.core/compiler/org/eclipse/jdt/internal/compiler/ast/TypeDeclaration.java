@@ -1,15 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.impl.*;
@@ -18,7 +19,6 @@ import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
-import org.eclipse.jdt.internal.compiler.util.*;
 
 public class TypeDeclaration
 	extends Statement
@@ -123,64 +123,14 @@ public class TypeDeclaration
 		if (ignoreFurtherInvestigation)
 			return flowInfo;
 		try {
-			// remember local types binding for innerclass emulation propagation
-			currentScope.referenceCompilationUnit().record((LocalTypeBinding) binding);
-
-			InitializationFlowContext initializerContext =
-				new InitializationFlowContext(null, this, initializerScope);
-			// propagate down the max field count
-			updateMaxFieldCount();
-			FlowInfo fieldInfo = flowInfo.copy();
-			// so as not to propagate changes outside this type
-			if (fields != null) {
-				for (int i = 0, count = fields.length; i < count; i++) {
-					fieldInfo =
-						fields[i].analyseCode(initializerScope, initializerContext, fieldInfo);
-					if (fieldInfo == FlowInfo.DeadEnd) {
-						// in case the initializer is not reachable, use a reinitialized flowInfo and enter a fake reachable
-						// branch, since the previous initializer already got the blame.
-						initializerScope.problemReporter().initializerMustCompleteNormally(fields[i]);
-						fieldInfo = FlowInfo.initial(maxFieldCount).markAsFakeReachable(true);
-					}
-				}
-			}
-			if (memberTypes != null) {
-				for (int i = 0, count = memberTypes.length; i < count; i++) {
-					memberTypes[i].analyseCode(scope, flowContext, fieldInfo.copy());
-				}
-			}
-			if (methods != null) {
-				int recursionBalance = 0; // check constructor recursions			
-				for (int i = 0, count = methods.length; i < count; i++) {
-					AbstractMethodDeclaration method = methods[i];
-					if (method.ignoreFurtherInvestigation)
-						continue;
-					if (method.isConstructor()) { // constructor
-						ConstructorDeclaration constructor = (ConstructorDeclaration) method;
-						constructor.analyseCode(scope, initializerContext, fieldInfo.copy());
-						// compute the recursive invocation balance:
-						//   how many thisReferences vs. superReferences to constructors
-						int refCount;
-						if ((refCount = constructor.referenceCount) > 0) {
-							if ((constructor.constructorCall == null)
-								|| constructor.constructorCall.isSuperAccess()
-								|| !constructor.constructorCall.binding.isValidBinding()) {
-								recursionBalance -= refCount;
-								constructor.referenceCount = -1;
-								// for error reporting propagation																
-							} else {
-								recursionBalance += refCount;
-							}
-						}
-					} else { // regular method
-						method.analyseCode(scope, null, flowInfo.copy());
-					}
-				}
-				if (recursionBalance > 0) {
-					// there is one or more cycle(s) amongst constructor invocations
-					scope.problemReporter().recursiveConstructorInvocation(this);
-				}
-			}
+			bits |= IsReachableMASK;
+			LocalTypeBinding localType = (LocalTypeBinding) binding;
+			
+			localType.setConstantPoolName(currentScope.compilationUnitScope().computeConstantPoolName(localType));
+			manageEnclosingInstanceAccessIfNecessary(currentScope);
+			
+			updateMaxFieldCount(); // propagate down the max field count
+			internalAnalyseCode(flowContext, flowInfo); 
 		} catch (AbortType e) {
 			this.ignoreFurtherInvestigation = true;
 		}
@@ -191,90 +141,17 @@ public class TypeDeclaration
 	 *	Flow analysis for a member innertype
 	 *
 	 */
-	public void analyseCode(ClassScope classScope1) {
+	public void analyseCode(ClassScope enclosingClassScope) {
 
 		if (ignoreFurtherInvestigation)
 			return;
 		try {
 			// propagate down the max field count
 			updateMaxFieldCount();
-			FlowInfo flowInfo = FlowInfo.initial(maxFieldCount); // start fresh init info
-			InitializationFlowContext initializerContext =
-				new InitializationFlowContext(null, this, initializerScope);
-			InitializationFlowContext staticInitializerContext =
-				new InitializationFlowContext(null, this, staticInitializerScope);
-			FlowInfo nonStaticFieldInfo = flowInfo.copy(),
-				staticFieldInfo = flowInfo.copy();
-			if (fields != null) {
-				for (int i = 0, count = fields.length; i < count; i++) {
-					if (fields[i].isStatic()) {
-						staticFieldInfo =
-							fields[i].analyseCode(
-								staticInitializerScope,
-								staticInitializerContext,
-								staticFieldInfo);
-						// in case the initializer is not reachable, use a reinitialized flowInfo and enter a fake reachable
-						// branch, since the previous initializer already got the blame.
-						if (staticFieldInfo == FlowInfo.DeadEnd) {
-							staticInitializerScope.problemReporter().initializerMustCompleteNormally(
-								fields[i]);
-							staticFieldInfo = FlowInfo.initial(maxFieldCount).markAsFakeReachable(true);
-						}
-					} else {
-						nonStaticFieldInfo =
-							fields[i].analyseCode(initializerScope, initializerContext, nonStaticFieldInfo);
-						// in case the initializer is not reachable, use a reinitialized flowInfo and enter a fake reachable
-						// branch, since the previous initializer already got the blame.
-						if (nonStaticFieldInfo == FlowInfo.DeadEnd) {
-							initializerScope.problemReporter().initializerMustCompleteNormally(fields[i]);
-							nonStaticFieldInfo = FlowInfo.initial(maxFieldCount).markAsFakeReachable(true);
-						}
-					}
-				}
-			}
-			if (memberTypes != null) {
-				for (int i = 0, count = memberTypes.length; i < count; i++) {
-					memberTypes[i].analyseCode(scope);
-				}
-			}
-			if (methods != null) {
-				int recursionBalance = 0; // check constructor recursions
-				for (int i = 0, count = methods.length; i < count; i++) {
-					AbstractMethodDeclaration method = methods[i];
-					if (method.ignoreFurtherInvestigation)
-						continue;
-					if (method.isInitializationMethod()) {
-						if (method.isStatic()) { // <clinit>
-							((Clinit) method).analyseCode(scope, staticInitializerContext, staticFieldInfo);
-						} else { // constructor
-							ConstructorDeclaration constructor = (ConstructorDeclaration) method;
-							constructor.analyseCode(scope, initializerContext, nonStaticFieldInfo.copy());
-							// compute the recursive invocation balance:
-							//   how many thisReferences vs. superReferences to constructors
-							int refCount;
-							if ((refCount = constructor.referenceCount) > 0) {
-								if ((constructor.constructorCall == null)
-									|| constructor.constructorCall.isSuperAccess()
-									|| !constructor.constructorCall.binding.isValidBinding()) {
-									recursionBalance -= refCount;
-									constructor.referenceCount = -1; // for error reporting propagation								
-								} else {
-									recursionBalance += refCount;
-								}
-							}
-						}
-					} else { // regular method
-						method.analyseCode(scope, null, FlowInfo.initial(maxFieldCount));
-					}
-				}
-				if (recursionBalance > 0) {
-					// there is one or more cycle(s) amongst constructor invocations
-					scope.problemReporter().recursiveConstructorInvocation(this);
-				}
-			}
+			internalAnalyseCode(null, FlowInfo.initial(maxFieldCount));
 		} catch (AbortType e) {
 			this.ignoreFurtherInvestigation = true;
-		};
+		}
 	}
 
 	/**
@@ -289,77 +166,17 @@ public class TypeDeclaration
 		if (ignoreFurtherInvestigation)
 			return;
 		try {
-			// remember local types binding for innerclass emulation propagation
-			currentScope.referenceCompilationUnit().record((LocalTypeBinding) binding);
+			bits |= IsReachableMASK;
+			LocalTypeBinding localType = (LocalTypeBinding) binding;
 
-			/* force to emulation of access to direct enclosing instance: only for local members.
-			 * By using the initializer scope, we actually only request an argument emulation, the
-			 * field is not added until actually used. However we will force allocations to be qualified
-			 * with an enclosing instance.
-			 */
-			initializerScope.emulateOuterAccess(
-				(SourceTypeBinding) binding.enclosingType(),
-				false);
-
-			InitializationFlowContext initializerContext =
-				new InitializationFlowContext(null, this, initializerScope);
-			// propagate down the max field count
-			updateMaxFieldCount();
-			FlowInfo fieldInfo = flowInfo.copy();
-			// so as not to propagate changes outside this type
-			if (fields != null) {
-				for (int i = 0, count = fields.length; i < count; i++) {
-					if (!fields[i].isStatic()) {
-						fieldInfo =
-							fields[i].analyseCode(initializerScope, initializerContext, fieldInfo);
-						if (fieldInfo == FlowInfo.DeadEnd) {
-							// in case the initializer is not reachable, use a reinitialized flowInfo and enter a fake reachable
-							// branch, since the previous initializer already got the blame.
-							initializerScope.problemReporter().initializerMustCompleteNormally(fields[i]);
-							fieldInfo = FlowInfo.initial(maxFieldCount).markAsFakeReachable(true);
-						}
-					}
-				}
-			}
-			if (memberTypes != null) {
-				for (int i = 0, count = memberTypes.length; i < count; i++) {
-					memberTypes[i].analyseCode(scope, flowContext, fieldInfo.copy());
-				}
-			}
-			if (methods != null) {
-				int recursionBalance = 0; // check constructor recursions			
-				for (int i = 0, count = methods.length; i < count; i++) {
-					AbstractMethodDeclaration method = methods[i];
-					if (method.ignoreFurtherInvestigation)
-						continue;
-					if (method.isConstructor()) { // constructor
-						ConstructorDeclaration constructor = (ConstructorDeclaration) method;
-						constructor.analyseCode(scope, initializerContext, fieldInfo.copy());
-						// compute the recursive invocation balance:
-						//   how many thisReferences vs. superReferences to constructors
-						int refCount;
-						if ((refCount = constructor.referenceCount) > 0) {
-							if ((constructor.constructorCall == null)
-								|| constructor.constructorCall.isSuperAccess()
-								|| !constructor.constructorCall.binding.isValidBinding()) {
-								recursionBalance -= refCount;
-								constructor.referenceCount = -1; // for error reporting propagation								
-							} else {
-								recursionBalance += refCount;
-							}
-						}
-					} else { // regular method
-						method.analyseCode(scope, null, flowInfo.copy());
-					}
-				}
-				if (recursionBalance > 0) {
-					// there is one or more cycle(s) amongst constructor invocations
-					scope.problemReporter().recursiveConstructorInvocation(this);
-				}
-			}
+			localType.setConstantPoolName(currentScope.compilationUnitScope().computeConstantPoolName(localType));
+			manageEnclosingInstanceAccessIfNecessary(currentScope);
+			
+			updateMaxFieldCount(); // propagate down the max field count
+			internalAnalyseCode(flowContext, flowInfo);
 		} catch (AbortType e) {
 			this.ignoreFurtherInvestigation = true;
-		};
+		}
 	}
 
 	/**
@@ -371,83 +188,10 @@ public class TypeDeclaration
 		if (ignoreFurtherInvestigation)
 			return;
 		try {
-			FlowInfo flowInfo = FlowInfo.initial(maxFieldCount); // start fresh init info
-			InitializationFlowContext initializerContext =
-				new InitializationFlowContext(null, this, initializerScope);
-			InitializationFlowContext staticInitializerContext =
-				new InitializationFlowContext(null, this, staticInitializerScope);
-			FlowInfo nonStaticFieldInfo = flowInfo.copy(),
-				staticFieldInfo = flowInfo.copy();
-			if (fields != null) {
-				for (int i = 0, count = fields.length; i < count; i++) {
-					if (fields[i].isStatic()) {
-						staticFieldInfo =
-							fields[i].analyseCode(
-								staticInitializerScope,
-								staticInitializerContext,
-								staticFieldInfo);
-						// in case the initializer is not reachable, use a reinitialized flowInfo and enter a fake reachable
-						// branch, since the previous initializer already got the blame.
-						if (staticFieldInfo == FlowInfo.DeadEnd) {
-							staticInitializerScope.problemReporter().initializerMustCompleteNormally(
-								fields[i]);
-							staticFieldInfo = FlowInfo.initial(maxFieldCount).markAsFakeReachable(true);
-						}
-					} else {
-						nonStaticFieldInfo =
-							fields[i].analyseCode(initializerScope, initializerContext, nonStaticFieldInfo);
-						// in case the initializer is not reachable, use a reinitialized flowInfo and enter a fake reachable
-						// branch, since the previous initializer already got the blame.
-						if (nonStaticFieldInfo == FlowInfo.DeadEnd) {
-							initializerScope.problemReporter().initializerMustCompleteNormally(fields[i]);
-							nonStaticFieldInfo = FlowInfo.initial(maxFieldCount).markAsFakeReachable(true);
-						}
-					}
-				}
-			}
-			if (memberTypes != null) {
-				for (int i = 0, count = memberTypes.length; i < count; i++) {
-					memberTypes[i].analyseCode(scope);
-				}
-			}
-			if (methods != null) {
-				int recursionBalance = 0; // check constructor recursions			
-				for (int i = 0, count = methods.length; i < count; i++) {
-					AbstractMethodDeclaration method = methods[i];
-					if (method.ignoreFurtherInvestigation)
-						continue;
-					if (method.isInitializationMethod()) {
-						if (method.isStatic()) { // <clinit>
-							((Clinit) method).analyseCode(scope, staticInitializerContext, staticFieldInfo);
-						} else { // constructor
-							ConstructorDeclaration constructor = (ConstructorDeclaration) method;
-							constructor.analyseCode(scope, initializerContext, nonStaticFieldInfo.copy());
-							// compute the recursive invocation balance:
-							//   how many thisReferences vs. superReferences to constructors
-							int refCount;
-							if ((refCount = constructor.referenceCount) > 0) {
-								if ((constructor.constructorCall == null)
-									|| constructor.constructorCall.isSuperAccess()
-									|| !constructor.constructorCall.binding.isValidBinding()) {
-									recursionBalance -= refCount;
-									constructor.referenceCount = -1; // for error reporting propagation
-								} else {
-									recursionBalance += refCount;
-								}
-							}
-						}
-					} else { // regular method
-						method.analyseCode(scope, null, FlowInfo.initial(maxFieldCount));
-					}
-				}
-				if (recursionBalance > 0) {
-					// there is one or more cycle(s) amongst constructor invocations
-					scope.problemReporter().recursiveConstructorInvocation(this);
-				}
-			}
+			internalAnalyseCode(null, FlowInfo.initial(maxFieldCount));
 		} catch (AbortType e) {
 			this.ignoreFurtherInvestigation = true;
-		};
+		}
 	}
 
 	/*
@@ -532,8 +276,7 @@ public class TypeDeclaration
 
 		//the super call inside the constructor
 		if (needExplicitConstructorCall) {
-			constructor.constructorCall =
-				new ExplicitConstructorCall(ExplicitConstructorCall.ImplicitSuper);
+			constructor.constructorCall = SuperReference.implicitSuperConstructorCall();
 			constructor.constructorCall.sourceStart = sourceStart;
 			constructor.constructorCall.sourceEnd = sourceEnd;
 		}
@@ -771,12 +514,9 @@ public class TypeDeclaration
 	 */
 	public void generateCode(BlockScope blockScope, CodeStream codeStream) {
 
-		if (hasBeenGenerated)
-			return;
+		if (hasBeenGenerated) return;
 		int pc = codeStream.position;
-		if (binding != null) {
-			((NestedTypeBinding) binding).computeSyntheticArgumentsOffset();
-		}
+		if (binding != null) ((NestedTypeBinding) binding).computeSyntheticArgumentSlotSizes();
 		generateCode(codeStream.classFile);
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
@@ -786,9 +526,8 @@ public class TypeDeclaration
 	 */
 	public void generateCode(ClassScope classScope, ClassFile enclosingClassFile) {
 
-		if (hasBeenGenerated)
-			return;
-		((NestedTypeBinding) binding).computeSyntheticArgumentsOffset();
+		if (hasBeenGenerated) return;
+		if (binding != null) ((NestedTypeBinding) binding).computeSyntheticArgumentSlotSizes();
 		generateCode(enclosingClassFile);
 	}
 
@@ -800,15 +539,146 @@ public class TypeDeclaration
 		generateCode((ClassFile) null);
 	}
 
+	public boolean hasErrors() {
+		return this.ignoreFurtherInvestigation;
+	}
+
+	/**
+	 *	Common flow analysis for all types
+	 *
+	 */
+	public void internalAnalyseCode(FlowContext flowContext, FlowInfo flowInfo) {
+
+		if (this.binding.isPrivate() && !this.binding.isPrivateUsed()) {
+			if (!scope.referenceCompilationUnit().compilationResult.hasSyntaxError()) {
+				scope.problemReporter().unusedPrivateType(this);
+			}
+		}
+
+		ReferenceBinding[] defaultHandledExceptions = new ReferenceBinding[] { scope.getJavaLangThrowable()}; // tolerate any kind of exception
+		InitializationFlowContext initializerContext = new InitializationFlowContext(null, this, initializerScope);
+		InitializationFlowContext staticInitializerContext = new InitializationFlowContext(null, this, staticInitializerScope);
+		FlowInfo nonStaticFieldInfo = flowInfo.copy().unconditionalInits().discardFieldInitializations();
+		FlowInfo staticFieldInfo = flowInfo.copy().unconditionalInits().discardFieldInitializations();
+		if (fields != null) {
+			for (int i = 0, count = fields.length; i < count; i++) {
+				FieldDeclaration field = fields[i];
+				if (field.isStatic()) {
+					/*if (field.isField()){
+						staticInitializerContext.handledExceptions = NoExceptions; // no exception is allowed jls8.3.2
+					} else {*/
+					staticInitializerContext.handledExceptions = defaultHandledExceptions; // tolerate them all, and record them
+					/*}*/
+					staticFieldInfo =
+						field.analyseCode(
+							staticInitializerScope,
+							staticInitializerContext,
+							staticFieldInfo);
+					// in case the initializer is not reachable, use a reinitialized flowInfo and enter a fake reachable
+					// branch, since the previous initializer already got the blame.
+					if (staticFieldInfo == FlowInfo.DEAD_END) {
+						staticInitializerScope.problemReporter().initializerMustCompleteNormally(field);
+						staticFieldInfo = FlowInfo.initial(maxFieldCount).setReachMode(FlowInfo.UNREACHABLE);
+					}
+				} else {
+					/*if (field.isField()){
+						initializerContext.handledExceptions = NoExceptions; // no exception is allowed jls8.3.2
+					} else {*/
+						initializerContext.handledExceptions = defaultHandledExceptions; // tolerate them all, and record them
+					/*}*/
+					nonStaticFieldInfo =
+						field.analyseCode(initializerScope, initializerContext, nonStaticFieldInfo);
+					// in case the initializer is not reachable, use a reinitialized flowInfo and enter a fake reachable
+					// branch, since the previous initializer already got the blame.
+					if (nonStaticFieldInfo == FlowInfo.DEAD_END) {
+						initializerScope.problemReporter().initializerMustCompleteNormally(field);
+						nonStaticFieldInfo = FlowInfo.initial(maxFieldCount).setReachMode(FlowInfo.UNREACHABLE);
+					}
+				}
+			}
+		}
+		if (memberTypes != null) {
+			for (int i = 0, count = memberTypes.length; i < count; i++) {
+				if (flowContext != null){ // local type
+					memberTypes[i].analyseCode(scope, flowContext, nonStaticFieldInfo.copy());
+				} else {
+					memberTypes[i].analyseCode(scope);
+				}
+			}
+		}
+		if (methods != null) {
+			UnconditionalFlowInfo outerInfo = flowInfo.copy().unconditionalInits().discardFieldInitializations();
+			FlowInfo constructorInfo = nonStaticFieldInfo.unconditionalInits().discardNonFieldInitializations().addInitializationsFrom(outerInfo);
+			for (int i = 0, count = methods.length; i < count; i++) {
+				AbstractMethodDeclaration method = methods[i];
+				if (method.ignoreFurtherInvestigation)
+					continue;
+				if (method.isInitializationMethod()) {
+					if (method.isStatic()) { // <clinit>
+						method.analyseCode(
+							scope, 
+							staticInitializerContext, 
+							staticFieldInfo.unconditionalInits().discardNonFieldInitializations().addInitializationsFrom(outerInfo));
+					} else { // constructor
+						method.analyseCode(scope, initializerContext, constructorInfo.copy());
+					}
+				} else { // regular method
+					method.analyseCode(scope, null, flowInfo.copy());
+				}
+			}
+		}
+	}
+
 	public boolean isInterface() {
 
 		return (modifiers & AccInterface) != 0;
 	}
 
-	public boolean hasErrors() {
-		return this.ignoreFurtherInvestigation;
-	}
+	/* 
+	 * Access emulation for a local type
+	 * force to emulation of access to direct enclosing instance.
+	 * By using the initializer scope, we actually only request an argument emulation, the
+	 * field is not added until actually used. However we will force allocations to be qualified
+	 * with an enclosing instance.
+	 * 15.9.2
+	 */
+	public void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope) {
 
+		NestedTypeBinding nestedType = (NestedTypeBinding) binding;
+		
+		MethodScope methodScope = currentScope.methodScope();
+		if (!methodScope.isStatic && !methodScope.isConstructorCall){
+
+			nestedType.addSyntheticArgumentAndField(binding.enclosingType());	
+		}
+		// add superclass enclosing instance arg for anonymous types (if necessary)
+		if (binding.isAnonymousType()) { 
+			ReferenceBinding superclass = binding.superclass;
+			if (superclass.enclosingType() != null && !superclass.isStatic()) {
+				if (!binding.superclass.isLocalType()
+						|| ((NestedTypeBinding)binding.superclass).getSyntheticField(superclass.enclosingType(), true) != null){
+
+					nestedType.addSyntheticArgument(superclass.enclosingType());	
+				}
+			}
+		}
+	}
+	
+	/* 
+	 * Access emulation for a local member type
+	 * force to emulation of access to direct enclosing instance.
+	 * By using the initializer scope, we actually only request an argument emulation, the
+	 * field is not added until actually used. However we will force allocations to be qualified
+	 * with an enclosing instance.
+	 * 
+	 * Local member cannot be static.
+	 */
+	public void manageEnclosingInstanceAccessIfNecessary(ClassScope currentScope) {
+
+		NestedTypeBinding nestedType = (NestedTypeBinding) binding;
+		nestedType.addSyntheticArgumentAndField(binding.enclosingType());
+	}	
+	
 	/**
 	 * A <clinit> will be requested as soon as static fields or assertions are present. It will be eliminated during
 	 * classfile creation if no bytecode was actually produced based on some optimizations/compiler settings.
@@ -843,19 +713,22 @@ public class TypeDeclaration
 
 		//members
 		if (memberTypes != null) {
-			for (int i = memberTypes.length; --i >= 0;)
+			int length = memberTypes.length;
+			for (int i = 0; i < length; i++)
 				memberTypes[i].parseMethod(parser, unit);
 		}
 
 		//methods
 		if (methods != null) {
-			for (int i = methods.length; --i >= 0;)
+			int length = methods.length;
+			for (int i = 0; i < length; i++)
 				methods[i].parseStatements(parser, unit);
 		}
 
 		//initializers
 		if (fields != null) {
-			for (int i = fields.length; --i >= 0;) {
+			int length = fields.length;
+			for (int i = 0; i < length; i++) {
 				if (fields[i] instanceof Initializer) {
 					((Initializer) fields[i]).parseStatements(parser, this, unit);
 				}
@@ -877,10 +750,10 @@ public class TypeDeclaration
 					scope.problemReporter().deprecatedType(binding.superclass, superclass);
 			if (superInterfaces != null)
 				for (int i = superInterfaces.length; --i >= 0;)
-					if (superInterfaces[i].binding != null)
-						if (isTypeUseDeprecated(superInterfaces[i].binding, scope))
+					if (superInterfaces[i].resolvedType != null)
+						if (isTypeUseDeprecated(superInterfaces[i].resolvedType, scope))
 							scope.problemReporter().deprecatedType(
-								superInterfaces[i].binding,
+								superInterfaces[i].resolvedType,
 								superInterfaces[i]);
 			maxFieldCount = 0;
 			int lastFieldID = -1;
@@ -889,6 +762,8 @@ public class TypeDeclaration
 					FieldDeclaration field = fields[i];
 					if (field.isField()) {
 						if (field.binding == null) {
+							// still discover secondary errors
+							if (field.initialization != null) field.initialization.resolve(field.isStatic() ? staticInitializerScope : initializerScope);
 							ignoreFurtherInvestigation = true;
 							continue;
 						}
@@ -900,12 +775,22 @@ public class TypeDeclaration
 					field.resolve(field.isStatic() ? staticInitializerScope : initializerScope);
 				}
 			}
-			if (memberTypes != null)
-				for (int i = 0, count = memberTypes.length; i < count; i++)
+			if (memberTypes != null) {
+				for (int i = 0, count = memberTypes.length; i < count; i++) {
 					memberTypes[i].resolve(scope);
-			if (methods != null)
-				for (int i = 0, count = methods.length; i < count; i++)
+				}
+			}
+			int missingAbstractMethodslength = this.missingAbstractMethods == null ? 0 : this.missingAbstractMethods.length;
+			int methodsLength = this.methods == null ? 0 : methods.length;
+			if ((methodsLength + missingAbstractMethodslength) > 0xFFFF) {
+				scope.problemReporter().tooManyMethods(this);
+			}
+			
+			if (methods != null) {
+				for (int i = 0, count = methods.length; i < count; i++) {
 					methods[i].resolve(scope);
+				}
+			}
 		} catch (AbortType e) {
 			this.ignoreFurtherInvestigation = true;
 			return;
@@ -920,6 +805,9 @@ public class TypeDeclaration
 
 		// and TC....
 		if (binding != null) {
+			// remember local types binding for innerclass emulation propagation
+			blockScope.referenceCompilationUnit().record((LocalTypeBinding)binding);
+
 			// binding is not set if the receiver could not be created
 			resolve();
 			updateMaxFieldCount();
@@ -930,6 +818,10 @@ public class TypeDeclaration
 		// member scopes are already created
 		// request the construction of a binding if local member type
 
+		if (binding != null && binding instanceof LocalTypeBinding) {
+			// remember local types binding for innerclass emulation propagation
+			upperScope.referenceCompilationUnit().record((LocalTypeBinding)binding);
+		}
 		resolve();
 		updateMaxFieldCount();
 	}
@@ -1041,6 +933,7 @@ public class TypeDeclaration
 						methods[i].traverse(visitor, scope);
 				}
 			}
+			visitor.endVisit(this, unitScope);
 		} catch (AbortType e) {
 		}
 	}

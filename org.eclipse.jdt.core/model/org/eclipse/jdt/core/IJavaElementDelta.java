@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 import org.eclipse.core.resources.IResourceDelta;
@@ -120,7 +120,7 @@ public interface IJavaElementDelta {
 	 * Status constant indicating that the element has been changed,
 	 * as described by the change flags.
 	 * 
-	 * @see getFlags
+	 * @see #getFlags
 	 */
 	public int CHANGED = 4;
 
@@ -169,8 +169,17 @@ public interface IJavaElementDelta {
 	/**
 	 * Change flag indicating that a classpath entry corresponding to the element has changed position in the project's 
 	 * classpath. This flag is only valid if the element is an <code>IPackageFragmentRoot</code>.
+	 * @deprecated Use F_REORDER instead.
 	 */
 	public int F_CLASSPATH_REORDER = 0x0100;
+	/**
+	 * Change flag indicating that the element has changed position relatively to its siblings. 
+	 * If the element is an <code>IPackageFragmentRoot</code>,  a classpath entry corresponding 
+	 * to the element has changed position in the project's classpath.
+	 * 
+	 * @since 2.1
+	 */
+	public int F_REORDER = 0x0100;
 
 	/**
 	 * Change flag indicating that the underlying <code>IProject</code> has been
@@ -229,8 +238,21 @@ public interface IJavaElementDelta {
 	 */
 	public int F_ARCHIVE_CONTENT_CHANGED = 0x8000;
 
+//	/**
+//	 * Change flag indicating that the project custom options have changed on the file system,
+//	 * i.e. independently from a change performed using the <code>IJavaProject#setOptions</code>
+//	 * functionality.
+//	 * This flag is only valid if the element is an <code>IJavaProject</code>
+//	 * 
+//	 * @see IJavaProject#setOptions(Map)
+//	 * @since 2.1
+//	 */
+//	public int F_OPTIONS_CHANGED = 0x10000;
+	
+
 /**
  * Returns deltas for the children that have been added.
+ * @return deltas for the children that have been added
  */
 public IJavaElementDelta[] getAddedChildren();
 /**

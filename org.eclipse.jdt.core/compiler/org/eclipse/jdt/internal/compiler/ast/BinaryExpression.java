@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -46,34 +46,34 @@ public class BinaryExpression extends OperatorExpression {
 	public void computeConstant(BlockScope scope, int leftId, int rightId) {
 
 		//compute the constant when valid
-		if ((left.constant != Constant.NotAConstant)
-			&& (right.constant != Constant.NotAConstant)) {
+		if ((this.left.constant != Constant.NotAConstant)
+			&& (this.right.constant != Constant.NotAConstant)) {
 			try {
-				constant =
+				this.constant =
 					Constant.computeConstantOperation(
-						left.constant,
+						this.left.constant,
 						leftId,
-						(bits & OperatorMASK) >> OperatorSHIFT,
-						right.constant,
+						(this.bits & OperatorMASK) >> OperatorSHIFT,
+						this.right.constant,
 						rightId);
 			} catch (ArithmeticException e) {
-				constant = Constant.NotAConstant;
+				this.constant = Constant.NotAConstant;
 				// 1.2 no longer throws an exception at compile-time
 				//scope.problemReporter().compileTimeConstantThrowsArithmeticException(this);
 			}
 		} else {
-			constant = Constant.NotAConstant;
+			this.constant = Constant.NotAConstant;
 			//add some work for the boolean operators & |  
-			optimizedBooleanConstant(
+			this.optimizedBooleanConstant(
 				leftId,
-				(bits & OperatorMASK) >> OperatorSHIFT,
+				(this.bits & OperatorMASK) >> OperatorSHIFT,
 				rightId);
 		}
 	}
 
-	public Constant conditionalConstant() {
+	public Constant optimizedBooleanConstant() {
 
-		return optimizedBooleanConstant == null ? constant : optimizedBooleanConstant;
+		return this.optimizedBooleanConstant == null ? this.constant : this.optimizedBooleanConstant;
 	}
 
 	/**
@@ -699,7 +699,6 @@ public class BinaryExpression extends OperatorExpression {
 		Label falseLabel,
 		boolean valueRequired) {
 
-		int pc = codeStream.position;
 		int promotedTypeID = left.implicitConversion >> 4;
 		// both sides got promoted in the same way
 		if (promotedTypeID == T_int) {
@@ -721,7 +720,8 @@ public class BinaryExpression extends OperatorExpression {
 						}
 					}
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
+				// reposition the endPC
+				codeStream.updateLastRecordedEndPC(codeStream.position);					
 				return;
 			}
 			// x > 0
@@ -742,7 +742,8 @@ public class BinaryExpression extends OperatorExpression {
 						}
 					}
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
+				// reposition the endPC
+				codeStream.updateLastRecordedEndPC(codeStream.position);					
 				return;
 			}
 		}
@@ -769,7 +770,8 @@ public class BinaryExpression extends OperatorExpression {
 							codeStream.dcmpl();
 							codeStream.ifgt(trueLabel);
 					}
-					codeStream.recordPositionsFrom(pc, this.sourceStart);
+					// reposition the endPC
+					codeStream.updateLastRecordedEndPC(codeStream.position);					
 					return;
 				}
 			} else {
@@ -791,7 +793,8 @@ public class BinaryExpression extends OperatorExpression {
 							codeStream.dcmpl();
 							codeStream.ifle(falseLabel);
 					}
-					codeStream.recordPositionsFrom(pc, this.sourceStart);
+					// reposition the endPC
+					codeStream.updateLastRecordedEndPC(codeStream.position);					
 					return;
 				} else {
 					// no implicit fall through TRUE/FALSE --> should never occur
@@ -810,7 +813,6 @@ public class BinaryExpression extends OperatorExpression {
 		Label falseLabel,
 		boolean valueRequired) {
 
-		int pc = codeStream.position;
 		int promotedTypeID = left.implicitConversion >> 4;
 		// both sides got promoted in the same way
 		if (promotedTypeID == T_int) {
@@ -832,7 +834,8 @@ public class BinaryExpression extends OperatorExpression {
 						}
 					}
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
+				// reposition the endPC
+				codeStream.updateLastRecordedEndPC(codeStream.position);					
 				return;
 			}
 			// x >= 0
@@ -853,7 +856,8 @@ public class BinaryExpression extends OperatorExpression {
 						}
 					}
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
+				// reposition the endPC
+				codeStream.updateLastRecordedEndPC(codeStream.position);					
 				return;
 			}
 		}
@@ -880,7 +884,8 @@ public class BinaryExpression extends OperatorExpression {
 							codeStream.dcmpl();
 							codeStream.ifge(trueLabel);
 					}
-					codeStream.recordPositionsFrom(pc, this.sourceStart);
+					// reposition the endPC
+					codeStream.updateLastRecordedEndPC(codeStream.position);					
 					return;
 				}
 			} else {
@@ -902,7 +907,8 @@ public class BinaryExpression extends OperatorExpression {
 							codeStream.dcmpl();
 							codeStream.iflt(falseLabel);
 					}
-					codeStream.recordPositionsFrom(pc, this.sourceStart);
+					// reposition the endPC
+					codeStream.updateLastRecordedEndPC(codeStream.position);					
 					return;
 				} else {
 					// no implicit fall through TRUE/FALSE --> should never occur
@@ -921,7 +927,6 @@ public class BinaryExpression extends OperatorExpression {
 		Label falseLabel,
 		boolean valueRequired) {
 
-		int pc = codeStream.position;
 		int promotedTypeID = left.implicitConversion >> 4;
 		// both sides got promoted in the same way
 		if (promotedTypeID == T_int) {
@@ -943,7 +948,7 @@ public class BinaryExpression extends OperatorExpression {
 						}
 					}
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
+				codeStream.updateLastRecordedEndPC(codeStream.position);
 				return;
 			}
 			// x < 0
@@ -964,7 +969,7 @@ public class BinaryExpression extends OperatorExpression {
 						}
 					}
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
+				codeStream.updateLastRecordedEndPC(codeStream.position);
 				return;
 			}
 		}
@@ -991,7 +996,7 @@ public class BinaryExpression extends OperatorExpression {
 							codeStream.dcmpg();
 							codeStream.iflt(trueLabel);
 					}
-					codeStream.recordPositionsFrom(pc, this.sourceStart);
+					codeStream.updateLastRecordedEndPC(codeStream.position);
 					return;
 				}
 			} else {
@@ -1013,7 +1018,7 @@ public class BinaryExpression extends OperatorExpression {
 							codeStream.dcmpg();
 							codeStream.ifge(falseLabel);
 					}
-					codeStream.recordPositionsFrom(pc, this.sourceStart);
+					codeStream.updateLastRecordedEndPC(codeStream.position);
 					return;
 				} else {
 					// no implicit fall through TRUE/FALSE --> should never occur
@@ -1032,7 +1037,6 @@ public class BinaryExpression extends OperatorExpression {
 		Label falseLabel,
 		boolean valueRequired) {
 
-		int pc = codeStream.position;
 		int promotedTypeID = left.implicitConversion >> 4;
 		// both sides got promoted in the same way
 		if (promotedTypeID == T_int) {
@@ -1054,7 +1058,8 @@ public class BinaryExpression extends OperatorExpression {
 						}
 					}
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
+				// reposition the endPC
+				codeStream.updateLastRecordedEndPC(codeStream.position);					
 				return;
 			}
 			// x <= 0
@@ -1075,7 +1080,8 @@ public class BinaryExpression extends OperatorExpression {
 						}
 					}
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
+				// reposition the endPC
+				codeStream.updateLastRecordedEndPC(codeStream.position);					
 				return;
 			}
 		}
@@ -1102,7 +1108,8 @@ public class BinaryExpression extends OperatorExpression {
 							codeStream.dcmpg();
 							codeStream.ifle(trueLabel);
 					}
-					codeStream.recordPositionsFrom(pc, this.sourceStart);
+					// reposition the endPC
+					codeStream.updateLastRecordedEndPC(codeStream.position);					
 					return;
 				}
 			} else {
@@ -1124,7 +1131,8 @@ public class BinaryExpression extends OperatorExpression {
 							codeStream.dcmpg();
 							codeStream.ifgt(falseLabel);
 					}
-					codeStream.recordPositionsFrom(pc, this.sourceStart);
+					// reposition the endPC
+					codeStream.updateLastRecordedEndPC(codeStream.position);					
 					return;
 				} else {
 					// no implicit fall through TRUE/FALSE --> should never occur
@@ -1143,10 +1151,9 @@ public class BinaryExpression extends OperatorExpression {
 		Label falseLabel,
 		boolean valueRequired) {
 			
-		int pc = codeStream.position;
 		Constant condConst;
 		if ((left.implicitConversion & 0xF) == T_boolean) {
-			if ((condConst = left.conditionalConstant()) != NotAConstant) {
+			if ((condConst = left.optimizedBooleanConstant()) != NotAConstant) {
 				if (condConst.booleanValue() == true) {
 					// <something equivalent to true> & x
 					left.generateOptimizedBoolean(
@@ -1189,11 +1196,12 @@ public class BinaryExpression extends OperatorExpression {
 							}
 						}
 					}
+					// reposition the endPC
+					codeStream.updateLastRecordedEndPC(codeStream.position);					
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
 				return;
 			}
-			if ((condConst = right.conditionalConstant()) != NotAConstant) {
+			if ((condConst = right.optimizedBooleanConstant()) != NotAConstant) {
 				if (condConst.booleanValue() == true) {
 					// x & <something equivalent to true>
 					if ((bits & OnlyValueRequiredMASK) != 0) {
@@ -1236,8 +1244,9 @@ public class BinaryExpression extends OperatorExpression {
 							}
 						}
 					}
+					// reposition the endPC
+					codeStream.updateLastRecordedEndPC(codeStream.position);					
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
 				return;
 			}
 		}
@@ -1262,7 +1271,8 @@ public class BinaryExpression extends OperatorExpression {
 				}
 			}
 		}
-		codeStream.recordPositionsFrom(pc, this.sourceStart);
+		// reposition the endPC
+		codeStream.updateLastRecordedEndPC(codeStream.position);					
 	}
 	
 	/**
@@ -1275,10 +1285,9 @@ public class BinaryExpression extends OperatorExpression {
 		Label falseLabel,
 		boolean valueRequired) {
 			
-		int pc = codeStream.position;
 		Constant condConst;
 		if ((left.implicitConversion & 0xF) == T_boolean) {
-			if ((condConst = left.conditionalConstant()) != NotAConstant) {
+			if ((condConst = left.optimizedBooleanConstant()) != NotAConstant) {
 				if (condConst.booleanValue() == true) {
 					// <something equivalent to true> | x
 					left.generateOptimizedBoolean(
@@ -1302,6 +1311,8 @@ public class BinaryExpression extends OperatorExpression {
 							}
 						}
 					}
+					// reposition the endPC
+					codeStream.updateLastRecordedEndPC(codeStream.position);					
 				} else {
 					// <something equivalent to false> | x
 					left.generateOptimizedBoolean(
@@ -1321,10 +1332,9 @@ public class BinaryExpression extends OperatorExpression {
 							valueRequired);
 					}
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
 				return;
 			}
-			if ((condConst = right.conditionalConstant()) != NotAConstant) {
+			if ((condConst = right.optimizedBooleanConstant()) != NotAConstant) {
 				if (condConst.booleanValue() == true) {
 					// x | <something equivalent to true>
 					left.generateOptimizedBoolean(
@@ -1348,6 +1358,8 @@ public class BinaryExpression extends OperatorExpression {
 							}
 						}
 					}
+					// reposition the endPC
+					codeStream.updateLastRecordedEndPC(codeStream.position);					
 				} else {
 					// x | <something equivalent to false>
 					if ((bits & OnlyValueRequiredMASK) != 0) {
@@ -1367,7 +1379,6 @@ public class BinaryExpression extends OperatorExpression {
 						falseLabel,
 						false);
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
 				return;
 			}
 		}
@@ -1392,7 +1403,8 @@ public class BinaryExpression extends OperatorExpression {
 				}
 			}
 		}
-		codeStream.recordPositionsFrom(pc, this.sourceStart);
+		// reposition the endPC
+		codeStream.updateLastRecordedEndPC(codeStream.position);					
 	}
 	
 	/**
@@ -1405,10 +1417,9 @@ public class BinaryExpression extends OperatorExpression {
 		Label falseLabel,
 		boolean valueRequired) {
 			
-		int pc = codeStream.position;
 		Constant condConst;
 		if ((left.implicitConversion & 0xF) == T_boolean) {
-			if ((condConst = left.conditionalConstant()) != NotAConstant) {
+			if ((condConst = left.optimizedBooleanConstant()) != NotAConstant) {
 				if (condConst.booleanValue() == true) {
 					// <something equivalent to true> ^ x
 					left.generateOptimizedBoolean(
@@ -1442,10 +1453,9 @@ public class BinaryExpression extends OperatorExpression {
 							valueRequired);
 					}
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
 				return;
 			}
-			if ((condConst = right.conditionalConstant()) != NotAConstant) {
+			if ((condConst = right.optimizedBooleanConstant()) != NotAConstant) {
 				if (condConst.booleanValue() == true) {
 					// x ^ <something equivalent to true>
 					left.generateOptimizedBoolean(
@@ -1479,7 +1489,6 @@ public class BinaryExpression extends OperatorExpression {
 						falseLabel,
 						false);
 				}
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
 				return;
 			}
 		}
@@ -1504,7 +1513,8 @@ public class BinaryExpression extends OperatorExpression {
 				}
 			}
 		}
-		codeStream.recordPositionsFrom(pc, this.sourceStart);
+		// reposition the endPC
+		codeStream.updateLastRecordedEndPC(codeStream.position);					
 	}
 	
 	public void generateOptimizedStringBuffer(
@@ -1591,19 +1601,19 @@ public class BinaryExpression extends OperatorExpression {
 					return;
 			case AND_AND :
 				Constant cst;
-				if ((cst = left.conditionalConstant()) != NotAConstant) {
+				if ((cst = left.optimizedBooleanConstant()) != NotAConstant) {
 					if (cst.booleanValue() == false) { // left is equivalent to false
 						optimizedBooleanConstant = cst; // constant(false)
 						return;
 					} else { //left is equivalent to true
-						if ((cst = right.conditionalConstant()) != NotAConstant) {
+						if ((cst = right.optimizedBooleanConstant()) != NotAConstant) {
 							optimizedBooleanConstant = cst;
 							// the conditional result is equivalent to the right conditional value
 						}
 						return;
 					}
 				}
-				if ((cst = right.conditionalConstant()) != NotAConstant) {
+				if ((cst = right.optimizedBooleanConstant()) != NotAConstant) {
 					if (cst.booleanValue() == false) { // right is equivalent to false
 						optimizedBooleanConstant = cst; // constant(false)
 					}
@@ -1613,18 +1623,18 @@ public class BinaryExpression extends OperatorExpression {
 				if ((leftId != T_boolean) || (rightId != T_boolean))
 					return;
 			case OR_OR :
-				if ((cst = left.conditionalConstant()) != NotAConstant) {
+				if ((cst = left.optimizedBooleanConstant()) != NotAConstant) {
 					if (cst.booleanValue() == true) { // left is equivalent to true
 						optimizedBooleanConstant = cst; // constant(true)
 						return;
 					} else { //left is equivalent to false
-						if ((cst = right.conditionalConstant()) != NotAConstant) {
+						if ((cst = right.optimizedBooleanConstant()) != NotAConstant) {
 							optimizedBooleanConstant = cst;
 						}
 						return;
 					}
 				}
-				if ((cst = right.conditionalConstant()) != NotAConstant) {
+				if ((cst = right.optimizedBooleanConstant()) != NotAConstant) {
 					if (cst.booleanValue() == true) { // right is equivalent to true
 						optimizedBooleanConstant = cst; // constant(true)
 					}
@@ -1686,28 +1696,28 @@ public class BinaryExpression extends OperatorExpression {
 		switch (result & 0xF) { // record the current ReturnTypeID
 			// only switch on possible result type.....
 			case T_boolean :
-				this.typeBinding = BooleanBinding;
+				this.resolvedType = BooleanBinding;
 				break;
 			case T_byte :
-				this.typeBinding = ByteBinding;
+				this.resolvedType = ByteBinding;
 				break;
 			case T_char :
-				this.typeBinding = CharBinding;
+				this.resolvedType = CharBinding;
 				break;
 			case T_double :
-				this.typeBinding = DoubleBinding;
+				this.resolvedType = DoubleBinding;
 				break;
 			case T_float :
-				this.typeBinding = FloatBinding;
+				this.resolvedType = FloatBinding;
 				break;
 			case T_int :
-				this.typeBinding = IntBinding;
+				this.resolvedType = IntBinding;
 				break;
 			case T_long :
-				this.typeBinding = LongBinding;
+				this.resolvedType = LongBinding;
 				break;
 			case T_String :
-				this.typeBinding = scope.getJavaLangString();
+				this.resolvedType = scope.getJavaLangString();
 				break;
 			default : //error........
 				constant = Constant.NotAConstant;
@@ -1717,7 +1727,7 @@ public class BinaryExpression extends OperatorExpression {
 
 		// compute the constant when valid
 		computeConstant(scope, leftId, rightId);
-		return this.typeBinding;
+		return this.resolvedType;
 	}
 	
 	public String toStringExpressionNoParenthesis() {

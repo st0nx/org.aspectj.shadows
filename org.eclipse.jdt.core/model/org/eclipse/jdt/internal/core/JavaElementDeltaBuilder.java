@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.ArrayList;
@@ -17,11 +17,9 @@ import java.util.Map;
 
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaElementDelta;
-import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IParent;
-import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.core.compiler.CharOperation;
 
 /**
  * A java element delta biulder creates a java element delta on
@@ -139,6 +137,10 @@ public void buildDeltas() {
 	this.findDeletions();
 	this.findChangesInPositioning(this.javaElement, 0);
 	this.trimDelta(this.delta);
+	if (this.delta.getAffectedChildren().length == 0) {
+		// this is a fine grained but not children affected -> mark as content changed
+		this.delta.contentChanged();
+	}
 }
 /**
  * Finds elements which have been added or changed.
@@ -160,7 +162,7 @@ private void findAdditions(IJavaElement newElement, int depth) {
 
 	JavaElementInfo newInfo = null;
 	try { 
-		newInfo = ((JavaElement)newElement).getElementInfo();
+		newInfo = (JavaElementInfo)((JavaElement)newElement).getElementInfo();
 	} catch (JavaModelException npe) {
 		return;
 	}
@@ -186,14 +188,13 @@ private void findChangesInPositioning(IJavaElement element, int depth) {
 		return;
 		
 	if (!isPositionedCorrectly(element)) {
-		this.delta.removed(element);
-		this.delta.added(element);
+		this.delta.changed(element, IJavaElementDelta.F_REORDER);
 	} 
 	
 	if (element instanceof IParent) {
 		JavaElementInfo info = null;
 		try { 
-			info = ((JavaElement)element).getElementInfo();
+			info = (JavaElementInfo)((JavaElement)element).getElementInfo();
 		} catch (JavaModelException npe) {
 			return;
 		}
@@ -292,79 +293,22 @@ private void insertPositions(IJavaElement[] elements, boolean isNew) {
 	}
 }
 /**
- * Returns true if the given elements represent the an equivalent declaration.
- *
- * <p>NOTE: Since this comparison can be done with handle info only,
- * none of the internal calls need to use the locally cached contents
- * of the old compilation unit.
- */
-private boolean isIdentical(JavaElement e1, JavaElement e2) {
-	if (e1 == null ^ e2 == null)
-		return false;
-	if (e1 == null)
-		return true;
-		
-	if (e1.fLEType == e2.fLEType) {
-		if (e1.getOccurrenceCount() != e2.getOccurrenceCount())
-			return false;
-		switch (e1.fLEType) {
-			case IJavaElement.FIELD:
-			case IJavaElement.IMPORT_DECLARATION:
-			case IJavaElement.PACKAGE_DECLARATION:
-			case IJavaElement.COMPILATION_UNIT:
-				return e1.getElementName().equals(e2.getElementName());
-			case IJavaElement.TYPE:
-				IType t1= (IType)e1;
-				IType t2= (IType)e2;
-				try {
-					return (!(t1.isClass() ^ t2.isClass()) && t1.getElementName().equals(t2.getElementName()));
-				} catch (JavaModelException e) {
-					return false;
-				}
-			case IJavaElement.METHOD:
-				IMethod m1= (IMethod)e1;
-				IMethod m2= (IMethod)e2;
-				try {
-					return m1.getElementName().equals(m2.getElementName()) && m1.getSignature().equals(m2.getSignature());
-				} catch (JavaModelException e) {
-					return false;
-				}
-			case IJavaElement.INITIALIZER:
-			case IJavaElement.IMPORT_CONTAINER:
-				return true;
-			default:
-				return false;
-		}
-	} else {
-		return false;
-	}
-}
-/**
- * Answers true if the elements position has not changed.
- * Takes into account additions so that elements following
- * new elements will not appear out of place.
+ * Returns whether the elements position has not changed.
  */
 private boolean isPositionedCorrectly(IJavaElement element) {
 	ListItem oldListItem = this.getOldPosition(element);
-	if (oldListItem == null)
-		return false;
-	IJavaElement oldPrevious = oldListItem.previous;
+	if (oldListItem == null) return false;
+	
 	ListItem newListItem = this.getNewPosition(element);
-	if (newListItem == null)
-		return false;
-	IJavaElement newPrevious = newListItem.previous; 
-	if (oldPrevious == newPrevious)
-		return true;
-	IJavaElement lastNewPrevious = null;
-	while(lastNewPrevious != newPrevious) {
-		if (isIdentical((JavaElement)oldPrevious, (JavaElement)newPrevious))
-			return true;
-		lastNewPrevious = newPrevious;
-		// if newPrevious is null at this time we should exit the loop.
-		if (newPrevious == null) break;
-		newPrevious = (this.getNewPosition(newPrevious)).previous;
+	if (newListItem == null) return false;
+	
+	IJavaElement oldPrevious = oldListItem.previous;
+	IJavaElement newPrevious = newListItem.previous;
+	if (oldPrevious == null) {
+		return newPrevious == null;
+	} else {
+		return oldPrevious.equals(newPrevious);
 	}
-	return false;
 }
 private void putElementInfo(IJavaElement element, JavaElementInfo info) {
 	this.infos.put(element, info);
@@ -404,7 +348,7 @@ private void recordNewPositions(IJavaElement newElement, int depth) {
 	if (depth < this.maxDepth && newElement instanceof IParent) {
 		JavaElementInfo info = null;
 		try { 
-			info = ((JavaElement)newElement).getElementInfo();
+			info = (JavaElementInfo)((JavaElement)newElement).getElementInfo();
 		} catch (JavaModelException npe) {
 			return;
 		}

@@ -1,17 +1,17 @@
 /*******************************************************************************
- * Copyright (c) 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
-import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
+import org.eclipse.jdt.core.compiler.CharOperation;
 
 /**
  * Internal implementation of package bindings.
@@ -94,18 +94,9 @@ class PackageBinding implements IPackageBinding {
 		return getName();
 	}
 	
-	private String concat(String[] array, char c) {
-		StringBuffer buffer = new StringBuffer();
-		for (int i = 0, max = array.length; i < max - 1; i++) {
-			buffer.append(array[i]).append(c);
-		}
-		buffer.append(array[array.length - 1]);
-		return buffer.toString();
-	}
-
 	private void computeNameAndComponents() {
 		char[][] compoundName = this.binding.compoundName;
-		if (compoundName == TypeConstants.NoCharChar || compoundName == null) {
+		if (compoundName == CharOperation.NO_CHAR_CHAR || compoundName == null) {
 			name = UNNAMED;
 			components = NO_NAME_COMPONENTS;
 		} else {
@@ -120,5 +111,13 @@ class PackageBinding implements IPackageBinding {
 			buffer.append(compoundName[length - 1]);
 			name = buffer.toString();
 		}
-	}		
+	}
+	
+	/* 
+	 * For debugging purpose only.
+	 * @see java.lang.Object#toString()
+	 */
+	public String toString() {
+		return this.binding.toString();
+	}	
 }

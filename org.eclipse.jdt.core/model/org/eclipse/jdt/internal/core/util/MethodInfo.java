@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
 import org.eclipse.jdt.core.util.ClassFormatException;
@@ -20,6 +20,7 @@ import org.eclipse.jdt.core.util.IConstantPoolConstant;
 import org.eclipse.jdt.core.util.IConstantPoolEntry;
 import org.eclipse.jdt.core.util.IExceptionAttribute;
 import org.eclipse.jdt.core.util.IMethodInfo;
+import org.eclipse.jdt.core.util.IModifierConstants;
 
 /**
  * Default implementation of IMethodInfo.
@@ -67,7 +68,7 @@ public class MethodInfo extends ClassFileStruct implements IMethodInfo {
 		this.attributesCount = u2At(classFileBytes, 6, offset);
 		this.attributes = ClassFileAttribute.NO_ATTRIBUTES;
 		if (this.attributesCount != 0) {
-			if (no_code_attribute) {
+			if (no_code_attribute && !isAbstract() && !isNative()) {
 				if (this.attributesCount != 1) {
 					this.attributes = new IClassFileAttribute[this.attributesCount - 1];
 				}
@@ -198,4 +199,11 @@ public class MethodInfo extends ClassFileStruct implements IMethodInfo {
 		return this.attributes;
 	}
 
+	private boolean isAbstract() {
+		return (this.accessFlags & IModifierConstants.ACC_ABSTRACT) != 0;
+	}
+	
+	private boolean isNative() {
+		return (this.accessFlags & IModifierConstants.ACC_NATIVE) != 0;
+	}
 }

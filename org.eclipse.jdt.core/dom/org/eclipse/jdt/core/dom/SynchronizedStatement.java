@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2001 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
@@ -60,7 +60,8 @@ public class SynchronizedStatement extends Statement {
 	 */
 	ASTNode clone(AST target) {
 		SynchronizedStatement result = new SynchronizedStatement(target);
-		result.setLeadingComment(getLeadingComment());
+		result.setSourceRange(this.getStartPosition(), this.getLength());
+		result.copyLeadingComment(this);
 		result.setExpression((Expression) getExpression().clone(target));
 		result.setBody((Block) getBody().clone(target));
 		return result;
@@ -95,7 +96,9 @@ public class SynchronizedStatement extends Statement {
 	public Expression getExpression() {
 		if (expression == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setExpression(new SimpleName(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return expression;
 	}
@@ -129,7 +132,9 @@ public class SynchronizedStatement extends Statement {
 	public Block getBody() {
 		if (body == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setBody(new Block(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return body;
 	}

@@ -1,28 +1,34 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
-import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.core.resources.IContainer;
+import org.eclipse.jdt.core.compiler.CharOperation;
 
 class ClasspathMultiDirectory extends ClasspathDirectory {
 
-String sourcePath;
+IContainer sourceFolder;
+char[][] exclusionPatterns; // used by builders when walking source folders
+boolean hasIndependentOutputFolder; // if output folder is not equal to any of the source folders
 
-ClasspathMultiDirectory(String sourcePath, String binaryPath) {
-	super(binaryPath);
+ClasspathMultiDirectory(IContainer sourceFolder, IContainer binaryFolder, char[][] exclusionPatterns) {
+	super(binaryFolder, true);
 
-	this.sourcePath = sourcePath;
-	if (!sourcePath.endsWith("/")) //$NON-NLS-1$
-		this.sourcePath += "/"; //$NON-NLS-1$
+	this.sourceFolder = sourceFolder;
+	this.exclusionPatterns = exclusionPatterns;
+	this.hasIndependentOutputFolder = false;
+
+	// handle the case when a state rebuilds a source folder
+	if (this.exclusionPatterns != null && this.exclusionPatterns.length == 0)
+		this.exclusionPatterns = null;
 }
 
 public boolean equals(Object o) {
@@ -30,30 +36,12 @@ public boolean equals(Object o) {
 	if (!(o instanceof ClasspathMultiDirectory)) return false;
 
 	ClasspathMultiDirectory md = (ClasspathMultiDirectory) o;
-	return binaryPath.equals(md.binaryPath) && sourcePath.equals(md.sourcePath);
+	return sourceFolder.equals(md.sourceFolder) && binaryFolder.equals(md.binaryFolder)
+		&& CharOperation.equals(exclusionPatterns, md.exclusionPatterns);
 } 
 
-NameEnvironmentAnswer findSourceFile(
-	String qualifiedSourceFileName,
-	String qualifiedPackageName,
-	char[] typeName,
-	String[] additionalSourceFilenames) {
-
-	// if an additional source file is waiting to be compiled, answer it
-	// BUT not if this is a secondary type search,
-	// if we answer the source file X.java which may no longer define Y
-	// then the binary type looking for Y will fail & think the class path is wrong
-	// let the recompile loop fix up dependents when Y has been deleted from X.java
-	String fullSourceName = sourcePath + qualifiedSourceFileName;
-	for (int i = 0, l = additionalSourceFilenames.length; i < l; i++)
-		if (fullSourceName.equals(additionalSourceFilenames[i]))
-			return new NameEnvironmentAnswer(
-				new SourceFile(fullSourceName, typeName, CharOperation.splitOn('/', qualifiedPackageName.toCharArray())));
-	return null;
-}
-
 public String toString() {
-	return "Source classpath directory " + sourcePath + //$NON-NLS-1$
-		" with binary directory " + binaryPath; //$NON-NLS-1$
+	return "Source classpath directory " + sourceFolder.getFullPath().toString() + //$NON-NLS-1$
+		" with binary directory " + binaryFolder.getFullPath().toString(); //$NON-NLS-1$
 }
 }

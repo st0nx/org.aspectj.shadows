@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import org.eclipse.core.resources.IFile;
@@ -145,6 +145,12 @@ protected void consumeMethodInvocationSuper() {
 		this.matchSet.checkMatching(this.expressionStack[this.expressionPtr]);
 	}
 }
+protected void consumePrimaryNoNewArray() {
+	// pop parenthesis positions (and don't update expression positions
+	// (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=23329)
+	intPtr--;
+	intPtr--;
+}
 protected void consumeSingleTypeImportDeclarationName() {
 	super.consumeSingleTypeImportDeclarationName();
 	if (this.matchSet != null) {
@@ -187,14 +193,7 @@ protected CompilationUnitDeclaration dietParse(ICompilationUnit sourceUnit, Matc
 					&& unit != null && file != null) {
 				// potential matches were found while initializing the search pattern
 				// from the lookup environment: add the corresponding openable in the list
-				MatchingOpenable matchingOpenable = 
-					new MatchingOpenable(
-						locator,
-						file, 
-						compilationUnit, 
-						unit,
-						this.matchSet);
-				locator.matchingOpenables.add(matchingOpenable);
+				locator.addMatchingOpenable(file, compilationUnit, unit, this.matchSet);
 			}
 			this.matchSet = null;
 		} else {
@@ -273,7 +272,9 @@ private void parseBodies(TypeDeclaration type, CompilationUnitDeclaration unit) 
 					this.parse(constructorDeclaration, unit);
 					constructorDeclaration.traverse(localDeclarationVisitor, (ClassScope)null);
 				}
-			}	
+			} else if (method.isDefaultConstructor()) {
+				method.parseStatements(this, unit);
+			}
 		}
 	}
 

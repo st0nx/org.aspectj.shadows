@@ -1,20 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.index.impl;
 
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.util.ArrayList;
 
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.core.compiler.CharOperation;
 
 /**
  * An indexSummary is used when saving an index into a BlocksIndexOuput or 
@@ -147,7 +147,7 @@ public int getBlockNum(int blockLocation) {
 		while (min <= max && match < 0) {
 			int mid= (min + max) / 2;
 			FirstWordInBlock entry= (FirstWordInBlock) firstWordsInBlocks.get(mid);
-			int compare= Util.startsWith(entry.word, prefix);
+			int compare= CharOperation.compareWith(entry.word, prefix);
 			if (compare == 0) {
 				match= mid;
 				break;
@@ -167,7 +167,7 @@ public int getBlockNum(int blockLocation) {
 		// Look if previous blocks are affected
 		for (; firstBlock >= 0; firstBlock--) {
 			FirstWordInBlock entry= (FirstWordInBlock) firstWordsInBlocks.get(firstBlock);
-			if (!CharOperation.startsWith(entry.word, prefix))
+			if (!CharOperation.prefixEquals(prefix, entry.word))
 				break;
 		}
 		if (firstBlock < 0)
@@ -177,7 +177,7 @@ public int getBlockNum(int blockLocation) {
 		int firstNotIncludedBlock= match + 1;
 		for (; firstNotIncludedBlock < size; firstNotIncludedBlock++) {
 			FirstWordInBlock entry= (FirstWordInBlock) firstWordsInBlocks.get(firstNotIncludedBlock);
-			if (!CharOperation.startsWith(entry.word, prefix))
+			if (!CharOperation.prefixEquals(prefix, entry.word))
 				break;
 		}
 		
@@ -198,7 +198,7 @@ public int getFirstBlockLocationForPrefix(char[] prefix) {
 	while (min <= max) {
 		int mid = (min + max) / 2;
 		FirstWordInBlock entry = (FirstWordInBlock) firstWordsInBlocks.get(mid);
-		int compare = Util.startsWith(entry.word, prefix);
+		int compare = CharOperation.compareWith(entry.word, prefix);
 		if (compare == 0) {
 			match = mid;
 			break;
@@ -219,9 +219,8 @@ public int getFirstBlockLocationForPrefix(char[] prefix) {
 		// look for possible matches inside previous blocks
 		while (match > 0){
 			FirstWordInBlock entry = (FirstWordInBlock) firstWordsInBlocks.get(match);
-			if (!CharOperation.startsWith(entry.word, prefix)){
+			if (!CharOperation.prefixEquals(prefix, entry.word))
 				break;
-			}
 			match--;
 		}
 	}
@@ -240,7 +239,7 @@ public int getFirstBlockLocationForPrefix(char[] prefix) {
 public int getNextBlockLocationForPrefix(char[] prefix, int blockLoc) {
 	if (++blockLoc < firstWordsInBlocks.size()){
 		FirstWordInBlock entry= (FirstWordInBlock) firstWordsInBlocks.get(blockLoc);
-		if (CharOperation.startsWith(entry.word, prefix)) return blockLoc;
+		if (CharOperation.prefixEquals(prefix, entry.word)) return blockLoc;
 	}
 	return -1;
 }

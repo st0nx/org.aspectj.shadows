@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -45,8 +45,6 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 		// must verify that exceptions potentially thrown by this expression are caught in the method
 		flowContext.checkExceptionHandlers(thrownExceptions, this, flowInfo, currentScope);
 	}
-	// if invoking through an enclosing instance, then must perform the field generation -- only if reachable
-	manageEnclosingInstanceAccessIfNecessary(currentScope);
 	manageSyntheticAccessIfNecessary(currentScope);	
 	return flowInfo;
 }
@@ -64,15 +62,11 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 	// generate receiver/enclosing instance access
 	boolean isStatic = codegenBinding.isStatic();
 	// outer access ?
-	if (!isStatic && ((bits & DepthMASK) != 0) && (receiver == ThisReference.ThisImplicit)){
+	if (!isStatic && ((bits & DepthMASK) != 0) && receiver.isImplicitThis()){
 		// outer method can be reached through emulation if implicit access
-		Object[] path = currentScope.getExactEmulationPath(currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT));
-		if (path == null) {
-			// emulation was not possible (should not happen per construction)
-			currentScope.problemReporter().needImplementation();
-		} else {
-			codeStream.generateOuterAccess(path, this, currentScope);
-		}
+		ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);		
+		Object[] path = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
+		codeStream.generateOuterAccess(path, this, targetType, currentScope);
 	} else {
 		receiver.generateCode(currentScope, codeStream, !isStatic);
 	}
@@ -125,17 +119,6 @@ public boolean isSuperAccess() {
 public boolean isTypeAccess() {	
 	return receiver != null && receiver.isTypeReference();
 }
-public void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope) {
-	if (((bits & DepthMASK) != 0) && !binding.isStatic() && (receiver == ThisReference.ThisImplicit)) {
-		ReferenceBinding compatibleType = currentScope.enclosingSourceType();
-		// the declaringClass of the target binding must be compatible with the enclosing
-		// type at <depth> levels outside
-		for (int i = 0, depth = (bits & DepthMASK) >> DepthSHIFT; i < depth; i++) {
-			compatibleType = compatibleType.enclosingType();
-		}
-		currentScope.emulateOuterAccess((SourceTypeBinding) compatibleType, false); // request cascade of accesses
-	}
-}
 public void manageSyntheticAccessIfNecessary(BlockScope currentScope){
 
 	if (binding.isPrivate()){
@@ -143,7 +126,7 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope){
 		// depth is set for both implicit and explicit access (see MethodBinding#canBeSeenBy)		
 		if (currentScope.enclosingSourceType() != binding.declaringClass){
 		
-			syntheticAccessor = ((SourceTypeBinding)binding.declaringClass).addSyntheticMethod(binding);
+			syntheticAccessor = ((SourceTypeBinding)binding.declaringClass).addSyntheticMethod(binding, isSuperAccess());
 			currentScope.problemReporter().needToEmulateMethodAccess(binding, this);
 			return;
 		}
@@ -152,7 +135,7 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope){
 
 		// qualified super need emulation always
 		SourceTypeBinding destinationType = (SourceTypeBinding)(((QualifiedSuperReference)receiver).currentCompatibleType);
-		syntheticAccessor = destinationType.addSyntheticMethod(binding);
+		syntheticAccessor = destinationType.addSyntheticMethod(binding, isSuperAccess());
 		currentScope.problemReporter().needToEmulateMethodAccess(binding, this);
 		return;
 
@@ -164,19 +147,19 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope){
 					!= (enclosingSourceType = currentScope.enclosingSourceType()).getPackage()){
 
 			SourceTypeBinding currentCompatibleType = (SourceTypeBinding)enclosingSourceType.enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
-			syntheticAccessor = currentCompatibleType.addSyntheticMethod(binding);
+			syntheticAccessor = currentCompatibleType.addSyntheticMethod(binding, isSuperAccess());
 			currentScope.problemReporter().needToEmulateMethodAccess(binding, this);
 			return;
 		}
 	}
 	// if the binding declaring class is not visible, need special action
 	// for runtime compatibility on 1.2 VMs : change the declaring class of the binding
-	// NOTE: from 1.4 on, method's declaring class is touched if any different from receiver type
+	// NOTE: from target 1.2 on, method's declaring class is touched if any different from receiver type
 	// and not from Object or implicit static method call.	
 	if (binding.declaringClass != this.qualifyingType
 		&& !this.qualifyingType.isArrayType()
-		&& ((currentScope.environment().options.complianceLevel >= CompilerOptions.JDK1_4
-				&& (receiver != ThisReference.ThisImplicit || !binding.isStatic())
+		&& ((currentScope.environment().options.targetJDK >= CompilerOptions.JDK1_2
+				&& (!receiver.isImplicitThis() || !binding.isStatic())
 				&& binding.declaringClass.id != T_Object) // no change for Object methods
 			|| !binding.declaringClass.canBeSeenBy(currentScope))) {
 
@@ -203,7 +186,6 @@ public TypeBinding resolveType(BlockScope scope) {
 			}
 		}
 		if (argHasError){
-			MethodBinding closestMethod = null;
 			if(receiverType instanceof ReferenceBinding) {
 				// record any selector match, for clients who may still need hint about possible method match
 				this.codegenBinding = this.binding = scope.findMethod((ReferenceBinding)receiverType, selector, new TypeBinding[]{}, this);
@@ -221,32 +203,39 @@ public TypeBinding resolveType(BlockScope scope) {
 	}
 
 	this.codegenBinding = this.binding = 
-		receiver == ThisReference.ThisImplicit
+		receiver.isImplicitThis()
 			? scope.getImplicitMethod(selector, argumentTypes, this)
 			: scope.getMethod(this.receiverType, selector, argumentTypes, this); 
 	if (!binding.isValidBinding()) {
 		if (binding.declaringClass == null) {
 			if (this.receiverType instanceof ReferenceBinding) {
 				binding.declaringClass = (ReferenceBinding) this.receiverType;
-			} else { // really bad error ....
+			} else { 
 				scope.problemReporter().errorNoMethodFor(this, this.receiverType, argumentTypes);
 				return null;
 			}
 		}
 		scope.problemReporter().invalidMethod(this, binding);
 		// record the closest match, for clients who may still need hint about possible method match
-		if (binding.problemId() == ProblemReasons.NotFound){
-			this.codegenBinding = this.binding = ((ProblemMethodBinding)binding).closestMatch;
+		if (binding instanceof ProblemMethodBinding){
+			MethodBinding closestMatch = ((ProblemMethodBinding)binding).closestMatch;
+			if (closestMatch != null) this.codegenBinding = this.binding = closestMatch;
 		}
-		return null;
+		return binding == null ? null : binding.returnType;
 	}
 	if (!binding.isStatic()) {
 		// the "receiver" must not be a type, i.e. a NameReference that the TC has bound to a Type
-		if (receiver instanceof NameReference) {
-			if ((((NameReference) receiver).bits & BindingIds.TYPE) != 0) {
-				scope.problemReporter().mustUseAStaticMethod(this, binding);
-				return null;
-			}
+		if (receiver instanceof NameReference 
+				&& (((NameReference) receiver).bits & BindingIds.TYPE) != 0) {
+			scope.problemReporter().mustUseAStaticMethod(this, binding);
+		}
+	} else {
+		// static message invoked through receiver? legal but unoptimal (optional warning).
+		if (!(receiver.isImplicitThis()
+				|| receiver.isSuper()
+				|| (receiver instanceof NameReference 
+					&& (((NameReference) receiver).bits & BindingIds.TYPE) != 0))) {
+			scope.problemReporter().unnecessaryReceiverForStaticMethod(this, binding);
 		}
 	}
 	if (arguments != null)
@@ -257,14 +246,13 @@ public TypeBinding resolveType(BlockScope scope) {
 	if (binding.isAbstract()) {
 		if (receiver.isSuper()) {
 			scope.problemReporter().cannotDireclyInvokeAbstractMethod(this, binding);
-			return null;
 		}
 		// abstract private methods cannot occur nor abstract static............
 	}
 	if (isMethodUseDeprecated(binding, scope))
 		scope.problemReporter().deprecatedMethod(binding, this);
 
-	return binding.returnType;
+	return this.resolvedType = binding.returnType;
 }
 public void setActualReceiverType(ReferenceBinding receiverType) {
 	this.qualifyingType = receiverType;
@@ -282,7 +270,7 @@ public void setFieldIndex(int depth) {
 public String toStringExpression(){
 	
 	String s = ""; //$NON-NLS-1$
-	if (receiver != ThisReference.ThisImplicit)
+	if (!receiver.isImplicitThis())
 		s = s + receiver.toStringExpression()+"."; //$NON-NLS-1$
 	s = s + new String(selector) + "(" ; //$NON-NLS-1$
 	if (arguments != null)

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.IJavaElement;
@@ -59,6 +59,15 @@ public CreateTypeHierarchyOperation(IType element, IRegion region, IJavaProject 
 public CreateTypeHierarchyOperation(IType element, IWorkingCopy[] workingCopies, IJavaSearchScope scope, boolean computeSubtypes) throws JavaModelException {
 	super(element);
 	this.typeHierarchy = new TypeHierarchy(element, scope, computeSubtypes);
+	this.workingCopies = workingCopies;
+}
+/**
+ * Constructs an operation to create a type hierarchy for the
+ * given type and working copies.
+ */
+public CreateTypeHierarchyOperation(IType element, IWorkingCopy[] workingCopies, IJavaProject project, boolean computeSubtypes) throws JavaModelException {
+	super(element);
+	this.typeHierarchy = new TypeHierarchy(element, project, computeSubtypes);
 	this.workingCopies = workingCopies;
 }
 /**

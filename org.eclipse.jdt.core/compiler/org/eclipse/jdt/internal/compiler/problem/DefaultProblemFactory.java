@@ -1,22 +1,22 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.problem;
 
 import java.util.Locale;
 import java.util.MissingResourceException;
 import java.util.ResourceBundle;
 
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 public class DefaultProblemFactory implements IProblemFactory {
 
@@ -46,7 +46,8 @@ public DefaultProblemFactory(Locale loc) {
  * <ul>
  * <li>originatingFileName the name of the file name from which the problem is originated
  * <li>problemId the problem id
- * <li>arguments the arguments needed to set the error message
+ * <li>problemArguments the fully qualified arguments recorded inside the problem
+ * <li>messageArguments the arguments needed to set the error message (shorter names than problemArguments ones)
  * <li>severity the severity of the problem
  * <li>startPosition the starting position of the problem
  * <li>endPosition the end position of the problem
@@ -64,7 +65,8 @@ public DefaultProblemFactory(Locale loc) {
 public IProblem createProblem(
 	char[] originatingFileName, 
 	int problemId, 
-	String[] arguments, 
+	String[] problemArguments, 
+	String[] messageArguments, 
 	int severity, 
 	int startPosition, 
 	int endPosition, 
@@ -72,9 +74,9 @@ public IProblem createProblem(
 
 	return new DefaultProblem(
 		originatingFileName, 
-		this.getLocalizedMessage(problemId, arguments),
+		this.getLocalizedMessage(problemId, messageArguments),
 		problemId, 
-		arguments, 
+		problemArguments, 
 		severity, 
 		startPosition, 
 		endPosition, 
@@ -93,7 +95,7 @@ public final String getLocalizedMessage(int id, String[] problemArguments) {
 		messageTemplates[(id & IProblem.IgnoreCategoriesMask)]; 
 	if (message == null) {
 		return "Unable to retrieve the error message for problem id: " //$NON-NLS-1$
-			+ id
+			+ (id & IProblem.IgnoreCategoriesMask)
 			+ ". Check compiler resources.";  //$NON-NLS-1$
 	}
 
@@ -142,7 +144,14 @@ public final String localizedMessage(IProblem problem) {
  * to the current Locale.
  */
 public static String[] loadMessageTemplates(Locale loc) {
-	ResourceBundle bundle = ResourceBundle.getBundle("org.eclipse.jdt.internal.compiler.problem.messages", loc); //$NON-NLS-1$
+	ResourceBundle bundle = null;
+	String bundleName = "org.eclipse.jdt.internal.compiler.problem.messages"; //$NON-NLS-1$
+	try {
+		bundle = ResourceBundle.getBundle(bundleName, loc); 
+	} catch(MissingResourceException e) {
+		System.out.println("Missing resource : " + bundleName.replace('.', '/') + ".properties for locale " + loc); //$NON-NLS-1$//$NON-NLS-2$
+		throw e;
+	}
 	String[] templates = new String[500];
 	for (int i = 0, max = templates.length; i < max; i++) {
 		try {

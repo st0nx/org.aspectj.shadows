@@ -1,18 +1,17 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
 import org.eclipse.jdt.internal.compiler.ast.MessageSend;
 import org.eclipse.jdt.internal.compiler.ast.NameReference;
-import org.eclipse.jdt.internal.compiler.ast.ThisReference;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.lookup.ArrayBinding;
@@ -54,15 +53,13 @@ public void generateCode(
 		// outer access ?
 		if (!isStatic && ((bits & DepthMASK) != 0)) {
 			// outer method can be reached through emulation
-			Object[] path =
-				currentScope.getExactEmulationPath(
-					currentScope.enclosingSourceType().enclosingTypeAt(
-						(bits & DepthMASK) >> DepthSHIFT));
+			ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
+			Object[] path = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
 			if (path == null) {
 				// emulation was not possible (should not happen per construction)
 				currentScope.problemReporter().needImplementation();
 			} else {
-				codeStream.generateOuterAccess(path, this, currentScope);
+				codeStream.generateOuterAccess(path, this, targetType, currentScope);
 			}
 		} else {
 			receiver.generateCode(currentScope, codeStream, !isStatic);
@@ -164,12 +161,12 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope) {
 
 	// if the binding declaring class is not visible, need special action
 	// for runtime compatibility on 1.2 VMs : change the declaring class of the binding
-	// NOTE: from 1.4 on, method's declaring class is touched if any different from receiver type
+	// NOTE: from target 1.2 on, method's declaring class is touched if any different from receiver type
 	// and not from Object or implicit static method call.	
 	if (binding.declaringClass != this.qualifyingType
 		&& !this.qualifyingType.isArrayType()
-		&& ((currentScope.environment().options.complianceLevel >= CompilerOptions.JDK1_4
-				&& (receiver != ThisReference.ThisImplicit || !binding.isStatic())
+		&& ((currentScope.environment().options.targetJDK >= CompilerOptions.JDK1_2
+				&& (!receiver.isImplicitThis() || !binding.isStatic())
 				&& binding.declaringClass.id != T_Object) // no change for Object methods
 			|| !binding.declaringClass.canBeSeenBy(currentScope))) {
 		codegenBinding = currentScope.enclosingSourceType().getUpdatedMethodBinding(binding, (ReferenceBinding) this.qualifyingType);
@@ -203,7 +200,7 @@ public TypeBinding resolveType(BlockScope scope) {
 	}
 
 	binding = 
-		receiver == ThisReference.ThisImplicit
+		receiver.isImplicitThis()
 			? scope.getImplicitMethod(selector, argumentTypes, this)
 			: scope.getMethod(receiverType, selector, argumentTypes, this); 
 	if (!binding.isValidBinding()) {
@@ -277,6 +274,6 @@ public TypeBinding resolveType(BlockScope scope) {
 	if (isMethodUseDeprecated(binding, scope))
 		scope.problemReporter().deprecatedMethod(binding, this);
 
-	return binding.returnType;
+	return this.resolvedType = binding.returnType;
 }
 }

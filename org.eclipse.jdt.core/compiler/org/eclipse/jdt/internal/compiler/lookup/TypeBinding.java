@@ -1,14 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
+
+import org.eclipse.jdt.core.compiler.CharOperation;
 
 /*
  * Not all fields defined by this type (& its subclasses) are initialized when it is created.
@@ -45,6 +47,12 @@ public abstract char[] constantPoolName(); /* java/lang/Object */
 String debugName() {
 	return new String(readableName());
 }
+/*
+ * Answer the receiver's dimensions - 0 for non-array types
+ */
+public int dimensions(){
+	return 0;
+}
 public abstract PackageBinding getPackage();
 /* Answer true if the receiver is an array
 */
@@ -64,7 +72,7 @@ public boolean isClass() {
 /* Answer true if the receiver type can be assigned to the argument type (right)
 */
 	
-abstract boolean isCompatibleWith(TypeBinding right);
+public abstract boolean isCompatibleWith(TypeBinding right);
 /* Answer true if the receiver's hierarchy has problems (always false for arrays & base types)
 */
 
@@ -101,7 +109,10 @@ public TypeBinding leafComponentType(){
  */
 
 public char[] qualifiedPackageName() {
-	return getPackage() == null ? NoChar : getPackage().readableName();
+	PackageBinding packageBinding = getPackage();
+	return packageBinding == null  || packageBinding.compoundName == CharOperation.NO_CHAR_CHAR
+		? CharOperation.NO_CHAR
+		: packageBinding.readableName();
 }
 /**
 * Answer the source name for the type.

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
@@ -141,6 +141,7 @@ public interface ITypeBinding extends IBinding {
 	 * 
 	 * @return the unqualified name of the type represented by this binding, an
 	 *    empty string this is an anonymous type, or "null" for the null type
+	 * @see #getQualifiedName
 	 */
 	public String getName();
 			
@@ -180,6 +181,12 @@ public interface ITypeBinding extends IBinding {
 	 * superclass of this class is returned. If this type binding represents
 	 * the class <code>java.lang.Object</code>, then <code>null</code> is
 	 * returned.
+	 * <p>
+	 * Loops that ascend the class hierarchy need a suitable termination test.
+	 * Rather than test the superclass for <code>null</code>, it is more 
+	 * transparent to check whether the class is <code>Object</code>, by 
+	 * comparing whether the class binding is identical to 
+	 * <code>ast.resolveWellKnownType("java.lang.Object")</code>.
 	 * </p>
 	 * <p>
 	 * If this type binding represents an interface, an array type, a
@@ -188,6 +195,7 @@ public interface ITypeBinding extends IBinding {
 	 *
 	 * @return the superclass of the class represented by this type binding,
 	 *    or <code>null</code> if none
+	 * @see AST#resolveWellKnownType
 	 */
 	public ITypeBinding getSuperclass();
 	
@@ -376,4 +384,38 @@ public interface ITypeBinding extends IBinding {
 	 *    and <code>false</code> otherwise
 	 */
 	public boolean isFromSource();
+	
+	/**
+	 * Returns the fully qualified name of the type represented by this 
+	 * binding if it has one.
+	 * <ul>
+	 * <li>For top-level types, the fully qualified name is the simple name of
+	 * the type qualified by the package name (or unqualified if in a default
+	 * package).
+	 * Example: <code>"java.lang.String"</code>.</li>
+	 * <li>For members of top-level types, the fully qualified name is the
+	 * simple name of the type qualified by the fully qualified name of the
+	 * enclosing type.
+	 * Example: <code>"java.io.ObjectInputStream.GetField"</code>.</li>
+	 * <li>For primitive types, the fully qualified name is the keyword for
+	 * the primitive type.
+	 * Example: <code>"int"</code>.</li>
+	 * <li>For array types whose component type has a fully qualified name, 
+	 * the fully qualified name is the fully qualified name of the component
+	 * type followed by "[]".
+	 * Example: <code>"java.lang.String[]"</code>.</li>
+	 * <li>For the null type, the fully qualified name is the string 
+	 * "null".</li>
+	 * <li>Local types (including anonymous classes) and members of local
+	 * types do not have a fully qualified name. For these types, and array
+	 * types thereof, this method returns an empty string.</li>
+	 * </ul>
+	 * 
+	 * @return the fully qualified name of the type represented by this 
+	 *    binding, or an empty string if this type does not have such an
+	 *    unambiguous name
+	 * @see #getName
+	 * @since 2.1
+	 */
+	public String getQualifiedName();
 }

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
 import org.eclipse.jdt.internal.compiler.ast.ThisReference;
@@ -38,7 +38,7 @@ public CodeSnippetThisReference(int s, int sourceEnd, EvaluationContext evaluati
 	this.evaluationContext = evaluationContext;
 	this.isImplicit = isImplicit;
 }
-protected boolean checkAccess(MethodScope methodScope) {
+public boolean checkAccess(MethodScope methodScope) {
 	// this/super cannot be used in constructor call
 	if (evaluationContext.isConstructorCall) {
 		methodScope.problemReporter().fieldsOrThisBeforeConstructorInvocation(this);
@@ -78,8 +78,8 @@ public TypeBinding resolveType(BlockScope scope) {
 	
 	delegateThis = scope.getField(snippetType, DELEGATE_THIS, this);
 	if (delegateThis == null) return null; // internal error, field should have been found
-	if (delegateThis.isValidBinding()) return delegateThis.type;
-	return snippetType;
+	if (delegateThis.isValidBinding()) return this.resolvedType = delegateThis.type;
+	return this.resolvedType = snippetType;
 }
 public void setActualReceiverType(ReferenceBinding receiverType) {
 	// ignored

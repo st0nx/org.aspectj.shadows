@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -45,25 +45,27 @@ public class SwitchStatement extends Statement {
 
 		// analyse the block by considering specially the case/default statements (need to bind them 
 		// to the entry point)
-		FlowInfo caseInits = FlowInfo.DeadEnd;
+		FlowInfo caseInits = FlowInfo.DEAD_END;
 		// in case of statements before the first case
 		preSwitchInitStateIndex =
 			currentScope.methodScope().recordInitializationStates(flowInfo);
 		int caseIndex = 0;
 		if (statements != null) {
+			boolean didAlreadyComplain = false;
 			for (int i = 0, max = statements.length; i < max; i++) {
 				Statement statement = statements[i];
-				if ((caseIndex < caseCount)
-					&& (statement == cases[caseIndex])) { // statements[i] is a case or a default case
+				if ((caseIndex < caseCount) && (statement == cases[caseIndex])) { // statement is a case
 					caseIndex++;
 					caseInits = caseInits.mergedWith(flowInfo.copy().unconditionalInits());
-				} else {
-					if (statement == defaultCase) {
-						caseInits = caseInits.mergedWith(flowInfo.copy().unconditionalInits());
-					}
+					didAlreadyComplain = false; // reset complaint
+				} else if (statement == defaultCase) { // statement is the default case
+					caseInits = caseInits.mergedWith(flowInfo.copy().unconditionalInits());
+					didAlreadyComplain = false; // reset complaint
 				}
-				if (!caseInits.complainIfUnreachable(statement, scope)) {
+				if (!caseInits.complainIfUnreachable(statement, scope, didAlreadyComplain)) {
 					caseInits = statement.analyseCode(scope, switchContext, caseInits);
+				} else {
+					didAlreadyComplain = true;
 				}
 			}
 		}
@@ -126,23 +128,32 @@ public class SwitchStatement extends Statement {
 		// generate expression testes
 		testExpression.generateCode(currentScope, codeStream, needSwitch);
 
-		// generate the appropriate switch table
+		// generate the appropriate switch table/lookup bytecode
 		if (needSwitch) {
 			int max = localKeysCopy[caseCount - 1];
 			int min = localKeysCopy[0];
 			if ((long) (caseCount * 2.5) > ((long) max - (long) min)) {
-				codeStream.tableswitch(
-					defaultLabel,
-					min,
-					max,
-					constants,
-					sortedIndexes,
-					caseLabels);
+				
+				// work-around 1.3 VM bug, if max>0x7FFF0000, must use lookup bytecode
+				// see http://dev.eclipse.org/bugs/show_bug.cgi?id=21557
+				if (max > 0x7FFF0000 && currentScope.environment().options.complianceLevel < CompilerOptions.JDK1_4) {
+					codeStream.lookupswitch(defaultLabel, constants, sortedIndexes, caseLabels);
+
+				} else {
+					codeStream.tableswitch(
+						defaultLabel,
+						min,
+						max,
+						constants,
+						sortedIndexes,
+						caseLabels);
+				}
 			} else {
 				codeStream.lookupswitch(defaultLabel, constants, sortedIndexes, caseLabels);
 			}
 			codeStream.updateLastRecordedEndPC(codeStream.position);
 		}
+		
 		// generate the switch block statements
 		int caseIndex = 0;
 		if (statements != null) {
@@ -188,8 +199,9 @@ public class SwitchStatement extends Statement {
 
 
 	public void resetStateForCodeGeneration() {
-
-		this.breakLabel.resetStateForCodeGeneration();
+		if (this.breakLabel != null) {
+			this.breakLabel.resetStateForCodeGeneration();
+		}
 	}
 
 	public void resolve(BlockScope upperScope) {
@@ -198,9 +210,8 @@ public class SwitchStatement extends Statement {
 		if (testType == null)
 			return;
 		testExpression.implicitWidening(testType, testType);
-		if (!(testExpression
-			.isConstantValueOfTypeAssignableToType(testType, IntBinding))) {
-			if (!upperScope.areTypesCompatible(testType, IntBinding)) {
+		if (!(testExpression.isConstantValueOfTypeAssignableToType(testType, IntBinding))) {
+			if (!testType.isCompatibleWith(IntBinding)) {
 				upperScope.problemReporter().incorrectSwitchType(testExpression, testType);
 				return;
 			}
@@ -220,7 +231,7 @@ public class SwitchStatement extends Statement {
 						int key = cst.intValue();
 						for (int j = 0; j < counter; j++) {
 							if (casesValues[j] == key) {
-								scope.problemReporter().duplicateCase((Case) statements[i], cst);
+								scope.problemReporter().duplicateCase((Case) statements[i], cst); //TODO: (philippe) could improve diagnosis to indicate colliding case
 							}
 						}
 						casesValues[counter++] = key;

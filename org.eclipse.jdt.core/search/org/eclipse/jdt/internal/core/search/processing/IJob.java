@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.processing;
 
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -32,11 +32,12 @@ public interface IJob {
 	 * can take an undertermined amount of time.
 	 */
 	public void cancel();
-	
 	/**
-	 * Execute the current job, answering:
-	 *      RESCHEDULE if the job should be rescheduled later on
-	 *      COMPLETE if the job is over
+	 * Execute the current job, answer whether it was successful.
 	 */
 	public boolean execute(IProgressMonitor progress);
+	/**
+	 * Answer whether the job is ready to run.
+	 */
+	public boolean isReadyToRun();
 }

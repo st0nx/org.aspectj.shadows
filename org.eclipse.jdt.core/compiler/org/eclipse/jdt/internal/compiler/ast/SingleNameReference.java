@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -36,10 +36,10 @@ public FlowInfo analyseAssignment(BlockScope currentScope, FlowContext flowConte
 		switch (bits & RestrictiveFlagMASK) {
 			case FIELD : // reading a field
 				FieldBinding fieldBinding;
-				if ((fieldBinding = (FieldBinding) binding).isFinal() && currentScope.allowBlankFinalFieldAssignment(fieldBinding)) {
+				if ((fieldBinding = (FieldBinding) binding).isBlankFinal() 
+						&& currentScope.allowBlankFinalFieldAssignment(fieldBinding)) {
 					if (!flowInfo.isDefinitelyAssigned(fieldBinding)) {
 						currentScope.problemReporter().uninitializedBlankFinalField(fieldBinding, this);
-						// we could improve error msg here telling "cannot use compound assignment on final blank field"
 					}
 				}
 				manageSyntheticReadAccessIfNecessary(currentScope);
@@ -51,7 +51,11 @@ public FlowInfo analyseAssignment(BlockScope currentScope, FlowContext flowConte
 					currentScope.problemReporter().uninitializedLocalVariable(localBinding, this);
 					// we could improve error msg here telling "cannot use compound assignment on final local variable"
 				}
-				if (!flowInfo.isFakeReachable()) localBinding.used = true;
+				if (flowInfo.isReachable()) {
+					localBinding.useFlag = LocalVariableBinding.USED;
+				} else if (localBinding.useFlag == LocalVariableBinding.UNUSED) {
+					localBinding.useFlag = LocalVariableBinding.FAKE_USED;
+				}
 		}
 	}
 	if (assignment.expression != null) {
@@ -65,12 +69,13 @@ public FlowInfo analyseAssignment(BlockScope currentScope, FlowContext flowConte
 			FieldBinding fieldBinding;
 			if ((fieldBinding = (FieldBinding) binding).isFinal()) {
 				// inside a context where allowed
-				if (currentScope.allowBlankFinalFieldAssignment(fieldBinding)) {
+				if (!isCompound && fieldBinding.isBlankFinal() && currentScope.allowBlankFinalFieldAssignment(fieldBinding)) {
 					if (flowInfo.isPotentiallyAssigned(fieldBinding)) {
 						currentScope.problemReporter().duplicateInitializationOfBlankFinalField(fieldBinding, this);
+					} else {
+						flowContext.recordSettingFinal(fieldBinding, this);						
 					}
 					flowInfo.markAsDefinitelyAssigned(fieldBinding);
-					flowContext.recordSettingFinal(fieldBinding, this);						
 				} else {
 					currentScope.problemReporter().cannotAssignToFinalField(fieldBinding, this);
 				}
@@ -85,10 +90,13 @@ public FlowInfo analyseAssignment(BlockScope currentScope, FlowContext flowConte
 			}
 			if (localBinding.isFinal()) {
 				if ((bits & DepthMASK) == 0) {
-					if (flowInfo.isPotentiallyAssigned(localBinding)) {
+					if (isCompound || !localBinding.isBlankFinal()){
+						currentScope.problemReporter().cannotAssignToFinalLocal(localBinding, this);
+					} else if (flowInfo.isPotentiallyAssigned(localBinding)) {
 						currentScope.problemReporter().duplicateInitializationOfFinalLocal(localBinding, this);
+					} else {
+						flowContext.recordSettingFinal(localBinding, this);								
 					}
-					flowContext.recordSettingFinal(localBinding, this);								
 				} else {
 					currentScope.problemReporter().cannotAssignToFinalOuterLocal(localBinding, this);
 				}
@@ -110,7 +118,8 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 			}
 			// check if reading a final blank field
 			FieldBinding fieldBinding;
-			if ((fieldBinding = (FieldBinding) binding).isFinal() && currentScope.allowBlankFinalFieldAssignment(fieldBinding)) {
+			if ((fieldBinding = (FieldBinding) binding).isBlankFinal() 
+					&& currentScope.allowBlankFinalFieldAssignment(fieldBinding)) {
 				if (!flowInfo.isDefinitelyAssigned(fieldBinding)) {
 					currentScope.problemReporter().uninitializedBlankFinalField(fieldBinding, this);
 				}
@@ -121,7 +130,11 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 			if (!flowInfo.isDefinitelyAssigned(localBinding = (LocalVariableBinding) binding)) {
 				currentScope.problemReporter().uninitializedLocalVariable(localBinding, this);
 			}
-			if (!flowInfo.isFakeReachable()) localBinding.used = true;			
+			if (flowInfo.isReachable()) {
+				localBinding.useFlag = LocalVariableBinding.USED;
+			} else if (localBinding.useFlag == LocalVariableBinding.UNUSED) {
+				localBinding.useFlag = LocalVariableBinding.FAKE_USED;
+			}
 	}
 	if (valueRequired) {
 		manageEnclosingInstanceAccessIfNecessary(currentScope);
@@ -137,42 +150,20 @@ public TypeBinding checkFieldAccess(BlockScope scope) {
 	if (!((FieldBinding) binding).isStatic()) {
 		// must check for the static status....
 		if (scope.methodScope().isStatic) {
-			scope.problemReporter().staticFieldAccessToNonStaticVariable(
-				this,
-				fieldBinding);
+			scope.problemReporter().staticFieldAccessToNonStaticVariable(this, fieldBinding);
 			constant = NotAConstant;
-			return null;
+			return fieldBinding.type;
 		}
 	}
-	constant = FieldReference.getConstantFor(fieldBinding, true, this, scope, 0);
+	constant = FieldReference.getConstantFor(fieldBinding, this, true, scope);
+
 	if (isFieldUseDeprecated(fieldBinding, scope))
 		scope.problemReporter().deprecatedField(fieldBinding, this);
 
-	//===============================================
-	//cycle are forbidden ONLY within the same class...why ?????? (poor javac....)
-	//Cycle can be done using cross class ref but not direct into a same class reference ????
-	//class A {	static int k = B.k+1;}
-	//class B {	static int k = A.k+2;}
-	//The k-cycle in this example is valid.
-
-	//class C { static int k = k + 1 ;}
-	//here it is forbidden ! ????
-	//but the next one is valid !!!
-	//class C { static int k = C.k + 1;}
-
-	//notice that the next one is also valid ?!?!
-	//class A {	static int k = foo().k+1 ; static A foo(){return new A();}}
-
-	//for all these reasons, the next piece of code is only here and not
-	//commun for all FieldRef and QualifiedNameRef....(i.e. in the getField(..) API.....
-
-	//instance field may refer to forward static field, like in
-	//int i = staticI;
-	//static int staticI = 2 ;
-
 	MethodScope ms = scope.methodScope();
-	if (ms.enclosingSourceType() == fieldBinding.declaringClass
-		&& ms.fieldDeclarationIndex != ms.NotInFieldDecl
+	if ((this.bits & IsStrictlyAssignedMASK) == 0
+		&& ms.enclosingSourceType() == fieldBinding.declaringClass
+		&& ms.fieldDeclarationIndex != MethodScope.NotInFieldDecl
 		&& fieldBinding.id >= ms.fieldDeclarationIndex) {
 		//if the field is static and ms is not .... then it is valid
 		if (!fieldBinding.isStatic() || ms.isStatic)
@@ -211,13 +202,9 @@ public void generateAssignment(BlockScope currentScope, CodeStream codeStream, A
 			FieldBinding fieldBinding;
 			if (!(fieldBinding = (FieldBinding) this.codegenBinding).isStatic()) { // need a receiver?
 				if ((bits & DepthMASK) != 0) {
-					Object[] emulationPath = currentScope.getExactEmulationPath(currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT));
-					if (emulationPath == null) {
-						// internal error, per construction we should have found it
-						currentScope.problemReporter().needImplementation();
-					} else {
-						codeStream.generateOuterAccess(emulationPath, this, currentScope);
-					}
+					ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
+					Object[] emulationPath = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
+					codeStream.generateOuterAccess(emulationPath, this, targetType, currentScope);
 				} else {
 					this.generateReceiver(codeStream);
 				}
@@ -254,6 +241,14 @@ public void generateAssignment(BlockScope currentScope, CodeStream codeStream, A
 				}
 				return;
 			}
+			// 26903, need extra cast to store null in array local var	
+			if (localBinding.type.isArrayType() 
+				&& (assignment.expression.resolvedType == NullBinding	// arrayLoc = null
+					|| ((assignment.expression instanceof CastExpression)	// arrayLoc = (type[])null
+						&& (((CastExpression)assignment.expression).innermostCastedExpression().resolvedType == NullBinding)))){
+				codeStream.checkcast(localBinding.type); 
+			}
+			
 			// normal local assignment (since cannot store in outer local which are final locations)
 			codeStream.store(localBinding, valueRequired);
 			if ((bits & FirstAssignmentToLocalMASK) != 0) { // for local variable debug attributes
@@ -280,13 +275,9 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 						boolean isStatic;
 						if (!(isStatic = fieldBinding.isStatic())) {
 							if ((bits & DepthMASK) != 0) {
-								Object[] emulationPath = currentScope.getExactEmulationPath(currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT));
-								if (emulationPath == null) {
-									// internal error, per construction we should have found it
-									currentScope.problemReporter().needImplementation();
-								} else {
-									codeStream.generateOuterAccess(emulationPath, this, currentScope);
-								}
+								ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
+								Object[] emulationPath = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
+								codeStream.generateOuterAccess(emulationPath, this, targetType, currentScope);
 							} else {
 								generateReceiver(codeStream);
 							}
@@ -314,12 +305,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 					if ((bits & DepthMASK) != 0) {
 						// outer local can be reached either through a synthetic arg or a synthetic field
 						VariableBinding[] path = currentScope.getEmulationPath(localBinding);
-						if (path == null) {
-							// emulation was not possible (should not happen per construction)
-							currentScope.problemReporter().needImplementation();
-						} else {
-							codeStream.generateOuterAccess(path, this, currentScope);
-						}
+						codeStream.generateOuterAccess(path, this, localBinding, currentScope);
 					} else {
 						// regular local variable read
 						codeStream.load(localBinding);
@@ -363,13 +349,9 @@ public void generateCompoundAssignment(BlockScope currentScope, CodeStream codeS
 				}
 			} else {
 				if ((bits & DepthMASK) != 0) {
-					Object[] emulationPath = currentScope.getExactEmulationPath(currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT));
-					if (emulationPath == null) {
-						// internal error, per construction we should have found it
-						currentScope.problemReporter().needImplementation();
-					} else {
-						codeStream.generateOuterAccess(emulationPath, this, currentScope);
-					}
+					ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
+					Object[] emulationPath = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
+					codeStream.generateOuterAccess(emulationPath, this, targetType, currentScope);
 				} else {
 					codeStream.aload_0();
 				}
@@ -468,13 +450,9 @@ public void generatePostIncrement(BlockScope currentScope, CodeStream codeStream
 				}
 			} else {
 				if ((bits & DepthMASK) != 0) {
-					Object[] emulationPath = currentScope.getExactEmulationPath(currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT));
-					if (emulationPath == null) {
-						// internal error, per construction we should have found it
-						currentScope.problemReporter().needImplementation();
-					} else {
-						codeStream.generateOuterAccess(emulationPath, this, currentScope);
-					}
+					ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
+					Object[] emulationPath = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
+					codeStream.generateOuterAccess(emulationPath, this, targetType, currentScope);
 				} else {
 					codeStream.aload_0();
 				}
@@ -542,20 +520,8 @@ public void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope) {
 	//If inlinable field, forget the access emulation, the code gen will directly target it
 	if (((bits & DepthMASK) == 0) || (constant != NotAConstant)) return;
 
-	switch (bits & RestrictiveFlagMASK) {
-		case FIELD :
-			FieldBinding fieldBinding;
-			if ((fieldBinding = (FieldBinding)binding).isStatic() || (fieldBinding.constant != NotAConstant)) return;
-			ReferenceBinding compatibleType = currentScope.enclosingSourceType();
-			// the declaringClass of the target binding must be compatible with the enclosing
-			// type at <depth> levels outside
-			for (int i = 0, depth = (bits & DepthMASK) >> DepthSHIFT; i < depth; i++) {
-				compatibleType = compatibleType.enclosingType();
-			}
-			currentScope.emulateOuterAccess(compatibleType, false); // request cascade of accesses
-			break;
-		case LOCAL :
-			currentScope.emulateOuterAccess((LocalVariableBinding) binding);
+	if ((bits & RestrictiveFlagMASK) == LOCAL) {
+		currentScope.emulateOuterAccess((LocalVariableBinding) binding);
 	}
 }
 public void manageSyntheticReadAccessIfNecessary(BlockScope currentScope) {
@@ -582,13 +548,13 @@ public void manageSyntheticReadAccessIfNecessary(BlockScope currentScope) {
 		}
 		// if the binding declaring class is not visible, need special action
 		// for runtime compatibility on 1.2 VMs : change the declaring class of the binding
-		// NOTE: from 1.4 on, field's declaring class is touched if any different from receiver type
+		// NOTE: from target 1.2 on, field's declaring class is touched if any different from receiver type
 		// and not from Object or implicit static field access.	
 		if (fieldBinding.declaringClass != this.actualReceiverType
 			&& !this.actualReceiverType.isArrayType()	
 			&& fieldBinding.declaringClass != null
 			&& fieldBinding.constant == NotAConstant
-			&& ((currentScope.environment().options.complianceLevel >= CompilerOptions.JDK1_4 
+			&& ((currentScope.environment().options.targetJDK >= CompilerOptions.JDK1_2 
 					&& !fieldBinding.isStatic()
 					&& fieldBinding.declaringClass.id != T_Object) // no change for Object fields (if there was any)
 				|| !fieldBinding.declaringClass.canBeSeenBy(currentScope))){
@@ -616,13 +582,13 @@ public void manageSyntheticWriteAccessIfNecessary(BlockScope currentScope) {
 		}
 		// if the binding declaring class is not visible, need special action
 		// for runtime compatibility on 1.2 VMs : change the declaring class of the binding
-		// NOTE: from 1.4 on, field's declaring class is touched if any different from receiver type
+		// NOTE: from target 1.2 on, field's declaring class is touched if any different from receiver type
 		// and not from Object or implicit static field access.	
 		if (fieldBinding.declaringClass != this.actualReceiverType
 			&& !this.actualReceiverType.isArrayType()	
 			&& fieldBinding.declaringClass != null
 			&& fieldBinding.constant == NotAConstant
-			&& ((currentScope.environment().options.complianceLevel >= CompilerOptions.JDK1_4 
+			&& ((currentScope.environment().options.targetJDK >= CompilerOptions.JDK1_2 
 					&& !fieldBinding.isStatic()
 					&& fieldBinding.declaringClass.id != T_Object) // no change for Object fields (if there was any)
 				|| !fieldBinding.declaringClass.canBeSeenBy(currentScope))){
@@ -652,17 +618,22 @@ public TypeBinding resolveType(BlockScope scope) {
 			case VARIABLE : // =========only variable============
 			case VARIABLE | TYPE : //====both variable and type============
 				if (binding instanceof VariableBinding) {
-					VariableBinding vb = (VariableBinding) binding;
+					VariableBinding variable = (VariableBinding) binding;
 					if (binding instanceof LocalVariableBinding) {
 						bits &= ~RestrictiveFlagMASK;  // clear bits
 						bits |= LOCAL;
-						constant = vb.constant;
-						if ((!vb.isFinal()) && ((bits & DepthMASK) != 0))
-							scope.problemReporter().cannotReferToNonFinalOuterLocal((LocalVariableBinding)vb, this);
-						return vb.type;
+						if ((this.bits & IsStrictlyAssignedMASK) == 0) {
+							constant = variable.constant;
+						} else {
+							constant = NotAConstant;
+						}
+						if ((!variable.isFinal()) && ((bits & DepthMASK) != 0)) {
+							scope.problemReporter().cannotReferToNonFinalOuterLocal((LocalVariableBinding)variable, this);
+						}
+						return this.resolvedType = variable.type;
 					}
 					// a field
-					return checkFieldAccess(scope);
+					return this.resolvedType = checkFieldAccess(scope);
 				}
 
 				// thus it was a type
@@ -673,12 +644,12 @@ public TypeBinding resolveType(BlockScope scope) {
 				//deprecated test
 				if (isTypeUseDeprecated((TypeBinding) binding, scope))
 					scope.problemReporter().deprecatedType((TypeBinding) binding, this);
-				return (TypeBinding) binding;
+				return this.resolvedType = (TypeBinding) binding;
 		}
 	}
 
 	// error scenarii
-	return this.reportError(scope);
+	return this.resolvedType = this.reportError(scope);
 }
 public String toStringExpression(){
 

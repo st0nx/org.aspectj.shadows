@@ -1,57 +1,41 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
-import org.eclipse.jdt.core.IBuffer;
-import org.eclipse.jdt.core.IField;
-import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.search.IJavaSearchResultCollector;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.env.IBinaryField;
 import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
-import org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding;
-import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
-import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
-import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
+import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilationUnit;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
-import org.eclipse.jdt.internal.core.BinaryType;
-import org.eclipse.jdt.internal.core.CompilationUnit;
-import org.eclipse.jdt.internal.core.Openable;
-import org.eclipse.jdt.internal.core.Util;
-import org.eclipse.jdt.internal.core.WorkingCopy;
+import org.eclipse.jdt.internal.core.*;
  
+// TODO: (jerome) Remove when switching to MatchLocator2
 public class MatchingOpenable {
+	static final CompilationUnitDeclaration ALREADY_RESOLVED = new CompilationUnitDeclaration(null, null, 0);
 	private MatchLocator locator;
 	public IResource resource;
 	public Openable openable;
 	private CompilationUnitDeclaration parsedUnit;
+	private char[] source;
 	private MatchSet matchSet;
-	public boolean shouldResolve = true;
-public MatchingOpenable(MatchLocator locator, IResource resource, Openable openable) {
-	this.locator = locator;
-	this.resource = resource;
-	this.openable = openable;
-}
+
 public MatchingOpenable(
 		MatchLocator locator, 
 		IResource resource, 
@@ -64,30 +48,44 @@ public MatchingOpenable(
 	this.parsedUnit = parsedUnit;
 	this.matchSet = matchSet;
 }
+public static IType getTopLevelType(IType binaryType) {
+	
+	// ensure it is not a local or anoymous type (see bug 28752  J Search resports non-existent Java element)
+	String typeName = binaryType.getElementName();
+	int lastDollar = typeName.lastIndexOf('$');
+	int length = typeName.length();
+	if (lastDollar != -1 && lastDollar < length-1) {
+		if (Character.isDigit(typeName.charAt(lastDollar+1))) {
+			// local or anonymous type
+			typeName = typeName.substring(0, lastDollar);
+			IClassFile classFile = binaryType.getPackageFragment().getClassFile(typeName+".class"); //$NON-NLS-1$
+			try {
+				binaryType = classFile.getType();
+			} catch (JavaModelException e) {
+				// ignore as implementation of getType() cannot throw this exception
+			}
+		}
+	}
+	
+	// ensure it is a top level type
+	IType declaringType = binaryType.getDeclaringType();
+	while (declaringType != null) {
+		binaryType = declaringType;
+		declaringType = binaryType.getDeclaringType();
+	}
+	return binaryType;
+}
 public void buildTypeBindings() {
 	
-	// if a parsed unit exits, its bindings have already been built
-	if (this.parsedUnit != null) return;
-	
-	char[] source = this.getSource();
-	if (source == null) return;
-	this.buildTypeBindings(source);
-			
-	if (this.openable instanceof org.eclipse.jdt.internal.core.ClassFile) {
-		// try to use the main type's class file as the openable
-		TypeDeclaration[] types = this.parsedUnit.types;
-		if (types != null) {
-			String classFileName = openable.getElementName();
-			for (int i = 0, length = types.length; i < length; i++) {
-				TypeDeclaration typeDeclaration = types[i];
-				String simpleTypeName = new String(typeDeclaration.name);
-				if (classFileName.startsWith(simpleTypeName)) {
-					IPackageFragment parent = (IPackageFragment)openable.getParent();
-					this.openable = (Openable)parent.getClassFile(simpleTypeName + ".class"); //$NON-NLS-1$
-					break;
-				}
-			} 
-		}
+	if (this.parsedUnit == null) {
+		char[] source = this.getSource();
+		if (source == null) return;
+		this.buildTypeBindings(source);
+	} else {
+		// if a parsed unit's scope is set, its bindings have already been built
+		if (this.parsedUnit.scope != null) return;
+		
+		this.locator.lookupEnvironment.buildTypeBindings(this.parsedUnit);
 	}
 }
 private void buildTypeBindings(final char[] source) {
@@ -108,13 +106,19 @@ private void buildTypeBindings(final char[] source) {
 			
 			// initial type binding creation
 			this.locator.lookupEnvironment.buildTypeBindings(this.parsedUnit);
-		} else {
-			// free memory
-			this.locator.parsedUnits.put(qualifiedName, null);
-		}
+		} 
+
+		// free memory and remember that this unit as already been resolved 
+		// (case of 2 matching openables on a binary type and its member type) 
+		this.locator.parsedUnits.put(qualifiedName, ALREADY_RESOLVED);
+
 	} finally {
 		this.locator.parser.matchSet = null;
 	}
+}
+public boolean equals(Object obj) {
+	if (!(obj instanceof MatchingOpenable)) return false;
+	return this.openable.equals(((MatchingOpenable)obj).openable);
 }
 private char[] getQualifiedName() {
 	if (this.openable instanceof CompilationUnit) {
@@ -127,29 +131,32 @@ private char[] getQualifiedName() {
 	} else {
 		org.eclipse.jdt.internal.core.ClassFile classFile = (org.eclipse.jdt.internal.core.ClassFile)this.openable;
 		try {
-			return classFile.getType().getFullyQualifiedName().toCharArray();
+			IType type = getTopLevelType(classFile.getType());
+			return type.getFullyQualifiedName().toCharArray();
 		} catch (JavaModelException e) {
 			return null; // nothing we can do here
 		}
 	}
 }
 public char[] getSource() {
+	if (this.source != null) return source;
 	try {
 		if (this.openable instanceof WorkingCopy) {
 			IBuffer buffer = this.openable.getBuffer();
 			if (buffer == null) return null;
-			return buffer.getCharacters();
+			this.source = buffer.getCharacters();
 		} else if (this.openable instanceof CompilationUnit) {
-			return Util.getResourceContentsAsCharArray((IFile)this.resource);
+			this.source = Util.getResourceContentsAsCharArray((IFile)this.resource);
 		} else if (this.openable instanceof org.eclipse.jdt.internal.core.ClassFile) {
 			org.eclipse.jdt.internal.core.ClassFile classFile = (org.eclipse.jdt.internal.core.ClassFile)this.openable;
-			return this.locator.findSource(classFile);
-		} else {
-			return null;
+			this.source = this.locator.findSource(classFile);
 		}
 	} catch (JavaModelException e) {
-		return null;
 	}
+	return this.source;
+}
+public int hashCode() {
+	return this.openable.hashCode();
 }
 public boolean hasAlreadyDefinedType() {
 	if (this.parsedUnit == null) return false;
@@ -194,18 +201,15 @@ private void locateMatchesInClassFile() throws CoreException, JavaModelException
 		// resolve
 		BinaryTypeBinding binding = null;
 		try {
-			binding = this.locator.lookupEnvironment.cacheBinaryType(info);
-			if (binding == null) { // it was already cached as a result of a previous query
-				char[][] compoundName = CharOperation.splitOn('.', binaryType.getFullyQualifiedName().toCharArray());
-				ReferenceBinding referenceBinding = this.locator.lookupEnvironment.getCachedType(compoundName);
-				if (referenceBinding != null && (referenceBinding instanceof BinaryTypeBinding)) {
-					// if the binding could be found and if it comes from a source type,
-					binding = (BinaryTypeBinding)referenceBinding;
-				}
-			}
-
-			// check methods
+			binding = this.locator.cacheBinaryType(binaryType);
 			if (binding != null) {
+				// filter out element not in hierarchy scope
+				if (this.locator.hierarchyResolver != null 
+						&& !this.locator.hierarchyResolver.subOrSuperOfFocus(binding)) {
+					return;
+				}
+	
+				// check methods
 				MethodBinding[] methods = binding.methods();
 				for (int i = 0; i < methods.length; i++) {
 					MethodBinding method = methods[i];
@@ -228,10 +232,8 @@ private void locateMatchesInClassFile() throws CoreException, JavaModelException
 									IJavaSearchResultCollector.POTENTIAL_MATCH);
 					}
 				}
-			}
 		
-			// check fields
-			if (binding != null) {
+				// check fields
 				FieldBinding[] fields = binding.fields();
 				for (int i = 0; i < fields.length; i++) {
 					FieldBinding field = fields[i];
@@ -302,7 +304,7 @@ private void locateMatchesInCompilationUnit(char[] source) throws CoreException 
 			this.parsedUnit = this.locator.dietParse(source);
 		}
 	}
-	if (this.parsedUnit != null) {
+	if (this.parsedUnit != null && this.parsedUnit != ALREADY_RESOLVED) {
 		try {
 			this.locator.parser.matchSet = this.matchSet;
 			this.locator.parser.scanner.setSource(source);
@@ -312,38 +314,36 @@ private void locateMatchesInCompilationUnit(char[] source) throws CoreException 
 			this.matchSet.reportMatching(parsedUnit);
 			
 			// resolve if needed
-			if (this.matchSet.needsResolve()) {
-				if (this.parsedUnit.types != null) {
-					if (this.shouldResolve) {
-						try {
-							if (this.parsedUnit.scope == null) {
-								// bindings were not created (case of a FieldReferencePattern that doesn't need resolve, 
-								// but we need to resolve because of a SingleNameReference being a potential match)
-								this.locator.lookupEnvironment.buildTypeBindings(this.parsedUnit);
-								this.locator.lookupEnvironment.completeTypeBindings(this.parsedUnit, true);
-							}
-							if (this.parsedUnit.scope != null) {
-								this.parsedUnit.scope.faultInTypes();
-								this.parsedUnit.resolve();
-							}
-							// report matches that needed resolve
-							this.matchSet.cuHasBeenResolved = true;
-							this.matchSet.reportMatching(this.parsedUnit);
-						} catch (AbortCompilation e) {
-							// could not resolve: report innacurate matches
-							this.matchSet.cuHasBeenResolved = true;
-							this.matchSet.reportMatching(this.parsedUnit);
-							if (!(e instanceof AbortCompilationUnit)) {
-								// problem with class path
-								throw e;
-							}
+			if (this.matchSet.needsResolve() && this.parsedUnit.types != null) {
+				if (!this.locator.compilationAborted) {
+					try {
+						if (this.parsedUnit.scope == null) {
+							// bindings were not created (case of a FieldReferencePattern that doesn't need resolve, 
+							// but we need to resolve because of a SingleNameReference being a potential match)
+							MatchingOpenable[] openables = this.locator.matchingOpenables.getMatchingOpenables(this.openable.getJavaProject().getPackageFragmentRoots());
+							this.locator.createAndResolveBindings(openables);
 						}
-					} else {
-						// problem ocured while completing the bindings for the base classes
-						// -> report innacurate matches
+						if (this.parsedUnit.scope != null) {
+							this.parsedUnit.scope.faultInTypes();
+							this.parsedUnit.resolve();
+						}
+						// report matches that needed resolve
 						this.matchSet.cuHasBeenResolved = true;
 						this.matchSet.reportMatching(this.parsedUnit);
+					} catch (AbortCompilation e) {
+						// could not resolve: report innacurate matches
+						this.matchSet.cuHasBeenResolved = true;
+						this.matchSet.reportMatching(this.parsedUnit);
+						if (!(e instanceof AbortCompilationUnit)) {
+							// problem with class path
+							throw e;
+						}
 					}
+				} else {
+					// problem ocured while completing the bindings for the base classes
+					// -> report innacurate matches
+					this.matchSet.cuHasBeenResolved = true;
+					this.matchSet.reportMatching(this.parsedUnit);
 				}
 			}
 		} finally {

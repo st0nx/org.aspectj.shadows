@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2001 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
@@ -17,11 +17,6 @@ import java.util.Map;
 
 /**
  * Infix expression AST node type.
- *
- * Range 0: first character of left operand expression through last character
- * of the last extended operand expression. If there are no extended operands,
- * the range ends after the right operand expression.
- *
  * <pre>
  * InfixExpression:
  *    Expression InfixOperator Expression { InfixOperator Expression } 
@@ -222,6 +217,7 @@ public class InfixExpression extends Expression {
 	 */
 	ASTNode clone(AST target) {
 		InfixExpression result = new InfixExpression(target);
+		result.setSourceRange(this.getStartPosition(), this.getLength());
 		result.setOperator(getOperator());
 		result.setLeftOperand((Expression) getLeftOperand().clone(target));
 		result.setRightOperand((Expression) getRightOperand().clone(target));
@@ -289,7 +285,9 @@ public class InfixExpression extends Expression {
 	public Expression getLeftOperand() {
 		if (leftOperand  == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setLeftOperand(new SimpleName(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return leftOperand;
 	}
@@ -322,7 +320,9 @@ public class InfixExpression extends Expression {
 	public Expression getRightOperand() {
 		if (rightOperand  == null) {
 			// lazy initialize - use setter to ensure parent link set too
+			long count = getAST().modificationCount();
 			setRightOperand(new SimpleName(getAST()));
+			getAST().setModificationCount(count);
 		}
 		return rightOperand;
 	}

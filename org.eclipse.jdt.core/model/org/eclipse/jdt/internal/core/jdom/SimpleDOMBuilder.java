@@ -1,14 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.jdom;
+
+import java.util.Map;
 
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.jdom.IDOMCompilationUnit;
@@ -50,7 +52,7 @@ public IDOMCompilationUnit createCompilationUnit(String sourceCode, String name)
  */
 public IDOMCompilationUnit createCompilationUnit(ICompilationUnit compilationUnit) {
 	initializeBuild(compilationUnit.getContents(), true, true);
-	getParser().parseCompilationUnit(compilationUnit, false);
+	getParser(JavaCore.getOptions()).parseCompilationUnit(compilationUnit, false);
 	return super.createCompilationUnit(compilationUnit);
 }
 /**
@@ -170,7 +172,7 @@ public void exitConstructor(int declarationEnd) {
 }
 /**
  */
-public void exitField(int declarationEnd) {
+public void exitField(int initializationStart, int declarationEnd, int declarationSourceEnd) {
 	exitMember(declarationEnd);
 }
 /**
@@ -211,7 +213,7 @@ protected void exitType(int declarationEnd) {
 /**
  * Creates a new parser.
  */
-protected SourceElementParser getParser() {
-	return new SourceElementParser(this, new DefaultProblemFactory(), new CompilerOptions(JavaCore.getOptions()));
+protected SourceElementParser getParser(Map settings) {
+	return new SourceElementParser(this, new DefaultProblemFactory(), new CompilerOptions(settings));
 }
 }

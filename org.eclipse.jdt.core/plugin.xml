@@ -7,7 +7,7 @@
 <plugin
     name = "%pluginName"
     id = "org.eclipse.jdt.core"
-    version = "2.0.0"
+    version = "2.1.0"
     provider-name = "%providerName"
     class="org.eclipse.jdt.core.JavaCore">
 
@@ -19,6 +19,7 @@
     <import plugin="org.eclipse.core.resources"/>
     <import plugin="org.apache.xerces"/>
     <import plugin="org.eclipse.ant.core" optional="true"/>
+    <import plugin="org.eclipse.team.core" optional="true"/>
 </requires>
 	
 <!-- =================================================================================== -->
@@ -27,7 +28,8 @@
 
 <runtime>
   <library name="jdtcore.jar">  
-     <export name = "*"/>
+     <export name="*"/>
+     <packages prefixes="org.eclipse.jdt.core,org.eclipse.jdt.internal"/>
   </library> 
 </runtime>
 
@@ -56,7 +58,9 @@
 <!--                                                                                     -->
 <!-- =================================================================================== -->
 
-<extension-point name="%classpathVariableInitializersName" id="classpathVariableInitializer"/>
+<extension-point name="%classpathVariableInitializersName" 
+	id="classpathVariableInitializer"
+	schema="schema/classpathVariableInitializer.exsd"/>
   
 <!-- =================================================================================== -->
 <!-- Extension Point: Initializers of Classpath Containers                               -->
@@ -67,9 +71,9 @@
 <!--    class  CDATA #REQUIRED                                                           -->
 <!--   >                                                                                 -->
 <!-- where:                                                                              -->
-<!--    - id - an unique name identifying all containers for which this resolver will    -->
+<!--    - id - a unique name identifying all containers for which this initializer will  -->
 <!--              be activated.                                                          -->
-<!--    - class - the class that implements this container resolver.                     --> 
+<!--    - class - the class that implements this container initializer.                  --> 
 <!--              The class must implement a public subclass of                          -->
 <!--              org.eclipse.jdt.core.ClasspathContainerResolver with a public          -->
 <!--              0-argument constructor.                                                -->
@@ -77,7 +81,7 @@
 <!-- Example of an ClasspathContainerInitializer for a classpath container named         -->
 <!-- "JDK/1.2":                                                                          -->
 <!-- <extension                                                                          -->
-<!--      point="org.eclipse.jdt.core.containerResolver">                                -->
+<!--      point="org.eclipse.jdt.core.classpathContainerInitializer">                    -->
 <!--    <classpathContainerInitializer                                                   -->
 <!--         id="JDK"                                                                    -->
 <!--         class="com.example.MyInitializer"/>                                         -->
@@ -85,7 +89,9 @@
 <!--                                                                                     -->
 <!-- =================================================================================== -->
 
-<extension-point name="%classpathContainerInitializersName" id="classpathContainerInitializer"/>
+<extension-point name="%classpathContainerInitializersName" 
+	id="classpathContainerInitializer" 
+	schema="schema/classpathContainerInitializer.exsd"/>
 
 <!-- =================================================================================== -->
 <!-- Extension Point: Formatter of Source Code                                           -->
@@ -109,7 +115,9 @@
 <!--                                                                                     -->
 <!-- =================================================================================== -->
 
-<extension-point name="%codeFormatterName" id="codeFormatter"/>
+<extension-point name="%codeFormattersName" 
+	id="codeFormatter"
+	schema="schema/codeFormatter.exsd"/>
 
 
 <!-- =================================================================================== -->
@@ -164,6 +172,8 @@
 	<super type="org.eclipse.core.resources.textmarker"/>
 	<persistent value="true"/>
 	<attribute name ="cycleDetected"/>
+	<attribute name="id"/>
+	<attribute name="arguments"/>
 </extension>   
 
 <!-- Java transient problems -->
@@ -174,6 +184,13 @@
 	<attribute name="id"/>
 	<attribute name="flags"/>
 	<attribute name="arguments"/>
+</extension>
+
+<!-- Java tasks -->
+
+<extension id="task" name="%javaTaskName" point="org.eclipse.core.resources.markers">
+    <super type="org.eclipse.core.resources.taskmarker"/> 
+    <persistent value="true"/>
 </extension>
     
 <!-- =================================================================================== -->

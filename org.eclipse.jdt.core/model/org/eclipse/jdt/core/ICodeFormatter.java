@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 /**
@@ -31,10 +31,10 @@ public interface ICodeFormatter {
 	 *      level of zero has no effect.
 	 * @param positions an array of positions to map. These are
 	 *      character-based source positions inside the original source,
-	 *     for which corresponding positions in the formatted source will
-	 *     be computed (so as to relocate elements associated with the original
-	 *     source). It updates the positions array with updated positions.
-	 *     If set to <code>null</code>, then no positions are mapped.
+	 * 		arranged in non-decreasing order, for which corresponding positions in 
+	 *     the formatted source will be computed (so as to relocate elements associated 
+	 *     with the original source). It updates the positions array with updated 
+	 *     positions. If set to <code>null</code>, then no positions are mapped.
 	 * @param lineSeparator the line separator to use in formatted source,
 	 *     if set to <code>null</code>, then the platform default one will be used.
 	 * @return the formatted output string.

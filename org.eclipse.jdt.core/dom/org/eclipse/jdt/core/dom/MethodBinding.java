@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
@@ -142,7 +142,10 @@ class MethodBinding implements IMethodBinding {
 	 */
 	public String getKey() {
 		StringBuffer buffer = new StringBuffer();
-		buffer.append(getReturnType().getKey());
+		ITypeBinding returnType = getReturnType();
+		if (returnType != null) {
+			buffer.append(returnType.getKey());
+		}
 		if (!isConstructor()) {
 			buffer.append(this.getName());
 			buffer.append('/');
@@ -160,5 +163,12 @@ class MethodBinding implements IMethodBinding {
 		}
 		return buffer.toString();
 	}
-
+	
+	/* 
+	 * For debugging purpose only.
+	 * @see java.lang.Object#toString()
+	 */
+	public String toString() {
+		return this.binding.toString();
+	}
 }

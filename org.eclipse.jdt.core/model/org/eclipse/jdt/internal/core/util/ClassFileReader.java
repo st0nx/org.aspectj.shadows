@@ -1,18 +1,19 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
 /**
  * Default implementation of IClassFileReader.
  */
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.util.ClassFormatException;
 import org.eclipse.jdt.core.util.IAttributeNamesConstants;
 import org.eclipse.jdt.core.util.IClassFileAttribute;
@@ -29,7 +30,7 @@ public class ClassFileReader extends ClassFileStruct implements IClassFileReader
 	private static final IFieldInfo[] NO_FIELD_INFOS = new IFieldInfo[0];
 	private static final IMethodInfo[] NO_METHOD_INFOS = new IMethodInfo[0];
 	private static final int[] NO_INTERFACE_INDEXES = new int[0];
-	private static final char[][] NO_INTERFACES_NAMES = new char[0][0];
+	private static final char[][] NO_INTERFACES_NAMES = CharOperation.NO_CHAR_CHAR;
 
 	private IConstantPool constantPool;
 	private int magicNumber;
@@ -51,7 +52,6 @@ public class ClassFileReader extends ClassFileStruct implements IClassFileReader
 	private int majorVersion;
 	private int minorVersion;
 	private int superclassNameIndex;
-	private int classIndex;
 	private int attributesCount;
 	private IClassFileAttribute[] attributes;
 	

@@ -1,29 +1,29 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
 import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.util.IBytecodeVisitor;
 import org.eclipse.jdt.core.util.IConstantPoolConstant;
 import org.eclipse.jdt.core.util.IConstantPoolEntry;
 import org.eclipse.jdt.core.util.IOpcodeMnemonics;
 import org.eclipse.jdt.core.util.OpcodeStringValues;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 /**
  * Default implementation of ByteCodeVisitor
  */
 public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	private static final char[] INIT	= "<init>".toCharArray(); //$NON-NLS-1$
-	private static final char[] EMPTY_NAME = new char[0];
+	private static final char[] EMPTY_NAME = CharOperation.NO_CHAR;
 	private static final int T_BOOLEAN = 4;
 	private static final int T_CHAR = 5;
 	private static final int T_FLOAT = 6;
@@ -1084,6 +1084,7 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 			.append(returnDeclaringClassName(constantFieldref))
 			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
 			.append(constantFieldref.getFieldName())
+			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
 			.append(returnFieldrefDescriptor(constantFieldref))
 			.append(Util.bind("classformat.getstaticclose")); //$NON-NLS-1$
 		writeNewLine();
@@ -1686,7 +1687,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 
 		char[] methodDescriptor = constantInterfaceMethodref.getMethodDescriptor();
 		CharOperation.replace(methodDescriptor, '/', '.');
-
+		char[] returnType = Signature.getReturnType(methodDescriptor);
+		CharOperation.replace(returnType, '/', '.');
+		
 		writeTabs();
 		buffer
 			.append(pc)
@@ -1705,7 +1708,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 					constantInterfaceMethodref.getMethodName(),
 					getParameterNames(methodDescriptor),
 					true,
-					true))
+					false))
+			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+			.append(Signature.toCharArray(returnType))
 			.append(Util.bind("classformat.invokeinterfacemethodclose")); //$NON-NLS-1$
 		writeNewLine();
 	}
@@ -1714,10 +1719,13 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_invokespecial(int, int, IConstantPoolEntry)
 	 */
 	public void _invokespecial(int pc, int index, IConstantPoolEntry constantMethodref) {
+
 		char[] methodDescriptor = constantMethodref.getMethodDescriptor();
 		CharOperation.replace(methodDescriptor, '/', '.');
 		char[] methodName = constantMethodref.getMethodName();
-
+		char[] returnType = Signature.getReturnType(methodDescriptor);
+		CharOperation.replace(returnType, '/', '.');
+		
 		if (CharOperation.equals(INIT, methodName)) {
 			methodName = EMPTY_NAME;
 			writeTabs();
@@ -1739,12 +1747,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 				.append(Util.bind("classformat.invokespecialconstructorclose")); //$NON-NLS-1$
 			writeNewLine();
 		} else {
-			methodName = EMPTY_NAME;
 			writeTabs();
 			buffer
 				.append(pc)
 				.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-				.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD_0])
+				.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKESPECIAL])
 				.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
 				.append(index)
 				.append(Util.bind("classformat.invokespecialmethod")) //$NON-NLS-1$
@@ -1753,10 +1760,12 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 				.append(
 					Signature.toCharArray(
 						methodDescriptor,
-						methodName,
+						constantMethodref.getMethodName(),
 						getParameterNames(methodDescriptor),
 						true,
-						true))
+						false))
+				.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+			.append(Signature.toCharArray(returnType))
 				.append(Util.bind("classformat.invokespecialmethodclose")); //$NON-NLS-1$
 			writeNewLine();
 		}
@@ -1766,8 +1775,12 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_invokestatic(int, int, IConstantPoolEntry)
 	 */
 	public void _invokestatic(int pc, int index, IConstantPoolEntry constantMethodref) {
+
 		char[] methodDescriptor = constantMethodref.getMethodDescriptor();
 		CharOperation.replace(methodDescriptor, '/', '.');
+		char[] returnType = Signature.getReturnType(methodDescriptor);
+		CharOperation.replace(returnType, '/', '.');
+		
 		writeTabs();
 		buffer
 			.append(pc)
@@ -1784,7 +1797,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 					constantMethodref.getMethodName(),
 					getParameterNames(methodDescriptor),
 					true,
-					true))
+					false))
+			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+			.append(Signature.toCharArray(returnType))
 			.append(Util.bind("classformat.invokestaticmethodclose")); //$NON-NLS-1$
 		writeNewLine();
 	}
@@ -1793,8 +1808,12 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_invokevirtual(int, int, IConstantPoolEntry)
 	 */
 	public void _invokevirtual(int pc, int index, IConstantPoolEntry constantMethodref) {
+
 		char[] methodDescriptor = constantMethodref.getMethodDescriptor();
 		CharOperation.replace(methodDescriptor, '/', '.');
+		char[] returnType = Signature.getReturnType(methodDescriptor);
+		CharOperation.replace(returnType, '/', '.');
+		
 		writeTabs();
 		buffer
 			.append(pc)
@@ -1811,7 +1830,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 					constantMethodref.getMethodName(),
 					getParameterNames(methodDescriptor),
 					true,
-					true))
+					false))
+			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+			.append(Signature.toCharArray(returnType))
 			.append(Util.bind("classformat.invokevirtualmethodclose")); //$NON-NLS-1$
 		writeNewLine();
 	}
@@ -2301,15 +2322,15 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 			.append(pc)
 			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
 			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LOOKUPSWITCH])
-			.append(Util.bind("classfileformat.default")) //$NON-NLS-1$
+			.append("default:") //$NON-NLS-1$
 			.append(defaultoffset + pc);
 		writeNewLine();
 		for (int i = 0; i < npairs; i++) {
 			writeExtraTabs(1);
 			buffer
-				.append(Util.bind("classfileformat.case")) //$NON-NLS-1$
+				.append("case") //$NON-NLS-1$
 				.append(offset_pairs[i][0])
-				.append(Util.bind("disassembler.colon")) //$NON-NLS-1$
+				.append(":") //$NON-NLS-1$
 				.append(offset_pairs[i][1] + pc);
 			writeNewLine();
 		}
@@ -2725,15 +2746,15 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 			.append(pc)
 			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
 			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.TABLESWITCH])
-			.append(Util.bind("classfileformat.default")) //$NON-NLS-1$
+			.append("default:") //$NON-NLS-1$
 			.append(defaultoffset + pc);
 		writeNewLine();
 		for (int i = low; i < high + 1; i++) {
 			writeExtraTabs(1);
 			buffer
-				.append(Util.bind("classfileformat.case")) //$NON-NLS-1$
+				.append("case") //$NON-NLS-1$
 				.append(i)
-				.append(Util.bind("disassembler.colon")) //$NON-NLS-1$
+				.append(":") //$NON-NLS-1$
 				.append(jump_offsets[i - low] + pc);
 			writeNewLine();
 		}
@@ -2843,28 +2864,28 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	private void appendGetArrayType(int atype) {
 		switch(atype) {
 			case T_BOOLEAN :
-				this.buffer.append(Util.bind("classfileformat.newarrayboolean")); //$NON-NLS-1$
+				this.buffer.append("boolean"); //$NON-NLS-1$
 				break;
 			case T_CHAR :
-				this.buffer.append(Util.bind("classfileformat.newarraychar")); //$NON-NLS-1$
+				this.buffer.append("char"); //$NON-NLS-1$
 				break;
 			case T_FLOAT :
-				this.buffer.append(Util.bind("classfileformat.newarrayfloat")); //$NON-NLS-1$
+				this.buffer.append("float"); //$NON-NLS-1$
 				break;
 			case T_DOUBLE :
-				this.buffer.append(Util.bind("classfileformat.newarraydouble")); //$NON-NLS-1$
+				this.buffer.append("double"); //$NON-NLS-1$
 				break;
 			case T_BYTE :
-				this.buffer.append(Util.bind("classfileformat.newarraybyte")); //$NON-NLS-1$
+				this.buffer.append("byte"); //$NON-NLS-1$
 				break;
 			case T_SHORT :
-				this.buffer.append(Util.bind("classfileformat.newarrayshort")); //$NON-NLS-1$
+				this.buffer.append("short"); //$NON-NLS-1$
 				break;
 			case T_INT :
-				this.buffer.append(Util.bind("classfileformat.newarrayint")); //$NON-NLS-1$
+				this.buffer.append("int"); //$NON-NLS-1$
 				break;
 			case T_LONG :
-				this.buffer.append(Util.bind("classfileformat.newarraylong")); //$NON-NLS-1$
+				this.buffer.append("long"); //$NON-NLS-1$
 		}
 	}
 
@@ -2887,37 +2908,37 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 
 	private void appendOutputForConstantDouble(IConstantPoolEntry constantPoolEntry) {
 		this.buffer
-			.append(Util.bind("disassembler.constantdouble")) //$NON-NLS-1$
+			.append("<Double ") //$NON-NLS-1$
 			.append(constantPoolEntry.getDoubleValue())
-			.append(Util.bind("disassembler.closeconstant")); //$NON-NLS-1$
+			.append(">"); //$NON-NLS-1$
 	}
 
 	private void appendOutputForConstantLong(IConstantPoolEntry constantPoolEntry) {
 		this.buffer
-			.append(Util.bind("disassembler.constantlong")) //$NON-NLS-1$
+			.append("<Long ") //$NON-NLS-1$
 			.append(constantPoolEntry.getLongValue())
-			.append(Util.bind("disassembler.closeconstant")); //$NON-NLS-1$
+			.append(">"); //$NON-NLS-1$
 	}
 
 	private void appendOutputForConstantString(IConstantPoolEntry constantPoolEntry) {
 		this.buffer
-			.append(Util.bind("disassembler.constantstring")) //$NON-NLS-1$
+			.append("<String \"") //$NON-NLS-1$
 			.append(constantPoolEntry.getStringValue())
-			.append(Util.bind("disassembler.closeconstant")); //$NON-NLS-1$
+			.append("\">"); //$NON-NLS-1$
 	}
 
 	private void appendOutputforConstantInteger(IConstantPoolEntry constantPoolEntry) {
 		this.buffer
-			.append(Util.bind("disassembler.constantinteger")) //$NON-NLS-1$
+			.append("<Integer ") //$NON-NLS-1$
 			.append(constantPoolEntry.getIntegerValue())
-			.append(Util.bind("disassembler.closeconstant")); //$NON-NLS-1$
+			.append(">"); //$NON-NLS-1$
 	}
 
 	private void appendOutputforConstantFloat(IConstantPoolEntry constantPoolEntry) {
 		this.buffer
-			.append(Util.bind("disassembler.constantfloat")) //$NON-NLS-1$
+			.append("<Float ") //$NON-NLS-1$
 			.append(constantPoolEntry.getFloatValue())
-			.append(Util.bind("disassembler.closeconstant")); //$NON-NLS-1$
+			.append(">"); //$NON-NLS-1$
 	}
 
 	private void writeNewLine() {

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
 import org.eclipse.jdt.internal.compiler.ast.AllocationExpression;
@@ -46,19 +46,26 @@ public void generateCode(
 		// better highlight for allocation: display the type individually
 		codeStream.recordPositionsFrom(pc, type.sourceStart);
 
-		// handling innerclass instance allocation
+		// handling innerclass instance allocation - enclosing instance arguments
 		if (allocatedType.isNestedType()) {
-			codeStream.generateSyntheticArgumentValues(
-				currentScope, 
-				allocatedType, 
-				enclosingInstance(), 
-				this); 
+			codeStream.generateSyntheticEnclosingInstanceValues(
+				currentScope,
+				allocatedType,
+				enclosingInstance(),
+				this);
 		}
 		// generate the arguments for constructor
 		if (arguments != null) {
 			for (int i = 0, count = arguments.length; i < count; i++) {
 				arguments[i].generateCode(currentScope, codeStream, true);
 			}
+		}
+		// handling innerclass instance allocation - outer local arguments
+		if (allocatedType.isNestedType()) {
+			codeStream.generateSyntheticOuterArgumentValues(
+				currentScope,
+				allocatedType,
+				this);
 		}
 		// invoke constructor
 		codeStream.invokespecial(binding);
@@ -107,7 +114,7 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope) {
 public TypeBinding resolveType(BlockScope scope) {
 	// Propagate the type checking to the arguments, and check if the constructor is defined.
 	constant = NotAConstant;
-	TypeBinding typeBinding = type.resolveType(scope); // will check for null after args are resolved
+	this.resolvedType = type.resolveType(scope); // will check for null after args are resolved
 
 	// buffering the arguments' types
 	TypeBinding[] argumentTypes = NoParameters;
@@ -119,16 +126,16 @@ public TypeBinding resolveType(BlockScope scope) {
 			if ((argumentTypes[i] = arguments[i].resolveType(scope)) == null)
 				argHasError = true;
 		if (argHasError)
-			return typeBinding;
+			return this.resolvedType;
 	}
-	if (typeBinding == null)
+	if (this.resolvedType == null)
 		return null;
 
-	if (!typeBinding.canBeInstantiated()) {
-		scope.problemReporter().cannotInstantiate(type, typeBinding);
-		return typeBinding;
+	if (!this.resolvedType.canBeInstantiated()) {
+		scope.problemReporter().cannotInstantiate(type, this.resolvedType);
+		return this.resolvedType;
 	}
-	ReferenceBinding allocatedType = (ReferenceBinding) typeBinding;
+	ReferenceBinding allocatedType = (ReferenceBinding) this.resolvedType;
 	if (!(binding = scope.getConstructor(allocatedType, argumentTypes, this)).isValidBinding()) {
 		if (binding instanceof ProblemMethodBinding
 			&& ((ProblemMethodBinding) binding).problemId() == NotVisible) {
@@ -138,13 +145,13 @@ public TypeBinding resolveType(BlockScope scope) {
 					if (binding.declaringClass == null)
 						binding.declaringClass = allocatedType;
 					scope.problemReporter().invalidConstructor(this, binding);
-					return typeBinding;
+					return this.resolvedType;
 				}
 			} else {
 				if (binding.declaringClass == null)
 					binding.declaringClass = allocatedType;
 				scope.problemReporter().invalidConstructor(this, binding);
-				return typeBinding;
+				return this.resolvedType;
 			}
 			CodeSnippetScope localScope = new CodeSnippetScope(scope);			
 			MethodBinding privateBinding = localScope.getConstructor((ReferenceBinding)delegateThis.type, argumentTypes, this);
@@ -152,7 +159,7 @@ public TypeBinding resolveType(BlockScope scope) {
 				if (binding.declaringClass == null)
 					binding.declaringClass = allocatedType;
 				scope.problemReporter().invalidConstructor(this, binding);
-				return typeBinding;
+				return this.resolvedType;
 			} else {
 				binding = privateBinding;
 			}				
@@ -160,7 +167,7 @@ public TypeBinding resolveType(BlockScope scope) {
 			if (binding.declaringClass == null)
 				binding.declaringClass = allocatedType;
 			scope.problemReporter().invalidConstructor(this, binding);
-			return typeBinding;
+			return this.resolvedType;
 		}
 	}
 	if (isMethodUseDeprecated(binding, scope))

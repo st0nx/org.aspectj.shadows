@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
 
@@ -16,6 +16,7 @@ import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.env.*;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.compiler.impl.*;
@@ -24,7 +25,6 @@ import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
 import org.eclipse.jdt.internal.compiler.problem.*;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 import java.util.*;
 
@@ -84,9 +84,10 @@ class CompilationUnitResolver extends Compiler {
 		// need to hold onto this
 		CompilationUnitDeclaration unit =
 			SourceTypeConverter.buildCompilationUnit(
-				sourceTypes,
-				true,
-				true,
+				sourceTypes,//sourceTypes[0] is always toplevel here
+				true, // need field and methods
+				true, // need member types
+				false, // no need for field initialization
 				lookupEnvironment.problemReporter,
 				result);
 
@@ -140,17 +141,18 @@ class CompilationUnitResolver extends Compiler {
 		throws JavaModelException {
 
 		char[] fileName = unitElement.getElementName().toCharArray();
+		IJavaProject project = unitElement.getJavaProject();
 		CompilationUnitResolver compilationUnitVisitor =
 			new CompilationUnitResolver(
 				getNameEnvironment(unitElement),
 				getHandlingPolicy(),
-				JavaCore.getOptions(),
+				project.getOptions(true),
 				getRequestor(),
 				getProblemFactory(fileName, visitor));
 
 		CompilationUnitDeclaration unit = null;
 		try {
-			String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
+			String encoding = project.getOption(JavaCore.CORE_ENCODING, true);
 
 			IPackageFragment packageFragment = (IPackageFragment)unitElement.getAncestor(IJavaElement.PACKAGE_FRAGMENT);
 			char[][] expectedPackageName = null;
@@ -164,7 +166,10 @@ class CompilationUnitResolver extends Compiler {
 						unitElement.getSource().toCharArray(),
 						expectedPackageName,
 						new String(fileName),
-						encoding));
+						encoding),
+					true, // method verification
+					true, // analyze code
+					true); // generate code
 			return unit;
 		} finally {
 			if (unit != null) {
@@ -173,11 +178,11 @@ class CompilationUnitResolver extends Compiler {
 		}
 	}
 	
-	public static CompilationUnitDeclaration parse(char[] source) {
+	public static CompilationUnitDeclaration parse(char[] source, Map settings) {
 		if (source == null) {
 			throw new IllegalArgumentException();
 		}
-		CompilerOptions compilerOptions = new CompilerOptions(JavaCore.getOptions());
+		CompilerOptions compilerOptions = new CompilerOptions(settings);
 		Parser parser =
 			new Parser(
 				new ProblemReporter(
@@ -185,7 +190,7 @@ class CompilationUnitResolver extends Compiler {
 					compilerOptions, 
 					new DefaultProblemFactory(Locale.getDefault())),
 			false,
-			compilerOptions.assertMode);
+			compilerOptions.sourceLevel >= CompilerOptions.JDK1_4);
 		org.eclipse.jdt.internal.compiler.env.ICompilationUnit sourceUnit = 
 			new org.eclipse.jdt.internal.compiler.batch.CompilationUnit(
 				source, 
@@ -216,7 +221,8 @@ class CompilationUnitResolver extends Compiler {
 			public IProblem createProblem(
 				char[] originatingFileName,
 				int problemId,
-				String[] arguments,
+				String[] problemArguments,
+				String[] messageArguments,
 				int severity,
 				int startPosition,
 				int endPosition,
@@ -226,7 +232,8 @@ class CompilationUnitResolver extends Compiler {
 					super.createProblem(
 						originatingFileName,
 						problemId,
-						arguments,
+						problemArguments,
+						messageArguments,
 						severity,
 						startPosition,
 						endPosition,
@@ -251,18 +258,62 @@ class CompilationUnitResolver extends Compiler {
 			new CompilationUnitResolver(
 				getNameEnvironment(javaProject),
 				getHandlingPolicy(),
-				JavaCore.getOptions(),
+				javaProject.getOptions(true),
 				getRequestor(),
 				getProblemFactory(unitName.toCharArray(), visitor));
 	
 		CompilationUnitDeclaration unit = null;
 		try {
-			String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
-			char[][] expectedPackageName = null;
-	
+			String encoding = javaProject.getOption(JavaCore.CORE_ENCODING, true);
+
 			unit =
 				compilationUnitVisitor.resolve(
-					new BasicCompilationUnit(source, expectedPackageName, unitName, encoding));
+					new BasicCompilationUnit(
+						source,
+						null,
+						unitName,
+						encoding),
+					true, // method verification
+					true, // analyze code
+					true); // generate code
+			return unit;
+		} finally {
+			if (unit != null) {
+				unit.cleanUp();
+			}
+		}
+	}
+
+	public static CompilationUnitDeclaration resolve(
+		char[] source,
+		char[][] packageName,
+		String unitName,
+		IJavaProject javaProject,
+		IAbstractSyntaxTreeVisitor visitor)
+		throws JavaModelException {
+	
+		CompilationUnitResolver compilationUnitVisitor =
+			new CompilationUnitResolver(
+				getNameEnvironment(javaProject),
+				getHandlingPolicy(),
+				javaProject.getOptions(true),
+				getRequestor(),
+				getProblemFactory(unitName.toCharArray(), visitor));
+	
+		CompilationUnitDeclaration unit = null;
+		try {
+			String encoding = javaProject.getOption(JavaCore.CORE_ENCODING, true);
+
+			unit =
+				compilationUnitVisitor.resolve(
+					new BasicCompilationUnit(
+						source,
+						packageName,
+						unitName,
+						encoding),
+					true, // method verification
+					true, // analyze code
+					true); // generate code
 			return unit;
 		} finally {
 			if (unit != null) {
@@ -270,4 +321,5 @@ class CompilationUnitResolver extends Compiler {
 			}
 		}
 	}	
+	
 }

@@ -1,19 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Stack;
 
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IField;
 import org.eclipse.jdt.core.IImportContainer;
@@ -27,6 +28,7 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.ISourceElementRequestor;
+import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
 import org.eclipse.jdt.internal.core.util.ReferenceInfoAdapter;
 
@@ -103,6 +105,11 @@ public class CompilationUnitStructureRequestor extends ReferenceInfoAdapter impl
 	 * Problem requestor which will get notified of discovered problems
 	 */
 	protected boolean hasSyntaxErrors = false;
+	
+	/*
+	 * The parser this requestor is using.
+	 */
+	protected Parser parser;
 	
 	/**
 	 * Empty collections used for efficient initialization
@@ -500,8 +507,26 @@ public void exitConstructor(int declarationEnd) {
 /**
  * @see ISourceElementRequestor
  */
-public void exitField(int declarationEnd) {
-	exitMember(declarationEnd);
+public void exitField(int initializationStart, int declarationEnd, int declarationSourceEnd) {
+	SourceFieldElementInfo info = (SourceFieldElementInfo) fInfoStack.pop();
+	info.setSourceRangeEnd(declarationSourceEnd);
+	
+	// remember initializer source if field is a constant
+	if (initializationStart != -1) {
+		int flags = info.flags;
+		Object typeInfo;
+		if (Flags.isStatic(flags) && Flags.isFinal(flags)
+				|| ((typeInfo = fInfoStack.peek()) instanceof SourceTypeElementInfo
+					 && (Flags.isInterface(((SourceTypeElementInfo)typeInfo).flags)))) {
+			int length = declarationEnd - initializationStart;
+			if (length > 0) {
+				char[] initializer = new char[length];
+				System.arraycopy(this.parser.scanner.source, initializationStart, initializer, 0, length);
+				info.initializationSource = initializer;
+			}
+		}
+	}
+	fHandleStack.pop();
 }
 /**
  * @see ISourceElementRequestor

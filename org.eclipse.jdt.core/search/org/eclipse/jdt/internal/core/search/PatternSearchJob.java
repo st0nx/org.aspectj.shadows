@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search;
 
 import java.io.IOException;
@@ -32,6 +32,7 @@ public class PatternSearchJob implements IJob {
 	protected IndexManager indexManager;
 	protected int detailLevel;
 	protected IndexSelector indexSelector;
+	protected boolean isPolymorphicSearch;
 	protected long executionTime = 0;
 	
 	public PatternSearchJob(
@@ -45,15 +46,16 @@ public class PatternSearchJob implements IJob {
 			pattern,
 			scope,
 			null,
+			false,
 			detailLevel,
 			requestor,
 			indexManager);
 	}
-
 	public PatternSearchJob(
 		SearchPattern pattern,
 		IJavaSearchScope scope,
 		IJavaElement focus,
+		boolean isPolymorphicSearch,
 		int detailLevel,
 		IIndexSearchRequestor requestor,
 		IndexManager indexManager) {
@@ -61,18 +63,16 @@ public class PatternSearchJob implements IJob {
 		this.pattern = pattern;
 		this.scope = scope;
 		this.focus = focus;
+		this.isPolymorphicSearch = isPolymorphicSearch;
 		this.detailLevel = detailLevel;
 		this.requestor = requestor;
 		this.indexManager = indexManager;
 	}
-
 	public boolean belongsTo(String jobFamily) {
 		return true;
 	}
-
-	/**
-	 * execute method comment.
-	 */
+	public void cancel() {
+	}
 	public boolean execute(IProgressMonitor progressMonitor) {
 
 		if (progressMonitor != null && progressMonitor.isCanceled())
@@ -81,7 +81,7 @@ public class PatternSearchJob implements IJob {
 		executionTime = 0;
 		if (this.indexSelector == null) {
 			this.indexSelector =
-				new IndexSelector(this.scope, this.focus, this.indexManager);
+				new IndexSelector(this.scope, this.focus, this.isPolymorphicSearch, this.indexManager);
 		}
 		IIndex[] searchIndexes = this.indexSelector.getIndexes();
 		try {
@@ -109,15 +109,23 @@ public class PatternSearchJob implements IJob {
 			}
 		}
 	}
-
-	/**
-	 * execute method comment.
-	 */
+	public boolean isReadyToRun() {
+		if (this.indexSelector == null) { // only check once, i.e. as long as this job is used, it will keep the same index picture
+			this.indexSelector = new IndexSelector(this.scope, this.focus, this.isPolymorphicSearch, this.indexManager);
+			this.indexSelector.getIndexes(); // will only cache answer if all indexes were available originally
+		}
+		return true;
+	}
 	public boolean search(IIndex index, IProgressMonitor progressMonitor) {
 
 		if (progressMonitor != null && progressMonitor.isCanceled())
 			throw new OperationCanceledException();
 
+//		IIndex inMemIndex = indexManager.peekAtIndex(new Path(((Index)index).toString.substring("Index for ".length()).replace('\\','/')));
+//		if (inMemIndex != index) {
+//			System.out.println("SANITY CHECK: search job using obsolete index: ["+index+ "] instead of: ["+inMemIndex+"]");
+//		}
+		
 		if (index == null)
 			return COMPLETE;
 		ReadWriteMonitor monitor = indexManager.getMonitorFor(index);
@@ -131,9 +139,7 @@ public class PatternSearchJob implements IJob {
 				try {
 					monitor.exitRead(); // free read lock
 					monitor.enterWrite(); // ask permission to write
-					if (IndexManager.VERBOSE)
-						JobManager.verbose("-> merging index " + index.getIndexFile()); //$NON-NLS-1$
-					index.save();
+					this.indexManager.saveIndex(index);
 				} catch (IOException e) {
 					return FAILED;
 				} finally {
@@ -155,14 +161,7 @@ public class PatternSearchJob implements IJob {
 			monitor.exitRead(); // finished reading
 		}
 	}
-
 	public String toString() {
 		return "searching " + pattern.toString(); //$NON-NLS-1$
 	}
-	/*
-	 * @see IJob#cancel()
-	 */
-	public void cancel() {
-	}
-
 }

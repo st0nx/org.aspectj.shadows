@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -41,77 +41,64 @@ public class QualifiedNameReference extends NameReference {
 		Assignment assignment,
 		boolean isCompound) {
 
-		if (assignment.expression != null) {
-			flowInfo =
-				assignment
-					.expression
-					.analyseCode(currentScope, flowContext, flowInfo)
-					.unconditionalInits();
-		}
 		// determine the rank until which we now we do not need any actual value for the field access
 		int otherBindingsCount = otherBindings == null ? 0 : otherBindings.length;
-		int indexOfFirstValueRequired = otherBindingsCount;
-		while (indexOfFirstValueRequired > 0) {
-			FieldBinding otherBinding = otherBindings[indexOfFirstValueRequired - 1];
-			if (otherBinding.isStatic())
-				break; // no longer need any value before this point
-			indexOfFirstValueRequired--;
-		}
-		FieldBinding lastFieldBinding = null;
-		if ((bits & FIELD) != 0) {
-			// reading from a field
-			// check if final blank field
-			if ((lastFieldBinding = (FieldBinding) binding).isFinal()
-				&& currentScope.allowBlankFinalFieldAssignment(lastFieldBinding)) {
-				if (!flowInfo.isDefinitelyAssigned(lastFieldBinding)) {
-					currentScope.problemReporter().uninitializedBlankFinalField(
-						lastFieldBinding,
-						this);
+		boolean needValue = otherBindingsCount == 0 || !this.otherBindings[0].isStatic();
+		switch (bits & RestrictiveFlagMASK) {
+			case FIELD : // reading a field
+				lastFieldBinding = (FieldBinding) binding;
+				if (needValue) {
+					manageSyntheticReadAccessIfNecessary(currentScope, lastFieldBinding, this.actualReceiverType, 0);
+				}				// check if final blank field
+				if (lastFieldBinding.isBlankFinal()
+				    && this.otherBindings != null // the last field binding is only assigned
+	 				&& currentScope.allowBlankFinalFieldAssignment(lastFieldBinding)) {
+					if (!flowInfo.isDefinitelyAssigned(lastFieldBinding)) {
+						currentScope.problemReporter().uninitializedBlankFinalField(
+							lastFieldBinding,
+							this);
+					}
 				}
-			}
-		} else {
-			if ((bits & LOCAL) != 0) {
+				break;
+			case LOCAL :
 				// first binding is a local variable
 				LocalVariableBinding localBinding;
 				if (!flowInfo
 					.isDefinitelyAssigned(localBinding = (LocalVariableBinding) binding)) {
 					currentScope.problemReporter().uninitializedLocalVariable(localBinding, this);
 				}
-				if (!flowInfo.isFakeReachable())
-					localBinding.used = true;
-			}
+				if (flowInfo.isReachable()) {
+					localBinding.useFlag = LocalVariableBinding.USED;
+				} else if (localBinding.useFlag == LocalVariableBinding.UNUSED) {
+					localBinding.useFlag = LocalVariableBinding.FAKE_USED;
+				}
 		}
-		if (indexOfFirstValueRequired == 0) {
+		
+		if (needValue) {
 			manageEnclosingInstanceAccessIfNecessary(currentScope);
 			// only for first binding
 		}
 		// all intermediate field accesses are read accesses
 		if (otherBindings != null) {
-			int start = indexOfFirstValueRequired == 0 ? 0 : indexOfFirstValueRequired - 1;
-			for (int i = start; i < otherBindingsCount; i++) {
-				if (lastFieldBinding != null) { // could be null if first was a local variable
-					TypeBinding lastReceiverType;
-					switch(i){
-						case 0 :
-							lastReceiverType = this.actualReceiverType;
-							break;
-						case 1 :
-							lastReceiverType = ((VariableBinding)binding).type;
-							break;
-						default :
-							lastReceiverType = otherBindings[i-1].type;
-					}
+			for (int i = 0; i < otherBindingsCount-1; i++) {
+				lastFieldBinding = otherBindings[i];
+				needValue = !otherBindings[i+1].isStatic();
+				if (needValue) {
 					manageSyntheticReadAccessIfNecessary(
 						currentScope, 
 						lastFieldBinding, 
-						lastReceiverType,
-						i);
+						i == 0 
+							? ((VariableBinding)binding).type
+							: otherBindings[i-1].type,
+						i + 1);
 				}
-				lastFieldBinding = otherBindings[i];
 			}
+			lastFieldBinding = otherBindings[otherBindingsCount-1];
 		}
+
 		if (isCompound) {
 			if (binding == lastFieldBinding
+				&& lastFieldBinding.isBlankFinal()
 				&& currentScope.allowBlankFinalFieldAssignment(lastFieldBinding)
 				&& (!flowInfo.isDefinitelyAssigned(lastFieldBinding))) {
 				currentScope.problemReporter().uninitializedBlankFinalField(
@@ -134,25 +121,33 @@ public class QualifiedNameReference extends NameReference {
 					? 0 
 					: otherBindingsCount);
 		}
+		
+		if (assignment.expression != null) {
+			flowInfo =
+				assignment
+					.expression
+					.analyseCode(currentScope, flowContext, flowInfo)
+					.unconditionalInits();
+		}
+		
 		// the last field access is a write access
 		if (lastFieldBinding.isFinal()) {
 			// in a context where it can be assigned?
-			if (currentScope.allowBlankFinalFieldAssignment(lastFieldBinding)) {
+			if (lastFieldBinding.isBlankFinal()
+					&& !isCompound
+					&& currentScope.allowBlankFinalFieldAssignment(lastFieldBinding) 
+					&& indexOfFirstFieldBinding == 1) {
 				if (flowInfo.isPotentiallyAssigned(lastFieldBinding)) {
-					if (indexOfFirstFieldBinding == 1) {
-						// was an implicit reference to the first field binding
-						currentScope.problemReporter().duplicateInitializationOfBlankFinalField(
-							lastFieldBinding,
-							this);
-					} else {
-						currentScope.problemReporter().cannotAssignToFinalField(lastFieldBinding, this);
-						// attempting to assign a non implicit reference
-					}
+					currentScope.problemReporter().duplicateInitializationOfBlankFinalField(lastFieldBinding, this);
+				} else {
+					flowContext.recordSettingFinal(lastFieldBinding, this);
 				}
 				flowInfo.markAsDefinitelyAssigned(lastFieldBinding);
-				flowContext.recordSettingFinal(lastFieldBinding, this);
 			} else {
 				currentScope.problemReporter().cannotAssignToFinalField(lastFieldBinding, this);
+				if (currentScope.allowBlankFinalFieldAssignment(lastFieldBinding)) { // pretend it got assigned
+					flowInfo.markAsDefinitelyAssigned(lastFieldBinding);
+				}
 			}
 		}
 		// equivalent to valuesRequired[maxOtherBindings]
@@ -168,6 +163,7 @@ public class QualifiedNameReference extends NameReference {
 
 		return flowInfo;
 	}
+	
 	public FlowInfo analyseCode(
 		BlockScope currentScope,
 		FlowContext flowContext,
@@ -184,26 +180,16 @@ public class QualifiedNameReference extends NameReference {
 			
 		// determine the rank until which we now we do not need any actual value for the field access
 		int otherBindingsCount = otherBindings == null ? 0 : otherBindings.length;
-		int indexOfFirstValueRequired;
-		if (valueRequired) {
-			indexOfFirstValueRequired = otherBindingsCount;
-			while (indexOfFirstValueRequired > 0) {
-				FieldBinding otherBinding = otherBindings[indexOfFirstValueRequired - 1];
-				if (otherBinding.isStatic())
-					break; // no longer need any value before this point
-				indexOfFirstValueRequired--;
-			}
-		} else {
-			indexOfFirstValueRequired = otherBindingsCount + 1;
-		}
+
+		boolean needValue = otherBindingsCount == 0 ? valueRequired : !this.otherBindings[0].isStatic();
 		switch (bits & RestrictiveFlagMASK) {
 			case FIELD : // reading a field
-				if (indexOfFirstValueRequired == 0) {
+				if (needValue) {
 					manageSyntheticReadAccessIfNecessary(currentScope, (FieldBinding) binding, this.actualReceiverType, 0);
 				}
 				// check if reading a final blank field
 				FieldBinding fieldBinding;
-					if ((fieldBinding = (FieldBinding) binding).isFinal()
+					if ((fieldBinding = (FieldBinding) binding).isBlankFinal()
 						&& (indexOfFirstFieldBinding == 1)
 					// was an implicit reference to the first field binding
 						&& currentScope.allowBlankFinalFieldAssignment(fieldBinding)
@@ -217,23 +203,28 @@ public class QualifiedNameReference extends NameReference {
 					.isDefinitelyAssigned(localBinding = (LocalVariableBinding) binding)) {
 					currentScope.problemReporter().uninitializedLocalVariable(localBinding, this);
 				}
-				if (!flowInfo.isFakeReachable())
-					localBinding.used = true;
+				if (flowInfo.isReachable()) {
+					localBinding.useFlag = LocalVariableBinding.USED;
+				} else if (localBinding.useFlag == LocalVariableBinding.UNUSED) {
+					localBinding.useFlag = LocalVariableBinding.FAKE_USED;
+				}
 		}
-		if (indexOfFirstValueRequired == 0) {
+		if (needValue) {
 			manageEnclosingInstanceAccessIfNecessary(currentScope);
 			// only for first binding
 		}
 		if (otherBindings != null) {
-			int start = indexOfFirstValueRequired == 0 ? 0 : indexOfFirstValueRequired - 1;
-			for (int i = start; i < otherBindingsCount; i++) {
-				manageSyntheticReadAccessIfNecessary(
-					currentScope, 
-					otherBindings[i], 
-					i == 0 
-						? ((VariableBinding)binding).type
-						: otherBindings[i-1].type,
-					i + 1);
+			for (int i = 0; i < otherBindingsCount; i++) {
+				needValue = i < otherBindingsCount-1 ? !otherBindings[i+1].isStatic() : valueRequired;
+				if (needValue) {
+					manageSyntheticReadAccessIfNecessary(
+						currentScope, 
+						otherBindings[i], 
+						i == 0 
+							? ((VariableBinding)binding).type
+							: otherBindings[i-1].type,
+						i + 1);
+				}
 			}
 		}
 		return flowInfo;
@@ -246,7 +237,7 @@ public class QualifiedNameReference extends NameReference {
 		FieldBinding fieldBinding = (FieldBinding) binding;
 		MethodScope methodScope = scope.methodScope();
 		if (methodScope.enclosingSourceType() == fieldBinding.declaringClass
-			&& methodScope.fieldDeclarationIndex != methodScope.NotInFieldDecl
+			&& methodScope.fieldDeclarationIndex != MethodScope.NotInFieldDecl
 			&& fieldBinding.id >= methodScope.fieldDeclarationIndex) {
 			if ((!fieldBinding.isStatic() || methodScope.isStatic)
 				&& this.indexOfFirstFieldBinding == 1)
@@ -262,7 +253,7 @@ public class QualifiedNameReference extends NameReference {
 		Assignment assignment,
 		boolean valueRequired) {
 			
-		generateReadSequence(currentScope, codeStream, true);
+		generateReadSequence(currentScope, codeStream);
 		assignment.expression.generateCode(currentScope, codeStream, true);
 		fieldStore(codeStream, lastFieldBinding, syntheticWriteAccessor, valueRequired);
 		// equivalent to valuesRequired[maxOtherBindings]
@@ -274,19 +265,24 @@ public class QualifiedNameReference extends NameReference {
 		BlockScope currentScope,
 		CodeStream codeStream,
 		boolean valueRequired) {
+			
 		int pc = codeStream.position;
 		if (constant != NotAConstant) {
 			if (valueRequired) {
 				codeStream.generateConstant(constant, implicitConversion);
 			}
 		} else {
-			generateReadSequence(currentScope, codeStream, valueRequired);
+			generateReadSequence(currentScope, codeStream); 
 			if (valueRequired) {
 				if (lastFieldBinding.declaringClass == null) { // array length
 					codeStream.arraylength();
 					codeStream.generateImplicitConversion(implicitConversion);
 				} else {
 					if (lastFieldBinding.constant != NotAConstant) {
+						if (!lastFieldBinding.isStatic()){
+							codeStream.invokeObjectGetClass();
+							codeStream.pop();
+						}
 						// inline the last field constant
 						codeStream.generateConstant(lastFieldBinding.constant, implicitConversion);
 					} else {
@@ -306,6 +302,12 @@ public class QualifiedNameReference extends NameReference {
 						codeStream.generateImplicitConversion(implicitConversion);
 					}
 				}
+			} else {
+				if (lastFieldBinding != null && !lastFieldBinding.isStatic()){
+					codeStream.invokeObjectGetClass(); // perform null check
+					codeStream.pop();
+				}
+							
 			}
 		}
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
@@ -318,7 +320,7 @@ public class QualifiedNameReference extends NameReference {
 		int assignmentImplicitConversion,
 		boolean valueRequired) {
 			
-		generateReadSequence(currentScope, codeStream, true);
+		generateReadSequence(currentScope, codeStream);
 		SyntheticAccessMethodBinding accessor =
 			syntheticReadAccessors == null
 				? null
@@ -365,7 +367,7 @@ public class QualifiedNameReference extends NameReference {
 		CodeStream codeStream,
 		CompoundAssignment postIncrement,
 		boolean valueRequired) {
-		generateReadSequence(currentScope, codeStream, true);
+		generateReadSequence(currentScope, codeStream);
 		SyntheticAccessMethodBinding accessor =
 			syntheticReadAccessors == null
 				? null
@@ -416,93 +418,82 @@ public class QualifiedNameReference extends NameReference {
 	 */
 	public void generateReadSequence(
 		BlockScope currentScope,
-		CodeStream codeStream,
-		boolean valueRequired) {
+		CodeStream codeStream) {
+			
 		// determine the rank until which we now we do not need any actual value for the field access
 		int otherBindingsCount = this.otherCodegenBindings == null ? 0 : otherCodegenBindings.length;
-		int indexOfFirstValueRequired;
-		if (valueRequired) {
-			indexOfFirstValueRequired = otherBindingsCount;
-			while (indexOfFirstValueRequired > 0) {
-				FieldBinding otherBinding = this.otherCodegenBindings[indexOfFirstValueRequired - 1];
-				if (otherBinding.isStatic() || otherBinding.constant != NotAConstant)
-					break; // no longer need any value before this point
-				indexOfFirstValueRequired--;
-			}
-		} else {
-			indexOfFirstValueRequired = otherBindingsCount + 1;
-		}
-		if (indexOfFirstValueRequired == 0) {
-			switch (bits & RestrictiveFlagMASK) {
-				case FIELD :
-					lastFieldBinding = (FieldBinding) this.codegenBinding;
-					// if first field is actually constant, we can inline it
-					if (lastFieldBinding.constant != NotAConstant) {
-						codeStream.generateConstant(lastFieldBinding.constant, 0);
-						// no implicit conversion
-						lastFieldBinding = null; // will not generate it again
-						break;
-					}
-					if (!lastFieldBinding.isStatic()) {
-						if ((bits & DepthMASK) != 0) {
-							Object[] emulationPath =
-								currentScope.getExactEmulationPath(
-									currentScope.enclosingSourceType().enclosingTypeAt(
-										(bits & DepthMASK) >> DepthSHIFT));
-							if (emulationPath == null) {
-								// internal error, per construction we should have found it
-								currentScope.problemReporter().needImplementation();
-							} else {
-								codeStream.generateOuterAccess(emulationPath, this, currentScope);
-							}
-						} else {
-							generateReceiver(codeStream);
-						}
-					}
+
+		boolean needValue = otherBindingsCount == 0 || !this.otherBindings[0].isStatic();
+		switch (bits & RestrictiveFlagMASK) {
+			case FIELD :
+				lastFieldBinding = (FieldBinding) this.codegenBinding;
+				// if first field is actually constant, we can inline it
+				if (lastFieldBinding.constant != NotAConstant) {
 					break;
-				case LOCAL : // reading the first local variable
-					lastFieldBinding = null;
-					LocalVariableBinding localBinding = (LocalVariableBinding) this.codegenBinding;
-					// regular local variable read
-					if (localBinding.constant != NotAConstant) {
-						codeStream.generateConstant(localBinding.constant, 0);
-						// no implicit conversion
+				}
+				if (needValue && !lastFieldBinding.isStatic()) {
+					if ((bits & DepthMASK) != 0) {
+						ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
+						Object[] emulationPath = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
+						codeStream.generateOuterAccess(emulationPath, this, targetType, currentScope);
 					} else {
-						// outer local?
-						if ((bits & DepthMASK) != 0) {
-							// outer local can be reached either through a synthetic arg or a synthetic field
-							VariableBinding[] path = currentScope.getEmulationPath(localBinding);
-							if (path == null) {
-								// emulation was not possible (should not happen per construction)
-								currentScope.problemReporter().needImplementation();
-							} else {
-								codeStream.generateOuterAccess(path, this, currentScope);
-							}
-						} else {
-							codeStream.load(localBinding);
-						}
+						generateReceiver(codeStream);
 					}
-			}
-		} else {
-			lastFieldBinding = null;
+				}
+				break;
+			case LOCAL : // reading the first local variable
+				if (!needValue) break; // no value needed
+				lastFieldBinding = null;
+				LocalVariableBinding localBinding = (LocalVariableBinding) this.codegenBinding;
+				// regular local variable read
+				if (localBinding.constant != NotAConstant) {
+					codeStream.generateConstant(localBinding.constant, 0);
+					// no implicit conversion
+				} else {
+					// outer local?
+					if ((bits & DepthMASK) != 0) {
+						// outer local can be reached either through a synthetic arg or a synthetic field
+						VariableBinding[] path = currentScope.getEmulationPath(localBinding);
+						codeStream.generateOuterAccess(path, this, localBinding, currentScope);
+					} else {
+						codeStream.load(localBinding);
+					}
+				}
 		}
+
 		// all intermediate field accesses are read accesses
 		// only the last field binding is a write access
 		if (this.otherCodegenBindings != null) {
-			int start = indexOfFirstValueRequired == 0 ? 0 : indexOfFirstValueRequired - 1;
-			for (int i = start; i < otherBindingsCount; i++) {
+			for (int i = 0; i < otherBindingsCount; i++) {
+				FieldBinding nextField = this.otherCodegenBindings[i];
 				if (lastFieldBinding != null) {
-					MethodBinding accessor =
-						syntheticReadAccessors == null ? null : syntheticReadAccessors[i];
-					if (accessor == null)
-						if (lastFieldBinding.isStatic())
-							codeStream.getstatic(lastFieldBinding);
-						else
-							codeStream.getfield(lastFieldBinding);
-					else
-						codeStream.invokestatic(accessor);
+					needValue = !nextField.isStatic();
+					if (needValue) {
+						MethodBinding accessor =
+							syntheticReadAccessors == null ? null : syntheticReadAccessors[i]; 
+						if (accessor == null) {
+							if (lastFieldBinding.constant != NotAConstant) {
+								if (this.lastFieldBinding != this.codegenBinding && !this.lastFieldBinding.isStatic()) {
+									codeStream.invokeObjectGetClass(); // perform null check
+									codeStream.pop();
+								}
+								codeStream.generateConstant(lastFieldBinding.constant, 0);
+							} else if (lastFieldBinding.isStatic()) {
+								codeStream.getstatic(lastFieldBinding);
+							} else {
+								codeStream.getfield(lastFieldBinding);
+							}
+						} else {
+							codeStream.invokestatic(accessor);
+						}
+					} else {
+						if (this.codegenBinding != this.lastFieldBinding && !this.lastFieldBinding.isStatic()){
+							codeStream.invokeObjectGetClass(); // perform null check
+							codeStream.pop();
+						}						
+					}
 				}
-				lastFieldBinding = otherCodegenBindings[i];
+				this.lastFieldBinding = nextField;
 			}
 		}
 	}
@@ -536,8 +527,7 @@ public class QualifiedNameReference extends NameReference {
 		int index = indexOfFirstFieldBinding;
 		int length = tokens.length;
 		if (index == length) { //	restrictiveFlag == FIELD
-			constant =
-				FieldReference.getConstantFor((FieldBinding) binding, false, this, scope, index - 1);
+			this.constant = FieldReference.getConstantFor((FieldBinding) binding, this, false, scope);
 			return type;
 		}
 		// allocation of the fieldBindings array	and its respective constants
@@ -546,9 +536,9 @@ public class QualifiedNameReference extends NameReference {
 		otherDepths = new int[otherBindingsLength];
 		
 		// fill the first constant (the one of the binding)
-		constant =
+		this.constant =
 			((bits & FIELD) != 0)
-				? FieldReference.getConstantFor((FieldBinding) binding, false, this, scope, index - 1)
+				? FieldReference.getConstantFor((FieldBinding) binding, this, false, scope)
 				: ((VariableBinding) binding).constant;
 		// save first depth, since will be updated by visibility checks of other bindings
 		int firstDepth = (bits & DepthMASK) >> DepthSHIFT;
@@ -566,14 +556,20 @@ public class QualifiedNameReference extends NameReference {
 			if (field.isValidBinding()) {
 				if (isFieldUseDeprecated(field, scope))
 					scope.problemReporter().deprecatedField(field, this);
-				Constant someConstant =
-					FieldReference.getConstantFor(field, false, this, scope, place);
+				Constant someConstant = FieldReference.getConstantFor(field, this, false, scope);
 				// constant propagation can only be performed as long as the previous one is a constant too.
-				if (constant != NotAConstant) {
-					constant = someConstant;
+				if (this.constant != NotAConstant) {
+					this.constant = someConstant;					
 				}
+
 				type = field.type;
 				index++;
+				
+				if (field.isStatic()) {
+					// static field accessed through receiver? legal but unoptimal (optional warning)
+					scope.problemReporter().unnecessaryReceiverForStaticField(this, field);
+				}
+				
 			} else {
 				constant = NotAConstant; //don't fill other constants slots...
 				scope.problemReporter().invalidField(this, field, index, type);
@@ -589,23 +585,8 @@ public class QualifiedNameReference extends NameReference {
 		if (((bits & DepthMASK) == 0) || (constant != NotAConstant)) {
 			return;
 		}
-		switch (bits & RestrictiveFlagMASK) {
-			case FIELD :
-				FieldBinding fieldBinding;
-				if ((fieldBinding = (FieldBinding) binding).isStatic()
-					|| (fieldBinding.constant != NotAConstant))
-					return;
-				ReferenceBinding compatibleType = currentScope.enclosingSourceType();
-				// the declaringClass of the target binding must be compatible with the enclosing
-				// type at <depth> levels outside
-				for (int i = 0, depth = (bits & DepthMASK) >> DepthSHIFT; i < depth; i++) {
-					compatibleType = compatibleType.enclosingType();
-				}
-				currentScope.emulateOuterAccess(compatibleType, false);
-				// request cascade of accesses
-				break;
-			case LOCAL :
-				currentScope.emulateOuterAccess((LocalVariableBinding) binding);
+		if ((bits & RestrictiveFlagMASK) == LOCAL) {
+			currentScope.emulateOuterAccess((LocalVariableBinding) binding);
 		}
 	}
 	public void manageSyntheticReadAccessIfNecessary(
@@ -650,12 +631,12 @@ public class QualifiedNameReference extends NameReference {
 		}
 		// if the binding declaring class is not visible, need special action
 		// for runtime compatibility on 1.2 VMs : change the declaring class of the binding
-		// NOTE: from 1.4 on, field's declaring class is touched if any different from receiver type
+		// NOTE: from target 1.2 on, field's declaring class is touched if any different from receiver type
 		if (fieldBinding.declaringClass != lastReceiverType
 			&& !lastReceiverType.isArrayType()			
 			&& fieldBinding.declaringClass != null
 			&& fieldBinding.constant == NotAConstant
-			&& ((currentScope.environment().options.complianceLevel >= CompilerOptions.JDK1_4
+			&& ((currentScope.environment().options.targetJDK >= CompilerOptions.JDK1_2
 					&& (index > 0 || indexOfFirstFieldBinding > 1 || !fieldBinding.isStatic())
 					&& fieldBinding.declaringClass.id != T_Object)
 				|| !fieldBinding.declaringClass.canBeSeenBy(currentScope))){
@@ -696,12 +677,12 @@ public class QualifiedNameReference extends NameReference {
 		}
 		// if the binding declaring class is not visible, need special action
 		// for runtime compatibility on 1.2 VMs : change the declaring class of the binding
-		// NOTE: from 1.4 on, field's declaring class is touched if any different from receiver type
+		// NOTE: from target 1.2 on, field's declaring class is touched if any different from receiver type
 		if (fieldBinding.declaringClass != lastReceiverType
 			&& !lastReceiverType.isArrayType()			
 			&& fieldBinding.declaringClass != null
 			&& fieldBinding.constant == NotAConstant
-			&& ((currentScope.environment().options.complianceLevel >= CompilerOptions.JDK1_4
+			&& ((currentScope.environment().options.targetJDK >= CompilerOptions.JDK1_2
 					&& (fieldBinding != binding || indexOfFirstFieldBinding > 1 || !fieldBinding.isStatic())
 					&& fieldBinding.declaringClass.id != T_Object)
 				|| !fieldBinding.declaringClass.canBeSeenBy(currentScope))){
@@ -748,14 +729,14 @@ public class QualifiedNameReference extends NameReference {
 								this);
 						bits &= ~RestrictiveFlagMASK; // clear bits
 						bits |= LOCAL;
-						return getOtherFieldBindings(scope);
+						return this.resolvedType = getOtherFieldBindings(scope);
 					}
 					if (binding instanceof FieldBinding) {
 						// check for forward references
 						FieldBinding fieldBinding = (FieldBinding) binding;
 						MethodScope methodScope = scope.methodScope();
 						if (methodScope.enclosingSourceType() == fieldBinding.declaringClass
-							&& methodScope.fieldDeclarationIndex != methodScope.NotInFieldDecl
+							&& methodScope.fieldDeclarationIndex != MethodScope.NotInFieldDecl
 							&& fieldBinding.id >= methodScope.fieldDeclarationIndex) {
 							if ((!fieldBinding.isStatic() || methodScope.isStatic)
 								&& this.indexOfFirstFieldBinding == 1)
@@ -763,20 +744,27 @@ public class QualifiedNameReference extends NameReference {
 						}
 						bits &= ~RestrictiveFlagMASK; // clear bits
 						bits |= FIELD;
-						return getOtherFieldBindings(scope);
+						
+						// check for deprecated receiver type
+						// deprecation check for receiver type if not first token
+						if (indexOfFirstFieldBinding > 1) {
+							if (isTypeUseDeprecated(this.actualReceiverType, scope))
+								scope.problemReporter().deprecatedType(this.actualReceiverType, this);
+						}
+						
+						return this.resolvedType = getOtherFieldBindings(scope);
 					}
 					// thus it was a type
 					bits &= ~RestrictiveFlagMASK; // clear bits
 					bits |= TYPE;
 				case TYPE : //=============only type ==============
-					//deprecated test
 					if (isTypeUseDeprecated((TypeBinding) binding, scope))
 						scope.problemReporter().deprecatedType((TypeBinding) binding, this);
-					return (TypeBinding) binding;
+					return this.resolvedType = (TypeBinding) binding;
 			}
 		}
 		//========error cases===============
-		return this.reportError(scope);
+		return this.resolvedType = this.reportError(scope);
 	}
 	public void setFieldIndex(int index) {
 		this.indexOfFirstFieldBinding = index;

@@ -1,101 +1,47 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.zip.ZipFile;
 
-import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.IResource;
-import org.eclipse.core.resources.IWorkspace;
-import org.eclipse.core.resources.IWorkspaceRoot;
-import org.eclipse.core.resources.ResourcesPlugin;
-import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IPath;
-import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.core.runtime.OperationCanceledException;
-import org.eclipse.core.runtime.Path;
-import org.eclipse.jdt.core.IBuffer;
-import org.eclipse.jdt.core.IClassFile;
-import org.eclipse.jdt.core.IField;
-import org.eclipse.jdt.core.IInitializer;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IJavaModelStatusConstants;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.IMember;
-import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.IOpenable;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IPackageFragmentRoot;
-import org.eclipse.jdt.core.ISourceRange;
-import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.IWorkingCopy;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.Signature;
-import org.eclipse.jdt.core.compiler.ITerminalSymbols;
+import org.eclipse.core.resources.*;
+import org.eclipse.core.runtime.*;
+import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.core.search.IJavaSearchResultCollector;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies;
-import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.Argument;
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
-import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.ImportReference;
-import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.TypeReference;
-import org.eclipse.jdt.internal.compiler.batch.ClasspathDirectory;
+import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
-import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
-import org.eclipse.jdt.internal.compiler.env.IBinaryType;
+import org.eclipse.jdt.internal.compiler.env.*;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
-import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
-import org.eclipse.jdt.internal.compiler.env.ISourceType;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.ITypeRequestor;
-import org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding;
-import org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment;
-import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
-import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
-import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
-import org.eclipse.jdt.internal.compiler.lookup.UnresolvedReferenceBinding;
+import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
+import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
-import org.eclipse.jdt.internal.core.BinaryType;
-import org.eclipse.jdt.internal.core.ClassFile;
-import org.eclipse.jdt.internal.core.CompilationUnit;
-import org.eclipse.jdt.internal.core.HandleFactory;
-import org.eclipse.jdt.internal.core.JarPackageFragmentRoot;
-import org.eclipse.jdt.internal.core.JavaElement;
-import org.eclipse.jdt.internal.core.JavaModel;
-import org.eclipse.jdt.internal.core.JavaModelManager;
-import org.eclipse.jdt.internal.core.JavaProject;
-import org.eclipse.jdt.internal.core.NameLookup;
-import org.eclipse.jdt.internal.core.Openable;
-import org.eclipse.jdt.internal.core.PackageFragmentRoot;
-import org.eclipse.jdt.internal.core.SourceMapper;
-import org.eclipse.jdt.internal.core.SourceTypeElementInfo;
-import org.eclipse.jdt.internal.core.Util;
-
+import org.eclipse.jdt.internal.core.*;
+import org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver;
+import org.eclipse.jdt.internal.core.search.HierarchyScope;
 /**
  * Locate matches in compilation units.
  */
@@ -106,7 +52,7 @@ public class MatchLocator implements ITypeRequestor {
 	public IJavaSearchScope scope;
 
 	public MatchLocatorParser parser;
-	private INameEnvironment nameEnvironment;
+	public INameEnvironment nameEnvironment;
 	public NameLookup nameLookup;
 	public LookupEnvironment lookupEnvironment;
 	public HashtableOfObject parsedUnits;
@@ -114,19 +60,25 @@ public class MatchLocator implements ITypeRequestor {
 	private MatchingOpenable currentMatchingOpenable;
 	public HandleFactory handleFactory;
 	public IWorkingCopy[] workingCopies;
+	public HierarchyResolver hierarchyResolver;
+	
+	public IProgressMonitor progressMonitor;
 
-	private static char[] EMPTY_FILE_NAME = new char[0];
+	final static char[] EMPTY_FILE_NAME = CharOperation.NO_CHAR;
+	boolean compilationAborted;
 
 	public MatchLocator(
 		SearchPattern pattern,
 		int detailLevel,
 		IJavaSearchResultCollector collector,
-		IJavaSearchScope scope) {
+		IJavaSearchScope scope,
+		IProgressMonitor progressMonitor) {
 
 		this.pattern = pattern;
 		this.detailLevel = detailLevel;
 		this.collector = collector;
 		this.scope = scope;
+		this.progressMonitor = progressMonitor;
 	}
 	
 	/**
@@ -172,19 +124,17 @@ public class MatchLocator implements ITypeRequestor {
 			// get source
 			SourceTypeElementInfo elementInfo = (SourceTypeElementInfo) sourceType;
 			IType type = elementInfo.getHandle();
-			try {
-				this.buildBindings(type.getCompilationUnit());
-			} catch (JavaModelException e) {
-				// nothing we can do here: ignore
-			}
+			ICompilationUnit sourceUnit = (ICompilationUnit)type.getCompilationUnit();
+			this.accept(sourceUnit);
 		} else {
 			CompilationResult result =
 				new CompilationResult(sourceType.getFileName(), 0, 0, 0);
 			CompilationUnitDeclaration unit =
 				SourceTypeConverter.buildCompilationUnit(
-					sourceTypes,
-					true,
-					true,
+					sourceTypes,//sourceTypes[0] is always toplevel here
+					true, // need field and methods
+					true, // need member types
+					false, // no need for field initialization
 					lookupEnvironment.problemReporter,
 					result);
 			this.lookupEnvironment.buildTypeBindings(unit);
@@ -193,57 +143,7 @@ public class MatchLocator implements ITypeRequestor {
 		}
 	}
 
-/*
- * Parse the given compiation unit and build its type bindings.
- * Remember the parsed unit.
- */
-public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilationUnit compilationUnit) throws JavaModelException {
-	final IFile file = 
-		compilationUnit.isWorkingCopy() ?
-			(IFile)compilationUnit.getOriginalElement().getUnderlyingResource() :
-			(IFile)compilationUnit.getUnderlyingResource();
-	CompilationUnitDeclaration unit = null;
-	
-	// get main type name
-	final String fileName = file.getFullPath().lastSegment();
-	final char[] mainTypeName =
-		fileName.substring(0, fileName.length() - 5).toCharArray();
-	
-	// find out if unit is already known
-	char[] qualifiedName = compilationUnit.getType(new String(mainTypeName)).getFullyQualifiedName().toCharArray();
-	unit = (CompilationUnitDeclaration)this.parsedUnits.get(qualifiedName);
-	if (unit != null) return unit;
 
-	// source unit
-	IBuffer buffer;
-	final char[] source = 
-		compilationUnit.isWorkingCopy() ?
-			(buffer = compilationUnit.getBuffer()) == null ? null : buffer.getCharacters() :
-			Util.getResourceContentsAsCharArray(file);
-	ICompilationUnit sourceUnit = new ICompilationUnit() {
-		public char[] getContents() {
-			return source;
-		}
-		public char[] getFileName() {
-			return fileName.toCharArray();
-		}
-		public char[] getMainTypeName() {
-			return mainTypeName;
-		}
-		public char[][] getPackageName() {
-			return null;
-		}
-	};
-	
-	// diet parse
-	unit = this.parser.dietParse(sourceUnit, this, file, (CompilationUnit)compilationUnit);
-	if (unit != null) {
-		this.lookupEnvironment.buildTypeBindings(unit);
-		this.lookupEnvironment.completeTypeBindings(unit, true);
-		this.parsedUnits.put(qualifiedName, unit);
-	}
-	return unit;
-}
 
 	/**
 	 * Creates an IField from the given field declaration and type. 
@@ -371,9 +271,13 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 			IPackageFragmentRoot root = (IPackageFragmentRoot)pkg.getParent();
 			try {
 				if (root.isArchive()) {
-					IPath zipPath = root.isExternal() ? root.getPath() : root.getUnderlyingResource().getLocation();
+					IPath zipPath = root.isExternal() ? root.getPath() : root.getResource().getLocation();
+					if (zipPath == null) return null; // location is null
 					ZipFile zipFile = null;
 					try {
+						if (JavaModelManager.ZIP_ACCESS_VERBOSE) {
+							System.out.println("(" + Thread.currentThread() + ") [MatchLocator.classFileReader()] Creating ZipFile on " + zipPath); //$NON-NLS-1$	//$NON-NLS-2$
+						}
 						zipFile = new ZipFile(zipPath.toOSString());
 						char[] pkgPath = pkg.getElementName().toCharArray();
 						CharOperation.replace(pkgPath, '.', '/');
@@ -389,10 +293,8 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 						}
 					}
 				} else {
-					return ClassFileReader.read(type.getUnderlyingResource().getLocation().toOSString());
+					return ClassFileReader.read(type.getPath().toOSString());
 				}
-			} catch (JavaModelException e) {
-				return null;
 			} catch (ClassFormatException e) {
 				return null;
 			} catch (IOException e) {
@@ -420,12 +322,7 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 				return null;
 			}
 			// ensure this is a top level type (see bug 20011  Searching for Inner Classes gives bad search results)
-			IType declaringType = type.getDeclaringType();
-			while (declaringType != null) {
-				type = declaringType;
-				declaringType = type.getDeclaringType();
-			}
-			return type;
+			return MatchingOpenable.getTopLevelType(type);
 		}
 	}
 	/**
@@ -442,6 +339,42 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 		return this.parser == null ? null : this.parser.scanner;
 	}
 
+	/**
+	 * Create a new parser for the given project, as well as a lookup environment.
+	 */
+	public void initialize(JavaProject project) throws JavaModelException {
+		// create lookup environment
+		CompilerOptions options = new CompilerOptions(project.getOptions(true));
+		ProblemReporter problemReporter =
+			new ProblemReporter(
+				DefaultErrorHandlingPolicies.proceedWithAllProblems(),
+				options,
+				new DefaultProblemFactory());
+		this.lookupEnvironment =
+			new LookupEnvironment(this, options, problemReporter, this.nameEnvironment);
+			
+		// create parser
+		this.parser = new MatchLocatorParser(problemReporter, options.sourceLevel >= CompilerOptions.JDK1_4);
+		
+		// reset parsed units (they could hold onto obsolete bindings: see bug 16052)
+		MatchingOpenable[] openables = this.matchingOpenables.getMatchingOpenables(project.getPackageFragmentRoots());
+		for (int i = 0, length = openables.length; i < length; i++) {
+			MatchingOpenable matchingOpenable = openables[i];
+			matchingOpenable.reset();
+		}
+		this.parsedUnits = new HashtableOfObject(10);
+		
+		// remember project's name lookup
+		this.nameLookup = project.getNameLookup();
+	}
+
+	public void initializeNameEnvironment(JavaProject project) throws JavaModelException {
+		// cleanup and recreate file name environment
+		if (this.nameEnvironment != null) {
+			this.nameEnvironment.cleanup();
+		}
+		this.nameEnvironment = this.getNameEnvironment(project);
+	}
 
 	/**
 	 * Locate the matches in the given files and report them using the search requestor. 
@@ -449,8 +382,7 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 	public void locateMatches(
 		String[] filePaths, 
 		IWorkspace workspace,
-		IWorkingCopy[] workingCopies, 
-		IProgressMonitor progressMonitor)
+		IWorkingCopy[] workingCopies)
 		throws JavaModelException {
 			
 		if (SearchEngine.VERBOSE) {
@@ -530,7 +462,7 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 				if (workingCopy != null) {
 					openable = (Openable)workingCopy;
 				} else {
-					openable = this.handleFactory.createOpenable(pathString);
+					openable = this.handleFactory.createOpenable(pathString, this.scope);
 					if (openable == null)
 						continue; // match is outside classpath
 				}
@@ -541,9 +473,9 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 				try {
 					javaProject = (JavaProject) openable.getJavaProject();
 					if (workingCopy != null) {
-						resource = workingCopy.getOriginalElement().getUnderlyingResource();
+						resource = workingCopy.getOriginalElement().getResource();
 					} else {
-						resource = openable.getUnderlyingResource();
+						resource = openable.getResource();
 					}
 					if (resource == null) { // case of a file in an external jar
 						resource = javaProject.getProject();
@@ -552,7 +484,7 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 						// locate matches in previous project
 						if (previousJavaProject != null) {
 							try {
-								this.locateMatches(previousJavaProject, progressMonitor);
+								this.locateMatches(previousJavaProject);
 							} catch (JavaModelException e) {
 								if (e.getException() instanceof CoreException) {
 									throw e;
@@ -563,8 +495,19 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 							this.matchingOpenables = new MatchingOpenableSet();
 						}
 	
-						// create parser for this project
-						this.createParser(javaProject);
+						// initialization for this project
+						if (length == 1) {
+							// if only one potential match, a file name environment costs too much,
+							// so use the existing searchable  environment wich will populate the java model
+							// only for this potential match and its required types.
+							if (this.nameEnvironment != null) { // cleanup
+								this.nameEnvironment.cleanup();
+							}
+							this.nameEnvironment = javaProject.getSearchableNameEnvironment();
+						} else {
+							this.initializeNameEnvironment(javaProject);
+						}
+						this.initialize(javaProject);
 						previousJavaProject = javaProject;
 					}
 				} catch (JavaModelException e) {
@@ -573,7 +516,7 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 				}
 	
 				// add matching openable
-				this.addMatchingOpenable(resource, openable);
+				this.addMatchingOpenable(resource, openable, null/*no CompilationUnitDeclaration yet*/, null/*no Matchset yet*/);
 	
 				if (progressMonitor != null) {
 					progressMonitor.worked(1);
@@ -583,7 +526,7 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 			// last project
 			if (previousJavaProject != null) {
 				try {
-					this.locateMatches(previousJavaProject, progressMonitor);
+					this.locateMatches(previousJavaProject);
 				} catch (JavaModelException e) {
 					if (e.getException() instanceof CoreException) {
 						throw e;
@@ -640,11 +583,11 @@ public CompilationUnitDeclaration buildBindings(org.eclipse.jdt.core.ICompilatio
 							IPackageFragment pkg = (IPackageFragment)pkgs[k];
 							if (pkg.getChildren().length > 0 
 									&& pkgPattern.matchesName(pkgPattern.pkgName, pkg.getElementName().toCharArray())) {
-								IResource resource = pkg.getUnderlyingResource();
+								IResource resource = pkg.getResource();
 								if (resource == null) { // case of a file in an external jar
 									resource = javaProject.getProject();
 								}
-								this.currentMatchingOpenable = new MatchingOpenable(this, resource, null);
+								this.currentMatchingOpenable = new MatchingOpenable(this, resource, null, null, null);
 								try {
 									this.report(-1, -2, pkg, IJavaSearchResultCollector.EXACT_MATCH);
 								} catch (CoreException e) {
@@ -763,9 +706,12 @@ public IType lookupType(TypeBinding typeBinding) {
 			SourceMapper mapper = classFile.getSourceMapper();
 			if (mapper != null) {
 				IType type = classFile.getType();
-				char[] contents = mapper.findSource(type, info);
-				if (contents != null) {
-					range = mapper.mapSource(type, contents, binaryMember);
+				String sourceFileName = mapper.findSourceFileName(type, info);
+				if (sourceFileName != null) {
+					char[] contents = mapper.findSource(type, sourceFileName);
+					if (contents != null) {
+						range = mapper.mapSource(type, contents, binaryMember);
+					}
 				}
 			}
 		}
@@ -893,9 +839,9 @@ public IType lookupType(TypeBinding typeBinding) {
 					token = scanner.getNextToken();
 				} catch (InvalidInputException e) {
 				}
-			} while (token !=  ITerminalSymbols.TokenNameIdentifier && token !=  ITerminalSymbols.TokenNameEOF);
+			} while (token !=  TerminalTokens.TokenNameIdentifier && token !=  TerminalTokens.TokenNameEOF);
 	
-			if (token != ITerminalSymbols.TokenNameEOF) {
+			if (token != TerminalTokens.TokenNameEOF) {
 				char[] currentTokenSource = scanner.getCurrentTokenSource();
 				boolean equals = false;
 				while (i < tokenNumber
@@ -927,7 +873,7 @@ public IType lookupType(TypeBinding typeBinding) {
 				}
 				return;
 			}
-		} while (token != ITerminalSymbols.TokenNameEOF);
+		} while (token != TerminalTokens.TokenNameEOF);
 	
 	}
 	/**
@@ -962,7 +908,7 @@ public IType lookupType(TypeBinding typeBinding) {
 				token = scanner.getNextToken();
 			} catch (InvalidInputException e) {
 			}
-			if (token != ITerminalSymbols.TokenNameEOF) {
+			if (token != TerminalTokens.TokenNameEOF) {
 				char[] currentTokenSource = scanner.getCurrentTokenSource();
 				boolean equals = false;
 				while (i < length
@@ -999,7 +945,7 @@ public IType lookupType(TypeBinding typeBinding) {
 			if (accuracyIndex < accuracies.length-1) {
 				accuracyIndex++;
 			}
-		} while (token != ITerminalSymbols.TokenNameEOF);
+		} while (token != TerminalTokens.TokenNameEOF);
 
 	}
 
@@ -1106,90 +1052,46 @@ public IType lookupType(TypeBinding typeBinding) {
 			accuracy);
 	}
 
-private MatchingOpenable newMatchingOpenable(IResource resource, Openable openable) {
-	MatchingOpenable matchingOpenable;
-	try {
-		matchingOpenable = new MatchingOpenable(this, resource, openable);
-	} catch (AbortCompilation e) {
-		// problem with class path: ignore this matching openable
-		return null;
-	}
-	return matchingOpenable;
-}
-
-private void addMatchingOpenable(IResource resource, Openable openable)
-		throws JavaModelException {
+void addMatchingOpenable(
+		IResource resource, 
+		Openable openable,
+		CompilationUnitDeclaration parsedUnit,
+		MatchSet matchSet) {
 		
-	MatchingOpenable matchingOpenable = this.newMatchingOpenable(resource, openable);
+	MatchingOpenable matchingOpenable = new MatchingOpenable(this, resource, openable, parsedUnit, matchSet);
 	if (matchingOpenable != null) {
 		this.matchingOpenables.add(matchingOpenable);
 	}
 }
-
-
-	/**
-	 * Create a new parser for the given project, as well as a lookup environment.
-	 * Asks the pattern to initialize itself for polymorphic search.
-	 */
-	public void createParser(JavaProject project) throws JavaModelException {
-		// cleaup and recreate file name environment
-		if (this.nameEnvironment != null) {
-			this.nameEnvironment.cleanup();
-		}
-		this.nameEnvironment = this.getNameEnvironment(project);
-		
-		// create lookup environment
-		CompilerOptions options = new CompilerOptions(JavaCore.getOptions());
-		ProblemReporter problemReporter =
-			new ProblemReporter(
-				DefaultErrorHandlingPolicies.proceedWithAllProblems(),
-				options,
-				new DefaultProblemFactory());
-		this.lookupEnvironment =
-			new LookupEnvironment(this, options, problemReporter, this.nameEnvironment);
-			
-		// create parser
-		this.parser = new MatchLocatorParser(problemReporter, options.assertMode);
-		
-		// reset parsed units (they could hold onto obsolete bindings: see bug 16052)
-		MatchingOpenable[] openables = this.matchingOpenables.getMatchingOpenables(project.getPackageFragmentRoots());
-		for (int i = 0, length = openables.length; i < length; i++) {
-			MatchingOpenable matchingOpenable = openables[i];
-			matchingOpenable.reset();
-		}
-		this.parsedUnits = new HashtableOfObject(10);
-		
-		// remember project's name lookup
-		this.nameLookup = project.getNameLookup();
+/*
+ * Caches the given binary type in the lookup environment and returns it.
+ * Returns the existing one if already cached.
+ * Returns null if source type binding was cached.
+ */
+BinaryTypeBinding cacheBinaryType(IType type) throws JavaModelException {
+	IType enclosingType = type.getDeclaringType();
+	if (enclosingType != null) {
+		// force caching of enclosing types first, so that binary type can be found in lookup enviroment
+		this.cacheBinaryType(enclosingType);
 	}
+	IBinaryType binaryType = (IBinaryType)((BinaryType)type).getElementInfo();
+	BinaryTypeBinding binding = this.lookupEnvironment.cacheBinaryType(binaryType);
+	if (binding == null) { // it was already cached as a result of a previous query
+		char[][] compoundName = CharOperation.splitOn('.', type.getFullyQualifiedName().toCharArray());
+		ReferenceBinding referenceBinding = this.lookupEnvironment.getCachedType(compoundName);
+		if (referenceBinding != null && (referenceBinding instanceof BinaryTypeBinding)) {
+			// if the binding could be found and if it comes from a binary type,
+			binding = (BinaryTypeBinding)referenceBinding;
+		}
+	}
+	return binding;
+}
+
 
 	private INameEnvironment getNameEnvironment(JavaProject project) throws JavaModelException {
 		//return project.getSearchableNameEnvironment();
 		
-		IPackageFragmentRoot[] roots = project.getAllPackageFragmentRoots();
-		int length = roots.length;
-		String[] classpathNames = new String[length];
-		int rootModes[] = new int[length];
-		IWorkspaceRoot workspaceRoot = ResourcesPlugin.getWorkspace().getRoot();
-		for (int i = 0; i < length; i++) {
-			IPackageFragmentRoot root = roots[i];
-			IPath path = root.getPath();
-			rootModes[i] = (root.getKind() == IPackageFragmentRoot.K_SOURCE)  ? ClasspathDirectory.SOURCE : ClasspathDirectory.BINARY;
-			if (root.isArchive()) {
-				// pass in a relative path (for internal jar) as this is what is needed by FileNamewEnviroment.getZipFile(File)
-				classpathNames[i] = path.toOSString();
-			} else {
-				Object target = JavaModel.getTarget(workspaceRoot, path, false);
-				if (target instanceof IResource) {
-					classpathNames[i] = ((IResource)target).getLocation().toOSString();
-				} else {
-					classpathNames[i] = path.toOSString();
-				}
-			}
-		}
-		String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
-		return new FileNameEnvironment(classpathNames, encoding, rootModes);
-		
+		return new JavaSearchNameEnvironment(project);
 	}
 
 	public CompilationUnitDeclaration dietParse(final char[] source) {
@@ -1225,7 +1127,10 @@ private void addMatchingOpenable(IResource resource, Openable openable)
 				} else {
 					ClassFileReader reader = this.classFileReader(type);
 					if (reader != null) {
-						source = sourceMapper.findSource(type, reader);
+						String sourceFileName = sourceMapper.findSourceFileName(type, reader);
+						if (sourceFileName != null) {
+							source = sourceMapper.findSource(type, sourceFileName);
+						}
 					}
 				}
 			}
@@ -1237,7 +1142,7 @@ public IBinaryType getBinaryInfo(org.eclipse.jdt.internal.core.ClassFile classFi
 	BinaryType binaryType = (BinaryType)classFile.getType();
 	if (classFile.isOpen()) {
 		// reuse the info from the java model cache
-		return (IBinaryType)binaryType.getRawInfo();
+		return (IBinaryType)binaryType.getElementInfo();
 	} else {
 		// create a temporary info
 		IBinaryType info;
@@ -1281,32 +1186,35 @@ public IBinaryType getBinaryInfo(org.eclipse.jdt.internal.core.ClassFile classFi
 	/**
 	 * Locate the matches amongst the matching openables.
 	 */
-	private void locateMatches(JavaProject javaProject, IProgressMonitor progressMonitor) throws JavaModelException {
+	private void locateMatches(JavaProject javaProject) throws JavaModelException {
 		MatchingOpenable[] openables = this.matchingOpenables.getMatchingOpenables(javaProject.getPackageFragmentRoots());
 	
-		boolean compilationAborted = false;
+		this.compilationAborted = false;
 
 		if (this.pattern.needsResolve) {
-			// binding creation
-			for (int i = 0, length = openables.length; i < length; i++) { 
-				openables[i].buildTypeBindings();
-				if (progressMonitor != null) {
-					if (progressMonitor.isCanceled()) {
-						throw new OperationCanceledException();
-					} else {
-						progressMonitor.worked(6);
-					}
+			this.createAndResolveBindings(openables);
+		}
+
+		// create hierarchy resolver if scope is a hierarchy scope
+		if (this.scope instanceof HierarchyScope) {
+			IType focusType = ((HierarchyScope)this.scope).focusType;
+			if (focusType != null) {
+				if (!focusType.isBinary()) {
+					// cache all types in the focus' compilation unit (even secondary types)
+					this.accept((ICompilationUnit)focusType.getCompilationUnit());
 				}
+				
+				char[] fullyQualifiedName = focusType.getFullyQualifiedName().toCharArray();
+				this.hierarchyResolver = new HierarchyResolver(this.lookupEnvironment, null/*hierarchy is not going to be computed*/);
+				if (this.hierarchyResolver.setFocusType(CharOperation.splitOn('.', fullyQualifiedName)) == null) {
+					// focus type is not visible from this project
+					return;
+				}
+			} else {
+				this.hierarchyResolver = null;
 			}
-	
-			// binding resolution
-			try {
-				this.lookupEnvironment.completeTypeBindings();
-			} catch (AbortCompilation e) {
-				// problem with class path: it could not find base classes
-				// continue reporting innacurate matches (since bindings will be null)
-				compilationAborted = true;
-			}
+		} else {
+			this.hierarchyResolver = null;
 		}
 
 		// matching openable resolution
@@ -1319,7 +1227,6 @@ public IBinaryType getBinaryInfo(org.eclipse.jdt.internal.core.ClassFile classFi
 				this.currentMatchingOpenable = openables[i];
 				
 				if (!this.currentMatchingOpenable.hasAlreadyDefinedType()) {
-					this.currentMatchingOpenable.shouldResolve = !compilationAborted;
 					this.currentMatchingOpenable.locateMatches();
 				} // else skip type has it is hidden so not visible
 			} catch (AbortCompilation e) {
@@ -1343,5 +1250,28 @@ public IBinaryType getBinaryInfo(org.eclipse.jdt.internal.core.ClassFile classFi
 			}
 		}
 		this.currentMatchingOpenable = null;
+	}
+
+	void createAndResolveBindings(MatchingOpenable[] openables) {
+		// binding creation
+		for (int i = 0, length = openables.length; i < length; i++) { 
+			openables[i].buildTypeBindings();
+			if (this.progressMonitor != null) {
+				if (this.progressMonitor.isCanceled()) {
+					throw new OperationCanceledException();
+				} else {
+					this.progressMonitor.worked(6);
+				}
+			}
+		}
+		
+		// binding resolution
+		try {
+			this.lookupEnvironment.completeTypeBindings();
+		} catch (AbortCompilation e) {
+			// problem with class path: it could not find base classes
+			// continue reporting innacurate matches (since bindings will be null)
+			this.compilationAborted = true;
+		}
 	}
 }

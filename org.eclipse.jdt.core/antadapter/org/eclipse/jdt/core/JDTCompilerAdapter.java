@@ -1,29 +1,34 @@
 /*******************************************************************************
- * Copyright (c) 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 import java.io.File;
+import java.io.PrintWriter;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 import org.apache.tools.ant.BuildException;
 import org.apache.tools.ant.Project;
+import org.apache.tools.ant.taskdefs.Javac;
 import org.apache.tools.ant.taskdefs.compilers.DefaultCompilerAdapter;
 import org.apache.tools.ant.types.Commandline;
 import org.apache.tools.ant.types.FileSet;
 import org.apache.tools.ant.types.Path;
+import org.apache.tools.ant.util.JavaEnvUtils;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.jdt.internal.core.Util;
 
 /**
- * Ant compiler adapter for the Eclipse Java compiler. This adapter permits the
+ * Ant 1.5 compiler adapter for the Eclipse Java compiler. This adapter permits the
  * Eclipse Java compiler to be used with the <code>javac</code> task in Ant scripts. In order
  * to use it, just set the property <code>build.compiler</code> as follows:
  * <p>
@@ -37,6 +42,8 @@ import org.eclipse.jdt.internal.core.Util;
  */
 public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 	private static String compilerClass = "org.eclipse.jdt.internal.compiler.batch.Main"; //$NON-NLS-1$
+	String logFileName;
+	
 	/**
 	 * Performs a compile using the JDT batch compiler 
 	 */
@@ -46,14 +53,20 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 
 		try {
 			Class c = Class.forName(compilerClass);
-			Method compile = c.getMethod("main", new Class[] { String[].class }); //$NON-NLS-1$
-			compile.invoke(null, new Object[] { cmd.getArguments()});
+			Constructor batchCompilerConstructor = c.getConstructor(new Class[] { PrintWriter.class, PrintWriter.class, Boolean.TYPE});
+			Object batchCompilerInstance = batchCompilerConstructor.newInstance(new Object[] {new PrintWriter(System.out), new PrintWriter(System.err), new Boolean(true)});
+			Method compile = c.getMethod("compile", new Class[] {String[].class}); //$NON-NLS-1$
+			Object result = compile.invoke(batchCompilerInstance, new Object[] { cmd.getArguments()});
+			final boolean resultValue = ((Boolean) result).booleanValue();
+			if (!resultValue && verbose) {
+				System.out.println(Util.bind("ant.jdtadapter.error.compilationFailed", this.logFileName)); //$NON-NLS-1$
+			}
+			return resultValue;
 		} catch (ClassNotFoundException cnfe) {
 			throw new BuildException(Util.bind("ant.jdtadapter.error.missingJDTCompiler")); //$NON-NLS-1$
 		} catch (Exception ex) {
 			throw new BuildException(ex);
 		}
-		return true;
 	}
 	
 	
@@ -65,15 +78,12 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 		 */
 		cmd.createArgument().setValue("-noExit"); //$NON-NLS-1$
 
-        Path classpath = new Path(project);
-
-        /*
-         * Eclipse compiler doesn't support bootclasspath dir (-bootclasspath).
-         * It is emulated using the classpath. We add bootclasspath at the beginning of
-         * the classpath.
-         */
+		cmd.createArgument().setValue("-bootclasspath"); //$NON-NLS-1$
         if (bootclasspath != null && bootclasspath.size() != 0) {
-            classpath.append(bootclasspath);
+			/*
+			 * Set the bootclasspath for the Eclipse compiler.
+			 */
+			cmd.createArgument().setPath(bootclasspath);        	
         } else {
             /*
              * No bootclasspath, we will add one throught the JRE_LIB variable
@@ -82,10 +92,12 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 			if (jre_lib == null) {
 				throw new BuildException(Util.bind("ant.jdtadapter.error.missingJRELIB")); //$NON-NLS-1$
 			}
-			classpath.addExisting(new Path(null, jre_lib.toOSString()));
+			cmd.createArgument().setPath(new Path(null, jre_lib.toOSString()));        	
         }
 
-        /*
+        Path classpath = new Path(project);
+
+       /*
          * Eclipse compiler doesn't support -extdirs.
          * It is emulated using the classpath. We add extdirs entries after the 
          * bootclasspath.
@@ -99,28 +111,107 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 		includeJavaRuntime = false;
         classpath.append(getCompileClasspath());
 
+        // For -sourcepath, use the "sourcepath" value if present.
+        // Otherwise default to the "srcdir" value.
+        Path sourcepath = null;
+        
+        // retrieve the method getSourcepath() using reflect
+        // This is done to improve the compatibility to ant 1.5
+        Class javacClass = Javac.class;
+        Method getSourcepathMethod = null;
+        try {
+	        getSourcepathMethod = javacClass.getMethod("getSourcepath", null); //$NON-NLS-1$
+        } catch(NoSuchMethodException e) {
+        }
+        Path compileSourcepath = null;
+        if (getSourcepathMethod != null) {
+	 		try {
+				compileSourcepath = (Path) getSourcepathMethod.invoke(attributes, null);
+			} catch (IllegalAccessException e) {
+			} catch (InvocationTargetException e) {
+			}
+        }
+        if (compileSourcepath != null) {
+            sourcepath = compileSourcepath;
+        } else {
+            sourcepath = src;
+        }
+		classpath.append(sourcepath);
 		/*
 		 * Set the classpath for the Eclipse compiler.
 		 */
 		cmd.createArgument().setValue("-classpath"); //$NON-NLS-1$
 		cmd.createArgument().setPath(classpath);
 
+        String memoryParameterPrefix = JavaEnvUtils.getJavaVersion().equals(JavaEnvUtils.JAVA_1_1) ? "-J-" : "-J-X";//$NON-NLS-1$//$NON-NLS-2$
+        if (memoryInitialSize != null) {
+            if (!attributes.isForkedJavac()) {
+                attributes.log(Util.bind("ant.jdtadapter.error.ignoringMemoryInitialSize"), Project.MSG_WARN);//$NON-NLS-1$
+            } else {
+                cmd.createArgument().setValue(memoryParameterPrefix
+                                              + "ms" + memoryInitialSize); //$NON-NLS-1$
+            }
+        }
+
+        if (memoryMaximumSize != null) {
+            if (!attributes.isForkedJavac()) {
+                attributes.log(Util.bind("ant.jdtadapter.error.ignoringMemoryMaximumSize"), Project.MSG_WARN);//$NON-NLS-1$
+            } else {
+                cmd.createArgument().setValue(memoryParameterPrefix
+                                              + "mx" + memoryMaximumSize); //$NON-NLS-1$
+            }
+        }
+
+        if (debug) {
+	       // retrieve the method getSourcepath() using reflect
+	        // This is done to improve the compatibility to ant 1.5
+	        Method getDebugLevelMethod = null;
+	        try {
+		        getDebugLevelMethod = javacClass.getMethod("getDebugLevel", null); //$NON-NLS-1$
+	        } catch(NoSuchMethodException e) {
+	        }
+     	    String debugLevel = null;
+	        if (getDebugLevelMethod != null) {
+				try {
+					debugLevel = (String) getDebugLevelMethod.invoke(attributes, null);
+				} catch (IllegalAccessException e) {
+				} catch (InvocationTargetException e) {
+				}
+        	}
+			if (debugLevel != null) {
+				if (debugLevel.length() == 0) {
+					cmd.createArgument().setValue("-g:none"); //$NON-NLS-1$
+				} else {
+					cmd.createArgument().setValue("-g:" + debugLevel); //$NON-NLS-1$
+				}
+			} else {
+				cmd.createArgument().setValue("-g"); //$NON-NLS-1$
+            }
+        } else {
+            cmd.createArgument().setValue("-g:none"); //$NON-NLS-1$
+        }
+        
 		/*
 		 * Handle the nowarn option. If none, then we generate all warnings.
 		 */		
         if (attributes.getNowarn()) {
-            cmd.createArgument().setValue("-nowarn"); //$NON-NLS-1$
+			if (deprecation) {
+				cmd.createArgument().setValue("-warn:allDeprecation"); //$NON-NLS-1$
+			} else {
+	            cmd.createArgument().setValue("-nowarn"); //$NON-NLS-1$
+			}
         } else {
-			cmd.createArgument().setValue(
-				"-warn:constructorName,packageDefaultMethod,maskedCatchBlocks,deprecation"); //$NON-NLS-1$
+			/*
+			 * deprecation option.
+			 */		
+			if (deprecation) {
+				cmd.createArgument().setValue(
+					"-warn:allDeprecation,constructorName,packageDefaultMethod,maskedCatchBlocks,unusedImports,staticReceiver"); //$NON-NLS-1$
+			} else {
+				cmd.createArgument().setValue(
+					"-warn:constructorName,packageDefaultMethod,maskedCatchBlocks,unusedImports,staticReceiver"); //$NON-NLS-1$
+			}
         }
-
-		/*
-		 * deprecation option.
-		 */		
-		if (deprecation) {
-			cmd.createArgument().setValue("-deprecation"); //$NON-NLS-1$
-		}
 
 		/*
 		 * destDir option.
@@ -139,13 +230,6 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 		}
 
 		/*
-		 * debug option
-		 */
-		if (debug) {
-			cmd.createArgument().setValue("-g"); //$NON-NLS-1$
-		}
-
-		/*
 		 * verbose option
 		 */
 		if (verbose) {
@@ -154,7 +238,8 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 			 * extra option allowed by the Eclipse compiler
 			 */
 			cmd.createArgument().setValue("-log"); //$NON-NLS-1$
-			cmd.createArgument().setValue(destDir.getAbsolutePath() + ".log"); //$NON-NLS-1$
+			logFileName = destDir.getAbsolutePath() + ".log"; //$NON-NLS-1$
+			cmd.createArgument().setValue(logFileName);
 		}
 
 		/*
@@ -165,16 +250,6 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 		}
 
 		/*
-		 * extra option allowed by the Eclipse compiler
-		 */
-		cmd.createArgument().setValue("-time"); //$NON-NLS-1$
-
-		/*
-		 * extra option allowed by the Eclipse compiler
-		 */
-		cmd.createArgument().setValue("-noImportError"); //$NON-NLS-1$
-
-		/*
 		 * source option
 		 */
 		String source = attributes.getSource();
@@ -182,7 +257,17 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
             cmd.createArgument().setValue("-source"); //$NON-NLS-1$
             cmd.createArgument().setValue(source);
         }
-
+        
+		if (JavaEnvUtils.getJavaVersion().equals(JavaEnvUtils.JAVA_1_4)) {
+			if (target != null && target.equals("1.1")) {			   //$NON-NLS-1$	
+				cmd.createArgument().setValue("-1.3"); //$NON-NLS-1$
+			} else {
+				cmd.createArgument().setValue("-1.4"); //$NON-NLS-1$
+			}
+		} else {
+			cmd.createArgument().setValue("-1.3"); //$NON-NLS-1$
+		}
+		
 		/*
 		 * encoding option
 		 */
@@ -190,6 +275,11 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
             cmd.createArgument().setValue("-encoding"); //$NON-NLS-1$
             cmd.createArgument().setValue(encoding);
         }
+
+		/*
+		 * extra option allowed by the Eclipse compiler
+		 */
+		cmd.createArgument().setValue("-time"); //$NON-NLS-1$
 
 		/*
 		 * Eclipse compiler doesn't have a -sourcepath option. This is

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -29,70 +29,61 @@ public class Break extends BranchStatement {
 		// to each of the traversed try statements, so that execution will terminate properly.
 
 		// lookup the label, this should answer the returnContext
-		FlowContext targetContext;
-		if (label == null) {
-			targetContext = flowContext.getTargetContextForDefaultBreak();
-		} else {
-			targetContext = flowContext.getTargetContextForBreakLabel(label);
-		}
+		FlowContext targetContext = (label == null) 
+			? flowContext.getTargetContextForDefaultBreak()
+			: flowContext.getTargetContextForBreakLabel(label);
+
 		if (targetContext == null) {
 			if (label == null) {
 				currentScope.problemReporter().invalidBreak(this);
 			} else {
-				currentScope.problemReporter().undefinedLabel(this); // need to improve
+				currentScope.problemReporter().undefinedLabel(this); 
 			}
-		} else {
-			targetLabel = targetContext.breakLabel();
-			targetContext.recordBreakFrom(flowInfo);
-			FlowContext traversedContext = flowContext;
-			int subIndex = 0, maxSub = 5;
-			subroutines = new AstNode[maxSub];
-			while (true) {
-				AstNode sub;
-				if ((sub = traversedContext.subRoutine()) != null) {
-					if (subIndex == maxSub) {
-						System.arraycopy(
-							subroutines,
-							0,
-							(subroutines = new AstNode[maxSub *= 2]),
-							0,
-							subIndex);
-						// grow
-					}
-					subroutines[subIndex++] = sub;
-					if (sub.cannotReturn()) {
-						break;
-					}
-				}
-				// remember the initialization at this
-				// point for dealing with blank final variables.
-				traversedContext.recordReturnFrom(flowInfo.unconditionalInits());
-
-				if (traversedContext == targetContext) {
-					break;
-				} else {
-					traversedContext = traversedContext.parent;
-				}
-			}
-			// resize subroutines
-			if (subIndex != maxSub) {
-				System.arraycopy(
-					subroutines,
-					0,
-					(subroutines = new AstNode[subIndex]),
-					0,
-					subIndex);
-			}
+			return flowInfo; // pretend it did not break since no actual target
 		}
-		return FlowInfo.DeadEnd;
+		
+		targetLabel = targetContext.breakLabel();
+		FlowContext traversedContext = flowContext;
+		int subIndex = 0, maxSub = 5;
+		subroutines = new AstNode[maxSub];
+		
+		do {
+			AstNode sub;
+			if ((sub = traversedContext.subRoutine()) != null) {
+				if (subIndex == maxSub) {
+					System.arraycopy(subroutines, 0, (subroutines = new AstNode[maxSub*=2]), 0, subIndex); // grow
+				}
+				subroutines[subIndex++] = sub;
+				if (sub.cannotReturn()) {
+					break;
+				}
+			}
+			traversedContext.recordReturnFrom(flowInfo.unconditionalInits());
+
+			AstNode node;
+			if ((node = traversedContext.associatedNode) instanceof TryStatement) {
+				TryStatement tryStatement = (TryStatement) node;
+				flowInfo.addInitializationsFrom(tryStatement.subRoutineInits); // collect inits			
+			} else if (traversedContext == targetContext) {
+				// only record break info once accumulated through subroutines, and only against target context
+				targetContext.recordBreakFrom(flowInfo);
+				break;
+			}
+		} while ((traversedContext = traversedContext.parent) != null);
+		
+		// resize subroutines
+		if (subIndex != maxSub) {
+			System.arraycopy(subroutines, 0, (subroutines = new AstNode[subIndex]), 0, subIndex);
+		}
+		return FlowInfo.DEAD_END;
 	}
 	
 	public String toString(int tab) {
 
 		String s = tabString(tab);
-		s = s + "break "; //$NON-NLS-1$
+		s += "break "; //$NON-NLS-1$
 		if (label != null)
-			s = s + new String(label);
+			s += new String(label);
 		return s;
 	}
 	

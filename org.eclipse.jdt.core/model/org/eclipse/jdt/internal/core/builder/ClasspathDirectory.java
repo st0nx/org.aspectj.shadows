@@ -1,35 +1,41 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
+
+import org.eclipse.core.resources.*;
+import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
-
-import java.io.*;
+import org.eclipse.jdt.internal.core.Util;
+import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
 
 class ClasspathDirectory extends ClasspathLocation {
 
-String binaryPath; // includes .class files for a single directory
+IContainer binaryFolder; // includes .class files for a single directory
+boolean isOutputFolder;
+String binaryLocation;
 SimpleLookupTable directoryCache;
 String[] missingPackageHolder = new String[1];
 
-ClasspathDirectory(String binaryPath) {
-	this.binaryPath = binaryPath;
-	if (!binaryPath.endsWith("/")) //$NON-NLS-1$
-		this.binaryPath += "/"; //$NON-NLS-1$
+ClasspathDirectory(IContainer binaryFolder, boolean isOutputFolder) {
+	this.binaryFolder = binaryFolder;
+	this.isOutputFolder = isOutputFolder;
+	IPath location = binaryFolder.getLocation();
+	this.binaryLocation = location != null ? location.addTrailingSeparator().toString() : ""; //$NON-NLS-1$
 
 	this.directoryCache = new SimpleLookupTable(5);
 }
 
-void cleanup() {
+public void cleanup() {
 	this.directoryCache = null;
 }
 
@@ -38,34 +44,30 @@ String[] directoryList(String qualifiedPackageName) {
 	if (dirList == missingPackageHolder) return null; // package exists in another classpath directory or jar
 	if (dirList != null) return dirList;
 
-	File dir = new File(binaryPath + qualifiedPackageName);
-	notFound : if (dir != null && dir.isDirectory()) {
-		// must protect against a case insensitive File call
-		// walk the qualifiedPackageName backwards looking for an uppercase character before the '/'
-		int index = qualifiedPackageName.length();
-		int last = qualifiedPackageName.lastIndexOf('/');
-		while (--index > last && !Character.isUpperCase(qualifiedPackageName.charAt(index))) {}
-		if (index > last) {
-			if (last == -1) {
-				if (!doesFileExist(qualifiedPackageName, "")) //$NON-NLS-1$ 
-					break notFound;
-			} else {
-				String packageName = qualifiedPackageName.substring(last + 1);
-				String parentPackage = qualifiedPackageName.substring(0, last);
-				if (!doesFileExist(packageName, parentPackage))
-					break notFound;
+	try {
+		IResource container = binaryFolder.findMember(qualifiedPackageName); // this is a case-sensitive check
+		if (container instanceof IContainer) {
+			IResource[] members = ((IContainer) container).members();
+			dirList = new String[members.length];
+			int index = 0;
+			for (int i = 0, l = members.length; i < l; i++) {
+				IResource m = members[i];
+				if (m.getType() == IResource.FILE && Util.isClassFileName(m.getName()))
+					// add exclusion pattern check here if we want to hide .class files
+					dirList[index++] = m.getName();
 			}
+			if (index < dirList.length)
+				System.arraycopy(dirList, 0, dirList = new String[index], 0, index);
+			directoryCache.put(qualifiedPackageName, dirList);
+			return dirList;
 		}
-		if ((dirList = dir.list()) == null)
-			dirList = new String[0];
-		directoryCache.put(qualifiedPackageName, dirList);
-		return dirList;
+	} catch(CoreException ignored) {
 	}
 	directoryCache.put(qualifiedPackageName, missingPackageHolder);
 	return null;
 }
 
-boolean doesFileExist(String fileName, String qualifiedPackageName) {
+boolean doesFileExist(String fileName, String qualifiedPackageName, String qualifiedFullName) {
 	String[] dirList = directoryList(qualifiedPackageName);
 	if (dirList == null) return false; // most common case
 
@@ -79,28 +81,36 @@ public boolean equals(Object o) {
 	if (this == o) return true;
 	if (!(o instanceof ClasspathDirectory)) return false;
 
-	return binaryPath.equals(((ClasspathDirectory) o).binaryPath);
+	return binaryFolder.equals(((ClasspathDirectory) o).binaryFolder);
 } 
 
-NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName) {
-	if (!doesFileExist(binaryFileName, qualifiedPackageName)) return null; // most common case
+public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName) {
+	if (!doesFileExist(binaryFileName, qualifiedPackageName, qualifiedBinaryFileName)) return null; // most common case
 
 	try {
-		ClassFileReader reader = ClassFileReader.read(binaryPath + qualifiedBinaryFileName);
+		ClassFileReader reader = ClassFileReader.read(binaryLocation + qualifiedBinaryFileName);
 		if (reader != null) return new NameEnvironmentAnswer(reader);
 	} catch (Exception e) {} // treat as if class file is missing
 	return null;
 }
 
-boolean isPackage(String qualifiedPackageName) {
+public IPath getProjectRelativePath() {
+	return binaryFolder.getProjectRelativePath();
+}
+
+public boolean isOutputFolder() {
+	return isOutputFolder;
+}
+
+public boolean isPackage(String qualifiedPackageName) {
 	return directoryList(qualifiedPackageName) != null;
 }
 
-void reset() {
+public void reset() {
 	this.directoryCache = new SimpleLookupTable(5);
 }
 
 public String toString() {
-	return "Binary classpath directory " + binaryPath; //$NON-NLS-1$
+	return "Binary classpath directory " + binaryFolder.getFullPath().toString(); //$NON-NLS-1$
 }
 }

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
 /*
@@ -32,7 +32,6 @@ import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
-import org.eclipse.jdt.internal.compiler.util.*;
 
 public class DocumentElementParser extends Parser {
 	IDocumentElementRequestor requestor;
@@ -64,7 +63,7 @@ public DocumentElementParser(
 		}
 	},
 	false,
-	options.assertMode);
+	options.sourceLevel >= CompilerOptions.JDK1_4);
 	this.requestor = requestor;
 	intArrayStack = new int[30][];
 	this.options = options;
@@ -90,47 +89,34 @@ public void checkAnnotation() {
 	pushOnIntArrayStack(this.getJavaDocPositions());
 	boolean deprecated = false;
 	int lastAnnotationIndex = -1;
+	int commentPtr = scanner.commentPtr;
 
 	//since jdk1.2 look only in the last java doc comment...
-	found : {
-		if ((lastAnnotationIndex = scanner.commentPtr) >= 0) { //look for @deprecated
-			scanner.commentPtr = -1;
-			// reset the comment stack, since not necessary after having checked
-			int commentSourceStart = scanner.commentStarts[lastAnnotationIndex];
-			// javadoc only (non javadoc comment have negative end positions.)
-			int commentSourceEnd = scanner.commentStops[lastAnnotationIndex] - 1;
-			//stop is one over
-			char[] comment = scanner.source;
-
-			for (int i = commentSourceStart + 3; i < commentSourceEnd - 10; i++) {
-				if ((comment[i] == '@')
-					&& (comment[i + 1] == 'd')
-					&& (comment[i + 2] == 'e')
-					&& (comment[i + 3] == 'p')
-					&& (comment[i + 4] == 'r')
-					&& (comment[i + 5] == 'e')
-					&& (comment[i + 6] == 'c')
-					&& (comment[i + 7] == 'a')
-					&& (comment[i + 8] == 't')
-					&& (comment[i + 9] == 'e')
-					&& (comment[i + 10] == 'd')) {
-					// ensure the tag is properly ended: either followed by a space, line end or asterisk.
-					int nextPos = i + 11;
-					deprecated = 
-						(comment[nextPos] == ' ')
-							|| (comment[nextPos] == '\n')
-							|| (comment[nextPos] == '\r')
-							|| (comment[nextPos] == '*'); 
-					break found;
-				}
-			}
+	nextComment : for (lastAnnotationIndex = scanner.commentPtr; lastAnnotationIndex >= 0; lastAnnotationIndex--){
+		//look for @deprecated into the first javadoc comment preceeding the declaration
+		int commentSourceStart = scanner.commentStarts[lastAnnotationIndex];
+		// javadoc only (non javadoc comment have negative end positions.)
+		if (modifiersSourceStart != -1 && modifiersSourceStart < commentSourceStart) {
+			continue nextComment;
 		}
+		if (scanner.commentStops[lastAnnotationIndex] < 0) {
+			continue nextComment;
+		}
+		int commentSourceEnd = scanner.commentStops[lastAnnotationIndex] - 1; //stop is one over
+		char[] comment = scanner.source;
+
+		deprecated =
+			checkDeprecation(
+				commentSourceStart,
+				commentSourceEnd,
+				comment);
+		break nextComment;
 	}
 	if (deprecated) {
 		checkAndSetModifiers(AccDeprecated);
 	}
 	// modify the modifier source start to point at the first comment
-	if (lastAnnotationIndex >= 0) {
+	if (commentPtr >= 0) {
 		declarationSourceStart = scanner.commentStarts[0];
 	}
 }
@@ -249,7 +235,7 @@ protected void consumeClassHeaderName() {
 	} else {
 		// Record that the block has a declaration for local types
 		typeDecl = new LocalTypeDeclaration(this.compilationUnit.compilationResult);
-		markCurrentMethodWithLocalType();
+		markEnclosingMemberWithLocalType();
 		blockReal();
 	}
 
@@ -652,7 +638,7 @@ protected void consumeInterfaceHeaderName() {
 	} else {
 		// Record that the block has a declaration for local types
 		typeDecl = new LocalTypeDeclaration(this.compilationUnit.compilationResult);
-		markCurrentMethodWithLocalType();
+		markEnclosingMemberWithLocalType();
 		blockReal();
 	}
 

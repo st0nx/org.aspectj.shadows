@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core.search;
 
 /**
@@ -32,7 +32,11 @@ public interface ITypeNameRequestor {
  *          is a top-level type.
  * @param path the full path to the resource containing the class. If the resource is a .class file
  *          or a .java file, this is the full path in the workspace to this resource. If the
- *          resource is a .zip or .jar file, this is the full OS path to this file.
+ *          resource is an archive (i.e. a .zip or .jar file), the path is composed of 2 paths separated
+ *		 	 by <code>IJavaSearchScope.JAR_FILE_ENTRY_SEPARATOR</code>: 
+ *			 the first path is the full OS path to the archive (if it is an external archive), 
+ *			 or the workspace relative <code>IPath</code> to the archive (if it is an internal archive), 
+ * 		 the second path is the path to the resource inside the archive.
  */
 void acceptClass(char[] packageName, char[] simpleTypeName, char[][] enclosingTypeNames, String path);
 /**
@@ -47,7 +51,11 @@ void acceptClass(char[] packageName, char[] simpleTypeName, char[][] enclosingTy
  *          is a top-level type.
  * @param path the full path to the resource containing the interface. If the resource is a .class file
  *          or a .java file, this is the full path in the workspace to this resource. If the
- *          resource is a .zip or .jar file, this is the full OS path to this file.
- */
+ *          resource is an archive (i.e. a .zip or .jar file), the path is composed of 2 paths separated
+ *		 	 by <code>IJavaSearchScope.JAR_FILE_ENTRY_SEPARATOR</code>: 
+ *			 the first path is the full OS path to the archive (if it is an external archive), 
+ *			 or the workspace relative <code>IPath</code> to the archive (if it is an internal archive), 
+ * 		 the second path is the path to the resource inside the archive.
+ * */
 void acceptInterface(char[] packageName, char[] simpleTypeName, char[][] enclosingTypeNames, String path);
 }

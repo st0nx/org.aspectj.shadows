@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -24,6 +24,8 @@ public class TryStatement extends Statement {
 	BlockScope scope;
 
 	public boolean subRoutineCannotReturn = true;
+	public UnconditionalFlowInfo subRoutineInits;
+	
 	// should rename into subRoutineComplete to be set to false by default
 
 	ReferenceBinding[] caughtExceptionTypes;
@@ -60,10 +62,10 @@ public class TryStatement extends Statement {
 			currentScope.methodScope().recordInitializationStates(flowInfo);
 
 		if (anyExceptionVariable != null) {
-			anyExceptionVariable.used = true;
+			anyExceptionVariable.useFlag = LocalVariableBinding.USED;
 		}
 		if (returnAddressVariable != null) {
-			returnAddressVariable.used = true;
+			returnAddressVariable.useFlag = LocalVariableBinding.USED;
 		}
 		InsideSubRoutineFlowContext insideSubContext;
 		FinallyFlowContext finallyContext;
@@ -76,16 +78,17 @@ public class TryStatement extends Statement {
 		} else {
 			// analyse finally block first
 			insideSubContext = new InsideSubRoutineFlowContext(flowContext, this);
-			subInfo =
+			subInfo = 
 				finallyBlock
 					.analyseCode(
 						currentScope,
 						finallyContext = new FinallyFlowContext(flowContext, finallyBlock),
 						flowInfo.copy())
 					.unconditionalInits();
-			if (!((subInfo == FlowInfo.DeadEnd) || subInfo.isFakeReachable())) {
+			if (subInfo.isReachable()) {
 				subRoutineCannotReturn = false;
 			}
+			this.subRoutineInits = subInfo;
 		}
 		// process the try block in a context handling the local exceptions.
 		ExceptionHandlingFlowContext handlingContext =
@@ -102,7 +105,7 @@ public class TryStatement extends Statement {
 			tryBlockExit = false;
 		} else {
 			tryInfo = tryBlock.analyseCode(currentScope, handlingContext, flowInfo.copy());
-			tryBlockExit = (tryInfo == FlowInfo.DeadEnd) || tryInfo.isFakeReachable();
+			tryBlockExit = !tryInfo.isReachable();
 		}
 
 		// check unreachable catch blocks
@@ -114,7 +117,6 @@ public class TryStatement extends Statement {
 			catchExits = new boolean[catchCount = catchBlocks.length];
 			for (int i = 0; i < catchCount; i++) {
 				// keep track of the inits that could potentially have led to this exception handler (for final assignments diagnosis)
-				///*
 				FlowInfo catchInfo =
 					flowInfo
 						.copy()
@@ -133,16 +135,17 @@ public class TryStatement extends Statement {
 				"(uncheckedExceptionTypes notNil and: [uncheckedExceptionTypes at: index])
 				ifTrue: [catchInits addPotentialInitializationsFrom: tryInits]."
 				*/
+				// TODO: should only tag as unreachable if the catchblock cannot be reached
+				//??? if (!handlingContext.initsOnException(caughtExceptionTypes[i]).isReachable()){
 				if (tryBlock.statements == null) {
-					catchInfo.markAsFakeReachable(true);
+					catchInfo.setReachMode(FlowInfo.UNREACHABLE);
 				}
 				catchInfo =
 					catchBlocks[i].analyseCode(
 						currentScope,
 						insideSubContext == null ? flowContext : insideSubContext,
 						catchInfo);
-				catchExits[i] =
-					((catchInfo == FlowInfo.DeadEnd) || catchInfo.isFakeReachable());
+				catchExits[i] = !catchInfo.isReachable();
 				tryInfo = tryInfo.mergedWith(catchInfo.unconditionalInits());
 			}
 		}
@@ -152,11 +155,15 @@ public class TryStatement extends Statement {
 			return tryInfo;
 		}
 
+
 		// we also need to check potential multiple assignments of final variables inside the finally block
 		// need to include potential inits from returns inside the try/catch parts - 1GK2AOF
-		tryInfo.addPotentialInitializationsFrom(insideSubContext.initsOnReturn);
-		finallyContext.complainOnRedundantFinalAssignments(tryInfo, currentScope);
-		if (subInfo == FlowInfo.DeadEnd) {
+		finallyContext.complainOnRedundantFinalAssignments(
+			tryInfo.isReachable() 
+				? (tryInfo.addPotentialInitializationsFrom(insideSubContext.initsOnReturn))
+				: insideSubContext.initsOnReturn, 
+			currentScope);
+		if (subInfo == FlowInfo.DEAD_END) {
 			mergedInitStateIndex =
 				currentScope.methodScope().recordInitializationStates(subInfo);
 			return subInfo;
@@ -246,8 +253,7 @@ public class TryStatement extends Statement {
 		if (tryBlockHasSomeCode) {
 			for (int i = 0; i < maxCatches; i++) {
 				boolean preserveCurrentHandler =
-					(preserveExceptionHandler[i
-						/ ExceptionHandlingFlowContext.BitCacheSize]
+					(preserveExceptionHandler[i	/ ExceptionHandlingFlowContext.BitCacheSize]
 							& (1 << (i % ExceptionHandlingFlowContext.BitCacheSize)))
 						!= 0;
 				if (preserveCurrentHandler) {
@@ -265,8 +271,7 @@ public class TryStatement extends Statement {
 			} else {
 				for (int i = 0; i < maxCatches; i++) {
 					boolean preserveCurrentHandler =
-						(preserveExceptionHandler[i
-							/ ExceptionHandlingFlowContext.BitCacheSize]
+						(preserveExceptionHandler[i / ExceptionHandlingFlowContext.BitCacheSize]
 								& (1 << (i % ExceptionHandlingFlowContext.BitCacheSize)))
 							!= 0;
 					if (preserveCurrentHandler) {
@@ -387,6 +392,12 @@ public class TryStatement extends Statement {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
+	public void resetStateForCodeGeneration() {
+		if (this.subRoutineStartLabel != null) {
+			this.subRoutineStartLabel.resetStateForCodeGeneration();
+		}
+	}	
+
 	public void resolve(BlockScope upperScope) {
 
 		// special scope for secret locals optimization.	
@@ -403,7 +414,7 @@ public class TryStatement extends Statement {
 			// provision for returning and forcing the finally block to run
 			MethodScope methodScope = scope.methodScope();
 
-			// the type does not matter as long as its not a normal base type
+			// the type does not matter as long as it is not a base type
 			this.returnAddressVariable =
 				new LocalVariableBinding(SecretReturnName, upperScope.getJavaLangObject(), AccDefault, false);
 			finallyScope.addLocalVariable(returnAddressVariable);
@@ -460,9 +471,9 @@ public class TryStatement extends Statement {
 			for (int i = 0; i < length; i++) {
 				caughtExceptionTypes[i] = (ReferenceBinding) argumentTypes[i];
 				for (int j = 0; j < i; j++) {
-					if (scope.areTypesCompatible(caughtExceptionTypes[i], argumentTypes[j])) {
+					if (caughtExceptionTypes[i].isCompatibleWith(argumentTypes[j])) {
 						scope.problemReporter().wrongSequenceOfExceptionTypesError(this, i, j);
-						return;
+						// cannot return - since may still proceed if unreachable code is ignored (21203)
 					}
 				}
 			}

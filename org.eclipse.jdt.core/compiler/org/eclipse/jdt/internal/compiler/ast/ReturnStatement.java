@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -41,7 +41,7 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 	int subIndex = 0, maxSub = 5;
 	boolean saveValueNeeded = false;
 	boolean hasValueToSave = expression != null && expression.constant == NotAConstant;
-	while (true) {
+	do {
 		AstNode sub;
 		if ((sub = traversedContext.subRoutine()) != null) {
 			if (this.subroutines == null){
@@ -56,33 +56,28 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 				break;
 			}
 		}
-		AstNode node;
+		traversedContext.recordReturnFrom(flowInfo.unconditionalInits());
 
+		AstNode node;
 		if ((node = traversedContext.associatedNode) instanceof SynchronizedStatement) {
 			isSynchronized = true;
 
-		} else if (node instanceof TryStatement && hasValueToSave) {
+		} else if (node instanceof TryStatement) {
+			TryStatement tryStatement = (TryStatement) node;
+			flowInfo.addInitializationsFrom(tryStatement.subRoutineInits); // collect inits
+			if (hasValueToSave) {
 				if (this.saveValueVariable == null){ // closest subroutine secret variable is used
-					prepareSaveValueLocation((TryStatement)node);
+					prepareSaveValueLocation(tryStatement);
 				}
 				saveValueNeeded = true;
+			}
 
 		} else if (traversedContext instanceof InitializationFlowContext) {
 				currentScope.problemReporter().cannotReturnInInitializer(this);
-				return FlowInfo.DeadEnd;
+				return FlowInfo.DEAD_END;
 		}
-
-		// remember the initialization at this
-		// point for dealing with blank final variables.
-		traversedContext.recordReturnFrom(flowInfo.unconditionalInits());
-
-		FlowContext parentContext;
-		if ((parentContext = traversedContext.parent) == null) { // top-context
-			break;
-		} else {
-			traversedContext = parentContext;
-		}
-	}
+	} while ((traversedContext = traversedContext.parent) != null);
+	
 	// resize subroutines
 	if ((subroutines != null) && (subIndex != maxSub)) {
 		System.arraycopy(subroutines, 0, (subroutines = new AstNode[subIndex]), 0, subIndex);
@@ -91,7 +86,7 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 	// secret local variable for return value (note that this can only occur in a real method)
 	if (saveValueNeeded) {
 		if (this.saveValueVariable != null) {
-			this.saveValueVariable.used = true;
+			this.saveValueVariable.useFlag = LocalVariableBinding.USED;
 		}
 	} else {
 		this.saveValueVariable = null;
@@ -99,7 +94,7 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 			this.expression.bits |= ValueForReturnMASK;
 		}
 	}
-	return FlowInfo.DeadEnd;
+	return FlowInfo.DEAD_END;
 }
  
 /**
@@ -118,7 +113,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 	// generate the expression
 	if ((expression != null) && (expression.constant == NotAConstant)) {
 		expression.generateCode(currentScope, codeStream, needValue()); // no value needed if non-returning subroutine
-		generateStoreSaveValueIfNecessary(currentScope, codeStream);
+		generateStoreSaveValueIfNecessary(codeStream);
 	}
 	
 	// generation of code responsible for invoking the finally blocks in sequence
@@ -144,10 +139,10 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 	
 	if ((expression != null) && (expression.constant != NotAConstant)) {
 		codeStream.generateConstant(expression.constant, expression.implicitConversion);
-		generateStoreSaveValueIfNecessary(currentScope, codeStream);		
+		generateStoreSaveValueIfNecessary(codeStream);		
 	}
 	// output the suitable return bytecode or wrap the value inside a descriptor for doits
-	this.generateReturnBytecode(currentScope, codeStream);
+	this.generateReturnBytecode(codeStream);
 	
 	codeStream.recordPositionsFrom(pc, this.sourceStart);
 }
@@ -155,7 +150,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream) {
  * Dump the suitable return bytecode for a return statement
  *
  */
-public void generateReturnBytecode(BlockScope currentScope, CodeStream codeStream) {
+public void generateReturnBytecode(CodeStream codeStream) {
 
 	if (expression == null) {
 		codeStream.return_();
@@ -179,8 +174,7 @@ public void generateReturnBytecode(BlockScope currentScope, CodeStream codeStrea
 		}
 	}
 }
-public void generateStoreSaveValueIfNecessary(BlockScope currentScope, CodeStream codeStream){
-
+public void generateStoreSaveValueIfNecessary(CodeStream codeStream){
 	if (saveValueVariable != null) codeStream.store(saveValueVariable, false);
 }
 public boolean needValue(){
@@ -223,7 +217,7 @@ public void resolve(BlockScope scope) {
 		scope.problemReporter().attemptToReturnVoidValue(this);
 		return;
 	}
-	if (methodType != null && scope.areTypesCompatible(expressionType, methodType)) {
+	if (methodType != null && expressionType.isCompatibleWith(methodType)) {
 		expression.implicitWidening(methodType, expressionType);
 		return;
 	}

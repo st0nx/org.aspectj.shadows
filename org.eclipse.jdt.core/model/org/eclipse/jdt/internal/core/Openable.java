@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.Enumeration;
@@ -15,25 +15,14 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
+import org.eclipse.core.resources.*;
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IMarker;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.jdt.core.BufferChangedEvent;
-import org.eclipse.jdt.core.IBuffer;
-import org.eclipse.jdt.core.IBufferChangedListener;
-import org.eclipse.jdt.core.IBufferFactory;
-import org.eclipse.jdt.core.ICodeCompletionRequestor;
-import org.eclipse.jdt.core.ICompletionRequestor;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IJavaModelMarker;
-import org.eclipse.jdt.core.IJavaModelStatusConstants;
-import org.eclipse.jdt.core.IOpenable;
-import org.eclipse.jdt.core.IPackageFragmentRoot;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
 import org.eclipse.jdt.internal.codeassist.ISearchableNameEnvironment;
@@ -80,7 +69,7 @@ protected void buildStructure(OpenableElementInfo info, IProgressMonitor monitor
 	// remove existing (old) infos
 	removeInfo();
 	HashMap newElements = new HashMap(11);
-	info.setIsStructureKnown(generateInfos(info, monitor, newElements, getUnderlyingResource()));
+	info.setIsStructureKnown(generateInfos(info, monitor, newElements, getResource()));
 	JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().remove(this);
 	for (Iterator iter = newElements.keySet().iterator(); iter.hasNext();) {
 		IJavaElement key = (IJavaElement) iter.next();
@@ -127,11 +116,12 @@ protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUn
 	if (position < -1 || position > buffer.getLength()) {
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INDEX_OUT_OF_BOUNDS));
 	}
-	SearchableEnvironment environment = (SearchableEnvironment) ((JavaProject) getJavaProject()).getSearchableNameEnvironment();
-	NameLookup nameLookup = ((JavaProject) getJavaProject()).getNameLookup();
+	JavaProject project = (JavaProject) getJavaProject();
+	SearchableEnvironment environment = (SearchableEnvironment) project.getSearchableNameEnvironment();
+	NameLookup nameLookup = project.getNameLookup();
 	environment.unitToSkip = unitToSkip;
 
-	CompletionEngine engine = new CompletionEngine(environment, new CompletionRequestorWrapper(requestor,nameLookup), JavaCore.getOptions());
+	CompletionEngine engine = new CompletionEngine(environment, new CompletionRequestorWrapper(requestor,nameLookup), project.getOptions(true), project);
 	engine.complete(cu, position, 0);
 	environment.unitToSkip = null;
 }
@@ -157,10 +147,11 @@ protected void codeSelect(org.eclipse.jdt.internal.compiler.env.ICompilationUnit
 	}
 
 	// fix for 1FVGGKF
-	ISearchableNameEnvironment environment = ((JavaProject)getJavaProject()).getSearchableNameEnvironment();
+	JavaProject project = (JavaProject)getJavaProject();
+	ISearchableNameEnvironment environment = project.getSearchableNameEnvironment();
 	
 	// fix for 1FVXGDK
-	SelectionEngine engine = new SelectionEngine(environment, requestor, JavaCore.getOptions());
+	SelectionEngine engine = new SelectionEngine(environment, requestor, project.getOptions(true));
 	engine.select(cu, offset, offset + length - 1);
 }
 /**
@@ -353,6 +344,8 @@ public void makeConsistent(IProgressMonitor pm) throws JavaModelException {
  */
 public void open(IProgressMonitor pm) throws JavaModelException {
 	if (!isOpen()) {
+		// TODO: need to synchronize (IOpenable.open(IProgressMonitor) is API
+		// TODO: could use getElementInfo instead
 		this.openWhenClosed(pm);
 	}
 }
@@ -396,8 +389,7 @@ protected void openWhenClosed(IProgressMonitor pm) throws JavaModelException {
 
 		// 2) create the new element info and open a buffer if needed
 		OpenableElementInfo info = createElementInfo();
-		IResource resource = getCorrespondingResource();
-		if (resource != null && isSourceElement()) {
+		if (isSourceElement()) {
 			this.openBuffer(pm);
 		} 
 
@@ -436,8 +428,13 @@ protected boolean parentExists(){
  * Returns whether the corresponding resource or associated file exists
  */
 protected boolean resourceExists() {
-	
-	return JavaModel.getTarget(ResourcesPlugin.getWorkspace().getRoot(), this.getPath(), true) != null;
+	IWorkspace workspace = ResourcesPlugin.getWorkspace();
+	if (workspace == null) return false; // workaround for http://bugs.eclipse.org/bugs/show_bug.cgi?id=34069
+	return 
+		JavaModel.getTarget(
+			workspace.getRoot(), 
+			this.getPath().makeRelative(), // ensure path is relative (see http://dev.eclipse.org/bugs/show_bug.cgi?id=22517)
+			true) != null;
 }
 
 /**

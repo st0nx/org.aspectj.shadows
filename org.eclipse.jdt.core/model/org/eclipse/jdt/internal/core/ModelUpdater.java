@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.internal.core;
 
@@ -32,7 +32,7 @@ public class ModelUpdater {
 		Openable parent = (Openable) child.getParent();
 		if (parent != null && parent.isOpen()) {
 			try {
-				JavaElementInfo info = parent.getElementInfo();
+				JavaElementInfo info = (JavaElementInfo)parent.getElementInfo();
 				info.addChild(child);
 			} catch (JavaModelException e) {
 				// do nothing - we already checked if open
@@ -128,7 +128,7 @@ public class ModelUpdater {
 
 		switch (elementType) {
 			case IJavaElement.JAVA_MODEL :
-				element.getJavaModelManager().getIndexManager().reset();
+				JavaModelManager.getJavaModelManager().getIndexManager().reset();
 				break;
 			case IJavaElement.JAVA_PROJECT :
 				JavaModelManager.getJavaModelManager().removePerProjectInfo(
@@ -155,9 +155,9 @@ public class ModelUpdater {
 	 */
 	public void processJavaDelta(IJavaElementDelta delta) {
 
-		if (DeltaProcessor.VERBOSE){
-			System.out.println("UPDATING Model with Delta: ["+Thread.currentThread()+":" + delta + "]:");//$NON-NLS-1$//$NON-NLS-2$ //$NON-NLS-3$
-		}
+//		if (DeltaProcessor.VERBOSE){
+//			System.out.println("UPDATING Model with Delta: ["+Thread.currentThread()+":" + delta + "]:");//$NON-NLS-1$//$NON-NLS-2$ //$NON-NLS-3$
+//		}
 
 		try {
 			this.traverseDelta(delta, null, null); // traverse delta
@@ -183,7 +183,7 @@ public class ModelUpdater {
 		Openable parent = (Openable) child.getParent();
 		if (parent != null && parent.isOpen()) {
 			try {
-				JavaElementInfo info = parent.getElementInfo();
+				JavaElementInfo info = (JavaElementInfo)parent.getElementInfo();
 				info.removeChild(child);
 			} catch (JavaModelException e) {
 				// do nothing - we already checked if open
@@ -214,6 +214,10 @@ public class ModelUpdater {
 				root = (IPackageFragmentRoot) element;
 				break;
 			case IJavaElement.COMPILATION_UNIT :
+				// filter out working copies (we don't want to add/remove them to/from the package fragment
+				if (((IWorkingCopy)element).isWorkingCopy()) {
+					return;
+				}
 			case IJavaElement.CLASS_FILE :
 				processChildren = false;
 				break;

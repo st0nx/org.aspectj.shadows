@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.hierarchy;
 
 import java.util.ArrayList;
@@ -82,7 +82,7 @@ public abstract class HierarchyBuilder implements IHierarchyRequestor {
 		this.hierarchyResolver =
 			new HierarchyResolver(
 				this.searchableEnvironment,
-				JavaCore.getOptions(),
+				project.getOptions(true),
 				this,
 				new DefaultProblemFactory());
 		this.infoToHandle = new HashMap(5);
@@ -100,7 +100,7 @@ public abstract class HierarchyBuilder implements IHierarchyRequestor {
 		// get generic type from focus type
 		IGenericType type;
 		try {
-			type = (IGenericType) ((JavaElement) focusType).getRawInfo();
+			type = (IGenericType) ((JavaElement) focusType).getElementInfo();
 		} catch (JavaModelException e) {
 			// if the focus type is not present, or if cannot get workbench path
 			// we cannot create the hierarchy
@@ -150,7 +150,7 @@ public abstract class HierarchyBuilder implements IHierarchyRequestor {
 		IGenericType suppliedType,
 		IGenericType superclass,
 		IGenericType[] superinterfaces) {
-		this.worked(1);
+
 		// convert all infos to handles
 		IType typeHandle = getHandle(suppliedType);
 		/*
@@ -222,7 +222,7 @@ public abstract class HierarchyBuilder implements IHierarchyRequestor {
 			this.hierarchy.addInterface(typeHandle);
 		}
 		if (interfaceHandles == null) {
-			interfaceHandles = this.hierarchy.NO_TYPE;
+			interfaceHandles = TypeHierarchy.NO_TYPE;
 		}
 		this.hierarchy.cacheSuperInterfaces(typeHandle, interfaceHandles);
 		 
@@ -275,21 +275,20 @@ protected IWorkingCopy[] getWokingCopies() {
 		int flag;
 		String qualifiedName;
 		if (typeInfo.isClass()) {
-			flag = this.nameLookup.ACCEPT_CLASSES;
+			flag = NameLookup.ACCEPT_CLASSES;
 		} else {
-			flag = this.nameLookup.ACCEPT_INTERFACES;
+			flag = NameLookup.ACCEPT_INTERFACES;
 		}
 		char[] bName = typeInfo.getName();
 		qualifiedName = new String(ClassFile.translatedName(bName));
 		return this.nameLookup.findType(qualifiedName, false, flag);
 	}
-	protected void worked(int work) {
-		IProgressMonitor progressMonitor = this.hierarchy.progressMonitor;
-		if (progressMonitor != null) {
-			if (progressMonitor.isCanceled()) {
+	protected void worked(IProgressMonitor monitor, int work) {
+		if (monitor != null) {
+			if (monitor.isCanceled()) {
 				throw new OperationCanceledException();
 			} else {
-				progressMonitor.worked(work);
+				monitor.worked(work);
 			}
 		}
 	}
@@ -297,7 +296,7 @@ protected IWorkingCopy[] getWokingCopies() {
  * Create an ICompilationUnit info from the given compilation unit on disk.
  */
 protected ICompilationUnit createCompilationUnitFromPath(Openable handle, String osPath) throws JavaModelException {
-	String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
+	String encoding = handle.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
 	return 
 		new BasicCompilationUnit(
 			null,
@@ -404,7 +403,7 @@ protected void addInfoFromOpenCU(CompilationUnit cu, ArrayList infos) throws Jav
  * Add the type info from the given CU to the given list of infos.
  */
 protected void addInfoFromOpenSourceType(SourceType type, ArrayList infos) throws JavaModelException {
-	IGenericType info = (IGenericType)type.getRawInfo();
+	IGenericType info = (IGenericType)type.getElementInfo();
 	infos.add(info);
 	this.infoToHandle.put(info, type);
 	IType[] members = type.getTypes();
@@ -418,7 +417,7 @@ protected void addInfoFromOpenSourceType(SourceType type, ArrayList infos) throw
  */
 protected void addInfoFromOpenClassFile(ClassFile classFile, ArrayList infos) throws JavaModelException {
 	IType type = classFile.getType();
-	IGenericType info = (IGenericType) ((BinaryType) type).getRawInfo();
+	IGenericType info = (IGenericType) ((BinaryType) type).getElementInfo();
 	infos.add(info);
 	this.infoToHandle.put(info, classFile);
 }

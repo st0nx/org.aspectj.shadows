@@ -1,17 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2003 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/cpl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
-import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -55,10 +54,18 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 					case T_short :
 					case T_byte :
 					case T_char :
-					case T_float :
 					case T_long :
+						if (expr.constant.longValue() != 0) {
+							codeStream.dup();
+							codeStream.generateInlinedValue(i);
+							expr.generateCode(currentScope, codeStream, true);
+							codeStream.arrayAtPut(elementsTypeID, false);
+						}
+						break;
+					case T_float :
 					case T_double :
-						if (expr.constant.doubleValue() != 0) {
+						double constantValue = expr.constant.doubleValue();
+						if (constantValue == -0.0 || constantValue != 0) {
 							codeStream.dup();
 							codeStream.generateInlinedValue(i);
 							expr.generateCode(currentScope, codeStream, true);
@@ -74,7 +81,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 						}
 						break;
 					default :
-						if (expr.constant != NullConstant.Default) {
+						if (!(expr instanceof NullLiteral)) {
 							codeStream.dup();
 							codeStream.generateInlinedValue(i);
 							expr.generateCode(currentScope, codeStream, true);
