@@ -383,6 +383,8 @@ public class Parser extends TheOriginalJDTParserClass {
 		declarationFactory.setPointcutDesignatorOnPointcut(pcutDecl,des);
 		pcutDecl.sourceEnd = 	des.sourceEnd;
 		pcutDecl.bodyStart = des.sourceEnd+1;
+		pcutDecl.bodyEnd = endPosition;
+		pcutDecl.declarationSourceEnd = flushCommentsDefinedPriorTo(endStatementPosition);
 	}
 	
 	
@@ -408,6 +410,8 @@ public class Parser extends TheOriginalJDTParserClass {
 		
 		// skip the name of the advice
 		long pos = eatIdentifier();
+		// but give a placeholder selector name
+		adviceDecl.selector = new char[] {'a','j','c','$','a','d','v','i','c','e'};
 		adviceDecl.sourceStart = (int) (pos >>> 32);
 		
 		//modifiers
@@ -530,6 +534,9 @@ public class Parser extends TheOriginalJDTParserClass {
 		dec.declarationSourceStart = decSourceStart;
 		declarationFactory.setDeclaredModifiers(dec,modifiers);
 		declarationFactory.setInitialization(dec,initialization);
+		
+		dec.bodyEnd = endPosition;
+		dec.declarationSourceEnd = flushCommentsDefinedPriorTo(endStatementPosition);
 
 		pushOnAstStack(dec);
 		println("consumed field: " + dec);
