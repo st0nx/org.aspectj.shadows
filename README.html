@@ -1,0 +1,121 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+  <head>
+    <title>Modified JDT Core for AspectJ</title>
+  </head>
+
+  <body>
+    <h2>What is this shadows thing all about?</h2>
+
+    <p>This module is 99% identical to the official jdt.core codebase
+    from eclipse.org.  The main line of this code should always be
+    identical to the main line of the jdt.core development.  Several
+    changes are required to this module in order to make it work for
+    aspectj.  These changes are all captured as a branch from some
+    tagged jdt.core release.  At the time of this writing, the most
+    recent jdt.core version is v_312.  The needed changes for aspectj
+    are captured in the branch aj_v_312.<p>
+
+    <p>If you need to make small changes to jdt.core to support
+    aspectj you should do that by working in the most recent aj_tag
+    branch.  Once you've made your changes, follow the steps under
+    build the compiled jar and move it into modules so that your changes
+    will be available to the build process and other developers.</p>
+
+    <p>The reason for this weird structure is to achieve the following
+    desired properties:</p>
+
+    <ul>
+      <li>Most people working with AspectJ should treat this code as a
+      black box that can't be changed.  Exposing it only as a .jar
+      helps achieve this (we also include a src zip for debugging purposes).
+      </li>
+
+      <li>This code needs to periodically go through a difficult 3-way
+      merge process.  After exploring many options, I found that the
+      most effective way to achieve this was with a cvs structure
+      where the HEAD follows the "official" jdt core work from
+      eclipse, and the AspectJ changes are represented as branches.
+      This makes moving to a new eclipse release as easy as possible.
+      The instructions for doing this are captured below.</li>
+
+      <li>"experts" should be able to check out the currently active
+      branch of org.eclipse.jdt.core from shadows into their eclipse
+      workspace instead of the static .jar from modules.  The current
+      arrangement makes this possible without updating the
+      dependencies.Most people working with AspectJ should treat this code as a
+      black box that can't be changed.  Exposing it only as a .jar
+      helps achieve this (we also include a src zip for debugging purposes).
+      </li>
+    </ul>
+
+
+    <h2>Moving to a new version of JDT Core</h2>
+
+    <p>The following instructions are for updating to a new version of the official 
+      JDT from eclipse.org.  We assume that new version is labeled as <b>TAG</b>.  You should
+      expect this process to take from 4-24 hours depending on the degree of changes that
+      have occurred in the official JDT system since the last time this synchronization was
+      performed.</p>
+
+    <p>General advice.  Set team properties to ignore whitespace and
+    to compare actual contents of files.<p>
+
+    <h3>Add the new <b>TAG</b> to the HEAD of org.aspectj/shadows</h3>
+    <ol>
+      <li>Check out org.aspectj/shadows from HEAD</li>
+
+      <li>Use <code>ant get.tag -Dtag=<b>TAG</b></code> in this directory to overwrite
+	  contents with the desired new <b>TAG</b></li>
+
+      <li>Commit those changes to head using synchronize and examining changes for plausibility</li>
+
+      <li>Tag this tree with <b>TAG</b> -- matching the official JDT tree exactly</li>
+
+      <li>Make a branch in the tree called aj_<b>TAG</b> off of HEAD</li>
+   </ol>
+
+    <h3>Merge the AspectJ changes into the new version of jdt.core</h3>
+
+    <p>This task is where the hard work happens.  The other two tasks are just book-keeping.
+      </p>
+
+    <ol>
+      <li>Check out this new branch into an active AspectJ set of modules instead of the 
+	pre-compiled version in modules.</li>
+
+      <li><b>HARD:</b> Working in this new branch, merge in the changes from the previous version.  This 
+	will take some careful work by hand.</li>
+
+      <li>Use the build.xml file with the <code>makeJdtDepends</code>
+      task found in this branch of org.jdt.core to replace the
+      jdtDepends.jar and jdtDepends-src.zip with the latest versions
+      of the eclipse core classes from a matching eclipse binary
+      release.
+      </li>
+
+      <li>Rerun the parser generator to make sure you have the right tables and symbol values.
+          This should be done with the python script in org.aspectj.ajdt.core/scripts/make_parser.py.
+      </li>
+
+      <li><b>HARD:</b> Fix compile errors, and then run the full test suite and fix any problems that arise.</li>
+    </ol>
+
+    <h3>Build the compiled jar and move it into modules</h3>    
+    <ol>
+      <li>Commit these working changes to the new branch</li>
+
+      <li>Build jdtcore-for-aspectj.jar and jdtcore-for-aspectj-src.zip using the build.xml found in this
+          branch of org.jdt.core.  These files will be put in the directory above the org.eclipse.jdt.core
+          project so they won't be deleted by the next step.</li>
+
+      <li>Delete the org.eclipse.jdt.core project from your workspace (be sure you've committed)</li>
+
+      <li>Check out the org.eclipse.jdt.core project from modules</li>
+
+      <li>Replace the jar and zip files in this project with the ones you made above.</li>
+
+      <li>Run the tests one more time, and if nothing went wrong you're done.</li>
+    </ol>
+  </body>
+</html>
