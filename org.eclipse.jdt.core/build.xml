@@ -13,6 +13,12 @@
             <zipfileset src="${plugins.dir}/org.eclipse.osgi_${eclipse.version}/osgi.jar"/>
             <zipfileset src="${plugins.dir}/org.apache.xerces_4.0.13/xercesImpl.jar"/>
             <zipfileset src="${plugins.dir}/org.apache.xerces_4.0.13/xmlParserAPIs.jar"/>
+
+            <zipfileset src="${plugins.dir}/org.eclipse.text_${eclipse.version}/text.jar"/>
+            <zipfileset src="${plugins.dir}/org.eclipse.core.runtime.compatibility_${eclipse.version}/compatibility.jar"/>
+            <zipfileset src="${plugins.dir}/org.apache.ant_1.5.4/lib/ant.jar"/>
+            <zipfileset src="${plugins.dir}/org.apache.ant_1.5.4/lib/optional.jar"/>
+            
         </jar>
         <delete file="lib/jdtDepends-src.zip"/>
         <jar destfile="lib/jdtDepends-src.zip">
@@ -21,6 +27,11 @@
             <zipfileset src="${plugins.src.dir}/org.eclipse.core.runtime_${eclipse.version}/runtimesrc.zip"/>
             <zipfileset src="${plugins.src.dir}/org.eclipse.osgi_${eclipse.version}/osgisrc.zip"/>
             <zipfileset src="${plugins.src.dir}/org.apache.xerces_4.0.13/xercessrc.zip"/>
+
+            <zipfileset src="${plugins.src.dir}/org.eclipse.text_${eclipse.version}/textsrc.zip"/>
+            <zipfileset src="${plugins.src.dir}/org.eclipse.core.runtime.compatibility_${eclipse.version}/compatibilitysrc.zip"/>
+            <zipfileset src="${plugins.src.dir}/org.apache.ant_1.5.4/lib/antsrc.zip"/>
+
         </jar>
     </target>
 
