@@ -20,7 +20,7 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
 /**
- * AspectJ - support for FieldBinding.alwaysNeedsAccessMethod
+ * AspectJ Extension - support for FieldBinding.alwaysNeedsAccessMethod
  */
 public class SingleNameReference extends NameReference implements OperatorIds {
 	public char[] token;
@@ -547,6 +547,8 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 	
 		if ((bits & FIELD) != 0) {
 			FieldBinding fieldBinding = (FieldBinding) binding;
+			
+			// AspectJ Extension
 			if (fieldBinding.alwaysNeedsAccessMethod(true)) {
 				if (syntheticAccessors == null) {
 					syntheticAccessors = new MethodBinding[2];
@@ -554,15 +556,17 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 				syntheticAccessors[READ] = fieldBinding.getAccessMethod(true);
 				return;
 			}
+			// End	AspectJ Extension
+			
 			if (((bits & DepthMASK) != 0)
 				&& (fieldBinding.isPrivate() // private access
 					|| (fieldBinding.isProtected() // implicit protected access
 							&& fieldBinding.declaringClass.getPackage() 
-								!= currentScope.invocationType().getPackage()))) {
+								!= currentScope.invocationType().getPackage()))) { // AspectJ Extension
 				if (syntheticAccessors == null)
 					syntheticAccessors = new MethodBinding[2];
 				syntheticAccessors[READ] = 
-					((SourceTypeBinding)currentScope.invocationType().
+					((SourceTypeBinding)currentScope.invocationType(). // AspectJ Extension
 						enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT)).
 							addSyntheticMethod(fieldBinding, true);
 				currentScope.problemReporter().needToEmulateFieldReadAccess(fieldBinding, this);
@@ -589,13 +593,17 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 		if (!flowInfo.isReachable()) return;
 		if ((bits & FIELD) != 0) {
 			FieldBinding fieldBinding = (FieldBinding) binding;
+			
+			// AspectJ Extension
 			if (fieldBinding.alwaysNeedsAccessMethod(false)) {
 				if (syntheticAccessors == null) {
 					syntheticAccessors = new MethodBinding[2];
 				}
 				syntheticAccessors[WRITE] = fieldBinding.getAccessMethod(false);
 				return;
-			}			
+			}	
+			// End	AspectJ Extension		
+			
 			if (((bits & DepthMASK) != 0) 
 				&& (fieldBinding.isPrivate() // private access
 					|| (fieldBinding.isProtected() // implicit protected access

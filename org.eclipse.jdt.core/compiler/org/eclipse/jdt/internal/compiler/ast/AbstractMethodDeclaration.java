@@ -22,7 +22,7 @@ import org.eclipse.jdt.internal.compiler.problem.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 
 /**
- * AspectJ - added several extension points for subclasses
+ * AspectJ Extension - added several extension points for subclasses
  */
 public abstract class AbstractMethodDeclaration
 	extends ASTNode
@@ -196,7 +196,7 @@ public abstract class AbstractMethodDeclaration
 
 		classFile.generateMethodInfoHeader(this.binding);
 		int methodAttributeOffset = classFile.contentsOffset;
-		int attributeNumber = generateInfoAttributes(classFile);
+		int attributeNumber = generateInfoAttributes(classFile);  // AspectJ Extension - moved to helper method
 		if ((!this.binding.isNative()) && (!this.binding.isAbstract())) {
 			int codeAttributeOffset = classFile.contentsOffset;
 			classFile.generateCodeAttributeHeader();
@@ -402,7 +402,7 @@ public abstract class AbstractMethodDeclaration
 	}
 	
 	//*********************************************************************
-	//Hooks for AspectJ
+	// AspectJ Extension
 	/**
 	 * Called at the end of resolving types
 	 * @returns false if some error occurred
@@ -424,6 +424,6 @@ public abstract class AbstractMethodDeclaration
 	protected int generateInfoAttributes(ClassFile classFile) {
 		return classFile.generateMethodInfoAttribute(binding);
 	}
-	
+	// End AspectJ Extension
 
 }

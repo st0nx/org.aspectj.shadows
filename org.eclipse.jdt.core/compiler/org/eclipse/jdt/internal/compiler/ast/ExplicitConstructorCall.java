@@ -185,10 +185,13 @@ public class ExplicitConstructorCall
 	}
 
 	public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
+
+		// AspectJ Extension
 		if (binding.alwaysNeedsAccessMethod()) {
 			syntheticAccessor = binding.getAccessMethod(true);
 			return;
 		}
+		// End AspectJ Extension
 		
 		if (!flowInfo.isReachable()) return;
 		// perform some emulation work in case there is some and we are inside a local type only
@@ -238,8 +241,9 @@ public class ExplicitConstructorCall
 			if (methodDeclaration == null 
 					|| !methodDeclaration.isConstructor()
 					|| ((ConstructorDeclaration) methodDeclaration).constructorCall != this) {
+						
 				//XXX Horrible AspectJ-specific hack
-				if (methodDeclaration== null || !CharOperation.prefixEquals("ajc$postInterConstructor".toCharArray(), methodDeclaration.selector)) {
+				if (methodDeclaration== null || !CharOperation.prefixEquals("ajc$postInterConstructor".toCharArray(), methodDeclaration.selector)) {// AspectJ Extension				
 					scope.problemReporter().invalidExplicitConstructorCall(this);
 					return;
 				}

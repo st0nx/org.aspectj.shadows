@@ -38,7 +38,7 @@ import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
 /** 
- * AspectJ - maa few changes to increase accessibility.
+ * AspectJ Extension- made few changes to increase accessibility.
  * Several changes to load static tables relative to different classes.
  * The key extensibility challenge remaining appears
  * to be the static dependencies on ParserBasicInformation and ITerminalSymbols.
@@ -66,8 +66,10 @@ public class Parser implements BindingIds, ParserBasicInformation, TerminalToken
 	protected int lastIgnoredToken, nextIgnoredToken;
 	protected int lastErrorEndPosition;
 	protected boolean ignoreNextOpeningBrace;
-		
+
+	// AspectJ Extension		
 	protected int currentTokenStart; // for aspectj
+	// End AspectJ Extension
 		
 	//internal data for the automat 
 	protected final static int StackIncrement = 255;
@@ -161,7 +163,7 @@ public class Parser implements BindingIds, ParserBasicInformation, TerminalToken
 
 	static {
 		try{
-			initTables(Parser.class);
+			initTables(Parser.class); 	// AspectJ Extension - added param
 		} catch(java.io.IOException ex){
 			throw new ExceptionInInitializerError(ex.getMessage());
 		}
@@ -173,7 +175,7 @@ public class Parser implements BindingIds, ParserBasicInformation, TerminalToken
 	public static final int BracketKinds = 3;
 
 public Parser(ProblemReporter problemReporter, boolean optimizeStringLiterals) {
-			
+		
 	this.problemReporter = problemReporter;
 	this.options = problemReporter.options;
 	this.optimizeStringLiterals = optimizeStringLiterals;
@@ -737,7 +739,7 @@ protected void classInstanceCreation(boolean alwaysQualified) {
 protected final void concatExpressionLists() {
 	expressionLengthStack[--expressionLengthPtr]++;
 }
-protected final void concatNodeLists() {
+protected final void concatNodeLists() { 		// AspectJ Extension - raised visibility
 	/*
 	 * This is a case where you have two sublists into the astStack that you want
 	 * to merge in one list. There is no action required on the astStack. The only
@@ -5040,16 +5042,19 @@ public void initializeScanner(){
 		this.options.taskTags/*taskTags*/,
 		this.options.taskPriorites/*taskPriorities*/);
 }
-public final static void initTables(Class parserClass) throws java.io.IOException {
+public final static void initTables(Class parserClass) throws java.io.IOException { // AspectJ Extension - added param
 
 	final String prefix = FILEPREFIX;
 	int i = 0;
+	//	AspectJ Extension  - pass parserClass
 	lhs = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
 	char[] chars = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	//	End AspectJ Extension  - pass parserClass
 	check_table = new short[chars.length];
 	for (int c = chars.length; c-- > 0;) {
 		check_table[c] = (short) (chars[c] - 32768);
 	}
+	//	AspectJ Extension  - pass parserClass	
 	asb = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
 	asr = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
 	nasb = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
@@ -5072,7 +5077,7 @@ public final static void initTables(Class parserClass) throws java.io.IOExceptio
 	
 	name = readNameTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
 	readableName = readReadableNameTable(parserClass, READABLE_NAMES);
-	
+	//	End AspectJ Extension  - pass parserClass	
 	base_action = lhs;
 }
 public static int in_symbol(int state) {
@@ -5122,7 +5127,9 @@ protected void markInitializersWithLocalType(TypeDeclaration type) {
  */
 protected boolean moveRecoveryCheckpoint() {
 
+	//	AspectJ Extension
 	if (!shouldTryToRecover()) return false;
+	//	End AspectJ Extension
 
 	int pos = lastCheckPoint;
 	/* reset scanner, and move checkpoint by one token */
@@ -5260,7 +5267,7 @@ public static int nasi(int state) {
 public static int ntAction(int state, int sym) {
 	return base_action[state + sym];
 }
-protected final void optimizedConcatNodeLists() {
+protected final void optimizedConcatNodeLists() { 	//	AspectJ Extension - raised visibility
 	/*back from a recursive loop. Virtualy group the
 	astNode into an array using astLengthStack*/
 
@@ -5861,11 +5868,11 @@ protected void pushOnRealBlockStack(int i){
 		realBlockStack[realBlockPtr] = i;
 	}
 }
-protected static char[] readTable(Class parserClass, String filename) throws java.io.IOException {
+protected static char[] readTable(Class parserClass, String filename) throws java.io.IOException { 	//	AspectJ Extension - added param
 
 	//files are located at Parser.class directory
 
-	InputStream stream = parserClass.getResourceAsStream(filename);
+	InputStream stream = parserClass.getResourceAsStream(filename); 	//	AspectJ Extension - used passed class not static ref
 	if (stream == null) {
 		throw new java.io.IOException(Util.bind("parser.missingFile",filename)); //$NON-NLS-1$
 	}
@@ -5898,11 +5905,11 @@ protected static char[] readTable(Class parserClass, String filename) throws jav
 	}
 	return chars;
 }
-protected static byte[] readByteTable(Class parserClass, String filename) throws java.io.IOException {
+protected static byte[] readByteTable(Class parserClass, String filename) throws java.io.IOException { 	//	AspectJ Extension - added param
 
 	//files are located at Parser.class directory
 
-	InputStream stream = parserClass.getResourceAsStream(filename);
+	InputStream stream = parserClass.getResourceAsStream(filename); 	//	AspectJ Extension
 	if (stream == null) {
 		throw new java.io.IOException(Util.bind("parser.missingFile",filename)); //$NON-NLS-1$
 	}
@@ -5919,7 +5926,7 @@ protected static byte[] readByteTable(Class parserClass, String filename) throws
 	}
 	return bytes;
 }
-protected static String[] readReadableNameTable(Class parserClass, String filename) {
+protected static String[] readReadableNameTable(Class parserClass, String filename) { 	//	AspectJ Extension - added param
 	String[] result = new String[name.length];
 
 	ResourceBundle bundle;
@@ -5947,8 +5954,8 @@ protected static String[] readReadableNameTable(Class parserClass, String filena
 	return result;
 }
 	
-protected static String[] readNameTable(Class parserClass, String filename) throws java.io.IOException {
-	char[] contents = readTable(parserClass, filename);
+protected static String[] readNameTable(Class parserClass, String filename) throws java.io.IOException { 	//	AspectJ Extension - added param
+	char[] contents = readTable(parserClass, filename); 	//	AspectJ Extension - added param
 	char[][] nameAsChar = CharOperation.splitOn('\n', contents);
 
 	String[] result = new String[nameAsChar.length + 1];

@@ -17,7 +17,7 @@ import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
 
 /**
- * AspectJ - hooks for subtypes
+ * AspectJ Extension- hooks for subtypes
  */
 public class MethodBinding extends Binding implements BaseTypes, TypeConstants {
 	public int modifiers;
@@ -94,10 +94,11 @@ public final int bindingType() {
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
 
+//AspectJ Extension - made non-final
 public boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
 
-	SourceTypeBinding invocationType = scope.invocationType();
+	SourceTypeBinding invocationType = scope.invocationType(); // AspectJ Extension
 	if (invocationType == declaringClass) return true;
 
 	if (isProtected()) {
@@ -129,6 +130,7 @@ public boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 	return invocationType.fPackage == declaringClass.fPackage;
 }
 
+//AspectJ Extension
 public MethodBinding getVisibleBinding(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
 	if (canBeSeenBy(receiverType, invocationSite, scope)) return this;
 	return findPrivilegedBinding(scope.invocationType(), (ASTNode)invocationSite);
@@ -147,6 +149,7 @@ public MethodBinding findPrivilegedBinding(SourceTypeBinding invocationType, AST
 		return null;
 	}
 }
+// End AspectJ Extension
 
 /* Answer true if the receiver is visible to the type provided by the scope.
 * InvocationSite implements isSuperAccess() to provide additional information
@@ -154,10 +157,11 @@ public MethodBinding findPrivilegedBinding(SourceTypeBinding invocationType, AST
 *
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
+//AspectJ Extension - made non-final
 public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
     //XXX invocation vs. source
-	SourceTypeBinding invocationType = scope.invocationType();
+	SourceTypeBinding invocationType = scope.invocationType(); // AspectJ Extension
 	if (invocationType == declaringClass && invocationType == receiverType) return true;
 
 	if (isProtected()) {
@@ -169,8 +173,10 @@ public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSi
 		if (invocationType == declaringClass) return true;
 		if (invocationType.fPackage == declaringClass.fPackage) return true;
 		
+		//	AspectJ Extension
 		// for protected we need to check based on the type of this
 		ReferenceBinding currentType = scope.enclosingSourceType();;
+		//	End AspectJ Extension
 		int depth = 0;
 		do {
 			if (declaringClass.isSuperclassOf(currentType)) {
@@ -489,9 +495,11 @@ public final int sourceEnd() {
 	else
 		return method.sourceEnd;
 }
-public AbstractMethodDeclaration sourceMethod() {
+public AbstractMethodDeclaration sourceMethod() { // AspectJ Extension - made public
 	SourceTypeBinding sourceType;
+	//	AspectJ Extension
 	if (declaringClass instanceof BinaryTypeBinding) return null;
+	//	End AspectJ Extension
 	try {
 		sourceType = (SourceTypeBinding) declaringClass;
 	} catch (ClassCastException e) {
@@ -512,7 +520,7 @@ public final int sourceStart() {
 		return method.sourceStart;
 }
 
-	
+	//AspectJ Extension	
 	/**
 	 * Subtypes can override this to return true if an access method should be
 	 * used when referring to this method binding.  Currently used
@@ -528,6 +536,7 @@ public final int sourceStart() {
 	public MethodBinding getAccessMethod(boolean staticReference) {
 		throw new RuntimeException("unimplemented");
 	}
+	//	End AspectJ Extension
 
 /* During private access emulation, the binding can be requested to loose its
  * private visibility when the class file is dumped.

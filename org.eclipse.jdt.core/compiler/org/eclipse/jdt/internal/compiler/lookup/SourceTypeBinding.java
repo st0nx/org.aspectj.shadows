@@ -28,7 +28,7 @@ import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 
 /**
- * AspectJ - added hooks
+ * AspectJ Extension - added hooks
  */
 public class SourceTypeBinding extends ReferenceBinding {
 	public ReferenceBinding superclass;
@@ -37,10 +37,12 @@ public class SourceTypeBinding extends ReferenceBinding {
 	public MethodBinding[] methods;
 	public ReferenceBinding[] memberTypes;
 	
+	//	AspectJ Extension
 	public IPrivilegedHandler privilegedHandler = null;
+	public IMemberFinder memberFinder = null;
+	//	End AspectJ Extension
 
 	public ClassScope scope;
-	public IMemberFinder memberFinder = null;
 
 	// Synthetics are separated into 4 categories: methods, super methods, fields, class literals and changed declaring type bindings
 	public final static int METHOD_EMUL = 0;
@@ -50,9 +52,11 @@ public class SourceTypeBinding extends ReferenceBinding {
 	
 	Hashtable[] synthetics;
 	
+	// AspectJ Extension
 	// for AspectJ... (because we extend this type with BinaryTypeBinding)
 	// (and yes, binary source is a bit odd...)
 	public SourceTypeBinding() {}
+	// End AspectJ Extension
 	
 public SourceTypeBinding(char[][] compoundName, PackageBinding fPackage, ClassScope scope) {
 	this.compoundName = compoundName;
@@ -451,12 +455,13 @@ public MethodBinding getExactConstructor(TypeBinding[] argumentTypes) {
 // searches up the hierarchy as long as no potential (but not exact) match was found.
 
 public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes) {
+	// AspectJ Extension - replaced orginial method content with this
 	if (memberFinder != null) return memberFinder.getExactMethod(this, selector, argumentTypes);
 	else return getExactMethodBase(selector, argumentTypes);
 }
 
 public MethodBinding getExactMethodBase(char[] selector, TypeBinding[] argumentTypes) {
-	
+	// End AspectJ Extension	- this is the original impl
 	int argCount = argumentTypes.length;
 	int selectorLength = selector.length;
 	boolean foundNothing = true;
@@ -503,6 +508,7 @@ public MethodBinding getExactMethodBase(char[] selector, TypeBinding[] argumentT
 //NOTE: the type of a field of a source type is resolved when needed
 
 public FieldBinding getField(char[] fieldName, boolean needResolve) {
+	// AspectJ Extension - replaced original impl with this
 	if (memberFinder != null) return memberFinder.getField(this, fieldName, null, null);
 	else return this.getFieldBase(fieldName, needResolve);
 }
@@ -514,8 +520,9 @@ public FieldBinding getField(char[] fieldName, boolean needResolve, InvocationSi
 
 
 public FieldBinding getFieldBase(char[] fieldName, boolean needResolve) {
-	// always resolve anyway on source types
+	// End AspectJ Extension - this is the original impl
 
+	// always resolve anyway on source types
 	int fieldLength = fieldName.length;
 	for (int f = fields.length; --f >= 0;) {
 		FieldBinding field = fields[f];
@@ -540,11 +547,13 @@ public FieldBinding getFieldBase(char[] fieldName, boolean needResolve) {
 // NOTE: the return type, arg & exception types of each method of a source type are resolved when needed
 
 public MethodBinding[] getMethods(char[] selector) {
+	// AspectJ Extension - replaced original impl with this
 	if (memberFinder != null) return memberFinder.getMethods(this, selector);
 	else return getMethodsBase(selector);
 }
 
 public MethodBinding[] getMethodsBase(char[] selector) {
+	// End AspectJ Extension - this is the original impl
 	// handle forward references to potential default abstract methods
 	addDefaultAbstractMethods();
 
@@ -824,7 +833,7 @@ private FieldBinding resolveTypeFor(FieldBinding field) {
 	}
 	return null; // should never reach this point
 }
-public MethodBinding resolveTypesFor(MethodBinding method) {
+public MethodBinding resolveTypesFor(MethodBinding method) { 	// AspectJ Extension - raise visibility
 	if ((method.modifiers & AccUnresolved) == 0)
 		return method;
 
@@ -1098,6 +1107,7 @@ public FieldBinding getSyntheticField(ReferenceBinding targetEnclosingType, bool
 	return null;
 }
 
+// AspectJ Extension
 	public void addField(FieldBinding binding) {
 		if (fields == null) {
 			fields = new FieldBinding[] {binding};
@@ -1129,5 +1139,6 @@ public FieldBinding getSyntheticField(ReferenceBinding targetEnclosingType, bool
 		System.arraycopy(methods, index+1, newMethods, index, len-index-1);
 		methods = newMethods;
 	}
+// End AspectJ Extension
 
 }

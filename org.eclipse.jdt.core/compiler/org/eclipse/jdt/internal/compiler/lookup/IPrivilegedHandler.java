@@ -10,6 +10,7 @@
  ******************************************************************************/
 
 package org.eclipse.jdt.internal.compiler.lookup;
+//AspectJ Extension
 
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 

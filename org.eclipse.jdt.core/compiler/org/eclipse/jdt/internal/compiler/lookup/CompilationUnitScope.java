@@ -23,7 +23,7 @@ import org.eclipse.jdt.internal.compiler.util.HashtableOfType;
 import org.eclipse.jdt.internal.compiler.util.ObjectVector;
 import org.eclipse.jdt.internal.compiler.util.SimpleNameVector;
 
-// AspectJ - made several methods public for use in other packages
+// AspectJ Extension - made several methods public for use in other packages
 public class CompilationUnitScope extends Scope {
 	
 	public LookupEnvironment environment;
@@ -59,7 +59,7 @@ public CompilationUnitScope(CompilationUnitDeclaration unit, LookupEnvironment e
 	}
 }
 
-public
+public // AspectJ Extension - raised visibility
 void buildFieldsAndMethods() {
 	for (int i = 0, length = topLevelTypes.length; i < length; i++)
 		topLevelTypes[i].scope.buildFieldsAndMethods();
@@ -135,7 +135,7 @@ void buildTypeBindings() {
 		System.arraycopy(topLevelTypes, 0, topLevelTypes = new SourceTypeBinding[count], 0, count);
 }
 
-public
+public // AspectJ Extension - raised visibility
 void checkAndSetImports() {
 	if (referenceContext.imports == null) {
 		imports = getDefaultImports();
@@ -243,7 +243,7 @@ public char[] computeConstantPoolName(LocalTypeBinding localType) {
 	return candidateName;
 }
 
-public void connectTypeHierarchy() {
+public void connectTypeHierarchy() { // AspectJ Extension - raised visibility
 	for (int i = 0, length = topLevelTypes.length; i < length; i++)
 		topLevelTypes[i].scope.connectTypeHierarchy();
 }
@@ -518,7 +518,7 @@ void recordSimpleReference(char[] simpleName) {
 	if (!simpleNameReferences.contains(simpleName))
 		simpleNameReferences.add(simpleName);
 }
-public void recordTypeReference(TypeBinding type) {
+public void recordTypeReference(TypeBinding type) { // AspectJ Extension - raised visibility
 	if (referencedTypes == null) return; // not recording dependencies
 
 	if (type.isArrayType())

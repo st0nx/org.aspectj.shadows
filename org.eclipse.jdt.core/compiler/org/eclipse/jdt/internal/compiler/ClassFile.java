@@ -26,7 +26,7 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
-// AspectJ - Added minimal support for extensible attributes
+// AspectJ Extension - Added minimal support for extensible attributes
 /**
  * Represents a class file wrapper on bytes, it is aware of its actual
  * type name.
@@ -71,7 +71,10 @@ public class ClassFile
 	public CodeStream codeStream;
 	protected int problemLine;	// used to create line number attributes for problem methods
 
+	//	AspectJ Extension
 	public List/*<IAttribute>*/ extraAttributes = new ArrayList(1);
+	//	End AspectJ Extension
+
 
 	/**
 	 * INTERNAL USE-ONLY
@@ -345,6 +348,7 @@ public class ClassFile
 			attributeNumber++;
 		}
 		
+		//	AspectJ Extension
 		// write any "extraAttributes"
 		if (extraAttributes != null) {
 			for (int i=0, len=extraAttributes.size(); i < len; i++) {
@@ -354,7 +358,8 @@ public class ClassFile
 				attributeNumber++;
 			}
 		}
-		
+		//	End AspectJ Extension
+
 		
 		// update the number of attributes
 		contentsLength = contents.length;
@@ -2456,10 +2461,6 @@ public class ClassFile
 	}
 
 
-	public int generateMethodInfoAttribute(MethodBinding methodBinding) {
-		return generateMethodInfoAttribute(methodBinding, null);
-	}
-
 	/**
 	 * INTERNAL USE-ONLY
 	 * That method generates the attributes of a code attribute.
@@ -2473,7 +2474,14 @@ public class ClassFile
 	 * @param methodBinding org.eclipse.jdt.internal.compiler.lookup.MethodBinding
 	 * @return <CODE>int</CODE>
 	 */
+	public int generateMethodInfoAttribute(MethodBinding methodBinding) {
+		// AspectJ Extension - replaced original impl with this
+		return generateMethodInfoAttribute(methodBinding, null);
+	}
+
+
 	public int generateMethodInfoAttribute(MethodBinding methodBinding, List extraAttributes) {
+		// End AspectJ Extension - this is the original
 		// leave two bytes for the attribute_number
 		contentsOffset += 2;
 		// now we can handle all the attribute for that method info:
@@ -2566,6 +2574,7 @@ public class ClassFile
 			attributeNumber++;
 		}
 		
+		// AspectJ Extension
 		if (extraAttributes != null) {
 			for (int i=0, len = extraAttributes.size(); i < len; i++) {
 				IAttribute attribute = (IAttribute)extraAttributes.get(i);
@@ -2574,10 +2583,12 @@ public class ClassFile
 				attributeNumber++;
 			}
 		}
-		
+		// End AspectJ Extension
+
 		return attributeNumber;
 	}
 	
+	// AspectJ Extension
 	void writeToContents(byte[] data) {
 		int N = data.length;
 		int contentsLength;
@@ -2593,7 +2604,7 @@ public class ClassFile
 		System.arraycopy(data, 0, contents, contentsOffset, N);
 		contentsOffset += N;		
 	}
-	
+	// End AspectJ Extension	
 	
 
 	/**

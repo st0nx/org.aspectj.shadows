@@ -1,4 +1,4 @@
--- Modified for AspectJ-1.1 grammar
+-- AspectJ Extension Modified for AspectJ-1.1 grammar
 
 --main options
 %options ACTION, AN=JavaAction.java, GP=java, 
@@ -44,7 +44,9 @@ $Terminals
 	synchronized this throw throws transient true try void
 	volatile while
 
+-- AspectJ Extension
 	aspect pointcut around before after declare privileged
+-- End AspectJ Extension
 
 	IntegerLiteral
 	LongLiteral
@@ -199,13 +201,13 @@ BooleanLiteral -> true
 BooleanLiteral -> false
 /:$readableName BooleanLiteral:/
 
-
+-- AspectJ Extension
 JavaIdentifier -> 'Identifier'
 JavaIdentifier -> AjSimpleName
 
 JavaIdentifierNoAround -> 'Identifier'
 JavaIdentifierNoAround -> AjSimpleNameNoAround
-
+-- End AspectJ Extension
 
 -------------------------------------------------------------
 -------------------------------------------------------------
@@ -260,7 +262,7 @@ ClassType -> ClassOrInterfaceType
 --------------------------------------------------------------
 --------------------------------------------------------------
 
-
+-- AspectJ Extension
 NameOrAj -> AjName
 NameOrAj -> Name
 
@@ -279,7 +281,7 @@ AjSimpleNameNoAround -> 'declare'
 
 AjQualifiedName ::= AjName '.' SimpleName
 /.$putCase consumeQualifiedName(); $break ./
-
+-- End AspectJ Extension
 
 Name -> SimpleName
 Name -> QualifiedName
@@ -288,7 +290,7 @@ Name -> QualifiedName
 SimpleName -> 'Identifier'
 /:$readableName SimpleName:/
 
-QualifiedName ::= Name '.' JavaIdentifier --SimpleName 
+QualifiedName ::= Name '.' JavaIdentifier -- AspectJ Extension (was SimpleName) 
 /.$putCase consumeQualifiedName(); $break ./
 /:$readableName QualifiedName:/
 
@@ -386,7 +388,7 @@ Modifier -> 'volatile'
 Modifier -> 'strictfp'
 /:$readableName Modifier:/
 
-
+-- AspectJ Extension
 --New AspectJ Productions
 
 -- two declarations are visible outside of aspects
@@ -702,7 +704,7 @@ PseudoToken ::= 'throws'
 /.$putCase consumePseudoToken("throws", 0, true); $break ./
 
 -- add all other keywords as identifiers
-
+-- End AspectJ Extension
 
 
 --18.8 Productions from 8: Class Declarations
@@ -720,7 +722,7 @@ ClassHeader ::= ClassHeaderName ClassHeaderExtendsopt ClassHeaderImplementsopt
 /.$putCase consumeClassHeader(); $break ./
 /:$readableName ClassHeader:/
 
-ClassHeaderName ::= Modifiersopt 'class' JavaIdentifier
+ClassHeaderName ::= Modifiersopt 'class' JavaIdentifier  -- AspectJ Extension (was 'Identifier')
 /.$putCase consumeClassHeaderName(); $break ./
 /:$readableName ClassHeaderName:/
 
@@ -827,7 +829,7 @@ RestoreDiet ::= $empty
 /.$putCase consumeRestoreDiet(); $break ./
 /:$readableName RestoreDiet:/
 
-VariableDeclaratorId ::= JavaIdentifier Dimsopt
+VariableDeclaratorId ::= JavaIdentifier Dimsopt -- AspectJ Extension (was 'Identifier')
 /:$readableName VariableDeclaratorId:/
 
 VariableInitializer -> Expression
@@ -861,7 +863,7 @@ MethodHeader ::= MethodHeaderName MethodHeaderParameters MethodHeaderExtendedDim
 /.$putCase consumeMethodHeader(); $break ./
 /:$readableName MethodHeader:/
 
-MethodHeaderName ::= Modifiersopt Type JavaIdentifierNoAround '('
+MethodHeaderName ::= Modifiersopt Type JavaIdentifierNoAround '(' -- AspectJ Extension (was 'Identifier')
 /.$putCase consumeMethodHeaderName(); $break ./
 /:$readableName MethodHeaderName:/
 
@@ -885,8 +887,10 @@ ConstructorHeaderName ::=  Modifiersopt 'Identifier' '('
 /.$putCase consumeConstructorHeaderName(); $break ./
 /:$readableName ConstructorHeaderName:/
 
+-- AspectJ Extension
 ConstructorHeaderName ::=  Modifiersopt 'aspect' '('  -- makes aspect harder
 /.$putCase consumeConstructorHeaderName(); $break ./
+-- End AspectJ Extension
 
 FormalParameterList -> FormalParameter
 FormalParameterList ::= FormalParameterList ',' FormalParameter
@@ -982,7 +986,7 @@ InterfaceHeader ::= InterfaceHeaderName InterfaceHeaderExtendsopt
 /.$putCase consumeInterfaceHeader(); $break ./
 /:$readableName InterfaceHeader:/
 
-InterfaceHeaderName ::= Modifiersopt 'interface' JavaIdentifier
+InterfaceHeaderName ::= Modifiersopt 'interface' JavaIdentifier -- AspectJ Extension (was 'Identifier')
 /.$putCase consumeInterfaceHeaderName(); $break ./
 /:$readableName InterfaceHeaderName:/
 
@@ -1124,11 +1128,11 @@ EmptyStatement ::= ';'
 /.$putCase consumeEmptyStatement(); $break ./
 /:$readableName EmptyStatement:/
 
-LabeledStatement ::= JavaIdentifier ':' Statement
+LabeledStatement ::= JavaIdentifier ':' Statement -- AspectJ Extension (was 'Identifier')
 /.$putCase consumeStatementLabel() ; $break ./
 /:$readableName LabeledStatement:/
 
-LabeledStatementNoShortIf ::= JavaIdentifier ':' StatementNoShortIf
+LabeledStatementNoShortIf ::= JavaIdentifier ':' StatementNoShortIf -- AspectJ Extension (was 'Identifier')
 /.$putCase consumeStatementLabel() ; $break ./
 /:$readableName LabeledStatement:/
 
@@ -1419,20 +1423,20 @@ OneDimLoop ::= '[' ']'
 /. $putCase consumeOneDimLoop(); $break ./
 /:$readableName Dimension:/
 
-FieldAccess ::= Primary '.' JavaIdentifier
+FieldAccess ::= Primary '.' JavaIdentifier -- AspectJ Extension (was 'Identifier')
 /.$putCase consumeFieldAccess(false); $break ./
 
-FieldAccess ::= 'super' '.' JavaIdentifier
+FieldAccess ::= 'super' '.' JavaIdentifier -- AspectJ Extension (was 'Identifier')
 /.$putCase consumeFieldAccess(true); $break ./
 /:$readableName FieldAccess:/
 
-MethodInvocation ::= NameOrAj '(' ArgumentListopt ')'
+MethodInvocation ::= NameOrAj '(' ArgumentListopt ')' -- AspectJ Extension (was Name)
 /.$putCase consumeMethodInvocationName(); $break ./
 
-MethodInvocation ::= Primary '.' JavaIdentifier '(' ArgumentListopt ')'
+MethodInvocation ::= Primary '.' JavaIdentifier '(' ArgumentListopt ')' -- AspectJ Extension (was 'Identifier')
 /.$putCase consumeMethodInvocationPrimary(); $break ./
 
-MethodInvocation ::= 'super' '.' JavaIdentifier '(' ArgumentListopt ')'
+MethodInvocation ::= 'super' '.' JavaIdentifier '(' ArgumentListopt ')' -- AspectJ Extension (was 'Identifier')
 /.$putCase consumeMethodInvocationSuper(); $break ./
 /:$readableName MethodInvocation:/
 
@@ -1445,7 +1449,7 @@ ArrayAccess ::= ArrayCreationWithArrayInitializer '[' Expression ']'
 /:$readableName ArrayAccess:/
 
 PostfixExpression -> Primary
-PostfixExpression ::= NameOrAj
+PostfixExpression ::= NameOrAj -- AspectJ Extension (was Name)
 /.$putCase consumePostfixExpression(); $break ./
 PostfixExpression -> PostIncrementExpression
 PostfixExpression -> PostDecrementExpression

@@ -36,6 +36,7 @@ public interface TerminalTokens {
 		TokenNameCOMMENT_BLOCK = 1002,
 		TokenNameCOMMENT_JAVADOC = 1003;
 	
+	// AspectJ Extension (generated)
 	public final static int
 	   TokenNameIdentifier = 24,
 	   TokenNameabstract = 63,

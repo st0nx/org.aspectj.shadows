@@ -25,7 +25,7 @@ import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
 import java.util.*;
 
 /**
- * AspectJ - added many hooks
+ * AspectJ Extension - added many hooks
  */
 public class ClassScope extends Scope {
 	public TypeDeclaration referenceContext;
@@ -127,7 +127,10 @@ public class ClassScope extends Scope {
 	}
 	
 	void buildFieldsAndMethods() {
+		
+		// AspectJ Extension
 		postParse();
+		// End AspectJ Extension
 		
 		buildFields();
 		buildMethods();
@@ -141,7 +144,7 @@ public class ClassScope extends Scope {
 			 ((SourceTypeBinding) memberTypes[i]).scope.buildFieldsAndMethods();
 	}
 
-	// AspectJ - hook
+	// AspectJ Extension
 	private void postParse() {
 		TypeDeclaration typeDec = referenceContext;
 		AbstractMethodDeclaration[] methods = typeDec.methods;
@@ -150,6 +153,7 @@ public class ClassScope extends Scope {
 			methods[i].postParse(typeDec);
 		}
 	}
+	// End AspectJ Extension
 	
 	private LocalTypeBinding buildLocalType(
 		SourceTypeBinding enclosingType,
@@ -903,7 +907,7 @@ public class ClassScope extends Scope {
 			return "--- Class Scope ---\n\n Binding not initialized" ; //$NON-NLS-1$
 	}
 	
-	// AspectJ - hook for subclasses to override
+	// AspectJ Extension - hooks for subclasses to override
 	public int addDepth() {
 		return 1;
 	}
@@ -911,5 +915,5 @@ public class ClassScope extends Scope {
 	public SourceTypeBinding invocationType() {
 		return referenceContext.binding;
 	}
-
+	//	End AspectJ Extension
 }

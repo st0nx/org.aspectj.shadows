@@ -23,7 +23,7 @@ import org.eclipse.jdt.internal.compiler.util.HashtableOfPackage;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
 /**
- * AspectJ - made many methods and fields more visible for extension
+ * AspectJ Extension - made many methods and fields more visible for extension
  * 
  * Also modified error checking on getType(char[][] compoundName) to allow
  * refering to inner types directly.
@@ -43,19 +43,23 @@ public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstan
 	private MethodVerifier verifier;
 	private ArrayBinding[][] uniqueArrayBindings;
 
+	//	AspectJ Extension - raised visibility
 	protected CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
 	protected int lastUnitIndex = -1;
 	protected int lastCompletedUnitIndex = -1;
+	//	End AspectJ Extension
 
 	// indicate in which step on the compilation we are.
 	// step 1 : build the reference binding
 	// step 2 : conect the hierarchy (connect bindings)
 	// step 3 : build fields and method bindings.
+	//	AspectJ Extension - raised visibility
 	protected int stepCompleted;
 	final protected static int BUILD_TYPE_HIERARCHY = 1;
 	final protected static int CHECK_AND_SET_IMPORTS = 2;
 	final protected static int CONNECT_TYPE_HIERARCHY = 3;
 	final protected static int BUILD_FIELDS_AND_METHODS = 4;
+	//	End AspectJ Extension
 public LookupEnvironment(ITypeRequestor typeRequestor, CompilerOptions options, ProblemReporter problemReporter, INameEnvironment nameEnvironment) {
 	this.typeRequestor = typeRequestor;
 	this.options = options;
@@ -252,7 +256,8 @@ private PackageBinding computePackageFrom(char[][] constantPoolName) {
 /* Used to guarantee array type identity.
 */
 
-public ArrayBinding createArrayType(TypeBinding type, int dimensionCount) {
+public  // AspectJ Extension - raised visibility
+ArrayBinding createArrayType(TypeBinding type, int dimensionCount) {
 	if (type instanceof LocalTypeBinding) // cache local type arrays with the local type itself
 		return ((LocalTypeBinding) type).createArrayType(dimensionCount);
 
@@ -446,10 +451,12 @@ public ReferenceBinding getType(char[][] compoundName) {
 		referenceBinding = ((UnresolvedReferenceBinding) referenceBinding).resolve(this);
 
 	// compoundName refers to a nested type incorrectly (for example, package1.A$B)
+	//	AspectJ Extension - commented out "if" case
 	//XXX how else are we supposed to refer to nested types???
 //	if (referenceBinding.isNestedType())
 //		return new ProblemReferenceBinding(compoundName, InternalNameProvided);
 //	else
+	//	End AspectJ Extension
 		return referenceBinding;
 }
 /* Answer the type corresponding to the name from the binary file.

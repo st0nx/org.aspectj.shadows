@@ -14,7 +14,7 @@ package org.eclipse.jdt.internal.compiler.parser;
 /**An interface that contains static declarations for some basic information
  * about the parser such as the number of rules in the grammar, the starting state, etc...
  *
- *
+ * AspectJ Extension
  * <p><b>The contents of this file are generated automatically by jikespg from
  * org/eclipse/jdt/internal/compiler/parser/aj_grammar.txt.  This 
  * auto-generation means that all symbols have different values than

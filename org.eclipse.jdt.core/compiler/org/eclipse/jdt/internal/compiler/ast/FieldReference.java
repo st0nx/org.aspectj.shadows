@@ -19,7 +19,7 @@ import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 /**
- * AspectJ - support for FieldBinding.alwaysNeedsAccessMethod
+ * AspectJ Extension - support for FieldBinding.alwaysNeedsAccessMethod
  */
 public class FieldReference extends Reference implements InvocationSite {
 
@@ -367,10 +367,12 @@ public class FieldReference extends Reference implements InvocationSite {
 	 */
 	public void manageSyntheticReadAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 		
+		// AspectJ Extension										
 		if (binding.alwaysNeedsAccessMethod(true)) {
 			syntheticReadAccessor = binding.getAccessMethod(true);
 			return;
 		}
+		// End AspectJ Extension
 
 		if (!flowInfo.isReachable()) return;
 		if (binding.isPrivate()) {
@@ -430,11 +432,13 @@ public class FieldReference extends Reference implements InvocationSite {
 	 */
 	public void manageSyntheticWriteAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 		
+		// AspectJ Extension
 		//System.err.println("manage synthetic: " + this + " with " + binding + ", " + binding.getClass());
 		if (binding.alwaysNeedsAccessMethod(false)) {
 			syntheticWriteAccessor = binding.getAccessMethod(false);
 			return;
 		}
+		// End AspectJ Extension
 
 		if (!flowInfo.isReachable()) return;
 		if (binding.isPrivate()) {

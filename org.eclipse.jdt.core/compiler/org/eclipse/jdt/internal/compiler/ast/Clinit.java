@@ -20,7 +20,7 @@ import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
 
 /**
- * AspectJ added template method for subclasses to insert more code.
+ * AspectJ Extension added template method for subclasses to insert more code.
  */
 public class Clinit extends AbstractMethodDeclaration {
 	
@@ -155,7 +155,9 @@ public class Clinit extends AbstractMethodDeclaration {
 
 		// 1.4 feature
 		// This has to be done before any other initialization
+		// AspectJ Extension - move logic to helper method
 		generateSyntheticCode(classScope, codeStream);
+		// End AspectJ Extension
 		
 		// generate initializers
 		if (declaringType.fields != null) {
@@ -167,7 +169,9 @@ public class Clinit extends AbstractMethodDeclaration {
 			}
 		}
 		
+		// AspectJ Extension
 		generatePostSyntheticCode(classScope, codeStream);
+		// End AspectJ Extension
 		
 		if (codeStream.position == 0) {
 			// do not need to output a Clinit if no bytecodes
@@ -189,6 +193,7 @@ public class Clinit extends AbstractMethodDeclaration {
 		}
 	}
 
+	// AspectJ Extension
 	protected void generateSyntheticCode(
 		ClassScope classScope,
 		CodeStream codeStream) {
@@ -209,12 +214,12 @@ public class Clinit extends AbstractMethodDeclaration {
 			codeStream.putstatic(this.assertionSyntheticFieldBinding);
 		}
 	}
-	
+
 	protected void generatePostSyntheticCode(
 		ClassScope classScope,
 		CodeStream codeStream) {
 		}
-
+	// End AspectJ Extension
 
 	public boolean isClinit() {
 

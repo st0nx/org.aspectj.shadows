@@ -10,7 +10,7 @@
  ******************************************************************************/
 
 package org.eclipse.jdt.internal.compiler;
-
+// AspectJ Extension
 /**
  * Represents an Attribute for a Java .class file.
  */

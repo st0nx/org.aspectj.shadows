@@ -16,7 +16,7 @@ import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 
 /**
- * AspectJ added hooks for inter-type field bindings as well as
+ * AspectJ Extension added hooks for inter-type field bindings as well as
  * proto-hooks for allowing privileged access
  */
 public class FieldBinding extends VariableBinding {
@@ -62,11 +62,11 @@ public final int bindingType() {
 *
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
-// made non-final for AspectJ
+//AspectJ Extension made non-final for AspectJ
 public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
 
-	SourceTypeBinding invocationType = scope.invocationType();
+	SourceTypeBinding invocationType = scope.invocationType(); // AspectJ Extension
 	if (invocationType == declaringClass && invocationType == receiverType) return true;
 
 	if (isProtected()) {
@@ -213,10 +213,12 @@ public final boolean isVolatile() {
 	return (modifiers & AccVolatile) != 0;
 }
 
+// AspectJ Extension
 public boolean alwaysNeedsAccessMethod(boolean isReadAccess) { return false; }
 public SyntheticAccessMethodBinding getAccessMethod(boolean isReadAccess) {
 	throw new RuntimeException("unimplemented");
 }
+
 
 public FieldBinding getFieldBindingForLookup() { return this; }
 
@@ -233,5 +235,6 @@ public FieldBinding findPrivilegedBinding(SourceTypeBinding invocationType, ASTN
 		return null;
 	}
 }
+// End AspectJ Extension
 
 }

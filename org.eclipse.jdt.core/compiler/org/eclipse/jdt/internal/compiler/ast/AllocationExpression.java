@@ -89,12 +89,15 @@ public class AllocationExpression
 		boolean valueRequired) {
 
 		int pc = codeStream.position;
+		
+		// AspectJ Extension
 		ReferenceBinding allocatedType;
 		if (syntheticAccessor != null) {
 			allocatedType = syntheticAccessor.declaringClass;
 		} else {
 			allocatedType = binding.declaringClass;
 		}
+		// End AspectJ Extension
 
 		codeStream.new_(allocatedType);
 		if (valueRequired) {
@@ -178,10 +181,13 @@ public class AllocationExpression
 	}
 
 	public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
+		
+		// AspectJ Extension
 		if (binding.alwaysNeedsAccessMethod()) {
 			syntheticAccessor = binding.getAccessMethod(true);
 			return;
 		}
+		// End AspectJ Extension
 		
 		if (!flowInfo.isReachable()) return;
 

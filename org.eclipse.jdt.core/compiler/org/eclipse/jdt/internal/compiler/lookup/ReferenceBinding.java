@@ -26,7 +26,7 @@ null is NOT a valid value for a non-public field... it just means the field is n
 */
 
 
-// AspectJ - added hooks for more sophisticated field lookup
+// AspectJ Extension - added hooks for more sophisticated field lookup
 abstract public class ReferenceBinding extends TypeBinding implements IDependent {
 	public char[][] compoundName;
 	public char[] sourceName;
@@ -63,6 +63,7 @@ public final boolean canBeSeenBy(PackageBinding invocationPackage) {
 /* Answer true if the receiver is visible to the receiverType and the invocationType.
 */
 
+//AspectJ Extension - replace original impl with this one
 public final boolean canBeSeenBy(ReferenceBinding receiverType, SourceTypeBinding invocationType) {
 	boolean ret = innerCanBeSeenBy(receiverType, invocationType);
 	if (ret) return true;
@@ -77,6 +78,7 @@ public final boolean canBeSeenBy(ReferenceBinding receiverType, SourceTypeBindin
 }
 
 private final boolean innerCanBeSeenBy(ReferenceBinding receiverType, SourceTypeBinding invocationType) {
+//	End AspectJ Extension	- this is the original impl
 	if (isPublic()) return true;
 
 	if (invocationType == this && invocationType == receiverType) return true;
@@ -144,7 +146,8 @@ private final boolean innerCanBeSeenBy(ReferenceBinding receiverType, SourceType
  */
 
 public final boolean canBeSeenBy(Scope scope) {
-	
+
+//	AspectJ Extension - replace original impl with this one	
 	boolean ret = innerCanBeSeenBy(scope);
 	if (ret) return true;
 	
@@ -162,6 +165,7 @@ public final boolean canBeSeenBy(Scope scope) {
 }
 		
 private final boolean innerCanBeSeenBy(Scope scope) {
+//	End AspectJ Extension	- this is the original impl
 	if (isPublic()) return true;
 
 	if (scope.kind == Scope.COMPILATION_UNIT_SCOPE){
@@ -377,6 +381,8 @@ public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes
 public FieldBinding getField(char[] fieldName, boolean needResolve) {
 	return null;
 }
+
+//AspectJ Extension
 /**
  * Where multiple fields with the same name are defined, this will
  * return the one most visible one...
@@ -386,7 +392,7 @@ public FieldBinding getField(char[] fieldName, boolean needResolve) {
 public FieldBinding getField(char[] fieldName, boolean resolve, InvocationSite site, Scope scope) {
 	return getField(fieldName, resolve);
 }
-
+// End AspectJ Extension
 
 
 /**

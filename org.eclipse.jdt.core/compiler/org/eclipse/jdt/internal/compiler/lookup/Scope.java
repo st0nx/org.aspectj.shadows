@@ -19,7 +19,7 @@ import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
 import org.eclipse.jdt.internal.compiler.util.ObjectVector;
 
-// AspectJ - hooks, added distinction between enclosingSourceType and invocationType
+// AspectJ Extension - hooks, added distinction between enclosingSourceType and invocationType
 public abstract class Scope
 	implements BaseTypes, BindingIds, CompilerModifiers, ProblemReasons, TagBits, TypeConstants, TypeIds {
 
@@ -123,6 +123,7 @@ public abstract class Scope
 		return null;
 	}
 	
+	//	AspectJ Extension
 	/**
 	 * For Java scopes, the invocationType is always the same as the enclosingSourceType
 	 * This distinction is important for AspectJ's inter-type declarations
@@ -139,6 +140,7 @@ public abstract class Scope
 		return null;
 		//return enclosingSourceType();
 	}
+	//	End AspectJ Extension
 	
 	public final LookupEnvironment environment() {
 		Scope scope, unitScope = this;
@@ -233,12 +235,15 @@ public abstract class Scope
 		MethodBinding exactMethod = receiverType.getExactMethod(selector, argumentTypes);
 		if (exactMethod != null) {
 			compilationUnitScope().recordTypeReferences(exactMethod.thrownExceptions);
+			//	AspectJ Extension
 			if (receiverType.isInterface())return exactMethod;
 			return exactMethod.getVisibleBinding(receiverType, invocationSite, this);
+			//	End AspectJ Extension
 		}
 		return null;
 	}
-	
+
+	//	AspectJ Extension	
 	public static final IPrivilegedHandler findPrivilegedHandler(ReferenceBinding type) {
 		if (type == null) return null;
 		if (type instanceof SourceTypeBinding) {
@@ -248,6 +253,7 @@ public abstract class Scope
 		}
 		return findPrivilegedHandler(type.enclosingType());
 	}
+	// End AspectJ Extension
 
 	// Internal use only
 	/*	Answer the field binding that corresponds to fieldName.
@@ -279,11 +285,13 @@ public abstract class Scope
 		if (!currentType.canBeSeenBy(this))
 			return new ProblemFieldBinding(currentType, fieldName, ReceiverTypeNotVisible);
 
-		FieldBinding field = currentType.getField(fieldName, true /*resolve*/, invocationSite, this); // extra info for AspectJ
+		FieldBinding field = currentType.getField(fieldName, true /*resolve*/, invocationSite, this); // AspectJ Extension - pass extra info
 		if (field != null) {
+			//	AspectJ Extension
 			FieldBinding ret = field.getVisibleBinding(currentType, invocationSite, this);
 			if (ret != null)
 				return ret;
+			//	End AspectJ Extension				
 			else
 				return new ProblemFieldBinding(field.declaringClass, fieldName, NotVisible);
 		}
@@ -311,10 +319,12 @@ public abstract class Scope
 			if ((currentType = currentType.superclass()) == null)
 				break;
 
-			if ((field = currentType.getField(fieldName, needResolve, invocationSite, this)) != null) {   //info for AspectJ
+			if ((field = currentType.getField(fieldName, needResolve, invocationSite, this)) != null) {   // AspectJ Extension - pass extra info
 				keepLooking = false;
+				//	AspectJ Extension
 				field = field.getVisibleBinding(receiverType, invocationSite, this);
 				if (field != null) {
+				//	End AspectJ Extension
 					if (visibleField == null)
 						visibleField = field;
 					else
@@ -335,7 +345,7 @@ public abstract class Scope
 					if ((anInterface.tagBits & InterfaceVisited) == 0) {
 						// if interface as not already been visited
 						anInterface.tagBits |= InterfaceVisited;
-						if ((field = anInterface.getField(fieldName, true /*resolve*/, invocationSite, this)) != null) {  // info for AspectJ
+						if ((field = anInterface.getField(fieldName, true /*resolve*/, invocationSite, this)) != null) {  // AspectJ Extension - pass extra info
 							if (visibleField == null) {
 								visibleField = field;
 							} else {
@@ -639,8 +649,10 @@ public abstract class Scope
 		int visiblesCount = 0;
 		for (int i = 0; i < candidatesCount; i++) {
 			MethodBinding methodBinding = candidates[i];
+			//	AspectJ Extension
 			methodBinding = methodBinding.getVisibleBinding(receiverType, invocationSite, this);
 			if (methodBinding != null) {
+			// End AspectJ Extension
 				if (visiblesCount != i) {
 					candidates[i] = null;
 					candidates[visiblesCount] = methodBinding;
@@ -985,7 +997,7 @@ public abstract class Scope
 								foundField = fieldBinding;
 							}
 						}
-						depth+=classScope.addDepth();
+						depth+=classScope.addDepth(); // AspectJ Extension
 						insideStaticContext |= enclosingType.isStatic();
 						// 1EX5I8Z - accessing outer fields within a constructor call is permitted
 						// in order to do so, we change the flag as we exit from the type, not the method
@@ -1035,10 +1047,12 @@ public abstract class Scope
 		compilationUnitScope().recordTypeReference(receiverType);
 		compilationUnitScope().recordTypeReferences(argumentTypes);
 		MethodBinding methodBinding = receiverType.getExactConstructor(argumentTypes);
+		//	AspectJ Extension
 		if (methodBinding != null) {
 			methodBinding = methodBinding.getVisibleBinding(invocationSite, this);
 			if (methodBinding != null) return methodBinding;
 		}
+		// End AspectJ Extension
 		MethodBinding[] methods = receiverType.getMethods(ConstructorDeclaration.ConstantPoolName);
 		if (methods == NoMethods)
 			return new ProblemMethodBinding(
@@ -1062,8 +1076,10 @@ public abstract class Scope
 		int visibleIndex = 0;
 		for (int i = 0; i < compatibleIndex; i++) {
 			MethodBinding method = compatible[i];
+		//	AspectJ Extension
 			method = method.getVisibleBinding(invocationSite, this);
 			if (method != null)
+		//	End AspectJ Extension
 				visible[visibleIndex++] = method;
 		}
 		if (visibleIndex == 1) return visible[0];
@@ -1243,8 +1259,10 @@ public abstract class Scope
 					selector,
 					argumentTypes,
 					NotFound);
+			//	AspectJ Extension					
 			MethodBinding ret = methodBinding.getVisibleBinding(currentType, invocationSite, this);
 			if (ret == null)
+			//	End AspectJ Extension
 				return new ProblemMethodBinding(
 					methodBinding,
 					selector,

@@ -10,7 +10,7 @@
  ******************************************************************************/
 
 package org.eclipse.jdt.internal.compiler.lookup;
-
+// AspectJ Extension
 
 /**
  * This interface is used by SourceTypeBinding to provide a delegated lookup

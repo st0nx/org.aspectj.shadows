@@ -4001,6 +4001,7 @@ public void wrongSequenceOfExceptionTypesError(TryStatement statement, TypeBindi
 		typeRef.sourceEnd);
 }
 
+//	AspectJ Extension
 /**
  * Signals an error with a string message for those errors that we don't know about
  * 
@@ -4020,5 +4021,7 @@ public void signalError(int start, int end, String msg) {
 	
 	
 }
+//	End AspectJ Extension
+
 
 }

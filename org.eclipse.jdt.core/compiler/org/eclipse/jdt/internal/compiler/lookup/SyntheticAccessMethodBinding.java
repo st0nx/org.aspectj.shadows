@@ -16,7 +16,7 @@ import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 
 /**
- * AspectJ - added simple constructor
+ * AspectJ Extension - added simple constructor
  */
 public class SyntheticAccessMethodBinding extends MethodBinding {
 
@@ -139,10 +139,13 @@ public class SyntheticAccessMethodBinding extends MethodBinding {
 		}
 	}
 	
+	// AspectJ Extension
 	// Needed for inter-type method bindings for AspectJ
 	public SyntheticAccessMethodBinding(MethodBinding myBinding) {
 		super(myBinding, null);	
 	}
+	// End AspectJ Extension
+
 
 	/**
 	 * An constructor accessor is a constructor with an extra argument (declaringClass), in case of

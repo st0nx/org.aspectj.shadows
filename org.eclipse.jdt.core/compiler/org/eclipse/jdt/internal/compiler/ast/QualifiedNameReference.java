@@ -20,7 +20,7 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
 /**
- * AspectJ - support for FieldBinding.alwaysNeedsAccessMethod
+ * AspectJ Extension - support for FieldBinding.alwaysNeedsAccessMethod
  */
 public class QualifiedNameReference extends NameReference {
 	
@@ -611,7 +611,8 @@ public class QualifiedNameReference extends NameReference {
 			TypeBinding lastReceiverType,
 			int index,
 			FlowInfo flowInfo) {
-				
+			
+		//	AspectJ Extension		
 		if (fieldBinding.alwaysNeedsAccessMethod(true)) {
 			if (syntheticReadAccessors == null) {
 				if (otherBindings == null)
@@ -626,6 +627,7 @@ public class QualifiedNameReference extends NameReference {
 			syntheticReadAccessors[index] = fieldBinding.getAccessMethod(true);
 			return;
 		}
+		//	End AspectJ Extension
 			
 		if (!flowInfo.isReachable()) return;
 		// index == 0 denotes the first fieldBinding, index > 0 denotes one of the 'otherBindings'
@@ -694,10 +696,12 @@ public class QualifiedNameReference extends NameReference {
 			TypeBinding lastReceiverType,
 			FlowInfo flowInfo) {
 
+		//	AspectJ Extension
 		if (fieldBinding.alwaysNeedsAccessMethod(false)) {
 			syntheticWriteAccessor = fieldBinding.getAccessMethod(false);
 			return;
 		}
+		// End AspectJ Extension
 
 		if (!flowInfo.isReachable()) return;
 		if (fieldBinding.isPrivate()) {

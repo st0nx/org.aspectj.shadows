@@ -34,7 +34,7 @@ public class ClassLiteralAccess extends Expression {
 
 		// if reachable, request the addition of a synthetic field for caching the class descriptor
 		SourceTypeBinding sourceType =
-			currentScope.outerMostMethodScope().invocationType(); // AspectJ - for inter-type declarations
+			currentScope.outerMostMethodScope().invocationType(); // AspectJ Extension - for inter-type declarations
 		if (!(sourceType.isInterface()
 			// no field generated in interface case (would'nt verify) see 1FHHEZL
 			|| sourceType.isBaseType())) {
