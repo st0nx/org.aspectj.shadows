@@ -18,7 +18,7 @@ package org.eclipse.jdt.internal.compiler.parser;
  *
  * AspectJ Extension
  * <p><b>The contents of this file are generated automatically by jikespg from
- * org/eclipse/jdt/internal/compiler/parser/aj_grammar.txt.  This 
+ * org.eclipse.jdt/internal/compiler/parser/aj_grammar.txt.  This 
  * auto-generation means that all symbols have different values than
  * they do when generated from the Java grammar.  This design needs to be 
  * changed for AspectJ to be implemented as a clean extension to the jdt compiler.</b>
@@ -32,20 +32,20 @@ public interface ParserBasicInformation {
     
     ERROR_SYMBOL      = 115,
     MAX_NAME_LENGTH   = 41,
-    NUM_STATES        = 1054,
+    NUM_STATES        = 1053,
 
     NT_OFFSET         = 115,
     SCOPE_UBOUND      = 158,
     SCOPE_SIZE        = 159,
-    LA_STATE_OFFSET   = 15121,
+    LA_STATE_OFFSET   = 14964,
     MAX_LA            = 1,
-    NUM_RULES         = 816,
+    NUM_RULES         = 817,
     NUM_TERMINALS     = 115,
-    NUM_NON_TERMINALS = 347,
-    NUM_SYMBOLS       = 462,
+    NUM_NON_TERMINALS = 349,
+    NUM_SYMBOLS       = 464,
     START_STATE       = 852,
     EOFT_SYMBOL       = 75,
     EOLT_SYMBOL       = 75,
-    ACCEPT_ACTION     = 15120,
-    ERROR_ACTION      = 15121;
+    ACCEPT_ACTION     = 14963,
+    ERROR_ACTION      = 14964;
 }

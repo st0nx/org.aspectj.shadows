@@ -957,9 +957,12 @@ public class ClassScope extends Scope {
 			return detectHierarchyCycle(referenceContext.binding, (ReferenceBinding) superType, reference);
 		}
 
-		if ((superType.tagBits & BeginHierarchyCheck) == 0 && superType instanceof SourceTypeBinding)
-			// ensure if this is a source superclass that it has already been checked
-			((SourceTypeBinding) superType).scope.connectTypeHierarchyWithoutMembers();
+		if ((superType.tagBits & BeginHierarchyCheck) == 0 && superType instanceof SourceTypeBinding) {
+			// AspectJ Extension, we hacked the hierarchy of BinaryTypeBinding and here we pay the price
+			if (! (superType instanceof BinaryTypeBinding)) 
+				// ensure if this is a source superclass that it has already been checked
+				((SourceTypeBinding) superType).scope.connectTypeHierarchyWithoutMembers();
+		}
 		return false;
 	}
 

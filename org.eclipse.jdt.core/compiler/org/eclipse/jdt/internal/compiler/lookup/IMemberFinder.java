@@ -34,6 +34,7 @@ public interface IMemberFinder {
 	MethodBinding getExactMethod(
                                  SourceTypeBinding sourceTypeBinding,
                                  char[] selector,
-                                 TypeBinding[] argumentTypes);
+                                 TypeBinding[] argumentTypes,
+                                 CompilationUnitScope refScope);
 
 }

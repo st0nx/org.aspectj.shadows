@@ -650,7 +650,7 @@ public boolean hasMemberTypes() {
 
 public TypeVariableBinding getTypeVariable(char[] variableName) {
 	TypeVariableBinding variable = super.getTypeVariable(variableName);
-	variable.resolve(this.environment);
+	if (variable != null) variable.resolve(this.environment); // AspectJ Extension, added guard
 	return variable;
 }
 private void initializeTypeVariable(TypeVariableBinding variable, TypeVariableBinding[] existingVariables, SignatureWrapper wrapper) {

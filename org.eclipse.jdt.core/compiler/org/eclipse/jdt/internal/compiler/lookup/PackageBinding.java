@@ -64,7 +64,7 @@ public final int kind() {
 }
 /*
  * slash separated name
- * org.eclipse.jdt.core --> org/eclipse/jdt/core
+ * org.eclipse.jdt.core --> org.eclipse.jdt/core
  */
 public char[] computeUniqueKey() {
 	return CharOperation.concatWith(compoundName, '/');

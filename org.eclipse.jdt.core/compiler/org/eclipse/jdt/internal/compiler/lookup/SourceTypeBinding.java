@@ -695,7 +695,7 @@ public MethodBinding getExactConstructor(TypeBinding[] argumentTypes) {
 
 public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes, CompilationUnitScope refScope) {
   // AspectJ Extension - replaced orginial method content with this
-  if (memberFinder != null) return memberFinder.getExactMethod(this, selector, argumentTypes);
+  if (memberFinder != null) return memberFinder.getExactMethod(this, selector, argumentTypes, refScope);
   else return getExactMethodBase(selector, argumentTypes, refScope);
 }
 

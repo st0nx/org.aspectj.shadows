@@ -627,11 +627,14 @@ public abstract class Scope
 					exactMethod = computeCompatibleMethod(exactMethod, argumentTypes, invocationSite);
 				return exactMethod;
 			}
-			// AspectJ Extension
-			return exactMethod.getVisibleBinding(receiverType, invocationSite, this);
-			// End AspectJ Extension
 		}
 		return null;
+
+		// AspectJ Extension
+		// this use to be done here but now it is too late...
+		//return exactMethod.getVisibleBinding(receiverType, invocationSite, this);
+		// End AspectJ Extension
+
 	}
 
 	//	AspectJ Extension	
@@ -1753,8 +1756,17 @@ public abstract class Scope
 								} else {
 									methodBinding = compatibleMethod;
 									if (!methodBinding.canBeSeenBy(receiverType, invocationSite, classScope)) {
-										// using <classScope> instead of <this> for visibility check does grant all access to innerclass
-										fuzzyProblem = new ProblemMethodBinding(methodBinding, selector, methodBinding.parameters, NotVisible);
+										// AspectJ Extension
+										MethodBinding visMethodBinding = methodBinding.getVisibleBinding(invocationSite,this);
+										if (visMethodBinding == null) {
+										// End AspectJ Extension
+											// using <classScope> instead of <this> for visibility check does grant all access to innerclass
+											fuzzyProblem = new ProblemMethodBinding(methodBinding, selector, methodBinding.parameters, NotVisible);
+										// AspectJ Extension
+										} else {
+											methodBinding = visMethodBinding;
+										}
+										// End AspectJ Extension
 									}
 								}
 							}
@@ -2039,8 +2051,14 @@ public abstract class Scope
 					return compatibleMethod;
 	
 				methodBinding = compatibleMethod;
-				if (!methodBinding.canBeSeenBy(currentType, invocationSite, this))
-					return new ProblemMethodBinding( methodBinding, selector, methodBinding.parameters, NotVisible);
+				if (!methodBinding.canBeSeenBy(currentType, invocationSite, this)) {
+					// AspectJ Extension
+					MethodBinding visMethodBinding = methodBinding.getVisibleBinding(invocationSite,this);
+					if (visMethodBinding == null)
+					// End AspectJ Extension
+						return new ProblemMethodBinding( methodBinding, selector, methodBinding.parameters, NotVisible);
+					methodBinding = visMethodBinding; // AspectJ Extension
+				}
 			}
 			return methodBinding;
 		} catch (AbortCompilation e) {

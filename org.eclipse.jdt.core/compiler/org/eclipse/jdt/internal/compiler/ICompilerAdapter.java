@@ -22,7 +22,7 @@ import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 public interface ICompilerAdapter {
 	
 	void beforeCompiling(ICompilationUnit[] sourceUnits);
-	void afterCompiling();
+	void afterCompiling(CompilationUnitDeclaration[] units);
 	
 	void beforeProcessing(CompilationUnitDeclaration unit);
 	void afterProcessing(CompilationUnitDeclaration unit, int unitIndex);

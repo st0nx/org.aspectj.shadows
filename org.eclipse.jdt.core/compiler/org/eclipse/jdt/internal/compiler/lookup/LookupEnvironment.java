@@ -67,7 +67,7 @@ public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstan
 	// step 1 : build the reference binding
 	// step 2 : conect the hierarchy (connect bindings)
 	// step 3 : build fields and method bindings.
-	private int stepCompleted;
+	protected int stepCompleted; // AspectJ Extension - raised visibility
 	public ITypeRequestor typeRequestor;
 	private ArrayBinding[][] uniqueArrayBindings;
 	private SimpleLookupTable uniqueParameterizedTypeBindings;
@@ -76,7 +76,8 @@ public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstan
 	
 	public CompilationUnitDeclaration unitBeingCompleted = null; // only set while completing units
 
-	private CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
+	// AspectJ Extension - raised visibility
+	protected CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
 	private MethodVerifier verifier;
 
 public LookupEnvironment(ITypeRequestor typeRequestor, CompilerOptions options, ProblemReporter problemReporter, INameEnvironment nameEnvironment) {
