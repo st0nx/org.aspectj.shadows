@@ -7,16 +7,17 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
-import java.util.Enumeration;
-import java.util.Hashtable;
+import java.util.*;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Argument;
 import org.eclipse.jdt.internal.compiler.ast.AssertStatement;
+import org.eclipse.jdt.internal.compiler.ast.AstNode;
 import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
@@ -26,14 +27,20 @@ import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 
+/**
+ * AspectJ - added hooks
+ */
 public class SourceTypeBinding extends ReferenceBinding {
 	public ReferenceBinding superclass;
 	public ReferenceBinding[] superInterfaces;
 	public FieldBinding[] fields;
 	public MethodBinding[] methods;
 	public ReferenceBinding[] memberTypes;
+	
+	public IPrivilegedHandler privilegedHandler = null;
 
 	public ClassScope scope;
+	public IMemberFinder memberFinder = null;
 
 	// Synthetics are separated into 4 categories: methods, super methods, fields, class literals and changed declaring class bindings
 	public final static int METHOD = 0;
@@ -438,6 +445,12 @@ public MethodBinding getExactConstructor(TypeBinding[] argumentTypes) {
 // searches up the hierarchy as long as no potential (but not exact) match was found.
 
 public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes) {
+	if (memberFinder != null) return memberFinder.getExactMethod(this, selector, argumentTypes);
+	else return getExactMethodBase(selector, argumentTypes);
+}
+
+public MethodBinding getExactMethodBase(char[] selector, TypeBinding[] argumentTypes) {
+	
 	int argCount = argumentTypes.length;
 	int selectorLength = selector.length;
 	boolean foundNothing = true;
@@ -481,9 +494,40 @@ public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes
 	}
 	return null;
 }
-// NOTE: the type of a field of a source type is resolved when needed
 
 public FieldBinding getField(char[] fieldName) {
+	return getFieldBase(fieldName);
+}
+
+public FieldBinding getBestField(char[] fieldName, InvocationSite site, Scope scope) {
+	//XXX this is mostly correct
+	return getField(fieldName, site, scope);
+}
+
+/**
+ * Where multiple fields with the same name are defined, this will
+ * return the one most visible one...
+ */
+public FieldBinding getField(char[] fieldName, InvocationSite site, Scope scope) {
+	FieldBinding ret;
+	
+	if (memberFinder != null) ret = memberFinder.getField(this, fieldName, site, scope);
+	else ret = getFieldBase(fieldName);
+	
+	if (ret != null) {
+		IPrivilegedHandler handler = Scope.findPrivilegedHandler(scope.invocationType());
+		if (handler != null && 
+			!ret.canBeSeenBy(this, site, scope))
+		{
+			//System.err.println("privileged access: " + new String(fieldName));
+			return handler.getPrivilegedAccessField(ret, (AstNode)site);
+		}
+	}
+	return ret;
+}
+
+// NOTE: the type of a field of a source type is resolved when needed
+public FieldBinding getFieldBase(char[] fieldName) {
 	int fieldLength = fieldName.length;
 	for (int f = fields.length; --f >= 0;) {
 		FieldBinding field = fields[f];
@@ -508,6 +552,11 @@ public FieldBinding getField(char[] fieldName) {
 // NOTE: the return type, arg & exception types of each method of a source type are resolved when needed
 
 public MethodBinding[] getMethods(char[] selector) {
+	if (memberFinder != null) return memberFinder.getMethods(this, selector);
+	else return getMethodsBase(selector);
+}
+
+public MethodBinding[] getMethodsBase(char[] selector) {
 	// handle forward references to potential default abstract methods
 	addDefaultAbstractMethods();
 
@@ -786,7 +835,7 @@ private FieldBinding resolveTypeFor(FieldBinding field) {
 	}
 	return null; // should never reach this point
 }
-private MethodBinding resolveTypesFor(MethodBinding method) {
+public MethodBinding resolveTypesFor(MethodBinding method) {
 	if ((method.modifiers & AccUnresolved) == 0)
 		return method;
 
@@ -1059,4 +1108,37 @@ public FieldBinding getSyntheticField(ReferenceBinding targetEnclosingType, bool
 	}
 	return null;
 }
+
+	public void addField(FieldBinding binding) {
+		if (fields == null) {
+			fields = new FieldBinding[] {binding};
+		} else {
+			//??? inefficient
+			ArrayList l = new ArrayList(Arrays.asList(fields));
+			l.add(binding);
+			fields = (FieldBinding[])l.toArray(new FieldBinding[l.size()]);
+		}
+		
+	}
+
+	public void addMethod(MethodBinding binding) {
+		int len = 1;
+		if (methods != null) len = methods.length + 1;
+		MethodBinding[] newMethods = new MethodBinding[len];
+		if (len > 1) {
+			System.arraycopy(methods, 0, newMethods, 0, len-1);
+		}
+		newMethods[len-1] = binding;
+		methods = newMethods;
+		//System.out.println("bindings: " + Arrays.asList(methods));
+	}
+	
+	public void removeMethod(int index) {
+		int len = methods.length;
+		MethodBinding[] newMethods = new MethodBinding[len-1];
+		System.arraycopy(methods, 0, newMethods, 0, index);
+		System.arraycopy(methods, index+1, newMethods, index, len-index-1);
+		methods = newMethods;
+	}
+
 }

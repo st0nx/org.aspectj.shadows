@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
@@ -91,7 +92,12 @@ public class AllocationExpression
 		boolean valueRequired) {
 
 		int pc = codeStream.position;
-		ReferenceBinding allocatedType = binding.declaringClass;
+		ReferenceBinding allocatedType;
+		if (syntheticAccessor != null) {
+			allocatedType = syntheticAccessor.declaringClass;
+		} else {
+			allocatedType = binding.declaringClass;
+		}
 
 		codeStream.new_(allocatedType);
 		if (valueRequired) {
@@ -174,6 +180,11 @@ public class AllocationExpression
 	}
 
 	public void manageSyntheticAccessIfNecessary(BlockScope currentScope) {
+		if (binding.alwaysNeedsAccessMethod()) {
+			syntheticAccessor = binding.getAccessMethod(true);
+			return;
+		}
+		
 
 		if (binding.isPrivate()
 			&& (currentScope.enclosingSourceType() != binding.declaringClass)) {
