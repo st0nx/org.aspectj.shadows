@@ -144,6 +144,10 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final long UnqualifiedFieldAccess = 0x4000000000L;
 	public static final long MissingJavadocTags = 0x8000000000L;
 	public static final long MissingJavadocComments  = 0x10000000000L;
+	// AspectJ Extension
+	// when picking up a later version of this class, if new constants have been added to 
+	// the above list, then AjCompilerOptions will need updating also.
+	// End AspectJ Extension
 
 	// Default severity level for handlers
 	public long errorThreshold = 0;
@@ -610,6 +614,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		return buf.toString();
 	}
 
+	protected // AspectJ Extension
 	void updateSeverity(long irritant, Object severityString) {
 		if (ERROR.equals(severityString)) {
 			this.errorThreshold |= irritant;
