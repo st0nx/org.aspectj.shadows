@@ -7,12 +7,17 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 
+/**
+ * AspectJ added hooks for inter-type field bindings as well as
+ * proto-hooks for allowing privileged access
+ */
 public class FieldBinding extends VariableBinding {
 	public ReferenceBinding declaringClass;
 protected FieldBinding() {
@@ -56,11 +61,11 @@ public final int bindingType() {
 *
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
-
-public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+// made non-final for AspectJ
+public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
 
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+	SourceTypeBinding invocationType = scope.invocationType();
 	if (invocationType == declaringClass && invocationType == receiverType) return true;
 
 	if (isProtected()) {
@@ -206,4 +211,11 @@ public final boolean isViewedAsDeprecated() {
 public final boolean isVolatile() {
 	return (modifiers & AccVolatile) != 0;
 }
+
+public boolean alwaysNeedsAccessMethod(boolean isReadAccess) { return false; }
+public SyntheticAccessMethodBinding getAccessMethod(boolean isReadAccess) {
+	throw new RuntimeException("unimplemented");
+}
+
+public FieldBinding getFieldBindingForLookup() { return this; }
 }

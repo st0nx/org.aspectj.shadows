@@ -1,3 +1,5 @@
+-- Modified for AspectJ-1.1 grammar
+
 --main options
 %options ACTION, AN=JavaAction.java, GP=java, 
 %options FILE-PREFIX=java, ESCAPE=$, PREFIX=TokenName, OUTPUT-SIZE=125 ,
@@ -34,6 +36,8 @@ $Terminals
 	protected public return short static strictfp super switch
 	synchronized this throw throws transient true try void
 	volatile while
+
+	aspect pointcut around before after declare privileged
 
 	IntegerLiteral
 	LongLiteral
@@ -188,6 +192,14 @@ Literal -> BooleanLiteral
 BooleanLiteral -> true
 BooleanLiteral -> false
 
+
+JavaIdentifier -> 'Identifier'
+JavaIdentifier -> AjSimpleName
+
+JavaIdentifierNoAround -> 'Identifier'
+JavaIdentifierNoAround -> AjSimpleNameNoAround
+
+
 -------------------------------------------------------------
 -------------------------------------------------------------
 --a Type results in both a push of its dimension(s) and its name(s).
@@ -234,12 +246,33 @@ ClassType -> ClassOrInterfaceType
 --------------------------------------------------------------
 --------------------------------------------------------------
 
+
+NameOrAj -> AjName
+NameOrAj -> Name
+
+
+AjName -> AjSimpleName
+AjName -> AjQualifiedName
+
+AjSimpleName -> AjSimpleNameNoAround
+AjSimpleNameNoAround -> 'aspect'
+AjSimpleNameNoAround -> 'privileged'
+AjSimpleNameNoAround -> 'pointcut'
+AjSimpleName -> 'around'
+AjSimpleNameNoAround -> 'before'
+AjSimpleNameNoAround -> 'after'
+AjSimpleNameNoAround -> 'declare'
+
+AjQualifiedName ::= AjName '.' SimpleName
+/.$putCase consumeQualifiedName(); $break ./
+
+
 Name -> SimpleName
 Name -> QualifiedName
 
-SimpleName -> 'Identifier'
+SimpleName -> 'Identifier' --JavaIdentifier
 
-QualifiedName ::= Name '.' SimpleName 
+QualifiedName ::= Name '.' JavaIdentifier --SimpleName 
 /.$putCase consumeQualifiedName(); $break ./
 
 CompilationUnit ::= EnterCompilationUnit PackageDeclarationopt ImportDeclarationsopt TypeDeclarationsopt
@@ -318,6 +351,316 @@ Modifier -> 'transient'
 Modifier -> 'volatile'
 Modifier -> 'strictfp'
 
+
+--New AspectJ Productions
+
+-- two declarations are visible outside of aspects
+Header -> PointcutDeclaration
+Header -> BasicAdviceDeclaration
+Header -> AroundDeclaration
+Header -> DeclareDeclaration
+Header -> InterTypeMethodDeclaration
+Header -> InterTypeFieldDeclaration
+
+
+TypeDeclaration -> AspectDeclaration
+Header -> AspectDeclaration
+
+ClassMemberDeclaration -> AspectDeclaration
+InterfaceMemberDeclaration -> AspectDeclaration
+
+
+ClassMemberDeclaration -> PointcutDeclaration
+InterfaceMemberDeclaration -> PointcutDeclaration
+
+-- everthing else is only visible inside an aspect
+AspectDeclaration ::= AspectHeader AspectBody
+/.$putCase consumeAspectDeclaration(); $break ./
+
+AspectHeader ::= AspectHeaderName ClassHeaderExtendsopt ClassHeaderImplementsopt AspectHeaderRest
+/.$putCase consumeAspectHeader(); $break ./
+
+AspectHeaderName ::= Modifiersopt 'aspect' 'Identifier'
+/.$putCase consumeAspectHeaderName(false); $break ./
+
+AspectHeaderName ::= Modifiersopt 'privileged' Modifiersopt 'aspect' 'Identifier'
+/.$putCase consumeAspectHeaderName(true); $break ./
+
+
+AspectHeaderRest ::= $empty
+
+--[dominates TypePattern] [persingleton() | percflow(PCD) | perthis(PCD) | pertarget(PCD)]
+AspectHeaderRest ::= AspectHeaderRestStart PseudoTokens
+/.$putCase consumeAspectHeaderRest(); $break ./
+
+AspectHeaderRestStart ::= 'Identifier'
+/.$putCase consumePseudoTokenIdentifier(); $break ./
+
+
+AspectBody ::= '{' AspectBodyDeclarationsopt '}'
+
+AspectBodyDeclarations ::= AspectBodyDeclaration
+AspectBodyDeclarations ::= AspectBodyDeclarations AspectBodyDeclaration
+/.$putCase consumeClassBodyDeclarations(); $break ./
+
+
+AspectBodyDeclarationsopt ::= $empty
+/.$putCase consumeEmptyClassBodyDeclarationsopt(); $break ./
+
+-- ??? why is NestedType here
+AspectBodyDeclarationsopt ::= NestedType AspectBodyDeclarations
+/.$putCase consumeClassBodyDeclarationsopt(); $break ./
+
+
+AspectBodyDeclaration ::= ClassBodyDeclaration
+/.$putCase consumeClassBodyDeclarationInAspect(); $break ./
+
+
+-- pointcuts and advice
+
+PointcutDeclaration ::= PointcutHeader MethodHeaderParameters ';'
+/.$putCase consumeEmptyPointcutDeclaration(); $break ./
+
+PointcutDeclaration ::= PointcutHeader MethodHeaderParameters ':' PseudoTokens  ';'
+/.$putCase consumePointcutDeclaration(); $break ./
+
+PointcutHeader ::= Modifiersopt 'pointcut'  JavaIdentifier '('
+/.$putCase consumePointcutHeader(); $break ./
+
+
+
+AspectBodyDeclaration -> AroundDeclaration
+AspectBodyDeclaration -> BasicAdviceDeclaration
+
+AroundDeclaration ::= AroundHeader MethodBody
+/.$putCase consumeAroundDeclaration(); $break ./
+
+AroundHeader ::= AroundHeaderName MethodHeaderParameters MethodHeaderThrowsClauseopt ':' PseudoTokens
+/.$putCase consumeAroundHeader(); $break ./
+
+-- no modifiers are actually allowed on around, but the grammar is happier this way
+AroundHeaderName ::= Modifiersopt Type  'around' '(' 
+/.$putCase consumeAroundHeaderName(); $break ./
+
+BasicAdviceDeclaration ::= BasicAdviceHeader MethodBody
+/.$putCase consumeBasicAdviceDeclaration(); $break ./
+
+BasicAdviceHeader ::= BasicAdviceHeaderName MethodHeaderParameters ExtraParamopt MethodHeaderThrowsClauseopt ':' PseudoTokens
+/.$putCase consumeBasicAdviceHeader(); $break ./
+
+
+BasicAdviceHeaderName ::= Modifiersopt 'before' '(' 
+/.$putCase consumeBasicAdviceHeaderName(false); $break ./
+
+BasicAdviceHeaderName ::= Modifiersopt 'after' '(' 
+/.$putCase consumeBasicAdviceHeaderName(true); $break ./
+
+
+ExtraParamopt ::= 'Identifier' '(' FormalParameter ')'
+/.$putCase consumeExtraParameterWithFormal(); $break ./
+ExtraParamopt ::= 'Identifier' '(' ')'
+/.$putCase consumeExtraParameterNoFormal(); $break ./
+-- deprecated, but we're probably stuck with it now
+ExtraParamopt ::= 'Identifier'
+/.$putCase consumeExtraParameterNoFormal(); $break ./
+ExtraParamopt ::= $empty
+
+
+
+
+-- intertype declarations
+
+OnType ::= JavaIdentifier
+OnType ::= OnType '.' JavaIdentifier
+/.$putCase consumeQualifiedName(); $break ./
+
+AspectBodyDeclaration -> InterTypeMethodDeclaration
+AspectBodyDeclaration -> InterTypeConstructorDeclaration
+AspectBodyDeclaration -> InterTypeFieldDeclaration
+
+InterTypeMethodDeclaration -> AbstractInterTypeMethodDeclaration
+InterTypeMethodDeclaration ::= InterTypeMethodHeader MethodBody 
+/.$putCase // set to true to consume a method with a body
+  consumeInterTypeMethodDeclaration(true);  $break ./
+
+InterTypeMethodHeader ::= InterTypeMethodHeaderName MethodHeaderParameters MethodHeaderExtendedDims MethodHeaderThrowsClauseopt
+/.$putCase consumeInterTypeMethodHeader(); $break ./
+
+InterTypeMethodHeaderName ::= Modifiersopt Type OnType '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderName(); $break ./
+
+
+AbstractInterTypeMethodDeclaration ::= InterTypeMethodHeader ';'
+/.$putCase // set to false to consume a method without body
+  consumeInterTypeMethodDeclaration(false); $break ./
+
+
+InterTypeConstructorDeclaration ::= InterTypeConstructorHeader ConstructorBody 
+/.$putCase // set to true to consume a method with a body
+  consumeInterTypeConstructorDeclaration();  $break ./
+
+InterTypeConstructorHeader ::= InterTypeConstructorHeaderName MethodHeaderParameters MethodHeaderThrowsClauseopt
+/.$putCase consumeInterTypeConstructorHeader(); $break ./
+
+-- using Name instead of OnType to make jikespg happier
+InterTypeConstructorHeaderName ::= Modifiersopt Name '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderName(); $break ./
+
+
+InterTypeFieldDeclaration ::= Modifiersopt Type OnType '.' JavaIdentifier InterTypeFieldBody ';'
+/.$putCase consumeInterTypeFieldDeclaration(); $break ./
+
+InterTypeFieldBody ::=  $empty
+InterTypeFieldBody ::= '=' ForceNoDiet VariableInitializer RestoreDiet
+
+
+
+
+-- declares (more fun than a pcd)
+AspectBodyDeclaration -> DeclareDeclaration
+
+DeclareDeclaration ::= DeclareHeader PseudoTokens ';'
+/.$putCase consumeDeclareDeclaration(); $break ./
+
+DeclareHeader ::= 'declare' 'Identifier' ':' 
+/.$putCase consumeDeclareHeader(); $break ./
+
+
+
+-- the joy of pcds
+PseudoTokens ::= PseudoToken
+PseudoTokens ::= PseudoTokens PseudoToken
+/.$putCase consumePseudoTokens(); $break ./
+
+PseudoToken ::= JavaIdentifier
+/.$putCase consumePseudoTokenIdentifier(); $break ./
+
+PseudoToken ::= '('
+/.$putCase consumePseudoToken("("); $break ./
+
+PseudoToken ::= ')'
+/.$putCase consumePseudoToken(")"); $break ./
+
+PseudoToken ::= '.'
+/.$putCase consumePseudoToken("."); $break ./
+
+PseudoToken ::= '*'
+/.$putCase consumePseudoToken("*"); $break ./
+
+PseudoToken ::= '+'
+/.$putCase consumePseudoToken("+"); $break ./
+
+PseudoToken ::= '&&'
+/.$putCase consumePseudoToken("&&"); $break ./
+
+PseudoToken ::= '||'
+/.$putCase consumePseudoToken("||"); $break ./
+
+PseudoToken ::= '!'
+/.$putCase consumePseudoToken("!"); $break ./
+
+PseudoToken ::= ':'
+/.$putCase consumePseudoToken(":"); $break ./
+
+PseudoToken ::= ','
+/.$putCase consumePseudoToken(","); $break ./
+
+PseudoToken ::= '['
+/.$putCase consumePseudoToken("["); $break ./
+
+PseudoToken ::= ']'
+/.$putCase consumePseudoToken("]"); $break ./
+
+
+
+PseudoToken ::= PrimitiveType
+/.$putCase consumePseudoTokenPrimitiveType(); $break ./
+
+PseudoToken ::= Modifier
+/.$putCase consumePseudoTokenModifier(); $break ./
+
+PseudoToken ::= Literal
+/.$putCase consumePseudoTokenLiteral(); $break ./
+
+
+PseudoToken ::= 'this'
+/.$putCase consumePseudoToken("this", 1, true); $break ./
+
+PseudoToken ::= 'super'
+/.$putCase consumePseudoToken("super", 1, true); $break ./
+
+
+-- special handling for if
+PseudoToken ::= 'if' '(' Expression ')'
+/.$putCase consumePseudoTokenIf(); $break ./
+
+PseudoToken ::= 'assert'
+/.$putCase consumePseudoToken("assert", 1, true); $break ./
+
+PseudoToken ::= 'import'
+/.$putCase consumePseudoToken("import", 1, true); $break ./
+
+PseudoToken ::= 'package'
+/.$putCase consumePseudoToken("package", 1, true); $break ./
+
+PseudoToken ::= 'throw'
+/.$putCase consumePseudoToken("throw", 1, true); $break ./
+
+PseudoToken ::= 'new'
+/.$putCase consumePseudoToken("new", 1, true); $break ./
+
+PseudoToken ::= 'do'
+/.$putCase consumePseudoToken("do", 1, true); $break ./
+
+PseudoToken ::= 'for'
+/.$putCase consumePseudoToken("for", 1, true); $break ./
+
+PseudoToken ::= 'switch'
+/.$putCase consumePseudoToken("switch", 1, true); $break ./
+
+PseudoToken ::= 'try'
+/.$putCase consumePseudoToken("try", 1, true); $break ./
+
+PseudoToken ::= 'while'
+/.$putCase consumePseudoToken("while", 1, true); $break ./
+
+PseudoToken ::= 'break'
+/.$putCase consumePseudoToken("break", 1, true); $break ./
+
+PseudoToken ::= 'continue'
+/.$putCase consumePseudoToken("continue", 1, true); $break ./
+
+PseudoToken ::= 'return'
+/.$putCase consumePseudoToken("return", 1, true); $break ./
+
+PseudoToken ::= 'case'
+/.$putCase consumePseudoToken("case", 1, true); $break ./
+
+PseudoToken ::= 'catch'
+/.$putCase consumePseudoToken("catch", 0, true); $break ./
+
+PseudoToken ::= 'instanceof'
+/.$putCase consumePseudoToken("instanceof", 0, true); $break ./
+
+PseudoToken ::= 'else'
+/.$putCase consumePseudoToken("else", 0, true); $break ./
+
+PseudoToken ::= 'extends'
+/.$putCase consumePseudoToken("extends", 0, true); $break ./
+
+PseudoToken ::= 'finally'
+/.$putCase consumePseudoToken("finally", 0, true); $break ./
+
+PseudoToken ::= 'implements'
+/.$putCase consumePseudoToken("implements", 0, true); $break ./
+
+PseudoToken ::= 'throws'
+/.$putCase consumePseudoToken("throws", 0, true); $break ./
+
+-- add all other keywords as identifiers
+
+
+
 --18.8 Productions from 8: Class Declarations
 --ClassModifier ::=
 --      'abstract'
@@ -331,7 +674,7 @@ ClassDeclaration ::= ClassHeader ClassBody
 ClassHeader ::= ClassHeaderName ClassHeaderExtendsopt ClassHeaderImplementsopt
 /.$putCase consumeClassHeader(); $break ./
 
-ClassHeaderName ::= Modifiersopt 'class' 'Identifier'
+ClassHeaderName ::= Modifiersopt 'class' JavaIdentifier
 /.$putCase consumeClassHeaderName(); $break ./
 
 ClassHeaderExtends ::= 'extends' ClassType
@@ -418,7 +761,7 @@ ForceNoDiet ::= $empty
 RestoreDiet ::= $empty
 /.$putCase consumeRestoreDiet(); $break ./
 
-VariableDeclaratorId ::= 'Identifier' Dimsopt
+VariableDeclaratorId ::= JavaIdentifier Dimsopt
 
 VariableInitializer -> Expression
 VariableInitializer -> ArrayInitializer
@@ -450,13 +793,13 @@ MethodHeader ::= MethodHeaderName MethodHeaderParameters MethodHeaderExtendedDim
 MethodPushModifiersHeader ::= MethodPushModifiersHeaderName MethodHeaderParameters MethodHeaderExtendedDims MethodHeaderThrowsClauseopt
 /.$putCase consumeMethodHeader(); $break ./
 
-MethodPushModifiersHeaderName ::= Modifiers Type PushModifiers 'Identifier' '(' 
+MethodPushModifiersHeaderName ::= Modifiers Type PushModifiers JavaIdentifierNoAround '(' 
 /.$putCase consumeMethodPushModifiersHeaderName(); $break ./
 
-MethodPushModifiersHeaderName ::= Type PushModifiers 'Identifier' '(' 
+MethodPushModifiersHeaderName ::= Type PushModifiers JavaIdentifierNoAround '(' 
 /.$putCase consumeMethodPushModifiersHeaderName(); $break ./
 
-MethodHeaderName ::= Modifiersopt Type 'Identifier' '('
+MethodHeaderName ::= Modifiersopt Type JavaIdentifierNoAround '('
 /.$putCase consumeMethodHeaderName(); $break ./
 
 MethodHeaderParameters ::= FormalParameterListopt ')'
@@ -472,6 +815,9 @@ ConstructorHeader ::= ConstructorHeaderName MethodHeaderParameters MethodHeaderT
 /.$putCase consumeConstructorHeader(); $break ./
 
 ConstructorHeaderName ::=  Modifiersopt 'Identifier' '('
+/.$putCase consumeConstructorHeaderName(); $break ./
+
+ConstructorHeaderName ::=  Modifiersopt 'aspect' '('  -- makes aspect harder
 /.$putCase consumeConstructorHeaderName(); $break ./
 
 FormalParameterList -> FormalParameter
@@ -569,7 +915,7 @@ InterfaceDeclaration ::= InterfaceHeader InterfaceBody
 InterfaceHeader ::= InterfaceHeaderName InterfaceHeaderExtendsopt
 /.$putCase consumeInterfaceHeader(); $break ./
 
-InterfaceHeaderName ::= Modifiersopt 'interface' 'Identifier'
+InterfaceHeaderName ::= Modifiersopt 'interface' JavaIdentifier
 /.$putCase consumeInterfaceHeaderName(); $break ./
 
 -- This rule will be used to accept inner local interface and then report a relevant error message
@@ -685,10 +1031,10 @@ StatementWithoutTrailingSubstatement -> TryStatement
 EmptyStatement ::= ';'
 /.$putCase consumeEmptyStatement(); $break ./
 
-LabeledStatement ::= 'Identifier' ':' Statement
+LabeledStatement ::= JavaIdentifier ':' Statement
 /.$putCase consumeStatementLabel() ; $break ./
 
-LabeledStatementNoShortIf ::= 'Identifier' ':' StatementNoShortIf
+LabeledStatementNoShortIf ::= JavaIdentifier ':' StatementNoShortIf
 /.$putCase consumeStatementLabel() ; $break ./
 
 ExpressionStatement ::= StatementExpression ';'
@@ -915,19 +1261,19 @@ DimsLoop ::= DimsLoop OneDimLoop
 OneDimLoop ::= '[' ']'
 /. $putCase consumeOneDimLoop(); $break ./
 
-FieldAccess ::= Primary '.' 'Identifier'
+FieldAccess ::= Primary '.' JavaIdentifier
 /.$putCase consumeFieldAccess(false); $break ./
 
-FieldAccess ::= 'super' '.' 'Identifier'
+FieldAccess ::= 'super' '.' JavaIdentifier
 /.$putCase consumeFieldAccess(true); $break ./
 
-MethodInvocation ::= Name '(' ArgumentListopt ')'
+MethodInvocation ::= NameOrAj '(' ArgumentListopt ')'
 /.$putCase consumeMethodInvocationName(); $break ./
 
-MethodInvocation ::= Primary '.' 'Identifier' '(' ArgumentListopt ')'
+MethodInvocation ::= Primary '.' JavaIdentifier '(' ArgumentListopt ')'
 /.$putCase consumeMethodInvocationPrimary(); $break ./
 
-MethodInvocation ::= 'super' '.' 'Identifier' '(' ArgumentListopt ')'
+MethodInvocation ::= 'super' '.' JavaIdentifier '(' ArgumentListopt ')'
 /.$putCase consumeMethodInvocationSuper(); $break ./
 
 ArrayAccess ::= Name '[' Expression ']'
@@ -938,7 +1284,7 @@ ArrayAccess ::= ArrayCreationWithArrayInitializer '[' Expression ']'
 /.$putCase consumeArrayAccess(false); $break ./
 
 PostfixExpression -> Primary
-PostfixExpression ::= Name
+PostfixExpression ::= NameOrAj
 /.$putCase consumePostfixExpression(); $break ./
 PostfixExpression -> PostIncrementExpression
 PostfixExpression -> PostDecrementExpression

@@ -1,0 +1,44 @@
+<project name="ShadowJdtCore" basedir="." default="make.jdtcore.jar">
+    <property name="eclipse.dir" value="c:/aspectj/eclipse"/>
+    <property name="plugins.dir" value="${eclipse.dir}/plugins"/>
+    <property name="plugins.src.dir" value="${plugins.dir}/org.eclipse.platform.source_2.1.1/src"/>
+
+    <target name="makeJdtDepends">
+        <delete file="lib/jdtDepends.jar"/>
+        <jar destfile="lib/jdtDepends.jar">
+            <zipfileset src="${plugins.dir}/org.eclipse.core.boot_2.1.1/boot.jar"/>
+            <zipfileset src="${plugins.dir}/org.eclipse.core.resources_2.1.1/resources.jar"/>
+            <zipfileset src="${plugins.dir}/org.eclipse.core.runtime_2.1.1/runtime.jar"/>
+            <zipfileset src="${plugins.dir}/org.apache.xerces_4.0.13/xercesImpl.jar"/>
+            <zipfileset src="${plugins.dir}/org.apache.xerces_4.0.13/xmlParserAPIs.jar"/>
+        </jar>
+        <delete file="lib/jdtDepends-src.zip"/>
+        <jar destfile="lib/jdtDepends-src.zip">
+            <zipfileset src="${plugins.src.dir}/org.eclipse.core.boot_2.1.1/bootsrc.zip"/>
+            <zipfileset src="${plugins.src.dir}/org.eclipse.core.resources_2.1.1/resourcessrc.zip"/>
+            <zipfileset src="${plugins.src.dir}/org.eclipse.core.runtime_2.1.1/runtimesrc.zip"/>
+            <zipfileset src="${plugins.src.dir}/org.apache.xerces_4.0.13/xercessrc.zip"/>
+        </jar>
+    </target>
+
+
+    <target name="make.jdtcore.jar">
+    	<delete file="../jdtcore-for-aspectj.jar"/>
+        <jar destfile="../jdtcore-for-aspectj.jar">
+            <fileset dir="bin"/>
+            <zipfileset src="lib/jdtDepends.jar"/>
+        </jar>
+        <delete file="../jdtcore-for-aspectj-src.zip"/>
+        <jar destfile="../jdtcore-for-aspectj-src.zip">
+            <fileset dir="batch"/>
+            <fileset dir="codeassist"/>
+            <fileset dir="compiler"/>
+            <fileset dir="dom"/>
+            <fileset dir="eval"/>
+            <fileset dir="formatter"/>
+            <fileset dir="model"/>
+            <fileset dir="search"/>
+            <zipfileset src="lib/jdtDepends-src.zip"/>
+        </jar>
+    </target>
+</project>

@@ -7,13 +7,17 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 
+/**
+ * AspectJ - added simple constructor
+ */
 public class SyntheticAccessMethodBinding extends MethodBinding {
 
 	public FieldBinding targetReadField;		// read access to a field
@@ -133,6 +137,10 @@ public class SyntheticAccessMethodBinding extends MethodBinding {
 		} else {
 			this.initializeMethodAccessor(targetMethod, isSuperAccess, receiverType);
 		}
+	}
+	
+	public SyntheticAccessMethodBinding(MethodBinding myBinding) {
+		super(myBinding, null);	
 	}
 
 	/**

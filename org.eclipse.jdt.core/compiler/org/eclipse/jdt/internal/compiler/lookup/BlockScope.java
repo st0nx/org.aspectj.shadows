@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -21,6 +22,9 @@ import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 
+/**
+ * AspectJ - added hook to use classScope.addDepth() in lookup
+ */
 public class BlockScope extends Scope {
 
 	// Local variable management
@@ -723,7 +727,7 @@ public class BlockScope extends Scope {
 								foundField = fieldBinding;
 							}
 						}
-						depth++;
+						depth+=classScope.addDepth();
 						insideStaticContext |= enclosingType.isStatic();
 						// 1EX5I8Z - accessing outer fields within a constructor call is permitted
 						// in order to do so, we change the flag as we exit from the type, not the method
@@ -785,13 +789,18 @@ public class BlockScope extends Scope {
 		ReferenceBinding receiverType,
 		TypeBinding[] argumentTypes,
 		InvocationSite invocationSite) {
+			
+		IPrivilegedHandler handler = findPrivilegedHandler(invocationType());
 
 		compilationUnitScope().recordTypeReference(receiverType);
 		compilationUnitScope().recordTypeReferences(argumentTypes);
 		MethodBinding methodBinding = receiverType.getExactConstructor(argumentTypes);
 		if (methodBinding != null) {
-			if (methodBinding.canBeSeenBy(invocationSite, this))
+			if (methodBinding.canBeSeenBy(invocationSite, this)) {
 				return methodBinding;
+			} else if (handler != null) {
+				return handler.getPrivilegedAccessMethod(methodBinding, (AstNode)invocationSite);
+			}
 		}
 		MethodBinding[] methods =
 			receiverType.getMethods(ConstructorDeclaration.ConstantPoolName);

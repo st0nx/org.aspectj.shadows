@@ -15,12 +15,13 @@ import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 
 import java.util.*;
 
+// increased member visibilities for AspectJ
 public class ReferenceCollection {
 
 char[][][] qualifiedNameReferences; // contains no simple names as in just 'a' which is kept in simpleNameReferences instead
 char[][] simpleNameReferences;
 
-protected ReferenceCollection(char[][][] qualifiedNameReferences, char[][] simpleNameReferences) {
+public ReferenceCollection(char[][][] qualifiedNameReferences, char[][] simpleNameReferences) {
 	this.qualifiedNameReferences = internQualifiedNames(qualifiedNameReferences);
 	this.simpleNameReferences = internSimpleNames(simpleNameReferences, true);
 }
@@ -37,7 +38,7 @@ boolean includes(char[][] qualifiedName) {
 	return false;
 }
 
-boolean includes(char[][][] qualifiedNames, char[][] simpleNames) {
+public boolean includes(char[][][] qualifiedNames, char[][] simpleNames) {
 	// if either collection of names is null, it means it contained a well known name so we know it already has a match
 	if (simpleNames == null || qualifiedNames == null) {
 		if (simpleNames == null && qualifiedNames == null) {
@@ -120,7 +121,7 @@ static {
 		InternedSimpleNames[i] = new ArrayList(11);
 }
 
-static char[][][] internQualifiedNames(ArrayList qualifiedStrings) {
+public static char[][][] internQualifiedNames(ArrayList qualifiedStrings) {
 	if (qualifiedStrings == null) return EmptyQualifiedNames;
 	int length = qualifiedStrings.size();
 	if (length == 0) return EmptyQualifiedNames;
@@ -171,7 +172,7 @@ static char[][][] internQualifiedNames(char[][][] qualifiedNames) {
 	return keepers;
 }
 
-static char[][] internSimpleNames(ArrayList simpleStrings) {
+public static char[][] internSimpleNames(ArrayList simpleStrings) {
 	if (simpleStrings == null) return EmptySimpleNames;
 	int length = simpleStrings.size();
 	if (length == 0) return EmptySimpleNames;

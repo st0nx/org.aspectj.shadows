@@ -7,13 +7,17 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
 
+/**
+ * AspectJ - hooks for subtypes
+ */
 public class MethodBinding extends Binding implements BaseTypes, TypeConstants {
 	public int modifiers;
 	public char[] selector;
@@ -88,10 +92,10 @@ public final int bindingType() {
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
 
-public final boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
+public boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
 
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+	SourceTypeBinding invocationType = scope.invocationType();
 	if (invocationType == declaringClass) return true;
 
 	if (isProtected()) {
@@ -128,10 +132,10 @@ public final boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 *
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
-public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
-
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+    //XXX invocation vs. source
+	SourceTypeBinding invocationType = scope.invocationType();
 	if (invocationType == declaringClass && invocationType == receiverType) return true;
 
 	if (isProtected()) {
@@ -143,7 +147,8 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 		if (invocationType == declaringClass) return true;
 		if (invocationType.fPackage == declaringClass.fPackage) return true;
 		
-		ReferenceBinding currentType = invocationType;
+		// for protected we need to check based on the type of this
+		ReferenceBinding currentType = scope.enclosingSourceType();;
 		int depth = 0;
 		do {
 			if (declaringClass.isSuperclassOf(currentType)) {
@@ -456,8 +461,9 @@ public final int sourceEnd() {
 	else
 		return method.sourceEnd;
 }
-AbstractMethodDeclaration sourceMethod() {
+public AbstractMethodDeclaration sourceMethod() {
 	SourceTypeBinding sourceType;
+	if (declaringClass instanceof BinaryTypeBinding) return null;
 	try {
 		sourceType = (SourceTypeBinding) declaringClass;
 	} catch (ClassCastException e) {
@@ -477,6 +483,24 @@ public final int sourceStart() {
 	else
 		return method.sourceStart;
 }
+
+	
+	/**
+	 * Subtypes can override this to return true if an access method should be
+	 * used when referring to this method binding.  Currently used
+	 * for AspectJ's inter-type method declarations.
+	 */
+	public boolean alwaysNeedsAccessMethod() { return false; }
+
+
+	/**
+	 * This will only be called if alwaysNeedsAccessMethod() returns true.
+	 * In that case it should return the access method to be used.
+	 */
+	public MethodBinding getAccessMethod(boolean staticReference) {
+		throw new RuntimeException("unimplemented");
+	}
+
 /* During private access emulation, the binding can be requested to loose its
  * private visibility when the class file is dumped.
  */

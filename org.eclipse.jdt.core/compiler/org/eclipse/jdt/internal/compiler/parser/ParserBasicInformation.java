@@ -7,27 +7,42 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.parser;
 
-/*An interface that contains static declarations for some basic information
- about the parser such as the number of rules in the grammar, the starting state, etc...*/
+/**An interface that contains static declarations for some basic information
+ * about the parser such as the number of rules in the grammar, the starting state, etc...
+ *
+ *
+ * <p><b>The contents of this file are generated automatically by jikespg from
+ * org/eclipse/jdt/internal/compiler/parser/aj_grammar.txt.  This 
+ * auto-generation means that all symbols have different values than
+ * they do when generated from the Java grammar.  This design needs to be 
+ * changed for AspectJ to be implemented as a clean extension to the jdt compiler.</b>
+ * 
+ * XXX unacceptable extension design
+ */
 
 public interface ParserBasicInformation {
-
     public final static int
-      NT_OFFSET         = 308,
+
+      ERROR_SYMBOL      = 354,
+      MAX_NAME_LENGTH   = 36,
+      NUM_STATES        = 696,
+
+      NT_OFFSET         = 355,
       SCOPE_UBOUND      = -1,
       SCOPE_SIZE        = 0,
-      LA_STATE_OFFSET   = 17759,
+      LA_STATE_OFFSET   = 24427,
       MAX_LA            = 1,
-      NUM_RULES         = 437,
-      NUM_TERMINALS     = 104,
-      NUM_NON_TERMINALS = 204,
-      NUM_SYMBOLS       = 308,
-      START_STATE       = 16034,
-      EOFT_SYMBOL       = 114,
-      EOLT_SYMBOL       = 105,
-      ACCEPT_ACTION     = 17758,
-      ERROR_ACTION      = 17759;
+      NUM_RULES         = 557,
+      NUM_TERMINALS     = 112,
+      NUM_NON_TERMINALS = 243,
+      NUM_SYMBOLS       = 355,
+      START_STATE       = 17384,
+      EOFT_SYMBOL       = 139,
+      EOLT_SYMBOL       = 139,
+      ACCEPT_ACTION     = 24426,
+      ERROR_ACTION      = 24427;
 }
