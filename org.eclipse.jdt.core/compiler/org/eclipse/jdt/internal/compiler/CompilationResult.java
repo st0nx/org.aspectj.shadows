@@ -430,4 +430,10 @@ public class CompilationResult {
 		} 
 		return buffer.toString();
 	}
+	
+	// AspectJ Extension
+	private boolean fromBinarySource = false;
+	public boolean isFromBinarySource() { return fromBinarySource; }
+	public void noSourceAvailable() { fromBinarySource = true; }
+	// End AspectJ Extension
 }

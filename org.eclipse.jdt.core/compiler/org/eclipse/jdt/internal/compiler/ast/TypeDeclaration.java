@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.core.compiler.*;
@@ -21,6 +22,10 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
 
+/**
+ * AspectJ Extension - added extension point for attribute generation,
+ * fixed bug in traverse method
+ */
 public class TypeDeclaration
 	extends Statement
 	implements ProblemSeverities, ReferenceContext {
@@ -565,7 +570,7 @@ public class TypeDeclaration
 			}
 
 			// finalize the compiled type result
-			classFile.addAttributes();
+			generateAttributes(classFile); // AspectJ Extension - moved to helper method
 			scope.referenceCompilationUnit().compilationResult.record(
 				binding.constantPoolName(),
 				classFile);
@@ -577,6 +582,13 @@ public class TypeDeclaration
 				scope.referenceCompilationUnit().compilationResult);
 		}
 	}
+
+	// AspectJ Extension
+	protected void generateAttributes(ClassFile classFile) {
+		// finalize the compiled type result
+		classFile.addAttributes();
+	}
+	//	End AspectJ Extension
 
 	/**
 	 * Bytecode generation for a local inner type (API as a normal statement code gen)
@@ -765,7 +777,7 @@ public class TypeDeclaration
 	 * A <clinit> will be requested as soon as static fields or assertions are present. It will be eliminated during
 	 * classfile creation if no bytecode was actually produced based on some optimizations/compiler settings.
 	 */
-	public final boolean needClassInitMethod() {
+	public boolean needClassInitMethod() { // AspectJ Extension - made non-final
 
 		// always need a <clinit> when assertions are present
 		if ((this.bits & AddAssertionMASK) != 0)

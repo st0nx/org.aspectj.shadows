@@ -8,7 +8,8 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     Nick Teryaev - fix for bug (https://bugs.eclipse.org/bugs/show_bug.cgi?id=40752)
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -18,6 +19,9 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
+/**
+ * AspectJ Extension - support for MethodBinding.alwaysNeedsAccessMethod
+ */
 public class MessageSend extends Expression implements InvocationSite {
     
 	public Expression receiver ;
@@ -25,7 +29,7 @@ public class MessageSend extends Expression implements InvocationSite {
 	public Expression[] arguments ;
 	public MethodBinding binding;							// exact binding resulting from lookup
 	protected MethodBinding codegenBinding;		// actual binding used for code generation (if no synthetic accessor)
-	MethodBinding syntheticAccessor;						// synthetic accessor for inner-emulation
+	public MethodBinding syntheticAccessor; // AspectJ Extension - raise visibility						// synthetic accessor for inner-emulation
 	public TypeBinding expectedType;					// for generic method invocation (return type inference)
 
 	public long nameSourcePosition ; //(start<<32)+end
@@ -120,7 +124,16 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 			}
 		}
 	} else {
-		codeStream.invokestatic(syntheticAccessor);
+		// AspectJ extension
+		// Although all JDT based accessors are static, that is not true of
+		// AspectJ accessors.  For example: ajc$privMethod for accessing private
+		// methods on types from a privileged aspect.
+		if (syntheticAccessor.isStatic()) {
+		    codeStream.invokestatic(syntheticAccessor);
+		} else {
+			codeStream.invokevirtual(syntheticAccessor);
+	    }
+		// End AspectJ extension
 	}
 	// operation on the returned value
 	if (valueRequired){
@@ -157,12 +170,33 @@ public boolean isTypeAccess() {
 }
 public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo){
 
+	//	AspectJ Extension
+	if (binding.alwaysNeedsAccessMethod()) {
+		syntheticAccessor = binding.getAccessMethod(isSuperAccess());
+		return;
+	}
+	//	End AspectJ Extension
+
 	if (!flowInfo.isReachable()) return;
 
 	// if method from parameterized type got found, use the original method at codegen time
 	this.codegenBinding = this.binding.original();
 	if (this.binding.isPrivate()){
 
+		// AspectJ extension
+		// Ok, it is a private method call - check if this has been allowed through
+		// the compiler because of privilege?
+		IPrivilegedHandler iph = Scope.findPrivilegedHandler(currentScope.invocationType());
+		if (iph != null) { 
+			// ??? Should getPriviligedAccessMethod() provide a flag to indicate
+			// if you *want* to build a new accessor or if you just want to see if
+			// one already exists?
+			MethodBinding privAccessor = iph.getPrivilegedAccessMethod(binding,null);
+			syntheticAccessor = privAccessor;
+			return;
+		}
+		// End AspectJ extension
+		
 		// depth is set for both implicit and explicit access (see MethodBinding#canBeSeenBy)		
 		if (currentScope.enclosingSourceType() != this.codegenBinding.declaringClass){
 		
@@ -302,10 +336,9 @@ public TypeBinding resolveType(BlockScope scope) {
 		scope.problemReporter().errorNoMethodFor(this, this.actualReceiverType, argumentTypes);
 		return null;
 	}
-	this.binding = 
-		receiver.isImplicitThis()
-			? scope.getImplicitMethod(selector, argumentTypes, this)
-			: scope.getMethod(this.actualReceiverType, selector, argumentTypes, this); 
+	
+	resolveMethodBinding(scope, argumentTypes); // AspectJ Extension - moved to helper method
+
 	if (!binding.isValidBinding()) {
 		if (binding.declaringClass == null) {
 			if (this.actualReceiverType instanceof ReferenceBinding) {
@@ -424,4 +457,16 @@ public void traverse(ASTVisitor visitor, BlockScope blockScope) {
 	}
 	visitor.endVisit(this, blockScope);
 }
+
+// AspectJ Extension
+protected void resolveMethodBinding(
+	BlockScope scope,
+	TypeBinding[] argumentTypes) {
+	// note, also set this.codegenBinding in previous version
+	this.binding = 
+		receiver.isImplicitThis()
+			? scope.getImplicitMethod(selector, argumentTypes, this)
+			: scope.getMethod(this.actualReceiverType, selector, argumentTypes, this); 
+}
+// End AspectJ Extension
 }

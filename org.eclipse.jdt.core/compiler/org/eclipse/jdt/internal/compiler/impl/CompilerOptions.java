@@ -169,6 +169,10 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final long VarargsArgumentNeedCast = ASTNode.Bit36L;
 	public static final long NullReference = ASTNode.Bit37L;
 	public static final long Autoboxing = ASTNode.Bit38L;
+	// AspectJ Extension
+	// when picking up a later version of this class, if new constants have been added to 
+	// the above list, then AjCompilerOptions will need updating also.
+	// End AspectJ Extension
 
 	// Default severity level for handlers
 	public long errorThreshold = 0;
@@ -778,6 +782,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		return buf.toString();
 	}
 
+	protected // AspectJ Extension
 	void updateSeverity(long irritant, Object severityString) {
 		if (ERROR.equals(severityString)) {
 			this.errorThreshold |= irritant;

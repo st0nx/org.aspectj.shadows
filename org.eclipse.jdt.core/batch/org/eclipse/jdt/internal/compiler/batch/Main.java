@@ -1168,55 +1168,60 @@ public class Main implements ProblemSeverities, SuffixConstants {
 				continue;
 			}			
 			//default is input directory
-			currentArg = currentArg.replace('/', File.separatorChar);
-			if (currentArg.endsWith(File.separator))
-				currentArg =
-					currentArg.substring(0, currentArg.length() - File.separator.length());
-			File dir = new File(currentArg);
-			if (!dir.isDirectory())
-				throw new InvalidInputException(
-					Main.bind("configure.directoryNotExist", currentArg)); //$NON-NLS-1$
-			FileFinder finder = new FileFinder();
-			try {
-				finder.find(dir, SUFFIX_STRING_JAVA, this.verbose); //$NON-NLS-1$
-			} catch (Exception e) {
-				throw new InvalidInputException(Main.bind("configure.IOError", currentArg)); //$NON-NLS-1$
-			}
-			if (this.filenames != null) {
-				// some source files were specified explicitly
-				String results[] = finder.resultFiles;
-				int length = results.length;
-				System.arraycopy(
-					this.filenames,
-					0,
-					(this.filenames = new String[length + filesCount]),
-					0,
-					filesCount);
-				System.arraycopy(
-					this.encodings,
-					0,
-					(this.encodings = new String[length + filesCount]),
-					0,
-					filesCount);
-				System.arraycopy(results, 0, this.filenames, filesCount, length);
-				for (int i = 0; i < length; i++) {
-					this.encodings[filesCount + i] = customEncoding;
-				}
-				filesCount += length;
-				customEncoding = null;
-			} else {
-				this.filenames = finder.resultFiles;
-				filesCount = this.filenames.length;
-				this.encodings = new String[filesCount];
-				for (int i = 0; i < filesCount; i++) {
-					this.encodings[i] = customEncoding;
-				}
-				customEncoding = null;
-			}
-			mode = Default;
-			continue;
+			// AspectJ Extension 
+			// see pr 60863.  All directories should have been dealt with at the AspectJ layer - if we have left
+			// anything to be processed here it is an error.
+			throw new InvalidInputException(
+				    "unrecognized single argument: \""+currentArg+"\"");			
+//			currentArg = currentArg.replace('/', File.separatorChar);
+//			if (currentArg.endsWith(File.separator))
+//				currentArg =
+//					currentArg.substring(0, currentArg.length() - File.separator.length());
+//			File dir = new File(currentArg);
+//			if (!dir.isDirectory())
+//				throw new InvalidInputException(
+//					Main.bind("configure.directoryNotExist", currentArg)); //$NON-NLS-1$
+//			FileFinder finder = new FileFinder();
+//			try {
+//				finder.find(dir, SUFFIX_STRING_JAVA, this.verbose); //$NON-NLS-1$
+//			} catch (Exception e) {
+//				throw new InvalidInputException(Main.bind("configure.IOError", currentArg)); //$NON-NLS-1$
+//			}
+//			if (this.filenames != null) {
+//				// some source files were specified explicitly
+//				String results[] = finder.resultFiles;
+//				int length = results.length;
+//				System.arraycopy(
+//					this.filenames,
+//					0,
+//					(this.filenames = new String[length + filesCount]),
+//					0,
+//					filesCount);
+//				System.arraycopy(
+//					this.encodings,
+//					0,
+//					(this.encodings = new String[length + filesCount]),
+//					0,
+//					filesCount);
+//				System.arraycopy(results, 0, this.filenames, filesCount, length);
+//				for (int i = 0; i < length; i++) {
+//					this.encodings[filesCount + i] = customEncoding;
+//				}
+//				filesCount += length;
+//				customEncoding = null;
+//			} else {
+//				this.filenames = finder.resultFiles;
+//				filesCount = this.filenames.length;
+//				this.encodings = new String[filesCount];
+//				for (int i = 0; i < filesCount; i++) {
+//					this.encodings[i] = customEncoding;
+//				}
+//				customEncoding = null;
+//			}
+//			mode = Default;
+//			continue;
 		}
-		if (printUsageRequired || filesCount == 0) {
+		if (printUsageRequired || hasNoFiles(filesCount)) { // AspectJ Extension
 			printUsage();
 			this.proceed = false;
 			return;
@@ -1418,6 +1423,13 @@ public class Main implements ProblemSeverities, SuffixConstants {
 		}
 	}
 
+    // AspectJ Extension
+	// For AspectJ we handle files in a separate arg parser, in the future make this a protected method for extension
+	private boolean hasNoFiles(int filesCount) {
+		return false;
+	}
+	// End AspectJ Extension
+	
 	private void disableWarnings() {
 		Object[] entries = this.options.entrySet().toArray();
 		for (int i = 0, max = entries.length; i < max; i++) {

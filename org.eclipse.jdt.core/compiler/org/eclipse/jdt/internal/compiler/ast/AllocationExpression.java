@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
@@ -88,7 +89,14 @@ public class AllocationExpression extends Expression implements InvocationSite {
 		boolean valueRequired) {
 
 		int pc = codeStream.position;
-		ReferenceBinding allocatedType = this.codegenBinding.declaringClass;
+		// AspectJ Extension
+		ReferenceBinding allocatedType;
+		if (syntheticAccessor != null) {
+			allocatedType = syntheticAccessor.declaringClass;
+		} else {
+			allocatedType = this.codegenBinding.declaringClass;
+		}
+		// End AspectJ Extension
 
 		codeStream.new_(allocatedType);
 		if (valueRequired) {
@@ -182,6 +190,13 @@ public class AllocationExpression extends Expression implements InvocationSite {
 
 	public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 
+		// AspectJ Extension
+		if (binding.alwaysNeedsAccessMethod()) {
+			syntheticAccessor = binding.getAccessMethod(true);
+			return;
+		}
+		// End AspectJ Extension
+		
 		if (!flowInfo.isReachable()) return;
 
 		// if constructor from parameterized type got found, use the original constructor at codegen time

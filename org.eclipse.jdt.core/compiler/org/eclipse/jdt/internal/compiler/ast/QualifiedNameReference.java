@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
@@ -18,6 +19,9 @@ import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
+/**
+ * AspectJ Extension - support for FieldBinding.alwaysNeedsAccessMethod
+ */
 public class QualifiedNameReference extends NameReference {
 	
 	public char[][] tokens;
@@ -695,6 +699,21 @@ public class QualifiedNameReference extends NameReference {
 			int index,
 			FlowInfo flowInfo) {
 	    
+		//	AspectJ Extension
+		if (index < 0) {
+			if (fieldBinding.alwaysNeedsAccessMethod(false)) {
+				setSyntheticAccessor(fieldBinding,index,fieldBinding.getAccessMethod(false));
+				return;
+			}
+		} else {
+			if (fieldBinding.alwaysNeedsAccessMethod(true)) {
+				setSyntheticAccessor(fieldBinding,index,fieldBinding.getAccessMethod(true));
+				return;
+			}
+		}
+		// End AspectJ Extension
+
+		
 		if (!flowInfo.isReachable()) return;
 		// index == 0 denotes the first fieldBinding, index > 0 denotes one of the 'otherBindings', index < 0 denotes a write access (to last binding)
 		if (fieldBinding.isConstantValue())
