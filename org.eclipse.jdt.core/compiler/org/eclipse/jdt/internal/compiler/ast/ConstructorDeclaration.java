@@ -212,7 +212,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		
 		classFile.generateMethodInfoHeader(binding);
 		int methodAttributeOffset = classFile.contentsOffset;
-		int attributeNumber = classFile.generateMethodInfoAttribute(binding);
+		int attributeNumber = generateInfoAttributes(classFile);  // AspectJ Extension - moved to helper method
 		if ((!binding.isNative()) && (!binding.isAbstract())) {
 			
 			TypeDeclaration declaringType = classScope.referenceContext;

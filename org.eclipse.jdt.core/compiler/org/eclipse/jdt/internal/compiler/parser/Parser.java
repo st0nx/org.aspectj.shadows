@@ -22,6 +22,7 @@ import java.util.List;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.Argument;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
+import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ExplicitConstructorCall;
 import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.Literal;
@@ -65,6 +66,8 @@ public class Parser extends TheOriginalJDTParserClass {
 			void setPerClauseFrom(TypeDeclaration aspectDecl, ASTNode pseudoTokens, Parser parser);
 			void setDominatesPatternFrom(TypeDeclaration aspectDecl, ASTNode pseudoTokens, Parser parser);
 			ASTNode createPseudoTokensFrom(ASTNode[] tokens, CompilationResult result);
+			MethodDeclaration createMethodDeclaration(CompilationResult result);
+			ConstructorDeclaration createConstructorDeclaration(CompilationResult result);
 			MethodDeclaration createPointcutDeclaration(CompilationResult result);
 			MethodDeclaration createAroundAdviceDeclaration(CompilationResult result);
 			MethodDeclaration createAfterAdviceDeclaration(CompilationResult result);
@@ -190,6 +193,14 @@ public class Parser extends TheOriginalJDTParserClass {
 
 
 //************** Overriding behavior for standard Java rules
+	protected MethodDeclaration createMethodDeclaration(CompilationResult result) {
+		return declarationFactory.createMethodDeclaration(result);
+	}
+	
+	protected ConstructorDeclaration createConstructorDeclaration(CompilationResult result) {
+		return declarationFactory.createConstructorDeclaration(result);
+	}
+	
 	protected void consumeMethodInvocationName() {
 		super.consumeMethodInvocationName();
 

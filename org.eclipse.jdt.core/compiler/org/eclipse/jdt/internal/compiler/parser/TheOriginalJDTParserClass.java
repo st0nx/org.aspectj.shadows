@@ -1458,8 +1458,11 @@ protected void consumeConstructorHeaderName() {
 	}
 	
 	// ConstructorHeaderName ::=  Modifiersopt 'Identifier' '('
-	ConstructorDeclaration cd = new ConstructorDeclaration(this.compilationUnit.compilationResult);
-
+	// AspectJ Extension
+//	ConstructorDeclaration cd = new ConstructorDeclaration(this.compilationUnit.compilationResult);
+	ConstructorDeclaration cd = createConstructorDeclaration(this.compilationUnit.compilationResult);
+	// End AspectJ Extension
+	
 	//name -- this is not really revelant but we do .....
 	cd.selector = this.identifierStack[this.identifierPtr];
 	long selectorSource = this.identifierPositionStack[this.identifierPtr--];
@@ -2285,8 +2288,11 @@ protected void consumeMethodHeaderExtendedDims() {
 }
 protected void consumeMethodHeaderName() {
 	// MethodHeaderName ::= Modifiersopt Type 'Identifier' '('
-	MethodDeclaration md = new MethodDeclaration(this.compilationUnit.compilationResult);
-
+	// AspectJ Extension
+//	MethodDeclaration md = new MethodDeclaration(this.compilationUnit.compilationResult);
+	MethodDeclaration md = createMethodDeclaration(this.compilationUnit.compilationResult);
+	// End AspectJ Extension
+	
 	//name
 	md.selector = this.identifierStack[this.identifierPtr];
 	long selectorSource = this.identifierPositionStack[this.identifierPtr--];
@@ -4385,6 +4391,17 @@ public MethodDeclaration convertToMethodDeclaration(ConstructorDeclaration c, Co
 	m.returnType = null;
 	return m;
 }
+
+// AspectJ Extension
+protected MethodDeclaration createMethodDeclaration(CompilationResult result) {
+	return new MethodDeclaration(result);
+}
+
+protected ConstructorDeclaration createConstructorDeclaration(CompilationResult result) {
+	return new ConstructorDeclaration(result);
+}
+// End AspectJ Extension
+
 protected TypeReference copyDims(TypeReference typeRef, int dim) {
 	return typeRef.copyDims(dim);
 }
