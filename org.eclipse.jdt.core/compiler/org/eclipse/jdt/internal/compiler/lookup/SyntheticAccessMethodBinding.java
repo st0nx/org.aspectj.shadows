@@ -7,13 +7,17 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 
+/**
+ * AspectJ Extension - added simple constructor
+ */
 public class SyntheticAccessMethodBinding extends MethodBinding {
 
 	public FieldBinding targetReadField;		// read access to a field
@@ -134,6 +138,14 @@ public class SyntheticAccessMethodBinding extends MethodBinding {
 			this.initializeMethodAccessor(targetMethod, isSuperAccess, receiverType);
 		}
 	}
+
+	// AspectJ Extension
+	// Needed for inter-type method bindings for AspectJ
+	public SyntheticAccessMethodBinding(MethodBinding myBinding) {
+		super(myBinding, null);	
+	}
+	// End AspectJ Extension
+
 
 	/**
 	 * An constructor accessor is a constructor with an extra argument (declaringClass), in case of

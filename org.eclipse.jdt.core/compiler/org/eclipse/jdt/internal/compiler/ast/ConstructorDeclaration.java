@@ -343,6 +343,10 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 			((ConstructorDeclaration)this.scope.referenceType().declarationOf(constructorCall.binding));
 		if (this == targetConstructor) return true; // direct case
 
+		// AspectJ Extension
+		if (targetConstructor == null) return false; // aj fun
+		// End AspectJ Extension
+
 		if (visited == null) { // lazy allocation
 			visited = new ArrayList(1);
 		} else {

@@ -51,8 +51,12 @@ String extractTypeName() {
 	// answer a String with the qualified type name for the source file in the form: 'p1/p2/A'
 	IPath fullPath = this.resource.getFullPath();
 	int resourceSegmentCount = fullPath.segmentCount();
-	int sourceFolderSegmentCount = this.sourceLocation.sourceFolder.getFullPath().segmentCount();
-	int charCount = (resourceSegmentCount - sourceFolderSegmentCount - 1) - 5; // length of ".java"
+	int sourceFolderSegmentCount = sourceLocation.sourceFolder.getFullPath().segmentCount();
+	// AspectJ Extension
+	String fName = fullPath.lastSegment();
+	int extensionLength = fName.length() - fName.lastIndexOf('.');
+	// End AspectJ Extension
+	int charCount = (resourceSegmentCount - sourceFolderSegmentCount - 1) - extensionLength; // - 5; // length of ".java"
 	for (int i = sourceFolderSegmentCount; i < resourceSegmentCount; i++)
 		charCount += fullPath.segment(i).length();
 
@@ -67,7 +71,7 @@ String extractTypeName() {
 		result[offset++] = '/';
 	}
 	String segment = fullPath.segment(resourceSegmentCount);
-	int size = segment.length() - 5; // length of ".java"
+	int size = segment.length() - extensionLength; //- 5; // length of ".java"
 	segment.getChars(0, size, result, offset);
 	return new String(result);
 }

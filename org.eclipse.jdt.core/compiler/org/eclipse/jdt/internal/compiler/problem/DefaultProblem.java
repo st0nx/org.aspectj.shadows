@@ -23,6 +23,10 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	private int severity;
 	private String[] arguments;
 	private String message;
+	// AspectJ Extension
+	private IProblem[] seeAlso = new IProblem[0];
+	private String supplementaryInfo;
+	// End AspectJ Extensios
 	
 	public DefaultProblem(
 		char[] originatingFileName,
@@ -224,4 +228,23 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 		}
 		return s;
 	}
+	
+	// AspectJ Extension
+	public void setSeeAlsoProblems(IProblem[] problems) {
+		this.seeAlso = problems;
+    }
+    
+	public IProblem[] seeAlso() {
+		return seeAlso;
+	}
+	
+	
+	public String getSupplementaryMessageInfo() {
+		return supplementaryInfo;
+	}
+	
+	public void setSupplementaryMessageInfo(String msg) {
+		supplementaryInfo = msg;
+	}
+	// End AspectJ Extension
 }

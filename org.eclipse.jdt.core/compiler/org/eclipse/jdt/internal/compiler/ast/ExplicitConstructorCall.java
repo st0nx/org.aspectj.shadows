@@ -7,9 +7,11 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
@@ -184,6 +186,13 @@ public class ExplicitConstructorCall
 
 	public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 
+		// AspectJ Extension
+		if (binding.alwaysNeedsAccessMethod()) {
+			syntheticAccessor = binding.getAccessMethod(true);
+			return;
+		}
+		// End AspectJ Extension
+		
 		if (!flowInfo.isReachable()) return;
 		// perform some emulation work in case there is some and we are inside a local type only
 		if (binding.isPrivate() && (accessMode != This)) {
@@ -232,8 +241,12 @@ public class ExplicitConstructorCall
 			if (methodDeclaration == null 
 					|| !methodDeclaration.isConstructor()
 					|| ((ConstructorDeclaration) methodDeclaration).constructorCall != this) {
-				scope.problemReporter().invalidExplicitConstructorCall(this);
-				return;
+						
+				//XXX Horrible AspectJ-specific hack
+				if (methodDeclaration== null || !CharOperation.prefixEquals("ajc$postInterConstructor".toCharArray(), methodDeclaration.selector)) {// AspectJ Extension				
+					scope.problemReporter().invalidExplicitConstructorCall(this);
+					return;
+				}
 			}
 			methodScope.isConstructorCall = true;
 			ReferenceBinding receiverType = scope.enclosingSourceType();

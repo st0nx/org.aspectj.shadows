@@ -8,7 +8,8 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     Nick Teryaev - fix for bug (https://bugs.eclipse.org/bugs/show_bug.cgi?id=40752)
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
@@ -17,6 +18,9 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
+/**
+ * AspectJ Extension - support for MethodBinding.alwaysNeedsAccessMethod
+ */
 public class MessageSend extends Expression implements InvocationSite {
 	public Expression receiver ;
 	public char[] selector ;
@@ -25,7 +29,7 @@ public class MessageSend extends Expression implements InvocationSite {
 
 	public long nameSourcePosition ; //(start<<32)+end
 
-	MethodBinding syntheticAccessor;
+	public MethodBinding syntheticAccessor; // AspectJ Extension (raise visibility)
 
 	public TypeBinding receiverType, qualifyingType;
 	
@@ -119,6 +123,13 @@ public boolean isTypeAccess() {
 	return receiver != null && receiver.isTypeReference();
 }
 public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo){
+
+	//	AspectJ Extension
+	if (binding.alwaysNeedsAccessMethod()) {
+		syntheticAccessor = binding.getAccessMethod(isSuperAccess());
+		return;
+	}
+	//	End AspectJ Extension
 
 	if (!flowInfo.isReachable()) return;
 	if (binding.isPrivate()){
@@ -232,10 +243,9 @@ public TypeBinding resolveType(BlockScope scope) {
 		scope.problemReporter().errorNoMethodFor(this, this.receiverType, argumentTypes);
 		return null;
 	}
-	this.codegenBinding = this.binding = 
-		receiver.isImplicitThis()
-			? scope.getImplicitMethod(selector, argumentTypes, this)
-			: scope.getMethod(this.receiverType, selector, argumentTypes, this); 
+
+	resolveMethodBinding(scope, argumentTypes); // AspectJ Extension - moved to helper method
+
 	if (!binding.isValidBinding()) {
 		if (binding.declaringClass == null) {
 			if (this.receiverType instanceof ReferenceBinding) {
@@ -315,4 +325,15 @@ public void traverse(ASTVisitor visitor, BlockScope blockScope) {
 	}
 	visitor.endVisit(this, blockScope);
 }
+
+// AspectJ Extension
+protected void resolveMethodBinding(
+	BlockScope scope,
+	TypeBinding[] argumentTypes) {
+		this.codegenBinding = this.binding = 
+		receiver.isImplicitThis()
+			? scope.getImplicitMethod(selector, argumentTypes, this)
+			: scope.getMethod(this.receiverType, selector, argumentTypes, this); 
+}
+// End AspectJ Extension
 }

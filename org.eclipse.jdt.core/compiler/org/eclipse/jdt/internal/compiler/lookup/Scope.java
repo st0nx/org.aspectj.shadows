@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -19,6 +20,7 @@ import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
 import org.eclipse.jdt.internal.compiler.util.ObjectVector;
 
+// AspectJ Extension - hooks, added distinction between enclosingSourceType and invocationType
 public abstract class Scope
 	implements BaseTypes, BindingIds, CompilerModifiers, ProblemReasons, TagBits, TypeConstants, TypeIds {
 
@@ -130,6 +132,26 @@ public abstract class Scope
 		} while (scope != null);
 		return null;
 	}
+	
+	//	AspectJ Extension
+	/**
+	 * For Java scopes, the invocationType is always the same as the enclosingSourceType
+	 * This distinction is important for AspectJ's inter-type declarations
+	 * 
+	 * For inter-type declarations, the invocationType is the lexically enclosing type.
+	 */
+	public SourceTypeBinding invocationType() {
+		Scope scope = this;
+		do {
+			if (scope instanceof ClassScope)
+				return ((ClassScope) scope).invocationType();
+			scope = scope.parent;
+		} while (scope != null);
+		return null;
+		//return enclosingSourceType();
+	}
+	//	End AspectJ Extension
+	
 	public final LookupEnvironment environment() {
 		Scope scope, unitScope = this;
 		while ((scope = unitScope.parent) != null)
@@ -245,11 +267,25 @@ public abstract class Scope
 		MethodBinding exactMethod = receiverType.getExactMethod(selector, argumentTypes);
 		if (exactMethod != null) {
 			compilationUnitScope().recordTypeReferences(exactMethod.thrownExceptions);
-			if (receiverType.isInterface() || exactMethod.canBeSeenBy(receiverType, invocationSite, this))
-				return exactMethod;
+			//	AspectJ Extension
+			if (receiverType.isInterface())return exactMethod;
+			return exactMethod.getVisibleBinding(receiverType, invocationSite, this);
+			//	End AspectJ Extension
 		}
 		return null;
 	}
+
+	//	AspectJ Extension	
+	public static final IPrivilegedHandler findPrivilegedHandler(ReferenceBinding type) {
+		if (type == null) return null;
+		if (type instanceof SourceTypeBinding) {
+			if (((SourceTypeBinding)type).privilegedHandler != null) {
+				return ((SourceTypeBinding)type).privilegedHandler;
+			}
+		}
+		return findPrivilegedHandler(type.enclosingType());
+	}
+	// End AspectJ Extension
 
 	// Internal use only
 	/*	Answer the field binding that corresponds to fieldName.
@@ -281,11 +317,15 @@ public abstract class Scope
 		if (!currentType.canBeSeenBy(this))
 			return new ProblemFieldBinding(currentType, fieldName, ReceiverTypeNotVisible);
 
-		FieldBinding field = currentType.getField(fieldName, true /*resolve*/);
+		FieldBinding field = currentType.getField(fieldName, true /*resolve*/, invocationSite, this); // AspectJ Extension - pass extra info
 		if (field != null) {
-			if (field.canBeSeenBy(currentType, invocationSite, this))
-				return field;
-			return new ProblemFieldBinding(field /* closest match*/, field.declaringClass, fieldName, NotVisible);
+			//	AspectJ Extension
+			FieldBinding ret = field.getVisibleBinding(currentType, invocationSite, this);
+			if (ret != null)
+				return ret;
+			//	End AspectJ Extension				
+			else
+			  return new ProblemFieldBinding(field /* closest match*/, field.declaringClass, fieldName, NotVisible);
 		}
 		// collect all superinterfaces of receiverType until the field is found in a supertype
 		ReferenceBinding[][] interfacesToVisit = null;
@@ -311,9 +351,12 @@ public abstract class Scope
 			if ((currentType = currentType.superclass()) == null)
 				break;
 
-			if ((field = currentType.getField(fieldName, needResolve)) != null) {
+			if ((field = currentType.getField(fieldName, needResolve, invocationSite, this)) != null) {   // AspectJ Extension - pass extra info
 				keepLooking = false;
-				if (field.canBeSeenBy(receiverType, invocationSite, this)) {
+				//	AspectJ Extension
+				field = field.getVisibleBinding(receiverType, invocationSite, this);
+				if (field != null) {
+				//	End AspectJ Extension
 					if (visibleField == null)
 						visibleField = field;
 					else
@@ -334,13 +377,18 @@ public abstract class Scope
 					if ((anInterface.tagBits & InterfaceVisited) == 0) {
 						// if interface as not already been visited
 						anInterface.tagBits |= InterfaceVisited;
-						if ((field = anInterface.getField(fieldName, true /*resolve*/)) != null) {
-							if (visibleField == null) {
-								visibleField = field;
-							} else {
-								ambiguous = new ProblemFieldBinding(visibleField /* closest match*/, visibleField.declaringClass, fieldName, Ambiguous);
-								break done;
-							}
+						if ((field = anInterface.getField(fieldName, true /*resolve*/, invocationSite, this)) != null) {  // AspectJ Extension - pass extra info
+							//	AspectJ Extension
+							field = field.getVisibleBinding(receiverType, invocationSite, this);
+							if (field != null) {
+							  //	End AspectJ Extension
+							  if (visibleField == null) {
+							  	visibleField = field;
+							  } else {
+								  ambiguous = new ProblemFieldBinding(visibleField /* closest match*/, visibleField.declaringClass, fieldName, Ambiguous);
+								  break done;
+							  }
+						    } // AspectJ Extension (added block close)
 						} else {
 							ReferenceBinding[] itsInterfaces = anInterface.superInterfaces();
 							if (itsInterfaces != NoSuperInterfaces) {
@@ -638,7 +686,10 @@ public abstract class Scope
 		int visiblesCount = 0;
 		for (int i = 0; i < candidatesCount; i++) {
 			MethodBinding methodBinding = candidates[i];
-			if (methodBinding.canBeSeenBy(receiverType, invocationSite, this)) {
+			//	AspectJ Extension
+			methodBinding = methodBinding.getVisibleBinding(receiverType, invocationSite, this);
+			if (methodBinding != null) {
+			// End AspectJ Extension
 				if (visiblesCount != i) {
 					candidates[i] = null;
 					candidates[visiblesCount] = methodBinding;
@@ -988,7 +1039,7 @@ public abstract class Scope
 									foundField = fieldBinding;
 								}
 							}
-							depth++;
+						    depth+=classScope.addDepth(); // AspectJ Extension
 							insideStaticContext |= enclosingType.isStatic();
 							// 1EX5I8Z - accessing outer fields within a constructor call is permitted
 							// in order to do so, we change the flag as we exit from the type, not the method
@@ -1045,8 +1096,12 @@ public abstract class Scope
 			compilationUnitScope().recordTypeReference(receiverType);
 			compilationUnitScope().recordTypeReferences(argumentTypes);
 			MethodBinding methodBinding = receiverType.getExactConstructor(argumentTypes);
-			if (methodBinding != null && methodBinding.canBeSeenBy(invocationSite, this))
-				return methodBinding;
+			//	AspectJ Extension
+			if (methodBinding != null) {
+				methodBinding = methodBinding.getVisibleBinding(invocationSite, this);
+				if (methodBinding != null) return methodBinding;
+			}
+			// End AspectJ Extension
 			MethodBinding[] methods = receiverType.getMethods(ConstructorDeclaration.ConstantPoolName);
 			if (methods == NoMethods)
 				return new ProblemMethodBinding(
@@ -1070,7 +1125,10 @@ public abstract class Scope
 			int visibleIndex = 0;
 			for (int i = 0; i < compatibleIndex; i++) {
 				MethodBinding method = compatible[i];
-				if (method.canBeSeenBy(invocationSite, this))
+			//	AspectJ Extension
+				method = method.getVisibleBinding(invocationSite, this);
+				if (method != null)
+			//	End AspectJ Extension
 					visible[visibleIndex++] = method;
 			}
 			if (visibleIndex == 1) return visible[0];
@@ -1442,7 +1500,10 @@ public abstract class Scope
 						selector,
 						argumentTypes,
 						NotFound);
-				if (!methodBinding.canBeSeenBy(currentType, invocationSite, this))
+				//	AspectJ Extension					
+				MethodBinding ret = methodBinding.getVisibleBinding(currentType, invocationSite, this);
+				if (ret == null)
+				//	End AspectJ Extension
 					return new ProblemMethodBinding(
 						methodBinding,
 						selector,

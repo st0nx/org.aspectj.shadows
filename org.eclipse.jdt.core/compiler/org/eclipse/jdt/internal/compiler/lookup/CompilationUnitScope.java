@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -22,6 +23,7 @@ import org.eclipse.jdt.internal.compiler.util.HashtableOfType;
 import org.eclipse.jdt.internal.compiler.util.ObjectVector;
 import org.eclipse.jdt.internal.compiler.util.SimpleNameVector;
 
+// AspectJ Extension - made several methods public for use in other packages
 public class CompilationUnitScope extends Scope {
 	
 	public LookupEnvironment environment;
@@ -56,6 +58,8 @@ public CompilationUnitScope(CompilationUnitDeclaration unit, LookupEnvironment e
 		this.referencedTypes = null;
 	}
 }
+
+public // AspectJ Extension - raised visibility
 void buildFieldsAndMethods() {
 	for (int i = 0, length = topLevelTypes.length; i < length; i++)
 		topLevelTypes[i].scope.buildFieldsAndMethods();
@@ -130,6 +134,8 @@ void buildTypeBindings() {
 	if (count != topLevelTypes.length)
 		System.arraycopy(topLevelTypes, 0, topLevelTypes = new SourceTypeBinding[count], 0, count);
 }
+
+public // AspectJ Extension - raised visibility
 void checkAndSetImports() {
 	if (referenceContext.imports == null) {
 		imports = getDefaultImports();
@@ -237,7 +243,7 @@ public char[] computeConstantPoolName(LocalTypeBinding localType) {
 	return candidateName;
 }
 
-void connectTypeHierarchy() {
+public void connectTypeHierarchy() { // AspectJ Extension - raised visibility
 	for (int i = 0, length = topLevelTypes.length; i < length; i++)
 		topLevelTypes[i].scope.connectTypeHierarchy();
 }
@@ -511,7 +517,7 @@ void recordSimpleReference(char[] simpleName) {
 	if (!simpleNameReferences.contains(simpleName))
 		simpleNameReferences.add(simpleName);
 }
-void recordTypeReference(TypeBinding type) {
+public void recordTypeReference(TypeBinding type) { // AspectJ Extension - raised visibility
 	if (referencedTypes == null) return; // not recording dependencies
 
 	if (type.isArrayType())

@@ -821,4 +821,9 @@ protected void reset() {
 	super.reset();
 }
 
+// AspectJ Extension
+public byte[] getReferenceBytes() {
+	return reference;
+}
+// End AspectJ Extension
 }

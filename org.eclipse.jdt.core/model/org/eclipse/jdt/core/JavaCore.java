@@ -88,14 +88,14 @@ import org.osgi.framework.BundleContext;
  * automatically if not already active.
  * </p>
  */
-public final class JavaCore extends Plugin {
+public /* AspectJ Extension non- final */ class JavaCore extends Plugin {
 
 	private static Plugin JAVA_CORE_PLUGIN = null; 
 	/**
 	 * The plug-in identifier of the Java core support
 	 * (value <code>"org.eclipse.jdt.core"</code>).
 	 */
-	public static final String PLUGIN_ID = "org.eclipse.jdt.core" ; //$NON-NLS-1$
+	public static final String PLUGIN_ID = "org.eclipse.ajdt.core.plugin" ; //$NON-NLS-1$  // test temp
 
 	/**
 	 * The identifier for the Java builder
@@ -2342,7 +2342,9 @@ public final class JavaCore extends Plugin {
 		HashSet optionNames = JavaModelManager.getJavaModelManager().optionNames;
 		
 		// Compiler settings
-		Map compilerOptionsMap = new CompilerOptions().getMap(); // compiler defaults
+		// AspectJ Extension
+		Map compilerOptionsMap = getCompilerOptions();
+		// End AspectJ Extension
 		for (Iterator iter = compilerOptionsMap.entrySet().iterator(); iter.hasNext();) {
 			Map.Entry entry = (Map.Entry) iter.next();
 			String optionName = (String) entry.getKey();
@@ -2461,6 +2463,12 @@ public final class JavaCore extends Plugin {
 		preferences.setDefault(CODEASSIST_ARGUMENT_SUFFIXES, ""); //$NON-NLS-1$
 		optionNames.add(CODEASSIST_ARGUMENT_SUFFIXES);
 	}
+	
+	// AspectJ Extension
+	protected Map getCompilerOptions() {
+		return new CompilerOptions().getMap(); // compiler defaults
+	}
+	// End AspectJ Extension
 	
 	/**
 	 * Returns whether the given marker references the given Java element.

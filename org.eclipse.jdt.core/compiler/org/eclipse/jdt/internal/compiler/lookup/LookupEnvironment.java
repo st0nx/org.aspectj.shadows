@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -21,6 +22,12 @@ import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfPackage;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
+/**
+ * AspectJ Extension - made many methods and fields more visible for extension
+ * 
+ * Also modified error checking on getType(char[][] compoundName) to allow
+ * refering to inner types directly.
+ */
 public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstants {
 	public CompilerOptions options;
 	public ProblemReporter problemReporter;
@@ -36,20 +43,24 @@ public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstan
 	private MethodVerifier verifier;
 	private ArrayBinding[][] uniqueArrayBindings;
 
-	private CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
-	private int lastUnitIndex = -1;
-	private int lastCompletedUnitIndex = -1;
+	//	AspectJ Extension - raised visibility
+	protected CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
+	protected int lastUnitIndex = -1;
+	protected int lastCompletedUnitIndex = -1;
+	//	End AspectJ Extension
 	public CompilationUnitDeclaration unitBeingCompleted = null; // only set while completing units
 
 	// indicate in which step on the compilation we are.
 	// step 1 : build the reference binding
 	// step 2 : conect the hierarchy (connect bindings)
 	// step 3 : build fields and method bindings.
-	private int stepCompleted;
-	final static int BUILD_TYPE_HIERARCHY = 1;
-	final static int CHECK_AND_SET_IMPORTS = 2;
-	final static int CONNECT_TYPE_HIERARCHY = 3;
-	final static int BUILD_FIELDS_AND_METHODS = 4;
+	//	AspectJ Extension - raised visibility
+	protected int stepCompleted;
+	final protected static int BUILD_TYPE_HIERARCHY = 1;
+	final protected static int CHECK_AND_SET_IMPORTS = 2;
+	final protected static int CONNECT_TYPE_HIERARCHY = 3;
+	final protected static int BUILD_FIELDS_AND_METHODS = 4;
+	//	End AspectJ Extension
 
 	// shared byte[]'s used by ClassFile to avoid allocating MBs during a build
 	public boolean sharedArraysUsed = true; // set to false once actual arrays are allocated
@@ -255,6 +266,7 @@ private PackageBinding computePackageFrom(char[][] constantPoolName) {
 /* Used to guarantee array type identity.
 */
 
+public  // AspectJ Extension - raised visibility
 ArrayBinding createArrayType(TypeBinding type, int dimensionCount) {
 	if (type instanceof LocalTypeBinding) // cache local type arrays with the local type itself
 		return ((LocalTypeBinding) type).createArrayType(dimensionCount);
@@ -448,8 +460,12 @@ public ReferenceBinding getType(char[][] compoundName) {
 		referenceBinding = ((UnresolvedReferenceBinding) referenceBinding).resolve(this);
 
 	// compoundName refers to a nested type incorrectly (for example, package1.A$B)
-	if (referenceBinding.isNestedType())
-		return new ProblemReferenceBinding(compoundName, InternalNameProvided);
+	//	AspectJ Extension - commented out "if" case
+	//XXX how else are we supposed to refer to nested types???
+//	if (referenceBinding.isNestedType())
+//		return new ProblemReferenceBinding(compoundName, InternalNameProvided);
+//	else
+	//	End AspectJ Extension
 	return referenceBinding;
 }
 /* Answer the type corresponding to the name from the binary file.

@@ -179,6 +179,13 @@ public interface IProblem {
 	 */
 	void setSourceStart(int sourceStart);
 	
+	// AspectJ Extension
+	void setSeeAlsoProblems(IProblem[] problems);
+	IProblem[] seeAlso();
+	void setSupplementaryMessageInfo(String msg);
+	String getSupplementaryMessageInfo();
+	// End AspectJ Extension
+	
 	/**
 	 * Problem Categories
 	 * The high bits of a problem ID contains information about the category of a problem. 

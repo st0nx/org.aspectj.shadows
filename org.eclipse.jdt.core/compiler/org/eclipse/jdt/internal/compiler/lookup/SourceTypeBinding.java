@@ -7,11 +7,11 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
-import java.util.Enumeration;
-import java.util.Hashtable;
+import java.util.*;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
@@ -26,12 +26,20 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 
+/**
+ * AspectJ Extension - added hooks
+ */
 public class SourceTypeBinding extends ReferenceBinding {
 	public ReferenceBinding superclass;
 	public ReferenceBinding[] superInterfaces;
 	public FieldBinding[] fields;
 	public MethodBinding[] methods;
 	public ReferenceBinding[] memberTypes;
+
+	//	AspectJ Extension
+	public IPrivilegedHandler privilegedHandler = null;
+	public IMemberFinder memberFinder = null;
+	//	End AspectJ Extension
 
 	public ClassScope scope;
 
@@ -42,6 +50,12 @@ public class SourceTypeBinding extends ReferenceBinding {
 	public final static int RECEIVER_TYPE_EMUL = 3;
 	
 	Hashtable[] synthetics;
+	
+	// AspectJ Extension
+	// for AspectJ... (because we extend this type with BinaryTypeBinding)
+	// (and yes, binary source is a bit odd...)
+	public SourceTypeBinding() {}
+	// End AspectJ Extension
 	
 public SourceTypeBinding(char[][] compoundName, PackageBinding fPackage, ClassScope scope) {
 	this.compoundName = compoundName;
@@ -440,6 +454,13 @@ public MethodBinding getExactConstructor(TypeBinding[] argumentTypes) {
 // searches up the hierarchy as long as no potential (but not exact) match was found.
 
 public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes) {
+	// AspectJ Extension - replaced orginial method content with this
+	if (memberFinder != null) return memberFinder.getExactMethod(this, selector, argumentTypes);
+	else return getExactMethodBase(selector, argumentTypes);
+}
+
+public MethodBinding getExactMethodBase(char[] selector, TypeBinding[] argumentTypes) {
+	// End AspectJ Extension	- this is the original impl
 	int argCount = argumentTypes.length;
 	int selectorLength = selector.length;
 	boolean foundNothing = true;
@@ -486,6 +507,20 @@ public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes
 // NOTE: the type of a field of a source type is resolved when needed
 
 public FieldBinding getField(char[] fieldName, boolean needResolve) {
+	// AspectJ Extension - replaced original impl with this
+	if (memberFinder != null) return memberFinder.getField(this, fieldName, null, null);
+	else return this.getFieldBase(fieldName, needResolve);
+}
+
+public FieldBinding getField(char[] fieldName, boolean needResolve, InvocationSite site, Scope scope) {
+	if (memberFinder != null) return memberFinder.getField(this, fieldName, site, scope);
+	else return this.getFieldBase(fieldName, needResolve);
+}
+
+
+public FieldBinding getFieldBase(char[] fieldName, boolean needResolve) {
+	// End AspectJ Extension - this is the original impl
+
 	// always resolve anyway on source types
 	int fieldLength = fieldName.length;
 	for (int f = fields.length; --f >= 0;) {
@@ -511,6 +546,13 @@ public FieldBinding getField(char[] fieldName, boolean needResolve) {
 // NOTE: the return type, arg & exception types of each method of a source type are resolved when needed
 
 public MethodBinding[] getMethods(char[] selector) {
+	// AspectJ Extension - replaced original impl with this
+	if (memberFinder != null) return memberFinder.getMethods(this, selector);
+	else return getMethodsBase(selector);
+}
+
+public MethodBinding[] getMethodsBase(char[] selector) {
+	// End AspectJ Extension - this is the original impl
 	// handle forward references to potential default abstract methods
 	addDefaultAbstractMethods();
 
@@ -792,7 +834,7 @@ private FieldBinding resolveTypeFor(FieldBinding field) {
 	}
 	return null; // should never reach this point
 }
-private MethodBinding resolveTypesFor(MethodBinding method) {
+public MethodBinding resolveTypesFor(MethodBinding method) { 	// AspectJ Extension - raise visibility
 	if ((method.modifiers & AccUnresolved) == 0)
 		return method;
 
@@ -1065,4 +1107,38 @@ public FieldBinding getSyntheticField(ReferenceBinding targetEnclosingType, bool
 	}
 	return null;
 }
+
+// AspectJ Extension
+	public void addField(FieldBinding binding) {
+		if (fields == null) {
+			fields = new FieldBinding[] {binding};
+		} else {
+			//??? inefficient
+			ArrayList l = new ArrayList(Arrays.asList(fields));
+			l.add(binding);
+			fields = (FieldBinding[])l.toArray(new FieldBinding[l.size()]);
+        }
+	}
+
+	public void addMethod(MethodBinding binding) {
+		int len = 1;
+		if (methods != null) len = methods.length + 1;
+		MethodBinding[] newMethods = new MethodBinding[len];
+		if (len > 1) {
+			System.arraycopy(methods, 0, newMethods, 0, len-1);
+		}
+		newMethods[len-1] = binding;
+		methods = newMethods;
+		//System.out.println("bindings: " + Arrays.asList(methods));
+	}
+	
+	public void removeMethod(int index) {
+		int len = methods.length;
+		MethodBinding[] newMethods = new MethodBinding[len-1];
+		System.arraycopy(methods, 0, newMethods, 0, index);
+		System.arraycopy(methods, index+1, newMethods, index, len-index-1);
+		methods = newMethods;
+	}
+// End AspectJ Extension
+
 }

@@ -147,6 +147,11 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final long UndocumentedEmptyBlock = ASTNode.Bit28;
 	public static final long IndirectStaticAccess = ASTNode.Bit29;
 	public static final long UnnecessaryElse  = ASTNode.Bit30;
+	// AspectJ Extension
+	// when picking up a later version of this class, if new constants have been added to 
+	// the above list, then AjCompilerOptions will need updating also.
+	// End AspectJ Extension
+	// TODO: Empty Statement, UndocumentedEmptyBlock, UnnecessaryElse were added, SuperfluousSemicolon was deleted
 
 	// Default severity level for handlers
 	public long errorThreshold = 0;
@@ -651,6 +656,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		return buf.toString();
 	}
 
+	protected // AspectJ Extension
 	void updateSeverity(long irritant, Object severityString) {
 		if (ERROR.equals(severityString)) {
 			this.errorThreshold |= irritant;

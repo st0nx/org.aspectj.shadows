@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
@@ -18,6 +19,9 @@ import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
+/**
+ * AspectJ Extension - support for FieldBinding.alwaysNeedsAccessMethod
+ */
 public class QualifiedNameReference extends NameReference {
 	
 	public char[][] tokens;
@@ -607,6 +611,24 @@ public class QualifiedNameReference extends NameReference {
 			TypeBinding lastReceiverType,
 			int index,
 			FlowInfo flowInfo) {
+			
+		//	AspectJ Extension		
+		if (fieldBinding.alwaysNeedsAccessMethod(true)) {
+			if (syntheticReadAccessors == null) {
+				if (otherBindings == null)
+					syntheticReadAccessors =
+						new SyntheticAccessMethodBinding[1];
+				else
+					syntheticReadAccessors =
+						new SyntheticAccessMethodBinding[otherBindings.length
+							+ 1];
+			}
+			//System.out.println("needs synthetic reader: " + fieldBinding + ", " + index);
+			syntheticReadAccessors[index] = fieldBinding.getAccessMethod(true);
+			return;
+		}
+		//	End AspectJ Extension
+			
 		if (!flowInfo.isReachable()) return;
 		// index == 0 denotes the first fieldBinding, index > 0 denotes one of the 'otherBindings'
 		if (fieldBinding.constant != NotAConstant)
@@ -673,6 +695,14 @@ public class QualifiedNameReference extends NameReference {
 			FieldBinding fieldBinding,
 			TypeBinding lastReceiverType,
 			FlowInfo flowInfo) {
+
+		//	AspectJ Extension
+		if (fieldBinding.alwaysNeedsAccessMethod(false)) {
+			syntheticWriteAccessor = fieldBinding.getAccessMethod(false);
+			return;
+		}
+		// End AspectJ Extension
+
 		if (!flowInfo.isReachable()) return;
 		if (fieldBinding.isPrivate()) {
 			if (fieldBinding.declaringClass != currentScope.enclosingSourceType()) {

@@ -8,7 +8,12 @@
     id = "org.eclipse.jdt.core"
     version = "3.0.0"
     provider-name = "%providerName"
+    class="org.aspectj.ajdt.core.AspectJCore">
+    <!-- AspectJ Extension -->
+    <!-- last line of the above used to read...
     class="org.eclipse.jdt.core.JavaCore">
+    -->
+    <!-- End AspectJ Extension -->
 
 <!-- =================================================================================== -->
 <!-- Prerequisite Plug-ins                                                               -->
@@ -20,6 +25,10 @@
     <import plugin="org.eclipse.text"/>
     <import plugin="org.apache.ant" optional="true"/>
     <import plugin="org.eclipse.team.core" optional="true"/>
+    <!-- AspectJ Extension 
+    <import plugin="org.eclipse.contribution.xref.core"/>
+	<import plugin="org.aspectj.aspectjrt"/>
+     End AspectJ Extension -->
 </requires>
 	
 <!-- =================================================================================== -->
@@ -30,6 +39,13 @@
   <library name="jdtcore.jar">  
      <export name="*"/>
   </library> 
+  
+  <!-- AspectJ Extension -->
+  <library name="bcel.jar">
+     <packages prefixes="org.apache.bcel"/>
+  </library>
+  <!-- End AspectJ Extension -->
+   
 </runtime>
 
 <!-- =================================================================================== -->
@@ -81,7 +97,9 @@
 	id="javabuilder"
 	name="%javaBuilderName">
 	<builder>
-		<run class="org.eclipse.jdt.internal.core.builder.JavaBuilder">
+	    <!-- AspectJ Extension -->
+		<run class="org.eclipse.ajdt.internal.core.builder.AspectJBuilder">
+		<!-- End AspectJ Extension -->
 		</run>
 	</builder>
 </extension>
@@ -172,6 +190,9 @@
 	<fileTypes extension="jar" type="binary"/>
 	<fileTypes extension="jardesc" type="text"/>
 	<fileTypes extension="zip" type="binary"/>
+  <!-- AspectJ Extension -->
+  <fileTypes extension="aj" type="text"/>
+  <!-- AspectJ Extension -->
 </extension>
       
 <!-- =================================================================================== -->
