@@ -1290,13 +1290,24 @@ public abstract class Scope
 									fuzzyProblem = new ProblemMethodBinding(selector, methodBinding.parameters, InheritedNameHidesEnclosingName);
 
 								} else if (!methodBinding.canBeSeenBy(receiverType, invocationSite, classScope)) {
-									// using <classScope> instead of <this> for visibility check does grant all access to innerclass
-									fuzzyProblem =
-										new ProblemMethodBinding(
-											methodBinding,
-											selector,
-											methodBinding.parameters,
-											NotVisible);
+									
+									// AspectJ extension
+									// Before failing with a 'method XXX is not visible' look for
+									// a privileged handler for this type and if there is one
+									// use it to reach the private method.
+									IPrivilegedHandler privHandler = findPrivilegedHandler(invocationType());
+									if (privHandler!=null) {
+										foundMethod = privHandler.getPrivilegedAccessMethod(methodBinding,(ASTNode)invocationSite);
+									} else {
+										// using <classScope> instead of <this> for visibility check does grant all access to innerclass
+										fuzzyProblem =
+											new ProblemMethodBinding(
+												methodBinding,
+												selector,
+												methodBinding.parameters,
+												NotVisible);
+									}
+									// End AspectJ extension
 								}
 							}
 							if (fuzzyProblem == null && !methodBinding.isStatic()) {
