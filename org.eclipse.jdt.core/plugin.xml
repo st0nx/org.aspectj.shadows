@@ -98,7 +98,9 @@
 	id="javabuilder"
 	name="%javaBuilderName">
 	<builder>
-		<run class="org.eclipse.jdt.internal.core.builder.JavaBuilder">
+	    <!-- AspectJ Extension -->
+		<run class="org.eclipse.ajdt.internal.core.builder.AspectJBuilder">
+		<!-- End AspectJ Extension -->
 		</run>
 	</builder>
 </extension>
