@@ -24,102 +24,13 @@
 	  <font face="Arial, Helvetica, sans-serif" size="-1">
 	  Here are the build notes for the Eclipse JDT/Core plug-in project 
 	  <a href="http://dev.eclipse.org/viewcvs/index.cgi/%7Echeckout%7E/jdt-core-home/main.html"><b>org.eclipse.jdt.core</b></a>, 
-	  describing <a href="http://bugs.eclipse.org/bugs" target=new>bug</a> resolution and substantial changes in the <a href="http://dev.eclipse.org/viewcvs/index.cgi/org.eclipse.jdt.core/?only_with_tag=R2_1_maintenance"><b>R2_1_maintenance</b></a> branch. 
-	  This present document covers all changes since release 2.0 (previous changes, i.e. up to release 2.0, can be found
-	  in <a href="http://dev.eclipse.org/viewcvs/index.cgi/~checkout~/org.eclipse.jdt.core/notes/R20_buildnotes_jdt-core.html?rev=1.2&content-type=text/plain&only_with_tag=R2_1_maintenance">build notes R2.0</a>).
+	  describing <a href="http://bugs.eclipse.org/bugs" target=new>bug</a> resolution and substantial changes in the <a href="http://dev.eclipse.org/viewcvs/index.cgi/org.eclipse.jdt.core"><b>HEAD</b></a> branch. 
+	  This present document covers all changes since Release 2.0, changes which occurred up to Release 2.0 can be found
+	  in <a href="http://dev.eclipse.org/viewcvs/index.cgi/%7Echeckout%7E/org.eclipse.jdt.core/notes/R20_buildnotes_jdt-core.html">build notes R2.0</a>.
 	  </font>
 	</td>
   </tr>
 </table>
-
-<p><hr><h1>
-Eclipse Platform Build Notes&nbsp;<br>
-Java Development Tooling Core</h1>
-Eclipse SDK 2.1.1 Build - 16th May 2003
-<br>Project org.eclipse.jdt.core v_315_R21x
-<h2>
-What's new in this drop</h2>
-<ul>
-</ul>
-
-<h3>Problem Reports Fixed</h3>
-<a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=37621">37621</a>
-java compiler creates class with internal inconsistency
-
-<p><hr><h1>
-Eclipse Platform Build Notes&nbsp;<br>
-Java Development Tooling Core</h1>
-Eclipse SDK 2.1.1 Build - 14th May 2003
-<br>Project org.eclipse.jdt.core v_314_R21x
-<h2>
-What's new in this drop</h2>
-<ul>
-</ul>
-
-<h3>Problem Reports Fixed</h3>
-<a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=37387">37387</a>
-Compiler generates unnecessary byte codes
-	  	
-<h3>Problem Reports Closed</h3>
-
-<p><hr><h1>
-Eclipse Platform Build Notes&nbsp;<br>
-Java Development Tooling Core</h1>
-Eclipse SDK 2.1.1 Build - 29th April 2003
-<br>Project org.eclipse.jdt.core v_313_R21x
-<h2>
-What's new in this drop</h2>
-<ul>
-</ul>
-
-<h3>Problem Reports Fixed</h3>
-<a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=36490">36490</a>
-Java compiler misses dependency on 'static final' class variables.
-
-<h3>Problem Reports Closed</h3>
-
-
-<p><hr><h1>
-Eclipse Platform Build Notes&nbsp;<br>
-Java Development Tooling Core</h1>
-Eclipse SDK 2.1.1 Build - 23rd April 2003
-<br>Project org.eclipse.jdt.core v_312_R21x
-<h2>
-What's new in this drop</h2>
-<ul>
-<li>Branched to R2_1_maintenance (from v_312)
-</li>
-<li> Plugin version ID got incremented to 2.1.1. 
-</li>
-</ul>
-
-<h3>Problem Reports Fixed</h3>
-<a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=36718">36718</a>
-Compiler should not generate references to classes not on the classpath
-<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=36438">36438</a>
-null == null causes java.lang.VerifyError
-<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=35755">35755</a>
-Search in hierarchy misses dependent projects
-<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=36465">36465</a>
-Unable to create multiple source folders when not using bin for output
-<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=35649">35649</a>
-The SourceMapper instances could share the fileNamefilter
-<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=35965">35965</a>
-Source not found in source attachment 
-<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=36213">36213</a>
-ArrayIndex out of bounds
-<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=35528">35528</a>
-When I check out a project from CVS, Updating takes a very long time
-<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=35490">35490</a>
-Search doesn't work for reference of 'cursorLocation'
-<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=35926">35926</a>
-Batch compiler compile should return false when the command line is incorrect
-<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=35438">35438</a>
-CastExpression resolution departs from JLS section 6.5.1
-<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=35338">35338</a>
-Cannot save file, "Save failed:null" error message received
-
-<h3>Problem Reports Closed</h3>
 
 <p><hr><h1>
 Eclipse Platform Build Notes&nbsp;<br>
@@ -1321,7 +1232,11 @@ Excluded folder on project not returned by Java Model
 SearchEngine returns wrong java element when searching in an archive that is included by two distinct java projects. 
  
 <h3>Problem Reports Closed</h3>
-<a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=23300">23300</a>
+<a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=5997">5997</a>
+Code assist does not know about synchronized keyword
+<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=3196">3196</a>
+DCR - CodeAssist - code assist doesn't assist for keywords (1G0FUQF)
+<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=23300">23300</a>
 Context sensitive Code Completion
 <br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=29541">29541</a>
 Scrubbing wipes out entire build directory
@@ -1489,7 +1404,9 @@ Constant field code generation (1FEWXZW)
 Missing one unit in package view 
    
 <h3>Problem Reports Closed</h3>
-<a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=28934">28934</a>
+<a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=3297">3297</a>
+DCR - JM - Packages view empty (1GEWRYI)
+<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=28934">28934</a>
 Using assert keyword in methods of nested classes causes
 <br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=25980">25980</a>
 NullPointerException during Refactor/Move operation 
@@ -1633,7 +1550,9 @@ Unreadable error message from build class path validation
 Member variable name proposal
 
 <h3>Problem Reports Closed</h3>
-<a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=27925">27925</a>
+<a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=9511">9511</a>
+Exclude files and whole packages from build
+<br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=27925">27925</a>
 Openable.hasChildren is slow 
 <br><a href="http://bugs.eclipse.org/bugs/show_bug.cgi?id=28246">28246</a>
 Class files written to custom output and default output

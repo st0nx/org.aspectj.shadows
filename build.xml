@@ -1,5 +1,5 @@
 <project name="ShadowJdtCore" basedir="." default="get.tag">
-    <property name="tag" value="v_312"/>
+    <property name="tag" value="v_315_R21x"/>
 
     <property name="package" value="org.eclipse.jdt.core"/>
 
