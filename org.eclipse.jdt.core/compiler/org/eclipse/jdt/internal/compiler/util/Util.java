@@ -400,15 +400,32 @@ public class Util implements SuffixConstants {
 	public final static boolean isJavaFileName(String name) {
 		int nameLength = name == null ? 0 : name.length();
 		int suffixLength = SUFFIX_JAVA.length;
+		if (nameLength < suffixLength) return /* AspectJ Extension false */ isAjFileName(name);
+
+		for (int i = 0; i < suffixLength; i++) {
+			char c = name.charAt(nameLength - i - 1);
+			int suffixIndex = suffixLength - i - 1;
+			if (c != SUFFIX_java[suffixIndex] && c != SUFFIX_JAVA[suffixIndex]) return /* AspectJ Extension false */ isAjFileName(name);
+		}
+		return true;		
+	}
+	
+	// AspectJ Extension
+	public final static boolean isAjFileName(String name) {
+		int nameLength = name == null ? 0 : name.length();
+		int suffixLength = SUFFIX_AJ.length;
 		if (nameLength < suffixLength) return false;
 
 		for (int i = 0; i < suffixLength; i++) {
 			char c = name.charAt(nameLength - i - 1);
 			int suffixIndex = suffixLength - i - 1;
-			if (c != SUFFIX_java[suffixIndex] && c != SUFFIX_JAVA[suffixIndex]) return false;
+			if (c != SUFFIX_aj[suffixIndex] && c != SUFFIX_AJ[suffixIndex]) return false;
 		}
-		return true;		
+		return true;				
 	}
+	// End AspectJ Extension
+	
+	
 	/**
 	 * Returns true iff str.toLowerCase().endsWith(".java")
 	 * implementation is not creating extra strings.
@@ -416,14 +433,29 @@ public class Util implements SuffixConstants {
 	public final static boolean isJavaFileName(char[] name) {
 		int nameLength = name == null ? 0 : name.length;
 		int suffixLength = SUFFIX_JAVA.length;
+		if (nameLength < suffixLength) return /* AspectJ Extension false */ isAjFileName(name);
+
+		for (int i = 0, offset = nameLength - suffixLength; i < suffixLength; i++) {
+			char c = name[offset + i];
+			if (c != SUFFIX_java[i] && c != SUFFIX_JAVA[i]) return /* AspectJ Extension false */ isAjFileName(name);
+		}
+		return true;		
+	}
+	
+	// AspectJ Extension
+	public final static boolean isAjFileName(char[] name) {
+		int nameLength = name == null ? 0 : name.length;
+		int suffixLength = SUFFIX_AJ.length;
 		if (nameLength < suffixLength) return false;
 
 		for (int i = 0, offset = nameLength - suffixLength; i < suffixLength; i++) {
 			char c = name[offset + i];
-			if (c != SUFFIX_java[i] && c != SUFFIX_JAVA[i]) return false;
+			if (c != SUFFIX_aj[i] && c != SUFFIX_AJ[i]) return false;
 		}
 		return true;		
-	}
+	}	
+	// End AspectJ Extension
+	
 	/**
 	 * Converts an array of Objects into String.
 	 */
