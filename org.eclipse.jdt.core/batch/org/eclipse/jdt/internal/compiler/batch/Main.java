@@ -1052,7 +1052,7 @@ public class Main implements ProblemSeverities, SuffixConstants {
 			mode = Default;
 			continue;
 		}
-		if (printUsageRequired || filesCount == 0) {
+		if (printUsageRequired || hasNoFiles(filesCount)) {
 			printUsage();
 			this.proceed = false;
 			return;
@@ -1242,6 +1242,11 @@ public class Main implements ProblemSeverities, SuffixConstants {
 		if (this.repetitions == 0) {
 			this.repetitions = 1;
 		}
+	}
+
+	// For AspectJ we handle files in a separate arg parser, in the future make this a protected method for extension
+	private boolean hasNoFiles(int filesCount) {
+		return false;
 	}
 
 	private void disableWarnings() {

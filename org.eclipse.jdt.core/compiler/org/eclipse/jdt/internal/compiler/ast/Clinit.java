@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
@@ -18,6 +19,9 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
 
+/**
+ * AspectJ added template method for subclasses to insert more code.
+ */
 public class Clinit extends AbstractMethodDeclaration {
 	
 	public final static char[] ConstantPoolName = "<clinit>".toCharArray(); //$NON-NLS-1$
@@ -151,22 +155,8 @@ public class Clinit extends AbstractMethodDeclaration {
 
 		// 1.4 feature
 		// This has to be done before any other initialization
-		if (this.assertionSyntheticFieldBinding != null) {
-			// generate code related to the activation of assertion for this class
-			codeStream.generateClassLiteralAccessForType(
-				classScope.enclosingSourceType(),
-				classLiteralSyntheticField);
-			codeStream.invokeJavaLangClassDesiredAssertionStatus();
-			Label falseLabel = new Label(codeStream);
-			codeStream.ifne(falseLabel);
-			codeStream.iconst_1();
-			Label jumpLabel = new Label(codeStream);
-			codeStream.goto_(jumpLabel);
-			falseLabel.place();
-			codeStream.iconst_0();
-			jumpLabel.place();
-			codeStream.putstatic(this.assertionSyntheticFieldBinding);
-		}
+		generateSyntheticCode(classScope, codeStream);
+		
 		// generate initializers
 		if (declaringType.fields != null) {
 			for (int i = 0, max = declaringType.fields.length; i < max; i++) {
@@ -176,6 +166,9 @@ public class Clinit extends AbstractMethodDeclaration {
 				}
 			}
 		}
+		
+		generatePostSyntheticCode(classScope, codeStream);
+		
 		if (codeStream.position == 0) {
 			// do not need to output a Clinit if no bytecodes
 			// so we reset the offset inside the byte array contents.
@@ -195,6 +188,33 @@ public class Clinit extends AbstractMethodDeclaration {
 			classFile.completeCodeAttributeForClinit(codeAttributeOffset);
 		}
 	}
+
+	protected void generateSyntheticCode(
+		ClassScope classScope,
+		CodeStream codeStream) {
+		if (this.assertionSyntheticFieldBinding != null) {
+			// generate code related to the activation of assertion for this class
+			codeStream.generateClassLiteralAccessForType(
+				classScope.enclosingSourceType(),
+				classLiteralSyntheticField);
+			codeStream.invokeJavaLangClassDesiredAssertionStatus();
+			Label falseLabel = new Label(codeStream);
+			codeStream.ifne(falseLabel);
+			codeStream.iconst_1();
+			Label jumpLabel = new Label(codeStream);
+			codeStream.goto_(jumpLabel);
+			falseLabel.place();
+			codeStream.iconst_0();
+			jumpLabel.place();
+			codeStream.putstatic(this.assertionSyntheticFieldBinding);
+		}
+	}
+	
+	protected void generatePostSyntheticCode(
+		ClassScope classScope,
+		CodeStream codeStream) {
+		}
+
 
 	public boolean isClinit() {
 

@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
@@ -17,6 +18,9 @@ import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
+/**
+ * AspectJ - support for FieldBinding.alwaysNeedsAccessMethod
+ */
 public class FieldReference extends Reference implements InvocationSite {
 
 	public Expression receiver;
@@ -362,6 +366,11 @@ public class FieldReference extends Reference implements InvocationSite {
 	 * No need to emulate access to protected fields since not implicitly accessed
 	 */
 	public void manageSyntheticReadAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
+		
+		if (binding.alwaysNeedsAccessMethod(true)) {
+			syntheticReadAccessor = binding.getAccessMethod(true);
+			return;
+		}
 
 		if (!flowInfo.isReachable()) return;
 		if (binding.isPrivate()) {
@@ -420,6 +429,12 @@ public class FieldReference extends Reference implements InvocationSite {
 	 * No need to emulate access to protected fields since not implicitly accessed
 	 */
 	public void manageSyntheticWriteAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
+		
+		//System.err.println("manage synthetic: " + this + " with " + binding + ", " + binding.getClass());
+		if (binding.alwaysNeedsAccessMethod(false)) {
+			syntheticWriteAccessor = binding.getAccessMethod(false);
+			return;
+		}
 
 		if (!flowInfo.isReachable()) return;
 		if (binding.isPrivate()) {

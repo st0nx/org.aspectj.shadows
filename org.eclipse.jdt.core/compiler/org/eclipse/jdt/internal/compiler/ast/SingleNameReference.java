@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
@@ -18,6 +19,9 @@ import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
+/**
+ * AspectJ - support for FieldBinding.alwaysNeedsAccessMethod
+ */
 public class SingleNameReference extends NameReference implements OperatorIds {
 	public char[] token;
 
@@ -543,15 +547,22 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 	
 		if ((bits & FIELD) != 0) {
 			FieldBinding fieldBinding = (FieldBinding) binding;
+			if (fieldBinding.alwaysNeedsAccessMethod(true)) {
+				if (syntheticAccessors == null) {
+					syntheticAccessors = new MethodBinding[2];
+				}
+				syntheticAccessors[READ] = fieldBinding.getAccessMethod(true);
+				return;
+			}
 			if (((bits & DepthMASK) != 0)
 				&& (fieldBinding.isPrivate() // private access
 					|| (fieldBinding.isProtected() // implicit protected access
 							&& fieldBinding.declaringClass.getPackage() 
-								!= currentScope.enclosingSourceType().getPackage()))) {
+								!= currentScope.invocationType().getPackage()))) {
 				if (syntheticAccessors == null)
 					syntheticAccessors = new MethodBinding[2];
 				syntheticAccessors[READ] = 
-					((SourceTypeBinding)currentScope.enclosingSourceType().
+					((SourceTypeBinding)currentScope.invocationType().
 						enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT)).
 							addSyntheticMethod(fieldBinding, true);
 				currentScope.problemReporter().needToEmulateFieldReadAccess(fieldBinding, this);
@@ -578,6 +589,13 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 		if (!flowInfo.isReachable()) return;
 		if ((bits & FIELD) != 0) {
 			FieldBinding fieldBinding = (FieldBinding) binding;
+			if (fieldBinding.alwaysNeedsAccessMethod(false)) {
+				if (syntheticAccessors == null) {
+					syntheticAccessors = new MethodBinding[2];
+				}
+				syntheticAccessors[WRITE] = fieldBinding.getAccessMethod(false);
+				return;
+			}			
 			if (((bits & DepthMASK) != 0) 
 				&& (fieldBinding.isPrivate() // private access
 					|| (fieldBinding.isProtected() // implicit protected access

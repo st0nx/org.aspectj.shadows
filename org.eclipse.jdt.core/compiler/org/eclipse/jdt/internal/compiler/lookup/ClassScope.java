@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -16,10 +17,16 @@ import org.eclipse.jdt.internal.compiler.ast.Clinit;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
 
+import java.util.*;
+
+/**
+ * AspectJ - added many hooks
+ */
 public class ClassScope extends Scope {
 	public TypeDeclaration referenceContext;
 	
@@ -120,6 +127,8 @@ public class ClassScope extends Scope {
 	}
 	
 	void buildFieldsAndMethods() {
+		postParse();
+		
 		buildFields();
 		buildMethods();
 
@@ -130,6 +139,16 @@ public class ClassScope extends Scope {
 		ReferenceBinding[] memberTypes = sourceType.memberTypes;
 		for (int i = 0, length = memberTypes.length; i < length; i++)
 			 ((SourceTypeBinding) memberTypes[i]).scope.buildFieldsAndMethods();
+	}
+
+	// AspectJ - hook
+	private void postParse() {
+		TypeDeclaration typeDec = referenceContext;
+		AbstractMethodDeclaration[] methods = typeDec.methods;
+		if (methods == null) return;
+		for (int i=0, len=methods.length; i < len; i++) {
+			methods[i].postParse(typeDec);
+		}
 	}
 	
 	private LocalTypeBinding buildLocalType(
@@ -883,4 +902,14 @@ public class ClassScope extends Scope {
 		else
 			return "--- Class Scope ---\n\n Binding not initialized" ; //$NON-NLS-1$
 	}
+	
+	// AspectJ - hook for subclasses to override
+	public int addDepth() {
+		return 1;
+	}
+	
+	public SourceTypeBinding invocationType() {
+		return referenceContext.binding;
+	}
+
 }

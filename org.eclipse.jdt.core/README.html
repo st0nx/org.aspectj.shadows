@@ -1,0 +1,32 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html>
+  <head>
+    <title>Modified JDT Core for AspectJ</title>
+  </head>
+
+  <body>
+    <h2>Modified JDT Core for AspectJ</h2>
+
+    <p>There are four kinds of changes made to the jdt.core sources.</p>
+    
+    <ol>
+      <li>Things that are completely broken from an extensibility point of view.
+	Serious design work is needed on these before we'd even want to propose changes to 
+	the jdt.core main branch.
+	<pre>
+Auto-generated constants
+org.eclipse.jdt.internal.compiler.parser.TerminalTokens
+org.eclipse.jdt.internal.compiler.parser.ParserBasicInformation
+
+Static dependencies might be solved for all but above
+org.eclipse.jdt.internal.compiler.parser.Parser
+org.eclipse.jdt.internal.compiler.parser.Scanner
+	</pre>
+      </li>
+      <li>Visibility, finalness of methods/fields changed for extensibility.</li>
+      <li>Additional extension hooks added to several classes.  Need to ensure there is no major performance hit, and that these designs are fairly clean.</li>
+      <li>Whole question of what is the API of the compiler.  Currently, many internal classes are used and extended.  It would sure be nice to solve the practical problems in 1-3 before addressing this important question.</li>
+    </ol>
+    
+  </body>
+</html>

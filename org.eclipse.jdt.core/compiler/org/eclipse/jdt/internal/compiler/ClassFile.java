@@ -7,11 +7,12 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
 import java.io.*;
-import java.util.StringTokenizer;
+import java.util.*;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.IProblem;
@@ -25,6 +26,7 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
+// AspectJ - Added minimal support for extensible attributes
 /**
  * Represents a class file wrapper on bytes, it is aware of its actual
  * type name.
@@ -68,6 +70,8 @@ public class ClassFile
 	public static final int INNER_CLASSES_SIZE = 5;
 	public CodeStream codeStream;
 	protected int problemLine;	// used to create line number attributes for problem methods
+
+	public List/*<IAttribute>*/ extraAttributes = new ArrayList(1);
 
 	/**
 	 * INTERNAL USE-ONLY
@@ -340,6 +344,18 @@ public class ClassFile
 			}
 			attributeNumber++;
 		}
+		
+		// write any "extraAttributes"
+		if (extraAttributes != null) {
+			for (int i=0, len=extraAttributes.size(); i < len; i++) {
+				IAttribute attribute = (IAttribute)extraAttributes.get(i);
+				short nameIndex = (short)constantPool.literalIndex(attribute.getNameChars());
+				writeToContents(attribute.getAllBytes(nameIndex));
+				attributeNumber++;
+			}
+		}
+		
+		
 		// update the number of attributes
 		contentsLength = contents.length;
 		if (attributeOffset + 2 >= contentsLength) {
@@ -2439,6 +2455,11 @@ public class ClassFile
 		contentsOffset += 12;
 	}
 
+
+	public int generateMethodInfoAttribute(MethodBinding methodBinding) {
+		return generateMethodInfoAttribute(methodBinding, null);
+	}
+
 	/**
 	 * INTERNAL USE-ONLY
 	 * That method generates the attributes of a code attribute.
@@ -2452,7 +2473,7 @@ public class ClassFile
 	 * @param methodBinding org.eclipse.jdt.internal.compiler.lookup.MethodBinding
 	 * @return <CODE>int</CODE>
 	 */
-	public int generateMethodInfoAttribute(MethodBinding methodBinding) {
+	public int generateMethodInfoAttribute(MethodBinding methodBinding, List extraAttributes) {
 		// leave two bytes for the attribute_number
 		contentsOffset += 2;
 		// now we can handle all the attribute for that method info:
@@ -2544,8 +2565,36 @@ public class ClassFile
 
 			attributeNumber++;
 		}
+		
+		if (extraAttributes != null) {
+			for (int i=0, len = extraAttributes.size(); i < len; i++) {
+				IAttribute attribute = (IAttribute)extraAttributes.get(i);
+				short nameIndex = (short)constantPool.literalIndex(attribute.getNameChars());
+				writeToContents(attribute.getAllBytes(nameIndex));
+				attributeNumber++;
+			}
+		}
+		
 		return attributeNumber;
 	}
+	
+	void writeToContents(byte[] data) {
+		int N = data.length;
+		int contentsLength;
+		while (contentsOffset + N >= (contentsLength = contents.length)) {
+			System.arraycopy(
+				contents,
+				0,
+				(contents = new byte[contentsLength + INCREMENT_SIZE]),
+				0,
+				contentsLength);
+		}
+		
+		System.arraycopy(data, 0, contents, contentsOffset, N);
+		contentsOffset += N;		
+	}
+	
+	
 
 	/**
 	 * INTERNAL USE-ONLY

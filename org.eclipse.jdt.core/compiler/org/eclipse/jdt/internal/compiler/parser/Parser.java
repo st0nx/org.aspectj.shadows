@@ -8,6 +8,7 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     Tom Tromey - patch for readTable(String) as described in http://bugs.eclipse.org/bugs/show_bug.cgi?id=32196
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.parser;
 
@@ -36,6 +37,12 @@ import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
+/** 
+ * AspectJ - maa few changes to increase accessibility.
+ * Several changes to load static tables relative to different classes.
+ * The key extensibility challenge remaining appears
+ * to be the static dependencies on ParserBasicInformation and ITerminalSymbols.
+ */
 public class Parser implements BindingIds, ParserBasicInformation, TerminalTokens, CompilerModifiers, OperatorIds, TypeIds {
 	protected ProblemReporter problemReporter;
 	protected CompilerOptions options;
@@ -59,6 +66,8 @@ public class Parser implements BindingIds, ParserBasicInformation, TerminalToken
 	protected int lastIgnoredToken, nextIgnoredToken;
 	protected int lastErrorEndPosition;
 	protected boolean ignoreNextOpeningBrace;
+		
+	protected int currentTokenStart; // for aspectj
 		
 	//internal data for the automat 
 	protected final static int StackIncrement = 255;
@@ -152,7 +161,7 @@ public class Parser implements BindingIds, ParserBasicInformation, TerminalToken
 
 	static {
 		try{
-			initTables();
+			initTables(Parser.class);
 		} catch(java.io.IOException ex){
 			throw new ExceptionInInitializerError(ex.getMessage());
 		}
@@ -164,7 +173,7 @@ public class Parser implements BindingIds, ParserBasicInformation, TerminalToken
 	public static final int BracketKinds = 3;
 
 public Parser(ProblemReporter problemReporter, boolean optimizeStringLiterals) {
-		
+			
 	this.problemReporter = problemReporter;
 	this.options = problemReporter.options;
 	this.optimizeStringLiterals = optimizeStringLiterals;
@@ -728,7 +737,7 @@ protected void classInstanceCreation(boolean alwaysQualified) {
 protected final void concatExpressionLists() {
 	expressionLengthStack[--expressionLengthPtr]++;
 }
-private final void concatNodeLists() {
+protected final void concatNodeLists() {
 	/*
 	 * This is a case where you have two sublists into the astStack that you want
 	 * to merge in one list. There is no action required on the astStack. The only
@@ -5031,38 +5040,38 @@ public void initializeScanner(){
 		this.options.taskTags/*taskTags*/,
 		this.options.taskPriorites/*taskPriorities*/);
 }
-public final static void initTables() throws java.io.IOException {
+public final static void initTables(Class parserClass) throws java.io.IOException {
 
 	final String prefix = FILEPREFIX;
 	int i = 0;
-	lhs = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	char[] chars = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	lhs = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	char[] chars = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
 	check_table = new short[chars.length];
 	for (int c = chars.length; c-- > 0;) {
 		check_table[c] = (short) (chars[c] - 32768);
 	}
-	asb = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	asr = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	nasb = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	nasr = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	terminal_index = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	non_terminal_index = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	term_action = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	asb = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	asr = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	nasb = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	nasr = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	terminal_index = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	non_terminal_index = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	term_action = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
 	
-	scope_prefix = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	scope_suffix = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	scope_lhs = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	scope_state_set = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	scope_rhs = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	scope_state = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	in_symb = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	scope_prefix = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	scope_suffix = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	scope_lhs = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	scope_state_set = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	scope_rhs = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	scope_state = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	in_symb = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
 	
-	rhs = readByteTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	term_check = readByteTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	scope_la = readByteTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	rhs = readByteTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	term_check = readByteTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	scope_la = readByteTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
 	
-	name = readNameTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	readableName = readReadableNameTable(READABLE_NAMES);
+	name = readNameTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	readableName = readReadableNameTable(parserClass, READABLE_NAMES);
 	
 	base_action = lhs;
 }
@@ -5249,7 +5258,7 @@ public static int nasi(int state) {
 public static int ntAction(int state, int sym) {
 	return base_action[state + sym];
 }
-private final void optimizedConcatNodeLists() {
+protected final void optimizedConcatNodeLists() {
 	/*back from a recursive loop. Virtualy group the
 	astNode into an array using astLengthStack*/
 
@@ -5850,11 +5859,11 @@ protected void pushOnRealBlockStack(int i){
 		realBlockStack[realBlockPtr] = i;
 	}
 }
-protected static char[] readTable(String filename) throws java.io.IOException {
+protected static char[] readTable(Class parserClass, String filename) throws java.io.IOException {
 
 	//files are located at Parser.class directory
 
-	InputStream stream = Parser.class.getResourceAsStream(filename);
+	InputStream stream = parserClass.getResourceAsStream(filename);
 	if (stream == null) {
 		throw new java.io.IOException(Util.bind("parser.missingFile",filename)); //$NON-NLS-1$
 	}
@@ -5887,11 +5896,11 @@ protected static char[] readTable(String filename) throws java.io.IOException {
 	}
 	return chars;
 }
-protected static byte[] readByteTable(String filename) throws java.io.IOException {
+protected static byte[] readByteTable(Class parserClass, String filename) throws java.io.IOException {
 
 	//files are located at Parser.class directory
 
-	InputStream stream = Parser.class.getResourceAsStream(filename);
+	InputStream stream = parserClass.getResourceAsStream(filename);
 	if (stream == null) {
 		throw new java.io.IOException(Util.bind("parser.missingFile",filename)); //$NON-NLS-1$
 	}
@@ -5908,7 +5917,7 @@ protected static byte[] readByteTable(String filename) throws java.io.IOExceptio
 	}
 	return bytes;
 }
-protected static String[] readReadableNameTable(String filename) {
+protected static String[] readReadableNameTable(Class parserClass, String filename) {
 	String[] result = new String[name.length];
 
 	ResourceBundle bundle;
@@ -5936,8 +5945,8 @@ protected static String[] readReadableNameTable(String filename) {
 	return result;
 }
 	
-protected static String[] readNameTable(String filename) throws java.io.IOException {
-	char[] contents = readTable(filename);
+protected static String[] readNameTable(Class parserClass, String filename) throws java.io.IOException {
+	char[] contents = readTable(parserClass, filename);
 	char[][] nameAsChar = CharOperation.splitOn('\n', contents);
 
 	String[] result = new String[nameAsChar.length + 1];
