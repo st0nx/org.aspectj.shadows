@@ -12,7 +12,6 @@ package org.eclipse.jdt.internal.compiler.batch;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.zip.ZipFile;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
@@ -153,7 +152,9 @@ public NameEnvironmentAnswer findType(char[] typeName, char[][] packageName) {
 	return null;
 }
 public ClasspathJar getClasspathJar(File file) throws IOException {
-	return new ClasspathJar(new ZipFile(file), true);
+    // Originally we passed (new ZipFile(file),true) but then a ZipFile is
+    // open that no-one ever closes
+	return new ClasspathJar(file);
 }
 public boolean isPackage(char[][] compoundName, char[] packageName) {
 	String qualifiedPackageName = new String(CharOperation.concatWith(compoundName, packageName, '/'));
