@@ -27,9 +27,15 @@ public class JavaBuilder extends IncrementalProjectBuilder {
 IProject currentProject;
 JavaProject javaProject;
 IWorkspaceRoot workspaceRoot;
+//AspectJ Extension
+protected
+// End AspectJ Extension
 NameEnvironment nameEnvironment;
 SimpleLookupTable binaryLocationsPerProject; // maps a project to its binary resources (output folders, class folders, zip/jar files)
 State lastState;
+// AspectJ Extension
+protected
+// End AspectJ Extension
 BuildNotifier notifier;
 char[][] extraResourceFileFilters;
 String[] extraResourceFolderFilters;
@@ -124,7 +130,9 @@ protected IProject[] build(int kind, Map ignored, IProgressMonitor monitor) thro
 	if (DEBUG)
 		System.out.println("\nStarting build of " + currentProject.getName() //$NON-NLS-1$
 			+ " @ " + new Date(System.currentTimeMillis())); //$NON-NLS-1$
-	this.notifier = new BuildNotifier(monitor, currentProject);
+	// AspectJ Extension
+	this.notifier = createBuildNotifier(monitor,currentProject); 
+	// End AspectJ Extension
 	notifier.begin();
 	boolean ok = false;
 	try {
@@ -202,6 +210,12 @@ protected IProject[] build(int kind, Map ignored, IProgressMonitor monitor) thro
 			+ " @ " + new Date(System.currentTimeMillis())); //$NON-NLS-1$
 	return requiredProjects;
 }
+
+// AspectJ Extension
+protected BuildNotifier createBuildNotifier(IProgressMonitor monitor, IProject currentProject) {
+	return new BuildNotifier(monitor, currentProject);
+}
+// End AspectJ Extension
 
 private void buildAll() {
 	notifier.checkCancel();
