@@ -118,13 +118,29 @@
 		  	  	
 	  	<echo message="Modifying file contents to change refs from 'org.eclipse.jdt' to 'org.aspectj.org.eclipse.jdt'"/>
     	
+    	<!-- This next bit of code replaces all the string references.  There are two files where
+    	     we have to be careful about.  Both AssistOptions and CompilerOptions include strings for options that we
+    	     must not change as AJDT will be working with them without the prefix.  We skip these two files on the 
+    	     'big replace' and then do the pair of them with a less pervasive replace that will just do import and
+    	     package statements.  -->
 	  	<replaceregexp byline="true" flags="g">
 	  		<regexp pattern="org.eclipse.jdt"/>
 			<substitution expression="org.aspectj.org.eclipse.jdt"/>
 			<fileset dir="src-temp">
 	  			<include name="**/*"/>
+				<exclude name="**/AssistOptions.java"/>
+				<exclude name="**/CompilerOptions.java"/>
 	  		</fileset>			
 	  	</replaceregexp>
+    	
+    	<replaceregexp byline="true" flags="g">
+    		  		<regexp pattern=" org.eclipse.jdt"/>
+    				<substitution expression=" org.aspectj.org.eclipse.jdt"/>
+    				<fileset dir="src-temp">
+    		  			<include name="**/AssistOptions.java"/>
+    					<include name="**/CompilerOptions.java"/>
+    		  		</fileset>			
+    	</replaceregexp>
 
     	<delete dir="${srcfolder}"/>
     	    	
