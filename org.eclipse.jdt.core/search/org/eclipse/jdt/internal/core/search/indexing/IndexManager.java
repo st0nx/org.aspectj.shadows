@@ -538,8 +538,8 @@ public void saveIndexes() {
 	needToSave = false;
 }
 public void scheduleDocumentIndexing(final SearchDocument searchDocument, String containerPathString, final String indexPath, final SearchParticipant searchParticipant) {
-	IPath containerPath = new Path(containerPathString);
-	request(new IndexRequest(containerPath, this) {
+	IPath myContainerPath = new Path(containerPathString);  // AspectJ Extension - renamed var to compile under 1.3 mode
+	request(new IndexRequest(myContainerPath, this) {   // AspectJ Extension - renamed var to compile under 1.3 mode
 		public boolean execute(IProgressMonitor progressMonitor) {
 			if (this.isCancelled || progressMonitor != null && progressMonitor.isCanceled()) return true;
 			
