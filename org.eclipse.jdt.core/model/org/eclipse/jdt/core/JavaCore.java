@@ -90,7 +90,7 @@ public /* AspectJ Extension non- final */ class JavaCore extends Plugin {
 	 * The plug-in identifier of the Java core support
 	 * (value <code>"org.eclipse.jdt.core"</code>).
 	 */
-	public static final String PLUGIN_ID = "org.eclipse.jdt.core" ; //$NON-NLS-1$
+	public static final String PLUGIN_ID = "org.eclipse.ajdt.core.plugin" ; //$NON-NLS-1$  // test temp
 
 	/**
 	 * The identifier for the Java builder
