@@ -175,7 +175,12 @@ public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSi
 		
 		//	AspectJ Extension
 		// for protected we need to check based on the type of this
-		ReferenceBinding currentType = scope.enclosingSourceType();;
+		ReferenceBinding currentType = scope.enclosingSourceType();
+		// MUST be in the same package as the invocationType though... (pr 71723)
+		if (invocationType != currentType) {
+		    // this MUST be an ITD
+		    if (invocationType.fPackage != currentType.fPackage) return false;
+		}
 		//	End AspectJ Extension
 		int depth = 0;
 		do {
