@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -183,10 +183,11 @@ public ClassFileReader(byte[] classFileBytes, char[] fileName, boolean fullyInit
 					int innerOffset = readOffset + 6;
 					int number_of_classes = u2At(innerOffset);
 					if (number_of_classes != 0) {
+						innerOffset+= 2;
 						this.innerInfos = new InnerClassInfo[number_of_classes];
 						for (int j = 0; j < number_of_classes; j++) {
 							this.innerInfos[j] = 
-								new InnerClassInfo(reference, this.constantPoolOffsets, innerOffset + 2); 
+								new InnerClassInfo(reference, this.constantPoolOffsets, innerOffset); 
 							if (this.classNameIndex == this.innerInfos[j].innerClassNameIndex) {
 								this.innerInfo = this.innerInfos[j];
 								this.innerInfoIndex = j;
@@ -210,6 +211,8 @@ public ClassFileReader(byte[] classFileBytes, char[] fileName, boolean fullyInit
 		if (fullyInitialize) {
 			this.initialize();
 		}
+	} catch(ClassFormatException e) {
+		throw e;
 	} catch (Exception e) {
 		throw new ClassFormatException(
 			ClassFormatException.ErrTruncatedInput, 
@@ -239,7 +242,7 @@ public int accessFlags() {
  * Answer the char array that corresponds to the class name of the constant class.
  * constantPoolIndex is the index in the constant pool that is a constant class entry.
  *
- * @param int constantPoolIndex
+ * @param constantPoolIndex int
  * @return char[]
  */
 private char[] getConstantClassNameAt(int constantPoolIndex) {
@@ -341,8 +344,18 @@ public IBinaryNestedType[] getMemberTypes() {
 			 * attribute entry is a member class, but due to the bug:
 			 * http://dev.eclipse.org/bugs/show_bug.cgi?id=14592
 			 * we needed to add an extra check. So we check that innerNameIndex is different from 0 as well.
+			 * 
+			 * https://bugs.eclipse.org/bugs/show_bug.cgi?id=49879
+			 * From JavaMail 1.2, the class javax.mail.Folder contains an anonymous class in the
+			 * terminateQueue() method for which the inner attribute is boggus.
+			 * outerClassNameIdx is not 0, innerNameIndex is not 0, but the sourceName length is 0.
+			 * So I added this extra check to filter out this anonymous class from the 
+			 * member types.
 			 */
-			if (outerClassNameIdx != 0 && innerNameIndex != 0 && outerClassNameIdx == this.classNameIndex) {
+			if (outerClassNameIdx != 0
+				&& innerNameIndex != 0
+				&& outerClassNameIdx == this.classNameIndex
+				&& currentInnerInfo.getSourceName().length != 0) {
 				memberTypes[memberTypeIndex++] = currentInnerInfo;
 			}
 		}
@@ -451,10 +464,10 @@ public boolean isInterface() {
  * @return <CODE>boolean</CODE>
  */
 public boolean isLocal() {
-	return 
-		this.innerInfo != null 
-		&& this.innerInfo.getEnclosingTypeName() == null 
-		&& this.innerInfo.getSourceName() != null;
+	if (this.innerInfo == null) return false;
+	if (this.innerInfo.getEnclosingTypeName() != null) return false;
+	char[] sourceName = this.innerInfo.getSourceName();
+	return (sourceName != null && sourceName.length > 0);	
 }
 /**
  * Answer true if the receiver is a member type, false otherwise
@@ -462,7 +475,10 @@ public boolean isLocal() {
  * @return <CODE>boolean</CODE>
  */
 public boolean isMember() {
-	return this.innerInfo != null && this.innerInfo.getEnclosingTypeName() != null;
+	if (this.innerInfo == null) return false;
+	if (this.innerInfo.getEnclosingTypeName() == null) return false;
+	char[] sourceName = this.innerInfo.getSourceName();
+	return (sourceName != null && sourceName.length > 0);	 // protection against ill-formed attributes (67600)
 }
 /**
  * Answer true if the receiver is a nested type, false otherwise
@@ -562,7 +578,7 @@ public boolean hasStructuralChanges(byte[] newBytes) {
  * If any of these changes occurs, the method returns true. false otherwise.
  * @param newBytes the bytes of the .class file we want to compare the receiver to
  * @param orderRequired a boolean indicating whether the members should be sorted or not
- * @param excludesSynthetics a boolean indicating whether the synthetic members should be used in the comparison
+ * @param excludesSynthetic a boolean indicating whether the synthetic members should be used in the comparison
  * @return boolean Returns true is there is a structural change between the two .class files, false otherwise
  */
 public boolean hasStructuralChanges(byte[] newBytes, boolean orderRequired, boolean excludesSynthetic) {
@@ -781,19 +797,24 @@ private boolean hasStructuralMethodChanges(MethodInfo currentMethodInfo, MethodI
  * This method is used to fully initialize the contents of the receiver. All methodinfos, fields infos
  * will be therefore fully initialized and we can get rid of the bytes.
  */
-private void initialize() {
-	for (int i = 0, max = fieldsCount; i < max; i++) {
-		fields[i].initialize();
-	}
-	for (int i = 0, max = methodsCount; i < max; i++) {
-		methods[i].initialize();
-	}
-	if (innerInfos != null) {
-		for (int i = 0, max = innerInfos.length; i < max; i++) {
-			innerInfos[i].initialize();
+private void initialize() throws ClassFormatException {
+	try {
+		for (int i = 0, max = fieldsCount; i < max; i++) {
+			fields[i].initialize();
 		}
+		for (int i = 0, max = methodsCount; i < max; i++) {
+			methods[i].initialize();
+		}
+		if (innerInfos != null) {
+			for (int i = 0, max = innerInfos.length; i < max; i++) {
+				innerInfos[i].initialize();
+			}
+		}
+		this.reset();
+	} catch(RuntimeException e) {
+		ClassFormatException exception = new ClassFormatException(e, this.classFileName);
+		throw exception;
 	}
-	this.reset();
 }
 protected void reset() {
 	this.constantPoolOffsets = null;

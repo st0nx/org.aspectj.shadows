@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     IBM Corporation - added J2SE 1.5 support
  *******************************************************************************/
 package org.eclipse.jdt.core;
 
@@ -32,9 +33,15 @@ String getElementName();
  * Returns the type signatures of the exceptions this method throws,
  * in the order declared in the source. Returns an empty array
  * if this method throws no exceptions.
- *
- * <p>For example, a source method declaring <code>"throws IOException"</code>,
+ * <p>
+ * For example, a source method declaring <code>"throws IOException"</code>,
  * would return the array <code>{"QIOException;"}</code>.
+ * </p>
+ * <p>
+ * The type signatures may be either unresolved (for source types)
+ * or resolved (for binary types), and either basic (for basic types)
+ * or rich (for parameterized types). See {@link Signature} for details.
+ * </p>
  *
  * @exception JavaModelException if this element does not exist or if an
  *      exception occurs while accessing its corresponding resource.
@@ -43,6 +50,24 @@ String getElementName();
  * @see Signature
  */
 String[] getExceptionTypes() throws JavaModelException;
+
+/**
+ * Returns the formal type parameter signatures for this method.
+ * Returns an empty array if this method has no formal type parameters.
+ * <p>
+ * The formal type parameter signatures may be either unresolved (for source
+ * types) or resolved (for binary types). See {@link Signature} for details.
+ * </p>
+ *
+ * @exception JavaModelException if this element does not exist or if an
+ *      exception occurs while accessing its corresponding resource.
+ * @return the formal type parameter signatures of this method,
+ * in the order declared in the source, an empty array if none
+ * @see Signature
+ * @since 3.0
+ */
+String[] getTypeParameterSignatures() throws JavaModelException;
+
 /**
  * Returns the number of parameters of this method.
  * This is a handle-only method.
@@ -58,6 +83,7 @@ int getNumberOfParameters();
  *
  * <p>For example, a method declared as <code>public void foo(String text, int length)</code>
  * would return the array <code>{"text","length"}</code>.
+ * </p>
  *
  * @exception JavaModelException if this element does not exist or if an
  *      exception occurs while accessing its corresponding resource.
@@ -68,9 +94,15 @@ String[] getParameterNames() throws JavaModelException;
  * Returns the type signatures for the parameters of this method.
  * Returns an empty array if this method has no parameters.
  * This is a handle-only method.
- *
- * <p>For example, a source method declared as <code>public void foo(String text, int length)</code>
+ * <p>
+ * For example, a source method declared as <code>public void foo(String text, int length)</code>
  * would return the array <code>{"QString;","I"}</code>.
+ * </p>
+ * <p>
+ * The type signatures may be either unresolved (for source types)
+ * or resolved (for binary types), and either basic (for basic types)
+ * or rich (for parameterized types). See {@link Signature} for details.
+ * </p>
  * 
  * @return the type signatures for the parameters of this method, an empty array if this method has no parameters
  * @see Signature
@@ -79,9 +111,15 @@ String[] getParameterTypes();
 /**
  * Returns the type signature of the return value of this method.
  * For constructors, this returns the signature for void.
- *
- * <p>For example, a source method declared as <code>public String getName()</code>
+ * <p>
+ * For example, a source method declared as <code>public String getName()</code>
  * would return <code>"QString;"</code>.
+ * </p>
+ * <p>
+ * The type signature may be either unresolved (for source types)
+ * or resolved (for binary types), and either basic (for basic types)
+ * or rich (for parameterized types). See {@link Signature} for details.
+ * </p>
  *
  * @exception JavaModelException if this element does not exist or if an
  *      exception occurs while accessing its corresponding resource.
@@ -90,16 +128,23 @@ String[] getParameterTypes();
  */
 String getReturnType() throws JavaModelException;
 /**
- * Returns the signature of this method. This includes the signatures for the parameter
- * types and return type, but does not include the method name or exception types.
- *
- * <p>For example, a source method declared as <code>public void foo(String text, int length)</code>
+ * Returns the signature of this method. This includes the signatures for the
+ * parameter types and return type, but does not include the method name,
+ * exception types, or type parameters.
+ * <p>
+ * For example, a source method declared as <code>public void foo(String text, int length)</code>
  * would return <code>"(QString;I)V"</code>.
+ * </p>
+ * <p>
+ * The type signatures embedded in the method signature may be either unresolved
+ * (for source types) or resolved (for binary types), and either basic (for
+ * basic types) or rich (for parameterized types). See {@link Signature} for
+ * details.
+ * </p>
  *
  * @return the signature of this method
  * @exception JavaModelException if this element does not exist or if an
  *      exception occurs while accessing its corresponding resource.
- *
  * @see Signature
  */
 String getSignature() throws JavaModelException;
@@ -112,6 +157,7 @@ String getSignature() throws JavaModelException;
  * @return true if this method is a constructor, false otherwise
  */
 boolean isConstructor() throws JavaModelException;
+
 /**
  * Returns whether this method is a main method.
  * It is a main method if:

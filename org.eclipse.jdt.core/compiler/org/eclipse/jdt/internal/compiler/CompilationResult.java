@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -84,12 +84,12 @@ public class CompilationResult {
 
 	private int computePriority(IProblem problem){
 	
-		final int P_STATIC = 1000;
-		final int P_OUTSIDE_METHOD = 4000;
-		final int P_FIRST_ERROR = 2000;
-		final int P_ERROR = 10000;
+		final int P_STATIC = 10000;
+		final int P_OUTSIDE_METHOD = 40000;
+		final int P_FIRST_ERROR = 20000;
+		final int P_ERROR = 100000;
 		
-		int priority = 1000 - problem.getSourceLineNumber(); // early problems first
+		int priority = 10000 - problem.getSourceLineNumber(); // early problems first
 		if (priority < 0) priority = 0;
 		if (problem.isError()){
 			priority += P_ERROR;
@@ -167,11 +167,11 @@ public class CompilationResult {
 	}
 	
 	public ClassFile[] getClassFiles() {
-		Enumeration enum = compiledTypes.elements();
+		Enumeration files = compiledTypes.elements();
 		ClassFile[] classFiles = new ClassFile[compiledTypes.size()];
 		int index = 0;
-		while (enum.hasMoreElements()){
-			classFiles[index++] = (ClassFile)enum.nextElement();
+		while (files.hasMoreElements()){
+			classFiles[index++] = (ClassFile)files.nextElement();
 		}
 		return classFiles;	
 	}

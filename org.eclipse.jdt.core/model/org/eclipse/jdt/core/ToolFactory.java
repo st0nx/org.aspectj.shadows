@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -112,7 +112,7 @@ public class ToolFactory {
 	 */
 	public static ICodeFormatter createDefaultCodeFormatter(Map options){
 		if (options == null) options = JavaCore.getOptions();
-		return new org.eclipse.jdt.internal.formatter.CodeFormatter(options);
+		return new org.eclipse.jdt.internal.formatter.old.CodeFormatter(options);
 	}
 	
 	/**
@@ -288,7 +288,7 @@ public class ToolFactory {
 	 */
 	public static IScanner createScanner(boolean tokenizeComments, boolean tokenizeWhiteSpace, boolean assertMode, boolean recordLineSeparator){
 
-		PublicScanner scanner = new PublicScanner(tokenizeComments, tokenizeWhiteSpace, false/*nls*/, assertMode ? ClassFileConstants.JDK1_4 : ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/);
+		PublicScanner scanner = new PublicScanner(tokenizeComments, tokenizeWhiteSpace, false/*nls*/, assertMode ? ClassFileConstants.JDK1_4 : ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
 		scanner.recordLineSeparator = recordLineSeparator;
 		return scanner;
 	}
@@ -326,12 +326,13 @@ public class ToolFactory {
 	 * a new 'assert' keyword.
   	 * @return a scanner
 	 * @see org.eclipse.jdt.core.compiler.IScanner
+     * @since 3.0
 	 */
 	public static IScanner createScanner(boolean tokenizeComments, boolean tokenizeWhiteSpace, boolean recordLineSeparator, String sourceLevel) {
 		PublicScanner scanner = null;
 		long level = CompilerOptions.versionToJdkLevel(sourceLevel);
 		if (level == 0) level = ClassFileConstants.JDK1_3; // fault-tolerance
-		scanner = new PublicScanner(tokenizeComments, tokenizeWhiteSpace, false/*nls*/,level /*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/);
+		scanner = new PublicScanner(tokenizeComments, tokenizeWhiteSpace, false/*nls*/,level /*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
 		scanner.recordLineSeparator = recordLineSeparator;
 		return scanner;
 	}	

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,7 +12,6 @@ package org.eclipse.jdt.internal.codeassist;
 
 import java.util.*;
 
-import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.codeassist.impl.*;
 import org.eclipse.jdt.internal.codeassist.select.*;
@@ -21,11 +20,13 @@ import org.eclipse.jdt.internal.compiler.env.*;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
+import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.problem.*;
-import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.core.SelectionRequestor;
+import org.eclipse.jdt.internal.core.SourceType;
 import org.eclipse.jdt.internal.core.SourceTypeElementInfo;
 import org.eclipse.jdt.internal.core.util.ASTNodeFinder;
+import org.eclipse.jdt.internal.core.util.ElementInfoConverter;
 
 /**
  * The selection engine is intended to infer the nature of a selected name in some
@@ -99,9 +100,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 				int severity,
 				int problemStartPosition,
 				int problemEndPosition,
-				int lineNumber,
-				ReferenceContext refContext,
-				CompilationResult unitResult) {
+				int lineNumber) {
 				IProblem pb =  super.createProblem(
 					fileName,
 					problemId,
@@ -110,9 +109,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 					severity,
 					problemStartPosition,
 					problemEndPosition,
-					lineNumber,
-					refContext,
-					unitResult);
+					lineNumber);
 					if(SelectionEngine.this.problem == null && pb.isError() && (pb.getID() & IProblem.Syntax) == 0) {
 						SelectionEngine.this.problem = pb;
 					}
@@ -165,7 +162,10 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 				requestor.acceptClass(
 					packageName,
 					className,
-					false);
+					false,
+					false,
+					this.actualSelectionStart,
+					this.actualSelectionEnd);
 				this.acceptedAnswer = true;
 			}
 		}
@@ -212,7 +212,10 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 				this.requestor.acceptInterface(
 					packageName,
 					interfaceName,
-					false);
+					false,
+					false,
+					this.actualSelectionStart,
+					this.actualSelectionEnd);
 				this.acceptedAnswer = true;
 			}
 		}
@@ -238,7 +241,10 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 				this.requestor.acceptClass(
 					acceptedClasses[i][0],
 					acceptedClasses[i][1],
-					true);
+					true,
+					false,
+					this.actualSelectionStart,
+					this.actualSelectionEnd);
 			}
 			acceptedClasses = null;
 			acceptedClassesCount = 0;
@@ -250,7 +256,10 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 				this.requestor.acceptInterface(
 					acceptedInterfaces[i][0],
 					acceptedInterfaces[i][1],
-					true);
+					true,
+					false,
+					this.actualSelectionStart,
+					this.actualSelectionEnd);
 			}
 			acceptedInterfaces = null;
 			acceptedInterfacesCount = 0;
@@ -328,7 +337,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 			}
 			
 			// compute start and end of the last token
-			scanner.resetTo(nextCharacterPosition, selectionEnd + 1);
+			scanner.resetTo(nextCharacterPosition, selectionEnd + 1 == source.length ? selectionEnd : selectionEnd + 1);
 			do {
 				try {
 					token = scanner.getNextToken();
@@ -495,12 +504,13 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 					}
 				}
 				if (parsedUnit.types != null) {
+					if(selectDeclaration(parsedUnit))
+						return;
 					lookupEnvironment.buildTypeBindings(parsedUnit);
 					if ((this.unitScope = parsedUnit.scope)  != null) {
 						try {
 							lookupEnvironment.completeTypeBindings(parsedUnit, true);
 							parsedUnit.scope.faultInTypes();
-							selectDeclaration(parsedUnit);
 							ASTNode node = parseBlockStatements(parsedUnit, selectionSourceStart);
 							if(DEBUG) {
 								System.out.println("SELECTION - AST :"); //$NON-NLS-1$
@@ -517,7 +527,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 									System.out.println(e.binding.toString());
 								}
 								// if null then we found a problem in the selection node
-								selectFrom(e.binding, parsedUnit);
+								selectFrom(e.binding, parsedUnit, e.isDeclaration);
 							}
 						}
 					}
@@ -543,7 +553,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 		}
 	}
 
-	private void selectFrom(Binding binding, CompilationUnitDeclaration parsedUnit) {
+	private void selectFrom(Binding binding, CompilationUnitDeclaration parsedUnit, boolean isDeclaration) {
 		if (binding instanceof ReferenceBinding) {
 			ReferenceBinding typeBinding = (ReferenceBinding) binding;
 			if (qualifiedSelection != null
@@ -560,7 +570,10 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 					this.requestor.acceptInterface(
 						typeBinding.qualifiedPackageName(),
 						typeBinding.qualifiedSourceName(),
-						false);
+						false,
+						false,
+						this.actualSelectionStart,
+						this.actualSelectionEnd);
 				}
 			} else if(typeBinding instanceof ProblemReferenceBinding){
 				ReferenceBinding original = ((ProblemReferenceBinding) typeBinding).original;
@@ -574,7 +587,10 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 					this.requestor.acceptClass(
 						original.qualifiedPackageName(),
 						original.qualifiedSourceName(),
-						false);
+						false,
+						false,
+						this.actualSelectionStart,
+						this.actualSelectionEnd);
 				}
 			} else {
 				noProposal = false;
@@ -586,7 +602,10 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 					this.requestor.acceptClass(
 						typeBinding.qualifiedPackageName(),
 						typeBinding.qualifiedSourceName(),
-						false);
+						false,
+						false,
+						this.actualSelectionStart,
+						this.actualSelectionEnd);
 				}
 			}
 			this.acceptedAnswer = true;
@@ -612,7 +631,10 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 						parameterPackageNames,
 						parameterTypeNames,
 						methodBinding.isConstructor(),
-						parsedUnit);
+						parsedUnit,
+						isDeclaration,
+						actualSelectionStart,
+						actualSelectionEnd);
 				} else {
 					this.requestor.acceptMethod(
 						declaringClass.qualifiedPackageName(),
@@ -622,7 +644,10 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 							: methodBinding.selector,
 						parameterPackageNames,
 						parameterTypeNames,
-						methodBinding.isConstructor());
+						methodBinding.isConstructor(), 
+						isDeclaration,
+						actualSelectionStart,
+						actualSelectionEnd);
 				}
 				this.acceptedAnswer = true;
 			} else
@@ -640,7 +665,10 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 							this.requestor.acceptField(
 								declaringClass.qualifiedPackageName(),
 								declaringClass.qualifiedSourceName(),
-								fieldBinding.name);
+								fieldBinding.name,
+								false,
+								this.actualSelectionStart,
+								this.actualSelectionEnd);
 						}
 						this.acceptedAnswer = true;
 					}
@@ -653,11 +681,11 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 							this.acceptedAnswer = true;
 						} else {
 							// open on the type of the variable
-							selectFrom(((LocalVariableBinding) binding).type, parsedUnit);
+							selectFrom(((LocalVariableBinding) binding).type, parsedUnit, false);
 						}
 					} else
 						if (binding instanceof ArrayBinding) {
-							selectFrom(((ArrayBinding) binding).leafComponentType, parsedUnit);
+							selectFrom(((ArrayBinding) binding).leafComponentType, parsedUnit, false);
 							// open on the type of the array
 						} else
 							if (binding instanceof PackageBinding) {
@@ -749,13 +777,13 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 	 *      a type name which is to be resolved in the context of a compilation unit.
 	 *		NOTE: the type name is supposed to be correctly reduced (no whitespaces, no unicodes left)
 	 * 
-	 * @param topLevelTypes org.eclipse.jdt.internal.compiler.env.ISourceType[]
+	 * @param topLevelTypes SourceTypeElementInfo[]
 	 *      a source form of the top level types of the compilation unit in which code assist is invoked.
 
 	 *  @param searchInEnvironment
 	 * 	if <code>true</code> and no selection could be found in context then search type in environment.
 	 */
-	public void selectType(ISourceType sourceType, char[] typeName, ISourceType[] topLevelTypes, boolean searchInEnvironment) {
+	public void selectType(ISourceType sourceType, char[] typeName, SourceTypeElementInfo[] topLevelTypes, boolean searchInEnvironment) {
 		try {
 			this.acceptedAnswer = false;
 
@@ -768,12 +796,12 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 			}
 			// compute parse tree for this most outer type
 			CompilationResult result = new CompilationResult(outerType.getFileName(), 1, 1, this.compilerOptions.maxProblemsPerUnit);
+			if (!(sourceType instanceof SourceTypeElementInfo)) return;
+			SourceType typeHandle = (SourceType) ((SourceTypeElementInfo)sourceType).getHandle();
 			CompilationUnitDeclaration parsedUnit =
-				SourceTypeConverter.buildCompilationUnit(
+				ElementInfoConverter.buildCompilationUnit(
 						topLevelTypes,
-						// no need for field and methods
-						SourceTypeConverter.MEMBER_TYPE, // need member types
-						// no need for field initialization
+						typeHandle.isAnonymous() || typeHandle.isLocal(),
 						this.parser.problemReporter(), 
 						result);
 
@@ -783,8 +811,6 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 					System.out.println(parsedUnit.toString());
 				}
 				// find the type declaration that corresponds to the original source type
-				if (!(sourceType instanceof SourceTypeElementInfo)) return;
-				IType typeHandle = ((SourceTypeElementInfo)sourceType).getHandle();
 				TypeDeclaration typeDecl = new ASTNodeFinder(parsedUnit).findType(typeHandle);
 
 				if (typeDecl != null) {
@@ -829,7 +855,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 									System.out.println(e.binding.toString());
 								}
 								// if null then we found a problem in the selection node
-								selectFrom(e.binding, parsedUnit);
+								selectFrom(e.binding, parsedUnit, e.isDeclaration);
 							}
 						}
 					}
@@ -857,48 +883,111 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 	}
 
 	// Check if a declaration got selected in this unit
-	private void selectDeclaration(CompilationUnitDeclaration compilationUnit){
+	private boolean selectDeclaration(CompilationUnitDeclaration compilationUnit){
 
 		// the selected identifier is not identical to the parser one (equals but not identical),
 		// for traversing the parse tree, the parser assist identifier is necessary for identitiy checks
 		char[] assistIdentifier = this.getParser().assistIdentifier();
-		if (assistIdentifier == null) return;
+		if (assistIdentifier == null) return false;
 		
+		ImportReference currentPackage = compilationUnit.currentPackage;
+		char[] packageName = currentPackage == null ? new char[0] : CharOperation.concatWith(currentPackage.tokens, '.');
 		// iterate over the types
 		TypeDeclaration[] types = compilationUnit.types;
 		for (int i = 0, length = types == null ? 0 : types.length; i < length; i++){
-			selectDeclaration(types[i], assistIdentifier);
+			if(selectDeclaration(types[i], assistIdentifier, packageName))
+				return true;
 		}
+		return false;
 	}
 
 	// Check if a declaration got selected in this type
-	private void selectDeclaration(TypeDeclaration typeDeclaration, char[] assistIdentifier){
+	private boolean selectDeclaration(TypeDeclaration typeDeclaration, char[] assistIdentifier, char[] packageName){
 	
 		if (typeDeclaration.name == assistIdentifier){
-			throw new SelectionNodeFound(typeDeclaration.binding);
+			char[] qualifiedSourceName = null;
+			
+			TypeDeclaration enclosingType = typeDeclaration;
+			while(enclosingType != null) {
+				qualifiedSourceName = CharOperation.concat(enclosingType.name, qualifiedSourceName, '.');
+				enclosingType = enclosingType.enclosingType;
+			}
+			
+			if(!typeDeclaration.isInterface()) {
+				this.requestor.acceptClass(
+					packageName,
+					qualifiedSourceName,
+					false,
+					true,
+					this.actualSelectionStart,
+					this.actualSelectionEnd);
+			} else {
+				this.requestor.acceptInterface(
+					packageName,
+					qualifiedSourceName,
+					false,
+					true,
+					this.actualSelectionStart,
+					this.actualSelectionEnd);
+			}
+			this.noProposal = false;
+			return true;
 		}
 		TypeDeclaration[] memberTypes = typeDeclaration.memberTypes;
 		for (int i = 0, length = memberTypes == null ? 0 : memberTypes.length; i < length; i++){
-			selectDeclaration(memberTypes[i], assistIdentifier);
+			if(selectDeclaration(memberTypes[i], assistIdentifier, packageName))
+				return true;
 		}
 		FieldDeclaration[] fields = typeDeclaration.fields;
 		for (int i = 0, length = fields == null ? 0 : fields.length; i < length; i++){
 			if (fields[i].name == assistIdentifier){
-				throw new SelectionNodeFound(fields[i].binding);
+				char[] qualifiedSourceName = null;
+				
+				TypeDeclaration enclosingType = typeDeclaration;
+				while(enclosingType != null) {
+					qualifiedSourceName = CharOperation.concat(enclosingType.name, qualifiedSourceName, '.');
+					enclosingType = enclosingType.enclosingType;
+				}
+				
+				this.requestor.acceptField(
+					packageName,
+					qualifiedSourceName,
+					fields[i].name,
+					true,
+					this.actualSelectionStart,
+					this.actualSelectionEnd);
+
+				this.noProposal = false;
+				return true;
 			}
 		}
 		AbstractMethodDeclaration[] methods = typeDeclaration.methods;
 		for (int i = 0, length = methods == null ? 0 : methods.length; i < length; i++){
 			AbstractMethodDeclaration method = methods[i];
 			if (method.selector == assistIdentifier){
-				if(method.binding != null) {
-					throw new SelectionNodeFound(method.binding);
-				} else {
-					if(method.scope != null) {
-						throw new SelectionNodeFound(new MethodBinding(method.modifiers, method.selector, null, null, null, method.scope.referenceType().binding));
-					}
+				char[] qualifiedSourceName = null;
+				
+				TypeDeclaration enclosingType = typeDeclaration;
+				while(enclosingType != null) {
+					qualifiedSourceName = CharOperation.concat(enclosingType.name, qualifiedSourceName, '.');
+					enclosingType = enclosingType.enclosingType;
 				}
+				
+				this.requestor.acceptMethod(
+					packageName,
+					qualifiedSourceName,
+					method.selector,
+					null, // SelectionRequestor does not need of parameters type for method declaration
+					null, // SelectionRequestor does not need of parameters type for method declaration
+					method.isConstructor(),
+					true,
+					this.actualSelectionStart,
+					this.actualSelectionEnd);
+				
+				this.noProposal = false;
+				return true;
 			}
 		}
+		return false;
 	}
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -414,8 +414,7 @@ private Binding findSingleTypeImport(char[][] compoundName) {
 		ReferenceBinding typeBinding = findType(compoundName[0], environment.defaultPackage, fPackage);
 		if (typeBinding == null)
 			return new ProblemReferenceBinding(compoundName, NotFound);
-		else
-			return typeBinding;
+		return typeBinding;
 	}
 	return findOnDemandImport(compoundName);
 }
@@ -517,8 +516,12 @@ void recordTypeReference(TypeBinding type) {
 
 	if (type.isArrayType())
 		type = ((ArrayBinding) type).leafComponentType;
-	if (!type.isBaseType() && !referencedTypes.containsIdentical(type))
-		referencedTypes.add(type);
+
+	if (type.isBaseType()) return;
+	if (referencedTypes.containsIdentical(type)) return;
+	if (((ReferenceBinding) type).isLocalType()) return;
+
+	referencedTypes.add(type);
 }
 void recordTypeReferences(TypeBinding[] types) {
 	if (qualifiedReferences == null) return; // not recording dependencies

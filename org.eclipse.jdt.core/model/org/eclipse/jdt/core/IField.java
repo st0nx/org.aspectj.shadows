@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     IBM Corporation - added J2SE 1.5 support
  *******************************************************************************/
 package org.eclipse.jdt.core;
 
@@ -94,9 +95,15 @@ public Object getConstant() throws JavaModelException;
  */
 String getElementName();
 /**
- * Returns the type signature of this field.
+ * Returns the type signature of this field. For enum constants,
+ * this returns the signature of the declaring enum class.
+ * <p>
+ * The type signature may be either unresolved (for source types)
+ * or resolved (for binary types), and either basic (for basic types)
+ * or rich (for parameterized types). See {@link Signature} for details.
+ * </p>
  *
- * @return the type signature of this field.
+ * @return the type signature of this field
  * @exception JavaModelException if this element does not exist or if an
  *      exception occurs while accessing its corresponding resource
  * @see Signature

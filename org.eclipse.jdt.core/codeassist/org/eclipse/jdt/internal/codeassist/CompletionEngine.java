@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -140,6 +140,8 @@ public final class CompletionEngine
 		public void setActualReceiverType(ReferenceBinding receiverType) {}
 		public void setDepth(int depth){}
 		public void setFieldIndex(int depth){}
+		public int sourceStart() { return 0; 	}
+		public int sourceEnd() { return 0; 	}
 	};
 
 	/**
@@ -221,7 +223,8 @@ public final class CompletionEngine
 				false /*nls*/, 
 				this.compilerOptions.sourceLevel, 
 				null /*taskTags*/, 
-				null/*taskPriorities*/);
+				null/*taskPriorities*/,
+				true/*taskCaseSensitive*/);
 	}
 
 	/**
@@ -423,6 +426,7 @@ public final class CompletionEngine
 			
 			if(!field.isLocalVariable && field.modifiers == CompilerModifiers.AccDefault) {
 				findMethods(completionToken,null,scope.enclosingSourceType(),scope,new ObjectVector(),false,false,true,null,null,false, false);
+				proposeNewMethod(completionToken, scope.enclosingSourceType());
 			}
 		} else {
 			if(astNode instanceof CompletionOnMethodReturnType) {
@@ -436,6 +440,7 @@ public final class CompletionEngine
 			
 				if(method.modifiers == CompilerModifiers.AccDefault) {
 					findMethods(completionToken,null,scope.enclosingSourceType(),scope,new ObjectVector(),false,false,true,null,null,false,false);
+					proposeNewMethod(completionToken, scope.enclosingSourceType());
 				}
 			} else {
 				
@@ -511,7 +516,15 @@ public final class CompletionEngine
 									MethodScope methodScope = null;
 									if((scope instanceof MethodScope && !((MethodScope)scope).isStatic)
 										|| ((methodScope = scope.enclosingMethodScope()) != null && !methodScope.isStatic)) {
-										findKeywords(completionToken, new char[][]{Keywords.THIS});
+										if(completionToken.length > 0) {
+											findKeywords(completionToken, new char[][]{Keywords.THIS});
+										} else {
+											int relevance = computeBaseRelevance();
+											relevance += computeRelevanceForInterestingProposal();
+											relevance += computeRelevanceForCaseMatching(completionToken, Keywords.THIS);
+											noProposal = false;
+											requestor.acceptKeyword(Keywords.THIS, startPosition - offset, endPosition - offset,relevance);
+										}
 									}
 	
 									findFields(
@@ -858,7 +871,7 @@ public final class CompletionEngine
 	 * Ask the engine to compute a completion at the specified position
 	 * of the given compilation unit.
 	 *
-	 *  @return void
+	 *  No return
 	 *      completion results are answered through a requestor.
 	 *
 	 *  @param sourceUnit org.eclipse.jdt.internal.compiler.env.ICompilationUnit
@@ -2069,6 +2082,9 @@ public final class CompletionEngine
 						if(method.declaringClass == scope.getJavaLangObject())
 							continue next;
 						
+						if (method.declaringClass.isInterface())
+							continue next;
+						
 						if (!superCall && method
 							.declaringClass
 							.implementsInterface(otherMethod.declaringClass, true))
@@ -2978,12 +2994,17 @@ public final class CompletionEngine
 			currentScope = currentScope.parent;
 		}
 
+		staticsOnly = false;
 		currentScope = scope;
 
 		done2 : while (true) { // done when a COMPILATION_UNIT_SCOPE is found
 
 			switch (currentScope.kind) {
-
+				case Scope.METHOD_SCOPE :
+					// handle the error case inside an explicit constructor call (see MethodScope>>findField)
+					MethodScope methodScope = (MethodScope) currentScope;
+					staticsOnly |= methodScope.isStatic | methodScope.isConstructorCall;
+					break;
 				case Scope.CLASS_SCOPE :
 					ClassScope classScope = (ClassScope) currentScope;
 					SourceTypeBinding enclosingType = classScope.referenceContext.binding;
@@ -3471,29 +3492,20 @@ public final class CompletionEngine
 		}
 	}
 	private void addExpectedType(TypeBinding type){
-		if(type == null || !type.isValidBinding()) return;
-		
-		try {
-			this.expectedTypes[++this.expectedTypesPtr] = type;
-		} catch (IndexOutOfBoundsException e) {
-			int oldLength = this.expectedTypes.length;
-			TypeBinding oldTypes[] = this.expectedTypes;
-			this.expectedTypes = new TypeBinding[oldLength * 2];
-			System.arraycopy(oldTypes, 0, this.expectedTypes, 0, oldLength);
-			this.expectedTypes[this.expectedTypesPtr] = type;
-		}
+		if (type == null || !type.isValidBinding()) return;
+
+		int length = this.expectedTypes.length;
+		if (++this.expectedTypesPtr >= length)
+			System.arraycopy(this.expectedTypes, 0, this.expectedTypes = new TypeBinding[length * 2], 0, length);
+		this.expectedTypes[this.expectedTypesPtr] = type;
 	}
 	private void addUninterestingBindings(Binding binding){
-		if(binding == null) return;
-		try {
-			this.uninterestingBindings[++this.uninterestingBindingsPtr] = binding;
-		} catch (IndexOutOfBoundsException e) {
-			int oldLength = this.uninterestingBindings.length;
-			Binding oldBindings[] = this.uninterestingBindings;
-			this.uninterestingBindings = new Binding[oldLength * 2];
-			System.arraycopy(oldBindings, 0, this.uninterestingBindings, 0, oldLength);
-			this.uninterestingBindings[this.uninterestingBindingsPtr] = binding;
-		}
+		if (binding == null) return;
+
+		int length = this.uninterestingBindings.length;
+		if (++this.uninterestingBindingsPtr >= length)
+			System.arraycopy(this.uninterestingBindings, 0, this.uninterestingBindings = new Binding[length * 2], 0, length);
+		this.uninterestingBindings[this.uninterestingBindingsPtr] = binding;
 	}
 	
 	private char[] computePrefix(SourceTypeBinding declarationType, SourceTypeBinding invocationType, boolean isStatic){
@@ -3524,5 +3536,23 @@ public final class CompletionEngine
 		}
 		
 		return completion.toString().toCharArray();
+	}
+	
+	private void proposeNewMethod(char[] token, ReferenceBinding reference) {
+		
+		if(requestor instanceof IExtendedCompletionRequestor) {
+			IExtendedCompletionRequestor extendedRequestor = (IExtendedCompletionRequestor) requestor;
+			
+			int relevance = computeBaseRelevance();
+			relevance += computeRelevanceForInterestingProposal();
+			
+			extendedRequestor.acceptPotentialMethodDeclaration(
+					reference.qualifiedPackageName(),
+					reference.qualifiedSourceName(),
+					token,
+					startPosition - offset,
+					endPosition - offset,
+					relevance);
+		}
 	}
 }

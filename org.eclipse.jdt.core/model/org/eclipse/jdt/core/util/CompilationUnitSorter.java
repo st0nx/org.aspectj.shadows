@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,7 +16,6 @@ import java.util.Comparator;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.internal.core.JavaElement;
 import org.eclipse.jdt.internal.core.SortElementsOperation;
 
 /**
@@ -60,7 +59,7 @@ public final class CompilationUnitSorter {
 	 * </pre>
 	 * </p>
 	 * 
-	 * @see #sort
+	 * @see #sort(ICompilationUnit, int[], Comparator, int, IProgressMonitor)
 	 * @see org.eclipse.jdt.core.dom.BodyDeclaration
 	 */
 	public static final String RELATIVE_ORDER = "relativeOrder"; //$NON-NLS-1$
@@ -172,6 +171,6 @@ public final class CompilationUnitSorter {
 		}
 		ICompilationUnit[] compilationUnits = new ICompilationUnit[] { compilationUnit };
 		SortElementsOperation operation = new SortElementsOperation(compilationUnits, positions, comparator);
-		JavaElement.runOperation(operation, monitor);
+		operation.runOperation(monitor);
 	}
 }

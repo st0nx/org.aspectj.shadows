@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -98,9 +98,6 @@ public interface ICodeAttribute extends IClassFileAttribute {
 	
 	/**
 	 * Define a Java opcodes walker. All actions are defined in the visitor.
-	 * @param writer The writer used to generate the disassemble output
-	 * @param lineSeparator The line separator used to put each opcode on its own line
-	 * @param tabNumber the number of indentation (SPACE or TAB)
 	 * @param visitor The visitor to use to walk the opcodes.
 	 * 
 	 * @exception ClassFormatException Exception thrown if the opcodes contain invalid bytes

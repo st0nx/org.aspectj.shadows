@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -156,10 +156,6 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 			if (e.compilationResult == CodeStream.RESTART_IN_WIDE_MODE) {
 				// a branch target required a goto_w, restart code gen in wide mode.
 				try {
-					if (statements != null) {
-						for (int i = 0, max = statements.length; i < max; i++)
-							statements[i].resetStateForCodeGeneration();
-					}
 					classFile.contentsOffset = problemResetPC;
 					classFile.methodCount--;
 					classFile.codeStream.wideMode = true; // request wide mode 
@@ -306,7 +302,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 
 		// if a problem got reported during code gen, then trigger problem method creation
 		if (ignoreFurtherInvestigation) {
-			throw new AbortMethod(scope.referenceCompilationUnit().compilationResult);
+			throw new AbortMethod(scope.referenceCompilationUnit().compilationResult, null);
 		}
 	}
 
@@ -424,7 +420,9 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 				this.constructorCall.resolve(this.scope);
 			}
 		}
-		
+		if ((modifiers & AccSemicolonBody) != 0) {
+			scope.problemReporter().methodNeedBody(this);		
+		}
 		super.resolveStatements();
 	}
 

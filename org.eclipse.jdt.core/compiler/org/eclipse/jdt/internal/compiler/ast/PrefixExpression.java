@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,7 +18,7 @@ public class PrefixExpression extends CompoundAssignment {
 	/**
 	 * PrefixExpression constructor comment.
 	 * @param l org.eclipse.jdt.internal.compiler.ast.Expression
-	 * @param r org.eclipse.jdt.internal.compiler.ast.Expression
+	 * @param e org.eclipse.jdt.internal.compiler.ast.Expression
 	 * @param op int
 	 */
 	public PrefixExpression(Expression l, Expression e, int op, int pos) {

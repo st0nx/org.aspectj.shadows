@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -47,7 +47,28 @@
  *								   UnusedConstructorDeclaredThrownException
  *								   InvalidCatchBlockSequence
  *								   UnqualifiedFieldAccess
+ *     IBM Corporation - added the following constants
  *								   Javadoc
+ *								   JavadocUnexpectedTag
+ *								   JavadocMissingParamTag
+ *								   JavadocMissingParamName
+ *								   JavadocDuplicateParamName
+ *								   JavadocInvalidParamName
+ *								   JavadocMissingReturnTag
+ *								   JavadocDuplicateReturnTag
+ *								   JavadocMissingThrowsTag
+ *								   JavadocMissingThrowsClassName
+ *								   JavadocInvalidThrowsClass
+ *								   JavadocDuplicateThrowsClassName
+ *								   JavadocInvalidThrowsClassName
+ *								   JavadocMissingSeeReference
+ *								   JavadocInvalidSeeReference
+ *								   JavadocInvalidSeeHref
+ *								   JavadocInvalidSeeArgs
+ *								   JavadocMissing
+ *								   JavadocInvalidTag
+ *								   JavadocMessagePrefix
+ *								   EmptyControlFlowStatement
  ****************************************************************************/
 package org.eclipse.jdt.core.compiler;
  
@@ -176,9 +197,10 @@ public interface IProblem {
 	int ImportRelated = 0x10000000;
 	int Internal = 0x20000000;
 	int Syntax = 0x40000000;
+	/**
+	 * @since 3.0
+	 */
 	int Javadoc = 0x80000000;
-	/** @deprecated */
-	int Annotation = 0x80000000;
 	
 	/**
 	 * Mask to use in order to filter out the category portion of the problem ID.
@@ -424,6 +446,10 @@ public interface IProblem {
 	int UnusedConstructorDeclaredThrownException = Internal + 186;	
 	/** @since 3.0 */
 	int InvalidCatchBlockSequence = Internal + TypeRelated + 187;	
+	/** @since 3.0 */
+	int EmptyControlFlowStatement = Internal + TypeRelated + 188;	
+	/** @since 3.0 */
+	int UnnecessaryElse = Internal + 189;	
 
 	// inner emulation
 	int NeedToEmulateFieldReadAccess = FieldRelated + 190;
@@ -704,42 +730,71 @@ public interface IProblem {
 	/** @since 3.0 */
 	int JavadocMissing = Javadoc + Internal + 486;
 	/** @since 3.0 */
-	int JavadocMessagePrefix = Internal + 489;
-
-	/**@deprecated */
-	int AnnotationUnexpectedTag = JavadocUnexpectedTag;
-	/**@deprecated */
-	int AnnotationMissingParamTag = JavadocMissingParamTag;
-	/**@deprecated */
-	int AnnotationMissingParamName = JavadocMissingParamName;
-	/**@deprecated */
-	int AnnotationDuplicateParamName = JavadocDuplicateParamName;
-	/**@deprecated */
-	int AnnotationInvalidParamName = JavadocInvalidParamName;
-	/**@deprecated */
-	int AnnotationMissingReturnTag = JavadocMissingReturnTag;
-	/**@deprecated */
-	int AnnotationDuplicateReturnTag = JavadocDuplicateReturnTag;
-	/**@deprecated */
-	int AnnotationMissingThrowsTag = JavadocMissingThrowsTag;
-	/**@deprecated */
-	int AnnotationMissingThrowsClassName = JavadocMissingThrowsClassName;
-	/**@deprecated */
-	int AnnotationInvalidThrowsClass = JavadocInvalidThrowsClass;
-	/**@deprecated */
-	int AnnotationDuplicateThrowsClassName = JavadocDuplicateThrowsClassName;
-	/**@deprecated */
-	int AnnotationInvalidThrowsClassName = JavadocInvalidThrowsClassName;
-	/**@deprecated */
-	int AnnotationMissingSeeReference = JavadocMissingSeeReference;
-	/**@deprecated */
-	int AnnotationInvalidSeeReference = JavadocInvalidSeeReference;
-	/**@deprecated */
-	int AnnotationInvalidSeeHref = JavadocInvalidSeeHref;
-	/**@deprecated */
-	int AnnotationInvalidSeeArgs = JavadocInvalidSeeArgs;
-	/**@deprecated */
-	int AnnotationMissing = JavadocMissing;
-	/**@deprecated */
-	int AnnotationMessagePrefix = JavadocMessagePrefix;
+	int JavadocInvalidTag = Javadoc + Internal + 487;
+	/*
+	 * ID for field errors in Javadoc
+	 */
+	/** @since 3.0 */
+	int JavadocUndefinedField = Javadoc + Internal + 488;
+	/** @since 3.0 */
+	int JavadocNotVisibleField = Javadoc + Internal + 489;
+	/** @since 3.0 */
+	int JavadocAmbiguousField = Javadoc + Internal + 490;
+	/** @since 3.0 */
+	int JavadocUsingDeprecatedField = Javadoc + Internal + 491;
+	/*
+	 * IDs for constructor errors in Javadoc
+	 */
+	/** @since 3.0 */
+	int JavadocUndefinedConstructor = Javadoc + Internal + 492;
+	/** @since 3.0 */
+	int JavadocNotVisibleConstructor = Javadoc + Internal + 493;
+	/** @since 3.0 */
+	int JavadocAmbiguousConstructor = Javadoc + Internal + 494;
+	/** @since 3.0 */
+	int JavadocUsingDeprecatedConstructor = Javadoc + Internal + 495;
+	/*
+	 * IDs for method errors in Javadoc
+	 */
+	/** @since 3.0 */
+	int JavadocUndefinedMethod = Javadoc + Internal + 496;
+	/** @since 3.0 */
+	int JavadocNotVisibleMethod = Javadoc + Internal + 497;
+	/** @since 3.0 */
+	int JavadocAmbiguousMethod = Javadoc + Internal + 498;
+	/** @since 3.0 */
+	int JavadocUsingDeprecatedMethod = Javadoc + Internal + 499;
+	/** @since 3.0 */
+	int JavadocNoMessageSendOnBaseType = Javadoc + Internal + 500;
+	/** @since 3.0 */
+	int JavadocParameterMismatch = Javadoc + Internal + 501;
+	/** @since 3.0 */
+	int JavadocNoMessageSendOnArrayType = Javadoc + Internal + 502;
+	/*
+	 * IDs for type errors in Javadoc
+	 */
+	/** @since 3.0 */
+	int JavadocUndefinedType = Javadoc + Internal + 503;
+	/** @since 3.0 */
+	int JavadocNotVisibleType = Javadoc + Internal + 504;
+	/** @since 3.0 */
+	int JavadocAmbiguousType = Javadoc + Internal + 505;
+	/** @since 3.0 */
+	int JavadocUsingDeprecatedType = Javadoc + Internal + 506;
+	/** @since 3.0 */
+	int JavadocInternalTypeNameProvided = Javadoc + Internal + 507;
+	/** @since 3.0 */
+	int JavadocInheritedMethodHidesEnclosingName = Javadoc + Internal + 508;
+	/** @since 3.0 */
+	int JavadocInheritedFieldHidesEnclosingName = Javadoc + Internal + 509;
+	/** @since 3.0 */
+	int JavadocInheritedNameHidesEnclosingTypeName = Javadoc + Internal + 510;
+	/** @since 3.0 */
+	int JavadocAmbiguousMethodReference = Javadoc + Internal + 511;
+	/** @since 3.0 */
+	int JavadocUnterminatedInlineTag = Javadoc + Internal + 512;
+	/** @since 3.0 */
+	int JavadocMalformedSeeReference = Javadoc + Internal + 513;
+	/** @since 3.0 */
+	int JavadocMessagePrefix = Internal + 515;
 }

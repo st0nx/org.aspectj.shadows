@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,7 +11,6 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
-import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -192,6 +191,12 @@ public class TryStatement extends SubRoutineStatement {
 		if ((bits & IsReachableMASK) == 0) {
 			return;
 		}
+		// in case the labels needs to be reinitialized
+		// when the code generation is restarted in wide mode
+		if (this.anyExceptionLabelsCount > 0) {
+			this.anyExceptionLabels = NO_EXCEPTION_HANDLER;
+			this.anyExceptionLabelsCount = 0;
+		}
 		int pc = codeStream.position;
 		final int NO_FINALLY = 0;									// no finally block
 		final int FINALLY_SUBROUTINE = 1; 					// finally is generated as a subroutine (using jsr/ret bytecodes)
@@ -203,10 +208,10 @@ public class TryStatement extends SubRoutineStatement {
 		} else {
 			if (this.isSubRoutineEscaping) {
 				finallyMode = FINALLY_DOES_NOT_COMPLETE;
-			} else if (scope.environment().options.targetJDK < ClassFileConstants.JDK1_5) {
-				finallyMode = FINALLY_SUBROUTINE;
-			} else {
+			} else if (scope.environment().options.inlineJsrBytecode) {
 				finallyMode = FINALLY_MUST_BE_INLINED;
+			} else {
+				finallyMode = FINALLY_SUBROUTINE;
 			}
 		}
 		boolean requiresNaturalExit = false;
@@ -219,7 +224,7 @@ public class TryStatement extends SubRoutineStatement {
 			exceptionLabels[i] = new ExceptionLabel(codeStream, catchArguments[i].binding.type);
 		}
 		if (subRoutineStartLabel != null) {
-			subRoutineStartLabel.codeStream = codeStream;
+			subRoutineStartLabel.initialize(codeStream);
 			this.enterAnyExceptionHandler(codeStream);
 		}
 		// generate the try block
@@ -419,12 +424,12 @@ public class TryStatement extends SubRoutineStatement {
 		if (this.isSubRoutineEscaping) {
 				codeStream.goto_(this.subRoutineStartLabel);
 		} else {
-			if (currentScope.environment().options.targetJDK < ClassFileConstants.JDK1_5) {
-				// classic subroutine invocation, distinguish case of non-returning subroutine
-				codeStream.jsr(this.subRoutineStartLabel);
-			} else {
+			if (currentScope.environment().options.inlineJsrBytecode) { 
 				// cannot use jsr bytecode, then simply inline the subroutine
 				this.finallyBlock.generateCode(currentScope, codeStream);
+			} else {
+				// classic subroutine invocation, distinguish case of non-returning subroutine
+				codeStream.jsr(this.subRoutineStartLabel);
 			}
 		}
 	}
@@ -450,13 +455,6 @@ public class TryStatement extends SubRoutineStatement {
 
 		return output;
 	}
-	
-	public void resetStateForCodeGeneration() {
-		super.resetStateForCodeGeneration();
-		if (this.subRoutineStartLabel != null) {
-			this.subRoutineStartLabel.resetStateForCodeGeneration();
-		}
-	}	
 
 	public void resolve(BlockScope upperScope) {
 
@@ -478,7 +476,7 @@ public class TryStatement extends SubRoutineStatement {
 				MethodScope methodScope = scope.methodScope();
 	
 				// the type does not matter as long as it is not a base type
-				if (upperScope.environment().options.targetJDK < ClassFileConstants.JDK1_5) {
+				if (!upperScope.environment().options.inlineJsrBytecode) {
 					this.returnAddressVariable =
 						new LocalVariableBinding(SecretReturnName, upperScope.getJavaLangObject(), AccDefault, false);
 					finallyScope.addLocalVariable(returnAddressVariable);

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2002, 2003 International Business Machines Corp. and others.
+ * Copyright (c) 2002, 2004 International Business Machines Corp. and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0 
  * which accompanies this distribution, and is available at
@@ -18,7 +18,10 @@ import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
-import org.eclipse.jdt.internal.formatter.align.*;
+import org.eclipse.jdt.internal.core.util.CodeSnippetParsingUtil;
+import org.eclipse.jdt.internal.core.util.RecordedParsingInformation;
+import org.eclipse.jdt.internal.formatter.align.Alignment;
+import org.eclipse.jdt.internal.formatter.align.AlignmentException;
 import org.eclipse.text.edits.MultiTextEdit;
 import org.eclipse.text.edits.ReplaceEdit;
 import org.eclipse.text.edits.TextEdit;
@@ -28,30 +31,37 @@ import org.eclipse.text.edits.TextEdit;
  * @since 2.1
  */
 public class Scribe {
+	private static final String EMPTY_STRING = ""; //$NON-NLS-1$
 
 	private static final int INITIAL_SIZE = 100;
 	
 	private boolean checkLineWrapping;
 	public int column;
+	private int[][] commentPositions;
 		
 	// Most specific alignment. 
 	public Alignment currentAlignment;
 	public int currentToken;
 	
 	// edits management
-	public int editsIndex;
 	private OptimizedReplaceEdit[] edits;
+	public int editsIndex;
 	
-	// TODO to remove when the testing is done
+	// TODO (olivier) to remove when the testing is done
 	private char fillingSpace;
 	public CodeFormatterVisitor formatter;
 	public int indentationLevel;	
 	public int lastNumberOfNewLines;
 	public int line;
+	
+	private int[] lineEnds;
 	private String lineSeparator;
 	public Alignment memberAlignment;
 	public boolean needSpace = false;
+	
+	public int nlsTagCounter;
 	public int pageWidth;
+	public boolean pendingSpace = false;
 
 	public Scanner scanner;
 	public int scannerEndPosition;
@@ -60,16 +70,16 @@ public class Scribe {
 	private int textRegionStart;
 	public boolean useTab;
 
-	Scribe(CodeFormatterVisitor formatter, Map settings, int offset, int length) {
+	Scribe(CodeFormatterVisitor formatter, Map settings, int offset, int length, CodeSnippetParsingUtil codeSnippetParsingUtil) {
 		if (settings != null) {
 			Object assertModeSetting = settings.get(JavaCore.COMPILER_SOURCE);
-			if (assertModeSetting == null) {
-				this.scanner = new Scanner(true, true, false/*nls*/, JavaCore.VERSION_1_4.equals(assertModeSetting) ? ClassFileConstants.JDK1_4 : ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/);
+			if (assertModeSetting != null) {
+				this.scanner = new Scanner(true, true, false/*nls*/, JavaCore.VERSION_1_4.equals(assertModeSetting) ? ClassFileConstants.JDK1_4 : ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
 			} else {
-				this.scanner = new Scanner(true, true, false/*nls*/, ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/);
+				this.scanner = new Scanner(true, true, false/*nls*/, ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
 			}
 		} else {
-			this.scanner = new Scanner(true, true, false/*nls*/, ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/);
+			this.scanner = new Scanner(true, true, false/*nls*/, ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
 		}
 		this.formatter = formatter;
 		this.pageWidth = formatter.preferences.page_width;
@@ -78,28 +88,31 @@ public class Scribe {
 		this.fillingSpace = formatter.preferences.filling_space;
 		setLineSeparatorAndIdentationLevel(formatter.preferences);
 		this.textRegionStart = offset;
-		this.textRegionEnd = offset + length - 1; 
+		this.textRegionEnd = offset + length - 1;
+		if (codeSnippetParsingUtil != null) {
+			final RecordedParsingInformation information = codeSnippetParsingUtil.recordedParsingInformation;
+			if (information != null) {
+				this.lineEnds = information.lineEnds;
+				this.commentPositions = information.commentPositions;
+			}
+		}
 		reset();
 	}
 	
 	private final void addDeleteEdit(int start, int end) {
-		if (this.textRegionStart <= start && end <= this.textRegionEnd) {
-			if (this.edits.length == this.editsIndex) {
-				// resize
-				resize();
-			}
-			addOptimizedReplaceEdit(start, end - start + 1, ""); //$NON-NLS-1$
+		if (this.edits.length == this.editsIndex) {
+			// resize
+			resize();
 		}
+		addOptimizedReplaceEdit(start, end - start + 1, EMPTY_STRING); //$NON-NLS-1$
 	}
-	
+
 	private final void addInsertEdit(int insertPosition, String insertedString) {
-		if (this.textRegionStart <= insertPosition && insertPosition <= this.textRegionEnd) {
-			if (this.edits.length == this.editsIndex) {
-				// resize
-				resize();
-			}
-			addOptimizedReplaceEdit(insertPosition, 0, insertedString);
+		if (this.edits.length == this.editsIndex) {
+			// resize
+			resize();
 		}
+		addOptimizedReplaceEdit(insertPosition, 0, insertedString);
 	}
 
 	private final void addOptimizedReplaceEdit(int offset, int length, String replacement) {
@@ -164,13 +177,11 @@ public class Scribe {
 	}
 	
 	private final void addReplaceEdit(int start, int end, String replacement) {
-		if (this.textRegionStart <= start && end <= this.textRegionEnd) {
-			if (this.edits.length == this.editsIndex) {
-				// resize
-				resize();
-			}
-			addOptimizedReplaceEdit(start,  end - start + 1, replacement);
+		if (this.edits.length == this.editsIndex) {
+			// resize
+			resize();
 		}
+		addOptimizedReplaceEdit(start,  end - start + 1, replacement);
 	}
 
 	public void alignFragment(Alignment alignment, int fragmentIndex){
@@ -179,6 +190,20 @@ public class Scribe {
 		alignment.performFragmentEffect();
 	}
 	
+	public void checkNLSTag(int sourceStart) {
+		if (hasNLSTag(sourceStart)) {
+			this.nlsTagCounter++;
+		}
+	}
+	public void consumeNextToken() {
+		printComment();
+		try {
+			this.currentToken = this.scanner.getNextToken();
+			addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
+		} catch (InvalidInputException e) {
+			throw new AbortFormatting(e);
+		}
+	}
 	public Alignment createAlignment(String name, int mode, int count, int sourceRestart){
 		return createAlignment(name, mode, Alignment.R_INNERMOST, count, sourceRestart);
 	}
@@ -186,13 +211,13 @@ public class Scribe {
 	public Alignment createAlignment(String name, int mode, int count, int sourceRestart, boolean adjust){
 		return createAlignment(name, mode, Alignment.R_INNERMOST, count, sourceRestart, adjust);
 	}
-
-	public Alignment createAlignment(String name, int mode, int count, int sourceRestart, int continuationIndent, boolean adjust){
-		return createAlignment(name, mode, Alignment.R_INNERMOST, count, sourceRestart, continuationIndent, adjust);
-	}
 	
 	public Alignment createAlignment(String name, int mode, int tieBreakRule, int count, int sourceRestart){
 		return createAlignment(name, mode, tieBreakRule, count, sourceRestart, this.formatter.preferences.continuation_indentation, false);
+	}
+
+	public Alignment createAlignment(String name, int mode, int count, int sourceRestart, int continuationIndent, boolean adjust){
+		return createAlignment(name, mode, Alignment.R_INNERMOST, count, sourceRestart, continuationIndent, adjust);
 	}
 
 	public Alignment createAlignment(String name, int mode, int tieBreakRule, int count, int sourceRestart, int continuationIndent, boolean adjust){
@@ -203,7 +228,7 @@ public class Scribe {
 			while (current.enclosing != null) {
 				current = current.enclosing;
 			}
-			if (current.mode != Alignment.M_NO_ALIGNMENT) {
+			if ((current.mode & Alignment.M_MULTICOLUMN) != 0) {
 				final int indentSize = this.useTab ? 1 : this.tabSize;
 				switch(current.chunkKind) {
 					case Alignment.CHUNK_METHOD :
@@ -224,6 +249,35 @@ public class Scribe {
 						alignment.update();
 						break;
 				}
+			} else {
+				switch(current.mode & Alignment.SPLIT_MASK) {
+					case Alignment.M_COMPACT_SPLIT :
+					case Alignment.M_COMPACT_FIRST_BREAK_SPLIT :
+					case Alignment.M_NEXT_PER_LINE_SPLIT :
+					case Alignment.M_NEXT_SHIFTED_SPLIT :
+					case Alignment.M_ONE_PER_LINE_SPLIT :
+						final int indentSize = this.useTab ? 1 : this.tabSize;
+						switch(current.chunkKind) {
+							case Alignment.CHUNK_METHOD :
+							case Alignment.CHUNK_TYPE :
+								if ((mode & Alignment.M_INDENT_BY_ONE) != 0) {
+									alignment.breakIndentationLevel = this.indentationLevel + indentSize;
+								} else {
+									alignment.breakIndentationLevel = this.indentationLevel + continuationIndent * indentSize;
+								}
+								alignment.update();
+								break;
+							case Alignment.CHUNK_FIELD :
+								if ((mode & Alignment.M_INDENT_BY_ONE) != 0) {
+									alignment.breakIndentationLevel = current.originalIndentationLevel + indentSize;
+								} else {
+									alignment.breakIndentationLevel = current.originalIndentationLevel + continuationIndent * indentSize;
+								}
+								alignment.update();
+								break;
+						}
+						break;
+				}
 			}
 		}
 		return alignment; 
@@ -237,11 +291,13 @@ public class Scribe {
 	
 	public void enterAlignment(Alignment alignment){
 		alignment.enclosing = this.currentAlignment;
+		alignment.location.lastLocalDeclarationSourceStart = this.formatter.lastLocalDeclarationSourceStart;
 		this.currentAlignment = alignment;
 	}
 
 	public void enterMemberAlignment(Alignment alignment) {
 		alignment.enclosing = this.memberAlignment;
+		alignment.location.lastLocalDeclarationSourceStart = this.formatter.lastLocalDeclarationSourceStart;
 		this.memberAlignment = alignment;
 	}
 
@@ -255,7 +311,7 @@ public class Scribe {
 			throw new AbortFormatting("could not find matching alignment: "+alignment); //$NON-NLS-1$
 		}
 		this.indentationLevel = alignment.location.outputIndentationLevel;
-			
+		this.formatter.lastLocalDeclarationSourceStart = alignment.location.lastLocalDeclarationSourceStart;	
 		if (discardAlignment){ 
 			this.currentAlignment = alignment.enclosing;
 		}
@@ -271,6 +327,7 @@ public class Scribe {
 			throw new AbortFormatting("could not find matching alignment: "+alignment); //$NON-NLS-1$
 		}
 		this.indentationLevel = current.location.outputIndentationLevel;
+		this.formatter.lastLocalDeclarationSourceStart = alignment.location.lastLocalDeclarationSourceStart;	
 		this.memberAlignment = current.enclosing;
 	}
 	
@@ -292,7 +349,71 @@ public class Scribe {
 			return this.column - 1;
 		}
 	}	
+	
+	public final int getCommentIndex(int position) {
+		if (this.commentPositions == null)
+			return -1;
+		int length = this.commentPositions.length;
+		if (length == 0) {
+			return -1;
+		}
+		int g = 0, d = length - 1;
+		int m = 0;
+		while (g <= d) {
+			m = (g + d) / 2;
+			int bound = this.commentPositions[m][1];
+			if (bound < 0) {
+				bound = -bound;
+			}
+			if (bound < position) {
+				g = m + 1;
+			} else if (bound > position) {
+				d = m - 1;
+			} else {
+				return m;
+			}
+		}
+		return -(g + 1);
+	}
 
+	public String getEmptyLines(int linesNumber) {
+		if (this.nlsTagCounter > 0) {
+			return EMPTY_STRING;
+		}
+		StringBuffer buffer = new StringBuffer();
+		if (lastNumberOfNewLines == 0) {
+			linesNumber++; // add an extra line breaks
+			for (int i = 0; i < linesNumber; i++) {
+				buffer.append(this.lineSeparator);
+			}
+			lastNumberOfNewLines += linesNumber;
+			line += linesNumber;
+			column = 1;
+			needSpace = false;
+		} else if (lastNumberOfNewLines == 1) {
+			for (int i = 0; i < linesNumber; i++) {
+				buffer.append(this.lineSeparator);
+			}
+			lastNumberOfNewLines += linesNumber;
+			line += linesNumber;
+			column = 1;
+			needSpace = false;
+		} else {
+			if ((lastNumberOfNewLines - 1) >= linesNumber) {
+				// there is no need to add new lines
+				return EMPTY_STRING;
+			}
+			final int realNewLineNumber = linesNumber - lastNumberOfNewLines + 1;
+			for (int i = 0; i < realNewLineNumber; i++) {
+				buffer.append(this.lineSeparator);
+			}
+			lastNumberOfNewLines += realNewLineNumber;
+			line += realNewLineNumber;
+			column = 1;
+			needSpace = false;
+		}
+		return String.valueOf(buffer);
+	}
 	/** 
 	 * Answer indentation level based on column estimated position
 	 * (if column is not indented, then use indentationLevel)
@@ -313,8 +434,33 @@ public class Scribe {
 		return null;
 	}
 	
+	public final int getLineEnd(int lineNumber) {
+		if (this.lineEnds == null) 
+			return -1;
+		if (lineNumber >= this.lineEnds.length + 1) 
+			return this.scannerEndPosition;
+		if (lineNumber <= 0) 
+			return -1;
+		return this.lineEnds[lineNumber-1]; // next line start one character behind the lineEnd of the previous line	
+	}
+	
 	Alignment getMemberAlignment() {
 		return this.memberAlignment;
+	}
+	
+	public String getNewLine() {
+		if (this.nlsTagCounter > 0) {
+			return EMPTY_STRING;
+		}
+		if (lastNumberOfNewLines >= 1) {
+			column = 1; // ensure that the scribe is at the beginning of a new line
+			return EMPTY_STRING;
+		}
+		line++;
+		lastNumberOfNewLines = 1;
+		column = 1;
+		needSpace = false;
+		return this.lineSeparator;
 	}
 
 	/** 
@@ -331,10 +477,27 @@ public class Scribe {
 		}
 	}	
 
+	private String getPreserveEmptyLines(int count) {
+		if (count > 0) {
+			if (this.formatter.preferences.number_of_empty_lines_to_preserve != 0) {
+				int linesToPreserve = Math.min(count, this.formatter.preferences.number_of_empty_lines_to_preserve);
+				return this.getEmptyLines(linesToPreserve);
+			} else {
+				return getNewLine();
+			}
+		}
+		return EMPTY_STRING;
+	}
+	
 	public TextEdit getRootEdit() {
 		MultiTextEdit edit = null;
-		if (this.textRegionStart < 0) {
-			edit = new MultiTextEdit(0, this.textRegionEnd + 1);
+		int length = this.textRegionEnd - this.textRegionStart + 1;
+		if (this.textRegionStart <= 0) {
+			if (length <= 0) {
+				edit = new MultiTextEdit(0, 0);
+			} else {
+				edit = new MultiTextEdit(0, this.textRegionEnd + 1);
+			}
 		} else {
 			edit = new MultiTextEdit(this.textRegionStart, this.textRegionEnd - this.textRegionStart + 1);
 		}
@@ -349,9 +512,7 @@ public class Scribe {
 	}
 	
 	public void handleLineTooLong() {
-		
 		// search for closest breakable alignment, using tiebreak rules
-		
 		// look for outermost breakable one
 		int relativeDepth = 0, outerMostDepth = -1;
 		Alignment targetAlignment = this.currentAlignment;
@@ -377,6 +538,33 @@ public class Scribe {
 		}
 		// did not find any breakable location - proceed
 	}
+
+	/*
+	 * Check if there is a NLS tag on this line. If yes, return true, returns false otherwise.
+	 */
+	private boolean hasNLSTag(int sourceStart) {
+		// search the last comment where commentEnd < current lineEnd
+		int index = Arrays.binarySearch(this.lineEnds, sourceStart);
+		int currentLineEnd = this.getLineEnd(-index);
+		if (currentLineEnd != -1) {
+			int commentIndex = getCommentIndex(currentLineEnd);
+			if (commentIndex < 0) {
+				commentIndex = -commentIndex - 2;
+			}
+			if (commentIndex >= 0 && commentIndex < this.commentPositions.length) {
+				int start = this.commentPositions[commentIndex][0];
+				if (start < 0) {
+					start = -start;
+					// check that we are on the same line
+					int lineIndexForComment = Arrays.binarySearch(this.lineEnds, start);
+					if (lineIndexForComment == index) {
+						return indexOf(Scanner.TAG_PREFIX.toCharArray(), this.scanner.source, start, currentLineEnd) != -1;
+					}
+				}
+			}
+		}
+		return false;
+	}
 	
 	public void indent() {
 		if (this.useTab) {
@@ -386,6 +574,33 @@ public class Scribe {
 		}
 	}	
 
+	private int indexOf(char[] toBeFound, char[] source, int start, int end) {
+		if (toBeFound == null || source == null) {
+			throw new IllegalArgumentException();
+		}
+		int toBeFoundLength = toBeFound.length;
+		if (end < start || (end - start + 1) < toBeFoundLength) {
+			return -1;
+		}
+		int indexInSource = 0;
+		for (int i = start; i < end; i++) {
+			if (source[i] == toBeFound[indexInSource]) {
+				int j = i + 1;
+				indexInSource++;
+				loop: for (; j < end && indexInSource < toBeFoundLength; j++) {
+					if (toBeFound[indexInSource] != source[j]) {
+						break loop;
+					}
+					indexInSource++;
+				}
+				if (j == i + toBeFoundLength) {
+					return i;
+				}
+				indexInSource = 0;
+			}
+		}
+		return -1;
+	}
 	/**
 	 * @param compilationUnitSource
 	 */
@@ -393,9 +608,6 @@ public class Scribe {
 		this.scanner.setSource(compilationUnitSource);
 		this.scannerEndPosition = compilationUnitSource.length;
 		this.scanner.resetTo(0, this.scannerEndPosition);
-		if (this.textRegionEnd == -1) {
-			this.textRegionEnd = this.scannerEndPosition;
-		}
 		this.edits = new OptimizedReplaceEdit[INITIAL_SIZE];
 	}	
 	
@@ -403,23 +615,42 @@ public class Scribe {
 		final int editLength= edit.length;
 		final int editReplacementLength= edit.replacement.length();
 		final int editOffset= edit.offset;
-		if (editLength != 0 && editReplacementLength != 0 && editLength == editReplacementLength) {
-			for (int i = editOffset, max = editOffset + editLength; i < max; i++) {
-				if (scanner.source[i] != edit.replacement.charAt(i - editOffset)) {
+		if (editLength != 0) {
+			if (this.textRegionStart <= editOffset && (editOffset + editLength - 1) <= this.textRegionEnd) {
+				if (editReplacementLength != 0 && editLength == editReplacementLength) {
+					for (int i = editOffset, max = editOffset + editLength; i < max; i++) {
+						if (scanner.source[i] != edit.replacement.charAt(i - editOffset)) {
+							return true;
+						}
+					}
+					return false;
+				} else {
+					return true;
+				}
+			} else if (editOffset + editLength == this.textRegionStart) {
+				int i = editOffset;
+				for (int max = editOffset + editLength; i < max; i++) {
+					int replacementStringIndex = i - editOffset;
+					if (replacementStringIndex >= editReplacementLength || scanner.source[i] != edit.replacement.charAt(replacementStringIndex)) {
+						break;
+					}
+				}
+				if (i - editOffset != editReplacementLength && i != editOffset + editLength - 1) {
+					edit.offset = textRegionStart;
+					edit.length = 0;
+					edit.replacement = edit.replacement.substring(i - editOffset);
 					return true;
 				}
 			}
-			return false;
-		} else {
+		} else if (this.textRegionStart <= editOffset && editOffset <= this.textRegionEnd) {
 			return true;
 		}
+		return false;
 	}
 
 	private void preserveEmptyLines(int count, int insertPosition) {
 		if (count > 0) {
-			if (this.formatter.preferences.preserve_user_linebreaks) {
-				this.printEmptyLines(count, insertPosition);
-			} else if (this.formatter.preferences.number_of_empty_lines_to_preserve != 0) {
+			if (this.formatter.preferences.number_of_empty_lines_to_preserve != 0) {
 				int linesToPreserve = Math.min(count, this.formatter.preferences.number_of_empty_lines_to_preserve);
 				this.printEmptyLines(linesToPreserve, insertPosition);
 			} else {
@@ -427,7 +658,7 @@ public class Scribe {
 			}
 		}
 	}
-		
+
 	private void print(char[] s, boolean considerSpaceIfAny) {
 		if (checkLineWrapping && s.length + column > this.pageWidth) {
 			handleLineTooLong();
@@ -435,10 +666,16 @@ public class Scribe {
 		this.lastNumberOfNewLines = 0;
 		printIndentationIfNecessary();
 		if (considerSpaceIfAny) {
-			this.space(this.scanner.getCurrentTokenStartPosition());
+			this.space();
 		}
+		if (this.pendingSpace) {
+			this.addInsertEdit(this.scanner.getCurrentTokenStartPosition(), " "); //$NON-NLS-1$
+		}
+		this.pendingSpace = false;	
+		this.needSpace = false;		
 		column += s.length;
 		needSpace = true;
+			
 	}
 	private void printBlockComment(char[] s, boolean isJavadoc) {
 		int currentTokenStartPosition = this.scanner.getCurrentTokenStartPosition();
@@ -450,6 +687,11 @@ public class Scribe {
 		int start = currentTokenStartPosition;
 		int nextCharacterStart = currentTokenStartPosition;
 		printIndentationIfNecessary();
+		if (this.pendingSpace) {
+			this.addInsertEdit(currentTokenStartPosition, " "); //$NON-NLS-1$
+		}
+		this.needSpace = false;		
+		this.pendingSpace = false;		
 		int previousStart = currentTokenStartPosition;
 
 		while (nextCharacterStart <= currentTokenEndPosition && (currentCharacter = this.scanner.getNextChar()) != -1) {
@@ -546,14 +788,8 @@ public class Scribe {
 						} else if (hasLineComment) {
 							this.preserveEmptyLines(count, this.scanner.getCurrentTokenStartPosition());
 							addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
-						} else if (this.formatter.preferences.preserve_user_linebreaks) {
-							addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
-							if (count == 1) {
-								this.printNewLine(this.scanner.getCurrentTokenEndPosition() + 1);
-							}
 						} else if (count != 0 && this.formatter.preferences.number_of_empty_lines_to_preserve != 0) {
-							addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
-							preserveEmptyLines(count - 1, this.scanner.getCurrentTokenEndPosition() + 1);
+							addReplaceEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition(), this.getPreserveEmptyLines(count - 1));
 						} else {
 							addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
 						}
@@ -563,11 +799,11 @@ public class Scribe {
 						if (count >= 1) {
 							if (count > 1) {
 								preserveEmptyLines(count - 1, this.scanner.getCurrentTokenStartPosition());
-							} else if (count == 1 || this.formatter.preferences.preserve_user_linebreaks) {
+							} else if (count == 1) {
 								printNewLine(this.scanner.getCurrentTokenStartPosition());
 							}
 						} else if (hasWhitespace) {
-							space(this.scanner.getCurrentTokenStartPosition());
+							space();
 						} 
 						hasWhitespace = false;
 						this.printCommentLine(this.scanner.getRawTokenSource());
@@ -579,11 +815,11 @@ public class Scribe {
 						if (count >= 1) {
 							if (count > 1) {
 								preserveEmptyLines(count - 1, this.scanner.getCurrentTokenStartPosition());
-							} else if (count == 1 && this.formatter.preferences.preserve_user_linebreaks) {
+							} else if (count == 1) {
 								printNewLine(this.scanner.getCurrentTokenStartPosition());
 							}
 						} else if (hasWhitespace) {
-							space(this.scanner.getCurrentTokenStartPosition());
+							space();
 						} 
 						hasWhitespace = false;
 						this.printBlockComment(this.scanner.getRawTokenSource(), false);
@@ -596,11 +832,11 @@ public class Scribe {
 						if (count >= 1) {
 							if (count > 1) {
 								preserveEmptyLines(count - 1, this.scanner.getCurrentTokenStartPosition());
-							} else if (count == 1 && this.formatter.preferences.preserve_user_linebreaks) {
+							} else if (count == 1) {
 								printNewLine(this.scanner.getCurrentTokenStartPosition());
 							}
 						} else if (hasWhitespace) {
-							space(this.scanner.getCurrentTokenStartPosition());
+							space();
 						} 
 						hasWhitespace = false;
 						this.printBlockComment(this.scanner.getRawTokenSource(), true);
@@ -623,12 +859,19 @@ public class Scribe {
 	private void printCommentLine(char[] s) {
 		int currentTokenStartPosition = this.scanner.getCurrentTokenStartPosition();
 		int currentTokenEndPosition = this.scanner.getCurrentTokenEndPosition() + 1;
-
+		if (indexOf(Scanner.TAG_PREFIX.toCharArray(), this.scanner.source, currentTokenStartPosition, currentTokenEndPosition) != -1) {
+			this.nlsTagCounter = 0;
+		}
 		this.scanner.resetTo(currentTokenStartPosition, currentTokenEndPosition - 1);
 		int currentCharacter;
 		int start = currentTokenStartPosition;
 		int nextCharacterStart = currentTokenStartPosition;
 		printIndentationIfNecessary();
+		if (this.pendingSpace) {
+			this.addInsertEdit(currentTokenStartPosition, " "); //$NON-NLS-1$
+		}
+		this.needSpace = false;		
+		this.pendingSpace = false;		
 		int previousStart = currentTokenStartPosition;
 
 		loop: while (nextCharacterStart <= currentTokenEndPosition && (currentCharacter = this.scanner.getNextChar()) != -1) {
@@ -670,7 +913,10 @@ public class Scribe {
 		this.printEmptyLines(linesNumber, this.scanner.getCurrentTokenEndPosition() + 1);
 	}
 
-	public void printEmptyLines(int linesNumber, int insertPosition) {
+	private void printEmptyLines(int linesNumber, int insertPosition) {
+		if (this.nlsTagCounter > 0) {
+			return;
+		}
 		StringBuffer buffer = new StringBuffer();
 		if (lastNumberOfNewLines == 0) {
 			linesNumber++; // add an extra line breaks
@@ -720,6 +966,7 @@ public class Scribe {
 				}
 			}
 			addInsertEdit(this.scanner.getCurrentTokenStartPosition(), buffer.toString());
+			this.pendingSpace = false;
 		}
 	}
 
@@ -740,7 +987,6 @@ public class Scribe {
 	}
 
 	public void printModifiers() {
-		this.printComment();
 		try {
 			boolean isFirstModifier = true;
 			int currentTokenStartPosition = this.scanner.currentPosition;
@@ -811,6 +1057,9 @@ public class Scribe {
 	}
 	
 	public void printNewLine() {
+		if (this.nlsTagCounter > 0) {
+			return;
+		}
 		if (lastNumberOfNewLines >= 1) {
 			column = 1; // ensure that the scribe is at the beginning of a new line
 			return;
@@ -822,12 +1071,15 @@ public class Scribe {
 		needSpace = false;
 	}
 
-	public void printNewLine(int inserPosition) {
+	public void printNewLine(int insertPosition) {
+		if (this.nlsTagCounter > 0) {
+			return;
+		}
 		if (lastNumberOfNewLines >= 1) {
 			column = 1; // ensure that the scribe is at the beginning of a new line
 			return;
 		}
-		addInsertEdit(inserPosition, this.lineSeparator);
+		addInsertEdit(insertPosition, this.lineSeparator);
 		line++;
 		lastNumberOfNewLines = 1;
 		column = 1;
@@ -839,20 +1091,6 @@ public class Scribe {
 	}
 
 	public void printNextToken(int expectedTokenType, boolean considerSpaceIfAny){
-		printComment();
-		try {
-			this.currentToken = this.scanner.getNextToken();
-			char[] currentTokenSource = this.scanner.getRawTokenSource();
-			if (expectedTokenType != this.currentToken) {
-				throw new AbortFormatting("unexpected token type, expecting:"+expectedTokenType+", actual:"+this.currentToken);//$NON-NLS-1$//$NON-NLS-2$
-			}
-			this.print(currentTokenSource, considerSpaceIfAny);
-		} catch (InvalidInputException e) {
-			throw new AbortFormatting(e);
-		}
-	}
-		
-	public void printNextToken(int expectedTokenType, boolean considerSpaceIfAny, boolean considerNewLineAfterComment){
 		printComment();
 		try {
 			this.currentToken = this.scanner.getNextToken();
@@ -886,29 +1124,9 @@ public class Scribe {
 			throw new AbortFormatting(e);
 		}
 	}
-	
-	public void printNextToken(int[] expectedTokenTypes, boolean considerSpaceIfAny, boolean considerNewLineAfterComment){
-		printComment();
-		try {
-			this.currentToken = this.scanner.getNextToken();
-			char[] currentTokenSource = this.scanner.getRawTokenSource();
-			if (Arrays.binarySearch(expectedTokenTypes, this.currentToken) < 0) {
-				StringBuffer expectations = new StringBuffer(5);
-				for (int i = 0; i < expectedTokenTypes.length; i++){
-					if (i > 0) {
-						expectations.append(',');
-					}
-					expectations.append(expectedTokenTypes[i]);
-				}				
-				throw new AbortFormatting("unexpected token type, expecting:["+expectations.toString()+"], actual:"+this.currentToken);//$NON-NLS-1$//$NON-NLS-2$
-			}
-			this.print(currentTokenSource, considerSpaceIfAny);
-		} catch (InvalidInputException e) {
-			throw new AbortFormatting(e);
-		}
-	}
 
 	public void printQualifiedReference(int sourceEnd) {
+		int currentTokenStartPosition = this.scanner.currentPosition;
 		try {
 			do {
 				this.printComment();
@@ -917,12 +1135,27 @@ public class Scribe {
 						return;
 					case TerminalTokens.TokenNameWHITESPACE :
 						addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
+						currentTokenStartPosition = this.scanner.currentPosition;
 						break;
-					default: 
+					case TerminalTokens.TokenNameCOMMENT_BLOCK :
+					case TerminalTokens.TokenNameCOMMENT_JAVADOC :
+						this.printBlockComment(this.scanner.getRawTokenSource(), false);
+						currentTokenStartPosition = this.scanner.currentPosition;
+						break;
+					case TerminalTokens.TokenNameCOMMENT_LINE :
+						this.printCommentLine(this.scanner.getRawTokenSource());
+						currentTokenStartPosition = this.scanner.currentPosition;
+						break;
+					case TerminalTokens.TokenNameIdentifier :
+					case TerminalTokens.TokenNameDOT :
 						this.print(this.scanner.getRawTokenSource(), false);
+						currentTokenStartPosition = this.scanner.currentPosition;
 						break;
+					default:
+						this.scanner.resetTo(currentTokenStartPosition, this.scannerEndPosition - 1);
+						return;
 				}
-			} while (this.scanner.currentPosition < sourceEnd);
+			} while (this.scanner.currentPosition <= sourceEnd);
 		} catch(InvalidInputException e) {
 			throw new AbortFormatting(e);
 		}
@@ -995,7 +1228,7 @@ public class Scribe {
 						break;
 					case TerminalTokens.TokenNameCOMMENT_LINE :
 						if (hasWhitespaces) {
-							space(this.scanner.getCurrentTokenStartPosition());
+							space();
 						}
 						this.printCommentLine(this.scanner.getRawTokenSource());
 						currentTokenStartPosition = this.scanner.currentPosition;
@@ -1003,7 +1236,7 @@ public class Scribe {
 						break;
 					case TerminalTokens.TokenNameCOMMENT_BLOCK :
 						if (hasWhitespaces) {
-							space(this.scanner.getCurrentTokenStartPosition());
+							space();
 						}
 						this.printBlockComment(this.scanner.getRawTokenSource(), false);
 						currentTokenStartPosition = this.scanner.currentPosition;
@@ -1031,7 +1264,6 @@ public class Scribe {
 		this.scanner.resetTo(this.currentAlignment.location.inputOffset, this.scanner.eofPosition);
 		// clean alignment chunkKind so it will think it is a new chunk again
 		this.currentAlignment.chunkKind = 0;
-		this.formatter.lastLocalDeclarationSourceStart = -1;
 	}
 
 	void redoMemberAlignment(AlignmentException e){
@@ -1040,7 +1272,6 @@ public class Scribe {
 		this.scanner.resetTo(this.memberAlignment.location.inputOffset, this.scanner.eofPosition);
 		// clean alignment chunkKind so it will think it is a new chunk again
 		this.memberAlignment.chunkKind = 0;
-		this.formatter.lastLocalDeclarationSourceStart = -1;
 	}
 
 	public void reset() {
@@ -1048,6 +1279,7 @@ public class Scribe {
 		this.line = 0;
 		this.column = 1;
 		this.editsIndex = 0;
+		this.nlsTagCounter = 0;
 	}
 		
 	private void resetAt(Location location) {
@@ -1056,10 +1288,13 @@ public class Scribe {
 		this.indentationLevel = location.outputIndentationLevel;
 		this.lastNumberOfNewLines = location.lastNumberOfNewLines;
 		this.needSpace = location.needSpace;
+		this.pendingSpace = location.pendingSpace;
 		this.editsIndex = location.editsIndex;
+		this.nlsTagCounter = location.nlsTagCounter;
 		if (this.editsIndex > 0) {
 			this.edits[this.editsIndex - 1] = location.textEdit;
 		}
+		this.formatter.lastLocalDeclarationSourceStart = location.lastLocalDeclarationSourceStart;
 	}
 
 	private void resize() {
@@ -1078,15 +1313,7 @@ public class Scribe {
 	public void space() {
 		if (!this.needSpace) return;
 		this.lastNumberOfNewLines = 0;
-		addInsertEdit(this.scanner.getCurrentTokenEndPosition() + 1, " ");  //$NON-NLS-1$
-		this.column++;
-		this.needSpace = false;		
-	}
-
-	private void space(int insertPosition) {
-		if (!this.needSpace) return;
-		this.lastNumberOfNewLines = 0;
-		addInsertEdit(insertPosition, " ");  //$NON-NLS-1$
+		this.pendingSpace = true;
 		this.column++;
 		this.needSpace = false;		
 	}

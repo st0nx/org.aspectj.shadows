@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -285,7 +285,7 @@ public FieldBinding findFieldForCodeSnippet(TypeBinding receiverType, char[] fie
 		if (canBeSeenByForCodeSnippet(field, currentType, invocationSite, this))
 			return field;
 		else
-			return new ProblemFieldBinding(field.declaringClass, fieldName, NotVisible);
+			return new ProblemFieldBinding(field /* closest match*/, field.declaringClass, fieldName, NotVisible);
 	}
 
 	// collect all superinterfaces of receiverType until the field is found in a supertype

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,12 +21,15 @@ public interface TypeConstants {
 	final char[] OBJECT = "Object".toCharArray(); //$NON-NLS-1$
 	final char[] MAIN = "main".toCharArray(); //$NON-NLS-1$
 	final char[] SERIALVERSIONUID = "serialVersionUID".toCharArray(); //$NON-NLS-1$
+	final char[] SERIALPERSISTENTFIELDS = "serialPersistentFields".toCharArray(); //$NON-NLS-1$ 
 	final char[] READRESOLVE = "readResolve".toCharArray(); //$NON-NLS-1$
 	final char[] WRITEREPLACE = "writeReplace".toCharArray(); //$NON-NLS-1$
 	final char[] READOBJECT = "readObject".toCharArray(); //$NON-NLS-1$
 	final char[] WRITEOBJECT = "writeObject".toCharArray(); //$NON-NLS-1$
 	final char[] CharArray_JAVA_IO_OBJECTINPUTSTREAM = "java.io.ObjectInputStream".toCharArray(); //$NON-NLS-1$
 	final char[] CharArray_JAVA_IO_OBJECTOUTPUTSTREAM = "java.io.ObjectOutputStream".toCharArray(); //$NON-NLS-1$
+	final char[] CharArray_JAVA_IO_OBJECTSTREAMFIELD = "java.io.ObjectStreamField".toCharArray(); //$NON-NLS-1$
+	
 	
 	// Constant compound names
 	final char[][] JAVA_LANG = {JAVA, LANG};
@@ -65,6 +68,7 @@ public interface TypeConstants {
 	// Method collections
 	final TypeBinding[] NoParameters = new TypeBinding[0];
 	final ReferenceBinding[] NoExceptions = new ReferenceBinding[0];
+	final ReferenceBinding[] AnyException = new ReferenceBinding[] { null }; // special handler for all exceptions
 	// Type collections
 	final FieldBinding[] NoFields = new FieldBinding[0];
 	final MethodBinding[] NoMethods = new MethodBinding[0];

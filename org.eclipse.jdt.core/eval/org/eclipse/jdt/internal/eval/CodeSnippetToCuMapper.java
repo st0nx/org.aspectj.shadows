@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -271,8 +271,8 @@ public char[] getImport(int lineNumber) {
  */
 public ISelectionRequestor getSelectionRequestor(final ISelectionRequestor originalRequestor) {
 	return new ISelectionRequestor() {
-		public void acceptClass(char[] packageName, char[] className, boolean needQualification) {
-			originalRequestor.acceptClass(packageName, className, needQualification);
+		public void acceptClass(char[] packageName, char[] className, boolean needQualification, boolean isDeclaration, int start, int end) {
+			originalRequestor.acceptClass(packageName, className, needQualification, isDeclaration, start, end);
 		}
 		public void acceptError(IProblem error) {
 			error.setSourceLineNumber(error.getSourceLineNumber() -  CodeSnippetToCuMapper.this.lineNumberOffset);
@@ -280,14 +280,14 @@ public ISelectionRequestor getSelectionRequestor(final ISelectionRequestor origi
 			error.setSourceEnd(error.getSourceEnd() - CodeSnippetToCuMapper.this.startPosOffset);
 			originalRequestor.acceptError(error);
 		}
-		public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] name) {
-			originalRequestor.acceptField(declaringTypePackageName, declaringTypeName, name);
+		public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] name, boolean isDeclaration, int start, int end) {
+			originalRequestor.acceptField(declaringTypePackageName, declaringTypeName, name, isDeclaration, start, end);
 		}
-		public void acceptInterface(char[] packageName, char[] interfaceName, boolean needQualification) {
-			originalRequestor.acceptInterface(packageName, interfaceName, needQualification);
+		public void acceptInterface(char[] packageName, char[] interfaceName, boolean needQualification, boolean isDeclaration, int start, int end) {
+			originalRequestor.acceptInterface(packageName, interfaceName, needQualification, isDeclaration, start, end);
 		}
-		public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, boolean isConstructor) {
-			originalRequestor.acceptMethod(declaringTypePackageName, declaringTypeName, selector, parameterPackageNames, parameterTypeNames, isConstructor);
+		public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, boolean isConstructor, boolean isDeclaration, int start, int end) {
+			originalRequestor.acceptMethod(declaringTypePackageName, declaringTypeName, selector, parameterPackageNames, parameterTypeNames, isConstructor, isDeclaration, start, end);
 		}
 		public void acceptPackage(char[] packageName) {
 			originalRequestor.acceptPackage(packageName);

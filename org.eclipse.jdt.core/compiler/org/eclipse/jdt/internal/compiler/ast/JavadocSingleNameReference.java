@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -23,18 +23,27 @@ public class JavadocSingleNameReference extends SingleNameReference {
 	}
 
 	public void resolve(BlockScope scope) {
+		resolve(scope, true);
+	}
+
+	/**
+	 * Resolve without warnings
+	 */
+	public void resolve(BlockScope scope, boolean warn) {
 		
 		LocalVariableBinding variableBinding = scope.findVariable(this.token);
 		if (variableBinding != null && variableBinding.isValidBinding() && variableBinding.isArgument) {
 			this.binding = variableBinding;
 			return;
 		}
-		try {
-			MethodScope methScope = (MethodScope) scope;
-			scope.problemReporter().javadocInvalidParamName(this, methScope.referenceMethod().modifiers);
-		}
-		catch (Exception e) {
-			scope.problemReporter().javadocInvalidParamName(this, -1);
+		if (warn) {
+			try {
+				MethodScope methScope = (MethodScope) scope;
+				scope.problemReporter().javadocInvalidParamName(this, methScope.referenceMethod().modifiers);
+			}
+			catch (Exception e) {
+				scope.problemReporter().javadocInvalidParamName(this, -1);
+			}
 		}
 	}
 

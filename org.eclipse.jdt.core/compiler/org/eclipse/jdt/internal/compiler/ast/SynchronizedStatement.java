@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -72,6 +72,12 @@ public class SynchronizedStatement extends SubRoutineStatement {
 
 		if ((bits & IsReachableMASK) == 0) {
 			return;
+		}
+		// in case the labels needs to be reinitialized
+		// when the code generation is restarted in wide mode
+		if (this.anyExceptionLabelsCount > 0) {
+			this.anyExceptionLabels = NO_EXCEPTION_HANDLER;
+			this.anyExceptionLabelsCount = 0;
 		}
 		int pc = codeStream.position;
 

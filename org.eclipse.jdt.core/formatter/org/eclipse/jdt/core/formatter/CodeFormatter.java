@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,7 +13,7 @@ package org.eclipse.jdt.core.formatter;
 import org.eclipse.text.edits.TextEdit;
 
 /**
- * Specification for a generic source code formatter. This is still subject to change.
+ * Specification for a generic source code formatter.
  * 
  * @since 3.0
  */

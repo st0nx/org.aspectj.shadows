@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -85,7 +85,7 @@ import org.eclipse.jdt.core.JavaModelException;
  * instance.
  * </p>
  *
- * @see IJavaProject#newEvaluationContext
+ * @see IJavaProject#newEvaluationContext()
  */
 public interface IEvaluationContext {
 	/**
@@ -342,6 +342,7 @@ public interface IEvaluationContext {
 	 * @param name the name of the global variable
 	 * @param initializer the initializer expression, or <code>null</code> if the
 	 *   variable is not initialized
+	 * @return a new global variable with the given name, type, and initializer
 	 */
 	public IGlobalVariable newVariable(
 		String typeName,
@@ -393,7 +394,6 @@ public interface IEvaluationContext {
 	 *	    length (INDEX_OUT_OF_BOUNDS)</li>
 	 *  </ul>
 	 * @deprecated - use codeComplete(String, int, ICompletionRequestor) instead
-	 * TODO remove before 3.0
 	 */
 	public void codeComplete(
 		String codeSnippet,

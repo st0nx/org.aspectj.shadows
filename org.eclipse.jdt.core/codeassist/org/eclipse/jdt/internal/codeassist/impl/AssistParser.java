@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -33,11 +33,13 @@ import org.eclipse.jdt.internal.compiler.ast.NameReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 import org.eclipse.jdt.internal.compiler.parser.Parser;
+import org.eclipse.jdt.internal.compiler.parser.RecoveredBlock;
 import org.eclipse.jdt.internal.compiler.parser.RecoveredElement;
 import org.eclipse.jdt.internal.compiler.parser.RecoveredField;
 import org.eclipse.jdt.internal.compiler.parser.RecoveredInitializer;
 import org.eclipse.jdt.internal.compiler.parser.RecoveredMethod;
 import org.eclipse.jdt.internal.compiler.parser.RecoveredType;
+import org.eclipse.jdt.internal.compiler.parser.RecoveredUnit;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 
@@ -79,7 +81,7 @@ public abstract class AssistParser extends Parser {
 
 public AssistParser(ProblemReporter problemReporter) {
 	super(problemReporter, true);
-	this.javadocParser.checkJavadoc = false;
+	this.javadocParser.checkDocComment = false;
 }
 public abstract char[] assistIdentifier();
 public int bodyEnd(AbstractMethodDeclaration method){
@@ -319,16 +321,14 @@ protected void consumeOpenBlock() {
 	// OpenBlock ::= $empty
 
 	super.consumeOpenBlock();
-	try {
-		blockStarts[realBlockPtr] = scanner.startPosition;
-	} catch (IndexOutOfBoundsException e) {
-		//realBlockPtr is correct 
-		int oldStackLength = blockStarts.length;
-		int oldStack[] = blockStarts;
-		blockStarts = new int[oldStackLength + StackIncrement];
-		System.arraycopy(oldStack, 0, blockStarts, 0, oldStackLength);
-		blockStarts[realBlockPtr] = scanner.startPosition;
+	int stackLength = this.blockStarts.length;
+	if (this.realBlockPtr >= stackLength) {
+		System.arraycopy(
+			this.blockStarts, 0,
+			this.blockStarts = new int[stackLength + StackIncrement], 0,
+			stackLength);
 	}
+	this.blockStarts[this.realBlockPtr] = scanner.startPosition;
 }
 protected void consumePackageDeclarationName() {
 	// PackageDeclarationName ::= 'package' Name
@@ -1031,21 +1031,19 @@ protected void pushOnElementStack(int kind, int info){
 	this.previousKind = 0;
 	this.previousInfo = 0;
 	
-	try {
-		this.elementPtr++;
-		this.elementKindStack[this.elementPtr] = kind;
-		this.elementInfoStack[this.elementPtr] = info;
-	} catch (IndexOutOfBoundsException e) {
-		int oldStackLength = this.elementKindStack.length;
-		int oldElementStack[] = this.elementKindStack;
-		int oldElementInfoStack[] = this.elementInfoStack;
-		this.elementKindStack = new int[oldStackLength + StackIncrement];
-		this.elementInfoStack = new int[oldStackLength + StackIncrement];
-		System.arraycopy(oldElementStack, 0, this.elementKindStack, 0, oldStackLength);
-		System.arraycopy(oldElementInfoStack, 0, this.elementInfoStack, 0, oldStackLength);
-		this.elementKindStack[this.elementPtr] = kind;
-		this.elementInfoStack[this.elementPtr] = info;
+	int stackLength = this.elementKindStack.length;
+	if (++this.elementPtr >= stackLength) {
+		System.arraycopy(
+			this.elementKindStack, 0,
+			this.elementKindStack = new int[stackLength + StackIncrement], 0,
+			stackLength);
+		System.arraycopy(
+			this.elementInfoStack, 0,
+			this.elementInfoStack = new int[stackLength + StackIncrement], 0,
+			stackLength);
 	}
+	this.elementKindStack[this.elementPtr] = kind;
+	this.elementInfoStack[this.elementPtr] = info;
 }
 public void recoveryExitFromVariable() {
 	if(currentElement != null && currentElement instanceof RecoveredField
@@ -1079,12 +1077,17 @@ public void recoveryTokenCheck() {
 			super.recoveryTokenCheck();
 			if(currentElement != oldElement) {
 				if(oldElement instanceof RecoveredInitializer
-					|| oldElement instanceof RecoveredMethod) {
+					|| oldElement instanceof RecoveredMethod
+					|| (oldElement instanceof RecoveredBlock && oldElement.parent instanceof RecoveredInitializer)) {
 					popUntilElement(K_METHOD_DELIMITER);
 					popElement(K_METHOD_DELIMITER);
 				} else if(oldElement instanceof RecoveredType) {
 					popUntilElement(K_TYPE_DELIMITER);
-					popElement(K_TYPE_DELIMITER);
+					if(!(referenceContext instanceof CompilationUnitDeclaration) 
+							|| isIndirectlyInsideFieldInitialization()
+							|| currentElement instanceof RecoveredUnit) {
+						popElement(K_TYPE_DELIMITER);
+					}
 				}
 			}
 			break;

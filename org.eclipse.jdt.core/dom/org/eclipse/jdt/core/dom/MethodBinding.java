@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,7 +18,7 @@ import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
  */
 class MethodBinding implements IMethodBinding {
 
-	private static final ITypeBinding[] NO_PARAMETERS = new ITypeBinding[0];
+	private static final ITypeBinding[] NO_TYPE_BINDINGS = new ITypeBinding[0];
 	private org.eclipse.jdt.internal.compiler.lookup.MethodBinding binding;
 	private BindingResolver resolver;
 	private ITypeBinding[] parameterTypes;
@@ -84,7 +84,7 @@ class MethodBinding implements IMethodBinding {
 		org.eclipse.jdt.internal.compiler.lookup.TypeBinding[] parameters = this.binding.parameters;
 		int length = parameters.length;
 		if (length == 0) {
-			return NO_PARAMETERS;
+			return NO_TYPE_BINDINGS;
 		}
 		this.parameterTypes = new ITypeBinding[length];
 		for (int i = 0; i < length; i++) {
@@ -113,7 +113,7 @@ class MethodBinding implements IMethodBinding {
 		org.eclipse.jdt.internal.compiler.lookup.TypeBinding[] exceptions = this.binding.thrownExceptions;
 		int length = exceptions.length;
 		if (length == 0) {
-			return NO_PARAMETERS;
+			return NO_TYPE_BINDINGS;
 		}
 		this.exceptionTypes = new ITypeBinding[length];
 		for (int i = 0; i < length; i++) {
@@ -167,16 +167,29 @@ class MethodBinding implements IMethodBinding {
 		ITypeBinding[] parameters = getParameterTypes();
 		buffer.append('(');
 		for (int i = 0, max = parameters.length; i < max; i++) {
-			buffer.append(parameters[i].getKey());
+			ITypeBinding parameter = parameters[i];
+			if (parameter != null) {
+				buffer.append(parameter.getKey());
+			}
 		}
 		buffer.append(')');
 		ITypeBinding[] thrownExceptions = getExceptionTypes();
 		for (int i = 0, max = thrownExceptions.length; i < max; i++) {
-			buffer.append(thrownExceptions[i].getKey());
+			if (thrownExceptions[i] != null) {
+				buffer.append(thrownExceptions[i].getKey());
+			}
 		}
 		return buffer.toString();
 	}
 	
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getTypeParameters()
+	 */
+	public ITypeBinding[] getTypeParameters() {
+		// TODO (olivier) missing implementation of J2SE 1.5 language feature
+		return NO_TYPE_BINDINGS;
+	}
+
 	/* 
 	 * For debugging purpose only.
 	 * @see java.lang.Object#toString()

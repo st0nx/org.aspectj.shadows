@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -44,7 +44,9 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 	String logFileName;
 	
 	/**
-	 * Performs a compile using the JDT batch compiler 
+	 * Performs a compile using the JDT batch compiler
+	 * @throws BuildException if anything wrong happen during the compilation
+	 * @return boolean true if the compilation is ok, false otherwise
 	 */
 	public boolean execute() throws BuildException {
 		attributes.log(AntAdapterMessages.getString("ant.jdtadapter.info.usingJDTCompiler"), Project.MSG_VERBOSE); //$NON-NLS-1$
@@ -234,10 +236,15 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 				} else {
 					cmd.createArgument().setValue("-nowarn"); //$NON-NLS-1$
 				}
-			} else if (deprecation) {
-				cmd.createArgument().setValue("-warn:allDeprecation"); //$NON-NLS-1$
-			} else if (compilerArgs.length == 0) {
-				cmd.createArgument().setValue("-warn:constructorName,packageDefaultMethod,maskedCatchBlocks,unusedImports,staticReceiver"); //$NON-NLS-1$
+			} else {
+				if (deprecation) {
+					cmd.createArgument().setValue("-warn:+allDeprecation"); //$NON-NLS-1$
+				} else {
+					cmd.createArgument().setValue("-warn:-allDeprecation,deprecation"); //$NON-NLS-1$
+				}
+				if (compilerArgs.length == 0) {
+					cmd.createArgument().setValue("-warn:+constructorName,packageDefaultMethod,maskedCatchBlocks,unusedImports,staticReceiver"); //$NON-NLS-1$
+				}
 			}
 	        /*
 			 * Add extra argument on the command line
@@ -324,7 +331,7 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
      * This method adds all files in the given
      * directories (but not in sub-directories!) to the classpath,
      * so that you don't have to specify them all one by one.
-     * @param extdirs - Path to append files to
+     * @param extDirs - Path to append files to
      */
     private void addExtdirs(Path extDirs, Path classpath) {
         if (extDirs == null) {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -447,7 +447,7 @@ public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes
 	if ((modifiers & AccUnresolved) == 0) { // have resolved all arg types & return type of the methods
 		nextMethod : for (int m = methods.length; --m >= 0;) {
 			MethodBinding method = methods[m];
-			if (method.selector.length == selectorLength && CharOperation.prefixEquals(method.selector, selector)) {
+			if (method.selector.length == selectorLength && CharOperation.equals(method.selector, selector)) {
 				foundNothing = false; // inner type lookups must know that a method with this name exists
 				if (method.parameters.length == argCount) {
 					TypeBinding[] toMatch = method.parameters;
@@ -490,7 +490,7 @@ public FieldBinding getField(char[] fieldName, boolean needResolve) {
 	int fieldLength = fieldName.length;
 	for (int f = fields.length; --f >= 0;) {
 		FieldBinding field = fields[f];
-		if (field.name.length == fieldLength && CharOperation.prefixEquals(field.name, fieldName)) {
+		if (field.name.length == fieldLength && CharOperation.equals(field.name, fieldName)) {
 			if (resolveTypeFor(field) != null)
 				return field;
 
@@ -521,7 +521,7 @@ public MethodBinding[] getMethods(char[] selector) {
 		if ((modifiers & AccUnresolved) == 0) { // have resolved all arg types & return type of the methods
 			for (int m = 0, length = methods.length; m < length; m++) {
 				MethodBinding method = methods[m];
-				if (method.selector.length == selectorLength && CharOperation.prefixEquals(method.selector, selector)) {
+				if (method.selector.length == selectorLength && CharOperation.equals(method.selector, selector)) {
 					count++;
 					lastIndex = m;
 				}
@@ -531,7 +531,7 @@ public MethodBinding[] getMethods(char[] selector) {
 			int failed = 0;
 			for (int m = 0, length = methods.length; m < length; m++) {
 				MethodBinding method = methods[m];
-				if (method.selector.length == selectorLength && CharOperation.prefixEquals(method.selector, selector)) {
+				if (method.selector.length == selectorLength && CharOperation.equals(method.selector, selector)) {
 					if (resolveTypesFor(method) == null) {
 						foundProblem = true;
 						methods[m] = null; // unable to resolve parameters
@@ -548,7 +548,7 @@ public MethodBinding[] getMethods(char[] selector) {
 			if (foundProblem || count > 1) {
 				for (int m = methods.length; --m >= 0;) {
 					MethodBinding method = methods[m];
-					if (method != null && method.selector.length == selectorLength && CharOperation.prefixEquals(method.selector, selector)) {
+					if (method != null && method.selector.length == selectorLength && CharOperation.equals(method.selector, selector)) {
 						AbstractMethodDeclaration methodDecl = null;
 						for (int i = 0; i < m; i++) {
 							MethodBinding method2 = methods[i];
@@ -597,7 +597,7 @@ public MethodBinding[] getMethods(char[] selector) {
 			count = 0;
 			for (int m = 0; m <= lastIndex; m++) {
 				MethodBinding method = methods[m];
-				if (method.selector.length == selectorLength && CharOperation.prefixEquals(method.selector, selector))
+				if (method.selector.length == selectorLength && CharOperation.equals(method.selector, selector))
 					result[count++] = method;
 			}
 			return result;
@@ -632,21 +632,21 @@ public FieldBinding getSyntheticField(LocalVariableBinding actualOuterLocalVaria
 	return (FieldBinding) synthetics[FIELD_EMUL].get(actualOuterLocalVariable);
 }
 public ReferenceBinding[] memberTypes() {
-	return memberTypes;
+	return this.memberTypes;
 }
 public FieldBinding getUpdatedFieldBinding(FieldBinding targetField, ReferenceBinding newDeclaringClass) {
 
-	if (synthetics == null) {
-		synthetics = new Hashtable[4];
+	if (this.synthetics == null) {
+		this.synthetics = new Hashtable[4];
 	}
-	if (synthetics[RECEIVER_TYPE_EMUL] == null) {
-		synthetics[RECEIVER_TYPE_EMUL] = new Hashtable(5);
+	if (this.synthetics[RECEIVER_TYPE_EMUL] == null) {
+		this.synthetics[RECEIVER_TYPE_EMUL] = new Hashtable(5);
 	}
 
-	Hashtable fieldMap = (Hashtable) synthetics[RECEIVER_TYPE_EMUL].get(targetField);
+	Hashtable fieldMap = (Hashtable) this.synthetics[RECEIVER_TYPE_EMUL].get(targetField);
 	if (fieldMap == null) {
 		fieldMap = new Hashtable(5);
-		synthetics[RECEIVER_TYPE_EMUL].put(targetField, fieldMap);
+		this.synthetics[RECEIVER_TYPE_EMUL].put(targetField, fieldMap);
 	}
 	FieldBinding updatedField = (FieldBinding) fieldMap.get(newDeclaringClass);
 	if (updatedField == null){
@@ -658,18 +658,18 @@ public FieldBinding getUpdatedFieldBinding(FieldBinding targetField, ReferenceBi
 
 public MethodBinding getUpdatedMethodBinding(MethodBinding targetMethod, ReferenceBinding newDeclaringClass) {
 
-	if (synthetics == null) {
-		synthetics = new Hashtable[4];
+	if (this.synthetics == null) {
+		this.synthetics = new Hashtable[4];
 	}
-	if (synthetics[RECEIVER_TYPE_EMUL] == null) {
-		synthetics[RECEIVER_TYPE_EMUL] = new Hashtable(5);
+	if (this.synthetics[RECEIVER_TYPE_EMUL] == null) {
+		this.synthetics[RECEIVER_TYPE_EMUL] = new Hashtable(5);
 	}
 
 
 	Hashtable methodMap = (Hashtable) synthetics[RECEIVER_TYPE_EMUL].get(targetMethod);
 	if (methodMap == null) {
 		methodMap = new Hashtable(5);
-		synthetics[RECEIVER_TYPE_EMUL].put(targetMethod, methodMap);
+		this.synthetics[RECEIVER_TYPE_EMUL].put(targetMethod, methodMap);
 	}
 	MethodBinding updatedMethod = (MethodBinding) methodMap.get(newDeclaringClass);
 	if (updatedMethod == null){
@@ -678,7 +678,9 @@ public MethodBinding getUpdatedMethodBinding(MethodBinding targetMethod, Referen
 	}
 	return updatedMethod;
 }
-
+public boolean hasMemberTypes() {
+    return this.memberTypes.length > 0;
+}
 // NOTE: the return type, arg & exception types of each method of a source type are resolved when needed
 public MethodBinding[] methods() {
 	try {
@@ -1053,9 +1055,9 @@ public FieldBinding getSyntheticField(ReferenceBinding targetEnclosingType, bool
 	// class T { class M{}}
 	// class S extends T { class N extends M {}} --> need to use S as a default enclosing instance for the super constructor call in N().
 	if (!onlyExactMatch){
-		Enumeration enum = synthetics[FIELD_EMUL].elements();
-		while (enum.hasMoreElements()) {
-			field = (FieldBinding) enum.nextElement();
+		Enumeration accessFields = synthetics[FIELD_EMUL].elements();
+		while (accessFields.hasMoreElements()) {
+			field = (FieldBinding) accessFields.nextElement();
 			if (CharOperation.prefixEquals(SyntheticArgumentBinding.EnclosingInstancePrefix, field.name)
 				&& targetEnclosingType.isSuperclassOf((ReferenceBinding) field.type))
 					return field;

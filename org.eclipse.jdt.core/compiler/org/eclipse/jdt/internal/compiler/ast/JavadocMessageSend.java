@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -38,7 +38,9 @@ public class JavadocMessageSend extends MessageSend {
 		// Answer the signature return type
 		// Base type promotion
 		this.constant = NotAConstant;
-		if (scope.kind == Scope.CLASS_SCOPE) {
+		if (this.receiver == null) {
+			this.receiverType = scope.enclosingSourceType();
+		} else if (scope.kind == Scope.CLASS_SCOPE) {
 			this.receiverType = this.receiver.resolveType((ClassScope) scope);
 		} else {
 			this.receiverType = this.receiver.resolveType((BlockScope) scope);
@@ -78,7 +80,21 @@ public class JavadocMessageSend extends MessageSend {
 			scope.problemReporter().javadocErrorNoMethodFor(this, this.receiverType, argumentTypes, scope.getDeclarationModifiers());
 			return null;
 		}
-		this.codegenBinding = this.binding = scope.getMethod(this.receiverType, this.selector, argumentTypes, this); 
+		this.binding = (this.receiver != null && this.receiver.isThis())
+			? scope.getImplicitMethod(this.selector, argumentTypes, this)
+			: scope.getMethod(this.receiverType, this.selector, argumentTypes, this);
+		if (!this.binding.isValidBinding()) {
+			// implicit lookup may discover issues due to static/constructor contexts. javadoc must be resilient
+			switch (this.binding.problemId()) {
+				case ProblemReasons.NonStaticReferenceInConstructorInvocation:
+				case ProblemReasons.NonStaticReferenceInStaticContext:
+				case ProblemReasons.InheritedNameHidesEnclosingName : 
+					MethodBinding closestMatch = ((ProblemMethodBinding)this.binding).closestMatch;
+					if (closestMatch != null) {
+						this.binding = closestMatch; // ignore problem if can reach target method through it
+					}
+			}
+		}
 		if (!this.binding.isValidBinding()) {
 			if (this.binding.declaringClass == null) {
 				if (this.receiverType instanceof ReferenceBinding) {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2002, 2003 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2004 International Business Machines Corp. and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0 
  * which accompanies this distribution, and is available at
@@ -38,6 +38,7 @@ import org.eclipse.jdt.internal.compiler.ast.InstanceOfExpression;
 import org.eclipse.jdt.internal.compiler.ast.IntLiteral;
 import org.eclipse.jdt.internal.compiler.ast.LongLiteral;
 import org.eclipse.jdt.internal.compiler.ast.MessageSend;
+import org.eclipse.jdt.internal.compiler.ast.StringLiteralConcatenation;
 import org.eclipse.jdt.internal.compiler.ast.NullLiteral;
 import org.eclipse.jdt.internal.compiler.ast.OR_OR_Expression;
 import org.eclipse.jdt.internal.compiler.ast.OperatorIds;
@@ -117,12 +118,15 @@ class BinaryExpressionFragmentBuilder
 	public boolean visit(
 		AND_AND_Expression and_and_Expression,
 		BlockScope scope) {
-			if (buildFragments(and_and_Expression)) {
-				this.operatorsList.add(new Integer(TerminalTokens.TokenNameAND_AND));
-				return true;
-			} else {
-				return false;
-			}
+
+		if (((and_and_Expression.bits & ASTNode.ParenthesizedMASK) >> ASTNode.ParenthesizedSHIFT) != 0) {
+			addRealFragment(and_and_Expression);
+		} else {
+			and_and_Expression.left.traverse(this, scope);
+			this.operatorsList.add(new Integer(TerminalTokens.TokenNameAND_AND));
+			and_and_Expression.right.traverse(this, scope);
+		}
+		return false;
 	}
 
 	public boolean visit(
@@ -322,18 +326,30 @@ class BinaryExpressionFragmentBuilder
 		return false;
 	}
 
+	public boolean visit(StringLiteralConcatenation stringLiteral, BlockScope scope) {
+		for (int i = 0, max = stringLiteral.counter; i < max; i++) {
+			this.addRealFragment(stringLiteral.literals[i]);
+			if (i < max - 1) {
+				this.operatorsList.add(new Integer(TerminalTokens.TokenNamePLUS));
+			}
+		}
+		return false;
+	}
+	
 	public boolean visit(NullLiteral nullLiteral, BlockScope scope) {
 		this.addRealFragment(nullLiteral);
 		return false;
 	}
 
 	public boolean visit(OR_OR_Expression or_or_Expression, BlockScope scope) {
-		if (buildFragments(or_or_Expression)) {
-			this.operatorsList.add(new Integer(TerminalTokens.TokenNameOR_OR));
-			return true;
+		if (((or_or_Expression.bits & ASTNode.ParenthesizedMASK) >> ASTNode.ParenthesizedSHIFT) != 0) {
+			addRealFragment(or_or_Expression);
 		} else {
-			return false;
+			or_or_Expression.left.traverse(this, scope);
+			this.operatorsList.add(new Integer(TerminalTokens.TokenNameOR_OR));
+			or_or_Expression.right.traverse(this, scope);
 		}
+		return false;		
 	}
 
 	public boolean visit(

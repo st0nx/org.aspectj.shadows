@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -8,6 +8,7 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     IBM Corporation - added constant AccDefault
+ *     IBM Corporation - added constants AccBridge and AccVarargs for J2SE 1.5 
  *******************************************************************************/
 package org.eclipse.jdt.core;
 
@@ -111,6 +112,36 @@ public final class Flags {
 	 */
 	public static final int AccDeprecated = IConstants.AccDeprecated;
 	
+	/**
+	 * Bridge method property flag (added in J2SE 1.5). Used to flag a compiler-generated
+	 * bridge methods.
+	 * See The Java Virtual Machine Specification for more details.
+	 * @since 3.0
+	 */
+	public static final int AccBridge = IConstants.AccBridge;
+
+	/**
+	 * Varargs method property flag (added in J2SE 1.5).
+	 * Used to flag variable arity method declarations.
+	 * See The Java Virtual Machine Specification for more details.
+	 * @since 3.0
+	 */
+	public static final int AccVarargs = IConstants.AccVarargs;
+
+	/**
+	 * Enum property flag (added in J2SE 1.5).
+	 * See The Java Virtual Machine Specification for more details.
+	 * @since 3.0
+	 */
+	public static final int AccEnum = 0x4000;
+
+	/**
+	 * Annotation property flag (added in J2SE 1.5).
+	 * See The Java Virtual Machine Specification for more details.
+	 * @since 3.0
+	 */
+	public static final int AccAnnotation = 0x2000;
+
 	/**
 	 * Not instantiable.
 	 */
@@ -246,10 +277,63 @@ public final class Flags {
 	public static boolean isVolatile(int flags) {
 		return (flags & AccVolatile) != 0;
 	}
+	
+	/**
+	 * Returns whether the given integer has the <code>AccBridge</code>
+	 * bit set.
+	 *
+	 * @param flags the flags
+	 * @return <code>true</code> if the <code>AccBridge</code> flag is included
+	 * @see #AccBridge
+	 * @since 3.0
+	 */
+	public static boolean isBridge(int flags) {
+		return (flags & AccBridge) != 0;
+	}
+	
+	/**
+	 * Returns whether the given integer has the <code>AccVarargs</code>
+	 * bit set.
+	 *
+	 * @param flags the flags
+	 * @return <code>true</code> if the <code>AccVarargs</code> flag is included
+	 * @see #AccVarargs
+	 * @since 3.0
+	 */
+	public static boolean isVarargs(int flags) {
+		return (flags & AccVarargs) != 0;
+	}
+	
+	/**
+	 * Returns whether the given integer has the <code>AccEnum</code>
+	 * bit set.
+	 *
+	 * @param flags the flags
+	 * @return <code>true</code> if the <code>AccEnum</code> flag is included
+	 * @see #AccEnum
+	 * @since 3.0
+	 */
+	public static boolean isEnum(int flags) {
+		return (flags & AccEnum) != 0;
+	}
+	
+	/**
+	 * Returns whether the given integer has the <code>AccAnnotation</code>
+	 * bit set.
+	 *
+	 * @param flags the flags
+	 * @return <code>true</code> if the <code>AccAnnotation</code> flag is included
+	 * @see #AccAnnotation
+	 * @since 3.0
+	 */
+	public static boolean isAnnotation(int flags) {
+		return (flags & AccAnnotation) != 0;
+	}
+	
 	/**
 	 * Returns a standard string describing the given modifier flags.
-	 * Only modifier flags are included in the output; the deprecated and
-	 * synthetic flags are ignored if set.
+	 * Only modifier flags are included in the output; deprecated,
+	 * synthetic, bridge, etc. flags are ignored.
 	 * <p>
 	 * The flags are output in the following order:
 	 * <pre>

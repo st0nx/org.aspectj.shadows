@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -156,6 +156,7 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 					return false;
 				}
 				if (isStatic()){
+					if (depth > 0) invocationSite.setDepth(depth);
 					return true; // see 1FMEPDL - return invocationSite.isTypeAccess();
 				}
 				if (currentType == receiverType || currentType.isSuperclassOf((ReferenceBinding) receiverType)){
@@ -231,6 +232,12 @@ public final int getAccessFlags() {
 */
 public final boolean isAbstract() {
 	return (modifiers & AccAbstract) != 0;
+}
+
+/* Answer true if the receiver is a bridge method
+*/
+public final boolean isBridge() {
+	return (modifiers & AccBridge) != 0;
 }
 
 /* Answer true if the receiver is a constructor
@@ -356,6 +363,12 @@ public final boolean isSynthetic() {
 	return (modifiers & AccSynthetic) != 0;
 }
 
+/* Answer true if the receiver is a vararg method
+*/
+public final boolean isVararg() {
+	return (modifiers & AccVarargs) != 0;
+}
+
 /* Answer true if the receiver's declaring type is deprecated (or any of its enclosing types)
 */
 public final boolean isViewedAsDeprecated() {
@@ -460,8 +473,7 @@ public final int sourceEnd() {
 	AbstractMethodDeclaration method = sourceMethod();
 	if (method == null)
 		return 0;
-	else
-		return method.sourceEnd;
+	return method.sourceEnd;
 }
 AbstractMethodDeclaration sourceMethod() {
 	SourceTypeBinding sourceType;
@@ -481,8 +493,7 @@ public final int sourceStart() {
 	AbstractMethodDeclaration method = sourceMethod();
 	if (method == null)
 		return 0;
-	else
-		return method.sourceStart;
+	return method.sourceStart;
 }
 /* During private access emulation, the binding can be requested to loose its
  * private visibility when the class file is dumped.

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -123,7 +123,7 @@ private void checkExceptions(MethodBinding newMethod, MethodBinding inheritedMet
 	for (int i = newExceptions.length; --i >= 0;) {
 		ReferenceBinding newException = newExceptions[i];
 		int j = inheritedExceptions.length;
-		while (--j > -1 && !this.isSameClassOrSubclassOf(newException, inheritedExceptions[j]));
+		while (--j > -1 && !this.isSameClassOrSubclassOf(newException, inheritedExceptions[j])){/*empty*/}
 		if (j == -1)
 			if (!(newException.isCompatibleWith(this.runtimeException()) || newException.isCompatibleWith(this.errorException())))
 				this.problemReporter(newMethod).incompatibleExceptionInThrowsClause(this.type, newMethod, inheritedMethod, newException);
@@ -132,7 +132,7 @@ private void checkExceptions(MethodBinding newMethod, MethodBinding inheritedMet
 private void checkInheritedMethods(MethodBinding[] methods, int length) {
 	TypeBinding returnType = methods[0].returnType;
 	int index = length;
-	while (--index > 0 && areTypesEqual(returnType, methods[index].returnType));
+	while (--index > 0 && areTypesEqual(returnType, methods[index].returnType)){/*empty*/}
 	if (index > 0) {  // All inherited methods do NOT have the same vmSignature
 		this.problemReporter().inheritedMethodsHaveIncompatibleReturnTypes(this.type, methods, length);
 		return;
@@ -200,13 +200,18 @@ For each inherited method identifier (message pattern - vm signature minus the r
 				else
 					complain about missing implementation only if type is NOT an interface or abstract
 */
-private void checkMethods() { 
+private void checkMethods() {
 	boolean mustImplementAbstractMethods = this.type.isClass() && !this.type.isAbstract();
+	boolean skipInheritedMethods = mustImplementAbstractMethods && this.type.superInterfaces() == NoSuperInterfaces
+		&& this.type.superclass() != null && !this.type.superclass().isAbstract(); // have a single concrete superclass so only check overridden methods
 	char[][] methodSelectors = this.inheritedMethods.keyTable;
 	nextSelector : for (int s = methodSelectors.length; --s >= 0;) {
 		if (methodSelectors[s] == null) continue nextSelector;
 
 		MethodBinding[] current = (MethodBinding[]) this.currentMethods.get(methodSelectors[s]);
+		if (current == null && skipInheritedMethods)
+			continue nextSelector;
+
 		MethodBinding[] inherited = (MethodBinding[]) this.inheritedMethods.valueTable[s];
 		if (inherited.length == 1 && current == null) { // handle the common case
 			if (mustImplementAbstractMethods && inherited[0].isAbstract())

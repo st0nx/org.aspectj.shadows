@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -192,9 +192,6 @@ public abstract class ASTVisitor {
 	public void endVisit(IntLiteral intLiteral, BlockScope scope) {
 		// do nothing by default
 	}
-	public void endVisit(IteratorForStatement forStatement, BlockScope scope) {
-		// do nothing by default
-	}
 	public void endVisit(LabeledStatement labeledStatement, BlockScope scope) {
 		// do nothing by default
 	}
@@ -208,6 +205,9 @@ public abstract class ASTVisitor {
 		// do nothing by default
 	}
 	public void endVisit(MethodDeclaration methodDeclaration, ClassScope scope) {
+		// do nothing by default
+	}
+	public void endVisit(StringLiteralConcatenation literal, BlockScope scope) {
 		// do nothing by default
 	}
 	public void endVisit(NullLiteral nullLiteral, BlockScope scope) {
@@ -488,9 +488,6 @@ public abstract class ASTVisitor {
 	public boolean visit(IntLiteral intLiteral, BlockScope scope) {
 		return true; // do nothing by default, keep traversing
 	}
-	public boolean visit(IteratorForStatement forStatement, BlockScope scope) {
-		return true; // do nothing by default, keep traversing
-	}
 	public boolean visit(LabeledStatement labeledStatement, BlockScope scope) {
 		return true; // do nothing by default, keep traversing
 	}
@@ -504,6 +501,11 @@ public abstract class ASTVisitor {
 		return true; // do nothing by default, keep traversing
 	}
 	public boolean visit(MethodDeclaration methodDeclaration, ClassScope scope) {
+		return true; // do nothing by default, keep traversing
+	}
+	public boolean visit(
+			StringLiteralConcatenation literal,
+			BlockScope scope) {
 		return true; // do nothing by default, keep traversing
 	}
 	public boolean visit(NullLiteral nullLiteral, BlockScope scope) {

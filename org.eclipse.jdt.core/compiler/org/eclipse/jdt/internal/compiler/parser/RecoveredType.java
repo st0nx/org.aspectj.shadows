@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -137,7 +137,7 @@ public RecoveredElement add(TypeDeclaration memberTypeDeclaration, int bracketBa
 			lastMethod.methodDeclaration.bodyEnd = 0; // reopen method
 			lastMethod.methodDeclaration.declarationSourceEnd = 0; // reopen method
 			lastMethod.bracketBalance++; // expect one closing brace
-			return lastMethod.add(typeDeclaration, bracketBalanceValue);
+			return lastMethod.add(memberTypeDeclaration, bracketBalanceValue);
 		} else {
 			// ignore
 			return this;
@@ -223,7 +223,7 @@ public String toString(int tab) {
 		result.append(tabString(tab));
 		result.append(" "); //$NON-NLS-1$
 	}
-	result.append(typeDeclaration.print(tab + 1, result));
+	typeDeclaration.print(tab + 1, result);
 	if (this.memberTypes != null) {
 		for (int i = 0; i < this.memberTypeCount; i++) {
 			result.append("\n"); //$NON-NLS-1$

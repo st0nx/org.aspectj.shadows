@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -182,117 +182,95 @@ public final boolean canBeSeenBy(Scope scope) {
 }
 public void computeId() {
 	if (compoundName.length != 3) {
-		if (compoundName.length == 4 && CharOperation.equals(JAVA_LANG_REFLECT_CONSTRUCTOR, compoundName)) {
+		if (compoundName.length == 4 && CharOperation.equals(JAVA_LANG_REFLECT_CONSTRUCTOR, compoundName))
 			id = T_JavaLangReflectConstructor;
-			return;
-		}
-		return;		// all other types are in java.*.*
+		return;
 	}
 
 	if (!CharOperation.equals(JAVA, compoundName[0]))
-		return;		// assumes we only look up types in java
+		return;
 
+	// remaining types MUST be in java.*.*
 	if (!CharOperation.equals(LANG, compoundName[1])) {
-		if (CharOperation.equals(JAVA_IO_PRINTSTREAM, compoundName)) {
+		if (CharOperation.equals(JAVA_IO_PRINTSTREAM, compoundName))
 			id = T_JavaIoPrintStream;
+		else if (CharOperation.equals(JAVA_IO_SERIALIZABLE, compoundName))
+		    id = T_JavaIoSerializable;
+		return;
+	}
+
+	// remaining types MUST be in java.lang.*
+	char[] typeName = compoundName[2];
+	if (typeName.length == 0) return; // just to be safe
+	switch (typeName[0]) {
+		case 'A' :
+			if (CharOperation.equals(typeName, JAVA_LANG_ASSERTIONERROR[2]))
+				id = T_JavaLangAssertionError;
 			return;
-		}
-		return;		// all other types are in java.lang
-	}
-
-	if (CharOperation.equals(JAVA_LANG_OBJECT, compoundName)) {
-		id = T_JavaLangObject;
-		return;
-	}
-	if (CharOperation.equals(JAVA_LANG_STRING, compoundName)) {
-		id = T_JavaLangString;
-		return;
-	}
-
-	// well-known exception types
-	if (CharOperation.equals(JAVA_LANG_THROWABLE, compoundName)) {
-		id = T_JavaLangThrowable;
-		return;
-	}
-	if (CharOperation.equals(JAVA_LANG_ERROR, compoundName)) {
-		id = T_JavaLangError;
-		return;
-	}
-	if (CharOperation.equals(JAVA_LANG_EXCEPTION, compoundName)) {
-		id = T_JavaLangException;
-		return;
-	}
-	if (CharOperation.equals(JAVA_LANG_CLASSNOTFOUNDEXCEPTION, compoundName)) {
-		id = T_JavaLangClassNotFoundException;
-		return;
-	}
-	if (CharOperation.equals(JAVA_LANG_NOCLASSDEFERROR, compoundName)) {
-		id = T_JavaLangNoClassDefError;
-		return;
-	}
-
-	// other well-known types
-	if (CharOperation.equals(JAVA_LANG_CLASS, compoundName)) {
-		id = T_JavaLangClass;
-		return;
-	}
-	if (CharOperation.equals(JAVA_LANG_STRINGBUFFER, compoundName)) {
-		id = T_JavaLangStringBuffer;
-		return;
-	}
-	if (CharOperation.equals(JAVA_LANG_SYSTEM, compoundName)) {
-		id = T_JavaLangSystem;
-		return;
-	}
-
-	if (CharOperation.equals(JAVA_LANG_INTEGER, compoundName)) {
-		id = T_JavaLangInteger;
-		return;
-	}
-
-	if (CharOperation.equals(JAVA_LANG_BYTE, compoundName)) {
-		id = T_JavaLangByte;
-		return;
-	}	
-
-	if (CharOperation.equals(JAVA_LANG_CHARACTER, compoundName)) {
-		id = T_JavaLangCharacter;
-		return;
-	}
-
-	if (CharOperation.equals(JAVA_LANG_FLOAT, compoundName)) {
-		id = T_JavaLangFloat;
-		return;
-	}
-
-	if (CharOperation.equals(JAVA_LANG_DOUBLE, compoundName)) {
-		id = T_JavaLangDouble;
-		return;
-	}
-
-	if (CharOperation.equals(JAVA_LANG_BOOLEAN, compoundName)) {
-		id = T_JavaLangBoolean;
-		return;
-	}
-
-	if (CharOperation.equals(JAVA_LANG_SHORT, compoundName)) {
-		id = T_JavaLangShort;
-		return;
-	}
-
-	if (CharOperation.equals(JAVA_LANG_LONG, compoundName)) {
-		id = T_JavaLangLong;
-		return;
-	}
-
-	if (CharOperation.equals(JAVA_LANG_VOID, compoundName)) {
-		id = T_JavaLangVoid;
-		return;
-	}
-	
-	if (CharOperation.equals(JAVA_LANG_ASSERTIONERROR, compoundName)) {
-		id = T_JavaLangAssertionError;
-		return;
+		case 'B' :
+			if (CharOperation.equals(typeName, JAVA_LANG_BOOLEAN[2]))
+				id = T_JavaLangBoolean;
+			else if (CharOperation.equals(typeName, JAVA_LANG_BYTE[2]))
+				id = T_JavaLangByte;
+			return;
+		case 'C' :
+			if (CharOperation.equals(typeName, JAVA_LANG_CHARACTER[2]))
+				id = T_JavaLangCharacter;
+			else if (CharOperation.equals(typeName, JAVA_LANG_CLASS[2]))
+				id = T_JavaLangClass;
+			else if (CharOperation.equals(typeName, JAVA_LANG_CLASSNOTFOUNDEXCEPTION[2]))
+				id = T_JavaLangClassNotFoundException;
+			else if (CharOperation.equals(typeName, JAVA_LANG_CLONEABLE[2]))
+			    id = T_JavaLangCloneable;
+			return;
+		case 'D' :
+			if (CharOperation.equals(typeName, JAVA_LANG_DOUBLE[2]))
+				id = T_JavaLangDouble;
+			return;
+		case 'E' :
+			if (CharOperation.equals(typeName, JAVA_LANG_ERROR[2]))
+				id = T_JavaLangError;
+			else if (CharOperation.equals(typeName, JAVA_LANG_EXCEPTION[2]))
+				id = T_JavaLangException;
+			return;
+		case 'F' :
+			if (CharOperation.equals(typeName, JAVA_LANG_FLOAT[2]))
+				id = T_JavaLangFloat;
+			return;
+		case 'I' :
+			if (CharOperation.equals(typeName, JAVA_LANG_INTEGER[2]))
+				id = T_JavaLangInteger;
+			return;
+		case 'L' :
+			if (CharOperation.equals(typeName, JAVA_LANG_LONG[2]))
+				id = T_JavaLangLong;
+			return;
+		case 'N' :
+			if (CharOperation.equals(typeName, JAVA_LANG_NOCLASSDEFERROR[2]))
+				id = T_JavaLangNoClassDefError;
+			return;
+		case 'O' :
+			if (CharOperation.equals(typeName, JAVA_LANG_OBJECT[2]))
+				id = T_JavaLangObject;
+			return;
+		case 'S' :
+			if (CharOperation.equals(typeName, JAVA_LANG_STRING[2]))
+				id = T_JavaLangString;
+			else if (CharOperation.equals(typeName, JAVA_LANG_STRINGBUFFER[2]))
+				id = T_JavaLangStringBuffer;
+			else if (CharOperation.equals(typeName, JAVA_LANG_SYSTEM[2]))
+				id = T_JavaLangSystem;
+			else if (CharOperation.equals(typeName, JAVA_LANG_SHORT[2]))
+				id = T_JavaLangShort;
+			return;
+		case 'T' :
+			if (CharOperation.equals(typeName, JAVA_LANG_THROWABLE[2]))
+				id = T_JavaLangThrowable;
+			return;
+		case 'V' :
+			if (CharOperation.equals(typeName, JAVA_LANG_VOID[2]))
+				id = T_JavaLangVoid;
+			return;
 	}
 }
 /* Answer the receiver's constant pool name.
@@ -370,6 +348,9 @@ public MethodBinding[] getMethods(char[] selector) {
 }
 public PackageBinding getPackage() {
 	return fPackage;
+}
+public boolean hasMemberTypes() {
+    return false;
 }
 /* Answer true if the receiver implements anInterface or is identical to anInterface.
 * If searchHierarchy is true, then also search the receiver's superclasses.
@@ -597,8 +578,7 @@ public ReferenceBinding[] syntheticEnclosingInstanceTypes() {
 	ReferenceBinding enclosingType = enclosingType();
 	if (enclosingType == null)
 		return null;
-	else
-		return new ReferenceBinding[] {enclosingType};
+	return new ReferenceBinding[] {enclosingType};
 }
 public SyntheticArgumentBinding[] syntheticOuterLocalVariables() {
 	return null;		// is null if no enclosing instances are required

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2002, 2003 International Business Machines Corp. and others.
+ * Copyright (c) 2000, 2004 International Business Machines Corp. and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0 
  * which accompanies this distribution, and is available at
@@ -22,9 +22,12 @@ public class Location {
 	public int outputColumn;
 	public int outputIndentationLevel;
 	public boolean needSpace;
+	public boolean pendingSpace;
+	public int nlsTagCounter;
+	public int lastLocalDeclarationSourceStart;
 
 	// chunk management
-	public int lastNumberOfNewLines;	
+	public int lastNumberOfNewLines;
 	
 	// edits management
 	int editsIndex;
@@ -41,7 +44,9 @@ public class Location {
 		this.outputIndentationLevel = scribe.indentationLevel;
 		this.lastNumberOfNewLines = scribe.lastNumberOfNewLines;
 		this.needSpace = scribe.needSpace;
+		this.pendingSpace = scribe.pendingSpace;
 		this.editsIndex = scribe.editsIndex;
+		this.nlsTagCounter = scribe.nlsTagCounter;
 		textEdit = scribe.getLastEdit();
 	}
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -362,6 +362,10 @@ public class DiagnoseParser implements ParserBasicInformation, TerminalTokens {
 				if(parser.reportOnlyOneSyntaxError) {
 					return;
 				}
+				
+				if(this.parser.problemReporter().options.maxProblemsPerUnit < this.parser.compilationUnit.compilationResult.problemCount) {
+					return;
+				}
 
 				act = stack[stateStackTop];
 
@@ -484,7 +488,7 @@ public class DiagnoseParser implements ParserBasicInformation, TerminalTokens {
 		// remaining tokens in the input.
 		//
 		int i;
-		for (i = BUFF_UBOUND; lexStream.kind(buffer[i]) == EOFT_SYMBOL; i--);
+		for (i = BUFF_UBOUND; lexStream.kind(buffer[i]) == EOFT_SYMBOL; i--){/*empty*/}
 
 		reportError(DELETION_CODE,
 					Parser.terminal_index[prevtokKind],//Parser.terminal_index[lexStream.kind(prevtok)],
@@ -695,16 +699,18 @@ public class DiagnoseParser implements ParserBasicInformation, TerminalTokens {
 		//
 		//  Next, try merging the error token with its successor.
 		//
-		symbol = mergeCandidate(stck[stack_top], repair.bufferPosition);
-		if (symbol != 0) {
-			j = parseCheck(stck, stack_top, symbol, repair.bufferPosition+2);
-			if ((j > repair.distance) || (j == repair.distance && repair.misspellIndex < 10)) {
-				repair.misspellIndex = 10;
-				repair.symbol = symbol;
-				repair.distance = j;
-				repair.code = MERGE_CODE;
+	    if(buffer[repair.bufferPosition] != 0 && buffer[repair.bufferPosition + 1] != 0) {// do not merge the first token
+			symbol = mergeCandidate(stck[stack_top], repair.bufferPosition);
+			if (symbol != 0) {
+				j = parseCheck(stck, stack_top, symbol, repair.bufferPosition+2);
+				if ((j > repair.distance) || (j == repair.distance && repair.misspellIndex < 10)) {
+					repair.misspellIndex = 10;
+					repair.symbol = symbol;
+					repair.distance = j;
+					repair.code = MERGE_CODE;
+				}
 			}
-		}
+	    }
 
 		//
 		// Next, try deletion of the error token.
@@ -826,30 +832,33 @@ public class DiagnoseParser implements ParserBasicInformation, TerminalTokens {
 		// in the current state, except EOFT and ERROR_SYMBOL.
 		//
 		symbol = root;
-		while(symbol != 0) {
-			if (symbol == EOLT_SYMBOL && lexStream.afterEol(buffer[repair.bufferPosition+1])) {
-				k = 10;
-			} else {
-				k = misspell(symbol, buffer[repair.bufferPosition]);
+		
+		if(buffer[repair.bufferPosition] != 0) {// do not replace the first token
+			while(symbol != 0) {
+				if (symbol == EOLT_SYMBOL && lexStream.afterEol(buffer[repair.bufferPosition+1])) {
+					k = 10;
+				} else {
+					k = misspell(symbol, buffer[repair.bufferPosition]);
+				}
+				j = parseCheck(stck, stack_top, symbol, repair.bufferPosition+1);
+				if (j > repair.distance) {
+					repair.misspellIndex = k;
+					repair.distance = j;
+					repair.symbol = symbol;
+					repair.code = SUBSTITUTION_CODE;
+				} else if (j == repair.distance && k > repair.misspellIndex) {
+					repair.misspellIndex = k;
+					repair.symbol = symbol;
+					repair.code = SUBSTITUTION_CODE;
+				} else if (j == repair.distance && k > repair.misspellIndex && isBetterSymbol(symbol, repair.symbol)) {
+					repair.misspellIndex = k;
+					repair.symbol = symbol;
+					repair.code = SUBSTITUTION_CODE;
+				}
+				i = symbol;
+				symbol = list[symbol];
+				list[i] = 0;                             // reset element
 			}
-			j = parseCheck(stck, stack_top, symbol, repair.bufferPosition+1);
-			if (j > repair.distance) {
-				repair.misspellIndex = k;
-				repair.distance = j;
-				repair.symbol = symbol;
-				repair.code = SUBSTITUTION_CODE;
-			} else if (j == repair.distance && k > repair.misspellIndex) {
-				repair.misspellIndex = k;
-				repair.symbol = symbol;
-				repair.code = SUBSTITUTION_CODE;
-			} else if (j == repair.distance && k > repair.misspellIndex && isBetterSymbol(symbol, repair.symbol)) {
-				repair.misspellIndex = k;
-				repair.symbol = symbol;
-				repair.code = SUBSTITUTION_CODE;
-			}
-			i = symbol;
-			symbol = list[symbol];
-			list[i] = 0;                             // reset element
 		}
 
 
@@ -1313,6 +1322,8 @@ public class DiagnoseParser implements ParserBasicInformation, TerminalTokens {
 	}
 	
 	private void scopeTrialCheck(int stck[], int stack_top, PrimaryRepairInfo repair, int indx) {
+		if(indx > 20) return; // avoid too much recursive call to improve performance
+		
 		int act = stck[stack_top];
 	
 	    for (int i = stateSeen[stack_top]; i != NIL; i = statePool[i].next) {
@@ -1393,7 +1404,7 @@ public class DiagnoseParser implements ParserBasicInformation, TerminalTokens {
 	                for (j = Parser.scope_state_set[i];
 	                     stck[stack_position] != Parser.scope_state[j] &&
 	                     Parser.scope_state[j] != 0;
-	                     j++);
+	                     j++){/*empty*/}
 	                //
 	                // If the top state is valid for scope recovery,
 	                // the left-hand side of the scope is used as
@@ -1550,7 +1561,7 @@ public class DiagnoseParser implements ParserBasicInformation, TerminalTokens {
 			for (next_last_index = MAX_DISTANCE - 1;
 				 next_last_index >= 1 &&
 				 lexStream.kind(buffer[next_last_index]) == EOFT_SYMBOL;
-				 next_last_index--);
+				 next_last_index--){/*empty*/}
 			next_last_index = next_last_index + 1;
 
 			save_location = locationStack[nextStackTop];
@@ -1592,7 +1603,7 @@ public class DiagnoseParser implements ParserBasicInformation, TerminalTokens {
 
 		for (last_index = MAX_DISTANCE - 1;
 			 last_index >= 1 && lexStream.kind(buffer[last_index]) == EOFT_SYMBOL;
-			 last_index--);
+			 last_index--){/*empty*/}
 		last_index++;
 
 		misplaced = misplacementRecovery(stack, stateStackTop,
@@ -2119,7 +2130,11 @@ public class DiagnoseParser implements ParserBasicInformation, TerminalTokens {
 
 		int errorStart = -1;
 		if(lexStream.isInsideStream(leftToken)) {
-			errorStart = lexStream.start(leftToken);
+			if(leftToken == 0) {
+				errorStart = lexStream.start(leftToken + 1);
+			} else {
+				errorStart = lexStream.start(leftToken);
+			}
 		} else {
 			if(leftToken == errorToken) {
 				errorStart = errorTokenStart;

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -37,7 +37,7 @@ public CodeSnippetParser(ProblemReporter problemReporter, EvaluationContext eval
 	this.codeSnippetEnd = codeSnippetEnd;
 	this.evaluationContext = evaluationContext;
 	this.reportOnlyOneSyntaxError = true;
-	this.javadocParser.checkJavadoc = false;
+	this.javadocParser.checkDocComment = false;
 }
 protected void classInstanceCreation(boolean alwaysQualified) {
 	// ClassInstanceCreationExpression ::= 'new' ClassType '(' ArgumentListopt ')' ClassBodyopt

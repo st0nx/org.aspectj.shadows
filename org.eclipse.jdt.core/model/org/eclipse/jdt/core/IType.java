@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     IBM Corporation - added J2SE 1.5 support
  *******************************************************************************/
 package org.eclipse.jdt.core;
 
@@ -17,7 +18,8 @@ import org.eclipse.core.runtime.IProgressMonitor;
 /**
  * Represents either a source type in a compilation unit (either a top-level
  * type, a member type, a local type or an anonymous type) 
- * or a binary type in a class file.
+ * or a binary type in a class file. Enumeration classes and annotation
+ * types are subkinds of classes and interfaces, respectively.
  * <p>
  * Note that the element name of an anonymous source type is always empty.
  * </p><p>
@@ -46,7 +48,7 @@ public interface IType extends IMember {
 	 * @param insertion the position with in source where the snippet
 	 * is inserted. This position must not be in comments.
 	 * A possible value is -1, if the position is not known.
-	 * @param position the position with in snippet where the user 
+	 * @param position the position within snippet where the user 
 	 * is performing code assist.
 	 * @param localVariableTypeNames an array (possibly empty) of fully qualified 
 	 * type names of local variables visible at the current scope
@@ -115,6 +117,8 @@ public interface IType extends IMember {
 		ICompletionRequestor requestor,
 		WorkingCopyOwner owner)
 		throws JavaModelException;
+
+
 
 	/**
 	 * Creates and returns a field in this type with the
@@ -354,10 +358,15 @@ public interface IType extends IMember {
 	
 	/**
 	 * Returns the method with the specified name and parameter types
-	 * in this type (for example, <code>"foo", {"I", "QString;"}</code>). To get the
-	 * handle for a constructor, the name specified must be the simple
-	 * name of the enclosing type.
+	 * in this type (for example, <code>"foo", {"I", "QString;"}</code>).
+	 * To get the handle for a constructor, the name specified must be the
+	 * simple name of the enclosing type.
 	 * This is a handle-only method.  The method may or may not be present.
+	 * <p>
+	 * The type signatures may be either unresolved (for source types)
+	 * or resolved (for binary types), and either basic (for basic types)
+	 * or rich (for parameterized types). See {@link Signature} for details.
+	 * </p>
 	 * 
 	 * @param name the given name
 	 * @param parameterTypeSignatures the given parameter types
@@ -390,10 +399,17 @@ public interface IType extends IMember {
 	/**
 	 * Returns the name of this type's superclass, or <code>null</code>
 	 * for source types that do not specify a superclass.
+	 * <p>
 	 * For interfaces, the superclass name is always <code>"java.lang.Object"</code>.
 	 * For source types, the name as declared is returned, for binary types,
 	 * the resolved, qualified name is returned.
 	 * For anonymous types, the superclass name is the name appearing after the 'new' keyword'.
+	 * If the superclass is a parameterized type, the string
+	 * may include its type arguments enclosed in "&lt;&gt;".
+	 * If the returned string is needed for anything other than display
+	 * purposes, use {@link #getSuperclassTypeSignature()} which returns
+	 * a structured type signature string containing more precise information.
+	 * </p>
 	 *
 	 * @exception JavaModelException if this element does not exist or if an
 	 *		exception occurs while accessing its corresponding resource.
@@ -402,14 +418,65 @@ public interface IType extends IMember {
 	String getSuperclassName() throws JavaModelException;
 	
 	/**
+	 * Returns the type signature of this type's superclass, or 
+	 * <code>null</code> if none.
+	 * <p>
+	 * The type signature may be either unresolved (for source types)
+	 * or resolved (for binary types), and either basic (for basic types)
+	 * or rich (for parameterized types). See {@link Signature} for details.
+	 * </p>
+	 *
+	 * @exception JavaModelException if this element does not exist or if an
+	 *		exception occurs while accessing its corresponding resource.
+	 * @return the type signature of this type's superclass, or
+	 * <code>null</code> if none
+	 * @since 3.0
+	 */
+	String getSuperclassTypeSignature() throws JavaModelException;
+	
+	/**
+	 * Returns the type signatures of the interfaces that this type
+	 * implements or extends, in the order in which they are listed in the
+	 * source.
+	 * <p>
+	 * For classes and enum types, this gives the interfaces that this
+	 * class implements. For interfaces and annotation types,
+	 * this gives the interfaces that this interface extends.
+	 * An empty collection is returned if this type does not implement or
+	 * extend any interfaces. For anonymous types, an empty collection is
+	 * always returned.
+	 * </p>
+	 * <p>
+	 * The type signatures may be either unresolved (for source types)
+	 * or resolved (for binary types), and either basic (for basic types)
+	 * or rich (for parameterized types). See {@link Signature} for details.
+	 * </p>
+	 *
+	 * @exception JavaModelException if this element does not exist or if an
+	 *		exception occurs while accessing its corresponding resource.
+	 * @return  the type signatures of interfaces that this type implements
+	 * or extends, in the order in which they are listed in the source, 
+	 * an empty collection if none
+	 * @since 3.0
+	 */
+	String[] getSuperInterfaceTypeSignatures() throws JavaModelException;
+	
+	/**
 	 * Returns the names of interfaces that this type implements or extends,
 	 * in the order in which they are listed in the source.
+	 * </p>
 	 * For classes, this gives the interfaces that this class implements.
 	 * For interfaces, this gives the interfaces that this interface extends.
 	 * An empty collection is returned if this type does not implement or
 	 * extend any interfaces. For source types, simple names are returned,
 	 * for binary types, qualified names are returned.
 	 * For anonymous types, an empty collection is always returned.
+	 * If the list of supertypes includes parameterized types,
+	 * the string may include type arguments enclosed in "&lt;&gt;".
+	 * If the result is needed for anything other than display
+	 * purposes, use {@link #getSuperInterfaceTypeSignatures()} which returns
+	 * structured signature strings containing more precise information.
+	 * </p>
 	 *
 	 * @exception JavaModelException if this element does not exist or if an
 	 *		exception occurs while accessing its corresponding resource.
@@ -418,6 +485,23 @@ public interface IType extends IMember {
 	 */
 	String[] getSuperInterfaceNames() throws JavaModelException;
 	
+	/**
+	 * Returns the formal type parameter signatures for this type.
+	 * Returns an empty array if this type has no formal type parameters.
+	 * <p>
+	 * The formal type parameter signatures may be either unresolved (for source
+	 * types) or resolved (for binary types). See {@link Signature} for details.
+	 * </p>
+	 *
+	 * @exception JavaModelException if this element does not exist or if an
+	 *      exception occurs while accessing its corresponding resource.
+	 * @return the formal type parameter signatures of this type,
+	 * in the order declared in the source, an empty array if none
+	 * @see Signature
+	 * @since 3.0
+	 */
+	String[] getTypeParameterSignatures() throws JavaModelException;
+
 	/**
 	 * Returns the member type declared in this type with the given simple name.
 	 * This is a handle-only method. The type may or may not exist.
@@ -431,8 +515,9 @@ public interface IType extends IMember {
 	 * Returns the type-qualified name of this type, 
 	 * including qualification for any enclosing types,
 	 * but not including package qualification.
-	 * For source types, this consists of the simple names of
-	 * any enclosing types, separated by <code>"$"</code>, followed by the simple name of this type.
+	 * For source types, this consists of the simple names of any enclosing types, 
+	 * separated by <code>'$'</code>, followed by the simple name of this type
+	 * or the occurence count of this type if it is anonymous.
 	 * For binary types, this is the name of the class file without the ".class" suffix.
 	 * This is a handle-only method.
 	 * 
@@ -444,9 +529,10 @@ public interface IType extends IMember {
 	 * Returns the type-qualified name of this type, 
 	 * including qualification for any enclosing types,
 	 * but not including package qualification.
-	 * This consists of the simple names of any enclosing types, 
-	 * separated by the <code>enclosingTypeSeparator</code>, 
-	 * followed by the simple name of this type.
+	 * For source types, this consists of the simple names of any enclosing types, 
+	 * separated by <code>enclosingTypeSeparator</code>, followed by the 
+	 * simple name of this type  or the occurence count of this type if it is anonymous.
+	 * For binary types, this is the name of the class file without the ".class" suffix.
 	 * 
 	 * For example:
 	 * <ul>
@@ -492,6 +578,11 @@ public interface IType extends IMember {
 
 	/**
 	 * Returns whether this type represents a class.
+	 * <p>
+	 * Note that <code>isClass</code>, <code>isInterface</code>,
+	 * <code>isEnum</code>, and <code>isAnnotation</code> are
+	 * mutually exclusive.
+	 * </p>
 	 *
 	 * @exception JavaModelException if this element does not exist or if an
 	 *		exception occurs while accessing its corresponding resource.
@@ -500,7 +591,28 @@ public interface IType extends IMember {
 	boolean isClass() throws JavaModelException;
 	
 	/**
+	 * Returns whether this type represents an enumeration class.
+	 * <p>
+	 * Note that <code>isClass</code>, <code>isInterface</code>,
+	 * <code>isEnum</code>, and <code>isAnnotation</code> are
+	 * mutually exclusive.
+	 * </p>
+	 * 
+	 * @exception JavaModelException if this element does not exist or if an
+	 *		exception occurs while accessing its corresponding resource.
+	 * @return true if this type represents an enumeration class,
+	 * false otherwise
+	 * @since 3.0
+	 */
+	boolean isEnum() throws JavaModelException;
+
+	/**
 	 * Returns whether this type represents an interface.
+	 * <p>
+	 * Note that <code>isClass</code>, <code>isInterface</code>,
+	 * <code>isEnum</code>, and <code>isAnnotation</code> are
+	 * mutually exclusive.
+	 * </p>
 	 *
 	 * @exception JavaModelException if this element does not exist or if an
 	 *		exception occurs while accessing its corresponding resource.
@@ -508,6 +620,22 @@ public interface IType extends IMember {
 	 */
 	boolean isInterface() throws JavaModelException;
 	
+	/**
+	 * Returns whether this type represents an annotation type.
+	 * <p>
+	 * Note that <code>isClass</code>, <code>isInterface</code>,
+	 * <code>isEnum</code>, and <code>isAnnotation</code> are
+	 * mutually exclusive.
+	 * </p>
+	 *
+	 * @exception JavaModelException if this element does not exist or if an
+	 *		exception occurs while accessing its corresponding resource.
+	 * @return true if this type represents an annotation type,
+	 * false otherwise
+	 * @since 3.0
+	 */
+	boolean isAnnotation() throws JavaModelException;
+
 	/**
 	 * Returns whether this type represents a local type.
 	 *
@@ -734,18 +862,29 @@ public interface IType extends IMember {
 	
 	/**
 	 * Resolves the given type name within the context of this type (depending on the type hierarchy 
-	 * and its imports). Multiple answers might be found in case there are ambiguous matches.
-	 *
+	 * and its imports). 
+	 * <p>
+	 * Multiple answers might be found in case there are ambiguous matches.
+	 * </p>
+	 * <p>
 	 * Each matching type name is decomposed as an array of two strings, the first denoting the package
-	 * name (dot-separated) and the second being the type name.
+	 * name (dot-separated) and the second being the type name. The package name is empty if it is the
+	 * default package. The type name is the type qualified name using a '.' enclosing type separator.
+	 * </p>
+	 * <p>
 	 * Returns <code>null</code> if unable to find any matching type.
-	 *
+	 * </p>
+	 *<p>
 	 * For example, resolution of <code>"Object"</code> would typically return
-	 * <code>{{"java.lang", "Object"}}</code>.
+	 * <code>{{"java.lang", "Object"}}</code>. Another resolution that returns
+	 * <code>{{"", "X.Inner"}}</code> represents the inner type Inner defined in type X in the 
+	 * default package.
+	 * </p>
 	 * 
 	 * @param typeName the given type name
 	 * @exception JavaModelException if code resolve could not be performed. 
 	 * @return the resolved type names or <code>null</code> if unable to find any matching type
+	 * @see #getTypeQualifiedName(char)
 	 */
 	String[][] resolveType(String typeName) throws JavaModelException;
 
@@ -758,23 +897,28 @@ public interface IType extends IMember {
 	 * Note that if a working copy is empty, it will be as if the original compilation
 	 * unit had been deleted.
 	 * </p>
-	 * <p>. 
-	 * Multiple answers might be found in case there are ambiguous matches.
+	 * <p>Multiple answers might be found in case there are ambiguous matches.
 	 * </p>
 	 * <p>
 	 * Each matching type name is decomposed as an array of two strings, the first denoting the package
-	 * name (dot-separated) and the second being the type name.
+	 * name (dot-separated) and the second being the type name. The package name is empty if it is the
+	 * default package. The type name is the type qualified name using a '.' enclosing type separator.
+	 * </p>
+	 * <p>
 	 * Returns <code>null</code> if unable to find any matching type.
 	 *</p>
 	 *<p>
 	 * For example, resolution of <code>"Object"</code> would typically return
-	 * <code>{{"java.lang", "Object"}}</code>.
+	 * <code>{{"java.lang", "Object"}}</code>. Another resolution that returns
+	 * <code>{{"", "X.Inner"}}</code> represents the inner type Inner defined in type X in the 
+	 * default package.
 	 * </p>
 	 * 
 	 * @param typeName the given type name
 	 * @param owner the owner of working copies that take precedence over their original compilation units
 	 * @exception JavaModelException if code resolve could not be performed. 
 	 * @return the resolved type names or <code>null</code> if unable to find any matching type
+	 * @see #getTypeQualifiedName(char)
 	 * @since 3.0
 	 */
 	String[][] resolveType(String typeName, WorkingCopyOwner owner) throws JavaModelException;

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -165,7 +165,6 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * a class B defined as a member type of a class A in package x.y should have a 
 	 * the fully qualified name "x.y.A.B".
 	 * 
-	 * TODO (kent) need to change spec if secondary types are found
 	 * Note that in order to be found, a type name (or its toplevel enclosing
 	 * type name) must match its corresponding compilation unit name. As a 
 	 * consequence, secondary types cannot be found using this functionality.
@@ -190,7 +189,6 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * If the returned type is part of a compilation unit, its owner is the given
 	 * owner.
 	 * 
-	 * TODO (kent) need to change spec if secondary types are found
 	 * Note that in order to be found, a type name (or its toplevel enclosing
 	 * type name) must match its corresponding compilation unit name. As a 
 	 * consequence, secondary types cannot be found using this functionality.
@@ -216,7 +214,6 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * a class B defined as a member type of a class A should have the 
 	 * type qualified name "A.B".
 	 * 
-	 * TODO (kent) need to change spec if secondary types are found
 	 * Note that in order to be found, a type name (or its toplevel enclosing
 	 * type name) must match its corresponding compilation unit name. As a 
 	 * consequence, secondary types cannot be found using this functionality.
@@ -245,7 +242,6 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * If the returned type is part of a compilation unit, its owner is the given
 	 * owner.
 	 * 
-	 * TODO (kent) need to change spec if secondary types are found
 	 * Note that in order to be found, a type name (or its toplevel enclosing
 	 * type name) must match its corresponding compilation unit name. As a 
 	 * consequence, secondary types cannot be found using this functionality.
@@ -432,18 +428,29 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	IProject getProject();
 
 	/**
-	 * Returns the raw classpath for the project, as a list of classpath entries. This corresponds to the exact set
-	 * of entries which were assigned using <code>setRawClasspath</code>, in particular such a classpath may contain
-	 * classpath variable entries. Classpath variable entries can be resolved individually (see <code>JavaCore#getClasspathVariable</code>),
-	 * or the full classpath can be resolved at once using the helper method <code>getResolvedClasspath</code>.
+	 * Returns the raw classpath for the project, as a list of classpath
+	 * entries. This corresponds to the exact set of entries which were assigned
+	 * using <code>setRawClasspath</code>, in particular such a classpath may
+	 * contain classpath variable and classpath container entries. Classpath
+	 * variable and classpath container entries can be resolved using the
+	 * helper method <code>getResolvedClasspath</code>; classpath variable
+	 * entries also can be resolved individually using 
+	 * <code>JavaCore#getClasspathVariable</code>). 
 	 * <p>
-	 * A classpath variable provides an indirection level for better sharing a classpath. As an example, it allows
-	 * a classpath to no longer refer directly to external JARs located in some user specific location. The classpath
-	 * can simply refer to some variables defining the proper locations of these external JARs.
-	 * TODO (jim) please reformulate to include classpath containers in resolution aspects
-	 *  <p>
-	 * Note that in case the project isn't yet opened, the classpath will directly be read from the associated <tt>.classpath</tt> file.
+	 * Both classpath containers and classpath variables provides a level of
+	 * indirection that can make the <code>.classpath</code> file stable across
+	 * workspaces.
+	 * As an example, classpath variables allow a classpath to no longer refer
+	 * directly to external JARs located in some user specific location.
+	 * The classpath can simply refer to some variables defining the proper
+	 * locations of these external JARs. Similarly, classpath containers
+	 * allows classpath entries to be computed dynamically by the plug-in that
+	 * defines that kind of classpath container.
+	 * </p>
 	 * <p>
+	 * Note that in case the project isn't yet opened, the classpath will
+	 * be read directly from the associated <tt>.classpath</tt> file.
+	 * </p>
 	 * 
 	 * @return the raw classpath for the project, as a list of classpath entries
 	 * @exception JavaModelException if this element does not exist or if an
@@ -525,6 +532,7 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * @param element the given element
 	 * @return <code>true</code> if the given element is on the classpath of
 	 * this project, <code>false</code> otherwise
+	 * @see IClasspathEntry#getInclusionPatterns()
 	 * @see IClasspathEntry#getExclusionPatterns()
 	 * @since 2.0
 	 */
@@ -537,6 +545,7 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * @param resource the given resource
 	 * @return <code>true</code> if the given resource is on the classpath of
 	 * this project, <code>false</code> otherwise
+	 * @see IClasspathEntry#getInclusionPatterns()
 	 * @see IClasspathEntry#getExclusionPatterns()
 	 * @since 2.1
 	 */
@@ -672,31 +681,42 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	IPath readOutputLocation();
 
 	/**
-	 * Returns the raw classpath for the project as defined by its <code>.classpath</code> file from disk, or <code>null</code>
+	 * Returns the raw classpath for the project as defined by its
+	 * <code>.classpath</code> file from disk, or <code>null</code>
 	 * if unable to read the file. 
 	 * <p>
-	 * This classpath may differ from the in-memory classpath returned by <code>getRawClasspath</code>, in case the 
-	 * automatic reconciliation mechanism has not been performed yet. Usually, any change to the <code>.classpath</code> file 
-	 * is automatically noticed and reconciled at the next resource change notification event. 
-	 * However, if the file is modified within an operation, where this change needs to be taken into account before the 
-	 * operation ends, then the classpath from disk can be read using this method, and further assigned to the project 
-	 * using <code>setRawClasspath(...)</code>.
+	 * This classpath may differ from the in-memory classpath returned by
+	 * <code>getRawClasspath</code>, in case the automatic reconciliation
+	 * mechanism has not been performed yet. Usually, any change to the
+	 * <code>.classpath</code> file is automatically noticed and reconciled at
+	 * the next resource change notification event. However, if the file is
+	 * modified within an operation, where this change needs to be taken into
+	 * account before the operation ends, then the classpath from disk can be
+	 * read using this method, and further assigned to the project using
+	 * <code>setRawClasspath(...)</code>. 
+	 * </p>
 	 * <p>
-	 * A raw classpath may contain classpath variable and/or container entries. Classpath variable entries can be resolved 
-	 * individually (see <code>JavaCore#getClasspathVariable</code>), or the full classpath can be resolved at once using the 
-	 * helper method <code>getResolvedClasspath</code>.
-	 * TODO (jim) please reformulate to include classpath containers in resolution aspects
+	 * Classpath variable and classpath container entries can be resolved using
+	 * the helper method <code>getResolvedClasspath</code>; classpath variable
+	 * entries also can be resolved individually using 
+	 * <code>JavaCore#getClasspathVariable</code>).
+	 * </p>
 	 * <p>
-	 * Note that no check is performed whether the project has the Java nature set, allowing an existing <code>.classpath</code> 
-	 * file to be considered independantly (unlike <code>getRawClasspath</code> which requires the Java nature to be associated 
-	 * with the project). 
+	 * Note that no check is performed whether the project has the Java nature
+	 * set, allowing an existing <code>.classpath</code> file to be considered
+	 * independantly (unlike <code>getRawClasspath</code> which requires the
+	 * Java nature to be associated with the project). 
+	 * </p>
 	 * <p>
-	 * In order to manually force a project classpath refresh, one can simply assign the project classpath using the result of this 
-	 * method, as follows:
+	 * In order to manually force a project classpath refresh, one can simply
+	 * assign the project classpath using the result of this method, as follows:
 	 * <code>proj.setRawClasspath(proj.readRawClasspath(), proj.readOutputLocation(), monitor)</code>
-	 * (note that the <code>readRawClasspath/readOutputLocation</code> methods could return <code>null</code>).
-	 * <p>
-	 * @return the raw classpath from disk for the project, as a list of classpath entries
+	 * (note that the <code>readRawClasspath/readOutputLocation</code> methods
+	 * could return <code>null</code>).
+	 * </p>
+	 * 
+	 * @return the raw classpath from disk for the project, as a list of
+	 * classpath entries
 	 * @see #getRawClasspath()
 	 * @see IClasspathEntry
 	 * @since 3.0
@@ -781,6 +801,8 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * to the project closing the cycle.
 	 * To avoid this problem, use <code>hasClasspathCycle(IClasspathEntry[] entries)</code>
 	 * before setting the classpath.
+	 * <p>
+	 * This operation acquires a lock on the workspace's root.
 	 *
 	 * @param entries a list of classpath entries
 	 * @param monitor the given progress monitor
@@ -820,6 +842,9 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * be added to the project closing the cycle. To avoid this problem, use
 	 * <code>hasClasspathCycle(IClasspathEntry[] entries)</code> before setting
 	 * the classpath.
+	 * </p>
+	 * <p>
+	 * This operation acquires a lock on the workspace's root.
 	 * </p>
 	 * 
 	 * @param entries a list of classpath entries

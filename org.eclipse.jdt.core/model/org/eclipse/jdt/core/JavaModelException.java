@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -110,6 +110,13 @@ public boolean isDoesNotExist() {
 	IJavaModelStatus javaModelStatus = getJavaModelStatus();
 	return javaModelStatus != null && javaModelStatus.isDoesNotExist();
 }
+
+/**
+ * Prints this exception's stack trace to the given print stream.
+ * 
+ * @param output the print stream
+ * @since 3.0
+ */
 public void printStackTrace(PrintStream output) {
 	synchronized(output) {
 		super.printStackTrace(output);
@@ -120,6 +127,13 @@ public void printStackTrace(PrintStream output) {
 		}
 	}
 }
+
+/**
+ * Prints this exception's stack trace to the given print writer.
+ * 
+ * @param output the print writer
+ * @since 3.0
+ */
 public void printStackTrace(PrintWriter output) {
 	synchronized(output) {
 		super.printStackTrace(output);

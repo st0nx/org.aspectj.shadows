@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -17,7 +17,7 @@ package org.eclipse.jdt.core.eval;
  * <code>IEvaluationContext.newVariable</code> can be used to obtain an instance.
  * </p>
  *
- * @see IEvaluationContext#newVariable
+ * @see IEvaluationContext#newVariable(String, String, String)
  */
 public interface IGlobalVariable {
 /**

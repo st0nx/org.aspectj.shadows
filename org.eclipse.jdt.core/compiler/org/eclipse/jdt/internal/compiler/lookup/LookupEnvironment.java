@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -39,6 +39,7 @@ public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstan
 	private CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
 	private int lastUnitIndex = -1;
 	private int lastCompletedUnitIndex = -1;
+	public CompilationUnitDeclaration unitBeingCompleted = null; // only set while completing units
 
 	// indicate in which step on the compilation we are.
 	// step 1 : build the reference binding
@@ -49,6 +50,12 @@ public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstan
 	final static int CHECK_AND_SET_IMPORTS = 2;
 	final static int CONNECT_TYPE_HIERARCHY = 3;
 	final static int BUILD_FIELDS_AND_METHODS = 4;
+
+	// shared byte[]'s used by ClassFile to avoid allocating MBs during a build
+	public boolean sharedArraysUsed = true; // set to false once actual arrays are allocated
+	public byte[] sharedClassFileHeader = null;
+	public byte[] sharedClassFileContents = null;
+
 public LookupEnvironment(ITypeRequestor typeRequestor, CompilerOptions options, ProblemReporter problemReporter, INameEnvironment nameEnvironment) {
 	this.typeRequestor = typeRequestor;
 	this.options = options;
@@ -161,22 +168,23 @@ public BinaryTypeBinding cacheBinaryType(IBinaryType binaryType, boolean needFie
 public void completeTypeBindings() {
 	stepCompleted = BUILD_TYPE_HIERARCHY;
 	
-	for (int i = lastCompletedUnitIndex + 1; i <= lastUnitIndex; i++) {
-		units[i].scope.checkAndSetImports();
+	for (int i = this.lastCompletedUnitIndex + 1; i <= this.lastUnitIndex; i++) {
+	    (this.unitBeingCompleted = this.units[i]).scope.checkAndSetImports();
 	}
 	stepCompleted = CHECK_AND_SET_IMPORTS;
 
-	for (int i = lastCompletedUnitIndex + 1; i <= lastUnitIndex; i++) {
-		units[i].scope.connectTypeHierarchy();
+	for (int i = this.lastCompletedUnitIndex + 1; i <= this.lastUnitIndex; i++) {
+	    (this.unitBeingCompleted = this.units[i]).scope.connectTypeHierarchy();
 	}
 	stepCompleted = CONNECT_TYPE_HIERARCHY;
 
-	for (int i = lastCompletedUnitIndex + 1; i <= lastUnitIndex; i++) {
-		units[i].scope.buildFieldsAndMethods();
-		units[i] = null; // release unnecessary reference to the parsed unit
+	for (int i = this.lastCompletedUnitIndex + 1; i <= this.lastUnitIndex; i++) {
+		(this.unitBeingCompleted = this.units[i]).scope.buildFieldsAndMethods();
+		this.units[i] = null; // release unnecessary reference to the parsed unit
 	}
 	stepCompleted = BUILD_FIELDS_AND_METHODS;
-	lastCompletedUnitIndex = lastUnitIndex;
+	this.lastCompletedUnitIndex = this.lastUnitIndex;
+	this.unitBeingCompleted = null;
 }
 /*
 * 1. Connect the type hierarchy for the type bindings created for parsedUnits.
@@ -198,12 +206,14 @@ public void completeTypeBindings(CompilationUnitDeclaration parsedUnit) {
 		completeTypeBindings();
 	} else {
 		if (parsedUnit.scope == null) return; // parsing errors were too severe
-
+		
 		if (stepCompleted >= CHECK_AND_SET_IMPORTS)
-			parsedUnit.scope.checkAndSetImports();
+			(this.unitBeingCompleted = parsedUnit).scope.checkAndSetImports();
 
 		if (stepCompleted >= CONNECT_TYPE_HIERARCHY)
-			parsedUnit.scope.connectTypeHierarchy();
+			(this.unitBeingCompleted = parsedUnit).scope.connectTypeHierarchy();
+		
+		this.unitBeingCompleted = null;
 	}
 }
 /*
@@ -217,11 +227,11 @@ public void completeTypeBindings(CompilationUnitDeclaration parsedUnit) {
 public void completeTypeBindings(CompilationUnitDeclaration parsedUnit, boolean buildFieldsAndMethods) {
 	if (parsedUnit.scope == null) return; // parsing errors were too severe
 
-	parsedUnit.scope.checkAndSetImports();
+	(this.unitBeingCompleted = parsedUnit).scope.checkAndSetImports();
 	parsedUnit.scope.connectTypeHierarchy();
-
 	if (buildFieldsAndMethods)
 		parsedUnit.scope.buildFieldsAndMethods();
+	this.unitBeingCompleted = null;
 }
 private PackageBinding computePackageFrom(char[][] constantPoolName) {
 	if (constantPoolName.length == 1)
@@ -383,8 +393,7 @@ PackageBinding getTopLevelPackage(char[] name) {
 	if (packageBinding != null) {
 		if (packageBinding == TheNotFoundPackage)
 			return null;
-		else
-			return packageBinding;
+		return packageBinding;
 	}
 
 	if (nameEnvironment.isPackage(null, name)) {
@@ -441,8 +450,7 @@ public ReferenceBinding getType(char[][] compoundName) {
 	// compoundName refers to a nested type incorrectly (for example, package1.A$B)
 	if (referenceBinding.isNestedType())
 		return new ProblemReferenceBinding(compoundName, InternalNameProvided);
-	else
-		return referenceBinding;
+	return referenceBinding;
 }
 /* Answer the type corresponding to the name from the binary file.
 * Does not ask the oracle for the type if its not found in the cache... instead an
@@ -527,8 +535,7 @@ TypeBinding getTypeFromSignature(char[] signature, int start, int end) {
 
 	if (dimension == 0)
 		return binding;
-	else
-		return createArrayType(binding, dimension);
+	return createArrayType(binding, dimension);
 }
 /* Ask the oracle if a package exists named name in the package named compoundName.
 */
@@ -536,8 +543,7 @@ TypeBinding getTypeFromSignature(char[] signature, int start, int end) {
 boolean isPackage(char[][] compoundName, char[] name) {
 	if (compoundName == null || compoundName.length == 0)
 		return nameEnvironment.isPackage(null, name);
-	else
-		return nameEnvironment.isPackage(compoundName, name);
+	return nameEnvironment.isPackage(compoundName, name);
 }
 // The method verifier is lazily initialized to guarantee the receiver, the compiler & the oracle are ready.
 
@@ -560,6 +566,7 @@ public void reset() {
 		this.units[i] = null;
 	this.lastUnitIndex = -1;
 	this.lastCompletedUnitIndex = -1;
+	this.unitBeingCompleted = null; // in case AbortException occurred
 	
 	// name environment has a longer life cycle, and must be reset in
 	// the code which created it.

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -55,17 +55,17 @@ public abstract class AbstractMethodDeclaration
 	/*
 	 *	We cause the compilation task to abort to a given extent.
 	 */
-	public void abort(int abortLevel) {
+	public void abort(int abortLevel, IProblem problem) {
 
 		switch (abortLevel) {
 			case AbortCompilation :
-				throw new AbortCompilation(this.compilationResult);
+				throw new AbortCompilation(this.compilationResult, problem);
 			case AbortCompilationUnit :
-				throw new AbortCompilationUnit(this.compilationResult);
+				throw new AbortCompilationUnit(this.compilationResult, problem);
 			case AbortType :
-				throw new AbortType(this.compilationResult);
+				throw new AbortType(this.compilationResult, problem);
 			default :
-				throw new AbortMethod(this.compilationResult);
+				throw new AbortMethod(this.compilationResult, problem);
 		}
 	}
 
@@ -163,7 +163,6 @@ public abstract class AbstractMethodDeclaration
 			if (e.compilationResult == CodeStream.RESTART_IN_WIDE_MODE) {
 				// a branch target required a goto_w, restart code gen in wide mode.
 				try {
-					this.traverse(new ResetStateForCodeGenerationVisitor(), classScope);
 					classFile.contentsOffset = problemResetPC;
 					classFile.methodCount--;
 					classFile.codeStream.wideMode = true; // request wide mode 
@@ -228,7 +227,7 @@ public abstract class AbstractMethodDeclaration
 
 		// if a problem got reported during code gen, then trigger problem method creation
 		if (this.ignoreFurtherInvestigation) {
-			throw new AbortMethod(this.scope.referenceCompilationUnit().compilationResult);
+			throw new AbortMethod(this.scope.referenceCompilationUnit().compilationResult, null);
 		}
 	}
 
@@ -356,8 +355,8 @@ public abstract class AbstractMethodDeclaration
 		try {
 			bindArguments(); 
 			bindThrownExceptions();
-			resolveStatements();
 			resolveJavadoc();
+			resolveStatements();
 		} catch (AbortMethod e) {	// ========= abort on fatal error =============
 			this.ignoreFurtherInvestigation = true;
 		} 

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,6 +18,7 @@ import java.util.Map;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.Compiler;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
@@ -31,6 +32,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_LineNumberAttribute = "org.eclipse.jdt.core.compiler.debug.lineNumber"; //$NON-NLS-1$
 	public static final String OPTION_SourceFileAttribute = "org.eclipse.jdt.core.compiler.debug.sourceFile"; //$NON-NLS-1$
 	public static final String OPTION_PreserveUnusedLocal = "org.eclipse.jdt.core.compiler.codegen.unusedLocal"; //$NON-NLS-1$
+	public static final String OPTION_DocCommentSupport= "org.eclipse.jdt.core.compiler.doc.comment.support"; //$NON-NLS-1$
 	public static final String OPTION_ReportMethodWithConstructorName = "org.eclipse.jdt.core.compiler.problem.methodWithConstructorName"; //$NON-NLS-1$
 	public static final String OPTION_ReportOverridingPackageDefaultMethod = "org.eclipse.jdt.core.compiler.problem.overridingPackageDefaultMethod"; //$NON-NLS-1$
 	public static final String OPTION_ReportDeprecation = "org.eclipse.jdt.core.compiler.problem.deprecation"; //$NON-NLS-1$
@@ -55,8 +57,9 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_ReportAssertIdentifier = "org.eclipse.jdt.core.compiler.problem.assertIdentifier"; //$NON-NLS-1$
 	public static final String OPTION_ReportNonStaticAccessToStatic = "org.eclipse.jdt.core.compiler.problem.staticAccessReceiver"; //$NON-NLS-1$
 	public static final String OPTION_ReportIndirectStaticAccess = "org.eclipse.jdt.core.compiler.problem.indirectStaticAccess"; //$NON-NLS-1$
-	public static final String OPTION_ReportSuperfluousSemicolon = "org.eclipse.jdt.core.compiler.problem.superfluousSemicolon"; //$NON-NLS-1$
+	public static final String OPTION_ReportEmptyStatement = "org.eclipse.jdt.core.compiler.problem.emptyStatement"; //$NON-NLS-1$
 	public static final String OPTION_ReportUnnecessaryTypeCheck = "org.eclipse.jdt.core.compiler.problem.unnecessaryTypeCheck"; //$NON-NLS-1$
+	public static final String OPTION_ReportUnnecessaryElse = "org.eclipse.jdt.core.compiler.problem.unnecessaryElse"; //$NON-NLS-1$
 	public static final String OPTION_ReportUndocumentedEmptyBlock = "org.eclipse.jdt.core.compiler.problem.undocumentedEmptyBlock"; //$NON-NLS-1$
 	public static final String OPTION_ReportInvalidJavadoc = "org.eclipse.jdt.core.compiler.problem.invalidJavadoc"; //$NON-NLS-1$
 	public static final String OPTION_ReportInvalidJavadocTags = "org.eclipse.jdt.core.compiler.problem.invalidJavadocTags"; //$NON-NLS-1$
@@ -69,6 +72,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_ReportMissingJavadocCommentsOverriding = "org.eclipse.jdt.core.compiler.problem.missingJavadocCommentsOverriding"; //$NON-NLS-1$
 	public static final String OPTION_ReportFinallyBlockNotCompletingNormally = "org.eclipse.jdt.core.compiler.problem.finallyBlockNotCompletingNormally"; //$NON-NLS-1$
 	public static final String OPTION_ReportUnusedDeclaredThrownException = "org.eclipse.jdt.core.compiler.problem.unusedDeclaredThrownException"; //$NON-NLS-1$
+	public static final String OPTION_ReportUnusedDeclaredThrownExceptionWhenOverriding = "org.eclipse.jdt.core.compiler.problem.unusedDeclaredThrownExceptionWhenOverriding"; //$NON-NLS-1$
 	public static final String OPTION_ReportUnqualifiedFieldAccess = "org.eclipse.jdt.core.compiler.problem.unqualifiedFieldAccess"; //$NON-NLS-1$
 	public static final String OPTION_Source = "org.eclipse.jdt.core.compiler.source"; //$NON-NLS-1$
 	public static final String OPTION_TargetPlatform = "org.eclipse.jdt.core.compiler.codegen.targetPlatform"; //$NON-NLS-1$
@@ -77,6 +81,8 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_MaxProblemPerUnit = "org.eclipse.jdt.core.compiler.maxProblemPerUnit"; //$NON-NLS-1$
 	public static final String OPTION_TaskTags = "org.eclipse.jdt.core.compiler.taskTags"; //$NON-NLS-1$
 	public static final String OPTION_TaskPriorities = "org.eclipse.jdt.core.compiler.taskPriorities"; //$NON-NLS-1$
+	public static final String OPTION_TaskCaseSensitive = "org.eclipse.jdt.core.compiler.taskCaseSensitive"; //$NON-NLS-1$
+	public static final String OPTION_InlineJsr = "org.eclipse.jdt.core.compiler.codegen.inlineJsrBytecode"; //$NON-NLS-1$
 	
 	// Backward compatibility
 	public static final String OPTION_ReportInvalidAnnotation = "org.eclipse.jdt.core.compiler.problem.invalidAnnotation"; //$NON-NLS-1$
@@ -111,39 +117,36 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	/**
 	 * Bit mask for configurable problems (error/warning threshold)
 	 */
-	// 0x100L unused
-	// 0x200L unused
-	// 0x400L unused
-	// 0x800L unused
-	public static final long MethodWithConstructorName = 0x1000L;
-	public static final long OverriddenPackageDefaultMethod = 0x2000L;
-	public static final long UsingDeprecatedAPI = 0x4000L;
-	public static final long MaskedCatchBlock = 0x8000L;
-	public static final long UnusedLocalVariable = 0x10000L;
-	public static final long UnusedArgument = 0x20000L;
-	public static final long NoImplicitStringConversion = 0x40000L;
-	public static final long AccessEmulation = 0x80000L;
-	public static final long NonExternalizedString = 0x100000L;
-	public static final long AssertUsedAsAnIdentifier = 0x200000L;
-	public static final long UnusedImport = 0x400000L;
-	public static final long NonStaticAccessToStatic = 0x800000L;
-	public static final long Task = 0x1000000L;
-	public static final long NoEffectAssignment = 0x2000000L;
-	public static final long IncompatibleNonInheritedInterfaceMethod = 0x4000000L;
-	public static final long UnusedPrivateMember = 0x8000000L;
-	public static final long LocalVariableHiding = 0x10000000L;
-	public static final long FieldHiding = 0x20000000L;
-	public static final long AccidentalBooleanAssign = 0x40000000L;
-	public static final long SuperfluousSemicolon = 0x80000000L;
-	public static final long IndirectStaticAccess = 0x100000000L;
-	public static final long UndocumentedEmptyBlock = 0x200000000L;
-	public static final long UnnecessaryTypeCheck = 0x400000000L;
-	public static final long InvalidJavadoc = 0x800000000L;
-	public static final long FinallyBlockNotCompleting = 0x1000000000L;
-	public static final long UnusedDeclaredThrownException = 0x2000000000L;
-	public static final long UnqualifiedFieldAccess = 0x4000000000L;
-	public static final long MissingJavadocTags = 0x8000000000L;
-	public static final long MissingJavadocComments  = 0x10000000000L;
+	public static final long MethodWithConstructorName = ASTNode.Bit1;
+	public static final long OverriddenPackageDefaultMethod = ASTNode.Bit2;
+	public static final long UsingDeprecatedAPI = ASTNode.Bit3;
+	public static final long MaskedCatchBlock = ASTNode.Bit4;
+	public static final long UnusedLocalVariable = ASTNode.Bit5;
+	public static final long UnusedArgument = ASTNode.Bit6;
+	public static final long NoImplicitStringConversion = ASTNode.Bit7;
+	public static final long AccessEmulation = ASTNode.Bit8;
+	public static final long NonExternalizedString = ASTNode.Bit9;
+	public static final long AssertUsedAsAnIdentifier = ASTNode.Bit10;
+	public static final long UnusedImport = ASTNode.Bit11;
+	public static final long NonStaticAccessToStatic = ASTNode.Bit12;
+	public static final long Task = ASTNode.Bit13;
+	public static final long NoEffectAssignment = ASTNode.Bit14;
+	public static final long IncompatibleNonInheritedInterfaceMethod = ASTNode.Bit15;
+	public static final long UnusedPrivateMember = ASTNode.Bit16;
+	public static final long LocalVariableHiding = ASTNode.Bit17;
+	public static final long FieldHiding = ASTNode.Bit18;
+	public static final long AccidentalBooleanAssign = ASTNode.Bit19;
+	public static final long EmptyStatement = ASTNode.Bit20;
+	public static final long MissingJavadocComments  = ASTNode.Bit21;
+	public static final long MissingJavadocTags = ASTNode.Bit22;
+	public static final long UnqualifiedFieldAccess = ASTNode.Bit23;
+	public static final long UnusedDeclaredThrownException = ASTNode.Bit24;
+	public static final long FinallyBlockNotCompleting = ASTNode.Bit25;
+	public static final long InvalidJavadoc = ASTNode.Bit26;
+	public static final long UnnecessaryTypeCheck = ASTNode.Bit27;
+	public static final long UndocumentedEmptyBlock = ASTNode.Bit28;
+	public static final long IndirectStaticAccess = ASTNode.Bit29;
+	public static final long UnnecessaryElse  = ASTNode.Bit30;
 
 	// Default severity level for handlers
 	public long errorThreshold = 0;
@@ -183,7 +186,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public boolean verbose = Compiler.DEBUG;
 
 	// indicates if reference info is desired
-	public boolean produceReferenceInfo = true;
+	public boolean produceReferenceInfo = false;
 
 	// indicates if unused/optimizable local variables need to be preserved (debugging purpose)
 	public boolean preserveAllLocalVariables = false;
@@ -196,9 +199,8 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	
 	// tags used to recognize tasks in comments
 	public char[][] taskTags = null;
-
-	// priorities of tasks in comments
 	public char[][] taskPriorites = null;
+	public boolean isTaskCaseSensitive = true;
 
 	// deprecation report
 	public boolean reportDeprecationInsideDeprecatedCode = false;
@@ -208,6 +210,9 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public boolean reportUnusedParameterWhenImplementingAbstract = false;
 	public boolean reportUnusedParameterWhenOverridingConcrete = false;
 
+	// unused declaration of thrown exception
+	public boolean reportUnusedDeclaredThrownExceptionWhenOverriding = false;
+	
 	// constructor/setter parameter hiding
 	public boolean reportSpecialParameterHidingField = false;
 
@@ -222,6 +227,13 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	// check missing javadoc comments
 	public int reportMissingJavadocCommentsVisibility = AccPublic; 
 	public boolean reportMissingJavadocCommentsOverriding = true; 
+	
+	// JSR bytecode inlining
+	public boolean inlineJsrBytecode = false;
+	
+	// javadoc comment support
+	public boolean docCommentSupport = false;
+	
 	
 	/** 
 	 * Initializing the compiler options with defaults
@@ -246,6 +258,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		optionsMap.put(OPTION_LineNumberAttribute, (this.produceDebugAttributes & Lines) != 0 ? GENERATE : DO_NOT_GENERATE);
 		optionsMap.put(OPTION_SourceFileAttribute, (this.produceDebugAttributes & Source) != 0 ? GENERATE : DO_NOT_GENERATE);
 		optionsMap.put(OPTION_PreserveUnusedLocal, this.preserveAllLocalVariables ? PRESERVE : OPTIMIZE_OUT);
+		optionsMap.put(OPTION_DocCommentSupport, this.docCommentSupport ? ENABLED : DISABLED); 
 		optionsMap.put(OPTION_ReportMethodWithConstructorName, getSeverityString(MethodWithConstructorName)); 
 		optionsMap.put(OPTION_ReportOverridingPackageDefaultMethod, getSeverityString(OverriddenPackageDefaultMethod)); 
 		optionsMap.put(OPTION_ReportDeprecation, getSeverityString(UsingDeprecatedAPI)); 
@@ -266,10 +279,11 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		optionsMap.put(OPTION_ReportLocalVariableHiding, getSeverityString(LocalVariableHiding)); 
 		optionsMap.put(OPTION_ReportFieldHiding, getSeverityString(FieldHiding)); 
 		optionsMap.put(OPTION_ReportPossibleAccidentalBooleanAssignment, getSeverityString(AccidentalBooleanAssign)); 
-		optionsMap.put(OPTION_ReportSuperfluousSemicolon, getSeverityString(SuperfluousSemicolon)); 
+		optionsMap.put(OPTION_ReportEmptyStatement, getSeverityString(EmptyStatement)); 
 		optionsMap.put(OPTION_ReportAssertIdentifier, getSeverityString(AssertUsedAsAnIdentifier)); 
 		optionsMap.put(OPTION_ReportUndocumentedEmptyBlock, getSeverityString(UndocumentedEmptyBlock)); 
 		optionsMap.put(OPTION_ReportUnnecessaryTypeCheck, getSeverityString(UnnecessaryTypeCheck)); 
+		optionsMap.put(OPTION_ReportUnnecessaryElse, getSeverityString(UnnecessaryElse)); 
 		optionsMap.put(OPTION_ReportInvalidJavadoc, getSeverityString(InvalidJavadoc));
 		optionsMap.put(OPTION_ReportInvalidJavadocTagsVisibility, getVisibilityString(this.reportInvalidJavadocTagsVisibility));
 		optionsMap.put(OPTION_ReportInvalidJavadocTags, this.reportInvalidJavadocTags? ENABLED : DISABLED);
@@ -281,6 +295,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		optionsMap.put(OPTION_ReportMissingJavadocCommentsOverriding, this.reportMissingJavadocCommentsOverriding ? ENABLED : DISABLED);
 		optionsMap.put(OPTION_ReportFinallyBlockNotCompletingNormally, getSeverityString(FinallyBlockNotCompleting));
 		optionsMap.put(OPTION_ReportUnusedDeclaredThrownException, getSeverityString(UnusedDeclaredThrownException));
+		optionsMap.put(OPTION_ReportUnusedDeclaredThrownExceptionWhenOverriding, this.reportUnusedDeclaredThrownExceptionWhenOverriding ? ENABLED : DISABLED); 
 		optionsMap.put(OPTION_ReportUnqualifiedFieldAccess, getSeverityString(UnqualifiedFieldAccess));
 		optionsMap.put(OPTION_Compliance, versionFromJdkLevel(this.complianceLevel)); 
 		optionsMap.put(OPTION_Source, versionFromJdkLevel(this.sourceLevel)); 
@@ -290,11 +305,12 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		}
 		optionsMap.put(OPTION_TaskTags, this.taskTags == null ? "" : new String(CharOperation.concatWith(this.taskTags,','))); //$NON-NLS-1$
 		optionsMap.put(OPTION_TaskPriorities, this.taskPriorites == null ? "" : new String(CharOperation.concatWith(this.taskPriorites,','))); //$NON-NLS-1$
+		optionsMap.put(OPTION_TaskCaseSensitive, this.isTaskCaseSensitive ? ENABLED : DISABLED);
 		optionsMap.put(OPTION_ReportUnusedParameterWhenImplementingAbstract, this.reportUnusedParameterWhenImplementingAbstract ? ENABLED : DISABLED); 
 		optionsMap.put(OPTION_ReportUnusedParameterWhenOverridingConcrete, this.reportUnusedParameterWhenOverridingConcrete ? ENABLED : DISABLED); 
 		optionsMap.put(OPTION_ReportSpecialParameterHidingField, this.reportSpecialParameterHidingField ? ENABLED : DISABLED); 
 		optionsMap.put(OPTION_MaxProblemPerUnit, String.valueOf(this.maxProblemsPerUnit));
-
+		optionsMap.put(OPTION_InlineJsr, this.inlineJsrBytecode ? ENABLED : DISABLED); 
 		return optionsMap;		
 	}
 	
@@ -327,10 +343,6 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		}
 	}
 	
-	public void produceReferenceInfo(boolean flag) {
-		this.produceReferenceInfo = flag;
-	}
-
 	public void set(Map optionsMap) {
 
 		Object optionValue;
@@ -374,6 +386,13 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 				this.reportDeprecationWhenOverridingDeprecatedMethod = true;
 			} else if (DISABLED.equals(optionValue)) {
 				this.reportDeprecationWhenOverridingDeprecatedMethod = false;
+			}
+		}
+		if ((optionValue = optionsMap.get(OPTION_ReportUnusedDeclaredThrownExceptionWhenOverriding)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.reportUnusedDeclaredThrownExceptionWhenOverriding = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.reportUnusedDeclaredThrownExceptionWhenOverriding = false;
 			}
 		}
 		if ((optionValue = optionsMap.get(OPTION_Compliance)) != null) {
@@ -458,6 +477,20 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 				}
 			}
 		}
+		if ((optionValue = optionsMap.get(OPTION_TaskCaseSensitive)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.isTaskCaseSensitive = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.isTaskCaseSensitive = false;
+			}
+		}
+		if ((optionValue = optionsMap.get(OPTION_InlineJsr)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.inlineJsrBytecode = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.inlineJsrBytecode = false;
+			}
+		}
 		if ((optionValue = optionsMap.get(OPTION_ReportMethodWithConstructorName)) != null) updateSeverity(MethodWithConstructorName, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportOverridingPackageDefaultMethod)) != null) updateSeverity(OverriddenPackageDefaultMethod, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportDeprecation)) != null) updateSeverity(UsingDeprecatedAPI, optionValue);
@@ -472,7 +505,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		if ((optionValue = optionsMap.get(OPTION_ReportLocalVariableHiding)) != null) updateSeverity(LocalVariableHiding, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportFieldHiding)) != null) updateSeverity(FieldHiding, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportPossibleAccidentalBooleanAssignment)) != null) updateSeverity(AccidentalBooleanAssign, optionValue);
-		if ((optionValue = optionsMap.get(OPTION_ReportSuperfluousSemicolon)) != null) updateSeverity(SuperfluousSemicolon, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportEmptyStatement)) != null) updateSeverity(EmptyStatement, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportNonExternalizedStringLiteral)) != null) updateSeverity(NonExternalizedString, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportAssertIdentifier)) != null) updateSeverity(AssertUsedAsAnIdentifier, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportNonStaticAccessToStatic)) != null) updateSeverity(NonStaticAccessToStatic, optionValue);
@@ -483,8 +516,16 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		if ((optionValue = optionsMap.get(OPTION_ReportFinallyBlockNotCompletingNormally)) != null) updateSeverity(FinallyBlockNotCompleting, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportUnqualifiedFieldAccess)) != null) updateSeverity(UnqualifiedFieldAccess, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportNoEffectAssignment)) != null) updateSeverity(NoEffectAssignment, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportUnnecessaryElse)) != null) updateSeverity(UnnecessaryElse, optionValue);
 
 		// Javadoc options
+		if ((optionValue = optionsMap.get(OPTION_DocCommentSupport)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.docCommentSupport = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.docCommentSupport = false;
+			}
+		}
 		if ((optionValue = optionsMap.get(OPTION_ReportInvalidJavadoc)) != null) {
 			updateSeverity(InvalidJavadoc, optionValue);
 		}
@@ -550,10 +591,6 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		}
 	}
 
-	public void setVerboseMode(boolean flag) {
-		this.verbose = flag;
-	}
-
 	public String toString() {
 	
 		StringBuffer buf = new StringBuffer("CompilerOptions:"); //$NON-NLS-1$
@@ -578,20 +615,23 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		buf.append("\n\t- local variable hiding another variable: ").append(getSeverityString(LocalVariableHiding)); //$NON-NLS-1$
 		buf.append("\n\t- field hiding another variable: ").append(getSeverityString(FieldHiding)); //$NON-NLS-1$
 		buf.append("\n\t- possible accidental boolean assignment: ").append(getSeverityString(AccidentalBooleanAssign)); //$NON-NLS-1$
-		buf.append("\n\t- superfluous semicolon: ").append(getSeverityString(SuperfluousSemicolon)); //$NON-NLS-1$
+		buf.append("\n\t- superfluous semicolon: ").append(getSeverityString(EmptyStatement)); //$NON-NLS-1$
 		buf.append("\n\t- uncommented empty block: ").append(getSeverityString(UndocumentedEmptyBlock)); //$NON-NLS-1$
 		buf.append("\n\t- unnecessary type check: ").append(getSeverityString(UnnecessaryTypeCheck)); //$NON-NLS-1$
-		buf.append("\n\t- invalid javadoc: ").append(getSeverityString(InvalidJavadoc)); //$NON-NLS-1$
-		buf.append("\n\t- report invalid javadoc tags: ").append(this.reportInvalidJavadocTags ? ENABLED : DISABLED); //$NON-NLS-1$
-		buf.append("\n\t- visibility level to report invalid javadoc tags: ").append(getVisibilityString(this.reportInvalidJavadocTagsVisibility)); //$NON-NLS-1$
-		buf.append("\n\t- missing javadoc tags: ").append(getSeverityString(MissingJavadocTags)); //$NON-NLS-1$
-		buf.append("\n\t- visibility level to report missing javadoc tags: ").append(getVisibilityString(this.reportMissingJavadocTagsVisibility)); //$NON-NLS-1$
-		buf.append("\n\t- report missing javadoc tags in overriding methods: ").append(this.reportMissingJavadocTagsOverriding ? ENABLED : DISABLED); //$NON-NLS-1$
-		buf.append("\n\t- missing javadoc comments: ").append(getSeverityString(MissingJavadocComments)); //$NON-NLS-1$
-		buf.append("\n\t- visibility level to report missing javadoc comments: ").append(getVisibilityString(this.reportMissingJavadocCommentsVisibility)); //$NON-NLS-1$
-		buf.append("\n\t- report missing javadoc comments in overriding methods: ").append(this.reportMissingJavadocCommentsOverriding ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t- javadoc comment support: ").append(this.docCommentSupport ? "ON" : " OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+		buf.append("\n\t\t+ invalid javadoc: ").append(getSeverityString(InvalidJavadoc)); //$NON-NLS-1$
+		buf.append("\n\t\t+ report invalid javadoc tags: ").append(this.reportInvalidJavadocTags ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t\t+ visibility level to report invalid javadoc tags: ").append(getVisibilityString(this.reportInvalidJavadocTagsVisibility)); //$NON-NLS-1$
+		buf.append("\n\t\t+ missing javadoc tags: ").append(getSeverityString(MissingJavadocTags)); //$NON-NLS-1$
+		buf.append("\n\t\t+ visibility level to report missing javadoc tags: ").append(getVisibilityString(this.reportMissingJavadocTagsVisibility)); //$NON-NLS-1$
+		buf.append("\n\t\t+ report missing javadoc tags in overriding methods: ").append(this.reportMissingJavadocTagsOverriding ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t\t+ missing javadoc comments: ").append(getSeverityString(MissingJavadocComments)); //$NON-NLS-1$
+		buf.append("\n\t\t+ visibility level to report missing javadoc comments: ").append(getVisibilityString(this.reportMissingJavadocCommentsVisibility)); //$NON-NLS-1$
+		buf.append("\n\t\t+ report missing javadoc comments in overriding methods: ").append(this.reportMissingJavadocCommentsOverriding ? ENABLED : DISABLED); //$NON-NLS-1$
 		buf.append("\n\t- finally block not completing normally: ").append(getSeverityString(FinallyBlockNotCompleting)); //$NON-NLS-1$
 		buf.append("\n\t- unused declared thrown exception: ").append(getSeverityString(UnusedDeclaredThrownException)); //$NON-NLS-1$
+		buf.append("\n\t- unused declared thrown exception when overriding: ").append(this.reportUnusedDeclaredThrownExceptionWhenOverriding ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t- unnecessary else: ").append(getSeverityString(UnnecessaryElse)); //$NON-NLS-1$
 		buf.append("\n\t- JDK compliance level: "+ versionFromJdkLevel(this.complianceLevel)); //$NON-NLS-1$
 		buf.append("\n\t- JDK source level: "+ versionFromJdkLevel(this.sourceLevel)); //$NON-NLS-1$
 		buf.append("\n\t- JDK target level: "+ versionFromJdkLevel(this.targetJDK)); //$NON-NLS-1$
@@ -602,11 +642,12 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		buf.append("\n\t- encoding : ").append(this.defaultEncoding == null ? "<default>" : this.defaultEncoding); //$NON-NLS-1$ //$NON-NLS-2$
 		buf.append("\n\t- task tags: ").append(this.taskTags == null ? "" : new String(CharOperation.concatWith(this.taskTags,',')));  //$NON-NLS-1$ //$NON-NLS-2$
 		buf.append("\n\t- task priorities : ").append(this.taskPriorites == null ? "" : new String(CharOperation.concatWith(this.taskPriorites,','))); //$NON-NLS-1$ //$NON-NLS-2$
-		buf.append("\n\t- report deprecation inside deprecated code : ").append(this.reportDeprecationInsideDeprecatedCode ? "ENABLED" : "DISABLED"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-		buf.append("\n\t- report deprecation when overriding deprecated method : ").append(this.reportDeprecationWhenOverridingDeprecatedMethod ? "ENABLED" : "DISABLED"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-		buf.append("\n\t- report unused parameter when implementing abstract method : ").append(this.reportUnusedParameterWhenImplementingAbstract ? "ENABLED" : "DISABLED"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-		buf.append("\n\t- report unused parameter when overriding concrete method : ").append(this.reportUnusedParameterWhenOverridingConcrete ? "ENABLED" : "DISABLED"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-		buf.append("\n\t- report constructor/setter parameter hiding existing field : ").append(this.reportSpecialParameterHidingField ? "ENABLED" : "DISABLED"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+		buf.append("\n\t- report deprecation inside deprecated code : ").append(this.reportDeprecationInsideDeprecatedCode ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t- report deprecation when overriding deprecated method : ").append(this.reportDeprecationWhenOverridingDeprecatedMethod ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t- report unused parameter when implementing abstract method : ").append(this.reportUnusedParameterWhenImplementingAbstract ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t- report unused parameter when overriding concrete method : ").append(this.reportUnusedParameterWhenOverridingConcrete ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t- report constructor/setter parameter hiding existing field : ").append(this.reportSpecialParameterHidingField ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t- inline JSR bytecode : ").append(this.inlineJsrBytecode ? ENABLED : DISABLED); //$NON-NLS-1$
 		return buf.toString();
 	}
 

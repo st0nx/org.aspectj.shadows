@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,7 +16,7 @@ import org.eclipse.jdt.internal.compiler.ast.Clinit;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
-import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
+import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
 
@@ -135,12 +135,13 @@ public class ClassScope extends Scope {
 	private LocalTypeBinding buildLocalType(
 		SourceTypeBinding enclosingType,
 		PackageBinding packageBinding) {
+	    
 		referenceContext.scope = this;
 		referenceContext.staticInitializerScope = new MethodScope(this, referenceContext, true);
 		referenceContext.initializerScope = new MethodScope(this, referenceContext, false);
 
 		// build the binding or the local type
-		LocalTypeBinding localType = new LocalTypeBinding(this, enclosingType);
+		LocalTypeBinding localType = new LocalTypeBinding(this, enclosingType, this.switchCase());
 		referenceContext.binding = localType;
 		checkAndSetModifiers();
 
@@ -310,33 +311,46 @@ public class ClassScope extends Scope {
 		} else if (sourceType.isLocalType()) {
 			if (sourceType.isAnonymousType()) 
 			    modifiers |= AccFinal;
-			MethodScope methodScope = methodScope();
-			ReferenceContext refContext = methodScope.referenceContext;
-			if (refContext instanceof TypeDeclaration) {
-			    
-				SourceTypeBinding type = ((TypeDeclaration) refContext).binding;
-
-				// inside field declaration ? check field modifier to see if deprecated
-				if (methodScope.initializedField != null) {
-						// currently inside this field initialization
-					if (methodScope.initializedField.isViewedAsDeprecated() && !sourceType.isDeprecated()){
-						modifiers |= AccDeprecatedImplicitly;
-					}
-				} else {
-					if (type.isStrictfp())
-						modifiers |= AccStrictfp;
-					if (type.isViewedAsDeprecated() && !sourceType.isDeprecated()) 
-						modifiers |= AccDeprecatedImplicitly;
-				}					
-			} else {
-				MethodBinding method = ((AbstractMethodDeclaration) refContext).binding;
-				if (method != null){
-					if (method.isStrictfp())
-						modifiers |= AccStrictfp;
-					if (method.isViewedAsDeprecated() && !sourceType.isDeprecated())
-						modifiers |= AccDeprecatedImplicitly;
+			Scope scope = this;
+			do {
+				switch (scope.kind) {
+					case METHOD_SCOPE :
+						MethodScope methodScope = (MethodScope) scope;
+						if (methodScope.isInsideInitializer()) {
+							SourceTypeBinding type = ((TypeDeclaration) methodScope.referenceContext).binding;
+			
+							// inside field declaration ? check field modifier to see if deprecated
+							if (methodScope.initializedField != null) {
+									// currently inside this field initialization
+								if (methodScope.initializedField.isViewedAsDeprecated() && !sourceType.isDeprecated()){
+									modifiers |= AccDeprecatedImplicitly;
+								}
+							} else {
+								if (type.isStrictfp())
+									modifiers |= AccStrictfp;
+								if (type.isViewedAsDeprecated() && !sourceType.isDeprecated()) 
+									modifiers |= AccDeprecatedImplicitly;
+							}					
+						} else {
+							MethodBinding method = ((AbstractMethodDeclaration) methodScope.referenceContext).binding;
+							if (method != null){
+								if (method.isStrictfp())
+									modifiers |= AccStrictfp;
+								if (method.isViewedAsDeprecated() && !sourceType.isDeprecated())
+									modifiers |= AccDeprecatedImplicitly;
+							}
+						}
+						break;
+					case CLASS_SCOPE :
+						// local member
+						if (enclosingType.isStrictfp())
+							modifiers |= AccStrictfp;
+						if (enclosingType.isViewedAsDeprecated() && !sourceType.isDeprecated())
+							modifiers |= AccDeprecatedImplicitly;
+						break;
 				}
-			}
+				scope = scope.parent;
+			} while (scope != null);
 		}
 		// after this point, tests on the 16 bits reserved.
 		int realModifiers = modifiers & AccJustFlag;
@@ -495,7 +509,7 @@ public class ClassScope extends Scope {
 		do {
 			if ((currentType.tagBits & HasNoMemberTypes) != 0)
 				break; // already know it has no inherited member types, can stop looking up
-			if (currentType.memberTypes() != NoMemberTypes)
+			if (currentType.hasMemberTypes()) // avoid resolving member types eagerly
 				return; // has member types
 			ReferenceBinding[] itsInterfaces = currentType.superInterfaces();
 			if (itsInterfaces != NoSuperInterfaces) {
@@ -579,7 +593,7 @@ public class ClassScope extends Scope {
 	*/
 	private boolean connectSuperclass() {
 		SourceTypeBinding sourceType = referenceContext.binding;
-		if (isJavaLangObject(sourceType)) { // handle the case of redefining java.lang.Object up front
+		if (sourceType.id == T_Object) { // handle the case of redefining java.lang.Object up front
 			sourceType.superclass = null;
 			sourceType.superInterfaces = NoSuperInterfaces;
 			if (referenceContext.superclass != null || referenceContext.superInterfaces != null)
@@ -627,7 +641,7 @@ public class ClassScope extends Scope {
 		sourceType.superInterfaces = NoSuperInterfaces;
 		if (referenceContext.superInterfaces == null)
 			return true;
-		if (isJavaLangObject(sourceType)) // already handled the case of redefining java.lang.Object
+		if (sourceType.id == T_Object) // already handled the case of redefining java.lang.Object
 			return true;
 
 		boolean noProblems = true;
@@ -690,7 +704,12 @@ public class ClassScope extends Scope {
 				problemReporter().hierarchyHasProblems(sourceType);
 		}
 		connectMemberTypes();
-		checkForInheritedMemberTypes(sourceType);
+		try {
+			checkForInheritedMemberTypes(sourceType);
+		} catch (AbortCompilation e) {
+			e.updateContext(referenceContext, referenceCompilationUnit().compilationResult);
+			throw e;
+		}
 	}
 	
 	private void connectTypeHierarchyWithoutMembers() {
@@ -784,72 +803,77 @@ public class ClassScope extends Scope {
 	}
 	
 	private ReferenceBinding findSupertype(TypeReference typeReference) {
-		typeReference.aboutToResolve(this); // allows us to trap completion & selection nodes
-		char[][] compoundName = typeReference.getTypeName();
-		compilationUnitScope().recordQualifiedReference(compoundName);
-		SourceTypeBinding sourceType = referenceContext.binding;
-		int size = compoundName.length;
-		int n = 1;
-		ReferenceBinding superType;
-
-		// resolve the first name of the compoundName
-		if (CharOperation.equals(compoundName[0], sourceType.sourceName)) {
-			superType = sourceType;
-			// match against the sourceType even though nested members cannot be supertypes
-		} else {
-			Binding typeOrPackage = parent.getTypeOrPackage(compoundName[0], TYPE | PACKAGE);
-			if (typeOrPackage == null || !typeOrPackage.isValidBinding())
-				return new ProblemReferenceBinding(
-					compoundName[0],
-					typeOrPackage == null ? NotFound : typeOrPackage.problemId());
-
-			boolean checkVisibility = false;
-			for (; n < size; n++) {
-				if (!(typeOrPackage instanceof PackageBinding))
-					break;
-				PackageBinding packageBinding = (PackageBinding) typeOrPackage;
-				typeOrPackage = packageBinding.getTypeOrPackage(compoundName[n]);
+		try {
+			typeReference.aboutToResolve(this); // allows us to trap completion & selection nodes
+			char[][] compoundName = typeReference.getTypeName();
+			compilationUnitScope().recordQualifiedReference(compoundName);
+			SourceTypeBinding sourceType = referenceContext.binding;
+			int size = compoundName.length;
+			int n = 1;
+			ReferenceBinding superType;
+	
+			// resolve the first name of the compoundName
+			if (CharOperation.equals(compoundName[0], sourceType.sourceName)) {
+				superType = sourceType;
+				// match against the sourceType even though nested members cannot be supertypes
+			} else {
+				Binding typeOrPackage = parent.getTypeOrPackage(compoundName[0], TYPE | PACKAGE);
 				if (typeOrPackage == null || !typeOrPackage.isValidBinding())
 					return new ProblemReferenceBinding(
-						CharOperation.subarray(compoundName, 0, n + 1),
+						compoundName[0],
 						typeOrPackage == null ? NotFound : typeOrPackage.problemId());
-				checkVisibility = true;
+	
+				boolean checkVisibility = false;
+				for (; n < size; n++) {
+					if (!(typeOrPackage instanceof PackageBinding))
+						break;
+					PackageBinding packageBinding = (PackageBinding) typeOrPackage;
+					typeOrPackage = packageBinding.getTypeOrPackage(compoundName[n]);
+					if (typeOrPackage == null || !typeOrPackage.isValidBinding())
+						return new ProblemReferenceBinding(
+							CharOperation.subarray(compoundName, 0, n + 1),
+							typeOrPackage == null ? NotFound : typeOrPackage.problemId());
+					checkVisibility = true;
+				}
+	
+				// convert to a ReferenceBinding
+				if (typeOrPackage instanceof PackageBinding) // error, the compoundName is a packageName
+					return new ProblemReferenceBinding(CharOperation.subarray(compoundName, 0, n), NotFound);
+				superType = (ReferenceBinding) typeOrPackage;
+				compilationUnitScope().recordTypeReference(superType); // to record supertypes
+	
+				if (checkVisibility
+					&& n == size) { // if we're finished and know the final supertype then check visibility
+					if (!superType.canBeSeenBy(sourceType.fPackage))
+						// its a toplevel type so just check package access
+						return new ProblemReferenceBinding(CharOperation.subarray(compoundName, 0, n), superType, NotVisible);
+				}
 			}
-
-			// convert to a ReferenceBinding
-			if (typeOrPackage instanceof PackageBinding) // error, the compoundName is a packageName
-				return new ProblemReferenceBinding(CharOperation.subarray(compoundName, 0, n), NotFound);
-			superType = (ReferenceBinding) typeOrPackage;
-			compilationUnitScope().recordTypeReference(superType); // to record supertypes
-
-			if (checkVisibility
-				&& n == size) { // if we're finished and know the final supertype then check visibility
-				if (!superType.canBeSeenBy(sourceType.fPackage))
-					// its a toplevel type so just check package access
-					return new ProblemReferenceBinding(CharOperation.subarray(compoundName, 0, n), superType, NotVisible);
+			// at this point we know we have a type but we have to look for cycles
+			while (true) {
+				// must detect cycles & force connection up the hierarchy... also handle cycles with binary types.
+				// must be guaranteed that the superType knows its entire hierarchy
+				if (detectCycle(sourceType, superType, typeReference))
+					return null; // cycle error was already reported
+	
+				if (n >= size)
+					break;
+	
+				// retrieve the next member type
+				char[] typeName = compoundName[n++];
+				superType = findMemberType(typeName, superType);
+				if (superType == null)
+					return new ProblemReferenceBinding(CharOperation.subarray(compoundName, 0, n), NotFound);
+				if (!superType.isValidBinding()) {
+					superType.compoundName = CharOperation.subarray(compoundName, 0, n);
+					return superType;
+				}
 			}
+			return superType;
+		} catch (AbortCompilation e) {
+			e.updateContext(typeReference, referenceCompilationUnit().compilationResult);
+			throw e;
 		}
-		// at this point we know we have a type but we have to look for cycles
-		while (true) {
-			// must detect cycles & force connection up the hierarchy... also handle cycles with binary types.
-			// must be guaranteed that the superType knows its entire hierarchy
-			if (detectCycle(sourceType, superType, typeReference))
-				return null; // cycle error was already reported
-
-			if (n >= size)
-				break;
-
-			// retrieve the next member type
-			char[] typeName = compoundName[n++];
-			superType = findMemberType(typeName, superType);
-			if (superType == null)
-				return new ProblemReferenceBinding(CharOperation.subarray(compoundName, 0, n), NotFound);
-			if (!superType.isValidBinding()) {
-				superType.compoundName = CharOperation.subarray(compoundName, 0, n);
-				return superType;
-			}
-		}
-		return superType;
 	}
 
 	/* Answer the problem reporter to use for raising new problems.
@@ -864,9 +888,8 @@ public class ClassScope extends Scope {
 			ProblemReporter problemReporter = referenceCompilationUnit().problemReporter;
 			problemReporter.referenceContext = referenceContext;
 			return problemReporter;
-		} else {
-			return outerMethodScope.problemReporter();
 		}
+		return outerMethodScope.problemReporter();
 	}
 
 	/* Answer the reference type of this scope.
@@ -879,8 +902,7 @@ public class ClassScope extends Scope {
 	public String toString() {
 		if (referenceContext != null)
 			return "--- Class Scope ---\n\n"  //$NON-NLS-1$
-			+referenceContext.binding.toString();
-		else
-			return "--- Class Scope ---\n\n Binding not initialized" ; //$NON-NLS-1$
+							+ referenceContext.binding.toString();
+		return "--- Class Scope ---\n\n Binding not initialized" ; //$NON-NLS-1$
 	}
 }

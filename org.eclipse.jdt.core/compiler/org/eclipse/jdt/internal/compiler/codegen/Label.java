@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -23,6 +23,7 @@ public class Label {
 	public int[] forwardReferences = new int[10]; // Add an overflow check here.
 	public int forwardReferenceCount = 0;
 	private boolean isWide = false;
+	
 public Label() {
 	// for creating labels ahead of code generation
 }
@@ -71,7 +72,7 @@ void branch() {
 		 */
 		int offset = position - codeStream.position + 1;
 		if (Math.abs(offset) > 0x7FFF && !this.codeStream.wideMode) {
-			throw new AbortMethod(CodeStream.RESTART_IN_WIDE_MODE);
+			throw new AbortMethod(CodeStream.RESTART_IN_WIDE_MODE, null);
 		}
 		codeStream.writeSignedShort(offset);
 	}
@@ -128,6 +129,11 @@ public void inlineForwardReferencesFromLabelsTargeting(int gotoLocation) {
 			break; // same target labels should be contiguous
 		}
 	}
+}
+public void initialize(CodeStream stream) {
+    this.codeStream = stream;
+   	this.position = POS_NOT_SET;
+	this.forwardReferenceCount = 0; 
 }
 public boolean isStandardLabel(){
 	return true;
@@ -187,7 +193,7 @@ public void place() { // Currently lacking wide support.
 		for (int i = 0; i < forwardReferenceCount; i++) {
 			int offset = position - forwardReferences[i] + 1;
 			if (Math.abs(offset) > 0x7FFF && !this.codeStream.wideMode) {
-				throw new AbortMethod(CodeStream.RESTART_IN_WIDE_MODE);
+				throw new AbortMethod(CodeStream.RESTART_IN_WIDE_MODE, null);
 			}
 			if (this.codeStream.wideMode) {
 				if (this.isWide) {
@@ -218,7 +224,7 @@ public void place() { // Currently lacking wide support.
 							int forwardPosition = label.forwardReferences[j];
 							int offset = position - forwardPosition + 1;
 							if (Math.abs(offset) > 0x7FFF && !this.codeStream.wideMode) {
-								throw new AbortMethod(CodeStream.RESTART_IN_WIDE_MODE);
+								throw new AbortMethod(CodeStream.RESTART_IN_WIDE_MODE, null);
 							}
 							if (this.codeStream.wideMode) {
 								if (this.isWide) {
@@ -252,10 +258,5 @@ public String toString() {
 		buffer.append(forwardReferences[forwardReferenceCount-1]);
 	buffer.append("] )"); //$NON-NLS-1$
 	return buffer.toString();
-}
-
-public void resetStateForCodeGeneration() {
-	this.position = POS_NOT_SET;
-	this.forwardReferenceCount = 0;
 }
 }

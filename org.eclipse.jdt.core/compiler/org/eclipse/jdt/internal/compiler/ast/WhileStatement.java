@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -140,7 +140,7 @@ public class WhileStatement extends Statement {
 			return;
 		}
 		int pc = codeStream.position;
-		breakLabel.codeStream = codeStream;
+		breakLabel.initialize(codeStream);
 
 		// generate condition
 		if (continueLabel == null) {
@@ -154,7 +154,7 @@ public class WhileStatement extends Statement {
 					true);
 			}
 		} else {
-			continueLabel.codeStream = codeStream;
+			continueLabel.initialize(codeStream);
 			if (!(((condition.constant != NotAConstant)
 				&& (condition.constant.booleanValue() == true))
 				|| (action == null)
@@ -198,20 +198,10 @@ public class WhileStatement extends Statement {
 
 		// May loose some local variable initializations : affecting the local variable attributes
 		if (mergedInitStateIndex != -1) {
-			codeStream.removeNotDefinitelyAssignedVariables(
-				currentScope,
-				mergedInitStateIndex);
+			codeStream.removeNotDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);
+			codeStream.addDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);
 		}
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
-	}
-
-	public void resetStateForCodeGeneration() {
-		if (this.breakLabel != null) {
-			this.breakLabel.resetStateForCodeGeneration();
-		}
-		if (this.continueLabel != null) {
-			this.continueLabel.resetStateForCodeGeneration();
-		}
 	}
 
 	public void resolve(BlockScope scope) {

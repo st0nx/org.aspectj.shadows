@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -23,6 +23,7 @@ public class CompilationUnitDeclaration
 	public ImportReference currentPackage;
 	public ImportReference[] imports;
 	public TypeDeclaration[] types;
+	public int[][] comments;
 
 	public boolean ignoreFurtherInvestigation = false;	// once pointless to investigate due to errors
 	public boolean ignoreMethodBodies = false;
@@ -52,15 +53,15 @@ public class CompilationUnitDeclaration
 	/*
 	 *	We cause the compilation task to abort to a given extent.
 	 */
-	public void abort(int abortLevel) {
+	public void abort(int abortLevel, IProblem problem) {
 
 		switch (abortLevel) {
 			case AbortType :
-				throw new AbortType(this.compilationResult);
+				throw new AbortType(this.compilationResult, problem);
 			case AbortMethod :
-				throw new AbortMethod(this.compilationResult);
+				throw new AbortMethod(this.compilationResult, problem);
 			default :
-				throw new AbortCompilationUnit(this.compilationResult);
+				throw new AbortCompilationUnit(this.compilationResult, problem);
 		}
 	}
 
@@ -95,8 +96,9 @@ public class CompilationUnitDeclaration
 				cleanUp(this.types[i]);
 			}
 			for (int i = 0, max = this.localTypeCount; i < max; i++) {
+			    LocalTypeBinding localType = localTypes[i];
 				// null out the type's scope backpointers
-				localTypes[i].scope = null; // local members are already in the list
+				localType.scope = null; // local members are already in the list
 			}
 		}
 		ClassFile[] classFiles = compilationResult.getClassFiles();

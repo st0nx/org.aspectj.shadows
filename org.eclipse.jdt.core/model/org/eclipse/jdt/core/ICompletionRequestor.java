@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -22,12 +22,12 @@ import org.eclipse.jdt.core.compiler.IProblem;
  * @see ICodeAssist
  * @since 2.0
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor}, an abstract class with all the same methods (and more).
 public interface ICompletionRequestor {
 /**
  * Code assist notification of an anonymous type declaration completion.
  * @param superTypePackageName Name of the package that contains the super type of this 
- * 		new anonymous type declaration .
- * 
+ * 		new anonymous type declaration.
  * @param superTypeName Name of the super type of this new anonymous type declaration.
  * @param parameterPackageNames Names of the packages in which the parameter types are declared.
  *    	Should contain as many elements as parameterTypeNames.
@@ -55,6 +55,7 @@ public interface ICompletionRequestor {
  *
  * NOTE: parameter names can be retrieved from the source model after the user selects a specific method.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptAnonymousType(char[], char[], char[][], char[][], char[][], char[], int, int, int, int)} instead.
 void acceptAnonymousType(
 	char[] superTypePackageName,
 	char[] superTypeName,
@@ -85,6 +86,7 @@ void acceptAnonymousType(
  *    Nested type names are in the qualified form "A.M".
  *    The default package is represented by an empty array.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptClass(char[], char[], char[], int, int, int, int)} instead.
 void acceptClass(
 	char[] packageName,
 	char[] className,
@@ -104,6 +106,7 @@ void acceptClass(
  *		during the code assist process).
  *      Note: the problem knows its originating file name.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptError(IProblem)} instead.
 void acceptError(IProblem error);
 /**
  * Code assist notification of a field completion.
@@ -129,6 +132,7 @@ void acceptError(IProblem error);
  *    Nested type names are in the qualified form "A.M".
  *    The default package is represented by an empty array.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptField(char[], char[], char[], char[], char[], char[], int, int, int, int)} instead.
 void acceptField(
 	char[] declaringTypePackageName,
 	char[] declaringTypeName,
@@ -159,6 +163,7 @@ void acceptField(
  *    Nested type names are in the qualified form "A.M".
  *    The default package is represented by an empty array.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptInterface(char[], char[], char[], int, int, int, int)} instead.
 void acceptInterface(
 	char[] packageName,
 	char[] interfaceName,
@@ -177,6 +182,7 @@ void acceptInterface(
  * 		This value can only be used for compare relevance. A proposal is more relevant than another if his relevance
  * 		value is higher.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptKeyword(char[], int, int, int)} instead.
 void acceptKeyword(char[] keywordName, int completionStart, int completionEnd, int relevance);
 /**
  * Code assist notification of a label completion.
@@ -189,6 +195,7 @@ void acceptKeyword(char[] keywordName, int completionStart, int completionEnd, i
  * 		This value can only be used for compare relevance. A proposal is more relevant than another if his relevance
  * 		value is higher.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptLabel(char[], int, int, int)} instead.
 void acceptLabel(char[] labelName, int completionStart, int completionEnd, int relevance);
 /**
  * Code assist notification of a local variable completion.
@@ -211,6 +218,7 @@ void acceptLabel(char[] labelName, int completionStart, int completionEnd, int r
  *    Nested type names are in the qualified form "A.M".
  *    The default package is represented by an empty array.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptLocalVariable(char[], char[], char[], int, int, int, int)} instead.
 void acceptLocalVariable(
 	char[] name,
 	char[] typePackageName,
@@ -251,6 +259,7 @@ void acceptLocalVariable(
  *
  * NOTE: parameter names can be retrieved from the source model after the user selects a specific method.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptMethod(char[], char[], char[], char[][], char[][], char[][], char[], char[], char[], int, int, int, int)} instead.
 void acceptMethod(
 	char[] declaringTypePackageName,
 	char[] declaringTypeName,
@@ -298,6 +307,7 @@ void acceptMethod(
  *
  * NOTE: parameter names can be retrieved from the source model after the user selects a specific method.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptMethodDeclaration(char[], char[], char[], char[][], char[][], char[][], char[], char[], char[], int, int, int, int)} instead.
 void acceptMethodDeclaration(
 	char[] declaringTypePackageName,
 	char[] declaringTypeName,
@@ -323,6 +333,7 @@ void acceptMethodDeclaration(
  * 		This value can only be used for compare relevance. A proposal is more relevant than another if his relevance
  * 		value is higher.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptModifier(char[], int, int, int)} instead.
 void acceptModifier(char[] modifierName, int completionStart, int completionEnd, int relevance);
 /**
  * Code assist notification of a package completion.
@@ -340,6 +351,7 @@ void acceptModifier(char[] modifierName, int completionStart, int completionEnd,
  *    Package names are in the form "a.b.c".
  *    The default package is represented by an empty array.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptPackage(char[], char[], int, int, int)} instead.
 void acceptPackage(
 	char[] packageName,
 	char[] completionName,
@@ -364,6 +376,7 @@ void acceptPackage(
  *    Nested type names are in the qualified form "A.M".
  *    The default package is represented by an empty array.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptType(char[], char[], char[], int, int, int)} instead.
 void acceptType(
 	char[] packageName,
 	char[] typeName,
@@ -393,6 +406,7 @@ void acceptType(
  *    Nested type names are in the qualified form "A.M".
  *    The default package is represented by an empty array.
  */
+// TODO (jerome - once CompletionRequestor is working) @ deprecated Use {@link CompletionRequestor#acceptTypeVariable(char[], int, int, int)} instead.
 void acceptVariableName(
 	char[] typePackageName,
 	char[] typeName,

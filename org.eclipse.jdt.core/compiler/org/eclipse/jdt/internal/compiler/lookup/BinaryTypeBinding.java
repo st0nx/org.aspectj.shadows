@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -109,6 +109,11 @@ public MethodBinding[] availableMethods() {
 }
 
 void cachePartsFrom(IBinaryType binaryType, boolean needFieldsAndMethods) {
+	
+	// default initialization for super-interfaces early, in case some aborting compilation error occurs,
+	// and still want to use binaries passed that point (e.g. type hierarchy resolver, see bug 63748).
+	this.superInterfaces = NoSuperInterfaces;
+	
 	char[] superclassName = binaryType.getSuperclassName();
 	if (superclassName != null)
 		// attempt to find the superclass if it exists in the cache (otherwise - resolve it when requested)
@@ -137,7 +142,6 @@ void cachePartsFrom(IBinaryType binaryType, boolean needFieldsAndMethods) {
 		}
 	}
 
-	this.superInterfaces = NoSuperInterfaces;
 	char[][] interfaceNames = binaryType.getInterfaceNames();
 	if (interfaceNames != null) {
 		int size = interfaceNames.length;
@@ -198,7 +202,7 @@ private MethodBinding createMethod(IBinaryMethod method) {
 		if (nextChar != '[') {
 			numOfParams++;
 			if (nextChar == 'L')
-				while ((nextChar = methodSignature[++index]) != ';');
+				while ((nextChar = methodSignature[++index]) != ';'){/*empty*/}
 		}
 	}
 
@@ -210,9 +214,9 @@ private MethodBinding createMethod(IBinaryMethod method) {
 		index = 1;
 		int end = 0;   // first character is always '(' so skip it
 		for (int i = 0; i < numOfParams; i++) {
-			while ((nextChar = methodSignature[++end]) == '[');
+			while ((nextChar = methodSignature[++end]) == '['){/*empty*/}
 			if (nextChar == 'L')
-				while ((nextChar = methodSignature[++end]) != ';');
+				while ((nextChar = methodSignature[++end]) != ';'){/*empty*/}
 
 			if (i >= startIndex)   // skip the synthetic arg if necessary
 				parameters[i - startIndex] = environment.getTypeFromSignature(methodSignature, index, end);
@@ -319,7 +323,7 @@ public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes
 	boolean foundNothing = true;
 	nextMethod : for (int m = methods.length; --m >= 0;) {
 		MethodBinding method = methods[m];
-		if (method.selector.length == selectorLength && CharOperation.prefixEquals(method.selector, selector)) {
+		if (method.selector.length == selectorLength && CharOperation.equals(method.selector, selector)) {
 			foundNothing = false; // inner type lookups must know that a method with this name exists
 			if (method.parameters.length == argCount) {
 				resolveTypesFor(method);
@@ -348,8 +352,26 @@ public FieldBinding getField(char[] fieldName, boolean needResolve) {
 	int fieldLength = fieldName.length;
 	for (int f = fields.length; --f >= 0;) {
 		char[] name = fields[f].name;
-		if (name.length == fieldLength && CharOperation.prefixEquals(name, fieldName))
+		if (name.length == fieldLength && CharOperation.equals(name, fieldName))
 			return needResolve ? resolveTypeFor(fields[f]) : fields[f];
+	}
+	return null;
+}
+/**
+ *  Rewrite of default getMemberType to avoid resolving eagerly all member types when one is requested
+ */
+public ReferenceBinding getMemberType(char[] typeName) {
+	for (int i = this.memberTypes.length; --i >= 0;) {
+	    ReferenceBinding memberType = this.memberTypes[i];
+	    if (memberType instanceof UnresolvedReferenceBinding) {
+			char[] name = memberType.sourceName; // source name is qualified with enclosing type name
+			int prefixLength = this.compoundName[this.compoundName.length - 1].length + 1; // enclosing$
+			if (name.length == (prefixLength + typeName.length)) // enclosing $ typeName
+				if (CharOperation.fragmentEquals(typeName, name, prefixLength, true)) // only check trailing portion
+					return this.memberTypes[i] = ((UnresolvedReferenceBinding) memberType).resolve(environment);
+	    } else if (CharOperation.equals(typeName, memberType.sourceName)) {
+	        return memberType;
+	    }
 	}
 	return null;
 }
@@ -361,7 +383,7 @@ public MethodBinding[] getMethods(char[] selector) {
 	int selectorLength = selector.length;
 	for (int m = 0, length = methods.length; m < length; m++) {
 		MethodBinding method = methods[m];
-		if (method.selector.length == selectorLength && CharOperation.prefixEquals(method.selector, selector)) {
+		if (method.selector.length == selectorLength && CharOperation.equals(method.selector, selector)) {
 			resolveTypesFor(method);
 			count++;
 			lastIndex = m;
@@ -374,12 +396,15 @@ public MethodBinding[] getMethods(char[] selector) {
 		count = 0;
 		for (int m = 0; m <= lastIndex; m++) {
 			MethodBinding method = methods[m];
-			if (method.selector.length == selectorLength && CharOperation.prefixEquals(method.selector, selector))
+			if (method.selector.length == selectorLength && CharOperation.equals(method.selector, selector))
 				result[count++] = method;
 		}
 		return result;
 	}
 	return NoMethods;
+}
+public boolean hasMemberTypes() {
+    return this.memberTypes.length > 0;
 }
 // NOTE: member types of binary types are resolved when needed
 

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,8 @@
  *******************************************************************************/
 
 package org.eclipse.jdt.core.dom;
+
+import java.util.List;
 
 /**
  * Simple or qualified "super" field access expression AST node type.
@@ -29,6 +31,48 @@ package org.eclipse.jdt.core.dom;
  */
 public class SuperFieldAccess extends Expression {
 
+	/**
+	 * The "qualifier" structural property of this node type.
+	 * @since 3.0
+	 */
+	public static final ChildPropertyDescriptor QUALIFIER_PROPERTY = 
+		new ChildPropertyDescriptor(SuperFieldAccess.class, "qualifier", Name.class, OPTIONAL, NO_CYCLE_RISK); //$NON-NLS-1$
+
+	/**
+	 * The "name" structural property of this node type.
+	 * @since 3.0
+	 */
+	public static final ChildPropertyDescriptor NAME_PROPERTY = 
+		new ChildPropertyDescriptor(SuperFieldAccess.class, "name", SimpleName.class, MANDATORY, NO_CYCLE_RISK); //$NON-NLS-1$
+
+	/**
+	 * A list of property descriptors (element type: 
+	 * {@link StructuralPropertyDescriptor}),
+	 * or null if uninitialized.
+	 */
+	private static final List PROPERTY_DESCRIPTORS;
+	
+	static {
+		createPropertyList(SuperFieldAccess.class);
+		addProperty(QUALIFIER_PROPERTY);
+		addProperty(NAME_PROPERTY);
+		PROPERTY_DESCRIPTORS = reapPropertyList();
+	}
+
+	/**
+	 * Returns a list of structural property descriptors for this node type.
+	 * Clients must not modify the result.
+	 * 
+	 * @param apiLevel the API level; one of the
+	 * <code>AST.JLS&ast;</code> constants
+	 * @return a list of property descriptors (element type: 
+	 * {@link StructuralPropertyDescriptor})
+	 * @since 3.0
+	 */
+	public static List propertyDescriptors(int apiLevel) {
+		return PROPERTY_DESCRIPTORS;
+	}
+			
 	/**
 	 * The optional qualifier; <code>null</code> for none; defaults to none.
 	 */
@@ -57,14 +101,45 @@ public class SuperFieldAccess extends Expression {
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
-	public int getNodeType() {
+	final List internalStructuralPropertiesForType(int apiLevel) {
+		return propertyDescriptors(apiLevel);
+	}
+	
+	/* (omit javadoc for this method)
+	 * Method declared on ASTNode.
+	 */
+	final ASTNode internalGetSetChildProperty(ChildPropertyDescriptor property, boolean get, ASTNode child) {
+		if (property == QUALIFIER_PROPERTY) {
+			if (get) {
+				return getQualifier();
+			} else {
+				setQualifier((Name) child);
+				return null;
+			}
+		}
+		if (property == NAME_PROPERTY) {
+			if (get) {
+				return getName();
+			} else {
+				setName((SimpleName) child);
+				return null;
+			}
+		}
+		// allow default implementation to flag the error
+		return super.internalGetSetChildProperty(property, get, child);
+	}
+	
+	/* (omit javadoc for this method)
+	 * Method declared on ASTNode.
+	 */
+	final int getNodeType0() {
 		return SUPER_FIELD_ACCESS;
 	}
 
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
-	ASTNode clone(AST target) {
+	ASTNode clone0(AST target) {
 		SuperFieldAccess result = new SuperFieldAccess(target);
 		result.setSourceRange(this.getStartPosition(), this.getLength());
 		result.setName((SimpleName) ASTNode.copySubtree(target, getName()));
@@ -75,7 +150,7 @@ public class SuperFieldAccess extends Expression {
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
-	public boolean subtreeMatch(ASTMatcher matcher, Object other) {
+	final boolean subtreeMatch0(ASTMatcher matcher, Object other) {
 		// dispatch to correct overloaded match method
 		return matcher.match(this, other);
 	}
@@ -100,7 +175,7 @@ public class SuperFieldAccess extends Expression {
 	 * @return the qualifier name node, or <code>null</code> if there is none
 	 */ 
 	public Name getQualifier() {
-		return optionalQualifier;
+		return this.optionalQualifier;
 	}
 	
 	/**
@@ -115,9 +190,10 @@ public class SuperFieldAccess extends Expression {
 	 * </ul>
 	 */ 
 	public void setQualifier(Name name) {
-		// a SuperFieldAccess cannot occur inside a Name - no cycle check
-		replaceChild(this.optionalQualifier, name, false);
+		ASTNode oldChild = this.optionalQualifier;
+		preReplaceChild(oldChild, name, QUALIFIER_PROPERTY);
 		this.optionalQualifier = name;
+		postReplaceChild(oldChild, name, QUALIFIER_PROPERTY);
 	}
 
 	/**
@@ -127,13 +203,17 @@ public class SuperFieldAccess extends Expression {
 	 * @return the field name
 	 */ 
 	public SimpleName getName() {
-		if (fieldName == null) {
-			// lazy initialize - use setter to ensure parent link set too
-			long count = getAST().modificationCount();
-			setName(new SimpleName(getAST()));
-			getAST().setModificationCount(count);
+		if (this.fieldName == null) {
+			// lazy init must be thread-safe for readers
+			synchronized (this) {
+				if (this.fieldName == null) {
+					preLazyInit();
+					this.fieldName = new SimpleName(this.ast);
+					postLazyInit(this.fieldName, NAME_PROPERTY);
+				}
+			}
 		}
-		return fieldName;
+		return this.fieldName;
 	}
 
 	/**
@@ -149,7 +229,7 @@ public class SuperFieldAccess extends Expression {
 	 * @since 3.0
 	 */
 	public IVariableBinding resolveFieldBinding() {
-		return getAST().getBindingResolver().resolveField(this);
+		return this.ast.getBindingResolver().resolveField(this);
 	}
 		
 	/**
@@ -167,9 +247,10 @@ public class SuperFieldAccess extends Expression {
 		if (fieldName == null) {
 			throw new IllegalArgumentException();
 		}
-		// a FieldAccess cannot occur inside a SimpleName
-		replaceChild(this.fieldName, fieldName, false);
+		ASTNode oldChild = this.fieldName;
+		preReplaceChild(oldChild, fieldName, NAME_PROPERTY);
 		this.fieldName = fieldName;
+		postReplaceChild(oldChild, fieldName, NAME_PROPERTY);
 	}
 
 	/* (omit javadoc for this method)
@@ -186,8 +267,8 @@ public class SuperFieldAccess extends Expression {
 	int treeSize() {
 		return 
 			memSize()
-			+ (optionalQualifier == null ? 0 : getQualifier().treeSize())
-			+ (fieldName == null ? 0 : getName().treeSize());
+			+ (this.optionalQualifier == null ? 0 : getQualifier().treeSize())
+			+ (this.fieldName == null ? 0 : getName().treeSize());
 	}
 }
 

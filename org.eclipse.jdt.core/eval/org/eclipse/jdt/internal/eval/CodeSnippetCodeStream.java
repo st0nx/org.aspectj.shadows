@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -29,6 +29,8 @@ public class CodeSnippetCodeStream extends CodeStream {
 			public void setActualReceiverType(ReferenceBinding receiverType) {}
 			public void setDepth(int depth) {}
 			public void setFieldIndex(int depth){}
+			public int sourceStart() { return 0; }
+			public int sourceEnd() { return 0; }
 		};
 /**
  * CodeSnippetCodeStream constructor comment.
@@ -39,12 +41,11 @@ public CodeSnippetCodeStream(org.eclipse.jdt.internal.compiler.ClassFile classFi
 }
 protected void checkcast(int baseId) {
 	this.countLabels = 0;
-	try {
-		this.position++;
-		this.bCodeStream[this.classFileOffset++] = OPC_checkcast;
-	} catch (IndexOutOfBoundsException e) {
-		resizeByteArray(OPC_checkcast);
+	if (classFileOffset + 2 >= bCodeStream.length) {
+		resizeByteArray();
 	}
+	this.position++;
+	this.bCodeStream[this.classFileOffset++] = OPC_checkcast;
 	switch (baseId) {
 		case T_byte :
 			writeUnsignedShort(this.constantPool.literalIndexForJavaLangByte());
@@ -241,12 +242,11 @@ public void generateObjectWrapperForType(TypeBinding valueType) {
 }
 public void getBaseTypeValue(int baseTypeID) {
 	this.countLabels = 0;
-	try {
-		this.position++;
-		this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
-	} catch (IndexOutOfBoundsException e) {
-		resizeByteArray(OPC_invokevirtual);
+	if (classFileOffset + 2 >= bCodeStream.length) {
+		resizeByteArray();
 	}
+	this.position++;
+	this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
 	switch (baseTypeID) {
 		case T_byte :
 			// invokevirtual: byteValue()
@@ -290,72 +290,66 @@ public void getBaseTypeValue(int baseTypeID) {
 protected void invokeAccessibleObjectSetAccessible() {
 	// invokevirtual: java.lang.reflect.AccessibleObject.setAccessible(Z)V;
 	this.countLabels = 0;
-	try {
-		this.position++;
-		this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
-	} catch (IndexOutOfBoundsException e) {
-		resizeByteArray(OPC_invokevirtual);
+	if (classFileOffset + 2 >= bCodeStream.length) {
+		resizeByteArray();
 	}
+	this.position++;
+	this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
 	writeUnsignedShort(((CodeSnippetConstantPool) this.constantPool).literalIndexForJavaLangReflectAccessibleObjectSetAccessible());
 	this.stackDepth-=2;
 }
 protected void invokeArrayNewInstance() {
 	// invokestatic: java.lang.reflect.Array.newInstance(Ljava.lang.Class;int[])Ljava.lang.reflect.Array;
 	this.countLabels = 0;
-	try {
-		this.position++;
-		this.bCodeStream[this.classFileOffset++] = OPC_invokestatic;
-	} catch (IndexOutOfBoundsException e) {
-		resizeByteArray(OPC_invokestatic);
+	if (classFileOffset + 2 >= bCodeStream.length) {
+		resizeByteArray();
 	}
+	this.position++;
+	this.bCodeStream[this.classFileOffset++] = OPC_invokestatic;
 	writeUnsignedShort(((CodeSnippetConstantPool) this.constantPool).literalIndexForJavaLangReflectArrayNewInstance());
 	this.stackDepth--;
 }
 protected void invokeClassGetDeclaredConstructor() {
 	// invokevirtual: java.lang.Class getDeclaredConstructor([Ljava.lang.Class)Ljava.lang.reflect.Constructor;
 	this.countLabels = 0;
-	try {
-		this.position++;
-		this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
-	} catch (IndexOutOfBoundsException e) {
-		resizeByteArray(OPC_invokevirtual);
+	if (classFileOffset + 2 >= bCodeStream.length) {
+		resizeByteArray();
 	}
+	this.position++;
+	this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
 	writeUnsignedShort(((CodeSnippetConstantPool) this.constantPool).literalIndexForJavaLangClassGetDeclaredConstructor());
 	this.stackDepth--;
 }
 protected void invokeClassGetDeclaredField() {
 	// invokevirtual: java.lang.Class.getDeclaredField(Ljava.lang.String)Ljava.lang.reflect.Field;
 	this.countLabels = 0;
-	try {
-		this.position++;
-		this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
-	} catch (IndexOutOfBoundsException e) {
-		resizeByteArray(OPC_invokevirtual);
+	if (classFileOffset + 2 >= bCodeStream.length) {
+		resizeByteArray();
 	}
+	this.position++;
+	this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
 	writeUnsignedShort(((CodeSnippetConstantPool) this.constantPool).literalIndexForJavaLangClassGetDeclaredField());
 	this.stackDepth--;
 }
 protected void invokeClassGetDeclaredMethod() {
 	// invokevirtual: java.lang.Class getDeclaredMethod(Ljava.lang.String, [Ljava.lang.Class)Ljava.lang.reflect.Method;
 	this.countLabels = 0;
-	try {
-		this.position++;
-		this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
-	} catch (IndexOutOfBoundsException e) {
-		resizeByteArray(OPC_invokevirtual);
+	if (classFileOffset + 2 >= bCodeStream.length) {
+		resizeByteArray();
 	}
+	this.position++;
+	this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
 	writeUnsignedShort(((CodeSnippetConstantPool) this.constantPool).literalIndexForJavaLangClassGetDeclaredMethod());
 	this.stackDepth-=2;
 }
 protected void invokeJavaLangReflectConstructorNewInstance() {
 	// invokevirtual: java.lang.reflect.Constructor.newInstance([Ljava.lang.Object;)Ljava.lang.Object;
 	this.countLabels = 0;
-	try {
-		this.position++;
-		this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
-	} catch (IndexOutOfBoundsException e) {
-		resizeByteArray(OPC_invokevirtual);
+	if (classFileOffset + 2 >= bCodeStream.length) {
+		resizeByteArray();
 	}
+	this.position++;
+	this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
 	writeUnsignedShort(((CodeSnippetConstantPool) this.constantPool).literalIndexForJavaLangReflectConstructorNewInstance());
 	this.stackDepth--;
 }
@@ -367,12 +361,11 @@ protected void invokeJavaLangReflectFieldGetter(int typeID) {
 	else
 		usedTypeID = typeID;
 	// invokevirtual
-	try {
-		this.position++;
-		this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
-	} catch (IndexOutOfBoundsException e) {
-		resizeByteArray(OPC_invokevirtual);
+	if (classFileOffset + 2 >= bCodeStream.length) {
+		resizeByteArray();
 	}
+	this.position++;
+	this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
 	writeUnsignedShort(((CodeSnippetConstantPool) this.constantPool).literalIndexJavaLangReflectFieldGetter(typeID));
 	if ((usedTypeID != T_long) && (usedTypeID != T_double)) {
 		this.stackDepth--;
@@ -386,12 +379,11 @@ protected void invokeJavaLangReflectFieldSetter(int typeID) {
 	else
 		usedTypeID = typeID;
 	// invokevirtual
-	try {
-		this.position++;
-		this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
-	} catch (IndexOutOfBoundsException e) {
-		resizeByteArray(OPC_invokevirtual);
+	if (classFileOffset + 2 >= bCodeStream.length) {
+		resizeByteArray();
 	}
+	this.position++;
+	this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
 	writeUnsignedShort(((CodeSnippetConstantPool) this.constantPool).literalIndexJavaLangReflectFieldSetter(typeID));
 	if ((usedTypeID != T_long) && (usedTypeID != T_double)) {
 		this.stackDepth-=3;
@@ -402,13 +394,21 @@ protected void invokeJavaLangReflectFieldSetter(int typeID) {
 protected void invokeJavaLangReflectMethodInvoke() {
 	// invokevirtual: java.lang.reflect.Method.invoke(Ljava.lang.Object;[Ljava.lang.Object;)Ljava.lang.Object;
 	this.countLabels = 0;
-	try {
-		this.position++;
-		this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
-	} catch (IndexOutOfBoundsException e) {
-		resizeByteArray(OPC_invokevirtual);
+	if (classFileOffset + 2 >= bCodeStream.length) {
+		resizeByteArray();
 	}
+	this.position++;
+	this.bCodeStream[this.classFileOffset++] = OPC_invokevirtual;
 	writeUnsignedShort(((CodeSnippetConstantPool) this.constantPool).literalIndexForJavaLangReflectMethodInvoke());
 	this.stackDepth-=2;
+}
+private final void resizeByteArray() {
+	int length = bCodeStream.length;
+	int requiredSize = length + length;
+	if (classFileOffset > requiredSize) {
+		// must be sure to grow by enough
+		requiredSize = classFileOffset + length;
+	}
+	System.arraycopy(bCodeStream, 0, bCodeStream = new byte[requiredSize], 0, length);
 }
 }

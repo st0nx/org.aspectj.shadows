@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,6 +14,8 @@ import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class DefaultProblem implements ProblemSeverities, IProblem {
+	
+	private static final String LINE_DELIMITER = System.getProperty("line.separator"); //$NON-NLS-1$
 		
 	private char[] fileName;
 	private int id;
@@ -49,13 +51,13 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 		//this code assumes that the font used in the console is fixed size
 
 		//sanity .....
-		if ((startPosition > endPosition)
-			|| ((startPosition < 0) && (endPosition < 0)))
+		if ((this.startPosition > this.endPosition)
+			|| ((this.startPosition < 0) && (this.endPosition < 0)))
 			return Util.bind("problem.noSourceInformation"); //$NON-NLS-1$
 
 		StringBuffer errorBuffer = new StringBuffer(" "); //$NON-NLS-1$
-		errorBuffer.append(Util.bind("problem.atLine", String.valueOf(line))); //$NON-NLS-1$
-		errorBuffer.append("\n\t"); //$NON-NLS-1$
+		errorBuffer.append(Util.bind("problem.atLine", String.valueOf(this.line))); //$NON-NLS-1$
+		errorBuffer.append(LINE_DELIMITER).append("\t"); //$NON-NLS-1$
 		
 		char c;
 		final char SPACE = '\u0020';
@@ -68,10 +70,10 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 
 		// expand to line limits
 		int length = unitSource.length, begin, end;
-		for (begin = startPosition >= length ? length - 1 : startPosition; begin > 0; begin--) {
+		for (begin = this.startPosition >= length ? length - 1 : this.startPosition; begin > 0; begin--) {
 			if ((c = unitSource[begin - 1]) == '\n' || c == '\r') break;
 		}
-		for (end = endPosition >= length ? length - 1 : endPosition ; end+1 < length; end++) {
+		for (end = this.endPosition >= length ? length - 1 : this.endPosition ; end+1 < length; end++) {
 			if ((c = unitSource[end + 1]) == '\r' || c == '\n') break;
 		}
 		
@@ -81,13 +83,13 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 		
 		// copy source
 		errorBuffer.append(unitSource, begin, end-begin+1);
-		errorBuffer.append("\n\t"); //$NON-NLS-1$
-		
+		errorBuffer.append(LINE_DELIMITER).append("\t"); //$NON-NLS-1$
+
 		// compute underline
-		for (int i = begin; i <startPosition; i++) {
+		for (int i = begin; i <this.startPosition; i++) {
 			errorBuffer.append((unitSource[i] == TAB) ? TAB : SPACE);
 		}
-		for (int i = startPosition; i <= (endPosition >= length ? length - 1 : endPosition); i++) {
+		for (int i = this.startPosition; i <= (this.endPosition >= length ? length - 1 : this.endPosition); i++) {
 			errorBuffer.append(MARK);
 		}
 		return errorBuffer.toString();
@@ -99,7 +101,7 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public String[] getArguments() {
 
-		return arguments;
+		return this.arguments;
 	}
 
 	/**
@@ -109,7 +111,7 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public int getID() {
 
-		return id;
+		return this.id;
 	}
 
 	/**
@@ -118,7 +120,7 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public String getMessage() {
 
-		return message;
+		return this.message;
 	}
 
 	/**
@@ -127,7 +129,7 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public char[] getOriginatingFileName() {
 
-		return fileName;
+		return this.fileName;
 	}
 
 	/**
@@ -136,7 +138,7 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public int getSourceEnd() {
 
-		return endPosition;
+		return this.endPosition;
 	}
 
 	/**
@@ -145,7 +147,7 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public int getSourceLineNumber() {
 
-		return line;
+		return this.line;
 	}
 
 	/**
@@ -154,7 +156,7 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public int getSourceStart() {
 
-		return startPosition;
+		return this.startPosition;
 	}
 
 	/*
@@ -163,7 +165,7 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public boolean isError() {
 
-		return (severity & ProblemSeverities.Error) != 0;
+		return (this.severity & ProblemSeverities.Error) != 0;
 	}
 
 	/*
@@ -172,9 +174,13 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public boolean isWarning() {
 
-		return (severity & ProblemSeverities.Error) == 0;
+		return (this.severity & ProblemSeverities.Error) == 0;
 	}
 
+	public void setOriginatingFileName(char[] fileName) {
+		this.fileName = fileName;
+	}
+	
 	/**
 	 * Set the end position of the problem (inclusive), or -1 if unknown.
 	 *
@@ -183,7 +189,7 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public void setSourceEnd(int sourceEnd) {
 
-		endPosition = sourceEnd;
+		this.endPosition = sourceEnd;
 	}
 
 	/**
@@ -192,7 +198,7 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public void setSourceLineNumber(int lineNumber) {
 
-		line = lineNumber;
+		this.line = lineNumber;
 	}
 
 	/**
@@ -203,18 +209,18 @@ public class DefaultProblem implements ProblemSeverities, IProblem {
 	 */
 	public void setSourceStart(int sourceStart) {
 
-		startPosition = sourceStart;
+		this.startPosition = sourceStart;
 	}
 
 	public String toString() {
 
-		String s = "Pb(" + (id & IgnoreCategoriesMask) + ") "; //$NON-NLS-1$ //$NON-NLS-2$
-		if (message != null) {
-			s += message;
+		String s = "Pb(" + (this.id & IgnoreCategoriesMask) + ") "; //$NON-NLS-1$ //$NON-NLS-2$
+		if (this.message != null) {
+			s += this.message;
 		} else {
-			if (arguments != null)
-				for (int i = 0; i < arguments.length; i++)
-					s += " " + arguments[i]; //$NON-NLS-1$
+			if (this.arguments != null)
+				for (int i = 0; i < this.arguments.length; i++)
+					s += " " + this.arguments[i]; //$NON-NLS-1$
 		}
 		return s;
 	}

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -72,8 +72,10 @@ public class AssertStatement extends Statement {
 			}
 		}
 		
-		// add the assert support in the clinit
-		manageSyntheticAccessIfNecessary(currentScope, flowInfo);
+		if (!isOptimizedTrueAssertion){
+			// add the assert support in the clinit
+			manageSyntheticAccessIfNecessary(currentScope, flowInfo);
+		}
 		if (isOptimizedFalseAssertion) {
 			return flowInfo; // if assertions are enabled, the following code will be unreachable
 		} else {
@@ -93,24 +95,18 @@ public class AssertStatement extends Statement {
 			codeStream.getstatic(this.assertionSyntheticFieldBinding);
 			codeStream.ifne(assertionActivationLabel);
 			
-			Constant cst = this.assertExpression.optimizedBooleanConstant();		
-			boolean isOptimizedTrueAssertion = cst != NotAConstant && cst.booleanValue() == true;
-			if (isOptimizedTrueAssertion) {
-				this.assertExpression.generateCode(currentScope, codeStream, false);
+			Label falseLabel = new Label(codeStream);
+			this.assertExpression.generateOptimizedBoolean(currentScope, codeStream, (falseLabel = new Label(codeStream)), null , true);
+			codeStream.newJavaLangAssertionError();
+			codeStream.dup();
+			if (exceptionArgument != null) {
+				exceptionArgument.generateCode(currentScope, codeStream, true);
+				codeStream.invokeJavaLangAssertionErrorConstructor(exceptionArgument.implicitConversion & 0xF);
 			} else {
-				Label falseLabel = new Label(codeStream);
-				this.assertExpression.generateOptimizedBoolean(currentScope, codeStream, (falseLabel = new Label(codeStream)), null , true);
-				codeStream.newJavaLangAssertionError();
-				codeStream.dup();
-				if (exceptionArgument != null) {
-					exceptionArgument.generateCode(currentScope, codeStream, true);
-					codeStream.invokeJavaLangAssertionErrorConstructor(exceptionArgument.implicitConversion & 0xF);
-				} else {
-					codeStream.invokeJavaLangAssertionErrorDefaultConstructor();
-				}
-				codeStream.athrow();
-				falseLabel.place();
-			}			
+				codeStream.invokeJavaLangAssertionErrorDefaultConstructor();
+			}
+			codeStream.athrow();
+			falseLabel.place();
 			assertionActivationLabel.place();
 		}
 		
@@ -127,14 +123,27 @@ public class AssertStatement extends Statement {
 		if (exceptionArgument != null) {
 			TypeBinding exceptionArgumentType = exceptionArgument.resolveType(scope);
 			if (exceptionArgumentType != null){
-				if (exceptionArgumentType.id == T_void){
-					scope.problemReporter().illegalVoidExpression(exceptionArgument);
+			    int id = exceptionArgumentType.id;
+			    switch(id) {
+					case T_void :
+						scope.problemReporter().illegalVoidExpression(exceptionArgument);
+					default:
+					    id = T_Object;
+					case T_boolean :
+					case T_byte :
+					case T_char :
+					case T_short :
+					case T_double :
+					case T_float :
+					case T_int :
+					case T_long :
+					case T_String :
+						exceptionArgument.implicitConversion = (id << 4) + id;
 				}
-				exceptionArgument.implicitConversion = (exceptionArgumentType.id << 4) + exceptionArgumentType.id;
 			}
 		}
 	}
-	
+
 	public void traverse(ASTVisitor visitor, BlockScope scope) {
 
 		if (visitor.visit(this, scope)) {

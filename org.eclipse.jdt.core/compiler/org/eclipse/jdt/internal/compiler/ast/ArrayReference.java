@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -36,15 +36,14 @@ public class ArrayReference extends Reference {
 
 		if (assignment.expression == null) {
 			return analyseCode(currentScope, flowContext, flowInfo).unconditionalInits();
-		} else {
-			return assignment
-				.expression
-				.analyseCode(
-					currentScope,
-					flowContext,
-					analyseCode(currentScope, flowContext, flowInfo).unconditionalInits())
-				.unconditionalInits();
 		}
+		return assignment
+			.expression
+			.analyseCode(
+				currentScope,
+				flowContext,
+				analyseCode(currentScope, flowContext, flowInfo).unconditionalInits())
+			.unconditionalInits();
 	}
 
 	public FlowInfo analyseCode(
@@ -65,6 +64,10 @@ public class ArrayReference extends Reference {
 		boolean valueRequired) {
 
 		receiver.generateCode(currentScope, codeStream, true);
+		if (receiver instanceof CastExpression	// ((type[])null)[0]
+				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == NullBinding){
+			codeStream.checkcast(receiver.resolvedType); 
+		}	
 		position.generateCode(currentScope, codeStream, true);
 		assignment.expression.generateCode(currentScope, codeStream, true);
 		codeStream.arrayAtPut(this.resolvedType.id, valueRequired);
@@ -83,6 +86,10 @@ public class ArrayReference extends Reference {
 
 		int pc = codeStream.position;
 		receiver.generateCode(currentScope, codeStream, true);
+		if (receiver instanceof CastExpression	// ((type[])null)[0]
+				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == NullBinding){
+			codeStream.checkcast(receiver.resolvedType); 
+		}			
 		position.generateCode(currentScope, codeStream, true);
 		codeStream.arrayAt(this.resolvedType.id);
 		// Generating code for the potential runtime type checking
@@ -108,6 +115,10 @@ public class ArrayReference extends Reference {
 		boolean valueRequired) {
 
 		receiver.generateCode(currentScope, codeStream, true);
+		if (receiver instanceof CastExpression	// ((type[])null)[0]
+				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == NullBinding){
+			codeStream.checkcast(receiver.resolvedType); 
+		}	
 		position.generateCode(currentScope, codeStream, true);
 		codeStream.dup2();
 		codeStream.arrayAt(this.resolvedType.id);
@@ -138,6 +149,10 @@ public class ArrayReference extends Reference {
 		boolean valueRequired) {
 
 		receiver.generateCode(currentScope, codeStream, true);
+		if (receiver instanceof CastExpression	// ((type[])null)[0]
+				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == NullBinding){
+			codeStream.checkcast(receiver.resolvedType); 
+		}	
 		position.generateCode(currentScope, codeStream, true);
 		codeStream.dup2();
 		codeStream.arrayAt(this.resolvedType.id);
@@ -167,6 +182,10 @@ public class ArrayReference extends Reference {
 	public TypeBinding resolveType(BlockScope scope) {
 
 		constant = Constant.NotAConstant;
+		if (receiver instanceof CastExpression	// no cast check for ((type[])null)[0]
+				&& ((CastExpression)receiver).innermostCastedExpression() instanceof NullLiteral) {
+			this.receiver.bits |= IgnoreNeedForCastCheckMASK; // will check later on
+		}		
 		TypeBinding arrayType = receiver.resolveType(scope);
 		if (arrayType != null) {
 			if (arrayType.isArrayType()) {

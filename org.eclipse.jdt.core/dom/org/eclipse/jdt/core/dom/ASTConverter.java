@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,17 +11,26 @@
 
 package org.eclipse.jdt.core.dom;
 
-import java.util.*;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
+import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
+import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.JavadocArgumentExpression;
+import org.eclipse.jdt.internal.compiler.ast.JavadocFieldReference;
+import org.eclipse.jdt.internal.compiler.ast.JavadocMessageSend;
+import org.eclipse.jdt.internal.compiler.ast.MessageSend;
+import org.eclipse.jdt.internal.compiler.ast.StringLiteralConcatenation;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.env.IConstants;
+import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
@@ -32,34 +41,90 @@ import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 class ASTConverter {
 
 	private AST ast;
-	private char[] compilationUnitSource;
-	private Scanner scanner;
+	char[] compilationUnitSource;
+	Scanner scanner;
 	private boolean resolveBindings;
 	private Set pendingThisExpressionScopeResolution;
 	private Set pendingNameScopeResolution;	
-	
-	public ASTConverter(Map options, boolean resolveBindings) {
+	private IProgressMonitor monitor;
+	// comments
+	private boolean insideComments;
+	private DocCommentParser docParser;
+	private Comment[] commentsTable;
+	private DefaultCommentMapper commentMapper;
+
+	public ASTConverter(Map options, boolean resolveBindings, IProgressMonitor monitor) {
 		this.resolveBindings = resolveBindings;
-		scanner = new Scanner(
+		this.scanner = new Scanner(
 					true /*comment*/,
 					false /*whitespace*/,
 					false /*nls*/,
 					JavaCore.VERSION_1_4.equals(options.get(JavaCore.COMPILER_SOURCE)) ? ClassFileConstants.JDK1_4 : ClassFileConstants.JDK1_3 /*sourceLevel*/, 
 					null /*taskTags*/,
-					null/*taskPriorities*/);
+					null/*taskPriorities*/,
+					true/*taskCaseSensitive*/);
+		this.monitor = monitor;
+		this.insideComments = JavaCore.ENABLED.equals(options.get(JavaCore.COMPILER_DOC_COMMENT_SUPPORT));
 	}
 	
 	public void setAST(AST ast) {
 		this.ast = ast;
+		this.docParser = new DocCommentParser(this.ast, this.scanner, this.insideComments);
+	}
+
+	/*
+	 * Internal use only
+	 * Used to convert class body declarations
+	 */
+	public TypeDeclaration convert(org.eclipse.jdt.internal.compiler.ast.ASTNode[] nodes) {
+		TypeDeclaration typeDecl = this.ast.newTypeDeclaration();
+		int nodesLength = nodes.length;
+		for (int i = 0; i < nodesLength; i++) {
+			org.eclipse.jdt.internal.compiler.ast.ASTNode node = nodes[i];
+			if (node instanceof org.eclipse.jdt.internal.compiler.ast.Initializer) {
+				org.eclipse.jdt.internal.compiler.ast.Initializer oldInitializer = (org.eclipse.jdt.internal.compiler.ast.Initializer) node;
+				Initializer initializer = this.ast.newInitializer();
+				initializer.setBody(convert(oldInitializer.block));
+				initializer.setModifiers(oldInitializer.modifiers);
+				initializer.setSourceRange(oldInitializer.declarationSourceStart, oldInitializer.sourceEnd - oldInitializer.declarationSourceStart + 1);
+//				setJavaDocComment(initializer);
+//				initializer.setJavadoc(convert(oldInitializer.javadoc));
+				convert(oldInitializer.javadoc, initializer);
+				typeDecl.bodyDeclarations().add(initializer);
+			} else if (node instanceof org.eclipse.jdt.internal.compiler.ast.FieldDeclaration) {
+				org.eclipse.jdt.internal.compiler.ast.FieldDeclaration fieldDeclaration = (org.eclipse.jdt.internal.compiler.ast.FieldDeclaration) node;
+				if (i > 0
+					&& (nodes[i - 1] instanceof org.eclipse.jdt.internal.compiler.ast.FieldDeclaration)
+					&& ((org.eclipse.jdt.internal.compiler.ast.FieldDeclaration)nodes[i - 1]).declarationSourceStart == fieldDeclaration.declarationSourceStart) {
+					// we have a multiple field declaration
+					// We retrieve the existing fieldDeclaration to add the new VariableDeclarationFragment
+					FieldDeclaration currentFieldDeclaration = (FieldDeclaration) typeDecl.bodyDeclarations().get(typeDecl.bodyDeclarations().size() - 1);
+					currentFieldDeclaration.fragments().add(convertToVariableDeclarationFragment(fieldDeclaration));
+				} else {
+					// we can create a new FieldDeclaration
+					typeDecl.bodyDeclarations().add(convertToFieldDeclaration(fieldDeclaration));
+				}
+			} else if(node instanceof org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration) {
+				AbstractMethodDeclaration nextMethodDeclaration = (AbstractMethodDeclaration) node;
+				if (!nextMethodDeclaration.isDefaultConstructor() && !nextMethodDeclaration.isClinit()) {
+					typeDecl.bodyDeclarations().add(convert(nextMethodDeclaration));
+				}
+			} else if(node instanceof org.eclipse.jdt.internal.compiler.ast.TypeDeclaration) {
+				org.eclipse.jdt.internal.compiler.ast.TypeDeclaration nextMemberDeclaration = (org.eclipse.jdt.internal.compiler.ast.TypeDeclaration) node;
+				typeDecl.bodyDeclarations().add(convert(nextMemberDeclaration));
+			}
+		}
+		return typeDecl;
 	}
 	
 	public CompilationUnit convert(org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration unit, char[] source) {
 		this.compilationUnitSource = source;
-		scanner.setSource(source);
+		this.scanner.setSource(source);
+		this.scanner.lineEnds = unit.compilationResult().lineSeparatorPositions;
 		CompilationUnit compilationUnit = this.ast.newCompilationUnit();
 		// handle the package declaration immediately
 		// There is no node corresponding to the package declaration
-		if (resolveBindings) {
+		if (this.resolveBindings) {
 			recordNodes(compilationUnit, unit);
 		}
 		if (unit.currentPackage != null) {
@@ -73,6 +138,13 @@ class ASTConverter {
 				compilationUnit.imports().add(convertImport(imports[i]));
 			}
 		}
+
+		// Parse comments
+		int[][] comments = unit.comments;
+		if (comments != null) {
+			buildCommentsTable(compilationUnit, comments);
+		}
+
 		org.eclipse.jdt.internal.compiler.ast.TypeDeclaration[] types = unit.types;
 		if (types != null) {
 			int typesLength = types.length;
@@ -82,15 +154,49 @@ class ASTConverter {
 		}
 		compilationUnit.setSourceRange(unit.sourceStart, unit.sourceEnd - unit.sourceStart  + 1);
 		
-		if (unit.compilationResult.problemCount != 0) {
-			propagateErrors(compilationUnit, unit.compilationResult.problems, unit.compilationResult.problemCount);
+		int problemLength = unit.compilationResult.problemCount;
+		if (problemLength != 0) {
+			IProblem[] resizedProblems = null;
+			final IProblem[] problems = unit.compilationResult.problems;
+			if (problems.length == problemLength) {
+				resizedProblems = problems;
+			} else {
+				System.arraycopy(problems, 0, (resizedProblems = new IProblem[problemLength]), 0, problemLength);
+			}
+			propagateErrors(compilationUnit, resizedProblems);
+			compilationUnit.setProblems(resizedProblems);
 		}
-		if (resolveBindings) {
+		if (this.resolveBindings) {
 			lookupForScopes();
 		}
+		compilationUnit.initCommentMapper(this.scanner);
 		return compilationUnit;
 	}
 	
+	/**
+	 * @param compilationUnit
+	 * @param comments
+	 */
+	void buildCommentsTable(CompilationUnit compilationUnit, int[][] comments) {
+		// Build comment table
+		this.commentsTable = new Comment[comments.length];
+		int nbr = 0;
+		for (int i = 0; i < comments.length; i++) {
+			Comment comment = createComment(comments[i]);
+			if (comment != null) {
+				comment.setAlternateRoot(compilationUnit);
+				this.commentsTable[nbr++] = comment;
+			}
+		}
+		// Resize table if  necessary
+		if (nbr<comments.length) {
+			Comment[] newCommentsTable = new Comment[nbr];
+			System.arraycopy(this.commentsTable, 0, newCommentsTable, 0, nbr);
+			this.commentsTable = newCommentsTable;
+		}
+		compilationUnit.setCommentTable(this.commentsTable);
+	}
+
 	public PackageDeclaration convertPackage(org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration compilationUnitDeclaration) {
 		org.eclipse.jdt.internal.compiler.ast.ImportReference importReference = compilationUnitDeclaration.currentPackage;
 		PackageDeclaration packageDeclaration = this.ast.newPackageDeclaration();
@@ -108,7 +214,7 @@ class ASTConverter {
 		}
 		packageDeclaration.setSourceRange(importReference.declarationSourceStart, importReference.declarationEnd - importReference.declarationSourceStart + 1);
 		packageDeclaration.setName(name);
-		if (resolveBindings) {
+		if (this.resolveBindings) {
 			recordNodes(packageDeclaration, importReference);
 			recordNodes(name, compilationUnitDeclaration);
 		}
@@ -133,33 +239,19 @@ class ASTConverter {
 		importDeclaration.setSourceRange(importReference.declarationSourceStart, importReference.declarationEnd - importReference.declarationSourceStart + 1);
 		importDeclaration.setName(name);
 		importDeclaration.setOnDemand(onDemand);
-		if (resolveBindings) {
+		if (this.resolveBindings) {
 			recordNodes(importDeclaration, importReference);
 		}
 		return importDeclaration;
 	}
 
 	public TypeDeclaration convert(org.eclipse.jdt.internal.compiler.ast.TypeDeclaration typeDeclaration) {
+		checkCanceled();
 		TypeDeclaration typeDecl = this.ast.newTypeDeclaration();
 		int modifiers = typeDeclaration.modifiers;
 		modifiers &= ~IConstants.AccInterface; // remove AccInterface flags
 		modifiers &= CompilerModifiers.AccJustFlag;
-		/**
-		 * http://dev.eclipse.org/bugs/show_bug.cgi?id=13233
-		 * This handles cases where the parser built nodes with invalid modifiers.
-		 */
-		try {
-			// AccJustFlag doesn't flush Modifier.TRANSIENT or Modifier.VOLATILE.
-			// Therefore we need to handle these cases
-			typeDecl.setModifiers(modifiers);
-		} catch(IllegalArgumentException e) {
-			int legalModifiers =
-				Modifier.PUBLIC | Modifier.PRIVATE | Modifier.PROTECTED
-				| Modifier.STATIC | Modifier.FINAL | Modifier.ABSTRACT
-				| Modifier.STRICTFP;
-			typeDecl.setModifiers(modifiers & legalModifiers);
-			typeDecl.setFlags(ASTNode.MALFORMED);
-		}
+		typeDecl.setModifiers(modifiers);
 		typeDecl.setInterface(typeDeclaration.isInterface());
 		SimpleName typeName = this.ast.newSimpleName(new String(typeDeclaration.name));
 		typeName.setSourceRange(typeDeclaration.sourceStart, typeDeclaration.sourceEnd - typeDeclaration.sourceStart + 1);
@@ -180,7 +272,8 @@ class ASTConverter {
 		}
 		
 		buildBodyDeclarations(typeDeclaration, typeDecl);
-		setJavaDocComment(typeDecl);
+		// The javadoc comment is now got from list store in compilation unit declaration
+//		setJavaDocComment(typeDecl);
 		if (this.resolveBindings) {
 			recordNodes(typeDecl, typeDeclaration);
 			recordNodes(typeName, typeDeclaration);
@@ -248,6 +341,9 @@ class ASTConverter {
 					typeDecl.bodyDeclarations().add(convert(nextMemberDeclaration));
 			}
 		}
+		// Convert javadoc
+//		typeDecl.setJavadoc(convert(typeDeclaration.javadoc));
+		convert(typeDeclaration.javadoc, typeDecl);
 	}
 	
 	private void checkAndAddMultipleFieldDeclaration(org.eclipse.jdt.internal.compiler.ast.FieldDeclaration[] fields, int index, List bodyDeclarations) {
@@ -257,7 +353,10 @@ class ASTConverter {
 			initializer.setBody(convert(oldInitializer.block));
 			initializer.setModifiers(oldInitializer.modifiers);
 			initializer.setSourceRange(oldInitializer.declarationSourceStart, oldInitializer.sourceEnd - oldInitializer.declarationSourceStart + 1);
-			setJavaDocComment(initializer);
+			// The javadoc comment is now got from list store in compilation unit declaration
+//			setJavaDocComment(initializer);
+//			initializer.setJavadoc(convert(oldInitializer.javadoc));
+			convert(oldInitializer.javadoc, initializer);
 			bodyDeclarations.add(initializer);
 			return;
 		}
@@ -290,6 +389,11 @@ class ASTConverter {
 			// we can create a new FieldDeclaration
 			blockStatements.add(convertToVariableDeclarationStatement((org.eclipse.jdt.internal.compiler.ast.LocalDeclaration)stmts[index]));
 		}
+	}
+
+	private void checkCanceled() {
+		if (this.monitor != null && this.monitor.isCanceled())
+			throw new OperationCanceledException();
 	}
 
 	public Name convert(org.eclipse.jdt.internal.compiler.ast.TypeReference typeReference) {
@@ -519,7 +623,7 @@ class ASTConverter {
 					PrimitiveType primitiveType = this.ast.newPrimitiveType(getPrimitiveTypeCode(name));
 					primitiveType.setSourceRange(sourceStart, end - sourceStart + 1);
 					type = this.ast.newArrayType(primitiveType, dimensions);
-					if (resolveBindings) {
+					if (this.resolveBindings) {
 						// store keys for inner types
 						completeRecord((ArrayType) type, typeReference);
 					}
@@ -589,22 +693,9 @@ class ASTConverter {
 	}
 		
 	public MethodDeclaration convert(org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration methodDeclaration) {
+		checkCanceled();
 		MethodDeclaration methodDecl = this.ast.newMethodDeclaration();
-		/**
-		 * http://dev.eclipse.org/bugs/show_bug.cgi?id=13233
-		 * This handles cases where the parser built nodes with invalid modifiers.
-		 */
-		try {
-			// if Modifier.VOLATILE is set, setModifiers is not allowed, but the code has no syntax error.
-			methodDecl.setModifiers(methodDeclaration.modifiers & org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers.AccJustFlag);
-		} catch(IllegalArgumentException e) {
-			int legalModifiers =
-				Modifier.PUBLIC | Modifier.PRIVATE | Modifier.PROTECTED
-				| Modifier.STATIC | Modifier.FINAL | Modifier.SYNCHRONIZED
-				| Modifier.NATIVE | Modifier.ABSTRACT | Modifier.STRICTFP;
-			methodDecl.setModifiers(methodDeclaration.modifiers & legalModifiers);
-			methodDecl.setFlags(ASTNode.MALFORMED);
-		}
+		methodDecl.setModifiers(methodDeclaration.modifiers & org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers.AccJustFlag);
 		boolean isConstructor = methodDeclaration.isConstructor();
 		methodDecl.setConstructor(isConstructor);
 		SimpleName methodName = this.ast.newSimpleName(new String(methodDeclaration.selector));
@@ -656,36 +747,32 @@ class ASTConverter {
 
 			org.eclipse.jdt.internal.compiler.ast.Statement[] statements = methodDeclaration.statements;
 			
-			if (statements != null || explicitConstructorCall != null) {
-				start = retrieveStartBlockPosition(methodDeclaration.sourceStart, declarationSourceEnd);
-				end = retrieveEndBlockPosition(methodDeclaration.sourceStart, methodDeclaration.declarationSourceEnd);
-				if (start != -1 && end != -1) {
-					Block block = this.ast.newBlock();
-					block.setSourceRange(start, end - start + 1);
-					if (explicitConstructorCall != null && explicitConstructorCall.accessMode != org.eclipse.jdt.internal.compiler.ast.ExplicitConstructorCall.ImplicitSuper) {
-						block.statements().add(convert(explicitConstructorCall));
-					}
-					int statementsLength = statements == null ? 0 : statements.length;
-					for (int i = 0; i < statementsLength; i++) {
-						if (statements[i] instanceof org.eclipse.jdt.internal.compiler.ast.LocalDeclaration) {
-							checkAndAddMultipleLocalDeclaration(statements, i, block.statements());
-						} else {
-							block.statements().add(convert(statements[i]));
-						}
-					}
-					methodDecl.setBody(block);
+			start = retrieveStartBlockPosition(methodDeclaration.sourceStart, declarationSourceEnd);
+			end = retrieveEndBlockPosition(methodDeclaration.sourceStart, methodDeclaration.declarationSourceEnd);
+			Block block = null;
+			if (start != -1 && end != -1) {
+				/*
+				 * start or end can be equal to -1 if we have an interface's method.
+				 */
+				block = this.ast.newBlock();
+				block.setSourceRange(start, end - start + 1);
+				methodDecl.setBody(block);
+			}
+			if (block != null && (statements != null || explicitConstructorCall != null)) {
+				if (explicitConstructorCall != null && explicitConstructorCall.accessMode != org.eclipse.jdt.internal.compiler.ast.ExplicitConstructorCall.ImplicitSuper) {
+					block.statements().add(convert(explicitConstructorCall));
 				}
-			} else if (!methodDeclaration.isNative() && !methodDeclaration.isAbstract()) {
-				start = retrieveStartBlockPosition(methodDeclaration.sourceStart, declarationSourceEnd);
-				end = retrieveEndBlockPosition(methodDeclaration.sourceStart, methodDeclaration.declarationSourceEnd);
-				if (start != -1 && end != -1) {
-					/*
-					 * start or end can be equal to -1 if we have an interface's method.
-					 */
-					Block block = this.ast.newBlock();
-					block.setSourceRange(start, end - start + 1);
-					methodDecl.setBody(block);
+				int statementsLength = statements == null ? 0 : statements.length;
+				for (int i = 0; i < statementsLength; i++) {
+					if (statements[i] instanceof org.eclipse.jdt.internal.compiler.ast.LocalDeclaration) {
+						checkAndAddMultipleLocalDeclaration(statements, i, block.statements());
+					} else {
+						block.statements().add(convert(statements[i]));
+					}
 				}
+			}
+			if (block != null && (Modifier.isAbstract(methodDecl.getModifiers()) || Modifier.isNative(methodDecl.getModifiers()))) {
+				methodDecl.setFlags(methodDecl.getFlags() | ASTNode.MALFORMED);
 			}
 		} else {
 			// syntax error in this method declaration
@@ -716,7 +803,10 @@ class ASTConverter {
 			}			
 		}
 		
-		setJavaDocComment(methodDecl);
+		// The javadoc comment is now got from list store in compilation unit declaration
+//		setJavaDocComment(methodDecl);
+//		methodDecl.setJavadoc(convert(methodDeclaration.javadoc));
+		convert(methodDeclaration.javadoc, methodDecl);
 		if (this.resolveBindings) {
 			recordNodes(methodDecl, methodDeclaration);
 			recordNodes(methodName, methodDeclaration);
@@ -790,6 +880,9 @@ class ASTConverter {
 		if (expression instanceof org.eclipse.jdt.internal.compiler.ast.LongLiteral) {
 			return convert((org.eclipse.jdt.internal.compiler.ast.LongLiteral) expression);
 		}
+		if (expression instanceof StringLiteralConcatenation) {
+			return convert((StringLiteralConcatenation) expression);
+		}
 		if (expression instanceof org.eclipse.jdt.internal.compiler.ast.ExtendedStringLiteral) {
 			return convert((org.eclipse.jdt.internal.compiler.ast.ExtendedStringLiteral) expression);
 		}	
@@ -836,7 +929,7 @@ class ASTConverter {
 		}
 		parenthesizedExpression.setSourceRange(expression.sourceStart, expression.sourceEnd - expression.sourceStart + 1);
 		adjustSourcePositionsForParent(expression);
-		removeExtraBlanks(expression);
+		trimWhiteSpacesAndComments(expression);
 		// decrement the number of parenthesis
 		int numberOfParenthesis = (expression.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.ParenthesizedMASK) >> org.eclipse.jdt.internal.compiler.ast.ASTNode.ParenthesizedSHIFT;
 		expression.bits &= ~org.eclipse.jdt.internal.compiler.ast.ASTNode.ParenthesizedMASK;
@@ -976,21 +1069,6 @@ class ASTConverter {
 
 	public SingleVariableDeclaration convert(org.eclipse.jdt.internal.compiler.ast.Argument argument) {
 		SingleVariableDeclaration variableDecl = this.ast.newSingleVariableDeclaration();
-		/**
-		 * http://dev.eclipse.org/bugs/show_bug.cgi?id=13233
-		 * This handles cases where the parser built nodes with invalid modifiers.
-		 */
-		try {
-			variableDecl.setModifiers(argument.modifiers);
-		} catch(IllegalArgumentException e) {
-			int legalModifiers =
-				Modifier.PUBLIC | Modifier.PRIVATE | Modifier.PROTECTED
-				| Modifier.STATIC | Modifier.FINAL | Modifier.VOLATILE
-				| Modifier.TRANSIENT;
-			variableDecl.setModifiers(argument.modifiers & legalModifiers);
-			variableDecl.setFlags(ASTNode.MALFORMED);
-		}
-		
 		variableDecl.setModifiers(argument.modifiers);
 		SimpleName name = this.ast.newSimpleName(new String(argument.name));
 		int start = argument.sourceStart;
@@ -1053,7 +1131,7 @@ class ASTConverter {
 				}
 			}
 			AnonymousClassDeclaration anonymousClassDeclaration = this.ast.newAnonymousClassDeclaration();
-			int start = retrieveStartBlockPosition(declarationSourceStart, allocation.anonymousType.bodyEnd);
+			int start = retrieveStartBlockPosition(allocation.anonymousType.sourceEnd, allocation.anonymousType.bodyEnd);
 			anonymousClassDeclaration.setSourceRange(start, allocation.anonymousType.bodyEnd - start + 1);
 			classInstanceCreation.setAnonymousClassDeclaration(anonymousClassDeclaration);
 			buildBodyDeclarations(allocation.anonymousType, anonymousClassDeclaration);
@@ -1186,7 +1264,7 @@ class ASTConverter {
 		CastExpression castExpression = this.ast.newCastExpression();
 		castExpression.setSourceRange(expression.sourceStart, expression.sourceEnd - expression.sourceStart + 1);
 		org.eclipse.jdt.internal.compiler.ast.Expression type = expression.type;
-		removeExtraBlanks(type);
+		trimWhiteSpacesAndComments(type);
 		if (type instanceof org.eclipse.jdt.internal.compiler.ast.TypeReference ) {
 			castExpression.setType(convertType((org.eclipse.jdt.internal.compiler.ast.TypeReference)type));
 		} else if (type instanceof org.eclipse.jdt.internal.compiler.ast.NameReference) {
@@ -1235,7 +1313,24 @@ class ASTConverter {
 		literal.setSourceRange(expression.sourceStart, expression.sourceEnd - expression.sourceStart + 1);
 		return literal;		
 	}
-	
+
+	public InfixExpression convert(StringLiteralConcatenation expression) {
+		expression.computeConstant();
+		InfixExpression infixExpression = this.ast.newInfixExpression();
+		infixExpression.setOperator(InfixExpression.Operator.PLUS);
+		org.eclipse.jdt.internal.compiler.ast.StringLiteral[] stringLiterals = expression.literals;
+		infixExpression.setLeftOperand(convert(stringLiterals[0]));
+		infixExpression.setRightOperand(convert(stringLiterals[1]));
+		for (int i = 2; i < expression.counter; i++) {
+			infixExpression.extendedOperands().add(convert(stringLiterals[i]));
+		}
+		if (this.resolveBindings) {
+			this.recordNodes(infixExpression, expression);
+		}
+		infixExpression.setSourceRange(expression.sourceStart, expression.sourceEnd - expression.sourceStart + 1);
+		return infixExpression;
+	}
+
 	public org.eclipse.jdt.core.dom.NullLiteral convert(org.eclipse.jdt.internal.compiler.ast.NullLiteral expression) {
 		org.eclipse.jdt.core.dom.NullLiteral literal = this.ast.newNullLiteral();
 		if (this.resolveBindings) {
@@ -1435,15 +1530,19 @@ class ASTConverter {
 				infixExpression.setOperator(InfixExpression.Operator.LESS);
 		}
 		
-		if (expression.left instanceof org.eclipse.jdt.internal.compiler.ast.BinaryExpression && ((expression.left.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.ParenthesizedMASK) == 0)) {
+		if (expression.left instanceof org.eclipse.jdt.internal.compiler.ast.BinaryExpression
+				&& ((expression.left.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.ParenthesizedMASK) == 0)) {
 			// create an extended string literal equivalent => use the extended operands list
 			infixExpression.extendedOperands().add(convert(expression.right));
 			org.eclipse.jdt.internal.compiler.ast.Expression leftOperand = expression.left;
 			org.eclipse.jdt.internal.compiler.ast.Expression rightOperand = null;
 			do {
 				rightOperand = ((org.eclipse.jdt.internal.compiler.ast.BinaryExpression) leftOperand).right;
-				if ((((leftOperand.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.OperatorMASK) >> org.eclipse.jdt.internal.compiler.ast.ASTNode.OperatorSHIFT) != expressionOperatorID && ((leftOperand.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.ParenthesizedMASK) == 0))
-				 || ((rightOperand instanceof org.eclipse.jdt.internal.compiler.ast.BinaryExpression && ((rightOperand.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.OperatorMASK) >> org.eclipse.jdt.internal.compiler.ast.ASTNode.OperatorSHIFT) != expressionOperatorID) && ((rightOperand.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.ParenthesizedMASK) == 0))) {
+				if ((((leftOperand.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.OperatorMASK) >> org.eclipse.jdt.internal.compiler.ast.ASTNode.OperatorSHIFT) != expressionOperatorID
+							&& ((leftOperand.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.ParenthesizedMASK) == 0))
+					 || ((rightOperand instanceof org.eclipse.jdt.internal.compiler.ast.BinaryExpression
+				 			&& ((rightOperand.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.OperatorMASK) >> org.eclipse.jdt.internal.compiler.ast.ASTNode.OperatorSHIFT) != expressionOperatorID)
+							&& ((rightOperand.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.ParenthesizedMASK) == 0))) {
 				 	List extendedOperands = infixExpression.extendedOperands();
 				 	InfixExpression temp = this.ast.newInfixExpression();
 					if (this.resolveBindings) {
@@ -1491,7 +1590,20 @@ class ASTConverter {
 			int startPosition = leftExpression.getStartPosition();
 			infixExpression.setSourceRange(startPosition, expression.sourceEnd - startPosition + 1);
 			return infixExpression;
-		}		
+		} else if (expression.left instanceof StringLiteralConcatenation
+				&& ((expression.left.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.ParenthesizedMASK) == 0)) {
+			StringLiteralConcatenation literal = (StringLiteralConcatenation) expression.left;
+			final org.eclipse.jdt.internal.compiler.ast.StringLiteral[] stringLiterals = literal.literals;
+			infixExpression.setLeftOperand(convert(stringLiterals[0]));
+			infixExpression.setRightOperand(convert(stringLiterals[1]));
+			for (int i = 2; i < literal.counter; i++) {
+				infixExpression.extendedOperands().add(convert(stringLiterals[i]));
+			}
+			infixExpression.extendedOperands().add(convert(expression.right));
+			int startPosition = literal.sourceStart;
+			infixExpression.setSourceRange(startPosition, expression.sourceEnd - startPosition + 1);
+			return infixExpression;
+		}
 		Expression leftExpression = convert(expression.left);
 		infixExpression.setLeftOperand(leftExpression);
 		infixExpression.setRightOperand(convert(expression.right));
@@ -1548,7 +1660,7 @@ class ASTConverter {
 		return conditionalExpression;
 	}
 
-	public Expression convert(org.eclipse.jdt.internal.compiler.ast.MessageSend expression) {
+	public Expression convert(MessageSend expression) {
 		// will return a MethodInvocation or a SuperMethodInvocation or
 		Expression expr;
 		int sourceStart = expression.sourceStart;
@@ -1615,9 +1727,19 @@ class ASTConverter {
 					methodInvocation.arguments().add(expri);
 				}
 			}
-			Expression qualifier = convert(expression.receiver);
+			Expression qualifier = null;
+			org.eclipse.jdt.internal.compiler.ast.Expression receiver = expression.receiver;
+			if (receiver instanceof MessageSend) {
+				if ((receiver.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.ParenthesizedMASK) != 0) {
+					qualifier = convertToParenthesizedExpression(receiver);
+				} else {
+					qualifier = convert((MessageSend) receiver);
+				}
+			} else {
+				qualifier = convert(receiver);
+			}
 			if (qualifier instanceof Name && this.resolveBindings) {
-				recordNodes(qualifier, expression.receiver);
+				recordNodes(qualifier, receiver);
 			}
 			methodInvocation.setExpression(qualifier);
 			if (qualifier != null) {
@@ -1768,7 +1890,7 @@ class ASTConverter {
 			end = exceptionArgument.sourceEnd + 1;
 		}
 		int start = statement.sourceStart;
-		int sourceEnd = retrieveEndingSemiColonPosition(end, compilationUnitSource.length);
+		int sourceEnd = retrieveEndingSemiColonPosition(end, this.compilationUnitSource.length);
 		assertStatement.setSourceRange(start, sourceEnd - start + 1);
 		return assertStatement;
 	}
@@ -2176,7 +2298,7 @@ class ASTConverter {
 		throw new IllegalArgumentException("Not a primitive type");//$NON-NLS-1$
 	}
 	
-	/**
+	/*
 	 * This method is used to set the right end position for expression
 	 * statement. The actual AST nodes don't include the trailing semicolon.
 	 * This method fixes the length of the corresponding node.
@@ -2186,14 +2308,14 @@ class ASTConverter {
 		int length = node.getLength();
 		int end = start + length;
 		int count = 0;
-		scanner.resetTo(end, this.compilationUnitSource.length);
+		this.scanner.resetTo(end, this.compilationUnitSource.length);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameSEMICOLON:
 						if (count == 0) {
-							node.setSourceRange(start, scanner.currentPosition - start);
+							node.setSourceRange(start, this.scanner.currentPosition - start);
 							return;
 						}
 						break;
@@ -2230,13 +2352,13 @@ class ASTConverter {
 		int start = node.getStartPosition();
 		int length = node.getLength();
 		int end = start + length;
-		scanner.resetTo(end, this.compilationUnitSource.length);
+		this.scanner.resetTo(end, this.compilationUnitSource.length);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameCOLON:
-						node.setSourceRange(start, scanner.currentPosition - start);
+						node.setSourceRange(start, this.scanner.currentPosition - start);
 						return;
 				}
 			}
@@ -2247,14 +2369,14 @@ class ASTConverter {
 
 	private int retrieveEndingSemiColonPosition(int start, int end) {
 		int count = 0;
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameSEMICOLON:
 						if (count == 0) {
-							return scanner.currentPosition - 1;
+							return this.scanner.currentPosition - 1;
 						}
 						break;
 					case TerminalTokens.TokenNameLBRACE :
@@ -2291,11 +2413,11 @@ class ASTConverter {
 	 * @return int the dimension found
 	 */
 	private int retrieveExtraDimension(int start, int end) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		int dimensions = 0;
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameRBRACKET://166 
 						dimensions++;
@@ -2322,11 +2444,11 @@ class ASTConverter {
 	 * @return int the dimension found
 	 */
 	private int retrieveEndOfDimensionsPosition(int start, int end) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		int foundPosition = -1;
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameLBRACKET:
 					case TerminalTokens.TokenNameCOMMENT_BLOCK:
@@ -2334,7 +2456,7 @@ class ASTConverter {
 					case TerminalTokens.TokenNameCOMMENT_LINE:
 						break;
 					case TerminalTokens.TokenNameRBRACKET://166
-						foundPosition = scanner.currentPosition - 1;
+						foundPosition = this.scanner.currentPosition - 1;
 						break;
 					default:
 						return foundPosition;
@@ -2351,13 +2473,13 @@ class ASTConverter {
 	 * @return int the dimension found, -1 if none
 	 */
 	private int retrieveStartingCatchPosition(int start, int end) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNamecatch://225
-						return scanner.startPosition;
+						return this.scanner.startPosition;
 				}
 			}
 		} catch(InvalidInputException e) {
@@ -2371,10 +2493,10 @@ class ASTConverter {
 	 * @return int the dimension found, -1 if none
 	 */
 	private int retrieveEndOfElementTypeNamePosition(int start, int end) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameIdentifier:
 					case TerminalTokens.TokenNamebyte:
@@ -2384,7 +2506,7 @@ class ASTConverter {
 					case TerminalTokens.TokenNameint:
 					case TerminalTokens.TokenNamelong:
 					case TerminalTokens.TokenNameshort:
-						return scanner.currentPosition - 1;
+						return this.scanner.currentPosition - 1;
 				}
 			}
 		} catch(InvalidInputException e) {
@@ -2398,13 +2520,13 @@ class ASTConverter {
 	 * @return int the dimension found, -1 if none
 	 */
 	private int retrieveRightBracketPosition(int start, int end) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameRBRACKET:
-						return scanner.currentPosition - 1;
+						return this.scanner.currentPosition - 1;
 				}
 			}
 		} catch(InvalidInputException e) {
@@ -2418,13 +2540,13 @@ class ASTConverter {
 	 * @return int the position found
 	 */
 	private int retrieveEndOfRightParenthesisPosition(int start, int end) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameRPAREN:
-						return scanner.currentPosition;
+						return this.scanner.currentPosition;
 				}
 			}
 		} catch(InvalidInputException e) {
@@ -2434,15 +2556,15 @@ class ASTConverter {
 	}
 
 	private int retrieveProperRightBracketPosition(int bracketNumber, int start, int end) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		try {
 			int token, count = 0;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameRBRACKET:
 						count++;
 						if (count == bracketNumber) {
-							return scanner.currentPosition - 1;
+							return this.scanner.currentPosition - 1;
 						}
 				}
 			}
@@ -2457,13 +2579,13 @@ class ASTConverter {
 	 * @return int the dimension found, -1 if none
 	 */
 	private int retrieveStartBlockPosition(int start, int end) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameLBRACE://110
-						return scanner.startPosition;
+						return this.scanner.startPosition;
 				}
 			}
 		} catch(InvalidInputException e) {
@@ -2477,13 +2599,13 @@ class ASTConverter {
 	 * @return int the dimension found, -1 if none
 	 */
 	private int retrieveIdentifierEndPosition(int start, int end) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameIdentifier://110
-						return scanner.getCurrentTokenEndPosition();
+						return this.scanner.getCurrentTokenEndPosition();
 				}
 			}
 		} catch(InvalidInputException e) {
@@ -2497,11 +2619,11 @@ class ASTConverter {
 	 * @return int the dimension found, -1 if none
 	 */
 	private int retrieveEndBlockPosition(int start, int end) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		int count = 0;
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameLBRACE://110
 						count++;
@@ -2509,7 +2631,7 @@ class ASTConverter {
 					case TerminalTokens.TokenNameRBRACE://95
 						count--;
 						if (count == 0) {
-							return scanner.currentPosition - 1;
+							return this.scanner.currentPosition - 1;
 						}
 				}
 			}
@@ -2525,11 +2647,11 @@ class ASTConverter {
 	 */
 	private int retrieveRightBraceOrSemiColonPosition(MethodDeclaration node, org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration methodDeclaration) {
 		int start = node.getStartPosition();
-		scanner.resetTo(start, methodDeclaration.declarationSourceEnd);
+		this.scanner.resetTo(start, methodDeclaration.declarationSourceEnd);
 		try {
 			int token;
 			int braceCounter = 0;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameLBRACE :
 						braceCounter++;
@@ -2537,12 +2659,12 @@ class ASTConverter {
 					case TerminalTokens.TokenNameRBRACE :
 						braceCounter--;
 						if (braceCounter == 0) {
-							return scanner.currentPosition;
+							return this.scanner.currentPosition;
 						}
 						break;
 					case TerminalTokens.TokenNameSEMICOLON :
 						if (braceCounter == 0) {
-							return scanner.currentPosition;
+							return this.scanner.currentPosition;
 						}
 				}
 			}
@@ -2557,11 +2679,11 @@ class ASTConverter {
 	 * @return int the position found.
 	 */
 	private int retrievePositionBeforeNextCommaOrSemiColon(int start, int end) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		int braceCounter = 0;
 		try {
 			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			while ((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameLBRACE :
 						braceCounter++;
@@ -2584,7 +2706,7 @@ class ASTConverter {
 					case TerminalTokens.TokenNameCOMMA :
 					case TerminalTokens.TokenNameSEMICOLON :
 						if (braceCounter == 0) {
-							return scanner.startPosition - 1;
+							return this.scanner.startPosition - 1;
 						}
 				}
 			}
@@ -2602,7 +2724,7 @@ class ASTConverter {
 		int end = retrievePositionBeforeNextCommaOrSemiColon(fieldDeclaration.sourceEnd, fieldDeclaration.declarationSourceEnd);
 		if (end == -1) {
 			variableDeclarationFragment.setSourceRange(fieldDeclaration.sourceStart, fieldDeclaration.declarationSourceEnd - fieldDeclaration.sourceStart + 1);
-			variableDeclarationFragment.setFlags(ASTNode.MALFORMED);
+			variableDeclarationFragment.setFlags(variableDeclarationFragment.getFlags() | ASTNode.MALFORMED);
 		} else {
 			variableDeclarationFragment.setSourceRange(fieldDeclaration.sourceStart, end - fieldDeclaration.sourceStart + 1);
 		}
@@ -2655,21 +2777,8 @@ class ASTConverter {
 		fieldDeclaration.setSourceRange(fieldDecl.declarationSourceStart, fieldDecl.declarationEnd - fieldDecl.declarationSourceStart + 1);
 		Type type = convertType(fieldDecl.type);
 		setTypeForField(fieldDeclaration, type, variableDeclarationFragment.getExtraDimensions());
-		/**
-		 * http://dev.eclipse.org/bugs/show_bug.cgi?id=13233
-		 * This handles cases where the parser built nodes with invalid modifiers.
-		 */
-		try {
-			fieldDeclaration.setModifiers(fieldDecl.modifiers & org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers.AccJustFlag);
-		} catch(IllegalArgumentException e) {
-			int legalModifiers = 
-				Modifier.PUBLIC | Modifier.PRIVATE | Modifier.PROTECTED
-				| Modifier.STATIC | Modifier.FINAL | Modifier.VOLATILE
-				| Modifier.TRANSIENT;
-			fieldDeclaration.setModifiers(fieldDecl.modifiers & legalModifiers);
-			fieldDeclaration.setFlags(ASTNode.MALFORMED);
-		}
-		setJavaDocComment(fieldDeclaration);
+		fieldDeclaration.setModifiers(fieldDecl.modifiers & org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers.AccJustFlag);
+		convert(fieldDecl.javadoc, fieldDeclaration);
 		return fieldDeclaration;
 	}
 
@@ -2682,18 +2791,7 @@ class ASTConverter {
 		variableDeclarationStatement.setSourceRange(localDeclaration.declarationSourceStart, localDeclaration.declarationSourceEnd - localDeclaration.declarationSourceStart + 1);
 		Type type = convertType(localDeclaration.type);
 		setTypeForVariableDeclarationStatement(variableDeclarationStatement, type, variableDeclarationFragment.getExtraDimensions());
-		/**
-		 * http://dev.eclipse.org/bugs/show_bug.cgi?id=13233
-		 * This handles cases where the parser built variables with invalid modifiers.
-		 * The compilation unit is tagged as having wrong modifiers for the local.
-		 * Only final is allowed in this case.
-		 */
-		try {
-			variableDeclarationStatement.setModifiers(localDeclaration.modifiers & ~CompilerModifiers.AccBlankFinal);
-		} catch(IllegalArgumentException e) {
-			variableDeclarationStatement.setModifiers(localDeclaration.modifiers & Modifier.FINAL);
-			variableDeclarationStatement.setFlags(ASTNode.MALFORMED);
-		}
+		variableDeclarationStatement.setModifiers(localDeclaration.modifiers & ~CompilerModifiers.AccBlankFinal);
 		return variableDeclarationStatement;
 	}
 	
@@ -2706,18 +2804,7 @@ class ASTConverter {
 		variableDeclarationExpression.setSourceRange(localDeclaration.declarationSourceStart, localDeclaration.declarationSourceEnd - localDeclaration.declarationSourceStart + 1);
 		Type type = convertType(localDeclaration.type);
 		setTypeForVariableDeclarationExpression(variableDeclarationExpression, type, variableDeclarationFragment.getExtraDimensions());
-		/**
-		 * http://dev.eclipse.org/bugs/show_bug.cgi?id=13233
-		 * This handles cases where the parser built variables with invalid modifiers.
-		 * The compilation unit is tagged as having wrong modifiers for the local.
-		 * Only final is allowed in this case.
-		 */
-		try {
-			variableDeclarationExpression.setModifiers(localDeclaration.modifiers & ~CompilerModifiers.AccBlankFinal);
-		} catch(IllegalArgumentException e) {
-			variableDeclarationExpression.setModifiers(localDeclaration.modifiers & Modifier.FINAL);
-			variableDeclarationExpression.setFlags(ASTNode.MALFORMED);
-		}
+		variableDeclarationExpression.setModifiers(localDeclaration.modifiers & ~CompilerModifiers.AccBlankFinal);
 		return variableDeclarationExpression;
 	}
 	
@@ -2729,7 +2816,8 @@ class ASTConverter {
 				if (remainingDimensions == 0)  {
 					// the dimensions are after the name so the type of the fieldDeclaration is a simpleType
 					Type elementType = arrayType.getElementType();
-					elementType.setParent(null);
+					// cut the child loose from its parent (without creating garbage)
+					elementType.setParent(null, null);
 					this.ast.getBindingResolver().updateKey(type, elementType);
 					fieldDeclaration.setType(elementType);
 				} else {
@@ -2743,7 +2831,8 @@ class ASTConverter {
 					}
 					int end = retrieveProperRightBracketPosition(remainingDimensions, start, start + length);
 					subarrayType.setSourceRange(start, end - start + 1);
-					subarrayType.setParent(null);
+					// cut the child loose from its parent (without creating garbage)
+					subarrayType.setParent(null, null);
 					fieldDeclaration.setType(subarrayType);
 					updateInnerPositions(subarrayType, remainingDimensions);
 					this.ast.getBindingResolver().updateKey(type, subarrayType);
@@ -2786,7 +2875,8 @@ class ASTConverter {
 				if (remainingDimensions == 0)  {
 					// the dimensions are after the name so the type of the fieldDeclaration is a simpleType
 					Type elementType = arrayType.getElementType();
-					elementType.setParent(null);
+					// cut the child loose from its parent (without creating garbage)
+					elementType.setParent(null, null);
 					this.ast.getBindingResolver().updateKey(type, elementType);
 					singleVariableDeclaration.setType(elementType);
 				} else {
@@ -2800,7 +2890,8 @@ class ASTConverter {
 					}
 					int end = retrieveProperRightBracketPosition(remainingDimensions, start, start + length);
 					subarrayType.setSourceRange(start, end - start + 1);
-					subarrayType.setParent(null);
+					// cut the child loose from its parent (without creating garbage)
+					subarrayType.setParent(null, null);
 					updateInnerPositions(subarrayType, remainingDimensions);
 					singleVariableDeclaration.setType(subarrayType);
 					this.ast.getBindingResolver().updateKey(type, subarrayType);
@@ -2821,7 +2912,8 @@ class ASTConverter {
 				if (remainingDimensions == 0)  {
 					// the dimensions are after the name so the type of the fieldDeclaration is a simpleType
 					Type elementType = arrayType.getElementType();
-					elementType.setParent(null);
+					// cut the child loose from its parent (without creating garbage)
+					elementType.setParent(null, null);
 					this.ast.getBindingResolver().updateKey(type, elementType);
 					methodDeclaration.setReturnType(elementType);
 				} else {
@@ -2835,7 +2927,8 @@ class ASTConverter {
 					}
 					int end = retrieveProperRightBracketPosition(remainingDimensions, start, start + length);
 					subarrayType.setSourceRange(start, end - start + 1);
-					subarrayType.setParent(null);
+					// cut the child loose from its parent (without creating garbage)
+					subarrayType.setParent(null, null);
 					updateInnerPositions(subarrayType, remainingDimensions);
 					methodDeclaration.setReturnType(subarrayType);
 					this.ast.getBindingResolver().updateKey(type, subarrayType);
@@ -2856,7 +2949,8 @@ class ASTConverter {
 				if (remainingDimensions == 0)  {
 					// the dimensions are after the name so the type of the fieldDeclaration is a simpleType
 					Type elementType = arrayType.getElementType();
-					elementType.setParent(null);
+					// cut the child loose from its parent (without creating garbage)
+					elementType.setParent(null, null);
 					this.ast.getBindingResolver().updateKey(type, elementType);
 					variableDeclarationStatement.setType(elementType);
 				} else {
@@ -2870,7 +2964,8 @@ class ASTConverter {
 					}
 					int end = retrieveProperRightBracketPosition(remainingDimensions, start, start + length);
 					subarrayType.setSourceRange(start, end - start + 1);
-					subarrayType.setParent(null);
+					// cut the child loose from its parent (without creating garbage)
+					subarrayType.setParent(null, null);
 					updateInnerPositions(subarrayType, remainingDimensions);
 					variableDeclarationStatement.setType(subarrayType);
 					this.ast.getBindingResolver().updateKey(type, subarrayType);
@@ -2891,7 +2986,8 @@ class ASTConverter {
 				if (remainingDimensions == 0)  {
 					// the dimensions are after the name so the type of the fieldDeclaration is a simpleType
 					Type elementType = arrayType.getElementType();
-					elementType.setParent(null);
+					// cut the child loose from its parent (without creating garbage)
+					elementType.setParent(null, null);
 					this.ast.getBindingResolver().updateKey(type, elementType);
 					variableDeclarationExpression.setType(elementType);
 				} else {
@@ -2905,7 +3001,8 @@ class ASTConverter {
 					}
 					int end = retrieveProperRightBracketPosition(remainingDimensions, start, start + length);
 					subarrayType.setSourceRange(start, end - start + 1);
-					subarrayType.setParent(null);
+					// cut the child loose from its parent (without creating garbage)
+					subarrayType.setParent(null, null);
 					updateInnerPositions(subarrayType, remainingDimensions);
 					variableDeclarationExpression.setType(subarrayType);
 					this.ast.getBindingResolver().updateKey(type, subarrayType);
@@ -2917,44 +3014,193 @@ class ASTConverter {
 			variableDeclarationExpression.setType(type);
 		}
 	}
-	
-	private void setJavaDocComment(BodyDeclaration bodyDeclaration) {
-		scanner.resetTo(bodyDeclaration.getStartPosition(), bodyDeclaration.getStartPosition() + bodyDeclaration.getLength());
-		try {
-			int token;
-			while ((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
-				switch(token) {
-					case TerminalTokens.TokenNameCOMMENT_JAVADOC: //1003
-						Javadoc javadocComment = this.ast.newJavadoc();
-						int start = scanner.startPosition;
-						int length = scanner.currentPosition - start;
-						char[] contents = new char[length];
-						System.arraycopy(this.compilationUnitSource, start, contents, 0, length);
-						javadocComment.setComment(new String(contents));
-						javadocComment.setSourceRange(start, length);
-						bodyDeclaration.setJavadoc(javadocComment);
-						return;
-					default :
-						return;
+
+	public void convert(org.eclipse.jdt.internal.compiler.ast.Javadoc javadoc, BodyDeclaration bodyDeclaration) {
+		if (bodyDeclaration.getJavadoc() == null) {
+			if (javadoc != null) {
+				if (this.commentMapper == null || !this.commentMapper.hasSameTable(this.commentsTable)) {
+					this.commentMapper = new DefaultCommentMapper(this.commentsTable);
+				}
+				Comment comment = this.commentMapper.getComment(javadoc.sourceStart);
+				if (comment != null && comment.isDocComment() && comment.getParent() == null) {
+					Javadoc docComment = (Javadoc) comment;
+					if (this.resolveBindings) {
+						recordNodes(docComment, javadoc);
+						// resolve member and method references binding
+						Iterator tags = docComment.tags().listIterator();
+						while (tags.hasNext()) {
+							recordNodes(javadoc, (TagElement) tags.next());
+						}
+					}
+					bodyDeclaration.setJavadoc(docComment);
 				}
 			}
-		} catch(InvalidInputException e) {
-			// ignore
 		}
 	}
 	
-	private void propagateErrors(CompilationUnit unit, IProblem[] problems, int problemLength) {
-		// resize the problem array to the proper size
-		IProblem[] resizeProblems = null;
-		if (problems.length == problemLength) {
-			resizeProblems = problems;
-		} else {
-			System.arraycopy(problems, 0, (resizeProblems = new IProblem[problemLength]), 0, problemLength);
+	private void recordNodes(org.eclipse.jdt.internal.compiler.ast.Javadoc javadoc, TagElement tagElement) {
+		Iterator fragments = tagElement.fragments().listIterator();
+		int size = tagElement.fragments().size();
+		int[] replaceIndex = new int[size];
+		int idx = 0;
+		while (fragments.hasNext()) {
+			ASTNode node = (ASTNode) fragments.next();
+			replaceIndex[idx] = 0;
+			if (node.getNodeType() == ASTNode.MEMBER_REF) {
+				MemberRef memberRef = (MemberRef) node;
+				Name name = memberRef.getName();
+				// get compiler node and record nodes
+				int start = name.getStartPosition();
+				org.eclipse.jdt.internal.compiler.ast.ASTNode compilerNode = javadoc.getNodeStartingAt(start);
+				if (compilerNode instanceof JavadocMessageSend) {
+					replaceIndex[idx] = 1;
+				}
+				if (compilerNode!= null) {
+					recordNodes(name, compilerNode);
+					recordNodes(node, compilerNode);
+				}
+				// Replace qualifier to have all nodes recorded
+				if (memberRef.getQualifier() != null) {
+					org.eclipse.jdt.internal.compiler.ast.TypeReference typeRef = null;
+					if (compilerNode instanceof JavadocFieldReference) {
+						org.eclipse.jdt.internal.compiler.ast.Expression expression = ((JavadocFieldReference)compilerNode).receiver;
+						if (expression instanceof org.eclipse.jdt.internal.compiler.ast.TypeReference) {
+							typeRef = (org.eclipse.jdt.internal.compiler.ast.TypeReference) expression;
+						}
+					} 
+					else if (compilerNode instanceof JavadocMessageSend) {
+						org.eclipse.jdt.internal.compiler.ast.Expression expression = ((JavadocMessageSend)compilerNode).receiver;
+						if (expression instanceof org.eclipse.jdt.internal.compiler.ast.TypeReference) {
+							typeRef = (org.eclipse.jdt.internal.compiler.ast.TypeReference) expression;
+						}
+					}
+					if (typeRef != null) {
+						recordName(memberRef.getQualifier(), typeRef);
+					}
+				}
+			} else if (node.getNodeType() == ASTNode.METHOD_REF) {
+				MethodRef methodRef = (MethodRef) node;
+				Name name = methodRef.getName();
+				// get compiler node and record nodes
+				int start = name.getStartPosition();
+				// get compiler node and record nodes
+				org.eclipse.jdt.internal.compiler.ast.ASTNode compilerNode = javadoc.getNodeStartingAt(start);
+				// record nodes
+				if (compilerNode != null) {
+					recordNodes(methodRef, compilerNode);
+					// get type ref
+					org.eclipse.jdt.internal.compiler.ast.TypeReference typeRef = null;
+					if (compilerNode instanceof org.eclipse.jdt.internal.compiler.ast.JavadocAllocationExpression) {
+						typeRef = ((org.eclipse.jdt.internal.compiler.ast.JavadocAllocationExpression)compilerNode).type;
+						if (typeRef != null) recordNodes(name, typeRef);
+					} 
+					else if (compilerNode instanceof org.eclipse.jdt.internal.compiler.ast.JavadocMessageSend) {
+						org.eclipse.jdt.internal.compiler.ast.Expression expression = ((org.eclipse.jdt.internal.compiler.ast.JavadocMessageSend)compilerNode).receiver;
+						if (expression instanceof org.eclipse.jdt.internal.compiler.ast.TypeReference) {
+							typeRef = (org.eclipse.jdt.internal.compiler.ast.TypeReference) expression;
+						}
+						// TODO (frederic) remove following line to fix bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=62650
+						recordNodes(name, compilerNode);
+					}
+					// record name and qualifier
+					if (typeRef != null && methodRef.getQualifier() != null) {
+						recordName(methodRef.getQualifier(), typeRef);
+					}
+				}
+				// Resolve parameters
+				Iterator parameters = methodRef.parameters().listIterator();
+				while (parameters.hasNext()) {
+					MethodRefParameter param = (MethodRefParameter) parameters.next();
+					org.eclipse.jdt.internal.compiler.ast.Expression expression = (org.eclipse.jdt.internal.compiler.ast.Expression) javadoc.getNodeStartingAt(param.getStartPosition());
+					if (expression != null) {
+						recordNodes(param, expression);
+						if (expression instanceof JavadocArgumentExpression) {
+							JavadocArgumentExpression argExpr = (JavadocArgumentExpression) expression;
+							org.eclipse.jdt.internal.compiler.ast.TypeReference typeRef = argExpr.argument.type;
+							recordNodes(param.getType(), typeRef);
+							if (param.getType().isSimpleType()) {
+								SimpleType type = (SimpleType)param.getType();
+								recordName(type.getName(), typeRef);
+							} else if (param.getType().isArrayType()) {
+								Type type = ((ArrayType) param.getType()).getElementType();
+								if (type.isSimpleType()) {
+									recordName(((SimpleType)type).getName(), typeRef);
+								}
+							}
+						}
+					}
+				}
+			} else if (node.getNodeType() == ASTNode.SIMPLE_NAME ||
+					node.getNodeType() == ASTNode.QUALIFIED_NAME) {
+				org.eclipse.jdt.internal.compiler.ast.ASTNode compilerNode = javadoc.getNodeStartingAt(node.getStartPosition());
+				recordName((Name) node, compilerNode);
+			} else if (node.getNodeType() == ASTNode.TAG_ELEMENT) {
+				// resolve member and method references binding
+				recordNodes(javadoc, (TagElement) node);
+			}
 		}
-		ASTSyntaxErrorPropagator syntaxErrorPropagator = new ASTSyntaxErrorPropagator(resizeProblems);
-		unit.accept(syntaxErrorPropagator);
-		// store the messages error on the compulation unit
-		unit.setProblems(resizeProblems);
+		for (int i=0; i<size; i++) {
+			if (replaceIndex[i] == 1) {
+				MemberRef memberRef = (MemberRef) tagElement.fragments().remove(i);
+				MethodRef methodRef = this.ast.newMethodRef();
+				methodRef.setName((SimpleName)memberRef.getName().clone(this.ast));
+				if (memberRef.getQualifier() != null) {
+					methodRef.setQualifier((Name)memberRef.getQualifier().clone(this.ast));
+				}
+				methodRef.setSourceRange(memberRef.getStartPosition(), memberRef.getLength());
+				tagElement.fragments().add(i, methodRef);
+			}
+		}
+	}
+	
+	private void recordName(Name name, org.eclipse.jdt.internal.compiler.ast.ASTNode compilerNode) {
+		if (compilerNode != null) {
+			recordNodes(name, compilerNode);
+			if (compilerNode instanceof org.eclipse.jdt.internal.compiler.ast.TypeReference) {
+				org.eclipse.jdt.internal.compiler.ast.TypeReference typeRef = (org.eclipse.jdt.internal.compiler.ast.TypeReference) compilerNode;
+				if (name.isQualifiedName()) {
+					int count = 0;
+					SimpleName simpleName = null;
+					while (name.isQualifiedName()) {
+						simpleName = ((QualifiedName) name).getName();
+						recordNodes(simpleName, typeRef);
+						simpleName.index = count++;
+						name = ((QualifiedName) name).getQualifier();
+						name.index = count;
+						recordNodes(name, typeRef);
+					}
+				}
+			}
+		}
+	}
+
+
+	private Comment createComment(int[] positions) {
+		// Create comment node
+		Comment comment = null;
+		int start = positions[0];
+		int end = positions[1];
+		if (positions[1]>0) { // Javadoc comments have positive end position
+			this.ast.newJavadoc();
+			Javadoc docComment = this.docParser.parse(positions);
+			if (docComment == null) return null;
+			comment = docComment;
+		} else {
+			end = -end;
+			if (positions[0]>0) { // Block comment have positive start position
+				comment = this.ast.newBlockComment();
+			} else { // Line comment have negative start and end position
+				start = -start;
+				comment = this.ast.newLineComment();
+			}
+			comment.setSourceRange(start, end - start);
+		}
+		return comment;
+	}
+
+	void propagateErrors(ASTNode astNode, IProblem[] problems) {
+		ASTSyntaxErrorPropagator syntaxErrorPropagator = new ASTSyntaxErrorPropagator(problems);
+		astNode.accept(syntaxErrorPropagator);
 	}
 	
 	private void recordNodes(ASTNode node, org.eclipse.jdt.internal.compiler.ast.ASTNode oldASTNode) {
@@ -2962,9 +3208,9 @@ class ASTConverter {
 	}
 	
 	/**
-	 * Remove whitespaces before and after the expression.
+	 * Remove whitespaces and comments before and after the expression.
 	 */	
-	private void removeExtraBlanks(org.eclipse.jdt.internal.compiler.ast.Expression expression) {
+	private void trimWhiteSpacesAndComments(org.eclipse.jdt.internal.compiler.ast.Expression expression) {
 		int start = expression.sourceStart;
 		int end = expression.sourceEnd;
 		int token;
@@ -2978,11 +3224,17 @@ class ASTConverter {
 			while (true) {
 				token = removeBlankScanner.getNextToken();
 				switch (token) {
+					case TerminalTokens.TokenNameCOMMENT_JAVADOC :
+					case TerminalTokens.TokenNameCOMMENT_LINE :
+					case TerminalTokens.TokenNameCOMMENT_BLOCK :
+						if (first) {
+							trimLeftPosition = removeBlankScanner.currentPosition;
+						}
+						break;
 					case TerminalTokens.TokenNameWHITESPACE :
 						if (first) {
 							trimLeftPosition = removeBlankScanner.currentPosition;
 						}
-						trimRightPosition = removeBlankScanner.startPosition - 1;
 						break;
 					case TerminalTokens.TokenNameEOF :
 						expression.sourceStart = trimLeftPosition;
@@ -2990,12 +3242,13 @@ class ASTConverter {
 						return;
 					default :
 						/*
-						 * if we find something else than a whitespace, then we reset the trimRigthPosition
-						 * to the expression source end.
+						 * if we find something else than a whitespace or a comment,
+						 * then we reset the trimRigthPosition to the expression
+						 * source end.
 						 */
-						trimRightPosition = expression.sourceEnd;
+						trimRightPosition = removeBlankScanner.currentPosition - 1;
+						first = false;				
 				}
-				first = false;
 			}
 		} catch (InvalidInputException e){
 			// ignore
@@ -3007,12 +3260,12 @@ class ASTConverter {
 		int end = expression.sourceEnd;
 		int leftParentCount = 1;
 		int rightParentCount = 0;
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		try {
-			int token = scanner.getNextToken();
-			expression.sourceStart = scanner.currentPosition;
+			int token = this.scanner.getNextToken();
+			expression.sourceStart = this.scanner.currentPosition;
 			boolean stop = false;
-			while (!stop && ((token  = scanner.getNextToken()) != TerminalTokens.TokenNameEOF)) {
+			while (!stop && ((token  = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF)) {
 				switch(token) {
 					case TerminalTokens.TokenNameLPAREN:
 						leftParentCount++;
@@ -3025,20 +3278,20 @@ class ASTConverter {
 						}
 				}
 			}
-			expression.sourceEnd = scanner.startPosition - 1;
+			expression.sourceEnd = this.scanner.startPosition - 1;
 		} catch(InvalidInputException e) {
 			// ignore
 		}
 	}
 
 	private void retrieveIdentifierAndSetPositions(int start, int end, Name name) {
-		scanner.resetTo(start, end);
+		this.scanner.resetTo(start, end);
 		int token;
 		try {
-			while((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF)  {
+			while((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF)  {
 				if (token == TerminalTokens.TokenNameIdentifier) {
-					int startName = scanner.startPosition;
-					int endName = scanner.currentPosition - 1;
+					int startName = this.scanner.startPosition;
+					int endName = this.scanner.currentPosition - 1;
 					name.setSourceRange(startName, endName - startName + 1);
 					return;
 				}
@@ -3053,11 +3306,11 @@ class ASTConverter {
 	 */
 	private void removeTrailingCommentFromExpressionEndingWithAParen(ASTNode node) {
 		int start = node.getStartPosition();
-		scanner.resetTo(start, start + node.getLength());
+		this.scanner.resetTo(start, start + node.getLength());
 		int token;
 		int parenCounter = 0;
 		try {
-			while((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF)  {
+			while((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF)  {
 				switch(token) {
 					case TerminalTokens.TokenNameLPAREN :
 						parenCounter++;
@@ -3065,7 +3318,7 @@ class ASTConverter {
 					case TerminalTokens.TokenNameRPAREN :
 						parenCounter--;
 						if (parenCounter == 0) {
-							int end = scanner.currentPosition - 1;
+							int end = this.scanner.currentPosition - 1;
 							node.setSourceRange(start, end - start + 1);
 						}
 				}
@@ -3080,11 +3333,11 @@ class ASTConverter {
 	 */
 	private void removeLeadingAndTrailingCommentsFromLiteral(ASTNode node) {
 		int start = node.getStartPosition();
-		scanner.resetTo(start, start + node.getLength());
+		this.scanner.resetTo(start, start + node.getLength());
 		int token;
 		int startPosition = -1;
 		try {
-			while((token = scanner.getNextToken()) != TerminalTokens.TokenNameEOF)  {
+			while((token = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF)  {
 				switch(token) {
 					case TerminalTokens.TokenNameIntegerLiteral :
 					case TerminalTokens.TokenNameFloatingPointLiteral :
@@ -3092,13 +3345,13 @@ class ASTConverter {
 					case TerminalTokens.TokenNameDoubleLiteral :
 					case TerminalTokens.TokenNameCharacterLiteral :
 						if (startPosition == -1) {
-							startPosition = scanner.startPosition;
+							startPosition = this.scanner.startPosition;
 						}
-						int end = scanner.currentPosition;
+						int end = this.scanner.currentPosition;
 						node.setSourceRange(startPosition, end - startPosition);
 						return;
 					case TerminalTokens.TokenNameMINUS :
-						startPosition = scanner.startPosition;
+						startPosition = this.scanner.startPosition;
 						break;
 				}
 			}
@@ -3125,18 +3378,56 @@ class ASTConverter {
 		if (this.pendingNameScopeResolution != null) {
 			for (Iterator iterator = this.pendingNameScopeResolution.iterator(); iterator.hasNext(); ) {
 				Name name = (Name) iterator.next();
-				this.ast.getBindingResolver().recordScope(name, name.lookupScope());
+				this.ast.getBindingResolver().recordScope(name, lookupScope(name));
 			}
 		}
 		if (this.pendingThisExpressionScopeResolution != null) {
 			for (Iterator iterator = this.pendingThisExpressionScopeResolution.iterator(); iterator.hasNext(); ) {
 				ThisExpression thisExpression = (ThisExpression) iterator.next();
-				this.ast.getBindingResolver().recordScope(thisExpression, thisExpression.lookupScope());
+				this.ast.getBindingResolver().recordScope(thisExpression, lookupScope(thisExpression));
 			}
 		}
 		
 	}
 	
+	private BlockScope lookupScope(ASTNode node) {
+		ASTNode currentNode = node;
+		while(currentNode != null
+			&&!(currentNode instanceof MethodDeclaration)
+			&& !(currentNode instanceof Initializer)
+			&& !(currentNode instanceof FieldDeclaration)) {
+			currentNode = currentNode.getParent();
+		}
+		if (currentNode == null) {
+			return null;
+		}
+		if (currentNode instanceof Initializer) {
+			Initializer initializer = (Initializer) currentNode;
+			while(!(currentNode instanceof TypeDeclaration)) {
+				currentNode = currentNode.getParent();
+			}
+			org.eclipse.jdt.internal.compiler.ast.TypeDeclaration typeDecl = (org.eclipse.jdt.internal.compiler.ast.TypeDeclaration) this.ast.getBindingResolver().getCorrespondingNode(currentNode);
+			if ((initializer.getModifiers() & Modifier.STATIC) != 0) {
+				return typeDecl.staticInitializerScope;
+			} else {
+				return typeDecl.initializerScope;
+			}
+		} else if (currentNode instanceof FieldDeclaration) {
+			FieldDeclaration fieldDeclaration = (FieldDeclaration) currentNode;
+			while(!(currentNode instanceof TypeDeclaration)) {
+				currentNode = currentNode.getParent();
+			}
+			org.eclipse.jdt.internal.compiler.ast.TypeDeclaration typeDecl = (org.eclipse.jdt.internal.compiler.ast.TypeDeclaration) this.ast.getBindingResolver().getCorrespondingNode(currentNode);
+			if ((fieldDeclaration.getModifiers() & Modifier.STATIC) != 0) {
+				return typeDecl.staticInitializerScope;
+			} else {
+				return typeDecl.initializerScope;
+			}
+		}
+		AbstractMethodDeclaration abstractMethodDeclaration = (AbstractMethodDeclaration) this.ast.getBindingResolver().getCorrespondingNode(currentNode);
+		return abstractMethodDeclaration.scope;
+	}
+
 	private InfixExpression.Operator getOperatorFor(int operatorID) {
 		switch (operatorID) {
 			case org.eclipse.jdt.internal.compiler.ast.OperatorIds.EQUAL_EQUAL :

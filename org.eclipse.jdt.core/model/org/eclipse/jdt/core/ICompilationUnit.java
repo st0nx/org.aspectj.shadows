@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,10 +7,14 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     IBM Corporation - added J2SE 1.5 support
  *******************************************************************************/
 package org.eclipse.jdt.core;
 
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.AST;
+
 
 /**
  * Represents an entire Java compilation unit (<code>.java</code> source file).
@@ -26,6 +30,12 @@ import org.eclipse.core.runtime.IProgressMonitor;
  * </p>
  */
 public interface ICompilationUnit extends IJavaElement, ISourceReference, IParent, IOpenable, IWorkingCopy, ISourceManipulation, ICodeAssist {
+/**
+ * Constant indicating that a reconcile operation should not return an AST.
+ * @since 3.0
+ */
+public static final int NO_AST = 0;
+
 /**
  * Changes this compilation unit handle into a working copy. A new <code>IBuffer</code> is
  * created using this compilation unit handle's owner. Uses the primary owner is none was
@@ -86,6 +96,29 @@ void becomeWorkingCopy(IProblemRequestor problemRequestor, IProgressMonitor moni
  */
 void commitWorkingCopy(boolean force, IProgressMonitor monitor) throws JavaModelException;
 /**
+ * Creates and returns an non-static import declaration in this compilation unit
+ * with the given name. This method is equivalent to 
+ * <code>createImport(name, Flags.AccDefault, sibling, monitor)</code>.
+ *
+ * @param name the name of the import declaration to add as defined by JLS2 7.5. (For example: <code>"java.io.File"</code> or
+ *  <code>"java.awt.*"</code>)
+ * @param sibling the existing element which the import declaration will be inserted immediately before (if
+ *	<code> null </code>, then this import will be inserted as the last import declaration.
+ * @param monitor the progress monitor to notify
+ * @return the newly inserted import declaration (or the previously existing one in case attempting to create a duplicate)
+ *
+ * @throws JavaModelException if the element could not be created. Reasons include:
+ * <ul>
+ * <li> This Java element does not exist or the specified sibling does not exist (ELEMENT_DOES_NOT_EXIST)</li>
+ * <li> A <code>CoreException</code> occurred while updating an underlying resource
+ * <li> The specified sibling is not a child of this compilation unit (INVALID_SIBLING)
+ * <li> The name is not a valid import name (INVALID_NAME)
+ * </ul>
+ * @see #createImport(String, IJavaElement, int, IProgressMonitor)
+ */
+IImportDeclaration createImport(String name, IJavaElement sibling, IProgressMonitor monitor) throws JavaModelException;
+
+/**
  * Creates and returns an import declaration in this compilation unit
  * with the given name.
  * <p>
@@ -102,11 +135,20 @@ void commitWorkingCopy(boolean force, IProgressMonitor monitor) throws JavaModel
  * Importing <code>"java.lang.*"</code>, or the package in which the compilation unit
  * is defined, are not treated as special cases.  If they are specified, they are
  * included in the result.
+ * <p>
+ * Note: This API element is only needed for dealing with Java code that uses
+ * new language features of J2SE 1.5. It is included in anticipation of J2SE
+ * 1.5 support, which is planned for the next release of Eclipse after 3.0, and
+ * may change slightly before reaching its final form.
+ * </p>
  *
  * @param name the name of the import declaration to add as defined by JLS2 7.5. (For example: <code>"java.io.File"</code> or
  *  <code>"java.awt.*"</code>)
  * @param sibling the existing element which the import declaration will be inserted immediately before (if
  *	<code> null </code>, then this import will be inserted as the last import declaration.
+ * @param flags <code>Flags.AccStatic</code> for static imports, or
+ * <code>Flags.AccDefault</code> for regular imports; other modifier flags
+ * are ignored
  * @param monitor the progress monitor to notify
  * @return the newly inserted import declaration (or the previously existing one in case attempting to create a duplicate)
  *
@@ -117,8 +159,11 @@ void commitWorkingCopy(boolean force, IProgressMonitor monitor) throws JavaModel
  * <li> The specified sibling is not a child of this compilation unit (INVALID_SIBLING)
  * <li> The name is not a valid import name (INVALID_NAME)
  * </ul>
+ * @see Flags
+ * @since 3.0
  */
-IImportDeclaration createImport(String name, IJavaElement sibling, IProgressMonitor monitor) throws JavaModelException;
+IImportDeclaration createImport(String name, IJavaElement sibling, int flags, IProgressMonitor monitor) throws JavaModelException;
+
 /**
  * Creates and returns a package declaration in this compilation unit
  * with the given package name.
@@ -355,6 +400,9 @@ IType[] getTypes() throws JavaModelException;
  * When the working copy instance is created, an ADDED IJavaElementDelta is 
  * reported on this working copy.
  * </p><p>
+ * Once done with the working copy, users of this method must discard it using 
+ * <code>discardWorkingCopy()</code>.
+ * </p><p>
  * Since 2.1, a working copy can be created on a not-yet existing compilation
  * unit. In particular, such a working copy can then be committed in order to create
  * the corresponding compilation unit.
@@ -428,43 +476,12 @@ public boolean hasResourceChanged();
 boolean isWorkingCopy();
 
 /**
- * Reconciles the contents of this working copy, and sends out a Java delta
+ * Reconciles the contents of this working copy, sends out a Java delta
  * notification indicating the nature of the change of the working copy since
  * the last time it was either reconciled or made consistent 
- * (see <code>IOpenable#makeConsistent()</code>).
- * .<p>
- * It performs the reconciliation by locally caching the contents of 
- * the working copy, updating the contents, then creating a delta 
- * over the cached contents and the new contents, and finally firing
- * this delta.
+ * (see <code>IOpenable#makeConsistent()</code>), and returns a
+ * compilation unit AST if requested.
  * <p>
- * The boolean argument allows to force problem detection even if the
- * working copy is already consistent.</p>
- * <p>
- * Compilation problems found in the new contents are notified through the
- * <code>IProblemRequestor</code> interface which was passed at
- * creation, and no longer as transient markers. Therefore this API answers
- * nothing.</p>
- * <p>
- * Note: Since 3.0 added/removed/changed inner types generate change deltas.</p>
- * <p>
- * @param forceProblemDetection boolean indicating whether problem should be recomputed
- *   even if the source hasn't changed.
- * @param monitor a progress monitor
- * @throws JavaModelException if the contents of the original element
- *		cannot be accessed. Reasons include:
- * <ul>
- * <li> The original Java element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
- * </ul>
- * @since 3.0
- */
-void reconcile(boolean forceProblemDetection, IProgressMonitor monitor) throws JavaModelException;
-/**
- * Reconciles the contents of this working copy, and sends out a Java delta
- * notification indicating the nature of the change of the working copy since
- * the last time it was either reconciled or made consistent 
- * (see <code>IOpenable#makeConsistent()</code>).
- * .<p>.
  * It performs the reconciliation by locally caching the contents of 
  * the working copy, updating the contents, then creating a delta 
  * over the cached contents and the new contents, and finally firing
@@ -472,23 +489,45 @@ void reconcile(boolean forceProblemDetection, IProgressMonitor monitor) throws J
  * <p>
  * The boolean argument allows to force problem detection even if the
  * working copy is already consistent.
- * </p><p>
- * This functionality allows to specify a working copy owner which is used during problem detection.
- * All references contained in the working copy are resolved against other units; for which corresponding 
- * owned working copies are going to take precedence over their original compilation units. 
- * </p><p>
+ * </p>
+ * <p>
+ * This functionality allows to specify a working copy owner which is used
+ * during problem detection. All references contained in the working copy are
+ * resolved against other units; for which corresponding owned working copies
+ * are going to take precedence over their original compilation units. If
+ * <code>null</code> is passed in, then the primary working copy owner is used.
+ * </p>
+ * <p>
  * Compilation problems found in the new contents are notified through the
  * <code>IProblemRequestor</code> interface which was passed at
- * creation, and no longer as transient markers. Therefore this API answers
- * nothing.
- * </p><p>
- * Note: Since 3.0 added/removed/changed inner types generate change deltas.</p>
+ * creation, and no longer as transient markers.
+ * </p>
+ * <p>
+ * Note: Since 3.0, added/removed/changed inner types generate change deltas.
+ * </p>
+ * <p>
+ * If requested, a DOM AST representing the compilation unit is returned.
+ * Its bindings are computed only if the problem requestor is active, or if the
+ * problem detection is forced. This method returns <code>null</code> if the
+ * creation of the DOM AST was not requested, or if the requested level of AST
+ * API is not supported, or if the working copy was already consistent.
+ * </p>
+ * <b>NOTE:</b>In Eclipse 3.0, there is no reconciler support for
+ * level AST.JLS3. This support is planned for the follow-on release of
+ * Eclipse which includes support for J2SE 1.5.
  * </p>
  *
- * @param forceProblemDetection boolean indicating whether problem should be recomputed
- *   even if the source hasn't changed.
- * @param owner the owner of working copies that take precedence over the original compilation units
+ * @param astLevel either {@link #NO_AST} if no AST is wanted,
+ * or the {@linkplain AST#newAST(int) AST API level} of the AST if one is wanted
+ * @param forceProblemDetection boolean indicating whether problem should be 
+ *   recomputed even if the source hasn't changed
+ * @param owner the owner of working copies that take precedence over the 
+ *   original compilation units, or <code>null</code> if the primary working
+ *   copy owner should be used
  * @param monitor a progress monitor
+ * @return the compilation unit AST or <code>null</code> if not requested, 
+ *    or if the requested level of AST API is not supported,
+ *    or if the working copy was consistent
  * @throws JavaModelException if the contents of the original element
  *		cannot be accessed. Reasons include:
  * <ul>
@@ -496,7 +535,8 @@ void reconcile(boolean forceProblemDetection, IProgressMonitor monitor) throws J
  * </ul>
  * @since 3.0
  */
-void reconcile(boolean forceProblemDetection, WorkingCopyOwner owner, IProgressMonitor monitor) throws JavaModelException;
+CompilationUnit reconcile(int astLevel, boolean forceProblemDetection, WorkingCopyOwner owner, IProgressMonitor monitor) throws JavaModelException;
+
 /**
  * Restores the contents of this working copy to the current contents of
  * this working copy's original element. Has no effect if this element

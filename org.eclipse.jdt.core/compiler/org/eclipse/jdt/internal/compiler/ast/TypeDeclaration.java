@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -59,17 +59,17 @@ public class TypeDeclaration
 	/*
 	 *	We cause the compilation task to abort to a given extent.
 	 */
-	public void abort(int abortLevel) {
+	public void abort(int abortLevel, IProblem problem) {
 
 		switch (abortLevel) {
 			case AbortCompilation :
-				throw new AbortCompilation(this.compilationResult);
+				throw new AbortCompilation(this.compilationResult, problem);
 			case AbortCompilationUnit :
-				throw new AbortCompilationUnit(this.compilationResult);
+				throw new AbortCompilationUnit(this.compilationResult, problem);
 			case AbortMethod :
-				throw new AbortMethod(this.compilationResult);
+				throw new AbortMethod(this.compilationResult, problem);
 			default :
-				throw new AbortType(this.compilationResult);
+				throw new AbortType(this.compilationResult, problem);
 		}
 	}
 	/**
@@ -557,7 +557,7 @@ public class TypeDeclaration
 			classFile.addSpecialMethods();
 
 			if (ignoreFurtherInvestigation) { // trigger problem type generation for code gen errors
-				throw new AbortType(scope.referenceCompilationUnit().compilationResult);
+				throw new AbortType(scope.referenceCompilationUnit().compilationResult, null);
 			}
 
 			// finalize the compiled type result
@@ -623,7 +623,6 @@ public class TypeDeclaration
 			}
 		}
 
-		ReferenceBinding[] defaultHandledExceptions = new ReferenceBinding[] { scope.getJavaLangThrowable()}; // tolerate any kind of exception
 		InitializationFlowContext initializerContext = new InitializationFlowContext(null, this, initializerScope);
 		InitializationFlowContext staticInitializerContext = new InitializationFlowContext(null, this, staticInitializerScope);
 		FlowInfo nonStaticFieldInfo = flowInfo.copy().unconditionalInits().discardFieldInitializations();
@@ -635,7 +634,7 @@ public class TypeDeclaration
 					/*if (field.isField()){
 						staticInitializerContext.handledExceptions = NoExceptions; // no exception is allowed jls8.3.2
 					} else {*/
-					staticInitializerContext.handledExceptions = defaultHandledExceptions; // tolerate them all, and record them
+					staticInitializerContext.handledExceptions = AnyException; // tolerate them all, and record them
 					/*}*/
 					staticFieldInfo =
 						field.analyseCode(
@@ -652,7 +651,7 @@ public class TypeDeclaration
 					/*if (field.isField()){
 						initializerContext.handledExceptions = NoExceptions; // no exception is allowed jls8.3.2
 					} else {*/
-						initializerContext.handledExceptions = defaultHandledExceptions; // tolerate them all, and record them
+						initializerContext.handledExceptions = AnyException; // tolerate them all, and record them
 					/*}*/
 					nonStaticFieldInfo =
 						field.analyseCode(initializerScope, initializerContext, nonStaticFieldInfo);
@@ -777,10 +776,6 @@ public class TypeDeclaration
 		if (unit.ignoreMethodBodies)
 			return;
 
-		// no scope were created, so cannot report further errors
-//		if (binding == null)
-//			return;
-
 		//members
 		if (memberTypes != null) {
 			int length = memberTypes.length;
@@ -877,7 +872,7 @@ public class TypeDeclaration
 		}
 		try {
 			if ((this.bits & UndocumentedEmptyBlockMASK) != 0) {
-				this.scope.problemReporter().undocumentedEmptyBlock(this.bodyStart-1, this.bodyEnd+1);
+				this.scope.problemReporter().undocumentedEmptyBlock(this.bodyStart-1, this.bodyEnd);
 			}
 			// check superclass & interfaces
 			if (this.binding.superclass != null) // watch out for Object ! (and other roots)	

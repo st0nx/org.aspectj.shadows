@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -95,7 +95,10 @@ public class FlowContext implements TypeConstants {
 						for (int raisedIndex = 0; raisedIndex < raisedCount; raisedIndex++) {
 							TypeBinding raisedException;
 							if ((raisedException = raisedExceptions[raisedIndex]) != null) {
-								switch (Scope.compareTypes(raisedException, caughtException)) {
+							    int state = caughtException == null 
+							    	? EqualOrMoreSpecific /* any exception */
+							        : Scope.compareTypes(raisedException, caughtException);
+								switch (state) {
 									case EqualOrMoreSpecific :
 										exceptionContext.recordHandlingException(
 											caughtException,
@@ -213,7 +216,10 @@ public class FlowContext implements TypeConstants {
 						caughtIndex < caughtCount;
 						caughtIndex++) {
 						ReferenceBinding caughtException = caughtExceptions[caughtIndex];
-						switch (Scope.compareTypes(raisedException, caughtException)) {
+					    int state = caughtException == null 
+					    	? EqualOrMoreSpecific /* any exception */
+					        : Scope.compareTypes(raisedException, caughtException);						
+						switch (state) {
 							case EqualOrMoreSpecific :
 								exceptionContext.recordHandlingException(
 									caughtException,
@@ -285,11 +291,9 @@ public class FlowContext implements TypeConstants {
 			char[] currentLabelName;
 			if (((currentLabelName = current.labelName()) != null)
 				&& CharOperation.equals(currentLabelName, labelName)) {
-				if (lastNonReturningSubRoutine == null) {
+				if (lastNonReturningSubRoutine == null)
 					return current;
-				} else {
-					return lastNonReturningSubRoutine;
-				}
+				return lastNonReturningSubRoutine;
 			}
 			current = current.parent;
 		}
@@ -320,17 +324,13 @@ public class FlowContext implements TypeConstants {
 
 				// matching label found					
 				if ((lastContinuable != null)
-					&& (current.associatedNode.concreteStatement()	== lastContinuable.associatedNode)) {
-						
-					if (lastNonReturningSubRoutine == null) {
-						return lastContinuable;
-					} else {
-						return lastNonReturningSubRoutine;
-					}
-				} else {
-					// label is found, but not a continuable location
-					return NotContinuableContext;
-				}
+						&& (current.associatedNode.concreteStatement()	== lastContinuable.associatedNode)) {
+				    
+					if (lastNonReturningSubRoutine == null) return lastContinuable;
+					return lastNonReturningSubRoutine;
+				} 
+				// label is found, but not a continuable location
+				return NotContinuableContext;
 			}
 			current = current.parent;
 		}
@@ -349,11 +349,8 @@ public class FlowContext implements TypeConstants {
 				lastNonReturningSubRoutine = current;
 			}
 			if (current.isBreakable() && current.labelName() == null) {
-				if (lastNonReturningSubRoutine == null) {
-					return current;
-				} else {
-					return lastNonReturningSubRoutine;
-				}
+				if (lastNonReturningSubRoutine == null) return current;
+				return lastNonReturningSubRoutine;
 			}
 			current = current.parent;
 		}
@@ -372,11 +369,9 @@ public class FlowContext implements TypeConstants {
 				lastNonReturningSubRoutine = current;
 			}
 			if (current.isContinuable()) {
-				if (lastNonReturningSubRoutine == null) {
+				if (lastNonReturningSubRoutine == null)
 					return current;
-				} else {
-					return lastNonReturningSubRoutine;
-				}
+				return lastNonReturningSubRoutine;
 			}
 			current = current.parent;
 		}
