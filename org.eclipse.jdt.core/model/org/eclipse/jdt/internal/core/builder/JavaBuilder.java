@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
@@ -20,17 +21,18 @@ import org.eclipse.jdt.internal.core.*;
 import java.io.*;
 import java.util.*;
 
+// AspectJ - increased member visibilities
 public class JavaBuilder extends IncrementalProjectBuilder {
 
-IProject currentProject;
-IJavaProject javaProject;
-IWorkspaceRoot workspaceRoot;
-ClasspathLocation[] classpath;
-IContainer outputFolder;
-IContainer[] sourceFolders;
-SimpleLookupTable binaryResources; // maps a project to its binary resources (output folder, class folders, zip/jar files)
-State lastState;
-BuildNotifier notifier;
+public IProject currentProject;
+public IJavaProject javaProject;
+public IWorkspaceRoot workspaceRoot;
+public ClasspathLocation[] classpath;
+public IContainer outputFolder;
+public IContainer[] sourceFolders;
+public SimpleLookupTable binaryResources; // maps a project to its binary resources (output folder, class folders, zip/jar files)
+public State lastState;
+public BuildNotifier notifier;
 char[][] fileFilters;
 String[] folderFilters;
 

@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
@@ -19,6 +20,9 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 
+/**
+ * AspectJ - added several extension points for subclasses
+ */
 public abstract class AbstractMethodDeclaration
 	extends AstNode
 	implements ProblemSeverities, ReferenceContext {
@@ -219,7 +223,7 @@ public abstract class AbstractMethodDeclaration
 
 		classFile.generateMethodInfoHeader(binding);
 		int methodAttributeOffset = classFile.contentsOffset;
-		int attributeNumber = classFile.generateMethodInfoAttribute(binding);
+		int attributeNumber = generateInfoAttributes(classFile);
 		if ((!binding.isNative()) && (!binding.isAbstract())) {
 			int codeAttributeOffset = classFile.contentsOffset;
 			classFile.generateCodeAttributeHeader();
@@ -395,4 +399,29 @@ public abstract class AbstractMethodDeclaration
 		IAbstractSyntaxTreeVisitor visitor,
 		ClassScope classScope) {
 	}
+	
+	//*********************************************************************
+	//Hooks for AspectJ
+	/**
+	 * Called at the end of resolving types
+	 * @returns false if some error occurred
+	 */
+	public boolean finishResolveTypes(SourceTypeBinding sourceTypeBinding) {
+		return true;
+	}
+
+	/**
+	 * Just before building bindings, hook for subclasses
+	 */
+	public void postParse(TypeDeclaration typeDec) {
+		// do nothing.  subclasses may override
+	}
+	
+	/**
+	 * Generates my info attributes, hook for subclasses
+	 */
+	protected int generateInfoAttributes(ClassFile classFile) {
+		return classFile.generateMethodInfoAttribute(binding);
+	}
+
 }

@@ -340,7 +340,8 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		if (constructorCall != null){
 			if (constructorCall.binding != null
 				&& !constructorCall.isSuperAccess()
-				&& constructorCall.binding.isValidBinding()) {
+				&& constructorCall.binding.isValidBinding() &&
+				!constructorCall.binding.alwaysNeedsAccessMethod()) {
 				((ConstructorDeclaration)
 						(upperScope.referenceContext.declarationOf(constructorCall.binding))).referenceCount++;
 			}

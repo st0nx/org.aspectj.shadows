@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
@@ -15,6 +16,7 @@ import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
 
 import java.io.*;
 
+// AspectJ - increased member visibilities
 class ClasspathDirectory extends ClasspathLocation {
 
 String binaryPath; // includes .class files for a single directory
@@ -29,7 +31,7 @@ ClasspathDirectory(String binaryPath) {
 	this.directoryCache = new SimpleLookupTable(5);
 }
 
-void cleanup() {
+public void cleanup() {
 	this.directoryCache = null;
 }
 
@@ -82,7 +84,7 @@ public boolean equals(Object o) {
 	return binaryPath.equals(((ClasspathDirectory) o).binaryPath);
 } 
 
-NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName) {
+public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName) {
 	if (!doesFileExist(binaryFileName, qualifiedPackageName)) return null; // most common case
 
 	try {
@@ -92,11 +94,11 @@ NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageNa
 	return null;
 }
 
-boolean isPackage(String qualifiedPackageName) {
+public boolean isPackage(String qualifiedPackageName) {
 	return directoryList(qualifiedPackageName) != null;
 }
 
-void reset() {
+public void reset() {
 	this.directoryCache = new SimpleLookupTable(5);
 }
 

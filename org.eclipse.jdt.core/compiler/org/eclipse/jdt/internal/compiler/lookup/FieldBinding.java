@@ -7,12 +7,17 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 
+/**
+ * AspectJ added hooks for inter-type field bindings as well as
+ * proto-hooks for allowing privileged access
+ */
 public class FieldBinding extends VariableBinding {
 	public ReferenceBinding declaringClass;
 protected FieldBinding() {
@@ -56,13 +61,19 @@ public final int bindingType() {
 *
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
-
-public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+// made non-final for AspectJ
+public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
 
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+	SourceTypeBinding invocationType = scope.invocationType();
 	if (invocationType == declaringClass && invocationType == receiverType) return true;
 
+
+//	if (invocationType.isPrivileged) {
+//		System.out.println("privileged access to: " + this);
+//		return true;
+//	}
+	
 	if (isProtected()) {
 		// answer true if the invocationType is the declaringClass or they are in the same package
 		// OR the invocationType is a subclass of the declaringClass
@@ -153,7 +164,7 @@ public final boolean isDeprecated() {
 /* Answer true if the receiver has private visibility
 */
 
-public final boolean isPrivate() {
+public final boolean isPrivate() { 
 	return (modifiers & AccPrivate) != 0;
 }
 /* Answer true if the receiver has protected visibility
@@ -199,4 +210,11 @@ public final boolean isViewedAsDeprecated() {
 public final boolean isVolatile() {
 	return (modifiers & AccVolatile) != 0;
 }
+
+public boolean alwaysNeedsAccessMethod(boolean isReadAccess) { return false; }
+public SyntheticAccessMethodBinding getAccessMethod(boolean isReadAccess) {
+	throw new RuntimeException("unimplemented");
+}
+
+public FieldBinding getFieldBindingForLookup() { return this; }
 }

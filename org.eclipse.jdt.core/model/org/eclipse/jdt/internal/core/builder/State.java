@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
@@ -18,6 +19,7 @@ import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import java.io.*;
 import java.util.*;
 
+// AspectJ - increased member visibilities
 public class State {
 
 String javaProjectName;
@@ -29,7 +31,7 @@ SimpleLookupTable references;
 SimpleLookupTable typeLocations;
 
 int buildNumber;
-long lastStructuralBuildTime;
+public long lastStructuralBuildTime;
 SimpleLookupTable structuralBuildTimes;
 
 private String[] knownPackageNames; // of the form "p1/p2"
@@ -39,7 +41,7 @@ static final byte VERSION = 0x0004;
 State() {
 }
 
-protected State(JavaBuilder javaBuilder) {
+public State(JavaBuilder javaBuilder) {
 	this.knownPackageNames = null;
 	this.javaProjectName = javaBuilder.currentProject.getName();
 	this.classpathLocations = javaBuilder.classpath;
@@ -76,7 +78,7 @@ void copyFrom(State lastState) {
 	}
 }
 
-char[][] getDefinedTypeNamesFor(String location) {
+public char[][] getDefinedTypeNamesFor(String location) {
 	Object c = references.get(location);
 	if (c instanceof AdditionalTypeCollection)
 		return ((AdditionalTypeCollection) c).definedTypeNames;
@@ -480,8 +482,8 @@ public String toString() {
 				+ ")"; //$NON-NLS-1$
 }
 
-/* Debug helper
-void dump() {
+/* Debug helper */
+public void dump() {
 	System.out.println("State for " + javaProjectName + " (" + buildNumber + " @ " + new Date(lastStructuralBuildTime) + ")");
 	System.out.println("\tClass path locations:");
 	for (int i = 0, length = classpathLocations.length; i < length; ++i)
@@ -544,5 +546,5 @@ void dump() {
 	}
 	System.out.print("\n\n");
 }
-*/
+
 }

@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
@@ -16,6 +17,9 @@ import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
+/**
+ * AspectJ - support for MethodBinding.alwaysNeedsAccessMethod
+ */
 public class MessageSend extends Expression implements InvocationSite {
 	public Expression receiver ;
 	public char[] selector ;
@@ -24,7 +28,7 @@ public class MessageSend extends Expression implements InvocationSite {
 
 	public long nameSourcePosition ; //(start<<32)+end
 
-	MethodBinding syntheticAccessor;
+	public MethodBinding syntheticAccessor;
 
 	public TypeBinding receiverType, qualifyingType;
 	
@@ -137,6 +141,11 @@ public void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope) {
 	}
 }
 public void manageSyntheticAccessIfNecessary(BlockScope currentScope){
+	if (binding.alwaysNeedsAccessMethod()) {
+		syntheticAccessor = binding.getAccessMethod(isSuperAccess());
+		return;
+	}
+
 
 	if (binding.isPrivate()){
 
@@ -220,10 +229,7 @@ public TypeBinding resolveType(BlockScope scope) {
 		return null;
 	}
 
-	this.codegenBinding = this.binding = 
-		receiver == ThisReference.ThisImplicit
-			? scope.getImplicitMethod(selector, argumentTypes, this)
-			: scope.getMethod(this.receiverType, selector, argumentTypes, this); 
+	resolveMethodBinding(scope, argumentTypes);
 	if (!binding.isValidBinding()) {
 		if (binding.declaringClass == null) {
 			if (this.receiverType instanceof ReferenceBinding) {
@@ -265,6 +271,14 @@ public TypeBinding resolveType(BlockScope scope) {
 		scope.problemReporter().deprecatedMethod(binding, this);
 
 	return binding.returnType;
+}
+protected void resolveMethodBinding(
+	BlockScope scope,
+	TypeBinding[] argumentTypes) {
+	this.codegenBinding = this.binding = 
+		receiver == ThisReference.ThisImplicit
+			? scope.getImplicitMethod(selector, argumentTypes, this)
+			: scope.getMethod(this.receiverType, selector, argumentTypes, this); 
 }
 public void setActualReceiverType(ReferenceBinding receiverType) {
 	this.qualifyingType = receiverType;

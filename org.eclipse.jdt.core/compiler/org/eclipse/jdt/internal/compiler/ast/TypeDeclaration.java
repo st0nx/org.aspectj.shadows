@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
@@ -20,6 +21,10 @@ import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
 import org.eclipse.jdt.internal.compiler.util.*;
 
+/**
+ * AspectJ - added extension point for attribute generation,
+ * fixed bug in traverse method
+ */
 public class TypeDeclaration
 	extends Statement
 	implements ProblemSeverities, ReferenceContext {
@@ -739,6 +744,7 @@ public class TypeDeclaration
 			classFile.setForMethodInfos();
 			if (methods != null) {
 				for (int i = 0, max = methods.length; i < max; i++) {
+					//System.err.println("gen: " + methods[i]);
 					methods[i].generateCode(scope, classFile);
 				}
 			}
@@ -751,10 +757,10 @@ public class TypeDeclaration
 			if (ignoreFurtherInvestigation) { // trigger problem type generation for code gen errors
 				throw new AbortType(scope.referenceCompilationUnit().compilationResult);
 			}
-
-			// finalize the compiled type result
-			classFile.addAttributes();
-			scope.referenceCompilationUnit().compilationResult.record(
+			
+			generateAttributes(classFile);
+			
+			compilationResult.record(
 				binding.constantPoolName(),
 				classFile);
 		} catch (AbortType e) {
@@ -764,6 +770,14 @@ public class TypeDeclaration
 				this,
 				scope.referenceCompilationUnit().compilationResult);
 		}
+	}
+	
+	/**
+	 * AspectJ Hook
+	 */
+	protected void generateAttributes(ClassFile classFile) {
+		// finalize the compiled type result
+		classFile.addAttributes();
 	}
 
 	/**
@@ -813,7 +827,7 @@ public class TypeDeclaration
 	 * A <clinit> will be requested as soon as static fields or assertions are present. It will be eliminated during
 	 * classfile creation if no bytecode was actually produced based on some optimizations/compiler settings.
 	 */
-	public final boolean needClassInitMethod() {
+	public boolean needClassInitMethod() {
 
 		// always need a <clinit> when assertions are present
 		if ((this.bits & AddAssertionMASK) != 0)
@@ -1041,6 +1055,7 @@ public class TypeDeclaration
 						methods[i].traverse(visitor, scope);
 				}
 			}
+			visitor.endVisit(this, unitScope);    //XXX verify that this is a valid bug-fix
 		} catch (AbortType e) {
 		}
 	}

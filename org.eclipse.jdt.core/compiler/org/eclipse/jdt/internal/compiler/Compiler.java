@@ -7,9 +7,11 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
+//import org.aspectj.ajdt.internal.compiler.lookup.EclipseWorld;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.env.*;
 import org.eclipse.jdt.internal.compiler.impl.*;
@@ -22,6 +24,7 @@ import org.eclipse.jdt.internal.compiler.util.*;
 import java.io.*;
 import java.util.*;
 
+// AspectJ - made process(CompilationUnitDeclaration unit, int i) protected (not private)
 public class Compiler implements ITypeRequestor, ProblemSeverities {
 	public Parser parser;
 	ICompilerRequestor requestor;
@@ -517,7 +520,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 	/**
 	 * Process a compilation unit already parsed and build.
 	 */
-	private void process(CompilationUnitDeclaration unit, int i) {
+	protected void process(CompilationUnitDeclaration unit, int i) {
 
 		getMethodBodies(unit, i);
 

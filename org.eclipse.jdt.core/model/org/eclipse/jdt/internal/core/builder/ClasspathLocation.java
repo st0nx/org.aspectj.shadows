@@ -7,32 +7,34 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
 
-abstract class ClasspathLocation {
+// AspectJ - increased member visibilities
+public abstract class ClasspathLocation {
 
-static ClasspathLocation forSourceFolder(String sourceFolderPathname, String outputFolderPathname) {
+public static ClasspathLocation forSourceFolder(String sourceFolderPathname, String outputFolderPathname) {
 	return new ClasspathMultiDirectory(sourceFolderPathname, outputFolderPathname);
 }
 
-static ClasspathLocation forBinaryFolder(String binaryFolderPathname) {
+public static ClasspathLocation forBinaryFolder(String binaryFolderPathname) {
 	return new ClasspathDirectory(binaryFolderPathname);
 }
 
-static ClasspathLocation forLibrary(String libraryPathname) {
+public static ClasspathLocation forLibrary(String libraryPathname) {
 	return new ClasspathJar(libraryPathname);
 }
 
-abstract NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName);
-abstract boolean isPackage(String qualifiedPackageName);
+public abstract NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName);
+public abstract boolean isPackage(String qualifiedPackageName);
 
 // free anything which is not required when the state is saved
-void cleanup() {
+public void cleanup() {
 }
 // reset any internal caches before another compile loop starts
-void reset() {
+public void reset() {
 }
 }

@@ -7,15 +7,18 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.internal.compiler.ast.AstNode;
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.compiler.util.ObjectVector;
 
+// AspectJ - hooks, added distinction between enclosingSourceType and invocationType
 public abstract class Scope
 	implements
 		BaseTypes,
@@ -106,6 +109,8 @@ public abstract class Scope
 	}
 
 	/* Answer the receiver's enclosing source type.
+	 * 
+	 * Except for inter-type declarations where the return value is the declaration type.
 	*/
 	public final SourceTypeBinding enclosingSourceType() {
 		Scope scope = this;
@@ -116,6 +121,24 @@ public abstract class Scope
 		} while (scope != null);
 		return null;
 	}
+	
+	/**
+	 * For Java scopes, the invocationType is always the same as the enclosingSourceType
+	 * This distinction is important for AspectJ's inter-type declarations
+	 * 
+	 * For inter-type declarations, the invocationType is the lexically enclosing type.
+	 */
+	public SourceTypeBinding invocationType() {
+		Scope scope = this;
+		do {
+			if (scope instanceof ClassScope)
+				return ((ClassScope) scope).invocationType();
+			scope = scope.parent;
+		} while (scope != null);
+		return null;
+		//return enclosingSourceType();
+	}
+	
 	public final LookupEnvironment environment() {
 		Scope scope, unitScope = this;
 		while ((scope = unitScope.parent) != null)
@@ -155,10 +178,28 @@ public abstract class Scope
 		MethodBinding exactMethod = receiverType.getExactMethod(selector, argumentTypes);
 		if (exactMethod != null) {
 			compilationUnitScope().recordTypeReferences(exactMethod.thrownExceptions);
-			if (receiverType.isInterface() || exactMethod.canBeSeenBy(receiverType, invocationSite, this))
+			compilationUnitScope().recordTypeReference(exactMethod.declaringClass); // for inter-type decls
+			if (receiverType.isInterface() || exactMethod.canBeSeenBy(receiverType, invocationSite, this)) {
 				return exactMethod;
+			} else {
+				IPrivilegedHandler handler = findPrivilegedHandler(invocationType());
+				if (handler != null) {
+					//???System.err.println("privileged access: ");
+					return invocationType().privilegedHandler.getPrivilegedAccessMethod(exactMethod, (AstNode)invocationSite);
+				}
+			}
 		}
 		return null;
+	}
+	
+	public static final IPrivilegedHandler findPrivilegedHandler(ReferenceBinding type) {
+		if (type == null) return null;
+		if (type instanceof SourceTypeBinding) {
+			if (((SourceTypeBinding)type).privilegedHandler != null) {
+				return ((SourceTypeBinding)type).privilegedHandler;
+			}
+		}
+		return findPrivilegedHandler(type.enclosingType());
 	}
 
 	// Internal use only
@@ -186,7 +227,7 @@ public abstract class Scope
 			return new ProblemFieldBinding(currentType, fieldName, NotVisible);
 		// *** Need a new problem id - TypeNotVisible?
 
-		FieldBinding field = currentType.getField(fieldName);
+		FieldBinding field = currentType.getField(fieldName, invocationSite, this);
 		if (field != null) {
 			if (field.canBeSeenBy(currentType, invocationSite, this))
 				return field;
@@ -217,7 +258,7 @@ public abstract class Scope
 			if ((currentType = currentType.superclass()) == null)
 				break;
 
-			if ((field = currentType.getField(fieldName)) != null) {
+			if ((field = currentType.getBestField(fieldName, invocationSite, this)) != null) {
 				keepLooking = false;
 				if (field.canBeSeenBy(receiverType, invocationSite, this)) {
 					if (visibleField == null)
@@ -240,7 +281,7 @@ public abstract class Scope
 					if ((anInterface.tagBits & InterfaceVisited) == 0) {
 						// if interface as not already been visited
 						anInterface.tagBits |= InterfaceVisited;
-						if ((field = anInterface.getField(fieldName)) != null) {
+						if ((field = anInterface.getBestField(fieldName, invocationSite, this)) != null) {
 							if (visibleField == null) {
 								visibleField = field;
 							} else {
@@ -499,7 +540,7 @@ public abstract class Scope
 				findDefaultAbstractMethod(receiverType, selector, argumentTypes, invocationSite, classHierarchyStart, matchingMethod, found);
 			if (interfaceMethod != null) return interfaceMethod;
 			return new ProblemMethodBinding(candidates[0].selector, argumentTypes, candidates[0].declaringClass, NotVisible);
-		}	
+		}
 		if (candidates[0].declaringClass.isClass()) {
 			return mostSpecificClassMethodBinding(candidates, visiblesCount);
 		} else {

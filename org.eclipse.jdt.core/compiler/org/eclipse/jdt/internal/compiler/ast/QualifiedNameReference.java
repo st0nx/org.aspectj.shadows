@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
@@ -16,6 +17,9 @@ import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
+/**
+ * AspectJ - support for FieldBinding.alwaysNeedsAccessMethod
+ */
 public class QualifiedNameReference extends NameReference {
 	
 	public char[][] tokens;
@@ -616,6 +620,23 @@ public class QualifiedNameReference extends NameReference {
 		// index == 0 denotes the first fieldBinding, index > 0 denotes one of the 'otherBindings'
 		if (fieldBinding.constant != NotAConstant)
 			return;
+
+		if (fieldBinding.alwaysNeedsAccessMethod(true)) {
+			if (syntheticReadAccessors == null) {
+				if (otherBindings == null)
+					syntheticReadAccessors =
+						new SyntheticAccessMethodBinding[1];
+				else
+					syntheticReadAccessors =
+						new SyntheticAccessMethodBinding[otherBindings.length
+							+ 1];
+			}
+			//System.out.println("needs synthetic reader: " + fieldBinding + ", " + index);
+			syntheticReadAccessors[index] = fieldBinding.getAccessMethod(true);
+			return;
+		}
+			
+			
 		if (fieldBinding.isPrivate()) { // private access
 			if (fieldBinding.declaringClass != currentScope.enclosingSourceType()) {
 				if (syntheticReadAccessors == null) {
@@ -677,6 +698,11 @@ public class QualifiedNameReference extends NameReference {
 		BlockScope currentScope,
 		FieldBinding fieldBinding,
 		TypeBinding lastReceiverType) {
+		if (fieldBinding.alwaysNeedsAccessMethod(false)) {
+			syntheticWriteAccessor = fieldBinding.getAccessMethod(false);
+			return;
+		}
+			
 		if (fieldBinding.isPrivate()) {
 			if (fieldBinding.declaringClass != currentScope.enclosingSourceType()) {
 				syntheticWriteAccessor = ((SourceTypeBinding) fieldBinding.declaringClass)

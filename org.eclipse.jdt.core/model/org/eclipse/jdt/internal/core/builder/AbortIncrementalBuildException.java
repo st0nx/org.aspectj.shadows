@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
@@ -17,7 +18,7 @@ package org.eclipse.jdt.internal.core.builder;
  */
 public class AbortIncrementalBuildException extends RuntimeException {
 
-protected String qualifiedTypeName;
+public String qualifiedTypeName;  // exposed for AspectJ
 
 public AbortIncrementalBuildException(String qualifiedTypeName) {
 	this.qualifiedTypeName = qualifiedTypeName;

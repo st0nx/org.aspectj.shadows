@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
@@ -21,6 +22,7 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
 import org.eclipse.jdt.internal.compiler.util.*;
 
+// AspectJ - Added minimal support for extensible attributes
 /**
  * Represents a class file wrapper on bytes, it is aware of its actual
  * type name.
@@ -65,6 +67,8 @@ public class ClassFile
 	protected HashtableOfType nameUsage;
 	public CodeStream codeStream;
 	protected int problemLine;	// used to create line number attributes for problem methods
+
+	public List/*<IAttribute>*/ extraAttributes = new ArrayList(1);
 
 	/**
 	 * INTERNAL USE-ONLY
@@ -369,6 +373,18 @@ public class ClassFile
 			}
 			attributeNumber++;
 		}
+		
+		// write any "extraAttributes"
+		if (extraAttributes != null) {
+			for (int i=0, len=extraAttributes.size(); i < len; i++) {
+				IAttribute attribute = (IAttribute)extraAttributes.get(i);
+				short nameIndex = (short)constantPool.literalIndex(attribute.getNameChars());
+				writeToContents(attribute.getAllBytes(nameIndex));
+				attributeNumber++;
+			}
+		}
+		
+		
 		// update the number of attributes
 		contentsLength = contents.length;
 		if (attributeOffset + 2 >= contentsLength) {
@@ -389,6 +405,8 @@ public class ClassFile
 		header[constantPoolOffset++] = (byte) (constantPoolCount >> 8);
 		header[constantPoolOffset] = (byte) constantPoolCount;
 	}
+
+	
 
 	/**
 	 * INTERNAL USE-ONLY
@@ -2575,6 +2593,10 @@ public class ClassFile
 	 * @return <CODE>int</CODE>
 	 */
 	public int generateMethodInfoAttribute(MethodBinding methodBinding) {
+		return generateMethodInfoAttribute(methodBinding, null);
+	}
+
+	public int generateMethodInfoAttribute(MethodBinding methodBinding, List extraAttributes) {
 		// leave two bytes for the attribute_number
 		contentsOffset += 2;
 		// now we can handle all the attribute for that method info:
@@ -2666,8 +2688,36 @@ public class ClassFile
 
 			attributeNumber++;
 		}
+		
+		if (extraAttributes != null) {
+			for (int i=0, len = extraAttributes.size(); i < len; i++) {
+				IAttribute attribute = (IAttribute)extraAttributes.get(i);
+				short nameIndex = (short)constantPool.literalIndex(attribute.getNameChars());
+				writeToContents(attribute.getAllBytes(nameIndex));
+				attributeNumber++;
+			}
+		}
+		
 		return attributeNumber;
 	}
+	
+	void writeToContents(byte[] data) {
+		int N = data.length;
+		int contentsLength;
+		while (contentsOffset + N >= (contentsLength = contents.length)) {
+			System.arraycopy(
+				contents,
+				0,
+				(contents = new byte[contentsLength + INCREMENT_SIZE]),
+				0,
+				contentsLength);
+		}
+		
+		System.arraycopy(data, 0, contents, contentsOffset, N);
+		contentsOffset += N;		
+	}
+	
+	
 
 	/**
 	 * INTERNAL USE-ONLY
@@ -2753,12 +2803,12 @@ public class ClassFile
 	 * @return byte[]
 	 */
 	public byte[] getBytes() {
-		byte[] fullContents = new byte[headerOffset + contentsOffset];
-		System.arraycopy(header, 0, fullContents, 0, headerOffset);
-		System.arraycopy(contents, 0, fullContents, headerOffset, contentsOffset);
+			byte[] fullContents = new byte[headerOffset + contentsOffset];
+			System.arraycopy(header, 0, fullContents, 0, headerOffset);
+			System.arraycopy(contents, 0, fullContents, headerOffset, contentsOffset);
 		return fullContents;
-	}
-
+		}
+		
 	/**
 	 * EXTERNAL API
 	 * Answer the compound name of the class file.

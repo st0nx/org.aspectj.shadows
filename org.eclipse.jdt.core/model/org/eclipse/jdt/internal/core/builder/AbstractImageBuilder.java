@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
@@ -30,6 +31,8 @@ import java.util.*;
  * The abstract superclass of image builders.
  * Provides the building and compilation mechanism
  * in common with the batch and incremental builders.
+ * 
+ * AspectJ - added makeSourceFile as extension point for command-line builders
  */
 public abstract class AbstractImageBuilder implements ICompilerRequestor {
 
@@ -50,7 +53,9 @@ protected boolean compiledAllAtOnce;
 
 private boolean inCompiler;
 
-public static int MAX_AT_ONCE = 1000;
+// There are memory issues with increasing this, but better memory issues than
+// forgetting to compile some files
+public static int MAX_AT_ONCE = Integer.MAX_VALUE;
 
 protected AbstractImageBuilder(JavaBuilder javaBuilder) {
 	this.javaBuilder = javaBuilder;
@@ -161,7 +166,7 @@ protected void compile(String[] filenames, String[] initialTypeNames) {
 			String filename = filenames[i];
 			if (JavaBuilder.DEBUG)
 				System.out.println("About to compile " + filename); //$NON-NLS-1$
-			toCompile[i] = new SourceFile(filename, initialTypeNames[i]);
+			toCompile[i] = makeSourceFile(filename, initialTypeNames[i]);
 		}
 		compile(toCompile, initialTypeNames, null);
 	} else {
@@ -181,7 +186,7 @@ protected void compile(String[] filenames, String[] initialTypeNames) {
 						System.out.println("About to compile " + filename);//$NON-NLS-1$
 					String initialTypeName = initialTypeNames[i];
 					initialNamesInLoop[index] = initialTypeName;
-					toCompile[index++] = new SourceFile(filename, initialTypeName);
+					toCompile[index++] = makeSourceFile(filename, initialTypeName);
 				}
 				i++;
 			}
@@ -196,6 +201,14 @@ protected void compile(String[] filenames, String[] initialTypeNames) {
 		}
 	}
 }
+
+/**
+ * Extension point for batch building
+ */
+protected SourceFile makeSourceFile(String filename, String initialTypeName) {
+	return new SourceFile(filename, initialTypeName);
+}
+
 
 void compile(SourceFile[] units, String[] initialTypeNames, String[] additionalFilenames) {
 	if (units.length == 0) return;

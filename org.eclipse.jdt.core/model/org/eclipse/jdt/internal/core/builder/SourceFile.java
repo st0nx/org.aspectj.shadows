@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
@@ -24,6 +25,8 @@ public char[] mainTypeName;
 public char[][] packageName;
 String encoding;
 
+//XXX AspectJ need a better solution for not looking up encoding in JavaCore
+//XXX this breaks eclipse encoding support
 public SourceFile(String fileName, String initialTypeName) {
 	this.fileName = fileName.toCharArray();
 	CharOperation.replace(this.fileName, '\\', '/');
@@ -33,7 +36,7 @@ public SourceFile(String fileName, String initialTypeName) {
 	this.mainTypeName = CharOperation.subarray(typeName, lastIndex + 1, -1);
 	this.packageName = CharOperation.splitOn('/', typeName, 0, lastIndex - 1);
 
-	this.encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
+	this.encoding = null; //XXXJavaCore.getOption(JavaCore.CORE_ENCODING);
 }
 
 public SourceFile(String fileName, char[] mainTypeName, char[][] packageName) {
@@ -43,7 +46,7 @@ public SourceFile(String fileName, char[] mainTypeName, char[][] packageName) {
 	this.mainTypeName = mainTypeName;
 	this.packageName = packageName;
 
-	this.encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
+	this.encoding = null; //XXXJavaCore.getOption(JavaCore.CORE_ENCODING);
 }
 
 public char[] getContents() {

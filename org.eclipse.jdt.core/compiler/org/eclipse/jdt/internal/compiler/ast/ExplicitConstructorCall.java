@@ -180,7 +180,11 @@ public class ExplicitConstructorCall
 	}
 
 	public void manageSyntheticAccessIfNecessary(BlockScope currentScope) {
-
+		if (binding.alwaysNeedsAccessMethod()) {
+			syntheticAccessor = binding.getAccessMethod(true);
+			return;
+		}
+		
 		// perform some emulation work in case there is some and we are inside a local type only
 		if (binding.isPrivate() && (accessMode != This)) {
 
@@ -207,6 +211,7 @@ public class ExplicitConstructorCall
 		try {
 			((MethodScope) scope).isConstructorCall = true;
 			ReferenceBinding receiverType = scope.enclosingSourceType();
+			//System.err.println("rT: " + receiverType + " scope " + scope);
 			if (accessMode != This)
 				receiverType = receiverType.superclass();
 

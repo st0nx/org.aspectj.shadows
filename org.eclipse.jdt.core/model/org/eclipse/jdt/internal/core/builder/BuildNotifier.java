@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
@@ -18,6 +19,7 @@ import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.core.Util;
 
+// AspectJ - increased member visibilities
 public class BuildNotifier {
 
 protected IProgressMonitor monitor;
@@ -170,7 +172,7 @@ public void subTask(String message) {
 	this.previousSubtask = msg;
 }
 
-protected void updateProblemCounts(IProblem[] newProblems) {
+public void updateProblemCounts(IProblem[] newProblems) {
 	for (int i = 0, newSize = newProblems.length; i < newSize; ++i)
 		if (newProblems[i].isError()) newErrorCount++; else newWarningCount++;
 }
@@ -237,5 +239,9 @@ public void updateProgress(float percentComplete) {
 
 public void updateProgressDelta(float percentWorked) {
 	updateProgress(percentComplete + percentWorked);
+}
+
+public boolean anyErrors() {
+	return newErrorCount > 0;
 }
 }

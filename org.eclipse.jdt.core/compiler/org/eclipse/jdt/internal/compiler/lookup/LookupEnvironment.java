@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
@@ -21,7 +22,16 @@ import org.eclipse.jdt.internal.compiler.util.CharOperation;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfPackage;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
+/**
+ * AspectJ - made many methods and fields more visible for extension
+ * 
+ * Also modified error checking on getType(char[][] compoundName) to allow
+ * refering to inner types directly.
+ */
 public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstants {
+	
+	
+	
 	public CompilerOptions options;
 	public ProblemReporter problemReporter;
 	public ITypeRequestor typeRequestor;
@@ -36,19 +46,19 @@ public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstan
 	private MethodVerifier verifier;
 	private ArrayBinding[][] uniqueArrayBindings;
 
-	private CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
-	private int lastUnitIndex = -1;
-	private int lastCompletedUnitIndex = -1;
+	protected CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
+	protected int lastUnitIndex = -1;
+	protected int lastCompletedUnitIndex = -1;
 
 	// indicate in which step on the compilation we are.
 	// step 1 : build the reference binding
 	// step 2 : conect the hierarchy (connect bindings)
 	// step 3 : build fields and method bindings.
-	private int stepCompleted;
-	final static int BUILD_TYPE_HIERARCHY = 1;
-	final static int CHECK_AND_SET_IMPORTS = 2;
-	final static int CONNECT_TYPE_HIERARCHY = 3;
-	final static int BUILD_FIELDS_AND_METHODS = 4;
+	protected int stepCompleted;
+	final protected static int BUILD_TYPE_HIERARCHY = 1;
+	final protected static int CHECK_AND_SET_IMPORTS = 2;
+	final protected static int CONNECT_TYPE_HIERARCHY = 3;
+	final protected static int BUILD_FIELDS_AND_METHODS = 4;
 public LookupEnvironment(ITypeRequestor typeRequestor, CompilerOptions options, ProblemReporter problemReporter, INameEnvironment nameEnvironment) {
 	this.typeRequestor = typeRequestor;
 	this.options = options;
@@ -175,6 +185,7 @@ public void completeTypeBindings() {
 		units[i].scope.buildFieldsAndMethods();
 		units[i] = null; // release unnecessary reference to the parsed unit
 	}
+	
 	stepCompleted = BUILD_FIELDS_AND_METHODS;
 	lastCompletedUnitIndex = lastUnitIndex;
 }
@@ -245,7 +256,7 @@ private PackageBinding computePackageFrom(char[][] constantPoolName) {
 /* Used to guarantee array type identity.
 */
 
-ArrayBinding createArrayType(TypeBinding type, int dimensionCount) {
+public ArrayBinding createArrayType(TypeBinding type, int dimensionCount) {
 	// find the array binding cache for this dimension
 	int dimIndex = dimensionCount - 1;
 	int length = uniqueArrayBindings.length;
@@ -436,9 +447,10 @@ public ReferenceBinding getType(char[][] compoundName) {
 		referenceBinding = ((UnresolvedReferenceBinding) referenceBinding).resolve(this);
 
 	// compoundName refers to a nested type incorrectly (i.e. package1.A$B)
-	if (referenceBinding.isNestedType())
-		return new ProblemReferenceBinding(compoundName, InternalNameProvided);
-	else
+	//XXX how else are we supposed to refer to nested types???
+//	if (referenceBinding.isNestedType())
+//		return new ProblemReferenceBinding(compoundName, InternalNameProvided);
+//	else
 		return referenceBinding;
 }
 /* Answer the type corresponding to the name from the binary file.

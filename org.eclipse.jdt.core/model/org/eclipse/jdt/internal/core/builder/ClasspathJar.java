@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
@@ -17,6 +18,7 @@ import java.io.*;
 import java.util.*;
 import java.util.zip.*;
 
+// AspectJ - increased member visibilities
 class ClasspathJar extends ClasspathLocation {
 
 String zipFilename; // keep for equals
@@ -29,7 +31,7 @@ ClasspathJar(String zipFilename) {
 	this.packageCache = null;
 }
 
-void cleanup() {
+public void cleanup() {
 	if (zipFile != null) {
 		try { zipFile.close(); } catch(IOException e) {}
 		this.zipFile = null;
@@ -44,7 +46,7 @@ public boolean equals(Object o) {
 	return zipFilename.equals(((ClasspathJar) o).zipFilename);
 } 
 
-NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName) {
+public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName) {
 	if (!isPackage(qualifiedPackageName)) return null; // most common case
 
 	try {
@@ -54,7 +56,7 @@ NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageNa
 	return null;
 }
 
-boolean isPackage(String qualifiedPackageName) {
+public boolean isPackage(String qualifiedPackageName) {
 	if (packageCache != null)
 		return packageCache.containsKey(qualifiedPackageName);
 

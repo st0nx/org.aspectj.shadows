@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.problem;
 
@@ -1857,7 +1858,7 @@ public void parseError(
 	char[] currentTokenSource, 
 	String errorTokenName, 
 	String[] possibleTokens) {
-		
+	
 	if (possibleTokens.length == 0) { //no suggestion available
 		if (isKeyword(currentTokenSource)) {
 			this.handle(
@@ -2220,7 +2221,6 @@ public void unexpectedStaticModifierForMethod(ReferenceBinding type, AbstractMet
 		methodDecl.sourceEnd);
 }
 public void unhandledException(TypeBinding exceptionType, AstNode location) {
-
 	boolean insideDefaultConstructor = 
 		(referenceContext instanceof ConstructorDeclaration)
 			&& ((ConstructorDeclaration)referenceContext).isDefaultConstructor();
@@ -2479,4 +2479,25 @@ private boolean isKeyword(char[] tokenSource) {
 	}
 	
 }
+
+/**
+ * Signals an error with a string message for those errors that we don't know about
+ * 
+ * This backdoor weakens NLS guarantees, but it makes life much easier for extensions.
+ */
+public void signalError(int start, int end, String msg) {
+	CompilationResult unitResult = referenceContext.compilationResult();
+	IProblem problem = 
+		new DefaultProblem(unitResult.getFileName(), msg,
+						IProblem.ParsingError,  //??? would like IProblem.Unknown
+		                new String[0], ProblemSeverities.Error,
+		                start, end,
+		                           start >= 0
+				? searchLineNumber(unitResult.lineSeparatorPositions, start)
+				: 0);
+	record(problem, unitResult, referenceContext);
+	
+	
+}
+
 }
