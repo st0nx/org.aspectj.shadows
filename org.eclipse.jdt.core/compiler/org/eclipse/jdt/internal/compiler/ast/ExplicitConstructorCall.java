@@ -7,6 +7,7 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
@@ -182,7 +183,11 @@ public class ExplicitConstructorCall
 	}
 
 	public void manageSyntheticAccessIfNecessary(BlockScope currentScope) {
-
+		if (binding.alwaysNeedsAccessMethod()) {
+			syntheticAccessor = binding.getAccessMethod(true);
+			return;
+		}
+		
 		// perform some emulation work in case there is some and we are inside a local type only
 		if (binding.isPrivate() && (accessMode != This)) {
 

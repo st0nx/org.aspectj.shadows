@@ -7,7 +7,8 @@
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
@@ -16,6 +17,9 @@ import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
+/**
+ * AspectJ - support for FieldBinding.alwaysNeedsAccessMethod
+ */
 public class SingleNameReference extends NameReference implements OperatorIds {
 	public char[] token;
 
@@ -532,15 +536,21 @@ public void manageSyntheticReadAccessIfNecessary(BlockScope currentScope) {
 
 	if ((bits & FIELD) != 0) {
 		FieldBinding fieldBinding = (FieldBinding) binding;
+		if (fieldBinding.alwaysNeedsAccessMethod(true)) {
+			if (syntheticAccessors == null)
+				syntheticAccessors = new MethodBinding[2];
+			syntheticAccessors[READ] = fieldBinding.getAccessMethod(true);
+			return;
+		}
 		if (((bits & DepthMASK) != 0)
 			&& (fieldBinding.isPrivate() // private access
 				|| (fieldBinding.isProtected() // implicit protected access
 						&& fieldBinding.declaringClass.getPackage() 
-							!= currentScope.enclosingSourceType().getPackage()))) {
+							!= currentScope.invocationType().getPackage()))) {
 			if (syntheticAccessors == null)
 				syntheticAccessors = new MethodBinding[2];
 			syntheticAccessors[READ] = 
-				((SourceTypeBinding)currentScope.enclosingSourceType().
+				((SourceTypeBinding)currentScope.invocationType().
 					enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT)).
 						addSyntheticMethod(fieldBinding, true);
 			currentScope.problemReporter().needToEmulateFieldReadAccess(fieldBinding, this);
@@ -566,15 +576,22 @@ public void manageSyntheticWriteAccessIfNecessary(BlockScope currentScope) {
 
 	if ((bits & FIELD) != 0) {
 		FieldBinding fieldBinding = (FieldBinding) binding;
+		if (fieldBinding.alwaysNeedsAccessMethod(false)) {
+			if (syntheticAccessors == null)
+				syntheticAccessors = new MethodBinding[2];
+			syntheticAccessors[WRITE] = fieldBinding.getAccessMethod(false);
+			return;
+		}
+		
 		if (((bits & DepthMASK) != 0) 
 			&& (fieldBinding.isPrivate() // private access
 				|| (fieldBinding.isProtected() // implicit protected access
 						&& fieldBinding.declaringClass.getPackage() 
-							!= currentScope.enclosingSourceType().getPackage()))) {
+							!= currentScope.invocationType().getPackage()))) {
 			if (syntheticAccessors == null)
 				syntheticAccessors = new MethodBinding[2];
 			syntheticAccessors[WRITE] = 
-				((SourceTypeBinding)currentScope.enclosingSourceType().
+				((SourceTypeBinding)currentScope.invocationType().
 					enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT)).
 						addSyntheticMethod(fieldBinding, false);
 			currentScope.problemReporter().needToEmulateFieldWriteAccess(fieldBinding, this);
@@ -592,7 +609,7 @@ public void manageSyntheticWriteAccessIfNecessary(BlockScope currentScope) {
 					&& !fieldBinding.isStatic()
 					&& fieldBinding.declaringClass.id != T_Object) // no change for Object fields (if there was any)
 				|| !fieldBinding.declaringClass.canBeSeenBy(currentScope))){
-			this.codegenBinding = currentScope.enclosingSourceType().getUpdatedFieldBinding(fieldBinding, (ReferenceBinding)this.actualReceiverType);
+			this.codegenBinding = currentScope.invocationType().getUpdatedFieldBinding(fieldBinding, (ReferenceBinding)this.actualReceiverType);
 		}
 	}
 }

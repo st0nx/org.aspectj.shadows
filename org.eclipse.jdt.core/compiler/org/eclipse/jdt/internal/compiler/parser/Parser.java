@@ -8,6 +8,7 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     Tom Tromey - patch for readTable(String) as described in http://bugs.eclipse.org/bugs/show_bug.cgi?id=32196
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.parser;
 
@@ -28,6 +29,14 @@ import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
+/** 
+ * AspectJ - many changes to make this non-static or more accessible to 
+ * increase extensibility.  The key extensibility challenge remaining appears
+ * to be the static dependencies on ParserBasicInformation and ITerminalSymbols.
+ * 
+ * These changes from static to non-static might have performance implications.
+ * They have not yet been benchmarked in any serious way.
+ */
 public class Parser implements BindingIds, ParserBasicInformation, TerminalTokens, CompilerModifiers, OperatorIds, TypeIds {
 
 	protected ProblemReporter problemReporter;
@@ -48,6 +57,8 @@ public class Parser implements BindingIds, ParserBasicInformation, TerminalToken
 	protected int lastIgnoredToken, nextIgnoredToken;
 	protected int lastErrorEndPosition;
 		
+		
+	protected int currentTokenStart;
 	// 1.4 feature
 	protected boolean assertMode = false;
 	
@@ -95,6 +106,10 @@ public class Parser implements BindingIds, ParserBasicInformation, TerminalToken
 	protected boolean diet = false; //tells the scanner to jump over some parts of the code/expressions like method bodies
 	protected int dietInt = 0; // if > 0 force the none-diet-parsing mode (even if diet if requested) [field parsing with anonymous inner classes...]
 	protected int[] variablesCounter;
+	
+	protected final static String FILEPREFIX = "parser"; //$NON-NLS-1$
+	protected static final String UNEXPECTED_EOF = "Unexpected End Of File" ; //$NON-NLS-1$
+	
 	//===DATA===DATA===DATA===DATA===DATA===DATA===//
     public final static byte rhs[] = {0,
             2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,
@@ -128,12 +143,13 @@ public class Parser implements BindingIds, ParserBasicInformation, TerminalToken
             0,1,0,1,0,1,0,2,0,0,1,0,1,0,1,
             0,1
     };
+	
+	public  static char asbStatic[] = null;
+	public  static char asrStatic[] = null;
+	public  static char symbol_indexStatic[] = null;
 
-	public  static char asb[] = null;
-	public  static char asr[] = null;
-	public  static char symbol_index[] = null;
-	private static final String UNEXPECTED_EOF = "Unexpected End Of File" ; //$NON-NLS-1$
 
+	
     public final static String name[] = { null,
             "++", //$NON-NLS-1$
             "--", //$NON-NLS-1$
@@ -355,14 +371,37 @@ public class Parser implements BindingIds, ParserBasicInformation, TerminalToken
             "AssignmentOperator",  //$NON-NLS-1$
 	};
     
-	public  static short check_table[] = null;
-	public  static char lhs[] =  null;
-	public  static char action[] = lhs;
-	private final static String FILEPREFIX = "parser"; //$NON-NLS-1$
+
+	public  static short check_tableStatic[] = null;
+	public  static char lhsStatic[] =  null;
+	public  static char actionStatic[] = lhsStatic;
+
+	public byte rhsInst[];	
+
+	public char[] asb;
+	public char[] asr;
+	public char[] symbol_index;
+	public String[] nameInst;
+	
+	public short[] check_table;
+	public char[] lhs;
+	public char[] action;
+
+	protected void initData() {
+		rhsInst = rhs;
+		asb = asbStatic;
+		asr = asrStatic;
+		symbol_index = symbol_indexStatic;
+		nameInst = name;
+		check_table = check_tableStatic;
+		lhs = lhsStatic;
+		action = actionStatic;
+	}
+
 
 	static {
 		try{
-			initTables();
+			initTables(Parser.class);
 		} catch(java.io.IOException ex){
 			throw new ExceptionInInitializerError(ex.getMessage());
 		}
@@ -374,6 +413,7 @@ public class Parser implements BindingIds, ParserBasicInformation, TerminalToken
 	public static final int BracketKinds = 3;
 
 public Parser(ProblemReporter problemReporter, boolean optimizeStringLiterals, boolean assertMode) {
+	initData();
 		
 	this.problemReporter = problemReporter;
 	this.optimizeStringLiterals = optimizeStringLiterals;
@@ -420,7 +460,7 @@ public final void arrayInitializer(int length) {
 	}
 	ai.sourceStart = searchPosition;
 }
-protected static int asi(int state) {
+protected int asi(int state) {
 
 	return asb[original_state(state)];
 }
@@ -612,7 +652,7 @@ public RecoveredElement buildInitialRecoveryState(){
 	}
 	return element;
 }
-protected static short check(int i) {
+protected short check(int i) {
 	return check_table[i - (NUM_RULES + 1)];
 }
 /*
@@ -1121,7 +1161,7 @@ protected void classInstanceCreation(boolean alwaysQualified) {
 protected final void concatExpressionLists() {
 	expressionLengthStack[--expressionLengthPtr]++;
 }
-private final void concatNodeLists() {
+protected final void concatNodeLists() {
 	/*
 	 * This is a case where you have two sublists into the astStack that you want
 	 * to merge in one list. There is no action required on the astStack. The only
@@ -6607,20 +6647,20 @@ public void initializeScanner(){
 		options.taskTags/*taskTags*/,
 		options.taskPriorites/*taskPriorities*/);
 }
-public final static void initTables() throws java.io.IOException {
+public final static void initTables(Class parserClass) throws java.io.IOException {
 
 	final String prefix = FILEPREFIX;
 	int i = 0;
-	lhs = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	char[] chars = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	check_table = new short[chars.length];
+	lhsStatic = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	char[] chars = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	check_tableStatic = new short[chars.length];
 	for (int c = chars.length; c-- > 0;) {
-		check_table[c] = (short) (chars[c] - 32768);
+		check_tableStatic[c] = (short) (chars[c] - 32768);
 	}
-	asb = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	asr = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	symbol_index = readTable(prefix + (++i) + ".rsc"); //$NON-NLS-1$
-	action = lhs;
+	asbStatic = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	asrStatic = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	symbol_indexStatic = readTable(parserClass, prefix + (++i) + ".rsc"); //$NON-NLS-1$
+	actionStatic = lhsStatic;
 }
 public final void jumpOverMethodBody() {
 	//on diet parsing.....do not buffer method statements
@@ -6793,10 +6833,10 @@ protected MessageSend newMessageSend() {
 	};
 	return m;
 }
-protected static int ntAction(int state, int sym) {
+protected int ntAction(int state, int sym) {
 	return action[state + sym];
 }
-private final void optimizedConcatNodeLists() {
+protected final void optimizedConcatNodeLists() {
 	/*back from a recursive loop. Virtualy group the
 	astNode into an array using astLengthStack*/
 
@@ -6816,7 +6856,7 @@ private final void optimizedConcatNodeLists() {
 
 	astLengthStack[--astLengthPtr]++;
 }
-protected static int original_state(int state) {
+protected int original_state(int state) {
 	return -check(state);
 }
 /*main loop of the automat
@@ -6897,7 +6937,7 @@ protected void parse() {
 
 		ProcessNonTerminals : do { /* reduce */
 			consumeRule(act);
-			stateStackTop -= (rhs[act] - 1);
+			stateStackTop -= (rhsInst[act] - 1);
 			act = ntAction(stack[stateStackTop], lhs[act]);
 		} while (act <= NUM_RULES);
 	}
@@ -7089,6 +7129,59 @@ public void parse(MethodDeclaration md, CompilationUnitDeclaration unit) {
 			0, 
 			length); 
 }
+
+
+//XXX hack copying above but as a pretend constructor
+public void parseAsConstructor(MethodDeclaration md, CompilationUnitDeclaration unit) {
+	//only parse the method body of md
+	//fill out method statements
+
+	//convert bugs into parse error
+
+	if (md.isAbstract())
+		return;
+	if (md.isNative())
+		return;
+	if ((md.modifiers & AccSemicolonBody) != 0)
+		return;
+
+	initialize();
+	goForConstructorBody();
+	nestedMethod[nestedType]++;
+
+	referenceContext = md;
+	compilationUnit = unit;
+
+	scanner.resetTo(md.sourceEnd + 1, md.declarationSourceEnd); 
+	
+	//System.err.println("parsing body of: " + md + " at " + md.sourceEnd + 1);
+	// reset the scanner to parser from { down to }
+	try {
+		parse();
+	} catch (AbortCompilation ex) {
+		lastAct = ERROR_ACTION;
+	} finally {
+		nestedMethod[nestedType]--;		
+	}
+
+	if (lastAct == ERROR_ACTION) {
+		return;
+	}
+
+	//refill statements
+	md.explicitDeclarations = realBlockStack[realBlockPtr--];
+	int length;
+	if ((length = astLengthStack[astLengthPtr--]) != 0)
+		System.arraycopy(
+			astStack, 
+			(astPtr -= length) + 1, 
+			md.statements = new Statement[length], 
+			0, 
+			length); 
+}
+
+
+
 // A P I
 
 public CompilationUnitDeclaration parse(
@@ -7302,11 +7395,11 @@ protected void pushOnIntStack(int pos) {
 		intStack[intPtr] = pos;
 	}
 }
-protected static char[] readTable(String filename) throws java.io.IOException {
+protected static char[] readTable(Class parserClass, String filename) throws java.io.IOException {
 
 	//files are located at Parser.class directory
 
-	InputStream stream = Parser.class.getResourceAsStream(filename);
+	InputStream stream =parserClass.getResourceAsStream(filename);
 	if (stream == null) {
 		throw new java.io.IOException(Util.bind("parser.missingFile",filename)); //$NON-NLS-1$
 	}
@@ -7387,7 +7480,7 @@ protected void reportSyntaxError(int act, int currentKind, int stateStackTop) {
 	int currentPos = scanner.currentPosition;
 	
 	String[] expectings;
-	String tokenName = name[symbol_index[currentKind]];
+	String tokenName = nameInst[symbol_index[currentKind]];
 
 	//fetch all "accurate" possible terminals that could recover the error
 	int start, end = start = asi(stack[stateStackTop]);
@@ -7399,7 +7492,7 @@ protected void reportSyntaxError(int act, int currentKind, int stateStackTop) {
 		char[] indexes = new char[length];
 		System.arraycopy(asr, start, indexes, 0, length);
 		for (int i = 0; i < length; i++) {
-			expectings[i] = name[symbol_index[indexes[i]]];
+			expectings[i] = nameInst[symbol_index[indexes[i]]];
 		}
 	}
 
@@ -7560,7 +7653,7 @@ protected boolean resumeOnSyntaxError() {
 	/* attempt to reset state in order to resume to parse loop */
 	return this.resumeAfterRecovery();
 }
-protected static int tAction(int state, int sym) {
+protected int tAction(int state, int sym) {
 	return action[check(state + sym) == sym ? state + sym : state];
 }
 public String toString() {
