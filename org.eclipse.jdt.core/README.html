@@ -28,5 +28,21 @@ org.eclipse.jdt.internal.compiler.parser.Scanner
       <li>Whole question of what is the API of the compiler.  Currently, many internal classes are used and extended.  It would sure be nice to solve the practical problems in 1-3 before addressing this important question.</li>
     </ol>
     
+    <h2>Notes on packaging</h2>
+    
+    <p>To prevent clashes with the org.eclipse namespace, we add the 'org.aspectj' prefix
+    to all package names in the 'org.eclipse.jdt' namespace.  There are two helper targets
+    in the ANT script to achieve this:
+    <ul>
+    <li>transformProjectToORGASPECTJ - This target will add the prefix to all the relevant 
+    packages in the source folders.  It changes the filenames and their internal references.
+    <li>transformProjectFromORGASPECTJ - This target removes the prefix from all the
+    relevant packages in the source folders.  It changes the filenames and their internal
+    references.
+    </ul>
+    <p>So, when you want to build a new version of the org.eclipse.jdt.core plugins, you should
+    ensure your source folders have the package prefix before you call the make.jdtcore.jar
+    target.
+    <p>In the shadows project in CVS we keep the *non* prefixed versions to make merging easier.
   </body>
 </html>
