@@ -428,7 +428,7 @@ public abstract class Scope
 		if ((enclosingType.tagBits & HasNoMemberTypes) != 0)
 			return null; // know it has no member types (nor inherited member types)
 
-		SourceTypeBinding enclosingSourceType = enclosingSourceType();
+		SourceTypeBinding enclosingSourceType = invocationType(); /*enclosingSourceType();*/ // AspectJ Extension 
 		PackageBinding currentPackage = getCurrentPackage();
 		compilationUnitScope().recordReference(enclosingType.compoundName, typeName);
 		ReferenceBinding memberType = enclosingType.getMemberType(typeName);

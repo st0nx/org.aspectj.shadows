@@ -172,7 +172,7 @@ private final boolean innerCanBeSeenBy(Scope scope) {
 		return this.canBeSeenBy(((CompilationUnitScope)scope).fPackage);
 	}
 	
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+	SourceTypeBinding invocationType = scope.invocationType(); /*enclosingSourceType();*/ // AspectJ Extension
 	if (invocationType == this) return true;
 
 	if (isProtected()) {
