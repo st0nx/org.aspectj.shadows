@@ -1,17 +1,12 @@
 <project name="ShadowJdtCore" basedir="." default="get.tag">
-    <property name="tag" value="R2_0"/>
+    <property name="tag" value="v_312"/>
 
     <property name="package" value="org.eclipse.jdt.core"/>
 
     <property name="eclipse.root" value=":pserver:anonymous@dev.eclipse.org:/home/eclipse"/>
-    <property name="temp.dir" value="/temp"/>
+    <property name="temp.dir" value="/temp/jdtcore"/>
     <property name="new.dir" value="."/>
 
-    <target name="get.aspectj">
-        <cvs cvsRoot=":extssh:jhugunin@dev.eclipse.org:/home/technology" package="org.aspectj" dest="."/>
-    </target>
-
- 
 
     <target name="get.tag">
         <delete>
@@ -26,10 +21,5 @@
         <copy todir="${new.dir}">
              <fileset dir="${temp.dir}"/>
         </copy>
-    </target>
-
-    <target name="commit.tag">
-        <cvs dest="${new.dir}" command="commit"/>
-        <cvs dest="${new.dir}" command="tag ${tag}"/>
     </target>
 </project>
