@@ -23,6 +23,22 @@ import java.io.*;
 import java.util.*;
 
 public class Compiler implements ITypeRequestor, ProblemSeverities {
+	
+	// AspectJ Extension
+	// note - this could be better, it only allows one adapter type to be
+	// active at a time across all compilers - but sufficient for AspectJ
+	private static ICompilerAdapterFactory adapterFactory = 
+		new ICompilerAdapterFactory() {
+				public ICompilerAdapter getAdapter(Compiler forCompiler) {
+					return new DefaultCompilerAdapter(forCompiler);
+				}
+		};
+	public static void setCompilerAdapterFactory(ICompilerAdapterFactory factory) {
+		adapterFactory = factory;
+	}
+	private ICompilerAdapter compilerAdapter;
+	// End AspectJ Extension
+	
 	public Parser parser;
 	public ICompilerRequestor requestor;
 	public CompilerOptions options;
@@ -91,7 +107,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 
 		// create a problem handler given a handling policy
 		this.options = new CompilerOptions(settings);
-		
+
 		// wrap requestor in DebugRequestor if one is specified
 		if(DebugRequestor == null) {
 			this.requestor = requestor;
@@ -110,6 +126,10 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		this.lookupEnvironment =
 			new LookupEnvironment(this, options, problemReporter, environment);
 		initializeParser();
+
+		// AspectJ Extension
+		this.compilerAdapter = adapterFactory.getAdapter(this);
+		// End AspectJ Extension
 	}
 	
 	/**
@@ -158,7 +178,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 
 		// create a problem handler given a handling policy
 		this.options = new CompilerOptions(settings);
-		
+
 		// wrap requestor in DebugRequestor if one is specified
 		if(DebugRequestor == null) {
 			this.requestor = requestor;
@@ -175,6 +195,10 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		this.problemReporter = new ProblemReporter(policy, this.options, problemFactory);
 		this.lookupEnvironment = new LookupEnvironment(this, options, problemReporter, environment);
 		initializeParser();
+
+		// AspectJ Extension
+		this.compilerAdapter = adapterFactory.getAdapter(this);
+		// End AspectJ Extension
 	}
 	
 	/**
@@ -306,6 +330,9 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 	 * -> recompile any required types for which we have an incomplete principle structure
 	 */
 	public void compile(ICompilationUnit[] sourceUnits) {
+		// AspectJ Extension 
+		compilerAdapter.beforeCompiling(sourceUnits);
+		// End AspectJ Extension 
 		CompilationUnitDeclaration unit = null;
 		int i = 0;
 		try {
@@ -325,6 +352,9 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 									String.valueOf(i + 1),
 									String.valueOf(totalUnits),
 									new String(unitsToProcess[i].getFileName())}));
+					// AspectJ Extension 
+					compilerAdapter.beforeProcessing(unit);
+					// End AspectJ Extension 
 					process(unit, i);
 				} finally {
 					// cleanup compilation unit result
@@ -336,9 +366,15 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 						String.valueOf(totalUnits),
 						new String(unitsToProcess[i].getFileName())}));
 				}
-				unitsToProcess[i] = null; // release reference to processed unit declaration
-				requestor.acceptResult(unit.compilationResult.tagAsAccepted());
+				// AspectJ Extension
+				//unitsToProcess[i] = null; // release reference to processed unit declaration
+				//requestor.acceptResult(unit.compilationResult.tagAsAccepted());
+				compilerAdapter.afterProcessing(unit,i);
+				// End AspectJ Extension
 			}
+			// AspectJ Extension 
+			compilerAdapter.afterCompiling();
+			// End AspectJ Extension 
 		} catch (AbortCompilation e) {
 			this.handleInternalException(e, unit);
 		} catch (Error e) {
@@ -360,7 +396,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			}
 		}
 	}
-
+	
 	/*
 	 * Compiler crash recovery in case of unexpected runtime exceptions
 	 */
@@ -543,6 +579,9 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			boolean verifyMethods,
 			boolean analyzeCode,
 			boolean generateCode) {
+		// AspectJ Extension 
+		compilerAdapter.beforeResolving(unit, sourceUnit, verifyMethods, analyzeCode, generateCode);
+		// End AspectJ Extension 
 				
 		try {
 			if (unit == null) {
@@ -576,8 +615,12 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 				// code generation
 				if (generateCode) unit.generateCode();
 			}
-			if (unitsToProcess != null) unitsToProcess[0] = null; // release reference to processed unit declaration
-			requestor.acceptResult(unit.compilationResult.tagAsAccepted());
+			// AspectJ Extension 
+			compilerAdapter.afterResolving(unit, sourceUnit, verifyMethods, analyzeCode, generateCode);
+//			if (unitsToProcess != null) unitsToProcess[0] = null; // release reference to processed unit declaration
+//			requestor.acceptResult(unit.compilationResult.tagAsAccepted());
+			// End AspectJ Extension 
+			
 			return unit;
 		} catch (AbortCompilation e) {
 			this.handleInternalException(e, unit);
