@@ -13,7 +13,7 @@ package org.eclipse.jdt.internal.core.builder;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 
-import java.util.*;
+//import java.util.*;
 
 // AspectJ Extension increased member visibilities for AspectJ
 public class ReferenceCollection {

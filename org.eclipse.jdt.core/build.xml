@@ -21,7 +21,7 @@
             
         </jar>
         <delete file="lib/jdtDepends-src.zip"/>
-        <jar destfile="lib/jdtDepends-src.zip">
+        <jar destfile="lib/jdtDepends-src.zip" update="true">
             <zipfileset src="${plugins.src.dir}/org.eclipse.core.boot_${eclipse.version}/bootsrc.zip"/>
             <zipfileset src="${plugins.src.dir}/org.eclipse.core.resources_${eclipse.version}/resourcessrc.zip"/>
             <zipfileset src="${plugins.src.dir}/org.eclipse.core.runtime_${eclipse.version}/runtimesrc.zip"/>
@@ -31,23 +31,33 @@
             <zipfileset src="${plugins.src.dir}/org.eclipse.text_${eclipse.version}/textsrc.zip"/>
             <zipfileset src="${plugins.src.dir}/org.eclipse.core.runtime.compatibility_${eclipse.version}/compatibilitysrc.zip"/>
             <zipfileset src="${plugins.src.dir}/org.apache.ant_1.5.4/lib/antsrc.zip"/>
-
         </jar>
     </target>
 
 
     <target name="make.jdtcore.jar">
-    	<delete file="../jdtcore-for-aspectj.jar"/>
-        <jar destfile="../jdtcore-for-aspectj.jar">
+    	<delete file="../org.eclipse.jdt.core/jdtcore-for-aspectj.jar"/>
+        <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj.jar">
             <fileset dir="bin"/>
-            <zipfileset src="lib/jdtDepends.jar"/>
-        </jar>
-        <delete file="../jdtcore-for-aspectj-src.zip"/>
-        <jar destfile="../jdtcore-for-aspectj-src.zip">
+        </jar> 
+        <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj.jar" update="true">
+            <zipfileset src="lib/jdtDepends.jar" excludes="org/apache/**,org/w3c/**,org/xml/**"/>
+        </jar> 
+        <delete file="../org.eclipse.jdt.core/jdtcore-for-aspectj-src.zip"/>
+        <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj-src.zip">
             <fileset dir="batch"/>
             <fileset dir="compiler"/>
-            <fileset dir="aj_model"/>
-            <zipfileset src="lib/jdtDepends-src.zip"/>
-        </jar>
+            <fileset dir="antadapter"/>
+            <fileset dir="antadapter"/>
+            <fileset dir="codeassist"/>
+            <fileset dir="dom"/>
+            <fileset dir="eval"/>
+            <fileset dir="formatter"/>
+            <fileset dir="model"/>
+            <fileset dir="search"/>
+        </jar> 
+        <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj-src.zip" update="true">
+            <zipfileset src="lib/jdtDepends-src.zip" excludes="org/apache/**,org/w3c/**,org/xml/**"/>
+      	</jar>
     </target>
 </project>
