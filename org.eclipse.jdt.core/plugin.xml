@@ -8,11 +8,11 @@
     id = "org.eclipse.jdt.core"
     version = "3.0.0"
     provider-name = "%providerName"
+    class="org.aspectj.ajdt.core.AspectJCore">
     <!-- AspectJ Extension -->
-    <!--
+    <!-- last line of the above used to read...
     class="org.eclipse.jdt.core.JavaCore">
     -->
-    class="org.aspectj.ajdt.core.AspectJCore">
     <!-- End AspectJ Extension -->
 
 <!-- =================================================================================== -->
@@ -25,10 +25,10 @@
     <import plugin="org.eclipse.text"/>
     <import plugin="org.eclipse.ant.core" optional="true"/>
     <import plugin="org.eclipse.team.core" optional="true"/>
-    <!-- AspectJ Extension -->
+    <!-- AspectJ Extension 
     <import plugin="org.eclipse.contribution.xref.core"/>
 	<import plugin="org.aspectj.aspectjrt"/>
-    <!-- End AspectJ Extension -->
+     End AspectJ Extension -->
 </requires>
 	
 <!-- =================================================================================== -->
@@ -183,6 +183,9 @@
   <fileTypes extension="class" type="binary"/>
   <fileTypes extension="jar" type="binary"/>
   <fileTypes extension="zip" type="binary"/>
+  <!-- AspectJ Extension -->
+  <fileTypes extension="aj" type="text"/>
+  <!-- AspectJ Extension -->
 </extension>
 
 </plugin>
