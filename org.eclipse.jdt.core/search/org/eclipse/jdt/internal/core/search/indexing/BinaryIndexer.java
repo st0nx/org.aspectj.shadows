@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.indexing;
 
+import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchDocument;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
@@ -17,6 +18,7 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.compiler.classfmt.FieldInfo;
 import org.eclipse.jdt.internal.compiler.classfmt.MethodInfo;
+import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 
 public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
@@ -54,11 +56,9 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 
 	 	// consider that A$B is a member type: so replace '$' with '.'
 	 	// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=40116)
-		if (CharOperation.indexOf('$', typeName) > 0) {
-			System.arraycopy(typeName, 0, typeName = new char[length], 0, length); // copy it so the original is not modified
-			CharOperation.replace(typeName, '$', '.');
-		}
-	 	super.addTypeReference(typeName);
+		typeName = CharOperation.replaceOnCopy(typeName, '$', '.'); // copy it so the original is not modified
+
+		super.addTypeReference(typeName);
 	}
 	/**
 	 * For example:
@@ -475,17 +475,34 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 					System.arraycopy(fullEnclosingName, packageNameIndex + 1, enclosingTypeName, 0, nameLength);
 				}
 			}
+			// type parameters
+			char[][] typeParameterSignatures = null;
+			char[] genericSignature = reader.getGenericSignature();
+			if (genericSignature != null) {
+				CharOperation.replace(genericSignature, '/', '.');
+				typeParameterSignatures = Signature.getTypeParameters(genericSignature);
+			}
+			
 			// eliminate invalid innerclasses (1G4KCF7)
 			if (name == null) return;
 			
 			char[][] superinterfaces = replace('/', '.', reader.getInterfaceNames());
 			char[][] enclosingTypeNames = enclosingTypeName == null ? null : new char[][] {enclosingTypeName};
-			if (reader.isInterface()) {
-				addInterfaceDeclaration(reader.getModifiers(), packageName, name, enclosingTypeNames, superinterfaces);
-			} else {
-				char[] superclass = replace('/', '.', reader.getSuperclassName());
-				addClassDeclaration(reader.getModifiers(), packageName, name, enclosingTypeNames, superclass, superinterfaces);
-			}
+			switch (reader.getKind()) {
+				case IGenericType.CLASS_DECL :
+					char[] superclass = replace('/', '.', reader.getSuperclassName());
+					addClassDeclaration(reader.getModifiers(), packageName, name, enclosingTypeNames, superclass, superinterfaces, typeParameterSignatures);
+					break;
+				case IGenericType.INTERFACE_DECL :
+					addInterfaceDeclaration(reader.getModifiers(), packageName, name, enclosingTypeNames, superinterfaces, typeParameterSignatures);
+					break;
+				case IGenericType.ENUM_DECL :
+					addEnumDeclaration(reader.getModifiers(), packageName, name, enclosingTypeNames, superinterfaces);
+					break;
+				case IGenericType.ANNOTATION_TYPE_DECL :
+					addAnnotationTypeDeclaration(reader.getModifiers(), packageName, name, enclosingTypeNames);
+					break;
+			}			
 	
 			// first reference all methods declarations and field declarations
 			MethodInfo[] methods = (MethodInfo[]) reader.getMethods();

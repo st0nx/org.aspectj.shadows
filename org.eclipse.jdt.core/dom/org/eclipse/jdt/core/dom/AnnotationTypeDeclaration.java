@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.core.dom;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -81,12 +82,13 @@ public class AnnotationTypeDeclaration extends AbstractTypeDeclaration {
 	private static final List PROPERTY_DESCRIPTORS;
 	
 	static {
-		createPropertyList(AnnotationTypeDeclaration.class);
-		addProperty(JAVADOC_PROPERTY);
-		addProperty(MODIFIERS2_PROPERTY);
-		addProperty(NAME_PROPERTY);
-		addProperty(BODY_DECLARATIONS_PROPERTY);
-		PROPERTY_DESCRIPTORS = reapPropertyList();
+		List properyList = new ArrayList(5);
+		createPropertyList(AnnotationTypeDeclaration.class, properyList);
+		addProperty(JAVADOC_PROPERTY, properyList);
+		addProperty(MODIFIERS2_PROPERTY, properyList);
+		addProperty(NAME_PROPERTY, properyList);
+		addProperty(BODY_DECLARATIONS_PROPERTY, properyList);
+		PROPERTY_DESCRIPTORS = reapPropertyList(properyList);
 	}
 
 	/**
@@ -246,18 +248,10 @@ public class AnnotationTypeDeclaration extends AbstractTypeDeclaration {
 		visitor.endVisit(this);
 	}
 	
-	/**
-	 * Resolves and returns the binding for the annotation type declared in
-	 * this annotation type declaration.
-	 * <p>
-	 * Note that bindings are generally unavailable unless requested when the
-	 * AST is being built.
-	 * </p>
-	 * 
-	 * @return the binding, or <code>null</code> if the binding cannot be 
-	 *    resolved
-	 */	
-	public ITypeBinding resolveBinding() {
+	/* (omit javadoc for this method)
+	 * Method declared on AsbtractTypeDeclaration.
+	 */
+	ITypeBinding internalResolveBinding() {
 		return this.ast.getBindingResolver().resolveType(this);
 	}
 	

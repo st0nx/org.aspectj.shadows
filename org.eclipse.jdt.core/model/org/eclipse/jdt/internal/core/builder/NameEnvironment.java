@@ -17,9 +17,10 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.*;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
+import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.*;
-import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
+import org.eclipse.jdt.internal.core.util.Util;
 
 import java.io.*;
 import java.util.*;
@@ -29,7 +30,7 @@ public class NameEnvironment implements INameEnvironment, SuffixConstants {
 boolean isIncrementalBuild;
 ClasspathMultiDirectory[] sourceLocations;
 ClasspathLocation[] binaryLocations;
-
+	
 String[] initialTypeNames; // assumed that each name is of the form "a/b/ClassName"
 SourceFile[] additionalUnits;
 
@@ -135,7 +136,11 @@ private void computeClasspathLocations(
 							: (IContainer) root.getFolder(prereqOutputPath);
 						if (binaryFolder.exists() && !seen.contains(binaryFolder)) {
 							seen.add(binaryFolder);
-							ClasspathLocation bLocation = ClasspathLocation.forBinaryFolder(binaryFolder, true);
+							ClasspathLocation bLocation = 
+								ClasspathLocation.forBinaryFolder(
+										binaryFolder, 
+										true, 
+										entry.getImportRestriction());
 							bLocations.add(bLocation);
 							if (binaryLocationsPerProject != null) { // normal builder mode
 								ClasspathLocation[] existingLocations = (ClasspathLocation[]) binaryLocationsPerProject.get(prereqProject);
@@ -160,9 +165,15 @@ private void computeClasspathLocations(
 					if (resource instanceof IFile) {
 						if (!(org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(path.lastSegment())))
 							continue nextEntry;
-						bLocation = ClasspathLocation.forLibrary((IFile) resource);
+						AccessRestriction restriction = JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
+																			? null
+																			: entry.getImportRestriction();
+						bLocation = ClasspathLocation.forLibrary((IFile) resource, restriction);
 					} else if (resource instanceof IContainer) {
-						bLocation = ClasspathLocation.forBinaryFolder((IContainer) target, false); // is library folder not output folder
+						AccessRestriction restriction = JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
+																			? null
+																			: entry.getImportRestriction();
+						bLocation = ClasspathLocation.forBinaryFolder((IContainer) target, false, restriction);	 // is library folder not output folder
 					}
 					bLocations.add(bLocation);
 					if (binaryLocationsPerProject != null) { // normal builder mode
@@ -180,7 +191,10 @@ private void computeClasspathLocations(
 				} else if (target instanceof File) {
 					if (!(org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(path.lastSegment())))
 						continue nextEntry;
-					bLocations.add(ClasspathLocation.forLibrary(path.toString()));
+					AccessRestriction restriction = JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
+																		? null
+																		: entry.getImportRestriction();
+					bLocations.add(ClasspathLocation.forLibrary(path.toString(), restriction));
 				}
 				continue nextEntry;
 		}
@@ -253,17 +267,19 @@ private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeNam
 		// if an additional source file is waiting to be compiled, answer it BUT not if this is a secondary type search
 		// if we answer X.java & it no longer defines Y then the binary type looking for Y will think the class path is wrong
 		// let the recompile loop fix up dependents when the secondary type Y has been deleted from X.java
-		IPath qSourceFilePath = new Path(qualifiedTypeName + SUFFIX_STRING_java);
+		IPath qSourceFilePath = new Path(qualifiedTypeName); // doesn't have file extension
 		int qSegmentCount = qSourceFilePath.segmentCount();
 		next : for (int i = 0, l = additionalUnits.length; i < l; i++) {
 			SourceFile additionalUnit = additionalUnits[i];
 			IPath fullPath = additionalUnit.resource.getFullPath();
 			int prefixCount = additionalUnit.sourceLocation.sourceFolder.getFullPath().segmentCount();
 			if (qSegmentCount == fullPath.segmentCount() - prefixCount) {
-				for (int j = 0; j < qSegmentCount; j++)
+				for (int j = 0; j < qSegmentCount - 1; j++)
 					if (!qSourceFilePath.segment(j).equals(fullPath.segment(j + prefixCount)))
 						continue next;
-				return new NameEnvironmentAnswer(additionalUnit);
+				if (!Util.equalsIgnoreJavaLikeExtension(fullPath.segment(qSegmentCount-1 + prefixCount), qSourceFilePath.segment(qSegmentCount-1)))
+					continue next;
+				return new NameEnvironmentAnswer(additionalUnit, null /*no access restriction*/);
 			}
 		}
 	}

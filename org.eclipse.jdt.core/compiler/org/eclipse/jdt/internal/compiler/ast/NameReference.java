@@ -12,11 +12,10 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
-public abstract class NameReference extends Reference implements InvocationSite, BindingIds {
+public abstract class NameReference extends Reference implements InvocationSite {
 
 	public Binding binding, codegenBinding; //may be aTypeBinding-aFieldBinding-aLocalVariableBinding
 	
-	public TypeBinding receiverType;		// raw receiver type
 	public TypeBinding actualReceiverType;	// modified receiver type - actual one according to namelookup
 
 	//the error printing
@@ -28,7 +27,7 @@ public abstract class NameReference extends Reference implements InvocationSite,
 	//no changeClass in java.
 public NameReference() {
 	super();
-	bits |= TYPE | VARIABLE; // restrictiveFlag
+	bits |= Binding.TYPE | Binding.VARIABLE; // restrictiveFlag
 	
 }
 public FieldBinding fieldBinding() {

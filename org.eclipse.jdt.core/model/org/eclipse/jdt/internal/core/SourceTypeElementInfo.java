@@ -10,11 +10,14 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.IConstants;
+import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.env.ISourceField;
 import org.eclipse.jdt.internal.compiler.env.ISourceImport;
 import org.eclipse.jdt.internal.compiler.env.ISourceMethod;
@@ -27,9 +30,9 @@ public class SourceTypeElementInfo extends MemberElementInfo implements ISourceT
 
 	protected static final ISourceImport[] NO_IMPORTS = new ISourceImport[0];
 	protected static final InitializerElementInfo[] NO_INITIALIZERS = new InitializerElementInfo[0];
-	protected static final ISourceField[] NO_FIELDS = new ISourceField[0];
-	protected static final ISourceMethod[] NO_METHODS = new ISourceMethod[0];
-	protected static final ISourceType[] NO_TYPES = new ISourceType[0];
+	protected static final SourceField[] NO_FIELDS = new SourceField[0];
+	protected static final SourceMethod[] NO_METHODS = new SourceMethod[0];
+	protected static final SourceType[] NO_TYPES = new SourceType[0];
 	/**
 	 * The name of the superclass for this type. This name
 	 * is fully qualified for binary types and is NOT
@@ -65,6 +68,11 @@ public class SourceTypeElementInfo extends MemberElementInfo implements ISourceT
 	 * from info to handle.
 	 */
 	protected IType handle = null;
+	
+	/*
+	 * The type parameters of this source type. Empty if none.
+	 */
+	protected ITypeParameter[] typeParameters = TypeParameter.NO_TYPE_PARAMETERS;
 
 /**
  * Returns the ISourceType that is the enclosing type for this
@@ -86,27 +94,36 @@ public ISourceType getEnclosingType() {
  * @see ISourceType
  */
 public ISourceField[] getFields() {
+	SourceField[] fieldHandles = getFieldHandles();
+	int length = fieldHandles.length;
+	ISourceField[] fields = new ISourceField[length];
+	for (int i = 0; i < length; i++) {
+		try {
+			ISourceField field = (ISourceField) fieldHandles[i].getElementInfo();
+			fields[i] = field;
+		} catch (JavaModelException e) {
+			// ignore
+		}
+	}
+	return fields;
+}
+public SourceField[] getFieldHandles() {
 	int length = this.children.length;
 	if (length == 0) return NO_FIELDS;
-	ISourceField[] fields = new ISourceField[length];
+	SourceField[] fields = new SourceField[length];
 	int fieldIndex = 0;
 	for (int i = 0; i < length; i++) {
 		IJavaElement child = this.children[i];
-		if (child instanceof SourceField) {
-			try {
-				ISourceField field = (ISourceField)((SourceField)child).getElementInfo();
-				fields[fieldIndex++] = field;
-			} catch (JavaModelException e) {
-				// ignore
-			}
-		}
+		if (child instanceof SourceField)
+			fields[fieldIndex++] = (SourceField) child;
 	}
 	if (fieldIndex == 0) return NO_FIELDS;
-	System.arraycopy(fields, 0, fields = new ISourceField[fieldIndex], 0, fieldIndex);
+	if (fieldIndex < length)
+		System.arraycopy(fields, 0, fields = new SourceField[fieldIndex], 0, fieldIndex);
 	return fields;
 }
 /**
- * @see ISourceType
+ * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
  */
 public char[] getFileName() {
 	return this.sourceFileName;
@@ -174,50 +191,87 @@ public char[][] getInterfaceNames() {
 	return this.superInterfaceNames;
 }
 /**
+ * @see org.eclipse.jdt.internal.compiler.env.IGenericType#getKind()
+ */
+public int getKind() {
+	if ((this.flags & IConstants.AccInterface) != 0) {
+		if ((this.flags & IConstants.AccAnnotation) != 0)
+			return IGenericType.ANNOTATION_TYPE_DECL;
+		return IGenericType.INTERFACE_DECL;
+	}
+	if ((this.flags & IConstants.AccEnum) != 0) return IGenericType.ENUM_DECL;
+	return IGenericType.CLASS_DECL;
+}
+/**
  * @see ISourceType
  */
 public ISourceType[] getMemberTypes() {
+	SourceType[] memberTypeHandles = getMemberTypeHandles();
+	int length = memberTypeHandles.length;
+	ISourceType[] memberTypes = new ISourceType[length];
+	for (int i = 0; i < length; i++) {
+		try {
+			ISourceType type = (ISourceType) memberTypeHandles[i].getElementInfo();
+			memberTypes[i] = type;
+		} catch (JavaModelException e) {
+			// ignore
+		}
+	}
+	return memberTypes;
+}
+public SourceType[] getMemberTypeHandles() {
 	int length = this.children.length;
 	if (length == 0) return NO_TYPES;
-	ISourceType[] memberTypes = new ISourceType[length];
+	SourceType[] memberTypes = new SourceType[length];
 	int typeIndex = 0;
 	for (int i = 0; i < length; i++) {
 		IJavaElement child = this.children[i];
-		if (child instanceof SourceType) {
-			try {
-				ISourceType type = (ISourceType)((SourceType)child).getElementInfo();
-				memberTypes[typeIndex++] = type;
-			} catch (JavaModelException e) {
-				// ignore
-			}
-		}
+		if (child instanceof SourceType)
+			memberTypes[typeIndex++] = (SourceType)child;
 	}
 	if (typeIndex == 0) return NO_TYPES;
-	System.arraycopy(memberTypes, 0, memberTypes = new ISourceType[typeIndex], 0, typeIndex);
+	if (typeIndex < length)
+		System.arraycopy(memberTypes, 0, memberTypes = new SourceType[typeIndex], 0, typeIndex);
 	return memberTypes;
 }
 /**
  * @see ISourceType
  */
 public ISourceMethod[] getMethods() {
-	int length = this.children.length;
-	if (length == 0) return NO_METHODS;
+	SourceMethod[] methodHandles = getMethodHandles();
+	int length = methodHandles.length;
 	ISourceMethod[] methods = new ISourceMethod[length];
 	int methodIndex = 0;
 	for (int i = 0; i < length; i++) {
-		IJavaElement child = this.children[i];
-		if (child instanceof SourceMethod) {
-			try {
-				ISourceMethod method = (ISourceMethod)((SourceMethod)child).getElementInfo();
-				methods[methodIndex++] = method;
-			} catch (JavaModelException e) {
-				// ignore
-			}
+		try {
+			ISourceMethod method = (ISourceMethod) methodHandles[i].getElementInfo();
+			methods[methodIndex++] = method;
+		} catch (JavaModelException e) {
+			// ignore
 		}
 	}
-	if (methodIndex == 0) return NO_METHODS;
-	System.arraycopy(methods, 0, methods = new ISourceMethod[methodIndex], 0, methodIndex);
 	return methods;
+}
+public SourceMethod[] getMethodHandles() {
+	int length = this.children.length;
+	if (length == 0) return NO_METHODS;
+	SourceMethod[] methods = new SourceMethod[length];
+	int methodIndex = 0;
+	for (int i = 0; i < length; i++) {
+		IJavaElement child = this.children[i];
+		if (child instanceof SourceMethod)
+			methods[methodIndex++] = (SourceMethod) child;
+	}
+	if (methodIndex == 0) return NO_METHODS;
+	if (methodIndex < length)
+		System.arraycopy(methods, 0, methods = new SourceMethod[methodIndex], 0, methodIndex);
+	return methods;
+}
+/**
+ * @see org.eclipse.jdt.internal.compiler.env.ISourceType#getName()
+ */
+public char[] getName() {
+	return this.handle.getElementName().toCharArray();
 }
 /**
  * @see ISourceType
@@ -237,23 +291,33 @@ public char[] getSuperclassName() {
 	} 
 	return this.superclassName;
 }
+public char[][][] getTypeParameterBounds() {
+	int length = this.typeParameters.length;
+	char[][][] typeParameterBounds = new char[length][][];
+	for (int i = 0; i < length; i++) {
+		try {
+			TypeParameterElementInfo info = (TypeParameterElementInfo) ((JavaElement)this.typeParameters[i]).getElementInfo();
+			typeParameterBounds[i] = info.bounds;
+		} catch (JavaModelException e) {
+			// type parameter does not exist: ignore
+		}
+	}
+	return typeParameterBounds;
+}
+public char[][] getTypeParameterNames() {
+	int length = this.typeParameters.length;
+	if (length == 0) return CharOperation.NO_CHAR_CHAR;
+	char[][] typeParameterNames = new char[length][];
+	for (int i = 0; i < length; i++) {
+		typeParameterNames[i] = this.typeParameters[i].getElementName().toCharArray();
+	}
+	return typeParameterNames;
+}
 /**
  * @see ISourceType
  */
 public boolean isBinaryType() {
 	return false;
-}
-/**
- * @see ISourceType
- */
-public boolean isClass() {
-	return (this.flags & IConstants.AccInterface) == 0;
-}
-/**
- * @see ISourceType
- */
-public boolean isInterface() {
-	return (this.flags & IConstants.AccInterface) != 0;
 }
 /**
  * Sets the handle for this type info

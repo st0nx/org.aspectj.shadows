@@ -193,6 +193,9 @@ public class JavaModelStatus extends Status implements IJavaModelStatus, IJavaMo
 				case ELEMENT_DOES_NOT_EXIST:
 					return Util.bind("element.doesNotExist",((JavaElement)elements[0]).toStringWithAncestors()); //$NON-NLS-1$
 
+				case ELEMENT_NOT_ON_CLASSPATH:
+					return Util.bind("element.notOnClasspath",((JavaElement)elements[0]).toStringWithAncestors()); //$NON-NLS-1$
+
 				case EVALUATION_ERROR:
 					return Util.bind("status.evaluationError", string); //$NON-NLS-1$
 
@@ -250,8 +253,7 @@ public class JavaModelStatus extends Status implements IJavaModelStatus, IJavaMo
 				case NAME_COLLISION:
 					if (elements != null && elements.length > 0) {
 						IJavaElement element = elements[0];
-						String name = element.getElementName();
-						if (element instanceof IPackageFragment && name.equals(IPackageFragment.DEFAULT_PACKAGE_NAME)) {
+						if (element instanceof PackageFragment && ((PackageFragment) element).isDefaultPackage()) {
 							return Util.bind("operation.cannotRenameDefaultPackage"); //$NON-NLS-1$
 						}
 					}
@@ -401,7 +403,8 @@ public class JavaModelStatus extends Status implements IJavaModelStatus, IJavaMo
 	 * @see IJavaModelStatus#isDoesNotExist()
 	 */
 	public boolean isDoesNotExist() {
-		return getCode() == ELEMENT_DOES_NOT_EXIST;
+		int code = getCode();
+		return code == ELEMENT_DOES_NOT_EXIST || code == ELEMENT_NOT_ON_CLASSPATH;
 	}
 	/**
 	 * @see IStatus#isMultiStatus()

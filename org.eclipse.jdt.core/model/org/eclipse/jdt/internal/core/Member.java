@@ -32,10 +32,11 @@ import org.eclipse.jdt.internal.core.util.MementoTokenizer;
  */
 
 public abstract class Member extends SourceRefElement implements IMember {
-protected Member(JavaElement parent, String name) {
-	super(parent, name);
+
+protected Member(JavaElement parent) {
+	super(parent);
 }
-protected boolean areSimilarMethods(
+protected static boolean areSimilarMethods(
 	String name1, String[] params1, 
 	String name2, String[] params2,
 	String[] simpleNames1) {
@@ -46,9 +47,9 @@ protected boolean areSimilarMethods(
 			for (int i = 0; i < params1Length; i++) {
 				String simpleName1 = 
 					simpleNames1 == null ? 
-						Signature.getSimpleName(Signature.toString(params1[i])) :
+						Signature.getSimpleName(Signature.toString(Signature.getTypeErasure(params1[i]))) :
 						simpleNames1[i];
-				String simpleName2 = Signature.getSimpleName(Signature.toString(params2[i]));
+				String simpleName2 = Signature.getSimpleName(Signature.toString(Signature.getTypeErasure(params2[i])));
 				if (!simpleName1.equals(simpleName2)) {
 					return false;
 				}
@@ -85,7 +86,7 @@ protected static Object convertConstant(Constant constant) {
 			return new Long(constant.longValue());
 		case TypeIds.T_short :
 			return new Short(constant.shortValue());
-		case TypeIds.T_String :
+		case TypeIds.T_JavaLangString :
 			return constant.stringValue();
 		default :
 			return null;
@@ -102,18 +103,19 @@ protected boolean equalsDOMNode(IDOMNode node) {
 /*
  * Helper method for SourceType.findMethods and BinaryType.findMethods
  */
-protected IMethod[] findMethods(IMethod method, IMethod[] methods) {
+public static IMethod[] findMethods(IMethod method, IMethod[] methods) {
 	String elementName = method.getElementName();
 	String[] parameters = method.getParameterTypes();
 	int paramLength = parameters.length;
 	String[] simpleNames = new String[paramLength];
 	for (int i = 0; i < paramLength; i++) {
-		simpleNames[i] = Signature.getSimpleName(Signature.toString(parameters[i]));
+		String erasure = Signature.getTypeErasure(parameters[i]);
+		simpleNames[i] = Signature.getSimpleName(Signature.toString(erasure));
 	}
 	ArrayList list = new ArrayList();
 	next: for (int i = 0, length = methods.length; i < length; i++) {
 		IMethod existingMethod = methods[i];
-		if (this.areSimilarMethods(
+		if (areSimilarMethods(
 				elementName,
 				parameters,
 				existingMethod.getElementName(),
@@ -183,18 +185,34 @@ public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento,
 				return type.getHandleFromMemento(token, memento, workingCopyOwner);
 			}
 		case JEM_LOCALVARIABLE:
+			if (!memento.hasMoreTokens()) return this;
 			String varName = memento.nextToken();
+			if (!memento.hasMoreTokens()) return this;
 			memento.nextToken(); // JEM_COUNT
+			if (!memento.hasMoreTokens()) return this;
 			int declarationStart = Integer.parseInt(memento.nextToken());
+			if (!memento.hasMoreTokens()) return this;
 			memento.nextToken(); // JEM_COUNT
+			if (!memento.hasMoreTokens()) return this;
 			int declarationEnd = Integer.parseInt(memento.nextToken());
+			if (!memento.hasMoreTokens()) return this;
 			memento.nextToken(); // JEM_COUNT
+			if (!memento.hasMoreTokens()) return this;
 			int nameStart = Integer.parseInt(memento.nextToken());
+			if (!memento.hasMoreTokens()) return this;
 			memento.nextToken(); // JEM_COUNT
+			if (!memento.hasMoreTokens()) return this;
 			int nameEnd = Integer.parseInt(memento.nextToken());
+			if (!memento.hasMoreTokens()) return this;
 			memento.nextToken(); // JEM_COUNT
+			if (!memento.hasMoreTokens()) return this;
 			String typeSignature = memento.nextToken();
 			return new LocalVariable(this, varName, declarationStart, declarationEnd, nameStart, nameEnd, typeSignature);
+		case JEM_TYPE_PARAMETER:
+			if (!memento.hasMoreTokens()) return this;
+			String typeParameterName = memento.nextToken();
+			JavaElement typeParameter = new TypeParameter(this, typeParameterName);
+			return typeParameter.getHandleFromMemento(memento, workingCopyOwner);
 	}
 	return null;
 }

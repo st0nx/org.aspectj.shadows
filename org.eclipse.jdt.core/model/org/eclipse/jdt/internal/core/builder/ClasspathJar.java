@@ -15,8 +15,9 @@ import org.eclipse.core.resources.IFile;
 import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
+import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
-import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
+import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.core.util.SimpleSet;
 
 import java.io.*;
@@ -80,26 +81,30 @@ IFile resource;
 ZipFile zipFile;
 boolean closeZipFileAtEnd;
 SimpleSet knownPackageNames;
+AccessRestriction accessRestriction;
 
-ClasspathJar(String zipFilename) {
+ClasspathJar(String zipFilename, AccessRestriction accessRestriction) {
 	this.zipFilename = zipFilename;
 	this.zipFile = null;
 	this.knownPackageNames = null;
+	this.accessRestriction = accessRestriction;
 }
 
-ClasspathJar(IFile resource) {
+ClasspathJar(IFile resource, AccessRestriction accessRestriction) {
 	this.resource = resource;
 	IPath location = resource.getLocation();
 	this.zipFilename = location != null ? location.toString() : ""; //$NON-NLS-1$
 	this.zipFile = null;
 	this.knownPackageNames = null;
+	this.accessRestriction = accessRestriction;
 }
 
-public ClasspathJar(ZipFile zipFile) {
+public ClasspathJar(ZipFile zipFile, AccessRestriction accessRestriction) {
 	this.zipFilename = zipFile.getName();
 	this.zipFile = zipFile;
 	this.closeZipFileAtEnd = false;
 	this.knownPackageNames = null;
+	this.accessRestriction = accessRestriction;
 }
 
 public void cleanup() {
@@ -117,7 +122,11 @@ public boolean equals(Object o) {
 	if (this == o) return true;
 	if (!(o instanceof ClasspathJar)) return false;
 
-	return zipFilename.equals(((ClasspathJar) o).zipFilename);
+	ClasspathJar jar = (ClasspathJar) o;
+	if (this.accessRestriction != jar.accessRestriction)
+		if (this.accessRestriction == null || !this.accessRestriction.equals(jar.accessRestriction))
+			return false;
+	return this.zipFilename.equals(((ClasspathJar) o).zipFilename);
 } 
 
 public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName) {
@@ -125,7 +134,11 @@ public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPa
 
 	try {
 		ClassFileReader reader = ClassFileReader.read(this.zipFile, qualifiedBinaryFileName);
-		if (reader != null) return new NameEnvironmentAnswer(reader);
+		if (reader != null) {
+			if (this.accessRestriction == null)
+				return new NameEnvironmentAnswer(reader, null);
+			return new NameEnvironmentAnswer(reader, this.accessRestriction.getViolatedRestriction(qualifiedBinaryFileName.toCharArray(), null));
+		}
 	} catch (Exception e) { // treat as if class file is missing
 	}
 	return null;

@@ -34,17 +34,16 @@ import org.eclipse.jdt.internal.core.util.Util;
  */
 public class CompilationUnit extends Openable implements ICompilationUnit, org.eclipse.jdt.internal.compiler.env.ICompilationUnit, SuffixConstants {
 	
+	protected String name;
 	public WorkingCopyOwner owner;
 
 /**
  * Constructs a handle to a compilation unit with the given name in the
  * specified package for the specified owner
- *
- * @exception IllegalArgumentException if the name of the compilation unit
- * does not end with ".java"
  */
 protected CompilationUnit(PackageFragment parent, String name, WorkingCopyOwner owner) {
-	super(parent, name);
+	super(parent);
+	this.name = name;
 	this.owner = owner;
 }
 /**
@@ -82,11 +81,8 @@ protected boolean buildStructure(OpenableElementInfo info, final IProgressMonito
 
 	// check if this compilation unit can be opened
 	if (!isWorkingCopy()) { // no check is done on root kind or exclusion pattern for working copies
-		if (((IPackageFragment)getParent()).getKind() == IPackageFragmentRoot.K_BINARY
-				|| !isValidCompilationUnit()
-				|| !underlyingResource.isAccessible()) {
-			throw newNotPresentException();
-		}
+		IStatus status = validateCompilationUnit(underlyingResource);
+		if (!status.isOK()) throw newJavaModelException(status);
 	}
 	
 	// prevents reopening of non-primary working copies (they are closed when they are discarded and should not be reopened)
@@ -143,13 +139,13 @@ protected boolean buildStructure(OpenableElementInfo info, final IProgressMonito
 	try {
 		if (computeProblems){
 			perWorkingCopyInfo.beginReporting();
-			compilationUnitDeclaration = CompilationUnitProblemFinder.process(unit, this, contents, parser, this.owner, perWorkingCopyInfo, problemFactory, false/*don't cleanup cu*/, pm);
+			compilationUnitDeclaration = CompilationUnitProblemFinder.process(unit, this, contents, parser, this.owner, perWorkingCopyInfo, false/*don't cleanup cu*/, pm);
 			perWorkingCopyInfo.endReporting();
 		}
 		
 		if (info instanceof ASTHolderCUInfo) {
 			int astLevel = ((ASTHolderCUInfo) info).astLevel;
-			org.eclipse.jdt.core.dom.CompilationUnit cu = AST.convertCompilationUnit(astLevel, unit, contents, options, computeProblems, pm);
+			org.eclipse.jdt.core.dom.CompilationUnit cu = AST.convertCompilationUnit(astLevel, unit, contents, options, computeProblems, this.owner, pm);
 			((ASTHolderCUInfo) info).ast = cu;
 		}
 	} finally {
@@ -190,15 +186,20 @@ protected void closing(Object info) {
 }
 /**
  * @see ICodeAssist#codeComplete(int, ICompletionRequestor)
+ * @deprecated
  */
 public void codeComplete(int offset, ICompletionRequestor requestor) throws JavaModelException {
 	codeComplete(offset, requestor, DefaultWorkingCopyOwner.PRIMARY);
 }
 /**
  * @see ICodeAssist#codeComplete(int, ICompletionRequestor, WorkingCopyOwner)
+ * @deprecated
  */
 public void codeComplete(int offset, ICompletionRequestor requestor, WorkingCopyOwner workingCopyOwner) throws JavaModelException {
-	codeComplete(this, isWorkingCopy() ? (org.eclipse.jdt.internal.compiler.env.ICompilationUnit) getOriginalElement() : this, offset, requestor, workingCopyOwner);
+	if (requestor == null) {
+		throw new IllegalArgumentException("Completion requestor cannot be null"); //$NON-NLS-1$
+	}
+	codeComplete(offset, new org.eclipse.jdt.internal.codeassist.CompletionRequestorWrapper(requestor), workingCopyOwner);
 }
 /**
  * @see ICodeAssist#codeComplete(int, ICodeCompletionRequestor)
@@ -276,16 +277,14 @@ public void codeComplete(int offset, final ICodeCompletionRequestor requestor) t
  * @see org.eclipse.jdt.core.ICodeAssist#codeComplete(int, org.eclipse.jdt.core.CompletionRequestor)
  */
 public void codeComplete(int offset, CompletionRequestor requestor) throws JavaModelException {
-	// TODO (jerome) - Missing implementation
-	throw new RuntimeException("Not implemented yet");  //$NON-NLS-1$
+	codeComplete(offset, requestor, DefaultWorkingCopyOwner.PRIMARY);
 }
 
 /* (non-Javadoc)
  * @see org.eclipse.jdt.core.ICodeAssist#codeComplete(int, org.eclipse.jdt.core.CompletionRequestor, org.eclipse.jdt.core.WorkingCopyOwner)
  */
-public void codeComplete(int offset, CompletionRequestor requestor, WorkingCopyOwner wcowner) throws JavaModelException {
-	// TODO (jerome) - Missing implementation
-	throw new RuntimeException("Not implemented yet");  //$NON-NLS-1$
+public void codeComplete(int offset, CompletionRequestor requestor, WorkingCopyOwner workingCopyOwner) throws JavaModelException {
+	codeComplete(this, isWorkingCopy() ? (org.eclipse.jdt.internal.compiler.env.ICompilationUnit) getOriginalElement() : this, offset, requestor, workingCopyOwner);
 }
 
 /**
@@ -373,7 +372,7 @@ public IType createType(String content, IJavaElement sibling, boolean force, IPr
 		//autogenerate this compilation unit
 		IPackageFragment pkg = (IPackageFragment) getParent();
 		String source = ""; //$NON-NLS-1$
-		if (pkg.getElementName().length() > 0) {
+		if (!pkg.isDefaultPackage()) {
 			//not the default package...add the package declaration
 			source = "package " + pkg.getElementName() + ";"  + org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR + org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR; //$NON-NLS-1$ //$NON-NLS-2$
 		}
@@ -402,7 +401,8 @@ public void destroy() {
 	try {
 		discardWorkingCopy();
 	} catch (JavaModelException e) {
-		e.printStackTrace();
+		if (JavaModelManager.VERBOSE)
+			e.printStackTrace();
 	}
 }
 /*
@@ -440,7 +440,7 @@ protected boolean equalsDOMNode(IDOMNode node) {
 			try {
 				// iterate through all the types inside the receiver and see if one of them can fit
 				IType[] types = getTypes();
-				String typeNodeName = nodeName.substring(0, nodeName.indexOf(SUFFIX_STRING_java));
+				String typeNodeName = nodeName.substring(0, nodeName.lastIndexOf('.'));
 				for (int i = 0, max = types.length; i < max; i++) {
 					if (types[i].getElementName().equals(typeNodeName)) {
 						return true;
@@ -458,7 +458,7 @@ public boolean exists() {
 	if (getPerWorkingCopyInfo() != null) return true;	
 	
 	// if not a working copy, it exists only if it is a primary compilation unit
-	return isPrimary() && super.exists() && isValidCompilationUnit();
+	return isPrimary() && validateCompilationUnit(getResource()).isOK();
 }
 /**
  * @see ICompilationUnit#findElements(IJavaElement)
@@ -472,7 +472,7 @@ public IJavaElement[] findElements(IJavaElement element) {
 	if (element == null) return null;
 	IJavaElement currentElement = this;
 	for (int i = children.size()-1; i >= 0; i--) {
-		JavaElement child = (JavaElement)children.get(i);
+		SourceRefElement child = (SourceRefElement)children.get(i);
 		switch (child.getElementType()) {
 			case IJavaElement.PACKAGE_DECLARATION:
 				currentElement = ((ICompilationUnit)currentElement).getPackageDeclaration(child.getElementName());
@@ -624,14 +624,20 @@ public IJavaElement getElementAt(int position) throws JavaModelException {
 		return e;
 	}
 }
+public String getElementName() {
+	return this.name;
+}
 /**
  * @see IJavaElement
  */
 public int getElementType() {
 	return COMPILATION_UNIT;
 }
+/**
+ * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
+ */
 public char[] getFileName(){
-	return getElementName().toCharArray();
+	return getPath().toString().toCharArray();
 }
 
 /*
@@ -639,16 +645,16 @@ public char[] getFileName(){
  */
 public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner workingCopyOwner) {
 	switch (token.charAt(0)) {
-		case JEM_COUNT:
-			return getHandleUpdatingCountFromMemento(memento, workingCopyOwner);
 		case JEM_IMPORTDECLARATION:
 			JavaElement container = (JavaElement)getImportContainer();
 			return container.getHandleFromMemento(token, memento, workingCopyOwner);
 		case JEM_PACKAGEDECLARATION:
+			if (!memento.hasMoreTokens()) return this;
 			String pkgName = memento.nextToken();
 			JavaElement pkgDecl = (JavaElement)getPackageDeclaration(pkgName);
 			return pkgDecl.getHandleFromMemento(memento, workingCopyOwner);
 		case JEM_TYPE:
+			if (!memento.hasMoreTokens()) return this;
 			String typeName = memento.nextToken();
 			JavaElement type = (JavaElement)getType(typeName);
 			return type.getHandleFromMemento(memento, workingCopyOwner);
@@ -751,8 +757,10 @@ public IPackageDeclaration[] getPackageDeclarations() throws JavaModelException 
  * @see org.eclipse.jdt.internal.compiler.env.ICompilationUnit#getPackageName()
  */
 public char[][] getPackageName() {
-	return null;
+	PackageFragment packageFragment = (PackageFragment) getParent();
+	return Util.toCharArrays(packageFragment.names);
 }
+
 /**
  * @see IJavaElement#getPath()
  */
@@ -930,21 +938,23 @@ public boolean isPrimary() {
 protected boolean isSourceElement() {
 	return true;
 }
-protected boolean isValidCompilationUnit() {
+protected IStatus validateCompilationUnit(IResource resource) {
 	IPackageFragmentRoot root = getPackageFragmentRoot();
 	try {
-		if (root.getKind() != IPackageFragmentRoot.K_SOURCE) return false;
+		if (root.getKind() != IPackageFragmentRoot.K_SOURCE) 
+			return new JavaModelStatus(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, root);
 	} catch (JavaModelException e) {
-		return false;
+		return e.getJavaModelStatus();
 	}
-	IResource resource = getResource();
 	if (resource != null) {
 		char[][] inclusionPatterns = ((PackageFragmentRoot)root).fullInclusionPatternChars();
 		char[][] exclusionPatterns = ((PackageFragmentRoot)root).fullExclusionPatternChars();
-		if (Util.isExcluded(resource, inclusionPatterns, exclusionPatterns)) return false;
+		if (Util.isExcluded(resource, inclusionPatterns, exclusionPatterns)) 
+			return new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_NOT_ON_CLASSPATH, this);
+		if (!resource.isAccessible())
+			return new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this);
 	}
-	if (!Util.isValidCompilationUnitName(getElementName())) return false;
-	return true;
+	return JavaConventions.validateCompilationUnitName(getElementName());
 }
 /*
  * @see ICompilationUnit#isWorkingCopy()
@@ -1086,9 +1096,8 @@ public org.eclipse.jdt.core.dom.CompilationUnit reconcile(
 		// client asking for level 2 AST; these are supported
 		createAST = true;
 	} else if (astLevel == AST.JLS3) {
-		// client asking for level 3 ASTs; these are not supported
-		// TODO (jerome) - these should also be supported in 1.5 stream
-		createAST = false;
+		// client asking for level 3 ASTs; these are supported
+		createAST = true;
 	} else {
 		// client asking for no AST (0) or unknown ast level
 		// either way, request denied

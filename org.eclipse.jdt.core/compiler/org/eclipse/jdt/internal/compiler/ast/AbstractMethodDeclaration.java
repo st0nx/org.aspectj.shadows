@@ -32,6 +32,7 @@ public abstract class AbstractMethodDeclaration
 	public int declarationSourceEnd;
 	public int modifiers;
 	public int modifiersSourceStart;
+	public Annotation[] annotations;
 	public Argument[] arguments;
 	public TypeReference[] thrownExceptions;
 	public Statement[] statements;
@@ -83,7 +84,11 @@ public abstract class AbstractMethodDeclaration
 			int length = this.arguments.length;
 			for (int i = 0; i < length; i++) {
 				TypeBinding argType = this.binding == null ? null : this.binding.parameters[i];
-				this.arguments[i].bind(this.scope, argType, used);
+				Argument argument = this.arguments[i];
+				argument.bind(this.scope, argType, used);
+				if (argument.annotations != null) {
+					this.binding.tagBits |= TagBits.HasParameterAnnotations;
+				}
 			}
 		}
 	}
@@ -187,7 +192,7 @@ public abstract class AbstractMethodDeclaration
 		}
 	}
 
-	private void generateCode(ClassFile classFile) {
+	public void generateCode(ClassFile classFile) {
 
 		classFile.generateMethodInfoHeader(this.binding);
 		int methodAttributeOffset = classFile.contentsOffset;
@@ -258,6 +263,11 @@ public abstract class AbstractMethodDeclaration
 		return (this.modifiers & AccAbstract) != 0;
 	}
 
+	public boolean isAnnotationMethod() {
+
+		return false;
+	}
+	
 	public boolean isClinit() {
 
 		return false;
@@ -274,6 +284,11 @@ public abstract class AbstractMethodDeclaration
 	}
 
 	public boolean isInitializationMethod() {
+
+		return false;
+	}
+
+	public boolean isMethod() {
 
 		return false;
 	}
@@ -305,6 +320,20 @@ public abstract class AbstractMethodDeclaration
 
 		printIndent(tab, output);
 		printModifiers(this.modifiers, output);
+		if (this.annotations != null) printAnnotations(this.annotations, output);
+		
+		TypeParameter[] typeParams = typeParameters();
+		if (typeParams != null) {
+			output.append('<');//$NON-NLS-1$
+			int max = typeParams.length - 1;
+			for (int j = 0; j < max; j++) {
+				typeParams[j].print(0, output);
+				output.append(", ");//$NON-NLS-1$
+			}
+			typeParams[max].print(0, output);
+			output.append('>');
+		}
+		
 		printReturnType(0, output).append(this.selector).append('(');
 		if (this.arguments != null) {
 			for (int i = 0; i < this.arguments.length; i++) {
@@ -356,6 +385,7 @@ public abstract class AbstractMethodDeclaration
 			bindArguments(); 
 			bindThrownExceptions();
 			resolveJavadoc();
+			resolveAnnotations(scope, this.annotations, this.binding);
 			resolveStatements();
 		} catch (AbortMethod e) {	// ========= abort on fatal error =============
 			this.ignoreFurtherInvestigation = true;
@@ -394,5 +424,9 @@ public abstract class AbstractMethodDeclaration
 		ASTVisitor visitor,
 		ClassScope classScope) {
 		// default implementation: subclass will define it
+	}
+	
+	public TypeParameter[] typeParameters() {
+	    return null;
 	}
 }

@@ -19,6 +19,9 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.core.util.HashtableOfArrayToObject;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * A package fragment root that corresponds to a .jar or .zip.
@@ -32,7 +35,6 @@ import org.eclipse.jdt.core.*;
  */
 public class JarPackageFragmentRoot extends PackageFragmentRoot {
 	
-	public final static String[] NO_STRINGS = new String[0];
 	public final static ArrayList EMPTY_LIST = new ArrayList();
 	
 	/**
@@ -48,7 +50,7 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 	 * does not have an associated <code>IResource</code>.
 	 */
 	protected JarPackageFragmentRoot(IPath jarPath, JavaProject project) {
-		super(null, project, jarPath.lastSegment());
+		super(null, project);
 		this.jarPath = jarPath;
 	}
 	/**
@@ -56,7 +58,7 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 	 * based on a JAR file.
 	 */
 	protected JarPackageFragmentRoot(IResource resource, JavaProject project) {
-		super(resource, project, resource.getName());
+		super(resource, project);
 		this.jarPath = resource.getFullPath();
 	}
 
@@ -75,10 +77,10 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 		try {
 			jar= getJar();
 	
-			HashMap packageFragToTypes= new HashMap();
+			HashtableOfArrayToObject packageFragToTypes= new HashtableOfArrayToObject();
 	
 			// always create the default package
-			packageFragToTypes.put(IPackageFragment.DEFAULT_PACKAGE_NAME, new ArrayList[] { EMPTY_LIST, EMPTY_LIST });
+			packageFragToTypes.put(CharOperation.NO_STRINGS, new ArrayList[] { EMPTY_LIST, EMPTY_LIST });
 	
 			for (Enumeration e= jar.entries(); e.hasMoreElements();) {
 				ZipEntry member= (ZipEntry) e.nextElement();
@@ -86,47 +88,16 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 	
 				if (member.isDirectory()) {
 					
-					int last = entryName.length() - 1;
-					entryName= entryName.substring(0, last);
-					entryName= entryName.replace('/', '.');
-	
-					// add the package name & all of its parent packages
-					while (true) {
-						// extract the package name
-						if (packageFragToTypes.containsKey(entryName)) break;
-						packageFragToTypes.put(entryName, new ArrayList[] { EMPTY_LIST, EMPTY_LIST });
-						
-						if ((last = entryName.lastIndexOf('.')) < 0) break;
-						entryName = entryName.substring(0, last);
-					}
+					initPackageFragToTypes(packageFragToTypes, entryName, entryName.length()-1);
 				} else {
 					//store the class file / non-java rsc entry name to be cached in the appropriate package fragment
 					//zip entries only use '/'
 					int lastSeparator= entryName.lastIndexOf('/');
-					String packageName;
-					String fileName;
-					if (lastSeparator != -1) { //not in the default package
-						entryName= entryName.replace('/', '.');
-						fileName= entryName.substring(lastSeparator + 1);
-						packageName= entryName.substring(0, lastSeparator);
-					} else {
-						fileName = entryName;
-						packageName =  IPackageFragment.DEFAULT_PACKAGE_NAME;
-					}
-					
-					// add the package name & all of its parent packages
-					String currentPackageName = packageName;
-					while (true) {
-						// extract the package name
-						if (packageFragToTypes.containsKey(currentPackageName)) break;
-						packageFragToTypes.put(currentPackageName, new ArrayList[] { EMPTY_LIST, EMPTY_LIST });
-						
-						int last;
-						if ((last = currentPackageName.lastIndexOf('.')) < 0) break;
-						currentPackageName = currentPackageName.substring(0, last);
-					}
+					String fileName= entryName.substring(lastSeparator + 1);
+					String[] pkgName = initPackageFragToTypes(packageFragToTypes, entryName, lastSeparator);
+
 					// add classfile info amongst children
-					ArrayList[] children = (ArrayList[]) packageFragToTypes.get(packageName);
+					ArrayList[] children = (ArrayList[]) packageFragToTypes.get(pkgName);
 					if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(entryName)) {
 						if (children[JAVA] == EMPTY_LIST) children[JAVA] = new ArrayList();
 						children[JAVA].add(fileName);
@@ -138,16 +109,16 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 			}
 			//loop through all of referenced packages, creating package fragments if necessary
 			// and cache the entry names in the infos created for those package fragments
-			Iterator packages = packageFragToTypes.keySet().iterator();
-			while (packages.hasNext()) {
-				String packName = (String) packages.next();
+			for (int i = 0, length = packageFragToTypes.keyTable.length; i < length; i++) {
+				String[] pkgName = (String[]) packageFragToTypes.keyTable[i];
+				if (pkgName == null) continue;
 				
-				ArrayList[] entries= (ArrayList[]) packageFragToTypes.get(packName);
-				JarPackageFragment packFrag= (JarPackageFragment) getPackageFragment(packName);
+				ArrayList[] entries= (ArrayList[]) packageFragToTypes.get(pkgName);
+				JarPackageFragment packFrag= (JarPackageFragment) getPackageFragment(pkgName);
 				JarPackageFragmentInfo fragInfo= new JarPackageFragmentInfo();
 				int resLength= entries[NON_JAVA].size();
 				if (resLength == 0) {
-					packFrag.computeNonJavaResources(NO_STRINGS, fragInfo, jar.getName());
+					packFrag.computeNonJavaResources(CharOperation.NO_STRINGS, fragInfo, jar.getName());
 				} else {
 					String[] resNames= new String[resLength];
 					entries[NON_JAVA].toArray(resNames);
@@ -170,7 +141,7 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 		info.setChildren(children);
 		return true;
 	}
-/**
+	/**
 	 * Returns a new element info for this element.
 	 */
 	protected Object createElementInfo() {
@@ -198,6 +169,9 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 		}
 		return false;
 	}
+	public String getElementName() {
+		return this.jarPath.lastSegment();
+	}
 	/**
 	 * Returns the underlying ZipFile for this Jar package fragment root.
 	 *
@@ -217,14 +191,10 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 	 */
 	public Object[] getNonJavaResources() throws JavaModelException {
 		// We want to show non java resources of the default package at the root (see PR #1G58NB8)
-		return ((JarPackageFragment) this.getPackageFragment(IPackageFragment.DEFAULT_PACKAGE_NAME)).storedNonJavaResources();
+		return ((JarPackageFragment) getPackageFragment(CharOperation.NO_STRINGS)).storedNonJavaResources();
 	}
-	/**
-	 * @see IPackageFragmentRoot
-	 */
-	public IPackageFragment getPackageFragment(String packageName) {
-
-		return new JarPackageFragment(this, packageName);
+	public PackageFragment getPackageFragment(String[] pkgName) {
+		return new JarPackageFragment(this, pkgName);
 	}
 	/**
 	 * @see IPackageFragmentRoot
@@ -262,6 +232,25 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 	}
 	public int hashCode() {
 		return this.jarPath.hashCode();
+	}
+	private String[] initPackageFragToTypes(HashtableOfArrayToObject packageFragToTypes, String entryName, int lastSeparator) {
+		String[] pkgName = Util.splitOn('/', entryName, 0, lastSeparator);
+		String[] existing = null;
+		int length = pkgName.length;
+		int existingLength = length;
+		while (existingLength >= 0) {
+			existing = (String[]) packageFragToTypes.getKey(pkgName, existingLength);
+			if (existing != null) break;
+			existingLength--;
+		}
+		JavaModelManager manager = JavaModelManager.getJavaModelManager();
+		for (int i = existingLength; i < length; i++) {
+			System.arraycopy(existing, 0, existing = new String[i+1], 0, i);
+			existing[i] = manager.intern(pkgName[i]);
+			packageFragToTypes.put(existing, new ArrayList[] { EMPTY_LIST, EMPTY_LIST });
+		}
+		
+		return existing;
 	}
 	/**
 	 * @see IPackageFragmentRoot

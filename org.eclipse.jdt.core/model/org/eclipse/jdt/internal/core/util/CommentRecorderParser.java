@@ -41,8 +41,9 @@ public class CommentRecorderParser extends Parser {
 	// for backward compatibility with 2.1 DOM 
 	public void checkComment() {
 
-		if (this.currentElement != null && this.scanner.commentPtr >= 0) {
-			flushCommentsDefinedPriorTo(this.endStatementPosition); // discard obsolete comments
+		// discard obsolete comments while inside methods or fields initializer (see bug 74369)
+		if (!(this.diet && this.dietInt==0) && this.scanner.commentPtr >= 0) {
+			flushCommentsDefinedPriorTo(this.endStatementPosition);
 		}
 		boolean deprecated = false;
 		boolean checkDeprecated = false;
@@ -64,6 +65,8 @@ public class CommentRecorderParser extends Parser {
 			checkDeprecated = true;
 			int commentSourceEnd = this.scanner.commentStops[lastCommentIndex] - 1; //stop is one over
 			
+			// do not report problem before last parsed comment while recovering code...
+			this.javadocParser.reportProblems = this.currentElement == null || commentSourceEnd > this.lastJavadocEnd;
 			deprecated = this.javadocParser.checkDeprecation(commentSourceStart, commentSourceEnd);
 			this.javadoc = this.javadocParser.docComment;
 			break nextComment;
@@ -78,7 +81,6 @@ public class CommentRecorderParser extends Parser {
 				this.modifiersSourceStart = -this.modifiersSourceStart;
 			}
 		}
-
 	}
 
 	/* (non-Javadoc)

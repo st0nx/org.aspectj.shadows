@@ -12,6 +12,7 @@ package org.eclipse.jdt.internal.core;
 
 import java.util.Map;
 
+import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.JavaModelException;
@@ -43,7 +44,8 @@ public class ReconcileWorkingCopyOperation extends JavaModelOperation {
 	 */
 	protected void executeOperation() throws JavaModelException {
 		if (this.progressMonitor != null){
-			if (this.progressMonitor.isCanceled()) return;
+			if (this.progressMonitor.isCanceled()) 
+				throw new OperationCanceledException();
 			this.progressMonitor.beginTask(Util.bind("element.reconciling"), 2); //$NON-NLS-1$
 		}
 	
@@ -78,7 +80,7 @@ public class ReconcileWorkingCopyOperation extends JavaModelOperation {
 							if (progressMonitor != null) progressMonitor.worked(1);
 							if (this.createAST && unit != null) {
 								Map options = workingCopy.getJavaProject().getOptions(true);
-								this.ast = AST.convertCompilationUnit(this.astLevel, unit, contents, options, true/*isResolved*/, this.progressMonitor);
+								this.ast = AST.convertCompilationUnit(this.astLevel, unit, contents, options, true/*isResolved*/, workingCopy.owner, this.progressMonitor);
 								if (progressMonitor != null) progressMonitor.worked(1);
 							}
 					    } finally {

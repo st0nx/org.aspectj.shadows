@@ -32,6 +32,9 @@ import org.eclipse.jdt.internal.core.JavaModelStatus;
  * @see IJavaModelStatusConstants
  */
 public class JavaModelException extends CoreException {
+
+	private static final long serialVersionUID = -760398656505871287L; // backward compatible
+	
 	CoreException nestedCoreException;
 /**
  * Creates a Java model exception that wrappers the given <code>Throwable</code>.
@@ -98,13 +101,15 @@ public IJavaModelStatus getJavaModelStatus() {
 /**
  * Returns whether this exception indicates that a Java model element does not
  * exist. Such exceptions have a status with a code of
- * <code>IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST</code>.
+ * <code>IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST</code> or
+ * <code>IJavaModelStatusConstants.ELEMENT_NOT_ON_CLASSPATH</code>.
  * This is a convenience method.
  *
  * @return <code>true</code> if this exception indicates that a Java model
  *   element does not exist
  * @see IJavaModelStatus#isDoesNotExist()
  * @see IJavaModelStatusConstants#ELEMENT_DOES_NOT_EXIST
+ * @see IJavaModelStatusConstants#ELEMENT_NOT_ON_CLASSPATH
  */
 public boolean isDoesNotExist() {
 	IJavaModelStatus javaModelStatus = getJavaModelStatus();

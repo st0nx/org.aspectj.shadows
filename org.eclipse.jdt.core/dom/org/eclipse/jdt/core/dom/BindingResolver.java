@@ -12,6 +12,8 @@
 package org.eclipse.jdt.core.dom;
 
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
+import org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope;
+import org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment;
 
 /**
  * A binding resolver is an internal mechanism for figuring out the binding
@@ -25,7 +27,6 @@ import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
  */
 class BindingResolver {
 	
-	protected long modificationCount;
 	/**
 	 * Creates a binding resolver.
 	 */
@@ -33,15 +34,6 @@ class BindingResolver {
 		// default implementation: do nothing
 	}
 
-	/**
-	 * Store the number of modifications done using the ast. This is used to validate
-	 * resolveBinding methods. If the number changed, all resolve bindings methods
-	 * simply return null.
-	 */
-	protected void storeModificationCount(long modificationCounter) {
-		this.modificationCount = modificationCounter;
-	}
-	
 	/**
 	 * Allows the user to store information about the given old/new pair of
 	 * AST nodes.
@@ -120,6 +112,16 @@ class BindingResolver {
 	}
 
 	/**
+	 * Returns the compilation unit scope used by this binding resolver.
+	 * Returns <code>null</code> if none.
+	 * 
+	 * @return the compilation unit scope by this resolver, or <code>null</code> if none.
+	 */
+	public CompilationUnitScope scope() {
+		return null;
+	}
+	
+	/**
 	 * Resolves the given class or interface declaration and returns the binding
 	 * for it.
 	 * <p>
@@ -139,6 +141,29 @@ class BindingResolver {
 	 *    if no binding is available
 	 */
 	ITypeBinding resolveType(TypeDeclaration type) {
+		return null;
+	}
+	
+	/**
+	 * Resolves the given type parameter and returns the type binding for the
+	 * type parameter.
+	 * <p>
+	 * The implementation of <code>TypeParameter.resolveBinding</code> 
+	 * forwards to this method. How the declaration resolves is often a 
+	 * function of the context in which the declaration node is embedded as well
+	 * as the declaration subtree itself.
+	 * </p>
+	 * <p>
+	 * The default implementation of this method returns <code>null</code>.
+	 * Subclasses may reimplement.
+	 * </p>
+	 * 
+	 * @param typeParameter the type paramter of interest
+	 * @return the binding for the given type parameter, or <code>null</code>
+	 *    if no binding is available
+	 * @since 3.1
+	 */
+	ITypeBinding resolveTypeParameter(TypeParameter typeParameter) {
 		return null;
 	}
 	
@@ -295,23 +320,6 @@ class BindingResolver {
 	}
 	
 	/**
-	 * Resolves the loop variable of the given enhanced for statement and 
-	 * returns the binding for it.
-	 * <p>
-	 * The default implementation of this method returns <code>null</code>.
-	 * Subclasses may reimplement.
-	 * </p>
-	 * 
-	 * @param statement the enhanced for statement of interest
-	 * @return the binding for the loop variable for the given enhanced for
-	 *    statement, or <code>null</code> if no binding is available
-	 * @since 3.0
-	 */
-	IVariableBinding resolveVariable(EnhancedForStatement statement) {
-		return null;
-	}
-
-	/**
 	 * Resolves the given enum constant declaration and returns the binding for
 	 * the field.
 	 * <p>
@@ -351,7 +359,7 @@ class BindingResolver {
 	 *    if no binding is available
 	 * @since 3.0
 	 */
-	IVariableBinding resolveMember(AnnotationTypeMemberDeclaration member) {
+	IMethodBinding resolveMember(AnnotationTypeMemberDeclaration member) {
 		return null;
 	}
 	
@@ -678,6 +686,16 @@ class BindingResolver {
 	 * @return the new variable binding
 	 */
 	IVariableBinding getVariableBinding(org.eclipse.jdt.internal.compiler.lookup.VariableBinding binding) {
+		return null;
+	}
+	
+	/**
+	 * Returns the compiler lookup environment used by this binding resolver.
+	 * Returns <code>null</code> if none.
+	 * 
+	 * @return the lookup environment used by this resolver, or <code>null</code> if none.
+	 */
+	LookupEnvironment lookupEnvironment() {
 		return null;
 	}
 	

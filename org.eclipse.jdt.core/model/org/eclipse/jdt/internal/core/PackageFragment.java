@@ -28,7 +28,6 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Util;
@@ -45,13 +44,12 @@ public class PackageFragment extends Openable implements IPackageFragment, Suffi
 	 * Constant empty list of compilation units
 	 */
 	protected static final ICompilationUnit[] NO_COMPILATION_UNITS = new ICompilationUnit[] {};
-/**
- * Constructs a handle for a package fragment
- *
- * @see IPackageFragment
- */
-protected PackageFragment(PackageFragmentRoot root, String name) {
-	super(root, name);
+	
+	public String[] names;
+
+protected PackageFragment(PackageFragmentRoot root, String[] names) {
+	super(root);
+	this.names = names;
 }
 /**
  * @see Openable
@@ -62,12 +60,6 @@ protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, 
 	if (!underlyingResource.isAccessible()) throw newNotPresentException();
 
 	int kind = getKind();
-	String extType;
-	if (kind == IPackageFragmentRoot.K_SOURCE) {
-		extType = EXTENSION_java;
-	} else {
-		extType = EXTENSION_class;
-	}
 
 	// add compilation units/class files from resources
 	HashSet vChildren = new HashSet();
@@ -80,18 +72,13 @@ protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, 
 			IResource child = members[i];
 			if (child.getType() != IResource.FOLDER
 					&& !Util.isExcluded(child, inclusionPatterns, exclusionPatterns)) {
-				String extension = child.getProjectRelativePath().getFileExtension();
-				if (extension != null) {
-					if (extension.equalsIgnoreCase(extType)) {
-						IJavaElement childElement;
-						if (kind == IPackageFragmentRoot.K_SOURCE && Util.isValidCompilationUnitName(child.getName())) {
-							childElement = new CompilationUnit(this, child.getName(), DefaultWorkingCopyOwner.PRIMARY);
-							vChildren.add(childElement);
-						} else if (Util.isValidClassFileName(child.getName())) {
-							childElement = getClassFile(child.getName());
-							vChildren.add(childElement);
-						}
-					}
+				IJavaElement childElement;
+				if (kind == IPackageFragmentRoot.K_SOURCE && Util.isValidCompilationUnitName(child.getName())) {
+					childElement = new CompilationUnit(this, child.getName(), DefaultWorkingCopyOwner.PRIMARY);
+					vChildren.add(childElement);
+				} else if (kind == IPackageFragmentRoot.K_BINARY && Util.isValidClassFileName(child.getName())) {
+					childElement = getClassFile(child.getName());
+					vChildren.add(childElement);
 				}
 			}
 		}
@@ -161,8 +148,12 @@ public void delete(boolean force, IProgressMonitor monitor) throws JavaModelExce
 	getJavaModel().delete(elements, force, monitor);
 }
 public boolean equals(Object o) {
+	if (this == o) return true;
 	if (!(o instanceof PackageFragment)) return false;
-	return super.equals(o);
+	
+	PackageFragment other = (PackageFragment) o;		
+	return Util.equalArraysOrNull(this.names, other.names) &&
+			this.parent.equals(other.parent);
 }
 /**
  * @see IPackageFragment#getClassFile(String)
@@ -196,7 +187,7 @@ public IClassFile[] getClassFiles() throws JavaModelException {
  * @exception IllegalArgumentException if the name does not end with ".java"
  */
 public ICompilationUnit getCompilationUnit(String cuName) {
-	if (!org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(cuName)) {
+	if (!org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(cuName)) {
 		throw new IllegalArgumentException(Util.bind("convention.unit.notJavaName")); //$NON-NLS-1$
 	}
 	return new CompilationUnit(this, cuName, DefaultWorkingCopyOwner.PRIMARY);
@@ -234,6 +225,11 @@ public ICompilationUnit[] getCompilationUnits(WorkingCopyOwner owner) {
 	}
 	return result;
 }
+public String getElementName() {
+	if (this.names.length == 0)
+		return DEFAULT_PACKAGE_NAME;
+	return Util.concatWith(this.names, '.');
+}
 /**
  * @see IJavaElement
  */
@@ -245,13 +241,13 @@ public int getElementType() {
  */
 public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner owner) {
 	switch (token.charAt(0)) {
-		case JEM_COUNT:
-			return getHandleUpdatingCountFromMemento(memento, owner);
 		case JEM_CLASSFILE:
+			if (!memento.hasMoreTokens()) return this;
 			String classFileName = memento.nextToken();
 			JavaElement classFile = (JavaElement)getClassFile(classFileName);
 			return classFile.getHandleFromMemento(memento, owner);
 		case JEM_COMPILATIONUNIT:
+			if (!memento.hasMoreTokens()) return this;
 			String cuName = memento.nextToken();
 			JavaElement cu = new CompilationUnit(this, cuName, owner);
 			return cu.getHandleFromMemento(memento, owner);
@@ -289,7 +285,12 @@ public IPath getPath() {
 	if (root.isArchive()) {
 		return root.getPath();
 	} else {
-		return root.getPath().append(this.getElementName().replace('.', '/'));
+		IPath path = root.getPath();
+		for (int i = 0, length = this.names.length; i < length; i++) {
+			String name = this.names[i];
+			path = path.append(name);
+		}
+		return path;
 	}
 }
 /**
@@ -300,11 +301,14 @@ public IResource getResource() {
 	if (root.isArchive()) {
 		return root.getResource();
 	} else {
-		String elementName = this.getElementName();
-		if (elementName.length() == 0) {
+		int length = this.names.length;
+		if (length == 0) {
 			return root.getResource();
 		} else {
-			return ((IContainer)root.getResource()).getFolder(new Path(this.getElementName().replace('.', '/')));
+			IPath path = new Path(this.names[0]);
+			for (int i = 1; i < length; i++)
+				path = path.append(this.names[i]);
+			return ((IContainer)root.getResource()).getFolder(path);
 		}
 	}
 }
@@ -321,7 +325,7 @@ public IResource getUnderlyingResource() throws JavaModelException {
 	// is atually the package fragment root)
 	if (rootResource.getType() == IResource.FOLDER || rootResource.getType() == IResource.PROJECT) {
 		IContainer folder = (IContainer) rootResource;
-		String[] segs = Signature.getSimpleNames(this.name);
+		String[] segs = this.names;
 		for (int i = 0; i < segs.length; ++i) {
 			IResource child = folder.findMember(segs[i]);
 			if (child == null || child.getType() != IResource.FOLDER) {
@@ -334,6 +338,12 @@ public IResource getUnderlyingResource() throws JavaModelException {
 		return rootResource;
 	}
 }
+public int hashCode() {
+	int hash = this.parent.hashCode();
+	for (int i = 0, length = this.names.length; i < length; i++)
+		hash = Util.combineHashCodes(this.names[i].hashCode(), hash);
+	return hash;
+}
 /**
  * @see IParent 
  */
@@ -345,14 +355,14 @@ public boolean hasChildren() throws JavaModelException {
  */
 public boolean hasSubpackages() throws JavaModelException {
 	IJavaElement[] packages= ((IPackageFragmentRoot)getParent()).getChildren();
-	String elementName = getElementName();
-	int nameLength = elementName.length();
-	String packageName = isDefaultPackage() ? elementName : elementName+"."; //$NON-NLS-1$
-	for (int i= 0; i < packages.length; i++) {
-		String otherName = packages[i].getElementName();
-		if (otherName.length() > nameLength && otherName.startsWith(packageName)) {
-			return true;
-		}
+	int namesLength = this.names.length;
+	nextPackage: for (int i= 0, length = packages.length; i < length; i++) {
+		String[] otherNames = ((PackageFragment) packages[i]).names;
+		if (otherNames.length <= namesLength) continue nextPackage;
+		for (int j = 0; j < namesLength; j++)
+			if (!this.names[j].equals(otherNames[j]))
+				continue nextPackage;
+		return true;
 	}
 	return false;
 }
@@ -360,7 +370,7 @@ public boolean hasSubpackages() throws JavaModelException {
  * @see IPackageFragment#isDefaultPackage()
  */
 public boolean isDefaultPackage() {
-	return this.getElementName().length() == 0;
+	return this.names.length == 0;
 }
 /**
  * @see ISourceManipulation#move(IJavaElement, IJavaElement, String, boolean, IProgressMonitor)
@@ -406,7 +416,7 @@ protected void toStringChildren(int tab, StringBuffer buffer, Object info) {
  */
 protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 	buffer.append(this.tabString(tab));
-	if (getElementName().length() == 0) {
+	if (this.names.length == 0) {
 		buffer.append("<default>"); //$NON-NLS-1$
 	} else {
 		toStringName(buffer);

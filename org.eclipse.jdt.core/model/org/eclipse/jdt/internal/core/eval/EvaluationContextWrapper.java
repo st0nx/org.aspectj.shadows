@@ -19,7 +19,6 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.ICompletionRequestor;
 import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelMarker;
@@ -37,7 +36,6 @@ import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.BinaryType;
 import org.eclipse.jdt.internal.core.ClassFile;
-import org.eclipse.jdt.internal.core.CompletionRequestorWrapper;
 import org.eclipse.jdt.internal.core.JavaModelStatus;
 import org.eclipse.jdt.internal.core.JavaProject;
 import org.eclipse.jdt.internal.core.SelectionRequestor;
@@ -84,20 +82,37 @@ protected void checkBuilderState() {
 }
 /**
  * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, ICompletionRequestor)
+ * @deprecated
  */
 public void codeComplete(String codeSnippet, int position, ICompletionRequestor requestor) throws JavaModelException {
 	codeComplete(codeSnippet, position, requestor, DefaultWorkingCopyOwner.PRIMARY);
 }
 /**
  * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, ICompletionRequestor, WorkingCopyOwner)
+ * @deprecated
  */
 public void codeComplete(String codeSnippet, int position, ICompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
-	SearchableEnvironment environment = (SearchableEnvironment) this.project.newSearchableNameEnvironment(owner);
+	if (requestor == null) {
+		throw new IllegalArgumentException("Completion requestor cannot be null"); //$NON-NLS-1$
+	}
+	codeComplete(codeSnippet, position, new org.eclipse.jdt.internal.codeassist.CompletionRequestorWrapper(requestor), owner);
+}
+/**
+ * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, CompletionRequestor)
+ */
+public void codeComplete(String codeSnippet, int position, CompletionRequestor requestor) throws JavaModelException {
+	codeComplete(codeSnippet, position, requestor, DefaultWorkingCopyOwner.PRIMARY);
+}
+/**
+ * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, CompletionRequestor, WorkingCopyOwner)
+ */
+public void codeComplete(String codeSnippet, int position, CompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
+	SearchableEnvironment environment = this.project.newSearchableNameEnvironment(owner);
 	this.context.complete(
 		codeSnippet.toCharArray(),
 		position,
 		environment,
-		new CompletionRequestorWrapper(requestor, environment.nameLookup),
+		requestor,
 		this.project.getOptions(true),
 		this.project
 	);
@@ -112,7 +127,7 @@ public IJavaElement[] codeSelect(String codeSnippet, int offset, int length) thr
  * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeSelect(String, int, int, WorkingCopyOwner)
  */
 public IJavaElement[] codeSelect(String codeSnippet, int offset, int length, WorkingCopyOwner owner) throws JavaModelException {
-	SearchableEnvironment environment = (SearchableEnvironment) this.project.newSearchableNameEnvironment(owner);
+	SearchableEnvironment environment = this.project.newSearchableNameEnvironment(owner);
 	SelectionRequestor requestor= new SelectionRequestor(environment.nameLookup, null); // null because there is no need to look inside the code snippet itself
 	this.context.select(
 		codeSnippet.toCharArray(),

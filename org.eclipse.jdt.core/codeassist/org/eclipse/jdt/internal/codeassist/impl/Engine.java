@@ -13,7 +13,6 @@ package org.eclipse.jdt.internal.codeassist.impl;
 import java.util.Map;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.internal.codeassist.ISearchableNameEnvironment;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.env.*;
 
@@ -21,13 +20,14 @@ import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.impl.*;
+import org.eclipse.jdt.internal.core.SearchableEnvironment;
 
 public abstract class Engine implements ITypeRequestor {
 
 	public LookupEnvironment lookupEnvironment;
 	
 	protected CompilationUnitScope unitScope;
-	protected ISearchableNameEnvironment nameEnvironment;
+	protected SearchableEnvironment nameEnvironment;
 
 	public AssistOptions options;
 	public CompilerOptions compilerOptions; 
@@ -40,19 +40,19 @@ public abstract class Engine implements ITypeRequestor {
 	/**
 	 * Add an additional binary type
 	 */
-	public void accept(IBinaryType binaryType, PackageBinding packageBinding) {
-		lookupEnvironment.createBinaryTypeFrom(binaryType, packageBinding);
+	public void accept(IBinaryType binaryType, PackageBinding packageBinding, AccessRestriction accessRestriction) {
+		lookupEnvironment.createBinaryTypeFrom(binaryType, packageBinding, accessRestriction);
 	}
 
 	/**
 	 * Add an additional compilation unit.
 	 */
-	public void accept(ICompilationUnit sourceUnit) {
+	public void accept(ICompilationUnit sourceUnit, AccessRestriction accessRestriction) {
 		CompilationResult result = new CompilationResult(sourceUnit, 1, 1, this.compilerOptions.maxProblemsPerUnit);
 		CompilationUnitDeclaration parsedUnit =
 			this.getParser().dietParse(sourceUnit, result);
 
-		lookupEnvironment.buildTypeBindings(parsedUnit);
+		lookupEnvironment.buildTypeBindings(parsedUnit, accessRestriction);
 		lookupEnvironment.completeTypeBindings(parsedUnit, true);
 	}
 
@@ -60,7 +60,7 @@ public abstract class Engine implements ITypeRequestor {
 	 * Add additional source types (the first one is the requested type, the rest is formed by the
 	 * secondary types defined in the same compilation unit).
 	 */
-	public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding) {
+	public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding, AccessRestriction accessRestriction) {
 		CompilationResult result =
 			new CompilationResult(sourceTypes[0].getFileName(), 1, 1, this.compilerOptions.maxProblemsPerUnit);
 		CompilationUnitDeclaration unit =
@@ -73,7 +73,7 @@ public abstract class Engine implements ITypeRequestor {
 				result);
 
 		if (unit != null) {
-			lookupEnvironment.buildTypeBindings(unit);
+			lookupEnvironment.buildTypeBindings(unit, accessRestriction);
 			lookupEnvironment.completeTypeBindings(unit, true);
 		}
 	}
@@ -137,8 +137,7 @@ public abstract class Engine implements ITypeRequestor {
 			TypeDeclaration type = unit.types[i];
 			if (type.declarationSourceStart < position
 				&& type.declarationSourceEnd >= position) {
-				getParser().scanner.setSource(
-					unit.compilationResult.compilationUnit.getContents());
+				getParser().scanner.setSource(unit.compilationResult);
 				return parseBlockStatements(type, unit, position);
 			}
 		}
@@ -170,7 +169,12 @@ public abstract class Engine implements ITypeRequestor {
 				AbstractMethodDeclaration method = methods[i];
 				if (method.bodyStart > position)
 					continue;
+				
+				if(method.isDefaultConstructor())
+					continue;
+				
 				if (method.declarationSourceEnd >= position) {
+					
 					getParser().parseBlockStatements(method, unit);
 					return method;
 				}
@@ -197,5 +201,33 @@ public abstract class Engine implements ITypeRequestor {
 
 	protected void reset() {
 		lookupEnvironment.reset();
+	}
+	
+	public static char[] getSignature(Binding binding) {
+		char[] result = null;
+		if ((binding.kind() & Binding.TYPE) != 0) {
+			TypeBinding typeBinding = (TypeBinding)binding;
+			if(typeBinding.isLocalType()) {
+				LocalTypeBinding localTypeBinding = (LocalTypeBinding)typeBinding;
+				if(localTypeBinding.isAnonymousType()) {
+					typeBinding = localTypeBinding.superclass();
+				} else {
+					localTypeBinding.setConstantPoolName(typeBinding.sourceName());
+				}
+			}
+			result = typeBinding.genericTypeSignature();
+		} else if ((binding.kind() & Binding.METHOD) != 0) {
+			MethodBinding methodBinding = (MethodBinding)binding;
+			int oldMod = methodBinding.modifiers;
+			//TODO remove the next line when method from binary type will be able to generate generic siganute
+			methodBinding.modifiers |= CompilerModifiers.AccGenericSignature;
+			result = methodBinding.genericSignature(); 
+			if(result == null) {
+				result = methodBinding.signature();
+			}
+			methodBinding.modifiers = oldMod;
+		}
+		result = CharOperation.replaceOnCopy(result, '/', '.');
+		return result;
 	}
 }

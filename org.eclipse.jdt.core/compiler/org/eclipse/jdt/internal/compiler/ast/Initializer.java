@@ -57,16 +57,18 @@ public class Initializer extends FieldDeclaration {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
-	public boolean isField() {
-
-		return false;
+	/**
+	 * @see org.eclipse.jdt.internal.compiler.ast.AbstractVariableDeclaration#getKind()
+	 */
+	public int getKind() {
+		return INITIALIZER;
 	}
-
+	
 	public boolean isStatic() {
 
 		return (modifiers & AccStatic) != 0;
 	}
-
+	
 	public void parseStatements(
 		Parser parser,
 		TypeDeclaration typeDeclaration,
@@ -80,7 +82,9 @@ public class Initializer extends FieldDeclaration {
 
 		if (modifiers != 0) {
 			printIndent(indent, output);
-			printModifiers(modifiers, output).append("{\n"); //$NON-NLS-1$
+			printModifiers(modifiers, output);
+			if (this.annotations != null) printAnnotations(this.annotations, output);
+			output.append("{\n"); //$NON-NLS-1$
 			block.printBody(indent, output);
 			printIndent(indent, output).append('}'); 
 			return output;

@@ -71,6 +71,11 @@ public class IfStatement extends Statement {
 		if (isConditionOptimizedFalse) {
 			thenFlowInfo.setReachMode(FlowInfo.UNREACHABLE); 
 		}
+		FlowInfo elseFlowInfo = flowInfo.initsWhenFalse().copy();
+		if (isConditionOptimizedTrue) {
+			elseFlowInfo.setReachMode(FlowInfo.UNREACHABLE); 
+		}
+		this.condition.checkNullComparison(currentScope, flowContext, flowInfo, thenFlowInfo, elseFlowInfo);
 		if (this.thenStatement != null) {
 			// Save info for code gen
 			thenInitStateIndex =
@@ -84,10 +89,6 @@ public class IfStatement extends Statement {
 		this.thenExit =  !thenFlowInfo.isReachable();
 
 		// process the ELSE part
-		FlowInfo elseFlowInfo = flowInfo.initsWhenFalse().copy();
-		if (isConditionOptimizedTrue) {
-			elseFlowInfo.setReachMode(FlowInfo.UNREACHABLE); 
-		}
 		if (this.elseStatement != null) {
 		    // signal else clause unnecessarily nested, tolerate else-if code pattern
 		    if (thenFlowInfo == FlowInfo.DEAD_END 
@@ -152,9 +153,7 @@ public class IfStatement extends Statement {
 				true);
 			// May loose some local variable initializations : affecting the local variable attributes
 			if (thenInitStateIndex != -1) {
-				codeStream.removeNotDefinitelyAssignedVariables(
-					currentScope,
-					thenInitStateIndex);
+				codeStream.removeNotDefinitelyAssignedVariables(currentScope, thenInitStateIndex);
 				codeStream.addDefinitelyAssignedVariables(currentScope, thenInitStateIndex);
 			}
 			// generate then statement
@@ -221,7 +220,7 @@ public class IfStatement extends Statement {
 	public void resolve(BlockScope scope) {
 
 		TypeBinding type = condition.resolveTypeExpecting(scope, BooleanBinding);
-		condition.implicitWidening(type, type);
+		condition.computeConversion(scope, type, type);
 		if (thenStatement != null)
 			thenStatement.resolve(scope);
 		if (elseStatement != null)

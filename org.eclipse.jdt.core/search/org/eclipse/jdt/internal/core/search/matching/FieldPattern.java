@@ -52,6 +52,25 @@ public FieldPattern(
 
 	((InternalSearchPattern)this).mustResolve = mustResolve();
 }
+/*
+ * Instanciate a field pattern with additional information for generics search
+ */
+public FieldPattern(
+	boolean findDeclarations,
+	boolean readAccess,
+	boolean writeAccess,
+	char[] name, 
+	char[] declaringQualification,
+	char[] declaringSimpleName,	
+	char[] typeQualification, 
+	char[] typeSimpleName,
+	String signature,
+	int matchRule) {
+
+	this(findDeclarations, readAccess, writeAccess, name, declaringQualification, declaringSimpleName, typeQualification, typeSimpleName, matchRule);
+
+	if (signature != null) computeSignature(signature);
+}
 public void decodeIndexKey(char[] key) {
 	this.name = key;
 }
@@ -77,43 +96,29 @@ protected boolean mustResolve() {
 
 	return super.mustResolve();
 }
-public String toString() {
-	StringBuffer buffer = new StringBuffer(20);
+protected StringBuffer print(StringBuffer output) {
 	if (this.findDeclarations) {
-		buffer.append(this.findReferences
+		output.append(this.findReferences
 			? "FieldCombinedPattern: " //$NON-NLS-1$
 			: "FieldDeclarationPattern: "); //$NON-NLS-1$
 	} else {
-		buffer.append("FieldReferencePattern: "); //$NON-NLS-1$
+		output.append("FieldReferencePattern: "); //$NON-NLS-1$
 	}
-	if (declaringQualification != null) buffer.append(declaringQualification).append('.');
+	if (declaringQualification != null) output.append(declaringQualification).append('.');
 	if (declaringSimpleName != null) 
-		buffer.append(declaringSimpleName).append('.');
-	else if (declaringQualification != null) buffer.append("*."); //$NON-NLS-1$
+		output.append(declaringSimpleName).append('.');
+	else if (declaringQualification != null) output.append("*."); //$NON-NLS-1$
 	if (name == null) {
-		buffer.append("*"); //$NON-NLS-1$
+		output.append("*"); //$NON-NLS-1$
 	} else {
-		buffer.append(name);
+		output.append(name);
 	}
 	if (typeQualification != null) 
-		buffer.append(" --> ").append(typeQualification).append('.'); //$NON-NLS-1$
-	else if (typeSimpleName != null) buffer.append(" --> "); //$NON-NLS-1$
+		output.append(" --> ").append(typeQualification).append('.'); //$NON-NLS-1$
+	else if (typeSimpleName != null) output.append(" --> "); //$NON-NLS-1$
 	if (typeSimpleName != null) 
-		buffer.append(typeSimpleName);
-	else if (typeQualification != null) buffer.append("*"); //$NON-NLS-1$
-	buffer.append(", "); //$NON-NLS-1$
-	switch(getMatchMode()) {
-		case R_EXACT_MATCH : 
-			buffer.append("exact match, "); //$NON-NLS-1$
-			break;
-		case R_PREFIX_MATCH :
-			buffer.append("prefix match, "); //$NON-NLS-1$
-			break;
-		case R_PATTERN_MATCH :
-			buffer.append("pattern match, "); //$NON-NLS-1$
-			break;
-	}
-	buffer.append(isCaseSensitive() ? "case sensitive" : "case insensitive"); //$NON-NLS-1$ //$NON-NLS-2$
-	return buffer.toString();
+		output.append(typeSimpleName);
+	else if (typeQualification != null) output.append("*"); //$NON-NLS-1$
+	return super.print(output);
 }
 }

@@ -16,6 +16,7 @@ import org.eclipse.jdt.core.search.*;
 import org.eclipse.jdt.internal.core.util.*;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfIntValues;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
+import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 
 public class DiskIndex {
 
@@ -32,7 +33,7 @@ private int cacheUserCount;
 private String[][] cachedChunks; // decompressed chunks of document names
 private HashtableOfObject categoryTables; // category name -> HashtableOfObject(words -> int[] of document #'s) or offset if not read yet
 
-public static final String SIGNATURE= "INDEX VERSION 1.001"; //$NON-NLS-1$
+public static final String SIGNATURE= "INDEX VERSION 1.011"; //$NON-NLS-1$
 public static boolean DEBUG = false;
 
 private static final int RE_INDEXED = -1;
@@ -250,7 +251,7 @@ private String[] computeDocumentNames(String[] onDiskNames, int[] positions, Sim
 	}
 	return newDocNames;
 }
-private void copyQueryResults(HashtableOfObject categoryToWords, int newPosition) throws IOException {
+private void copyQueryResults(HashtableOfObject categoryToWords, int newPosition) {
 	char[][] categoryNames = categoryToWords.keyTable;
 	Object[] wordSets = categoryToWords.valueTable;
 	for (int i = 0, l = categoryNames.length; i < l; i++) {

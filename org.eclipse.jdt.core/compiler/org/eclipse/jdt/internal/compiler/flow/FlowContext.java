@@ -13,11 +13,13 @@ package org.eclipse.jdt.internal.compiler.flow;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
+import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.Reference;
 import org.eclipse.jdt.internal.compiler.ast.SubRoutineStatement;
 import org.eclipse.jdt.internal.compiler.ast.TryStatement;
 import org.eclipse.jdt.internal.compiler.codegen.Label;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
+import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.Scope;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
@@ -167,7 +169,8 @@ public class FlowContext implements TypeConstants {
 				
 			traversedContext.recordReturnFrom(flowInfo.unconditionalInits());
 			if (traversedContext.associatedNode instanceof TryStatement){
-				flowInfo = flowInfo.copy().addInitializationsFrom(((TryStatement) traversedContext.associatedNode).subRoutineInits);
+				TryStatement tryStatement = (TryStatement) traversedContext.associatedNode;
+				flowInfo = flowInfo.copy().addInitializationsFrom(tryStatement.subRoutineInits);
 			}
 			traversedContext = traversedContext.parent;
 		}
@@ -265,7 +268,8 @@ public class FlowContext implements TypeConstants {
 
 			traversedContext.recordReturnFrom(flowInfo.unconditionalInits());
 			if (traversedContext.associatedNode instanceof TryStatement){
-				flowInfo = flowInfo.copy().addInitializationsFrom(((TryStatement) traversedContext.associatedNode).subRoutineInits);
+				TryStatement tryStatement = (TryStatement) traversedContext.associatedNode;
+				flowInfo = flowInfo.copy().addInitializationsFrom(tryStatement.subRoutineInits);
 			}
 			traversedContext = traversedContext.parent;
 		}
@@ -427,13 +431,18 @@ public class FlowContext implements TypeConstants {
 		// default implementation: do nothing
 	}
 
-	boolean recordFinalAssignment(
+	protected boolean recordFinalAssignment(
 		VariableBinding variable,
 		Reference finalReference) {
 
 		return true; // keep going
 	}
 
+	protected boolean recordNullReference(Expression expression, int status) {
+
+		return false; // keep going
+	}
+	
 	public void recordReturnFrom(FlowInfo flowInfo) {
 		// default implementation: do nothing
 	}
@@ -455,6 +464,38 @@ public class FlowContext implements TypeConstants {
 		}
 	}
 
+	public void recordUsingNullReference(Scope scope, LocalVariableBinding local, Expression reference, int status, FlowInfo flowInfo) {
+
+		if (!flowInfo.isReachable()) return;
+
+		switch (status) {
+			case FlowInfo.NULL :
+				if (flowInfo.isDefinitelyNull(local)) {
+					scope.problemReporter().localVariableCanOnlyBeNull(local, reference);
+					return;
+				} else if (flowInfo.isDefinitelyNonNull(local)) {
+					scope.problemReporter().localVariableCannotBeNull(local, reference);				
+					return;
+				}
+				break;
+			case FlowInfo.NON_NULL :
+				if (flowInfo.isDefinitelyNull(local)) {
+					scope.problemReporter().localVariableCanOnlyBeNull(local, reference);				
+					return;
+				}
+				break;
+		}
+		
+		// for initialization inside looping statement that effectively loops
+		FlowContext context = this;
+		while (context != null) {
+			if (context.recordNullReference(reference, status)) {
+				return; // no need to keep going
+			}
+			context = context.parent;
+		}
+	}
+	
 	void removeFinalAssignmentIfAny(Reference reference) {
 		// default implementation: do nothing
 	}

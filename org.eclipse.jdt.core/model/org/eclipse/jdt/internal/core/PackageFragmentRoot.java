@@ -56,8 +56,8 @@ public class PackageFragmentRoot extends Openable implements IPackageFragmentRoo
  * Constructs a package fragment root which is the root of the java package
  * directory hierarchy.
  */
-protected PackageFragmentRoot(IResource resource, JavaProject project, String name) {
-	super(project, name);
+protected PackageFragmentRoot(IResource resource, JavaProject project) {
+	super(project);
 	this.resource = resource;
 }
 
@@ -165,9 +165,9 @@ public void attachSource(IPath sourcePath, IPath rootPath, IProgressMonitor moni
 protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource) throws JavaModelException {
 	
 	// check whether this pkg fragment root can be opened
-	if (!resourceExists() || !isOnClasspath()) {
-		throw newNotPresentException();
-	}
+	IStatus status = validateOnClasspath();
+	if (!status.isOK()) throw newJavaModelException(status);
+	if (!resourceExists()) throw newNotPresentException();
 
 	((PackageFragmentRootInfo) info).setRootKind(determineKind(underlyingResource));
 	return computeChildren(info, newElements);
@@ -177,7 +177,7 @@ SourceMapper createSourceMapper(IPath sourcePath, IPath rootPath) {
 	SourceMapper mapper = new SourceMapper(
 		sourcePath, 
 		rootPath == null ? null : rootPath.toOSString(), 
-		this.isExternal() ? JavaCore.getOptions() : this.getJavaProject().getOptions(true)); // only project options if associated with resource
+		getJavaProject().getOptions(true)); // cannot use workspace options if external jar is 1.5 jar and workspace options are 1.4 options
 	return mapper;
 }
 /*
@@ -210,7 +210,7 @@ protected boolean computeChildren(OpenableElementInfo info, Map newElements) thr
 			IContainer rootFolder = (IContainer) underlyingResource;
 			char[][] inclusionPatterns = fullInclusionPatternChars();
 			char[][] exclusionPatterns = fullExclusionPatternChars();
-			computeFolderChildren(rootFolder, !Util.isExcluded(rootFolder, inclusionPatterns, exclusionPatterns), "", vChildren, inclusionPatterns, exclusionPatterns); //$NON-NLS-1$
+			computeFolderChildren(rootFolder, !Util.isExcluded(rootFolder, inclusionPatterns, exclusionPatterns), CharOperation.NO_STRINGS, vChildren, inclusionPatterns, exclusionPatterns); //$NON-NLS-1$
 			IJavaElement[] children = new IJavaElement[vChildren.size()];
 			vChildren.toArray(children);
 			info.setChildren(children);
@@ -229,14 +229,15 @@ protected boolean computeChildren(OpenableElementInfo info, Map newElements) thr
  * 
  * @exception JavaModelException  The resource associated with this package fragment does not exist
  */
-protected void computeFolderChildren(IContainer folder, boolean isIncluded, String prefix, ArrayList vChildren, char[][] inclusionPatterns, char[][] exclusionPatterns) throws JavaModelException {
+protected void computeFolderChildren(IContainer folder, boolean isIncluded, String[] pkgName, ArrayList vChildren, char[][] inclusionPatterns, char[][] exclusionPatterns) throws JavaModelException {
 
 	if (isIncluded) {
-	    IPackageFragment pkg = getPackageFragment(prefix);
+	    IPackageFragment pkg = getPackageFragment(pkgName);
 		vChildren.add(pkg);
 	}
 	try {
 		JavaProject javaProject = (JavaProject)getJavaProject();
+		JavaModelManager manager = JavaModelManager.getJavaModelManager();
 		IResource[] members = folder.members();
 		boolean hasIncluded = isIncluded;
 		for (int i = 0, max = members.length; i < max; i++) {
@@ -252,13 +253,8 @@ protected void computeFolderChildren(IContainer folder, boolean isIncluded, Stri
 					    if (isMemberIncluded || inclusionPatterns != null) { 
 							// eliminate binary output only if nested inside direct subfolders
 							if (javaProject.contains(member)) {
-								String newPrefix;
-								if (prefix.length() == 0) {
-									newPrefix = memberName;
-								} else {
-									newPrefix = prefix + "." + memberName; //$NON-NLS-1$
-								}
-								computeFolderChildren((IFolder) member, isMemberIncluded, newPrefix, vChildren, inclusionPatterns, exclusionPatterns);
+								String[] newNames = Util.arrayConcat(pkgName, manager.intern(memberName));
+								computeFolderChildren((IFolder) member, isMemberIncluded, newNames, vChildren, inclusionPatterns, exclusionPatterns);
 							}
 						}
 					}
@@ -269,7 +265,7 @@ protected void computeFolderChildren(IContainer folder, boolean isIncluded, Stri
 								&& Util.isValidCompilationUnitName(memberName)
 								&& !Util.isExcluded(member, inclusionPatterns, exclusionPatterns)) {
 						hasIncluded = true;
-					    IPackageFragment pkg = getPackageFragment(prefix);
+					    IPackageFragment pkg = getPackageFragment(pkgName);
 					    vChildren.add(pkg); 
 					}
 			        break;
@@ -311,7 +307,7 @@ protected Object createElementInfo() {
 public IPackageFragment createPackageFragment(String pkgName, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	CreatePackageFragmentOperation op = new CreatePackageFragmentOperation(this, pkgName, force);
 	op.runOperation(monitor);
-	return getPackageFragment(pkgName);
+	return getPackageFragment(op.pkgName);
 }
 
 /**
@@ -344,8 +340,7 @@ public boolean equals(Object o) {
 	if (!(o instanceof PackageFragmentRoot))
 		return false;
 	PackageFragmentRoot other = (PackageFragmentRoot) o;
-	return this.resource.equals(other.resource) &&
-			this.occurrenceCount == other.occurrenceCount && 
+	return this.resource.equals(other.resource) && 
 			this.parent.equals(other.parent);
 }
 
@@ -353,7 +348,7 @@ public boolean equals(Object o) {
  * @see IJavaElement
  */
 public boolean exists() {
-	return super.exists() && isOnClasspath();
+	return super.exists() && validateOnClasspath().isOK();
 }
 
 public IClasspathEntry findSourceAttachmentRecommendation() {
@@ -468,7 +463,11 @@ public char[][] fullInclusionPatternChars() {
 		return null;
 	}
 }		
-
+public String getElementName() {
+	if (this.resource instanceof IFolder)
+		return ((IFolder) this.resource).getName();
+	return ""; //$NON-NLS-1$
+}
 /**
  * @see IJavaElement
  */
@@ -486,8 +485,6 @@ protected char getHandleMementoDelimiter() {
  */
 public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner owner) {
 	switch (token.charAt(0)) {
-		case JEM_COUNT:
-			return getHandleUpdatingCountFromMemento(memento, owner);
 		case JEM_PACKAGEFRAGMENT:
 			String pkgName;
 			if (memento.hasMoreTokens()) {
@@ -513,9 +510,9 @@ public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento,
 	return null;
 }
 /**
- * @see JavaElement#getHandleMemento()
+ * @see JavaElement#getHandleMemento(StringBuffer)
  */
-public String getHandleMemento(){
+protected void getHandleMemento(StringBuffer buff) {
 	IPath path;
 	IResource underlyingResource = getResource();
 	if (underlyingResource != null) {
@@ -529,14 +526,9 @@ public String getHandleMemento(){
 		// external jar
 		path = getPath();
 	}
-	StringBuffer buff= new StringBuffer(((JavaElement)getParent()).getHandleMemento());
+	((JavaElement)getParent()).getHandleMemento(buff);
 	buff.append(getHandleMementoDelimiter());
 	escapeMementoName(buff, path.toString()); 
-	if (this.occurrenceCount > 1) {
-		buff.append(JEM_COUNT);
-		buff.append(this.occurrenceCount);
-	}
-	return buff.toString();
 }
 /**
  * @see IPackageFragmentRoot
@@ -556,20 +548,13 @@ public Object[] getNonJavaResources() throws JavaModelException {
  * @see IPackageFragmentRoot
  */
 public IPackageFragment getPackageFragment(String packageName) {
-	if (packageName.indexOf(' ') != -1) { // tolerate package names with spaces (e.g. 'x . y') (http://bugs.eclipse.org/bugs/show_bug.cgi?id=21957)
-		char[][] compoundName = Util.toCompoundChars(packageName);
-		StringBuffer buffer = new StringBuffer(packageName.length());
-		for (int i = 0, length = compoundName.length; i < length; i++) {
-			buffer.append(CharOperation.trim(compoundName[i]));
-			if (i != length-1) {
-				buffer.append('.');
-			}
-		}
-		packageName = buffer.toString();
-	}
-	return new PackageFragment(this, packageName);
+	// tolerate package names with spaces (e.g. 'x . y') (http://bugs.eclipse.org/bugs/show_bug.cgi?id=21957)
+	String[] pkgName = Util.getTrimmedSimpleNames(packageName); 
+	return getPackageFragment(pkgName);
 }
-
+public PackageFragment getPackageFragment(String[] pkgName) {
+	return new PackageFragment(this, pkgName);
+}
 /**
  * Returns the package name for the given folder
  * (which is a decendent of this root).
@@ -794,9 +779,9 @@ public boolean isExternal() {
 }
 
 /*
- * Returns whether this package fragment root is on the classpath of its project.
+ * Validate whether this package fragment root is on the classpath of its project.
  */
-protected boolean isOnClasspath() {
+protected IStatus validateOnClasspath() {
 	
 	IPath path = this.getPath();
 	try {
@@ -806,13 +791,14 @@ protected boolean isOnClasspath() {
 		for (int i = 0, length = classpath.length; i < length; i++) {
 			IClasspathEntry entry = classpath[i];
 			if (entry.getPath().equals(path)) {
-				return true;
+				return Status.OK_STATUS;
 			}
 		}
 	} catch(JavaModelException e){
 		// could not read classpath, then assume it is outside
+		return e.getJavaModelStatus();
 	}
-	return false;
+	return new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_NOT_ON_CLASSPATH, this);
 }
 /*
  * @see org.eclipse.jdt.core.IPackageFragmentRoot#move

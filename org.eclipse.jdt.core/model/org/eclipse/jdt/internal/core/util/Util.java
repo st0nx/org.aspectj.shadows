@@ -15,6 +15,7 @@ import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import org.eclipse.core.resources.*;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IResource;
@@ -31,6 +32,7 @@ import org.eclipse.jdt.internal.compiler.ast.Argument;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.Assert;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.PackageFragmentRoot;
@@ -67,8 +69,9 @@ public class Util {
 	private final static char[] DOUBLE_QUOTES = "''".toCharArray(); //$NON-NLS-1$
 	private static final String EMPTY_ARGUMENT = "   "; //$NON-NLS-1$
 	
-	public static final String[] fgEmptyStringArray = new String[0];
 	private final static char[] SINGLE_QUOTE = "'".toCharArray(); //$NON-NLS-1$
+	
+	public static char[][] JAVA_LIKE_EXTENSIONS = {SuffixConstants.SUFFIX_java, SuffixConstants.SUFFIX_JAVA};
 
 	static {
 		relocalize();
@@ -78,6 +81,55 @@ public class Util {
 		// cannot be instantiated
 	}
 	
+	/**
+	 * Returns a new array adding the second array at the end of first array.
+	 * It answers null if the first and second are null.
+	 * If the first array is null or if it is empty, then a new array is created with second.
+	 * If the second array is null, then the first array is returned.
+	 * <br>
+	 * <br>
+	 * For example:
+	 * <ol>
+	 * <li><pre>
+	 *    first = null
+	 *    second = "a"
+	 *    => result = {"a"}
+	 * </pre>
+	 * <li><pre>
+	 *    first = {"a"}
+	 *    second = null
+	 *    => result = {"a"}
+	 * </pre>
+	 * </li>
+	 * <li><pre>
+	 *    first = {"a"}
+	 *    second = {"b"}
+	 *    => result = {"a", "b"}
+	 * </pre>
+	 * </li>
+	 * </ol>
+	 * 
+	 * @param first the first array to concatenate
+	 * @param second the array to add at the end of the first array
+	 * @return a new array adding the second array at the end of first array, or null if the two arrays are null.
+	 */
+	public static final String[] arrayConcat(String[] first, String second) {
+		if (second == null)
+			return first;
+		if (first == null)
+			return new String[] {second};
+
+		int length = first.length;
+		if (first.length == 0) {
+			return new String[] {second};
+		}
+		
+		String[] result = new String[length + 1];
+		System.arraycopy(first, 0, result, 0, length);
+		result[length] = second;
+		return result;
+	}
+
 	/**
 	 * Lookup the message with the given ID in this catalog 
 	 */
@@ -105,7 +157,7 @@ public class Util {
 	 * Lookup the message with the given ID in this catalog and bind its
 	 * substitution locations with the given string values.
 	 */
-	public static String bind(String id, String[] bindings) {
+	public static String bind(String id, String[] arguments) {
 		if (id == null)
 			return "No message available"; //$NON-NLS-1$
 		String message = null;
@@ -120,7 +172,7 @@ public class Util {
 		char[] messageWithNoDoubleQuotes =
 			CharOperation.replace(message.toCharArray(), DOUBLE_QUOTES, SINGLE_QUOTE);
 	
-		if (bindings == null) return new String(messageWithNoDoubleQuotes);
+		if (arguments == null) return new String(messageWithNoDoubleQuotes);
 	
 		int length = messageWithNoDoubleQuotes.length;
 		int start = 0;
@@ -128,14 +180,18 @@ public class Util {
 		StringBuffer output = null;
 		while (true) {
 			if ((end = CharOperation.indexOf('{', messageWithNoDoubleQuotes, start)) > -1) {
-				if (output == null) output = new StringBuffer(length+bindings.length*20);
+				if (output == null) output = new StringBuffer(length+arguments.length*20);
 				output.append(messageWithNoDoubleQuotes, start, end - start);
 				if ((start = CharOperation.indexOf('}', messageWithNoDoubleQuotes, end + 1)) > -1) {
 					int index = -1;
 					String argId = new String(messageWithNoDoubleQuotes, end + 1, start - end - 1);
 					try {
 						index = Integer.parseInt(argId);
-						output.append(bindings[index]);
+						if (arguments[index] == null) {
+							output.append('{').append(argId).append('}'); // leave parameter in since no better arg '{0}'
+						} else {
+							output.append(arguments[index]);
+						}
 					} catch (NumberFormatException nfe) { // could be nested message ID {compiler.name}
 						boolean done = false;
 						if (!id.equals(argId)) {
@@ -305,6 +361,90 @@ public class Util {
 	}
 
 	/**
+	 * Returns the concatenation of the given array parts using the given separator between each part.
+	 * <br>
+	 * <br>
+	 * For example:<br>
+	 * <ol>
+	 * <li><pre>
+	 *    array = {"a", "b"}
+	 *    separator = '.'
+	 *    => result = "a.b"
+	 * </pre>
+	 * </li>
+	 * <li><pre>
+	 *    array = {}
+	 *    separator = '.'
+	 *    => result = ""
+	 * </pre></li>
+	 * </ol>
+	 * 
+	 * @param array the given array
+	 * @param separator the given separator
+	 * @return the concatenation of the given array parts using the given separator between each part
+	 */
+	public static final String concatWith(String[] array, char separator) {
+		StringBuffer buffer = new StringBuffer();
+		for (int i = 0, length = array.length; i < length; i++) {
+			buffer.append(array[i]);
+			if (i < length - 1)
+				buffer.append(separator);
+		}
+		return buffer.toString();
+	}
+	
+	/**
+	 * Returns the concatenation of the given array parts using the given separator between each
+	 * part and appending the given name at the end.
+	 * <br>
+	 * <br>
+	 * For example:<br>
+	 * <ol>
+	 * <li><pre>
+	 *    name = "c"
+	 *    array = { "a", "b" }
+	 *    separator = '.'
+	 *    => result = "a.b.c"
+	 * </pre>
+	 * </li>
+	 * <li><pre>
+	 *    name = null
+	 *    array = { "a", "b" }
+	 *    separator = '.'
+	 *    => result = "a.b"
+	 * </pre></li>
+	 * <li><pre>
+	 *    name = " c"
+	 *    array = null
+	 *    separator = '.'
+	 *    => result = "c"
+	 * </pre></li>
+	 * </ol>
+	 * 
+	 * @param array the given array
+	 * @param name the given name
+	 * @param separator the given separator
+	 * @return the concatenation of the given array parts using the given separator between each
+	 * part and appending the given name at the end
+	 */
+	public static final String concatWith(
+		String[] array,
+		String name,
+		char separator) {
+		
+		if (array == null || array.length == 0) return name;
+		if (name == null || name.length() == 0) return concatWith(array, separator);
+		StringBuffer buffer = new StringBuffer();
+		for (int i = 0, length = array.length; i < length; i++) {
+			buffer.append(array[i]);
+			buffer.append(separator);
+		}
+		buffer.append(name);
+		return buffer.toString();
+		
+	}
+	
+	/**
 	 * Concatenate three strings.
 	 * @see #concat(String, String)
 	 */
@@ -327,6 +467,14 @@ public class Util {
 	 */
 	public static String convertTypeSignature(char[] sig) {
 		return new String(sig).replace('/', '.');
+	}
+	
+	/*
+	 * Returns the default java extension (".java").
+	 * To be used when the extension is not known.
+	 */
+	public static String defaultJavaExtension() {
+		return SuffixConstants.SUFFIX_STRING_java;
 	}
 
 	/**
@@ -374,6 +522,24 @@ public class Util {
 				return false;
 		}
 		
+		return true;
+	}
+
+	/**
+	 * Compares two arrays using equals() on the elements.
+	 * Neither can be null. Only the first len elements are compared.
+	 * Return false if either array is shorter than len.
+	 */
+	public static boolean equalArrays(Object[] a, Object[] b, int len) {
+		if (a == b)	return true;
+		if (a.length < len || b.length < len) return false;
+		for (int i = 0; i < len; ++i) {
+			if (a[i] == null) {
+				if (b[i] != null) return false;
+			} else {
+				if (!a[i].equals(b[i])) return false;
+			}
+		}
 		return true;
 	}
 
@@ -489,6 +655,32 @@ public class Util {
 			return false;
 		}
 		return a.equals(b);
+	}
+	
+	/*
+	 * Returns whether the given file name equals to the given string ignoring the java like extension
+	 * of the file name.
+	 * Returns false if it is not a java like file name.
+	 */
+	public static boolean equalsIgnoreJavaLikeExtension(String fileName, String string) {
+		int fileNameLength = fileName.length();
+		int stringLength = string.length();
+		if (fileNameLength < stringLength) return false;
+		for (int i = 0; i < stringLength; i ++) {
+			if (fileName.charAt(i) != string.charAt(i)) {
+				return false;
+			}
+		}
+		suffixes: for (int i = 0, length = JAVA_LIKE_EXTENSIONS.length; i < length; i++) {
+			char[] suffix = JAVA_LIKE_EXTENSIONS[i];
+			if (stringLength + suffix.length != fileNameLength) continue;
+			for (int j = stringLength; j < fileNameLength; j++) {
+				if (fileName.charAt(j) != suffix[j-stringLength]) 
+					continue suffixes;
+			}
+			return true;
+		}
+		return false;
 	}
 	
 	/**
@@ -859,7 +1051,6 @@ public class Util {
 	 */
 	public static String[] getTrimmedSimpleNames(String name) {
 		String[] result = Signature.getSimpleNames(name);
-		if (result == null) return null;
 		for (int i = 0, length = result.length; i < length; i++) {
 			result[i] = result[i].trim();
 		}
@@ -883,6 +1074,26 @@ public class Util {
 			}
 		}
 		return bestMatch;
+	}
+	
+	/*
+	 * Returns the index of the Java like extension of the given file name
+	 * or -1 if it doesn't end with a known Java like extension. 
+	 */
+	public static int indexOfJavaLikeExtension(String fileName) {
+		int fileNameLength = fileName.length();
+		extensions: for (int i = 0, length = JAVA_LIKE_EXTENSIONS.length; i < length; i++) {
+			char[] extension = JAVA_LIKE_EXTENSIONS[i];
+			int extensionLength = extension.length;
+			int extensionStart = fileNameLength - extensionLength;
+			if (extensionStart < 0) continue;
+			for (int j = 0; j < extensionLength; j++) {
+				if (fileName.charAt(extensionStart + j) != extension[j])
+					continue extensions;
+			}
+			return extensionStart;
+		}
+		return -1;
 	}
 	
 	/*
@@ -946,42 +1157,9 @@ public class Util {
 	 */
 	public final static boolean isExcluded(IPath resourcePath, char[][] inclusionPatterns, char[][] exclusionPatterns, boolean isFolderPath) {
 		if (inclusionPatterns == null && exclusionPatterns == null) return false;
-		char[] path = resourcePath.toString().toCharArray();
-
-		inclusionCheck: if (inclusionPatterns != null) {
-			for (int i = 0, length = inclusionPatterns.length; i < length; i++) {
-				char[] pattern = inclusionPatterns[i];
-				char[] folderPattern = pattern;
-				if (isFolderPath) {
-					int lastSlash = CharOperation.lastIndexOf('/', pattern);
-					if (lastSlash != -1 && lastSlash != pattern.length-1){ // trailing slash -> adds '**' for free (see http://ant.apache.org/manual/dirtasks.html)
-						int star = CharOperation.indexOf('*', pattern, lastSlash);
-						if ((star == -1
-								|| star >= pattern.length-1 
-								|| pattern[star+1] != '*')) {
-							folderPattern = CharOperation.subarray(pattern, 0, lastSlash);
-						}
-					}
-				}
-				if (CharOperation.pathMatch(folderPattern, path, true, '/')) {
-					break inclusionCheck;
-				}
-			}
-			return true; // never included
-		}
-		if (isFolderPath) {
-			path = CharOperation.concat(path, new char[] {'*'}, '/');
-		}
-		exclusionCheck: if (exclusionPatterns != null) {
-			for (int i = 0, length = exclusionPatterns.length; i < length; i++) {
-				if (CharOperation.pathMatch(exclusionPatterns[i], path, true, '/')) {
-					return true;
-				}
-			}
-		}
-		return false;
+		return org.eclipse.jdt.internal.compiler.util.Util.isExcluded(resourcePath.toString().toCharArray(), inclusionPatterns, exclusionPatterns, isFolderPath);
 	}	
-	
+
 	/*
 	 * Returns whether the given resource matches one of the exclusion patterns.
 	 * NOTE: should not be asked directly using pkg root pathes
@@ -1066,6 +1244,17 @@ public class Util {
 	public static boolean isValidTypeSignature(String sig, boolean allowVoid) {
 		int len = sig.length();
 		return checkTypeSignature(sig, 0, len, allowVoid) == len;
+	}
+	
+	/*
+	 * Returns the simple name of a local type from the given binary type name.
+	 * The last '$' is at lastDollar. The ;last character of the type name is at end-1.
+	 */
+	public static String localTypeName(String binaryTypeName, int lastDollar, int end) {
+		int nameStart = lastDollar+1;
+		while (nameStart < end && Character.isDigit(binaryTypeName.charAt(nameStart)))
+			nameStart++;
+		return binaryTypeName.substring(nameStart, end);
 	}
 
 	/*
@@ -1486,6 +1675,69 @@ public class Util {
 			throw e;
 		}
 	}
+	/**
+	 * Return a new array which is the split of the given string using the given divider. The given end 
+	 * is exclusive and the given start is inclusive.
+	 * <br>
+	 * <br>
+	 * For example:
+	 * <ol>
+	 * <li><pre>
+	 *    divider = 'b'
+	 *    string = "abbaba"
+	 *    start = 2
+	 *    end = 5
+	 *    result => { "", "a", "" }
+	 * </pre>
+	 * </li>
+	 * </ol>
+	 * 
+	 * @param divider the given divider
+	 * @param string the given string
+	 * @param start the given starting index
+	 * @param end the given ending index
+	 * @return a new array which is the split of the given string using the given divider
+	 * @throws ArrayIndexOutOfBoundsException if start is lower than 0 or end is greater than the array length
+	 */
+	public static final String[] splitOn(
+		char divider,
+		String string,
+		int start,
+		int end) {
+		int length = string == null ? 0 : string.length();
+		if (length == 0 || start > end)
+			return CharOperation.NO_STRINGS;
+
+		int wordCount = 1;
+		for (int i = start; i < end; i++)
+			if (string.charAt(i) == divider)
+				wordCount++;
+		String[] split = new String[wordCount];
+		int last = start, currentWord = 0;
+		for (int i = start; i < end; i++) {
+			if (string.charAt(i) == divider) {
+				split[currentWord++] = string.substring(last, i);
+				last = i + 1;
+			}
+		}
+		split[currentWord] = string.substring(last, end);
+		return split;
+	}
+	public static boolean isReadOnly(IResource resource) {
+		ResourceAttributes resourceAttributes = resource.getResourceAttributes();
+		if (resourceAttributes == null) return false; // not supported on this platform for this resource
+		return resourceAttributes.isReadOnly();
+	}
+	public static void setReadOnly(IResource resource, boolean readOnly) {
+		ResourceAttributes resourceAttributes = resource.getResourceAttributes();
+		if (resourceAttributes == null) return; // not supported on this platform for this resource
+		resourceAttributes.setReadOnly(readOnly);
+		try {
+			resource.setResourceAttributes(resourceAttributes);
+		} catch (CoreException e) {
+			// ignore
+		}
+	}
 	public static void sort(char[][] list) {
 		if (list.length > 1)
 			quickSort(list, 0, list.length - 1);
@@ -1572,6 +1824,22 @@ public class Util {
 		if (strings.length > 1)
 			quickSortReverse(strings, 0, strings.length - 1);
 	}
+	
+	/*
+	 * Returns whether the given compound name starts with the given prefix.
+	 * Returns true if the n first elements of the prefix are equals and the last element of the 
+	 * prefix is a prefix of the corresponding element in the compound name.
+	 */
+	public static boolean startsWithIgnoreCase(String[] compoundName, String[] prefix) {
+		int prefixLength = prefix.length;
+		int nameLength = compoundName.length;
+		if (prefixLength > nameLength) return false;
+		for (int i = 0; i < prefixLength - 1; i++) {
+			if (!compoundName[i].equalsIgnoreCase(prefix[i]))
+				return false;
+		}
+		return compoundName[prefixLength-1].toLowerCase().startsWith(prefix[prefixLength-1].toLowerCase());
+	}
 
 	/**
 	 * Converts a String[] to char[][].
@@ -1580,19 +1848,9 @@ public class Util {
 		int len = a.length;
 		char[][] result = new char[len][];
 		for (int i = 0; i < len; ++i) {
-			result[i] = toChars(a[i]);
+			result[i] = a[i].toCharArray();
 		}
 		return result;
-	}
-
-	/**
-	 * Converts a String to char[].
-	 */
-	public static char[] toChars(String s) {
-		int len = s.length();
-		char[] chars = new char[len];
-		s.getChars(0, len, chars, 0);
-		return chars;
 	}
 
 	/**
@@ -1618,7 +1876,7 @@ public class Util {
 		}
 		return segs;
 	}
-
+	
 	/**
 	 * Converts a char[] to String.
 	 */
@@ -1675,13 +1933,9 @@ public class Util {
 	 * e.g. "QString;", "[int", "[[Qjava.util.Vector;"
 	 */
 	public static String typeSignature(TypeReference type) {
-		char[][] compoundName = type.getTypeName();
+		char[][] compoundName = type.getParameterizedTypeName();
 		char[] typeName =CharOperation.concatWith(compoundName, '.');
 		String signature = Signature.createTypeSignature(typeName, false/*don't resolve*/);
-		int dimensions = type.dimensions();
-		if (dimensions > 0) {
-			signature =  Signature.createArraySignature(signature, dimensions);
-		}
 		return signature;
 	}
 
@@ -1764,5 +2018,35 @@ public class Util {
 			}
 		}
 		return utflen + 2; // the number of bytes written to the stream
+	}
+
+	/**
+	 * Returns true if the given name ends with one of the known java like extension.
+	 * (implementation is not creating extra strings)
+	 */
+	public final static boolean isJavaLikeFileName(String name) {
+		if (name == null) return false;
+		return indexOfJavaLikeExtension(name) != -1;
+	}
+
+	/**
+	 * Returns true if the given name ends with one of the known java like extension.
+	 * (implementation is not creating extra strings)
+	 */
+	public final static boolean isJavaLikeFileName(char[] fileName) {
+		if (fileName == null) return false;
+		int fileNameLength = fileName.length;
+		extensions: for (int i = 0, length = JAVA_LIKE_EXTENSIONS.length; i < length; i++) {
+			char[] extension = JAVA_LIKE_EXTENSIONS[i];
+			int extensionLength = extension.length;
+			int extensionStart = fileNameLength - extensionLength;
+			if (extensionStart < 0) continue;
+			for (int j = 0; j < extensionLength; j++) {
+				if (fileName[extensionStart + j] != extension[j])
+					continue extensions;
+			}
+			return true;
+		}
+		return false;
 	}	
 }

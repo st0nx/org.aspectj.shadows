@@ -11,6 +11,7 @@
 
 package org.eclipse.jdt.core.dom;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -24,11 +25,18 @@ import java.util.List;
  * 			[ ForUpdate ] <b>)</b>
  * 			Statement
  * ForInit:
- * 		( VariableDeclarationExpression
- * 			 | { Expression {<b>,</b> Expression } }
+ * 		Expression { <b>,</b> Expression }
  * ForUpdate:
  * 		Expression { <b>,</b> Expression }
  * </pre>
+ * <p>
+ * Note: When variables are declared in the initializer
+ * of a for statement such as "<code>for (int a=1, b=2;;);</code>",
+ * they should be represented as a single
+ * <code>VariableDeclarationExpression</code>
+ * with two fragments, rather than being split up into a pair
+ * of expressions.
+ * </p>
  * 
  * @since 2.0
  */
@@ -70,12 +78,13 @@ public class ForStatement extends Statement {
 	private static final List PROPERTY_DESCRIPTORS;
 	
 	static {
-		createPropertyList(ForStatement.class);
-		addProperty(INITIALIZERS_PROPERTY);
-		addProperty(EXPRESSION_PROPERTY);
-		addProperty(UPDATERS_PROPERTY);
-		addProperty(BODY_PROPERTY);
-		PROPERTY_DESCRIPTORS = reapPropertyList();
+		List properyList = new ArrayList(5);
+		createPropertyList(ForStatement.class, properyList);
+		addProperty(INITIALIZERS_PROPERTY, properyList);
+		addProperty(EXPRESSION_PROPERTY, properyList);
+		addProperty(UPDATERS_PROPERTY, properyList);
+		addProperty(BODY_PROPERTY, properyList);
+		PROPERTY_DESCRIPTORS = reapPropertyList(properyList);
 	}
 
 	/**

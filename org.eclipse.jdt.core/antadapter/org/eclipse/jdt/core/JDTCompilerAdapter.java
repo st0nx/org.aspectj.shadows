@@ -15,6 +15,7 @@ import java.io.PrintWriter;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Map;
 
 import org.apache.tools.ant.BuildException;
 import org.apache.tools.ant.Project;
@@ -25,6 +26,7 @@ import org.apache.tools.ant.types.FileSet;
 import org.apache.tools.ant.types.Path;
 import org.apache.tools.ant.util.JavaEnvUtils;
 import org.eclipse.jdt.internal.antadapter.AntAdapterMessages;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 
 /**
  * Ant 1.5 compiler adapter for the Eclipse Java compiler. This adapter permits the
@@ -42,6 +44,7 @@ import org.eclipse.jdt.internal.antadapter.AntAdapterMessages;
 public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 	private static String compilerClass = "org.eclipse.jdt.internal.compiler.batch.Main"; //$NON-NLS-1$
 	String logFileName;
+	Map customDefaultOptions;
 	
 	/**
 	 * Performs a compile using the JDT batch compiler
@@ -49,17 +52,17 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 	 * @return boolean true if the compilation is ok, false otherwise
 	 */
 	public boolean execute() throws BuildException {
-		attributes.log(AntAdapterMessages.getString("ant.jdtadapter.info.usingJDTCompiler"), Project.MSG_VERBOSE); //$NON-NLS-1$
+		this.attributes.log(AntAdapterMessages.getString("ant.jdtadapter.info.usingJDTCompiler"), Project.MSG_VERBOSE); //$NON-NLS-1$
 		Commandline cmd = setupJavacCommand();
 
 		try {
 			Class c = Class.forName(compilerClass);
-			Constructor batchCompilerConstructor = c.getConstructor(new Class[] { PrintWriter.class, PrintWriter.class, Boolean.TYPE});
-			Object batchCompilerInstance = batchCompilerConstructor.newInstance(new Object[] {new PrintWriter(System.out), new PrintWriter(System.err), new Boolean(true)});
+			Constructor batchCompilerConstructor = c.getConstructor(new Class[] { PrintWriter.class, PrintWriter.class, Boolean.TYPE, Map.class});
+			Object batchCompilerInstance = batchCompilerConstructor.newInstance(new Object[] {new PrintWriter(System.out), new PrintWriter(System.err), Boolean.TRUE, this.customDefaultOptions});
 			Method compile = c.getMethod("compile", new Class[] {String[].class}); //$NON-NLS-1$
 			Object result = compile.invoke(batchCompilerInstance, new Object[] { cmd.getArguments()});
 			final boolean resultValue = ((Boolean) result).booleanValue();
-			if (!resultValue && verbose) {
+			if (!resultValue && this.verbose) {
 				System.out.println(AntAdapterMessages.getString("ant.jdtadapter.error.compilationFailed", this.logFileName)); //$NON-NLS-1$
 			}
 			return resultValue;
@@ -73,30 +76,31 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 	
 	protected Commandline setupJavacCommand() throws BuildException {
 		Commandline cmd = new Commandline();
-		
+		this.customDefaultOptions = new CompilerOptions().getMap();
+
 		/*
 		 * This option is used to never exit at the end of the ant task. 
 		 */
 		cmd.createArgument().setValue("-noExit"); //$NON-NLS-1$
 
-        if (bootclasspath != null && bootclasspath.size() != 0) {
+        if (this.bootclasspath != null && this.bootclasspath.size() != 0) {
 			/*
 			 * Set the bootclasspath for the Eclipse compiler.
 			 */
 			cmd.createArgument().setValue("-bootclasspath"); //$NON-NLS-1$
-			cmd.createArgument().setPath(bootclasspath);        	
+			cmd.createArgument().setPath(this.bootclasspath);        	
         } else {
-            includeJavaRuntime = true;
+            this.includeJavaRuntime = true;
         }
 
-        Path classpath = new Path(project);
+        Path classpath = new Path(this.project);
 
        /*
          * Eclipse compiler doesn't support -extdirs.
          * It is emulated using the classpath. We add extdirs entries after the 
          * bootclasspath.
          */
-        addExtdirs(extdirs, classpath);
+        addExtdirs(this.extdirs, classpath);
 
 		/*
 		 * The java runtime is already handled, so we simply want to retrieve the
@@ -120,7 +124,7 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
         Path compileSourcePath = null;
         if (getSourcepathMethod != null) {
 	 		try {
-				compileSourcePath = (Path) getSourcepathMethod.invoke(attributes, null);
+				compileSourcePath = (Path) getSourcepathMethod.invoke(this.attributes, null);
 			} catch (IllegalAccessException e) {
 				// should never happen
 			} catch (InvocationTargetException e) {
@@ -130,7 +134,7 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
         if (compileSourcePath != null) {
             sourcepath = compileSourcePath;
         } else {
-            sourcepath = src;
+            sourcepath = this.src;
         }
 		classpath.append(sourcepath);
 		/*
@@ -140,25 +144,25 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 		cmd.createArgument().setPath(classpath);
 
         String memoryParameterPrefix = JavaEnvUtils.getJavaVersion().equals(JavaEnvUtils.JAVA_1_1) ? "-J-" : "-J-X";//$NON-NLS-1$//$NON-NLS-2$
-        if (memoryInitialSize != null) {
-            if (!attributes.isForkedJavac()) {
-                attributes.log(AntAdapterMessages.getString("ant.jdtadapter.info.ignoringMemoryInitialSize"), Project.MSG_WARN); //$NON-NLS-1$
+        if (this.memoryInitialSize != null) {
+            if (!this.attributes.isForkedJavac()) {
+                this.attributes.log(AntAdapterMessages.getString("ant.jdtadapter.info.ignoringMemoryInitialSize"), Project.MSG_WARN); //$NON-NLS-1$
             } else {
                 cmd.createArgument().setValue(memoryParameterPrefix
-                                              + "ms" + memoryInitialSize); //$NON-NLS-1$
+                                              + "ms" + this.memoryInitialSize); //$NON-NLS-1$
             }
         }
 
-        if (memoryMaximumSize != null) {
-            if (!attributes.isForkedJavac()) {
-                attributes.log(AntAdapterMessages.getString("ant.jdtadapter.info.ignoringMemoryMaximumSize"), Project.MSG_WARN); //$NON-NLS-1$
+        if (this.memoryMaximumSize != null) {
+            if (!this.attributes.isForkedJavac()) {
+                this.attributes.log(AntAdapterMessages.getString("ant.jdtadapter.info.ignoringMemoryMaximumSize"), Project.MSG_WARN); //$NON-NLS-1$
             } else {
                 cmd.createArgument().setValue(memoryParameterPrefix
-                                              + "mx" + memoryMaximumSize); //$NON-NLS-1$
+                                              + "mx" + this.memoryMaximumSize); //$NON-NLS-1$
             }
         }
 
-        if (debug) {
+        if (this.debug) {
 	       // retrieve the method getSourcepath() using reflect
 	        // This is done to improve the compatibility to ant 1.5
 	        Method getDebugLevelMethod = null;
@@ -171,7 +175,7 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
      	    String debugLevel = null;
 	        if (getDebugLevelMethod != null) {
 				try {
-					debugLevel = (String) getDebugLevelMethod.invoke(attributes, null);
+					debugLevel = (String) getDebugLevelMethod.invoke(this.attributes, null);
 				} catch (IllegalAccessException e) {
 					// should never happen
 				} catch (InvocationTargetException e) {
@@ -180,15 +184,32 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
         	}
 			if (debugLevel != null) {
 				if (debugLevel.length() == 0) {
-					cmd.createArgument().setValue("-g:none"); //$NON-NLS-1$
+					this.customDefaultOptions.put(CompilerOptions.OPTION_LocalVariableAttribute, CompilerOptions.DO_NOT_GENERATE);
+					this.customDefaultOptions.put(CompilerOptions.OPTION_LineNumberAttribute, CompilerOptions.DO_NOT_GENERATE);
+					this.customDefaultOptions.put(CompilerOptions.OPTION_SourceFileAttribute , CompilerOptions.DO_NOT_GENERATE);
 				} else {
-					cmd.createArgument().setValue("-g:" + debugLevel); //$NON-NLS-1$
+					this.customDefaultOptions.put(CompilerOptions.OPTION_LocalVariableAttribute, CompilerOptions.DO_NOT_GENERATE);
+					this.customDefaultOptions.put(CompilerOptions.OPTION_LineNumberAttribute, CompilerOptions.DO_NOT_GENERATE);
+					this.customDefaultOptions.put(CompilerOptions.OPTION_SourceFileAttribute , CompilerOptions.DO_NOT_GENERATE);
+					if (debugLevel.indexOf("vars") != -1) {//$NON-NLS-1$
+						this.customDefaultOptions.put(CompilerOptions.OPTION_LocalVariableAttribute, CompilerOptions.GENERATE);
+					}
+					if (debugLevel.indexOf("lines") != -1) {//$NON-NLS-1$
+						this.customDefaultOptions.put(CompilerOptions.OPTION_LineNumberAttribute, CompilerOptions.GENERATE);
+					}
+					if (debugLevel.indexOf("source") != -1) {//$NON-NLS-1$
+						this.customDefaultOptions.put(CompilerOptions.OPTION_SourceFileAttribute , CompilerOptions.GENERATE);
+					}
 				}
 			} else {
-				cmd.createArgument().setValue("-g"); //$NON-NLS-1$
+				this.customDefaultOptions.put(CompilerOptions.OPTION_LocalVariableAttribute, CompilerOptions.GENERATE);
+				this.customDefaultOptions.put(CompilerOptions.OPTION_LineNumberAttribute, CompilerOptions.GENERATE);
+				this.customDefaultOptions.put(CompilerOptions.OPTION_SourceFileAttribute , CompilerOptions.GENERATE);
             }
         } else {
-            cmd.createArgument().setValue("-g:none"); //$NON-NLS-1$
+			this.customDefaultOptions.put(CompilerOptions.OPTION_LocalVariableAttribute, CompilerOptions.DO_NOT_GENERATE);
+			this.customDefaultOptions.put(CompilerOptions.OPTION_LineNumberAttribute, CompilerOptions.DO_NOT_GENERATE);
+			this.customDefaultOptions.put(CompilerOptions.OPTION_SourceFileAttribute , CompilerOptions.DO_NOT_GENERATE);
         }
         
        // retrieve the method getCurrentCompilerArgs() using reflect
@@ -203,7 +224,7 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
  	    String[] compilerArgs = null;
         if (getCurrentCompilerArgsMethod != null) {
 			try {
-				compilerArgs = (String[]) getCurrentCompilerArgsMethod.invoke(attributes, null);
+				compilerArgs = (String[]) getCurrentCompilerArgsMethod.invoke(this.attributes, null);
 			} catch (IllegalAccessException e) {
 				// should never happen
 			} catch (InvocationTargetException e) {
@@ -211,41 +232,127 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 			}
     	}
     	
-	   	if (compilerArgs == null) {
-			/*
-			 * Handle the nowarn option. If none, then we generate all warnings.
-			 */
-			if (attributes.getNowarn()) {
-				if (deprecation) {
-					cmd.createArgument().setValue("-warn:allDeprecation"); //$NON-NLS-1$
-				} else {
-					cmd.createArgument().setValue("-nowarn"); //$NON-NLS-1$
-				}
-			} else if (deprecation) {
-				cmd.createArgument().setValue("-warn:allDeprecation,constructorName,packageDefaultMethod,maskedCatchBlocks,unusedImports,staticReceiver"); //$NON-NLS-1$
-			} else {
-				cmd.createArgument().setValue("-warn:constructorName,packageDefaultMethod,maskedCatchBlocks,unusedImports,staticReceiver"); //$NON-NLS-1$
-			}
-    	} else {
-			/*
-			 * Handle the nowarn option. If none, then we generate all warnings.
-			 */
-			if (attributes.getNowarn()) {
-				if (deprecation) {
-					cmd.createArgument().setValue("-warn:allDeprecation"); //$NON-NLS-1$
-				} else {
-					cmd.createArgument().setValue("-nowarn"); //$NON-NLS-1$
-				}
-			} else {
-				if (deprecation) {
-					cmd.createArgument().setValue("-warn:+allDeprecation"); //$NON-NLS-1$
-				} else {
-					cmd.createArgument().setValue("-warn:-allDeprecation,deprecation"); //$NON-NLS-1$
-				}
-				if (compilerArgs.length == 0) {
-					cmd.createArgument().setValue("-warn:+constructorName,packageDefaultMethod,maskedCatchBlocks,unusedImports,staticReceiver"); //$NON-NLS-1$
+		/*
+		 * Handle the nowarn option. If none, then we generate all warnings.
+		 */
+		if (this.attributes.getNowarn()) {
+	        // disable all warnings
+			Object[] entries = this.customDefaultOptions.entrySet().toArray();
+			for (int i = 0, max = entries.length; i < max; i++) {
+				Map.Entry entry = (Map.Entry) entries[i];
+				if (!(entry.getKey() instanceof String))
+					continue;
+				if (!(entry.getValue() instanceof String))
+					continue;
+				if (((String) entry.getValue()).equals(CompilerOptions.WARNING)) {
+					this.customDefaultOptions.put(entry.getKey(), CompilerOptions.IGNORE);
 				}
 			}
+			this.customDefaultOptions.put(CompilerOptions.OPTION_TaskTags, ""); //$NON-NLS-1$
+			if (this.deprecation) {
+				this.customDefaultOptions.put(CompilerOptions.OPTION_ReportDeprecation, CompilerOptions.WARNING); 
+				this.customDefaultOptions.put(CompilerOptions.OPTION_ReportDeprecationInDeprecatedCode, CompilerOptions.ENABLED); 
+				this.customDefaultOptions.put(CompilerOptions.OPTION_ReportDeprecationWhenOverridingDeprecatedMethod, CompilerOptions.ENABLED); 
+			}
+		} else if (this.deprecation) {
+			this.customDefaultOptions.put(CompilerOptions.OPTION_ReportDeprecation, CompilerOptions.WARNING); 
+			this.customDefaultOptions.put(CompilerOptions.OPTION_ReportDeprecationInDeprecatedCode, CompilerOptions.ENABLED); 
+			this.customDefaultOptions.put(CompilerOptions.OPTION_ReportDeprecationWhenOverridingDeprecatedMethod, CompilerOptions.ENABLED); 
+		} else {
+			this.customDefaultOptions.put(CompilerOptions.OPTION_ReportDeprecation, CompilerOptions.IGNORE); 
+			this.customDefaultOptions.put(CompilerOptions.OPTION_ReportDeprecationInDeprecatedCode, CompilerOptions.DISABLED); 
+			this.customDefaultOptions.put(CompilerOptions.OPTION_ReportDeprecationWhenOverridingDeprecatedMethod, CompilerOptions.DISABLED); 
+		}
+
+	   	/*
+		 * destDir option.
+		 */		
+		if (this.destDir != null) {
+			cmd.createArgument().setValue("-d"); //$NON-NLS-1$
+			cmd.createArgument().setFile(this.destDir.getAbsoluteFile());
+		}
+
+		/*
+		 * target option.
+		 */		
+		if (this.target != null) {
+			if (this.target.equals("1.1")) { //$NON-NLS-1$
+				this.customDefaultOptions.put(CompilerOptions.OPTION_TargetPlatform, CompilerOptions.VERSION_1_1);
+			} else if (this.target.equals("1.2")) { //$NON-NLS-1$
+				this.customDefaultOptions.put(CompilerOptions.OPTION_TargetPlatform, CompilerOptions.VERSION_1_2);
+			} else if (this.target.equals("1.3")) { //$NON-NLS-1$
+				this.customDefaultOptions.put(CompilerOptions.OPTION_TargetPlatform, CompilerOptions.VERSION_1_3);
+			} else if (this.target.equals("1.4")) { //$NON-NLS-1$
+				this.customDefaultOptions.put(CompilerOptions.OPTION_TargetPlatform, CompilerOptions.VERSION_1_4);
+			} else if (this.target.equals("1.5")) { //$NON-NLS-1$
+				this.customDefaultOptions.put(CompilerOptions.OPTION_TargetPlatform, CompilerOptions.VERSION_1_5);
+			} else {
+	            this.attributes.log(AntAdapterMessages.getString("ant.jdtadapter.info.unknownTarget", this.target), Project.MSG_WARN); //$NON-NLS-1$
+			}
+		}
+
+		/*
+		 * verbose option
+		 */
+		if (this.verbose) {
+			cmd.createArgument().setValue("-verbose"); //$NON-NLS-1$
+			/*
+			 * extra option allowed by the Eclipse compiler
+			 */
+			cmd.createArgument().setValue("-log"); //$NON-NLS-1$
+			this.logFileName = this.destDir.getAbsolutePath() + ".log"; //$NON-NLS-1$
+			cmd.createArgument().setValue(this.logFileName);
+		}
+
+		/*
+		 * failnoerror option
+		 */
+		if (!this.attributes.getFailonerror()) {
+			cmd.createArgument().setValue("-proceedOnError"); //$NON-NLS-1$
+		}
+
+		/*
+		 * source option
+		 */
+		String source = this.attributes.getSource();
+        if (source != null) {
+        	if (source.equals("1.3")) { //$NON-NLS-1$
+				this.customDefaultOptions.put(CompilerOptions.OPTION_Source, CompilerOptions.VERSION_1_3);
+			} else if (source.equals("1.4")) { //$NON-NLS-1$
+				this.customDefaultOptions.put(CompilerOptions.OPTION_Source, CompilerOptions.VERSION_1_4);
+			} else if (source.equals("1.5")) { //$NON-NLS-1$
+				this.customDefaultOptions.put(CompilerOptions.OPTION_Source, CompilerOptions.VERSION_1_5);
+			} else {
+	            this.attributes.log(AntAdapterMessages.getString("ant.jdtadapter.info.unknownSource", source), Project.MSG_WARN); //$NON-NLS-1$
+			}
+        }
+        
+		if (JavaEnvUtils.getJavaVersion().equals(JavaEnvUtils.JAVA_1_0)
+				|| JavaEnvUtils.getJavaVersion().equals(JavaEnvUtils.JAVA_1_1)
+				|| JavaEnvUtils.getJavaVersion().equals(JavaEnvUtils.JAVA_1_2)
+				|| JavaEnvUtils.getJavaVersion().equals(JavaEnvUtils.JAVA_1_3)) {
+			this.customDefaultOptions.put(CompilerOptions.OPTION_Compliance, CompilerOptions.VERSION_1_3);
+		} else if (JavaEnvUtils.getJavaVersion().equals(JavaEnvUtils.JAVA_1_4)) {
+			if (this.target != null && this.target.equals("1.1")) {			   //$NON-NLS-1$	
+				this.customDefaultOptions.put(CompilerOptions.OPTION_Compliance, CompilerOptions.VERSION_1_3);
+			} else {
+				this.customDefaultOptions.put(CompilerOptions.OPTION_Compliance, CompilerOptions.VERSION_1_4);
+			}
+		} else if (JavaEnvUtils.getJavaVersion().equals(JavaEnvUtils.JAVA_1_5)) {
+			this.customDefaultOptions.put(CompilerOptions.OPTION_Compliance, CompilerOptions.VERSION_1_5);
+		} else {
+            this.attributes.log(AntAdapterMessages.getString("ant.jdtadapter.info.unknownVmVersion", JavaEnvUtils.getJavaVersion()), Project.MSG_WARN); //$NON-NLS-1$
+		}
+		
+		/*
+		 * encoding option
+		 */
+        if (this.encoding != null) {
+            cmd.createArgument().setValue("-encoding"); //$NON-NLS-1$
+            cmd.createArgument().setValue(this.encoding);
+        }
+
+		if (compilerArgs != null) {
 	        /*
 			 * Add extra argument on the command line
 			 */
@@ -253,70 +360,6 @@ public class JDTCompilerAdapter extends DefaultCompilerAdapter {
 		        cmd.addArguments(compilerArgs);
 			}
 	   	}
-
-	   	/*
-		 * destDir option.
-		 */		
-		if (destDir != null) {
-			cmd.createArgument().setValue("-d"); //$NON-NLS-1$
-			cmd.createArgument().setFile(destDir.getAbsoluteFile());
-		}
-
-		/*
-		 * target option.
-		 */		
-		if (target != null) {
-			cmd.createArgument().setValue("-target"); //$NON-NLS-1$
-			cmd.createArgument().setValue(target);
-		}
-
-		/*
-		 * verbose option
-		 */
-		if (verbose) {
-			cmd.createArgument().setValue("-verbose"); //$NON-NLS-1$
-			/*
-			 * extra option allowed by the Eclipse compiler
-			 */
-			cmd.createArgument().setValue("-log"); //$NON-NLS-1$
-			logFileName = destDir.getAbsolutePath() + ".log"; //$NON-NLS-1$
-			cmd.createArgument().setValue(logFileName);
-		}
-
-		/*
-		 * failnoerror option
-		 */
-		if (!attributes.getFailonerror()) {
-			cmd.createArgument().setValue("-proceedOnError"); //$NON-NLS-1$
-		}
-
-		/*
-		 * source option
-		 */
-		String source = attributes.getSource();
-        if (source != null) {
-            cmd.createArgument().setValue("-source"); //$NON-NLS-1$
-            cmd.createArgument().setValue(source);
-        }
-        
-		if (JavaEnvUtils.getJavaVersion().equals(JavaEnvUtils.JAVA_1_4)) {
-			if (target != null && target.equals("1.1")) {			   //$NON-NLS-1$	
-				cmd.createArgument().setValue("-1.3"); //$NON-NLS-1$
-			} else {
-				cmd.createArgument().setValue("-1.4"); //$NON-NLS-1$
-			}
-		} else {
-			cmd.createArgument().setValue("-1.3"); //$NON-NLS-1$
-		}
-		
-		/*
-		 * encoding option
-		 */
-        if (encoding != null) {
-            cmd.createArgument().setValue("-encoding"); //$NON-NLS-1$
-            cmd.createArgument().setValue(encoding);
-        }
-
      	/*
 		 * Eclipse compiler doesn't have a -sourcepath option. This is
 		 * handled through the javac task that collects all source files in

@@ -15,6 +15,7 @@ import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
+import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
@@ -28,6 +29,7 @@ public class TypeDeclaration
 
 	public int modifiers = AccDefault;
 	public int modifiersSourceStart;
+	public Annotation[] annotations;
 	public char[] name;
 	public TypeReference superclass;
 	public TypeReference[] superInterfaces;
@@ -46,11 +48,16 @@ public class TypeDeclaration
 	public int bodyEnd; // doesn't include the trailing comment if any.
 	protected boolean hasBeenGenerated = false;
 	public CompilationResult compilationResult;
-	private MethodDeclaration[] missingAbstractMethods;
+	public MethodDeclaration[] missingAbstractMethods;
 	public Javadoc javadoc;	
 
 	public QualifiedAllocationExpression allocation; // for anonymous only
 	public TypeDeclaration enclosingType; // for member types only
+	
+	public FieldBinding enumValuesSyntheticfield; 	// for enum
+
+	// 1.5 support
+	public TypeParameter[] typeParameters;
 	
 	public TypeDeclaration(CompilationResult compilationResult){
 		this.compilationResult = compilationResult;
@@ -282,7 +289,7 @@ public class TypeDeclaration
 							methods[i] = m;
 						}
 					} else {
-						if (this.isInterface()) {
+						if (this.kind() == IGenericType.INTERFACE_DECL) {
 							// report the problem and continue the parsing
 							parser.problemReporter().interfaceCannotHaveConstructors(
 								(ConstructorDeclaration) am);
@@ -300,7 +307,7 @@ public class TypeDeclaration
 		return this.compilationResult;
 	}
 
-	public ConstructorDeclaration createsInternalConstructor(
+	public ConstructorDeclaration createDefaultConstructor(
 		boolean needExplicitConstructorCall,
 		boolean needToInsert) {
 
@@ -312,7 +319,7 @@ public class TypeDeclaration
 		//the constructor
 		ConstructorDeclaration constructor = new ConstructorDeclaration(this.compilationResult);
 		constructor.isDefaultConstructor = true;
-		constructor.selector = name;
+		constructor.selector = this.name;
 		if (modifiers != AccDefault) {
 			constructor.modifiers =
 				(((this.bits & ASTNode.IsMemberTypeMASK) != 0) && (modifiers & AccPrivate) != 0)
@@ -353,7 +360,7 @@ public class TypeDeclaration
 	}
 	
 	// anonymous type constructor creation
-	public MethodBinding createsInternalConstructorWithBinding(MethodBinding inheritedConstructorBinding) {
+	public MethodBinding createDefaultConstructorWithBinding(MethodBinding inheritedConstructorBinding) {
 
 		//Add to method'set, the default constuctor that just recall the
 		//super constructor with the same arguments
@@ -550,10 +557,7 @@ public class TypeDeclaration
 					methods[i].generateCode(scope, classFile);
 				}
 			}
-			
-			classFile.generateMissingAbstractMethods(this.missingAbstractMethods, scope.referenceCompilationUnit().compilationResult);
-
-			// generate all methods
+			// generate all synthetic and abstract methods
 			classFile.addSpecialMethods();
 
 			if (ignoreFurtherInvestigation) { // trigger problem type generation for code gen errors
@@ -660,14 +664,14 @@ public class TypeDeclaration
 					if (nonStaticFieldInfo == FlowInfo.DEAD_END) {
 						initializerScope.problemReporter().initializerMustCompleteNormally(field);
 						nonStaticFieldInfo = FlowInfo.initial(maxFieldCount).setReachMode(FlowInfo.UNREACHABLE);
-					}
+					} 
 				}
 			}
 		}
 		if (memberTypes != null) {
 			for (int i = 0, count = memberTypes.length; i < count; i++) {
 				if (flowContext != null){ // local type
-					memberTypes[i].analyseCode(scope, flowContext, nonStaticFieldInfo.copy());
+					memberTypes[i].analyseCode(scope, flowContext, nonStaticFieldInfo.copy().setReachMode(flowInfo.reachMode())); // reset reach mode in case initializers did abrupt completely
 				} else {
 					memberTypes[i].analyseCode(scope);
 				}
@@ -684,23 +688,32 @@ public class TypeDeclaration
 					if (method.isStatic()) { // <clinit>
 						method.analyseCode(
 							scope, 
-							staticInitializerContext, 
-							staticFieldInfo.unconditionalInits().discardNonFieldInitializations().addInitializationsFrom(outerInfo));
+							staticInitializerContext,  
+							staticFieldInfo.unconditionalInits().discardNonFieldInitializations().addInitializationsFrom(outerInfo).setReachMode(flowInfo.reachMode()));  // reset reach mode in case initializers did abrupt completely
 					} else { // constructor
-						method.analyseCode(scope, initializerContext, constructorInfo.copy());
+						method.analyseCode(scope, initializerContext, constructorInfo.copy().setReachMode(flowInfo.reachMode())); // reset reach mode in case initializers did abrupt completely
 					}
 				} else { // regular method
 					method.analyseCode(scope, null, flowInfo.copy());
 				}
 			}
 		}
+		// enable enum support ?
+		if (this.binding.isEnum()) {
+			this.enumValuesSyntheticfield = this.binding.addSyntheticFieldForEnumValues();
+		}
 	}
 
-	public boolean isInterface() {
-
-		return (modifiers & AccInterface) != 0;
+	public int kind() {
+		if ((modifiers & AccInterface) != 0) {
+			if ((modifiers & AccAnnotation) != 0) 
+				return IGenericType.ANNOTATION_TYPE_DECL;
+			return IGenericType.INTERFACE_DECL;
+		} else if ((modifiers & AccEnum) != 0) 
+			return IGenericType.ENUM_DECL;
+		return IGenericType.CLASS_DECL;
 	}
-
+	
 	/* 
 	 * Access emulation for a local type
 	 * force to emulation of access to direct enclosing instance.
@@ -721,7 +734,7 @@ public class TypeDeclaration
 		}
 		// add superclass enclosing instance arg for anonymous types (if necessary)
 		if (binding.isAnonymousType()) { 
-			ReferenceBinding superclassBinding = binding.superclass;
+			ReferenceBinding superclassBinding = (ReferenceBinding)binding.superclass.erasure();
 			if (superclassBinding.enclosingType() != null && !superclassBinding.isStatic()) {
 				if (!superclassBinding.isLocalType()
 						|| ((NestedTypeBinding)superclassBinding).getSyntheticField(superclassBinding.enclosingType(), true) != null){
@@ -759,12 +772,15 @@ public class TypeDeclaration
 			return true;
 		if (fields == null)
 			return false;
-		if (isInterface())
+		
+		if (kind() == IGenericType.INTERFACE_DECL)
 			return true; // fields are implicitly statics
 		for (int i = fields.length; --i >= 0;) {
 			FieldDeclaration field = fields[i];
 			//need to test the modifier directly while there is no binding yet
 			if ((field.modifiers & AccStatic) != 0)
+				return true; // TODO (philippe) shouldn't it check whether field is initializer or has some initial value ?
+			if (field.getKind() == AbstractVariableDeclaration.ENUM_CONSTANT)
 				return true;
 		}
 		return false;
@@ -786,16 +802,20 @@ public class TypeDeclaration
 		//methods
 		if (methods != null) {
 			int length = methods.length;
-			for (int i = 0; i < length; i++)
+			for (int i = 0; i < length; i++) {
 				methods[i].parseStatements(parser, unit);
+			}
 		}
 
 		//initializers
 		if (fields != null) {
 			int length = fields.length;
 			for (int i = 0; i < length; i++) {
-				if (fields[i] instanceof Initializer) {
-					((Initializer) fields[i]).parseStatements(parser, this, unit);
+				final FieldDeclaration fieldDeclaration = fields[i];
+				switch(fieldDeclaration.getKind()) {
+					case AbstractVariableDeclaration.INITIALIZER:
+						((Initializer) fieldDeclaration).parseStatements(parser, this, unit);
+						break;
 				}
 			}
 		}
@@ -823,7 +843,7 @@ public class TypeDeclaration
 		}
 		if (fields != null) {
 			for (int fieldI = 0; fieldI < fields.length; fieldI++) {
-				if (fields[fieldI] != null) {
+				if (fields[fieldI] != null) { // TODO (olivier) should improve to deal with enumconstants using ',' separator
 					output.append('\n');
 					fields[fieldI].print(indent + 1, output);
 				}
@@ -844,14 +864,46 @@ public class TypeDeclaration
 	public StringBuffer printHeader(int indent, StringBuffer output) {
 
 		printModifiers(this.modifiers, output);
-		output.append(isInterface() ? "interface " : "class "); //$NON-NLS-1$ //$NON-NLS-2$
+		if (this.annotations != null) printAnnotations(this.annotations, output);
+		
+		switch (kind()) {
+			case IGenericType.CLASS_DECL :
+				output.append("class "); //$NON-NLS-1$
+				break;
+			case IGenericType.INTERFACE_DECL :
+				output.append("interface "); //$NON-NLS-1$
+				break;
+			case IGenericType.ENUM_DECL :
+				output.append("enum "); //$NON-NLS-1$
+				break;
+			case IGenericType.ANNOTATION_TYPE_DECL :
+				output.append("@interface "); //$NON-NLS-1$
+				break;
+		}			
 		output.append(name);
+		if (typeParameters != null) {
+			output.append("<");//$NON-NLS-1$
+			for (int i = 0; i < typeParameters.length; i++) {
+				if (i > 0) output.append( ", "); //$NON-NLS-1$
+				typeParameters[i].print(0, output);
+			}
+			output.append(">");//$NON-NLS-1$
+		}
 		if (superclass != null) {
 			output.append(" extends ");  //$NON-NLS-1$
 			superclass.print(0, output);
 		}
 		if (superInterfaces != null && superInterfaces.length > 0) {
-			output.append(isInterface() ? " extends " : " implements ");//$NON-NLS-2$ //$NON-NLS-1$
+			switch (kind()) {
+				case IGenericType.CLASS_DECL :
+				case IGenericType.ENUM_DECL :
+					output.append(" implements "); //$NON-NLS-1$
+					break;
+				case IGenericType.INTERFACE_DECL :
+				case IGenericType.ANNOTATION_TYPE_DECL :
+					output.append(" extends "); //$NON-NLS-1$
+					break;
+			}			
 			for (int i = 0; i < superInterfaces.length; i++) {
 				if (i > 0) output.append( ", "); //$NON-NLS-1$
 				superInterfaces[i].print(0, output);
@@ -863,51 +915,92 @@ public class TypeDeclaration
 	public StringBuffer printStatement(int tab, StringBuffer output) {
 		return print(tab, output);
 	}
+	
+
 
 	public void resolve() {
-
-		if (this.binding == null) {
+		SourceTypeBinding sourceType = this.binding;
+		if (sourceType == null) {
 			this.ignoreFurtherInvestigation = true;
 			return;
 		}
 		try {
+			resolveAnnotations(this.staticInitializerScope, this.annotations, sourceType);
+			
 			if ((this.bits & UndocumentedEmptyBlockMASK) != 0) {
 				this.scope.problemReporter().undocumentedEmptyBlock(this.bodyStart-1, this.bodyEnd);
 			}
-			// check superclass & interfaces
-			if (this.binding.superclass != null) // watch out for Object ! (and other roots)	
-				if (isTypeUseDeprecated(this.binding.superclass, this.scope))
-					this.scope.problemReporter().deprecatedType(this.binding.superclass, this.superclass);
-			if (this.superInterfaces != null)
-				for (int i = this.superInterfaces.length; --i >= 0;)
-					if (this.superInterfaces[i].resolvedType != null)
-						if (isTypeUseDeprecated(this.superInterfaces[i].resolvedType, this.scope))
-							this.scope.problemReporter().deprecatedType(
-								this.superInterfaces[i].resolvedType,
-								this.superInterfaces[i]);
+			boolean needSerialVersion = 
+							this.scope.environment().options.getSeverity(CompilerOptions.MissingSerialVersion) != ProblemSeverities.Ignore
+							&& sourceType.isClass() 
+							&& !sourceType.isAbstract() 
+							&& sourceType.findSuperTypeErasingTo(T_JavaIoSerializable, false /*Serializable is not a class*/) != null;
+			
+			if (this.typeParameters != null && scope.getJavaLangThrowable().isSuperclassOf(sourceType)) {
+				this.scope.problemReporter().genericTypeCannotExtendThrowable(this);
+			}
 			this.maxFieldCount = 0;
 			int lastVisibleFieldID = -1;
+			boolean hasEnumConstants = false;
+			boolean hasEnumConstantsWithoutBody = false;
+			if (this.memberTypes != null) {
+				for (int i = 0, count = this.memberTypes.length; i < count; i++) {
+					this.memberTypes[i].resolve(this.scope);
+				}
+			}
 			if (this.fields != null) {
 				for (int i = 0, count = this.fields.length; i < count; i++) {
 					FieldDeclaration field = this.fields[i];
-					if (field.isField()) {
-						if (field.binding == null) {
-							// still discover secondary errors
-							if (field.initialization != null) field.initialization.resolve(field.isStatic() ? this.staticInitializerScope : this.initializerScope);
-							this.ignoreFurtherInvestigation = true;
-							continue;
-						}
-						this.maxFieldCount++;
-						lastVisibleFieldID = field.binding.id;
-					} else { // initializer
-						 ((Initializer) field).lastVisibleFieldID = lastVisibleFieldID + 1;
+					switch(field.getKind()) {
+						case AbstractVariableDeclaration.ENUM_CONSTANT:
+							hasEnumConstants = true;
+							if (!(field.initialization instanceof QualifiedAllocationExpression))
+								hasEnumConstantsWithoutBody = true;
+						case AbstractVariableDeclaration.FIELD:
+							FieldBinding fieldBinding = field.binding;
+							if (fieldBinding == null) {
+								// still discover secondary errors
+								if (field.initialization != null) field.initialization.resolve(field.isStatic() ? this.staticInitializerScope : this.initializerScope);
+								this.ignoreFurtherInvestigation = true;
+								continue;
+							}
+							if (needSerialVersion
+									&& ((fieldBinding.modifiers & (AccStatic | AccFinal)) == (AccStatic | AccFinal))
+									&& CharOperation.equals(TypeConstants.SERIALVERSIONUID, fieldBinding.name)
+									&& BaseTypes.LongBinding == fieldBinding.type) {
+								needSerialVersion = false;
+							}
+							this.maxFieldCount++;
+							lastVisibleFieldID = field.binding.id;
+							break;
+	
+						case AbstractVariableDeclaration.INITIALIZER:
+							 ((Initializer) field).lastVisibleFieldID = lastVisibleFieldID + 1;
+							break;
 					}
 					field.resolve(field.isStatic() ? this.staticInitializerScope : this.initializerScope);
 				}
 			}
-			if (this.memberTypes != null) {
-				for (int i = 0, count = this.memberTypes.length; i < count; i++) {
-					this.memberTypes[i].resolve(this.scope);
+			if (needSerialVersion) {
+				this.scope.problemReporter().missingSerialVersion(this);
+			}
+			// check extends/implements for annotation type
+			if (kind() == IGenericType.ANNOTATION_TYPE_DECL) {
+				if (this.superclass != null) {
+					this.scope.problemReporter().annotationTypeDeclarationCannotHaveSuperclass(this);
+				}
+				if (this.superInterfaces != null) {
+					this.scope.problemReporter().annotationTypeDeclarationCannotHaveSuperinterfaces(this);
+				}
+			}
+			// check enum abstract methods
+			if (kind() == IGenericType.ENUM_DECL && this.binding.isAbstract()) {
+				if (!hasEnumConstants || hasEnumConstantsWithoutBody) {
+					for (int i = 0, count = this.methods.length; i < count; i++) {
+						if (this.methods[i].isAbstract()) {
+							this.scope.problemReporter().enumAbstractMethodMustBeImplemented(this.methods[i]);
+						}
+					}
 				}
 			}
 			int missingAbstractMethodslength = this.missingAbstractMethods == null ? 0 : this.missingAbstractMethods.length;
@@ -926,8 +1019,8 @@ public class TypeDeclaration
 				if (this.scope != null) {
 					this.javadoc.resolve(this.scope);
 				}
-			} else if (this.binding != null && !this.binding.isLocalType()) {
-				this.scope.problemReporter().javadocMissing(this.sourceStart, this.sourceEnd, this.binding.modifiers);
+			} else if (sourceType != null && !sourceType.isLocalType()) {
+				this.scope.problemReporter().javadocMissing(this.sourceStart, this.sourceEnd, sourceType.modifiers);
 			}
 			
 		} catch (AbortType e) {
@@ -988,33 +1081,44 @@ public class TypeDeclaration
 			return;
 		try {
 			if (visitor.visit(this, unitScope)) {
-				if (superclass != null)
-					superclass.traverse(visitor, scope);
-				if (superInterfaces != null) {
-					int superInterfaceLength = superInterfaces.length;
-					for (int i = 0; i < superInterfaceLength; i++)
-						superInterfaces[i].traverse(visitor, scope);
+				if (this.annotations != null) {
+					int annotationsLength = this.annotations.length;
+					for (int i = 0; i < annotationsLength; i++)
+						this.annotations[i].traverse(visitor, scope);
 				}
-				if (memberTypes != null) {
-					int memberTypesLength = memberTypes.length;
-					for (int i = 0; i < memberTypesLength; i++)
-						memberTypes[i].traverse(visitor, scope);
+				if (this.superclass != null)
+					this.superclass.traverse(visitor, scope);
+				if (this.superInterfaces != null) {
+					int length = this.superInterfaces.length;
+					for (int i = 0; i < length; i++)
+						this.superInterfaces[i].traverse(visitor, scope);
 				}
-				if (fields != null) {
-					int fieldsLength = fields.length;
-					for (int i = 0; i < fieldsLength; i++) {
+				if (this.typeParameters != null) {
+					int length = this.typeParameters.length;
+					for (int i = 0; i < length; i++) {
+						this.typeParameters[i].traverse(visitor, scope);
+					}
+				}				
+				if (this.memberTypes != null) {
+					int length = this.memberTypes.length;
+					for (int i = 0; i < length; i++)
+						this.memberTypes[i].traverse(visitor, scope);
+				}
+				if (this.fields != null) {
+					int length = this.fields.length;
+					for (int i = 0; i < length; i++) {
 						FieldDeclaration field;
-						if ((field = fields[i]).isStatic()) {
+						if ((field = this.fields[i]).isStatic()) {
 							field.traverse(visitor, staticInitializerScope);
 						} else {
 							field.traverse(visitor, initializerScope);
 						}
 					}
 				}
-				if (methods != null) {
-					int methodsLength = methods.length;
-					for (int i = 0; i < methodsLength; i++)
-						methods[i].traverse(visitor, scope);
+				if (this.methods != null) {
+					int length = this.methods.length;
+					for (int i = 0; i < length; i++)
+						this.methods[i].traverse(visitor, scope);
 				}
 			}
 			visitor.endVisit(this, unitScope);
@@ -1032,33 +1136,44 @@ public class TypeDeclaration
 			return;
 		try {
 			if (visitor.visit(this, blockScope)) {
-				if (superclass != null)
-					superclass.traverse(visitor, scope);
-				if (superInterfaces != null) {
-					int superInterfaceLength = superInterfaces.length;
-					for (int i = 0; i < superInterfaceLength; i++)
-						superInterfaces[i].traverse(visitor, scope);
+				if (this.annotations != null) {
+					int annotationsLength = this.annotations.length;
+					for (int i = 0; i < annotationsLength; i++)
+						this.annotations[i].traverse(visitor, scope);
 				}
-				if (memberTypes != null) {
-					int memberTypesLength = memberTypes.length;
-					for (int i = 0; i < memberTypesLength; i++)
-						memberTypes[i].traverse(visitor, scope);
+				if (this.superclass != null)
+					this.superclass.traverse(visitor, scope);
+				if (this.superInterfaces != null) {
+					int length = this.superInterfaces.length;
+					for (int i = 0; i < length; i++)
+						this.superInterfaces[i].traverse(visitor, scope);
 				}
-				if (fields != null) {
-					int fieldsLength = fields.length;
-					for (int i = 0; i < fieldsLength; i++) {
+				if (this.typeParameters != null) {
+					int length = this.typeParameters.length;
+					for (int i = 0; i < length; i++) {
+						this.typeParameters[i].traverse(visitor, scope);
+					}
+				}				
+				if (this.memberTypes != null) {
+					int length = this.memberTypes.length;
+					for (int i = 0; i < length; i++)
+						this.memberTypes[i].traverse(visitor, scope);
+				}
+				if (this.fields != null) {
+					int length = this.fields.length;
+					for (int i = 0; i < length; i++) {
 						FieldDeclaration field;
-						if ((field = fields[i]).isStatic()) {
+						if ((field = this.fields[i]).isStatic()) {
 							// local type cannot have static fields
 						} else {
 							field.traverse(visitor, initializerScope);
 						}
 					}
 				}
-				if (methods != null) {
-					int methodsLength = methods.length;
-					for (int i = 0; i < methodsLength; i++)
-						methods[i].traverse(visitor, scope);
+				if (this.methods != null) {
+					int length = this.methods.length;
+					for (int i = 0; i < length; i++)
+						this.methods[i].traverse(visitor, scope);
 				}
 			}
 			visitor.endVisit(this, blockScope);
@@ -1076,33 +1191,44 @@ public class TypeDeclaration
 			return;
 		try {
 			if (visitor.visit(this, classScope)) {
-				if (superclass != null)
-					superclass.traverse(visitor, scope);
-				if (superInterfaces != null) {
-					int superInterfaceLength = superInterfaces.length;
-					for (int i = 0; i < superInterfaceLength; i++)
-						superInterfaces[i].traverse(visitor, scope);
+				if (this.annotations != null) {
+					int annotationsLength = this.annotations.length;
+					for (int i = 0; i < annotationsLength; i++)
+						this.annotations[i].traverse(visitor, scope);
 				}
-				if (memberTypes != null) {
-					int memberTypesLength = memberTypes.length;
-					for (int i = 0; i < memberTypesLength; i++)
-						memberTypes[i].traverse(visitor, scope);
+				if (this.superclass != null)
+					this.superclass.traverse(visitor, scope);
+				if (this.superInterfaces != null) {
+					int length = this.superInterfaces.length;
+					for (int i = 0; i < length; i++)
+						this.superInterfaces[i].traverse(visitor, scope);
 				}
-				if (fields != null) {
-					int fieldsLength = fields.length;
-					for (int i = 0; i < fieldsLength; i++) {
+				if (this.typeParameters != null) {
+					int length = this.typeParameters.length;
+					for (int i = 0; i < length; i++) {
+						this.typeParameters[i].traverse(visitor, scope);
+					}
+				}				
+				if (this.memberTypes != null) {
+					int length = this.memberTypes.length;
+					for (int i = 0; i < length; i++)
+						this.memberTypes[i].traverse(visitor, scope);
+				}
+				if (this.fields != null) {
+					int length = this.fields.length;
+					for (int i = 0; i < length; i++) {
 						FieldDeclaration field;
-						if ((field = fields[i]).isStatic()) {
+						if ((field = this.fields[i]).isStatic()) {
 							field.traverse(visitor, staticInitializerScope);
 						} else {
 							field.traverse(visitor, initializerScope);
 						}
 					}
 				}
-				if (methods != null) {
-					int methodsLength = methods.length;
-					for (int i = 0; i < methodsLength; i++)
-						methods[i].traverse(visitor, scope);
+				if (this.methods != null) {
+					int length = this.methods.length;
+					for (int i = 0; i < length; i++)
+						this.methods[i].traverse(visitor, scope);
 				}
 			}
 			visitor.endVisit(this, classScope);

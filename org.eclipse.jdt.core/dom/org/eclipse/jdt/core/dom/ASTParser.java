@@ -15,21 +15,21 @@ import java.util.Map;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.WorkingCopyOwner;
-import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Statement;
-import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.compiler.env.IBinaryType;
+import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.DefaultWorkingCopyOwner;
+import org.eclipse.jdt.internal.core.PackageFragment;
 import org.eclipse.jdt.internal.core.util.CodeSnippetParsingUtil;
 import org.eclipse.jdt.internal.core.util.RecordedParsingInformation;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * A Java language parser for creating abstract syntax trees (ASTs).
@@ -579,6 +579,80 @@ public class ASTParser {
    	   return result;
 	}
 	
+	/**
+     * Creates ASTs for a batch of compilation units.
+     * When bindings are being resolved, processing a
+     * batch of compilation units is more efficient because much
+     * of the work involved in resolving bindings can be shared.
+     * <p>
+     * When bindings are being resolved, all compilation units must
+     * come from the same Java project, which must be set beforehand
+     * with <code>setProject</code>.
+     * The compilation units are processed one at a time in no
+     * specified order. For each of the compilation units in turn,
+	 * <ul>
+	 * <li><code>ASTParser.createAST</code> is called to parse it
+	 * and create a corresponding AST. The calls to
+	 * <code>ASTParser.createAST</code> all employ the same settings.</li>
+	 * <li><code>ASTRequestor.acceptAST</code> is called passing
+	 * the compilation unit and the corresponding AST to 
+	 * <code>requestor</code>.
+	 * </li>
+	 * </ul> 
+     * Note only ASTs from the given compilation units are reported
+     * to the requestor. If additional compilation units are required to
+     * resolve the original ones, the corresponding ASTs are <b>not</b>
+     * reported to the requestor.
+     * </p>
+	 * <p>
+	 * Note also the following parser parameters are used, regardless of what
+	 * may have been specified:
+	 * <ul>
+	 * <li>The {@linkplain #setKind(int) parser kind} is <code>K_COMPILATION_UNIT</code></li>
+	 * <li>The {@linkplain #setSourceRange(int,int) source range} is <code>(0, -1)</code></li>
+	 * <li>The {@linkplain #setFocalPosition(int) focal position} is not set</li>
+	 * </ul>
+	 * </p>
+     * <p>
+     * The <code>bindingKeys</code> parameter specifies bindings keys
+     * ({@link IBinding#getKey()}) that are to be looked up. These keys may
+     * be for elements either inside or outside the set of compilation
+     * units being processed. When bindings are being resolved,
+     * the keys and corresponding bindings (or <code>null</code> if none) are
+     * passed to <code>ASTRequestor.acceptBinding</code>. Note that binding keys
+     * are looked up after all <code>ASTRequestor.acceptAST</code> callbacks
+     * have been made. No <code>ASTRequestor.acceptBinding</code> callbacks are
+     * made unless bindings are being resolved.
+     * </p>
+     * <p>
+     * A successful call to this method returns all settings to their
+     * default values so the object is ready to be reused.
+     * </p>
+     * 
+     * @param compilationUnits the compilation units to create ASTs for
+     * @param bindingKeys the binding keys to create bindings for
+     * @param requestor the AST requestor that collects abtract syntax trees and bindings
+	 * @param monitor the progress monitor used to report progress and request cancelation,
+	 *   or <code>null</code> if none
+	 * @exception IllegalStateException if the settings provided
+	 * are insufficient, contradictory, or otherwise unsupported
+	 * @since 3.1
+     */
+	public void createASTs(ICompilationUnit[] compilationUnits, String[] bindingKeys, ASTRequestor requestor, IProgressMonitor monitor) {
+		try {
+			if (this.resolveBindings) {
+				if (this.project == null)
+					throw new IllegalStateException("project not specified"); //$NON-NLS-1$
+				CompilationUnitResolver.resolve(compilationUnits, bindingKeys, requestor, this.apiLevel, this.compilerOptions, this.project, this.workingCopyOwner, monitor);
+			} else {
+				CompilationUnitResolver.parse(compilationUnits, requestor, this.apiLevel, this.compilerOptions, monitor);
+			}
+		} finally {
+	   	   // re-init defaults to allow reuse (and avoid leaking)
+	   	   initializeDefaults();
+		}
+	}
+	
 	private ASTNode internalCreateAST(IProgressMonitor monitor) {
 		boolean needToResolveBindings = this.resolveBindings;
 		switch(this.astKind) {
@@ -595,57 +669,34 @@ public class ASTParser {
 			case K_COMPILATION_UNIT :
 				CompilationUnitDeclaration compilationUnitDeclaration = null;
 				try {
-					char[] source = null;
 					NodeSearcher searcher = null;
-					char[][] packageName = null;
-					String fileName = null;
+					org.eclipse.jdt.internal.compiler.env.ICompilationUnit sourceUnit = null;
 					if (this.compilationUnitSource != null) {
-						try {
-							source = this.compilationUnitSource.getSource().toCharArray();
-						} catch(JavaModelException e) {
-							// no source, then we cannot build anything
-							throw new IllegalStateException();
-						}
-						IPackageFragment packageFragment = (IPackageFragment)this.compilationUnitSource.getAncestor(IJavaElement.PACKAGE_FRAGMENT);
-						if (packageFragment != null){
-							packageName = CharOperation.splitOn('.', packageFragment.getElementName().toCharArray());
-						}
-						fileName = this.compilationUnitSource.getElementName();
+						sourceUnit = (org.eclipse.jdt.internal.compiler.env.ICompilationUnit) this.compilationUnitSource;
+						// use a BasicCompilation that caches the source instead of using the compilationUnitSource directly 
+						// (if it is a working copy, the source can change between the parse and the AST convertion)
+						// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=75632)
+						sourceUnit = new BasicCompilationUnit(sourceUnit.getContents(), sourceUnit.getPackageName(), new String(sourceUnit.getFileName()), this.project);
 					} else if (this.classFileSource != null) {
-						String sourceString = null;
 						try {
-							sourceString = this.classFileSource.getSource();
-						} catch (JavaModelException e) {
-							// nothing to do
-						}
-					
-						if (sourceString == null) {
-							throw new IllegalStateException();
-						}
-						source = sourceString.toCharArray();
-						try {
-							packageName = CharOperation.splitOn('.', this.classFileSource.getType().getPackageFragment().getElementName().toCharArray());
-							StringBuffer buffer = new StringBuffer(SuffixConstants.SUFFIX_STRING_java);
-							String classFileName = this.classFileSource.getElementName(); // this includes the trailing .class
-							buffer.insert(0, classFileName.toCharArray(), 0, classFileName.indexOf('.'));
-							fileName = String.valueOf(buffer);
+							String sourceString = this.classFileSource.getSource();
+							if (sourceString == null) {
+								throw new IllegalStateException();
+							}
+							PackageFragment packageFragment = (PackageFragment) this.classFileSource.getParent();
+							BinaryType type = (BinaryType) this.classFileSource.getType();
+							IBinaryType binaryType = (IBinaryType) type.getElementInfo();
+							String fileName = new String(binaryType.getFileName()); // file name is used to recreate the Java element, so it has to be the .class file name
+							sourceUnit = new BasicCompilationUnit(sourceString.toCharArray(), Util.toCharArrays(packageFragment.names), fileName, this.project);
 						} catch(JavaModelException e) {
-							needToResolveBindings = false;
+							// an error occured accessing the java element
+							throw new IllegalStateException();
 						}
 					} else if (this.rawSource != null) {
-						source = this.rawSource;
-						if (this.unitName == null || this.project == null || this.compilerOptions == null) {
-							needToResolveBindings = false;
-						} else {
-							fileName = this.unitName;
-							needToResolveBindings = true;
-						}
-					}
-					if (source == null) {
+						needToResolveBindings = this.unitName != null && this.project != null && this.compilerOptions != null;
+						sourceUnit = new BasicCompilationUnit(this.rawSource, null, this.unitName == null ? "" : this.unitName, this.project); //$NON-NLS-1$
+					} else {
 						throw new IllegalStateException();
-					}
-					if (this.sourceLength == -1) {
-						this.sourceLength = source.length;
 					}
 					if (this.partial) {
 						searcher = new NodeSearcher(this.focalPointPosition);
@@ -655,30 +706,35 @@ public class ASTParser {
 							// parse and resolve
 							compilationUnitDeclaration = 
 								CompilationUnitResolver.resolve(
-									source,
-									packageName,
-									fileName,
+									sourceUnit,
 									this.project,
 									searcher,
 									this.compilerOptions,
-									false,
 									this.workingCopyOwner,
 									monitor);
 						} catch (JavaModelException e) {
 							compilationUnitDeclaration = CompilationUnitResolver.parse(
-									source,
+									sourceUnit,
 									searcher,
 									this.compilerOptions);
 							needToResolveBindings = false;
 						}
 					} else {
 						compilationUnitDeclaration = CompilationUnitResolver.parse(
-								source,
+								sourceUnit,
 								searcher,
 								this.compilerOptions);
 						needToResolveBindings = false;
 					}
-					return convert(monitor, compilationUnitDeclaration, source, needToResolveBindings);
+					return CompilationUnitResolver.convert(
+						compilationUnitDeclaration, 
+						sourceUnit.getContents(),
+						this.apiLevel, 
+						this.compilerOptions,
+						needToResolveBindings,
+						this.compilationUnitSource == null ? this.workingCopyOwner : this.compilationUnitSource.getOwner(),
+						needToResolveBindings ? new DefaultBindingResolver.BindingTables() : null, 
+						monitor);
 				} finally {
 					if (compilationUnitDeclaration != null && this.resolveBindings) {
 						compilationUnitDeclaration.cleanUp();
@@ -687,37 +743,7 @@ public class ASTParser {
 		}
 		throw new IllegalStateException();
 	}
-
-	/**
-	 * @param monitor
-	 * @param compilationUnitDeclaration
-	 * @param source
-	 * @return
-	 */
-	private ASTNode convert(IProgressMonitor monitor, CompilationUnitDeclaration compilationUnitDeclaration, char[] source, boolean needToResolveBindings) {
-		BindingResolver resolver = null;
-		AST ast = AST.newAST(this.apiLevel);
-		ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
-		CompilationUnit compilationUnit = null;
-		if (AST.JLS2 == this.apiLevel) {
-			ASTConverter converter = new ASTConverter(this.compilerOptions, needToResolveBindings, monitor);
-			if (needToResolveBindings) {
-				resolver = new DefaultBindingResolver(compilationUnitDeclaration.scope);
-			} else {
-				resolver = new BindingResolver();
-			}
-			ast.setBindingResolver(resolver);
-			converter.setAST(ast);
-			compilationUnit = converter.convert(compilationUnitDeclaration, source);
-			compilationUnit.setLineEndTable(compilationUnitDeclaration.compilationResult.lineSeparatorPositions);
-		} else {
-			throw new RuntimeException("J2SE 1.5 parser not implemented yet"); //$NON-NLS-1$
-		}
-		ast.setDefaultNodeFlag(0);
-		ast.setOriginalModificationCount(ast.modificationCount());
-		return compilationUnit;
-	}
-
+	
 	/**
 	 * Parses the given source between the bounds specified by the given offset (inclusive)
 	 * and the given length and creates and returns a corresponding abstract syntax tree.

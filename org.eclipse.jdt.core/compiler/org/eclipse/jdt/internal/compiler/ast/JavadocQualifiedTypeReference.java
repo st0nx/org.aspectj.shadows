@@ -47,40 +47,41 @@ public class JavadocQualifiedTypeReference extends QualifiedTypeReference {
 		visitor.visit(this, scope);
 		visitor.endVisit(this, scope);
 	}
+	public void traverse(ASTVisitor visitor, ClassScope scope) {
+		visitor.visit(this, scope);
+		visitor.endVisit(this, scope);
+	}
 
 	/*
-	 * 
+	 *
 	 */
-	private TypeBinding internalResolveType(Scope scope) {
+	private TypeBinding internalResolveType(Scope scope, boolean checkBounds) {
 		// handle the error here
 		this.constant = NotAConstant;
-		if (this.resolvedType != null) { // is a shared type reference which was already resolved
-			if (!this.resolvedType.isValidBinding())
-				return null; // already reported error
-		} else {
-			this.resolvedType = getTypeBinding(scope);
-			if (!this.resolvedType.isValidBinding()) {
-				Binding binding = scope.getTypeOrPackage(this.tokens);
-				if (binding instanceof PackageBinding) {
-					this.packageBinding = (PackageBinding) binding;
-				} else {
-					reportInvalidType(scope);
-				}
-				return null;
+		if (this.resolvedType != null) // is a shared type reference which was already resolved
+			return this.resolvedType.isValidBinding() ? this.resolvedType : null; // already reported error
+
+		this.resolvedType = getTypeBinding(scope);
+		if (!this.resolvedType.isValidBinding()) {
+			Binding binding = scope.getTypeOrPackage(this.tokens);
+			if (binding instanceof PackageBinding) {
+				this.packageBinding = (PackageBinding) binding;
+			} else {
+				reportInvalidType(scope);
 			}
-			if (isTypeUseDeprecated(this.resolvedType, scope)) {
-				reportDeprecatedType(scope);
-			}
+			return null;
 		}
-		return this.resolvedType;
+		if (isTypeUseDeprecated(this.resolvedType, scope))
+			reportDeprecatedType(scope);
+		return this.resolvedType = scope.convertToRawType(this.resolvedType);
 	}
 
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.ast.Expression#resolveType(org.eclipse.jdt.internal.compiler.lookup.BlockScope)
 	 * We need to override to handle package references
 	 */
-	public TypeBinding resolveType(BlockScope blockScope) {
-		return internalResolveType(blockScope);
+	public TypeBinding resolveType(BlockScope blockScope, boolean checkBounds) {
+		return internalResolveType(blockScope, checkBounds);
 	}
 
 	/* (non-Javadoc)
@@ -88,6 +89,6 @@ public class JavadocQualifiedTypeReference extends QualifiedTypeReference {
 	 * We need to override to handle package references
 	 */
 	public TypeBinding resolveType(ClassScope classScope) {
-		return internalResolveType(classScope);
+		return internalResolveType(classScope, false);
 	}
 }

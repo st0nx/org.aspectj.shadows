@@ -42,9 +42,25 @@ public class Assignment extends Expression {
 		// a field reference, a blank final field reference, a field of an enclosing instance or 
 		// just a local variable.
 
-		return ((Reference) lhs)
+		LocalVariableBinding local = this.lhs.localVariableBinding();
+		int nullStatus = this.expression.nullStatus(flowInfo);
+		if (local != null && nullStatus == FlowInfo.NULL) {
+				flowContext.recordUsingNullReference(currentScope, local, this.lhs, FlowInfo.NON_NULL, flowInfo);
+		}
+		flowInfo = ((Reference) lhs)
 			.analyseAssignment(currentScope, flowContext, flowInfo, this, false)
 			.unconditionalInits();
+		if (local != null) {
+			switch(nullStatus) {
+				case FlowInfo.NULL :
+					flowInfo.markAsDefinitelyNull(local);
+					break;
+				case FlowInfo.NON_NULL :
+					flowInfo.markAsDefinitelyNonNull(local);
+					break;
+			}
+		}		
+		return flowInfo;
 	}
 
 	void checkAssignmentEffect(BlockScope scope) {
@@ -56,6 +72,19 @@ public class Assignment extends Expression {
 		}
 	}
 
+	void checkAssignment(BlockScope scope, TypeBinding lhsType, TypeBinding rhsType) {
+		
+		FieldBinding leftField = getLastField(this.lhs);
+		if (leftField != null &&  rhsType != NullBinding && lhsType.isWildcard() && ((WildcardBinding)lhsType).kind != Wildcard.SUPER) {
+		    scope.problemReporter().wildcardAssignment(lhsType, rhsType, this.expression);
+		} else if (leftField != null && leftField.declaringClass != null /*length pseudo field*/&& leftField.declaringClass.isRawType() 
+		        && (rhsType.isParameterizedType() || rhsType.isGenericType())) {
+		    scope.problemReporter().unsafeRawFieldAssignment(leftField, rhsType, this.lhs);
+		} else if (rhsType.needsUncheckedConversion(lhsType)) {
+		    scope.problemReporter().unsafeRawConversion(this.expression, rhsType, lhsType);
+		}		
+	}
+	
 	public void generateCode(
 		BlockScope currentScope,
 		CodeStream codeStream,
@@ -89,6 +118,28 @@ public class Assignment extends Expression {
 		}
 		return null;
 	}
+	FieldBinding getLastField(Expression someExpression) {
+	    if (someExpression instanceof SingleNameReference) {
+	        if ((someExpression.bits & RestrictiveFlagMASK) == Binding.FIELD) {
+	            return (FieldBinding) ((SingleNameReference)someExpression).binding;
+	        }
+	    } else if (someExpression instanceof FieldReference) {
+	        return ((FieldReference)someExpression).binding;
+	    } else if (someExpression instanceof QualifiedNameReference) {
+	        QualifiedNameReference qName = (QualifiedNameReference) someExpression;
+	        if (qName.otherBindings == null && ((someExpression.bits & RestrictiveFlagMASK) == Binding.FIELD)) {
+	            return (FieldBinding)qName.binding;
+	        } else {
+	            return qName.otherBindings[qName.otherBindings.length - 1];
+	        }
+	    }
+	    return null;
+	}	
+
+	public int nullStatus(FlowInfo flowInfo) {
+		return this.expression.nullStatus(flowInfo);
+	}
+	
 	public StringBuffer print(int indent, StringBuffer output) {
 
 		//no () when used as a statement 
@@ -122,26 +173,30 @@ public class Assignment extends Expression {
 			scope.problemReporter().expressionShouldBeAVariable(this.lhs);
 			return null;
 		}
-		this.resolvedType = lhs.resolveType(scope); // expressionType contains the assignment type (lhs Type)
+		TypeBinding lhsType = this.resolvedType = lhs.resolveType(scope);
+		expression.setExpectedType(lhsType); // needed in case of generic method invocation
 		TypeBinding rhsType = expression.resolveType(scope);
-		if (this.resolvedType == null || rhsType == null) {
+		if (lhsType == null || rhsType == null) {
 			return null;
 		}
 		checkAssignmentEffect(scope);
-				
+
 		// Compile-time conversion of base-types : implicit narrowing integer into byte/short/character
 		// may require to widen the rhs expression at runtime
-		if ((expression.isConstantValueOfTypeAssignableToType(rhsType, this.resolvedType)
-				|| (this.resolvedType.isBaseType() && BaseTypeBinding.isWidening(this.resolvedType.id, rhsType.id)))
-				|| rhsType.isCompatibleWith(this.resolvedType)) {
-			expression.implicitWidening(this.resolvedType, rhsType);
+		if (lhsType != rhsType) // must call before computeConversion() and typeMismatchError()
+			scope.compilationUnitScope().recordTypeConversion(lhsType, rhsType);
+		if ((expression.isConstantValueOfTypeAssignableToType(rhsType, lhsType)
+				|| (lhsType.isBaseType() && BaseTypeBinding.isWidening(lhsType.id, rhsType.id)))
+				|| rhsType.isCompatibleWith(lhsType)) {
+			expression.computeConversion(scope, lhsType, rhsType);
+			checkAssignment(scope, lhsType, rhsType);
 			return this.resolvedType;
-		}
-		scope.problemReporter().typeMismatchErrorActualTypeExpectedType(
-			expression,
-			rhsType,
-			this.resolvedType);
-		return this.resolvedType;
+		} else if (scope.isBoxingCompatibleWith(rhsType, lhsType)) {
+			expression.computeConversion(scope, lhsType, rhsType);
+			return this.resolvedType;
+		} 
+		scope.problemReporter().typeMismatchError(rhsType, lhsType, expression);
+		return lhsType;
 	}
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.ast.Expression#resolveTypeExpecting(org.eclipse.jdt.internal.compiler.lookup.BlockScope, org.eclipse.jdt.internal.compiler.lookup.TypeBinding)
@@ -151,13 +206,16 @@ public class Assignment extends Expression {
 			TypeBinding expectedType) {
 
 		TypeBinding type = super.resolveTypeExpecting(scope, expectedType);
+		if (type == null) return null;
+		TypeBinding lhsType = this.resolvedType; 
+		TypeBinding rhsType = this.expression.resolvedType;
 		// signal possible accidental boolean assignment (instead of using '==' operator)
 		if (expectedType == BooleanBinding 
-				&& this.lhs.resolvedType == BooleanBinding 
+				&& lhsType == BooleanBinding 
 				&& (this.lhs.bits & IsStrictlyAssignedMASK) != 0) {
 			scope.problemReporter().possibleAccidentalBooleanAssignment(this);
 		}
-
+		checkAssignment(scope, lhsType, rhsType);
 		return type;
 	}
 

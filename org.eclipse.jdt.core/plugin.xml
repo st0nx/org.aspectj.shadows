@@ -6,7 +6,7 @@
 <plugin
     name = "%pluginName"
     id = "org.eclipse.jdt.core"
-    version = "3.0.0"
+    version = "3.1.0"
     provider-name = "%providerName"
     class="org.eclipse.jdt.core.JavaCore">
 
@@ -199,6 +199,14 @@
         priority="high"				
         file-names="MANIFEST.MF"
         default-charset="UTF-8"/>
+</extension>
+      
+<!-- =================================================================================== -->
+<!-- Extension: Eclipse preferences initializer                                          -->
+<!-- =================================================================================== -->
+<extension
+      point="org.eclipse.core.runtime.preferences">
+   <initializer class="org.eclipse.jdt.internal.core.JavaCorePreferenceInitializer"/>
 </extension>
 
 </plugin>

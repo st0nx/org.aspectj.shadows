@@ -108,7 +108,7 @@ public String getName() {
 		topLevelType= firstType;
 	}
 	if (topLevelType != null) {
-		return topLevelType.getName() + SUFFIX_STRING_java;
+		return topLevelType.getName() + Util.defaultJavaExtension();
 	} else {
 		return null;
 	}
@@ -159,7 +159,7 @@ void normalize(ILineStartFinder finder) {
 	initalizeHeader();
 }
 /**
- * @see IDOMCompilationUnit@setHeader(String)
+ * @see IDOMCompilationUnit#setHeader(String)
  */
 public void setHeader(String comment) {
 	fHeader= comment;

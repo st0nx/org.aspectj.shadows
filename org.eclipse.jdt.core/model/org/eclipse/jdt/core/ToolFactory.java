@@ -29,6 +29,7 @@ import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.JarPackageFragmentRoot;
 import org.eclipse.jdt.internal.core.JavaModelManager;
+import org.eclipse.jdt.internal.core.PackageFragment;
 import org.eclipse.jdt.internal.core.util.ClassFileReader;
 import org.eclipse.jdt.internal.core.util.Disassembler;
 import org.eclipse.jdt.internal.core.util.PublicScanner;
@@ -184,15 +185,17 @@ public class ToolFactory {
 		if (root != null){
 			try {
 				if (root instanceof JarPackageFragmentRoot) {
-						
-					String archiveName = ((JarPackageFragmentRoot)root).getJar().getName();
-					String entryName = classfile.getParent().getElementName();
-					entryName = entryName.replace('.', '/');
-					if (entryName.equals("")) { //$NON-NLS-1$
-						entryName += classfile.getElementName();
-					} else {
-						entryName += '/' + classfile.getElementName();
+					String archiveName = null;
+					ZipFile jar = null;
+					try {
+						jar = ((JarPackageFragmentRoot)root).getJar();
+						archiveName = jar.getName();
+					} finally {
+						JavaModelManager.getJavaModelManager().closeZipFile(jar);
 					}
+					PackageFragment packageFragment = (PackageFragment) classfile.getParent();
+					String classFileName = classfile.getElementName();
+					String entryName = org.eclipse.jdt.internal.core.util.Util.concatWith(packageFragment.names, classFileName, '/');
 					return createDefaultClassFileReader(archiveName, entryName, decodingFlag);
 				} else {
 					IPath location = classfile.getResource().getLocation();

@@ -16,6 +16,7 @@ import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference;
 import org.eclipse.jdt.internal.compiler.ast.SingleNameReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
 import org.eclipse.jdt.internal.compiler.flow.UnconditionalFlowInfo;
@@ -84,15 +85,11 @@ public class MethodScope extends BlockScope {
 		int unexpectedModifiers =
 			~(AccPublic | AccPrivate | AccProtected | AccStrictfp);
 		if ((realModifiers & unexpectedModifiers) != 0)
-			problemReporter().illegalModifierForMethod(
-				methodBinding.declaringClass,
-				(AbstractMethodDeclaration) referenceContext);
+			problemReporter().illegalModifierForMethod((AbstractMethodDeclaration) referenceContext);
 		else if (
 			(((AbstractMethodDeclaration) referenceContext).modifiers & AccStrictfp) != 0)
 			// must check the parse node explicitly
-			problemReporter().illegalModifierForMethod(
-				methodBinding.declaringClass,
-				(AbstractMethodDeclaration) referenceContext);
+			problemReporter().illegalModifierForMethod((AbstractMethodDeclaration) referenceContext);
 
 		// check for incompatible modifiers in the visibility bits, isolate the visibility bits
 		int accessorBits = realModifiers & (AccPublic | AccProtected | AccPrivate);
@@ -104,19 +101,19 @@ public class MethodScope extends BlockScope {
 			// need to keep the less restrictive
 			if ((accessorBits & AccPublic) != 0) {
 				if ((accessorBits & AccProtected) != 0)
-					modifiers ^= AccProtected;
+					modifiers &= ~AccProtected;
 				if ((accessorBits & AccPrivate) != 0)
-					modifiers ^= AccPrivate;
+					modifiers &= ~AccPrivate;
 			}
 			if ((accessorBits & AccProtected) != 0)
 				if ((accessorBits & AccPrivate) != 0)
-					modifiers ^= AccPrivate;
+					modifiers &= ~AccPrivate;
 		}
 
 		// if the receiver's declaring class is a private nested type, then make sure the receiver is not private (causes problems for inner type emulation)
 		if (methodBinding.declaringClass.isPrivate())
 			if ((modifiers & AccPrivate) != 0)
-				modifiers ^= AccPrivate;
+				modifiers &= ~AccPrivate;
 
 		methodBinding.modifiers = modifiers;
 	}
@@ -134,12 +131,15 @@ public class MethodScope extends BlockScope {
 		// after this point, tests on the 16 bits reserved.
 		int realModifiers = modifiers & AccJustFlag;
 
-		// set the requested modifiers for a method in an interface
-		if (methodBinding.declaringClass.isInterface()) {
-			if ((realModifiers & ~(AccPublic | AccAbstract)) != 0)
-				problemReporter().illegalModifierForInterfaceMethod(
-					methodBinding.declaringClass,
-					(AbstractMethodDeclaration) referenceContext);
+		// set the requested modifiers for a method in an interface/annotation
+		if ((methodBinding.declaringClass.modifiers & AccInterface) != 0) {
+			if ((realModifiers & ~(AccPublic | AccAbstract)) != 0) {
+				if ((methodBinding.declaringClass.modifiers & AccAnnotation) != 0) {
+					problemReporter().illegalModifierForAnnotationMember((AbstractMethodDeclaration) referenceContext);
+				} else {
+					problemReporter().illegalModifierForInterfaceMethod((AbstractMethodDeclaration) referenceContext);
+				}
+			}
 			return;
 		}
 
@@ -156,9 +156,7 @@ public class MethodScope extends BlockScope {
 					| AccNative
 					| AccStrictfp);
 		if ((realModifiers & unexpectedModifiers) != 0)
-			problemReporter().illegalModifierForMethod(
-				methodBinding.declaringClass,
-				(AbstractMethodDeclaration) referenceContext);
+			problemReporter().illegalModifierForMethod((AbstractMethodDeclaration) referenceContext);
 
 		// check for incompatible modifiers in the visibility bits, isolate the visibility bits
 		int accessorBits = realModifiers & (AccPublic | AccProtected | AccPrivate);
@@ -170,13 +168,13 @@ public class MethodScope extends BlockScope {
 			// need to keep the less restrictive
 			if ((accessorBits & AccPublic) != 0) {
 				if ((accessorBits & AccProtected) != 0)
-					modifiers ^= AccProtected;
+					modifiers &= ~AccProtected;
 				if ((accessorBits & AccPrivate) != 0)
-					modifiers ^= AccPrivate;
+					modifiers &= ~AccPrivate;
 			}
 			if ((accessorBits & AccProtected) != 0)
 				if ((accessorBits & AccPrivate) != 0)
-					modifiers ^= AccPrivate;
+					modifiers &= ~AccPrivate;
 		}
 
 		// check for modifiers incompatible with abstract modifier
@@ -300,19 +298,38 @@ public class MethodScope extends BlockScope {
 		SourceTypeBinding declaringClass = referenceType().binding;
 		int modifiers = method.modifiers | AccUnresolved;
 		if (method.isConstructor()) {
-			if (method.isDefaultConstructor()) {
+			if (method.isDefaultConstructor())
 				modifiers |= AccIsDefaultConstructor;
-			}
 			method.binding = new MethodBinding(modifiers, null, null, declaringClass);
 			checkAndSetModifiersForConstructor(method.binding);
 		} else {
-			if (declaringClass.isInterface())
+			if ((declaringClass.modifiers & AccInterface) != 0) // interface or annotation type
 				modifiers |= AccPublic | AccAbstract;
 			method.binding =
 				new MethodBinding(modifiers, method.selector, null, null, null, declaringClass);
 			checkAndSetModifiersForMethod(method.binding);
 		}
 		this.isStatic = method.binding.isStatic();
+
+		Argument[] argTypes = method.arguments;
+		int argLength = argTypes == null ? 0 : argTypes.length;
+		if (argLength > 0 && environment().options.sourceLevel >= ClassFileConstants.JDK1_5) {
+			if (argTypes[--argLength].isVarArgs())
+				method.binding.modifiers |= AccVarargs;
+			while (--argLength >= 0) {
+				if (argTypes[argLength].isVarArgs())
+					problemReporter().illegalVararg(argTypes[argLength], method);
+			}
+		}
+		
+		TypeParameter[] typeParameters = method.typeParameters();
+	    // do not construct type variables if source < 1.5
+		if (typeParameters == null || environment().options.sourceLevel < ClassFileConstants.JDK1_5) {
+		    method.binding.typeVariables = NoTypeVariables;
+		} else {
+			method.binding.typeVariables = createTypeVariables(typeParameters, method.binding);
+			method.binding.modifiers |= AccGenericSignature;
+		}
 		return method.binding;
 	}
 

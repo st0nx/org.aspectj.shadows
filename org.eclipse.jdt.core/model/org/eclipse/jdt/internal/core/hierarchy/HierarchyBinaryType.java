@@ -10,26 +10,43 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.hierarchy;
 
+import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.IBinaryField;
 import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
 import org.eclipse.jdt.internal.compiler.env.IBinaryNestedType;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.IConstants;
+import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
 public class HierarchyBinaryType implements IBinaryType {
 	private int modifiers;
-	private boolean isClass;
+	private int kind;
 	private char[] name;
 	private char[] enclosingTypeName;
 	private char[] superclass;
 	private char[][] superInterfaces = NoInterface;
+	private char[][] typeParameterSignatures;
+	private char[] genericSignature;
 	
-public HierarchyBinaryType(int modifiers, char[] qualification, char[] typeName, char[] enclosingTypeName, char classOrInterface){
+public HierarchyBinaryType(int modifiers, char[] qualification, char[] typeName, char[] enclosingTypeName, char[][] typeParameterSignatures, char typeSuffix){
 
 	this.modifiers = modifiers;
-	this.isClass = classOrInterface == IIndexConstants.CLASS_SUFFIX;
+	switch(typeSuffix) {
+		case IIndexConstants.CLASS_SUFFIX :
+			this.kind = IGenericType.CLASS_DECL;
+			break;
+		case IIndexConstants.INTERFACE_SUFFIX :
+			this.kind = IGenericType.INTERFACE_DECL;
+			break;
+		case IIndexConstants.ENUM_SUFFIX :
+			this.kind = IGenericType.ENUM_DECL;
+			break;
+		case IIndexConstants.ANNOTATION_TYPE_SUFFIX :
+			this.kind = IGenericType.ANNOTATION_TYPE_DECL;
+			break;
+	}
 	if (enclosingTypeName == null){
 		this.name = CharOperation.concat(qualification, typeName, '/');
 	} else {
@@ -37,6 +54,7 @@ public HierarchyBinaryType(int modifiers, char[] qualification, char[] typeName,
 		this.enclosingTypeName = CharOperation.concat(qualification, enclosingTypeName,'/');
 		CharOperation.replace(this.enclosingTypeName, '.', '/');
 	}
+	this.typeParameterSignatures = typeParameterSignatures;
 	CharOperation.replace(this.name, '.', '/');
 }
 /**
@@ -56,17 +74,38 @@ public IBinaryField[] getFields() {
 	return null;
 }
 /**
- * Answer the file name which defines the type.
- *
- * The path part (optional) must be separated from the actual
- * file proper name by a java.io.File.separator.
- *
- * The proper file name includes the suffix extension (e.g. ".java")
- *
- * e.g. "c:/com/ibm/compiler/java/api/Compiler.java" 
+ * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
  */
 public char[] getFileName() {
 	return null;
+}
+public char[] getGenericSignature() {
+	if (this.typeParameterSignatures != null && this.genericSignature == null) {
+		StringBuffer buffer = new StringBuffer();
+		buffer.append('<');
+		for (int i = 0, length = this.typeParameterSignatures.length; i < length; i++) {
+			buffer.append(this.typeParameterSignatures[i]);
+			if (i != length-1)
+				buffer.append(',');
+		}
+		buffer.append('>');
+		if (this.superclass == null)
+			buffer.append(Signature.createTypeSignature("java.lang.Object", true/*resolved*/)); //$NON-NLS-1$
+		else
+			buffer.append(Signature.createTypeSignature(this.superclass, true/*resolved*/));
+		if (this.superInterfaces != null) 
+			for (int i = 0, length = this.superInterfaces.length; i < length; i++)
+				buffer.append(Signature.createTypeSignature(this.superInterfaces[i], true/*resolved*/));
+		this.genericSignature = buffer.toString().toCharArray();
+		CharOperation.replace(this.genericSignature, '.', '/');
+	}
+	return this.genericSignature;
+}
+/**
+ * @see org.eclipse.jdt.internal.compiler.env.IGenericType#getKind()
+ */
+public int getKind() {
+	return this.kind;
 }
 /**
  * Answer the resolved names of the receiver's interfaces in the
@@ -130,18 +169,6 @@ public boolean isAnonymous() {
 public boolean isBinaryType() {
 	return true;
 }
-/**
- * isClass method comment.
- */
-public boolean isClass() {
-	return this.isClass;
-}
-/**
- * isInterface method comment.
- */
-public boolean isInterface() {
-	return !this.isClass;
-}
 public boolean isLocal() {
 	return false;  // index did not record this information (since unused for hierarchies)
 }
@@ -164,7 +191,7 @@ public void recordSuperType(char[] superTypeName, char[] superQualification, cha
 	if (superClassOrInterface == IIndexConstants.CLASS_SUFFIX){
 		// interfaces are indexed as having superclass references to Object by default,
 		// this is an artifact used for being able to query them only.
-		if (!this.isClass) return; 
+		if (this.kind == IGenericType.INTERFACE_DECL) return; 
 		char[] encodedName = CharOperation.concat(superQualification, superTypeName, '/');
 		CharOperation.replace(encodedName, '.', '/'); 
 		this.superclass = encodedName;
@@ -185,10 +212,16 @@ public String toString() {
 	if (this.modifiers == IConstants.AccPublic) {
 		buffer.append("public "); //$NON-NLS-1$
 	}
-	if (this.isClass()) {
-		buffer.append("class "); //$NON-NLS-1$
-	} else {
-		buffer.append("interface "); //$NON-NLS-1$
+	switch (this.kind) {
+		case IGenericType.CLASS_DECL :
+			buffer.append("class "); //$NON-NLS-1$
+			break;		
+		case IGenericType.INTERFACE_DECL :
+			buffer.append("interface "); //$NON-NLS-1$
+			break;		
+		case IGenericType.ENUM_DECL :
+			buffer.append("enum "); //$NON-NLS-1$
+			break;		
 	}
 	if (this.name != null) {
 		buffer.append(this.name);
@@ -215,5 +248,9 @@ public String toString() {
  */
 public char[] sourceFileName() {
 	return null;
+}
+// TODO (jerome) please verify that we don't need the tagbits for the receiver
+public long getTagBits() {
+	return 0;
 }
 }

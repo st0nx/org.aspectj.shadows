@@ -10,11 +10,13 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.SourceElementRequestorAdapter;
 import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
 import org.eclipse.jdt.internal.core.util.Util;
@@ -28,39 +30,22 @@ import org.eclipse.jdt.internal.core.util.Util;
 	class DecodeParametersNames extends SourceElementRequestorAdapter {
 			String[] parametersNames;
 		
-			public void enterMethod(
-				int declarationStart,
-				int modifiers,
-				char[] returnTypeName,
-				char[] selector,
-				int nameSourceStart,
-				int nameSourceEnd,
-				char[][] paramTypes,
-				char[][] paramNames,
-				char[][] exceptions) {
-					if (paramNames != null) {
-						int length = paramNames.length;
+			public void enterMethod(MethodInfo methodInfo) {
+					if (methodInfo.parameterNames != null) {
+						int length = methodInfo.parameterNames.length;
 						this.parametersNames = new String[length];
 						for (int i = 0; i < length; i++) {
-							this.parametersNames[i] = new String(paramNames[i]);
+							this.parametersNames[i] = new String(methodInfo.parameterNames[i]);
 						}
 					}
 				}
 				
-			public void enterConstructor(
-				int declarationStart,
-				int modifiers,
-				char[] selector,
-				int nameSourceStart,
-				int nameSourceEnd,
-				char[][] paramTypes,
-				char[][] paramNames,
-				char[][] exceptions) {
-					if (paramNames != null) {
-						int length = paramNames.length;
+			public void enterConstructor(MethodInfo methodInfo) {
+					if (methodInfo.parameterNames != null) {
+						int length = methodInfo.parameterNames.length;
 						this.parametersNames = new String[length];
 						for (int i = 0; i < length; i++) {
-							this.parametersNames[i] = new String(paramNames[i]);
+							this.parametersNames[i] = new String(methodInfo.parameterNames[i]);
 						}
 					}
 				}
@@ -106,20 +91,27 @@ public boolean equals(Object o) {
 public String[] getExceptionTypes() throws JavaModelException {
 	if (this.exceptionTypes == null) {
 		IBinaryMethod info = (IBinaryMethod) getElementInfo();
-		char[][] eTypeNames = info.getExceptionTypeNames();
-		if (eTypeNames == null || eTypeNames.length == 0) {
-			this.exceptionTypes = NO_TYPES;
-		} else {
-			eTypeNames = ClassFile.translatedNames(eTypeNames);
-			this.exceptionTypes = new String[eTypeNames.length];
-			for (int j = 0, length = eTypeNames.length; j < length; j++) {
-				// 1G01HRY: ITPJCORE:WINNT - method.getExceptionType not in correct format
-				int nameLength = eTypeNames[j].length;
-				char[] convertedName = new char[nameLength + 2];
-				System.arraycopy(eTypeNames[j], 0, convertedName, 1, nameLength);
-				convertedName[0] = 'L';
-				convertedName[nameLength + 1] = ';';
-				this.exceptionTypes[j] = new String(convertedName);
+		char[] genericSignature = info.getGenericSignature();
+		if (genericSignature != null) {
+			char[] dotBasedSignature = CharOperation.replaceOnCopy(genericSignature, '/', '.');
+			this.exceptionTypes = Signature.getThrownExceptionTypes(new String(dotBasedSignature));
+		}
+		if (this.exceptionTypes == null || this.exceptionTypes.length == 0) {
+			char[][] eTypeNames = info.getExceptionTypeNames();
+			if (eTypeNames == null || eTypeNames.length == 0) {
+				this.exceptionTypes = NO_TYPES;
+			} else {
+				eTypeNames = ClassFile.translatedNames(eTypeNames);
+				this.exceptionTypes = new String[eTypeNames.length];
+				for (int j = 0, length = eTypeNames.length; j < length; j++) {
+					// 1G01HRY: ITPJCORE:WINNT - method.getExceptionType not in correct format
+					int nameLength = eTypeNames[j].length;
+					char[] convertedName = new char[nameLength + 2];
+					System.arraycopy(eTypeNames[j], 0, convertedName, 1, nameLength);
+					convertedName[0] = 'L';
+					convertedName[nameLength + 1] = ';';
+					this.exceptionTypes[j] = new String(convertedName);
+				}
 			}
 		}
 	}
@@ -139,22 +131,21 @@ public int getFlags() throws JavaModelException {
 	return info.getModifiers();
 }
 /*
- * @see JavaElement#getHandleMemento()
+ * @see JavaElement#getHandleMemento(StringBuffer)
  */
-public String getHandleMemento() {
-	StringBuffer buff = new StringBuffer(((JavaElement) getParent()).getHandleMemento());
+protected void getHandleMemento(StringBuffer buff) {
+	((JavaElement) getParent()).getHandleMemento(buff);
 	char delimiter = getHandleMementoDelimiter();
 	buff.append(delimiter);
 	escapeMementoName(buff, getElementName());
 	for (int i = 0; i < this.parameterTypes.length; i++) {
 		buff.append(delimiter);
-		buff.append(this.parameterTypes[i]);
+		escapeMementoName(buff, this.parameterTypes[i]);
 	}
 	if (this.occurrenceCount > 1) {
 		buff.append(JEM_COUNT);
 		buff.append(this.occurrenceCount);
 	}
-	return buff.toString();
 }
 /*
  * @see JavaElement#getHandleMemento()
@@ -217,25 +208,53 @@ public String[] getParameterTypes() {
 	return this.parameterTypes;
 }
 
+public ITypeParameter getTypeParameter(String typeParameterName) {
+	return new TypeParameter(this, typeParameterName);
+}
+
+public ITypeParameter[] getTypeParameters() throws JavaModelException {
+	String[] typeParameterSignatures = getTypeParameterSignatures();
+	int length = typeParameterSignatures.length;
+	if (length == 0) return TypeParameter.NO_TYPE_PARAMETERS;
+	ITypeParameter[] typeParameters = new ITypeParameter[length];
+	for (int i = 0; i < typeParameterSignatures.length; i++) {
+		String typeParameterName = Signature.getTypeVariable(typeParameterSignatures[i]);
+		typeParameters[i] = new TypeParameter(this, typeParameterName);
+	}
+	return typeParameters;
+}
+
 /**
  * @see IMethod#getTypeParameterSignatures()
  * @since 3.0
+ * @deprecated
  */
 public String[] getTypeParameterSignatures() throws JavaModelException {
-	// TODO (jerome) - missing implementation
-	return new String[0];
+	IBinaryMethod info = (IBinaryMethod) getElementInfo();
+	char[] genericSignature = info.getGenericSignature();
+	if (genericSignature == null) 
+		return CharOperation.NO_STRINGS;
+	char[] dotBasedSignature = CharOperation.replaceOnCopy(genericSignature, '/', '.');
+	char[][] typeParams = Signature.getTypeParameters(dotBasedSignature);
+	return CharOperation.toStrings(typeParams);
 }
 
 /*
  * @see IMethod
  */
 public String getReturnType() throws JavaModelException {
-	IBinaryMethod info = (IBinaryMethod) getElementInfo();
 	if (this.returnType == null) {
-		String returnTypeName= Signature.getReturnType(new String(info.getMethodDescriptor()));
-		this.returnType= new String(ClassFile.translatedName(returnTypeName.toCharArray()));
+		IBinaryMethod info = (IBinaryMethod) getElementInfo();
+		this.returnType = getReturnType(info);
 	}
 	return this.returnType;
+}
+private String getReturnType(IBinaryMethod info) {
+	char[] genericSignature = info.getGenericSignature();
+	char[] signature = genericSignature == null ? info.getMethodDescriptor() : genericSignature;
+	char[] dotBasedSignature = CharOperation.replaceOnCopy(signature, '/', '.');
+	String returnTypeName= Signature.getReturnType(new String(dotBasedSignature));
+	return new String(ClassFile.translatedName(returnTypeName.toCharArray()));
 }
 /*
  * @see IMethod
@@ -273,7 +292,7 @@ public boolean isMainMethod() throws JavaModelException {
  */
 public boolean isSimilar(IMethod method) {
 	return 
-		this.areSimilarMethods(
+		areSimilarMethods(
 			this.getElementName(), this.getParameterTypes(),
 			method.getElementName(), method.getParameterTypes(),
 			null);
@@ -300,37 +319,52 @@ public String readableName() {
  * @private Debugging purposes
  */
 protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
-	buffer.append(this.tabString(tab));
+	buffer.append(tabString(tab));
 	if (info == null) {
 		toStringName(buffer);
 		buffer.append(" (not open)"); //$NON-NLS-1$
 	} else if (info == NO_INFO) {
 		toStringName(buffer);
 	} else {
-		try {
-			if (Flags.isStatic(this.getFlags())) {
-				buffer.append("static "); //$NON-NLS-1$
-			}
-			if (!this.isConstructor()) {
-				buffer.append(Signature.toString(this.getReturnType()));
-				buffer.append(' ');
-			}
-			toStringName(buffer);
-		} catch (JavaModelException e) {
-			buffer.append("<JavaModelException in toString of " + getElementName()); //$NON-NLS-1$
+		IBinaryMethod methodInfo = (IBinaryMethod) info;
+		int flags = methodInfo.getModifiers();
+		if (Flags.isStatic(flags)) {
+			buffer.append("static "); //$NON-NLS-1$
 		}
+		if (!methodInfo.isConstructor()) {
+			buffer.append(Signature.toString(getReturnType(methodInfo)));
+			buffer.append(' ');
+		}
+		toStringName(buffer, flags);
 	}
 }
 protected void toStringName(StringBuffer buffer) {
+	toStringName(buffer, 0);
+}
+protected void toStringName(StringBuffer buffer, int flags) {
 	buffer.append(getElementName());
 	buffer.append('(');
-	String[] parameters = this.getParameterTypes();
+	String[] parameters = getParameterTypes();
 	int length;
 	if (parameters != null && (length = parameters.length) > 0) {
+		boolean isVarargs = Flags.isVarargs(flags);
 		for (int i = 0; i < length; i++) {
-			buffer.append(Signature.toString(parameters[i]));
-			if (i < length - 1) {
-				buffer.append(", "); //$NON-NLS-1$
+			try {
+				if (i < length - 1) {
+					buffer.append(Signature.toString(parameters[i]));
+					buffer.append(", "); //$NON-NLS-1$
+				} else if (isVarargs) {
+					// remove array from signature
+					String parameter = parameters[i].substring(1);
+					buffer.append(Signature.toString(parameter));
+					buffer.append(" ..."); //$NON-NLS-1$
+				} else {
+					buffer.append(Signature.toString(parameters[i]));
+				}
+			} catch (IllegalArgumentException e) {
+				// parameter signature is malformed
+				buffer.append("*** invalid signature: "); //$NON-NLS-1$
+				buffer.append(parameters[i]);
 			}
 		}
 	}

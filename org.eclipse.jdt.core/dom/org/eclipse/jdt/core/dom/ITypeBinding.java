@@ -30,13 +30,14 @@ package org.eclipse.jdt.core.dom;
  * <li>the null type - this is the special type of <code>null</code></li>
  * <li>a type variable - represents the declaration of a type variable;
  * possibly with type bounds</li>
- * <li>a parameterized type reference - represents a reference to a
- * parameterized type with type arguments (which may include wildcards)</li>
- * <li>a raw type reference - represents a (legacy) reference to a parameterized
- * type without any type arguments</li>
  * <li>a wildcard type - represents a wild card used as a type argument in
  * a parameterized type reference</li>
  * </ul>
+ * Type bindings usually correspond directly to class or
+ * interface declarations found in the source code. However,
+ * in some cases of references to a type declared in a generic type,
+ * the type binding corresponds to an copy of a type declaration
+ * with substitutions for its type parameters.
  * <p>
  * This interface is not intended to be implemented by clients.
  * </p>
@@ -49,7 +50,7 @@ package org.eclipse.jdt.core.dom;
  * @since 2.0
  */
 public interface ITypeBinding extends IBinding {
-
+	
 	/**
 	 * Returns the binary name of this type binding.
 	 * The binary name of a class is defined in the Java Language 
@@ -121,6 +122,30 @@ public interface ITypeBinding extends IBinding {
 	public int getDimensions();
 	
 	/**
+	 * Returns whether this type is assigment compatible with the given type,
+	 * as specified in section 5.2 of <em>The Java Language 
+	 * Specification, Second Edition</em> (JLS2).
+	 * 
+	 * @param type the type to check compatibility against
+	 * @return <code>true</code> if this type is assigment compatible with the
+	 * given type, and <code>false</code> otherwise
+	 * @since 3.1
+	 */
+	public boolean isAssignmentCompatible(ITypeBinding type);
+	
+	/**
+	 * Returns whether this type is cast compatible with the given type,
+	 * as specified in section 5.5 of <em>The Java Language 
+	 * Specification, Second Edition</em> (JLS2).
+	 * 
+	 * @param type the type to check compatibility against
+	 * @return <code>true</code> if this type is cast compatible with the
+	 * given type, and <code>false</code> otherwise
+	 * @since 3.1
+	 */
+	public boolean isCastCompatible(ITypeBinding type);
+
+	/**
 	 * Returns whether this type binding represents a class type.
 	 *
 	 * @return <code>true</code> if this object represents a class,
@@ -165,10 +190,11 @@ public interface ITypeBinding extends IBinding {
 	/**
 	 * Returns the type parameters of this class or interface type binding.
 	 * <p>
-	 * Note that type parameters only occur on the declaring class or
-	 * interface; e.g., <code>Collection&lt;T&gt;</code>. Do not confuse
-	 * them with type arguments which only occur on references; 
-	 * e.g., <code>Collection&lt;String&gt;</code>.
+	 * Note that type parameters only occur on the binding of the
+	 * declaring generic class or interface; e.g., <code>Collection&lt;T&gt;</code>.
+	 * Type bindings corresponding to a raw or parameterized reference to a generic
+	 * type do not carry type parameters (they instead have non-empty type arguments
+	 * and non-trivial erasure).
 	 * </p> 
 	 * <p>
 	 * Note: Support for new language features proposed for the upcoming 1.5
@@ -180,7 +206,36 @@ public interface ITypeBinding extends IBinding {
 	 * @see #isTypeVariable()
 	 * @since 3.0
 	 */
+	// TODO (jeem) - clarify whether binding for a generic type instance carries a copy of the generic type's type parameters as well as type arguments
 	public ITypeBinding[] getTypeParameters();
+	
+	/**
+	 * Returns whether this type binding represents a declaration of
+	 * a generic class or interface.
+	 * <p>
+	 * Note that type parameters only occur on the binding of the
+	 * declaring generic class or interface; e.g., <code>Collection&lt;T&gt;</code>.
+	 * Type bindings corresponding to a raw or parameterized reference to a generic
+	 * type do not carry type parameters (they instead have non-empty type arguments
+	 * and non-trivial erasure).
+	 * This method is fully equivalent to <code>getTypeParameters().length &gt; 0)</code>.
+	 * </p>
+	 * <p>
+	 * Note that {@link #isGenericType()},
+	 * {@link #isParameterizedType()},
+	 * and {@link #isRawType()} are mutually exclusive.
+	 * </p>
+	 * <p>
+	 * Note: Support for new language features of the 1.5
+	 * release of J2SE is tentative and subject to change.
+	 * </p>
+	 *
+	 * @return <code>true</code> if this type binding represents a 
+	 * declaration of a generic class or interface, and <code>false</code> otherwise
+	 * @see #getTypeParameters()
+	 * @since 3.1
+	 */
+	public boolean isGenericType();
 	
 	/**
 	 * Returns whether this type binding represents a type variable.
@@ -192,6 +247,7 @@ public interface ITypeBinding extends IBinding {
 	 * 
 	 * @return <code>true</code> if this type binding is for a type variable,
 	 *   and <code>false</code> otherwise
+	 * @see #getName()
 	 * @see #getTypeBounds()
 	 * @since 3.0
 	 */
@@ -212,82 +268,130 @@ public interface ITypeBinding extends IBinding {
 	public ITypeBinding[] getTypeBounds();
 	
 	/**
-	 * Returns whether this type binding represents a parameterized 
-	 * type reference.
+	 * Returns whether this type binding represents an instance of
+	 * a generic type corresponding to a parameterized type reference.
 	 * <p>
-	 * For example, a AST type like 
+	 * For example, an AST type like 
 	 * <code>Collection&lt;String&gt;</code> typically resolves to a
-	 * parameterized type binding whose erasure is a type binding for the class 
-	 * <code>java.util.Collection</code> and whose type argument is a type
-	 * binding for the class <code>java.util.Collection</code>.
+	 * type binding whose type argument is the type binding for the
+	 * class <code>java.lang.String</code> and whose erasure is the type
+	 * binding for the generic type <code>java.util.Collection</code>.
 	 * </p>
-	 * <p>
-	 * Note: Support for new language features proposed for the upcoming 1.5
-	 * release of J2SE is tentative and subject to change.
+	 * Note that {@link #isGenericType()},
+	 * {@link #isParameterizedType()},
+	 * and {@link #isRawType()} are mutually exclusive.
 	 * </p>
 	 *
-	 * @return <code>true</code> if this object represents a parameterized
+	 * @return <code>true</code> if this type binding represents a 
+	 * an instance of a generic type corresponding to a parameterized
 	 * type reference, and <code>false</code> otherwise
 	 * @see #getTypeArguments()
-	 * @see #getErasure()
+	 * @see #getGenericType()
 	 * @since 3.0
 	 */
 	public boolean isParameterizedType();
 	
 	/**
-	 * Returns the type arguments of the parameterized type reference.
+	 * Returns the type arguments of this generic type instance, or the
+	 * empty list for other type bindings.
 	 * <p>
-	 * Note that type arguments only occur on type references; 
-	 * e.g., <code>Collection&lt;String&gt;</code>.
-	 * Do not confuse with type parameters which only occur on the
-	 * declaring class or interface; e.g., <code>Collection&lt;T&gt;</code>.
+	 * Note that type arguments only occur on a type binding that represents
+	 * an instance of a generic type corresponding to a parameterized type
+	 * reference (e.g., <code>Collection&lt;String&gt;</code>) or to a raw
+	 * type reference (e.g., <code>Collection</code>) to a generic type.
+	 * Do not confuse these with type parameters which only occur on the
+	 * type binding corresponding directly to the declaration of the 
+	 * generic class or interface (e.g., <code>Collection&lt;T&gt;</code>).
 	 * </p> 
 	 * <p>
 	 * Note: Support for new language features proposed for the upcoming 1.5
 	 * release of J2SE is tentative and subject to change.
 	 * </p>
 	 *
-	 * @return the list of type bindings for the type arguments of this
-	 * parameterized type, or otherwise the empty list
+	 * @return the list of type bindings for the type arguments used to
+	 * instantiate the corrresponding generic type, or otherwise the empty list
+	 * @see #getGenericType()
+	 * @see #isGenericType()
+	 * @see #isParameterizedType()
+	 * @see #isRawType()
 	 * @since 3.0
 	 */
 	public ITypeBinding[] getTypeArguments();
 	
 	/**
-	 * Returns the erasure of this type reference. For a parameterized
-	 * type reference or a raw type reference, returns the type binding for
-	 * the class or interface where the referenced type is declared.
-	 * Returns this type binding for types other than parameterized types.
+	 * Returns the erasure of this type binding.
+	 * In the presense of generic types, some bindings correspond to
+	 * types declarations in the context of a particular instance of
+	 * the generic type. In those cases, this method returns
+	 * the generic type binding from which this type binding
+	 * was instantiated. For other type bindings, this method returns
+	 * the identical type binding.
+	 * Note that the resulting type binding will answer true to
+	 * {@link #isGenericType()} iff this type binding would return true
+	 * to either {@link #isGenericType()}, {@link #isParameterizedType()},
+	 * or {@link #isRawType()}.
 	 * <p>
 	 * Note: Support for new language features proposed for the upcoming 1.5
 	 * release of J2SE is tentative and subject to change.
 	 * </p>
 	 *
-	 * @return the erasure type
-	 * @see #isRawType()
-	 * @see #isParameterizedType()
+	 * @return the erasure type binding
 	 * @since 3.0
+	 * @deprecated Use {@link #getGenericType()} instead.
 	 */
+	// TODO (jeem) - remove before 3.1M5 (bug 80800)
 	public ITypeBinding getErasure();
 	
 	/**
-	 * Returns whether this type binding represents a raw type reference. 
-	 * A raw type is a unparameterized (legacy) reference to a type declared
-	 * with type parameters.
+	 * Returns the generic type corresponding to this type binding.
+	 * In the presense of generic types, some bindings correspond to
+	 * types declarations in the context of a particular instance of
+	 * the generic type. In those cases, this method returns
+	 * the generic type binding from which this type binding
+	 * was instantiated. For other type bindings, this method returns
+	 * the identical type binding.
+	 * Note that the resulting type binding will answer true to
+	 * {@link #isGenericType()} iff this type binding would return true
+	 * to either {@link #isGenericType()}, {@link #isParameterizedType()},
+	 * or {@link #isRawType()}.
 	 * <p>
-	 * For example, a AST type like 
+	 * Note: Support for new language features proposed for the upcoming 1.5
+	 * release of J2SE is tentative and subject to change.
+	 * </p>
+	 *
+	 * @return the generic type binding
+	 * @since 3.1
+	 */
+	public ITypeBinding getGenericType();
+	
+	/**
+	 * Returns whether this type binding represents an instance of
+	 * a generic type corresponding to a raw type reference.
+	 * <p>
+	 * For example, an AST type like 
 	 * <code>Collection</code> typically resolves to a
-	 * raw type binding whose erasure is a type binding for the class 
+	 * type binding whose type argument is the type binding for
+	 * the class <code>java.lang.Object</code> (the
+	 * default bound for the single type parameter of 
+	 * <code>java.util.Collection</code>) and whose erasure is the
+	 * type binding for the generic type
 	 * <code>java.util.Collection</code>.
+	 * </p>
+	 * <p>
+	 * Note that {@link #isGenericType()},
+	 * {@link #isParameterizedType()},
+	 * and {@link #isRawType()} are mutually exclusive.
 	 * </p>
 	 * <p>
 	 * Note: Support for new language features proposed for the upcoming 1.5
 	 * release of J2SE is tentative and subject to change.
 	 * </p>
 	 *
-	 * @return <code>true</code> if this object represents a raw type,
-	 *    and <code>false</code> otherwise
-	 * @see #getErasure()
+	 * @return <code>true</code> if this type binding represents a 
+	 * an instance of a generic type corresponding to a raw
+	 * type reference, and <code>false</code> otherwise
+	 * @see #getGenericType()
+	 * @see #getTypeArguments()
 	 * @since 3.0
 	 */
 	public boolean isRawType();
@@ -350,25 +454,41 @@ public interface ITypeBinding extends IBinding {
 	/**
 	 * Returns the unqualified name of the type represented by this binding
 	 * if it has one.
-	 * <p>
-	 * For named classes, interfaces, enums, and annotation types, this is the
-	 * simple name of the type; if the type is parameterized, the name is
-	 * followed by the simple names of the type variables surrounded
-	 * by "&lt;&gt;" and separated by "," (the type bounds are not included).
-	 * For primitive types, the name is the keyword for the primitive type. For
-	 * array types, the name is the name of the component type (as computed by
-	 * this method) followed by "[]". If this represents an
-	 * anonymous class, it returns an empty string (note that it is impossible
-	 * to have an array type with an anonymous class as element type). For the
-	 * null type, it returns "null".
-	 * For type variables, this is the name of the type variable.
-	 * For parameterized type references, this is the simple name of the
-	 * erasure type followed by the names of the type arguments (as computed by
-	 * this method) surrounded by "&lt;&gt;" and separated by ",".
-	 * For raw type references, this is the simple name of the erasure type.
-	 * For wildcard types, this is "?" followed by the name of the bound 
-	 * (as computed by this method) when present.
-	 * </p>
+	 * <ul>
+	 * <li>For top-level types, member types, and local types,
+	 * the name is the simple name of the type.
+	 * Example: <code>"String"</code> or <code>"Collection"</code>.
+	 * Note that the type parameters of a generic type are not included.</li>
+	 * <li>For primitive types, the name is the keyword for the primitive type.
+	 * Example: <code>"int"</code>.</li>
+	 * <li>For the null type, the name is the string "null".</li>
+	 * <li>For anonymous classes, which do not have a name,
+	 * this method returns an empty string.</li>
+	 * <li>For array types, the name is the unqualified name of the component
+	 * type (as computed by this method) followed by "[]".
+	 * Example: <code>"String[]"</code>. Note that the component type is never an
+	 * an anonymous class.</li>
+	 * <li>For type variables, the name is just the simple name of the
+	 * type variable (type bounds are not included).
+	 * Example: <code>"X"</code>.</li>
+	 * <li>For type bindings that correspond to particular instances of a generic
+	 * type arising from a parameterized type reference,
+	 * the name is the unqualified name of the erasure type (as computed by this method)
+	 * followed by the names (again, as computed by this method) of the type arguments
+	 * surrounded by "&lt;&gt;" and separated by ",".
+	 * Example: <code>"Collection&lt;String&gt;"</code>.
+	 * </li>
+	 * <li>For type bindings that correspond to particular instances of a generic
+	 * type arising from a raw type reference, the name is the unqualified name of
+	 * the erasure type (as computed by this method).
+	 * Example: <code>"Collection"</code>.</li>
+	 * <li>For wildcard types, the name is "?" optionally followed by 
+	 * a single space followed by the keyword "extends" or "super"
+	 * followed a single space followed by the name of the bound (as computed by
+	 * this method) when present.
+	 * Example: <code>"? extends InputStream"</code>.
+	 * </li>
+	 * </ul> 
 	 * 
 	 * @return the unqualified name of the type represented by this binding,
 	 * or the empty string if it has none
@@ -382,8 +502,7 @@ public interface ITypeBinding extends IBinding {
 	 * @return the binding for the package in which this class, interface,
 	 * enum, or annotation type is declared, or <code>null</code> if this type
 	 * binding represents a primitive type, an array type, the null type, 
-	 * a type variable, a parameterized type reference, a raw type reference,
-	 * or a wildcard type
+	 * a type variable, or a wildcard type.
 	 */
 	public IPackageBinding getPackage();
 	
@@ -397,8 +516,7 @@ public interface ITypeBinding extends IBinding {
 	 * classes) is the innermost class or interface containing the expression
 	 * or statement in which this type is declared. Array types,
 	 * primitive types, the null type, top-level types, type variables,
-	 * parameterized type references, raw type references, and wildcard types
-	 * have no declaring class.
+	 * and wildcard types have no declaring class.
 	 * </p>
 	 * 
 	 * @return the binding of the type that declares this type, or
@@ -425,8 +543,8 @@ public interface ITypeBinding extends IBinding {
 	 * <p>
 	 * If this type binding represents an interface, an array type, a
 	 * primitive type, the null type, a type variable, an enum type,
-	 * an annotation type, a parameterized type reference, a raw type
-	 * reference, or a wildcard type, then <code>null</code> is returned.
+	 * an annotation type, or a wildcard type, then <code>null</code>
+	 * is returned.
 	 * </p>
 	 *
 	 * @return the superclass of the class represented by this type binding,
@@ -457,8 +575,7 @@ public interface ITypeBinding extends IBinding {
 	 * If the class or enum implements no interfaces, or the interface extends 
 	 * no interfaces, or if this type binding represents an array type, a
 	 * primitive type, the null type, a type variable, an annotation type, 
-	 * a parameterized type reference, a raw type reference, or a wildcard type,
-	 * this method returns an array of length 0.
+	 * or a wildcard type, this method returns an array of length 0.
 	 * </p>
 	 *
 	 * @return the list of type bindings for the interfaces extended by this
@@ -497,6 +614,18 @@ public interface ITypeBinding extends IBinding {
 	 * @see Modifier
 	 */
 	public int getDeclaredModifiers();
+	
+	/**
+	 * Returns whether this type is subtype compatible with the given type,
+	 * as specified in section 4.10 of <em>The Java Language 
+	 * Specification, Third Edition</em> (JLS3).
+	 * 
+	 * @param type the type to check compatibility against
+	 * @return <code>true</code> if this type is subtype compatible with the
+	 * given type, and <code>false</code> otherwise
+	 * @since 3.1
+	 */
+	public boolean isSubTypeCompatible(ITypeBinding type);
 	
 	/**
 	 * Returns whether this type binding represents a top-level class,
@@ -578,8 +707,8 @@ public interface ITypeBinding extends IBinding {
 	 * and private classes, interfaces, enum types, and annotation types
 	 * declared by the type, but excludes inherited types. Returns an empty
 	 * list if the type declares no type members, or if this type
-	 * binding represents an array type, a primitive type, a wildcard type,
-	 * a parameterized type reference, a raw type reference, or the null type.
+	 * binding represents an array type, a primitive type, a type variable,
+	 * a wildcard type, or the null type.
 	 * The resulting bindings are in no particular order.
 	 * 
 	 * @return the list of type bindings for the member types of this type,
@@ -635,10 +764,11 @@ public interface ITypeBinding extends IBinding {
 	 * Returns the fully qualified name of the type represented by this 
 	 * binding if it has one.
 	 * <ul>
-	 * <li>For top-level types, the fully qualified name is the name of
-	 * the type (as computed by {@link #getName()}) preceded by the package
-	 * name (or unqualified if in a default package) and a ".".
-	 * Example: <code>"java.lang.String"</code>.</li>
+	 * <li>For top-level types, the fully qualified name is the simple name of
+	 * the type preceded by the package name (or unqualified if in a default package)
+	 * and a ".".
+	 * Example: <code>"java.lang.String"</code> or <code>"java.util.Collection"</code>.
+	 * Note that the type parameters of a generic type are not included.</li>
 	 * <li>For members of top-level types, the fully qualified name is the
 	 * simple name of the type preceded by the fully qualified name of the
 	 * enclosing type (as computed by this method) and a ".".
@@ -646,37 +776,39 @@ public interface ITypeBinding extends IBinding {
 	 * <li>For primitive types, the fully qualified name is the keyword for
 	 * the primitive type.
 	 * Example: <code>"int"</code>.</li>
-	 * <li>For array types whose component type has a fully qualified name, 
-	 * the fully qualified name is the fully qualified name of the component
-	 * type (as computed by this method) followed by "[]".
-	 * Example: <code>"java.lang.String[]"</code>.</li>
 	 * <li>For the null type, the fully qualified name is the string 
 	 * "null".</li>
 	 * <li>Local types (including anonymous classes) and members of local
 	 * types do not have a fully qualified name. For these types, and array
 	 * types thereof, this method returns an empty string.</li>
+	 * <li>For array types whose component type has a fully qualified name, 
+	 * the fully qualified name is the fully qualified name of the component
+	 * type (as computed by this method) followed by "[]".
+	 * Example: <code>"java.lang.String[]"</code>.</li>
 	 * <li>For type variables, the fully qualified name is just the name of the
 	 * type variable (type bounds are not included).
 	 * Example: <code>"X"</code>.</li>
-	 * <li>For raw type references, the fully qualified name is the 
-	 * fully qualified name of the type but with the type parameters
-	 * omitted.
-	 * Example: <code>"java.util.Collection"</code>.</li>
-	 * <li>For parameterized type references, the fully qualified name is the 
-	 * fully qualified name of the erasure type followed by the fully qualified
-	 * names of the type arguments surrounded by "&lt;&gt;" and separated by ",".
+	 * <li>For type bindings that correspond to particular instances of a generic
+	 * type arising from a parameterized type reference,
+	 * the fully qualified name is the fully qualified name of the erasure
+	 * type followed by the fully qualified names of the type arguments surrounded by "&lt;&gt;" and separated by ",".
 	 * Example: <code>"java.util.Collection&lt;java.lang.String&gt;"</code>.
 	 * </li>
-	 * <li>For wildcard types, the fully qualified name is "?" followed by the
-	 * fully qualified name of the bound (as computed by this method) when
-	 * present.
-	 * Example: <code>"? extends java.lang.Object"</code>.
+	 * <li>For type bindings that correspond to particular instances of a generic
+	 * type arising from a raw type reference,
+	 * the fully qualified name is the fully qualified name of the erasure type.
+	 * Example: <code>"java.util.Collection"</code>. Note that the
+	 * the type parameters are omitted.</li>
+	 * <li>For wildcard types, the fully qualified name is "?" optionally followed by 
+	 * a single space followed by the keyword "extends" or "super" 
+	 * followed a single space followed by the fully qualified name of the bound
+	 * (as computed by this method) when present.
+	 * Example: <code>"? extends java.io.InputStream"</code>.
 	 * </li>
 	 * </ul>
 	 * 
 	 * @return the fully qualified name of the type represented by this 
 	 *    binding, or the empty string if it has none
-
 	 * @see #getName()
 	 * @since 2.1
 	 */

@@ -34,6 +34,7 @@ public char[] returnSimpleName;
 public char[][] parameterQualifications;
 public char[][] parameterSimpleNames;
 public int parameterCount;
+public boolean varargs;
 
 // extra reference info
 protected IType declaringType;
@@ -63,6 +64,7 @@ public MethodPattern(
 	char[] returnSimpleName,
 	char[][] parameterQualifications, 
 	char[][] parameterSimpleNames,
+	boolean varargs,
 	IType declaringType,
 	int matchRule) {
 
@@ -87,7 +89,7 @@ public MethodPattern(
 	} else {
 		this.parameterCount = -1;
 	}
-
+	this.varargs = varargs;
 	this.declaringType = declaringType;
 	((InternalSearchPattern)this).mustResolve = mustResolve();
 }
@@ -117,7 +119,7 @@ boolean isPolymorphicSearch() {
 public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 	MethodPattern pattern = (MethodPattern) decodedPattern;
 
-	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1)
+	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1 || this.varargs)
 		&& matchesName(this.selector, pattern.selector);
 }
 /**
@@ -145,7 +147,7 @@ EntryResult[] queryIn(Index index) throws IOException {
 
 	switch(getMatchMode()) {
 		case R_EXACT_MATCH :
-			if (this.selector != null && this.parameterCount >= 0)
+			if (!this.varargs && this.selector != null && this.parameterCount >= 0)
 				key = createIndexKey(this.selector, this.parameterCount);
 			else // do a prefix query with the selector
 				matchRule = matchRule - R_EXACT_MATCH + R_PREFIX_MATCH;
@@ -154,7 +156,7 @@ EntryResult[] queryIn(Index index) throws IOException {
 			// do a prefix query with the selector
 			break;
 		case R_PATTERN_MATCH :
-			if (this.parameterCount >= 0)
+			if (!this.varargs && this.parameterCount >= 0)
 				key = createIndexKey(this.selector == null ? ONE_STAR : this.selector, this.parameterCount);
 			else if (this.selector != null && this.selector[this.selector.length - 1] != '*')
 				key = CharOperation.concat(this.selector, ONE_STAR, SEPARATOR);
@@ -164,58 +166,44 @@ EntryResult[] queryIn(Index index) throws IOException {
 
 	return index.query(getIndexCategories(), key, matchRule); // match rule is irrelevant when the key is null
 }
-public String toString() {
-	StringBuffer buffer = new StringBuffer(20);
+protected StringBuffer print(StringBuffer output) {
 	if (this.findDeclarations) {
-		buffer.append(this.findReferences
+		output.append(this.findReferences
 			? "MethodCombinedPattern: " //$NON-NLS-1$
 			: "MethodDeclarationPattern: "); //$NON-NLS-1$
 	} else {
-		buffer.append("MethodReferencePattern: "); //$NON-NLS-1$
+		output.append("MethodReferencePattern: "); //$NON-NLS-1$
 	}
 	if (declaringQualification != null)
-		buffer.append(declaringQualification).append('.');
+		output.append(declaringQualification).append('.');
 	if (declaringSimpleName != null) 
-		buffer.append(declaringSimpleName).append('.');
+		output.append(declaringSimpleName).append('.');
 	else if (declaringQualification != null)
-		buffer.append("*."); //$NON-NLS-1$
+		output.append("*."); //$NON-NLS-1$
 
 	if (selector != null)
-		buffer.append(selector);
+		output.append(selector);
 	else
-		buffer.append("*"); //$NON-NLS-1$
-	buffer.append('(');
+		output.append("*"); //$NON-NLS-1$
+	output.append('(');
 	if (parameterSimpleNames == null) {
-		buffer.append("..."); //$NON-NLS-1$
+		output.append("..."); //$NON-NLS-1$
 	} else {
 		for (int i = 0, max = parameterSimpleNames.length; i < max; i++) {
-			if (i > 0) buffer.append(", "); //$NON-NLS-1$
-			if (parameterQualifications[i] != null) buffer.append(parameterQualifications[i]).append('.');
-			if (parameterSimpleNames[i] == null) buffer.append('*'); else buffer.append(parameterSimpleNames[i]);
+			if (i > 0) output.append(", "); //$NON-NLS-1$
+			if (parameterQualifications[i] != null) output.append(parameterQualifications[i]).append('.');
+			if (parameterSimpleNames[i] == null) output.append('*'); else output.append(parameterSimpleNames[i]);
 		}
 	}
-	buffer.append(')');
+	output.append(')');
 	if (returnQualification != null) 
-		buffer.append(" --> ").append(returnQualification).append('.'); //$NON-NLS-1$
+		output.append(" --> ").append(returnQualification).append('.'); //$NON-NLS-1$
 	else if (returnSimpleName != null)
-		buffer.append(" --> "); //$NON-NLS-1$
+		output.append(" --> "); //$NON-NLS-1$
 	if (returnSimpleName != null) 
-		buffer.append(returnSimpleName);
+		output.append(returnSimpleName);
 	else if (returnQualification != null)
-		buffer.append("*"); //$NON-NLS-1$
-	buffer.append(", "); //$NON-NLS-1$
-	switch(getMatchMode()) {
-		case R_EXACT_MATCH : 
-			buffer.append("exact match, "); //$NON-NLS-1$
-			break;
-		case R_PREFIX_MATCH :
-			buffer.append("prefix match, "); //$NON-NLS-1$
-			break;
-		case R_PATTERN_MATCH :
-			buffer.append("pattern match, "); //$NON-NLS-1$
-			break;
-	}
-	buffer.append(isCaseSensitive() ? "case sensitive" : "case insensitive"); //$NON-NLS-1$ //$NON-NLS-2$
-	return buffer.toString();
+		output.append("*"); //$NON-NLS-1$
+	return super.print(output);
 }
 }

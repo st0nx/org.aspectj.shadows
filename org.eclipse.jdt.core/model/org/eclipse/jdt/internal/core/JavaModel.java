@@ -59,7 +59,7 @@ public class JavaModel extends Openable implements IJavaModel {
  * @exception Error if called more than once
  */
 protected JavaModel() throws Error {
-	super(null, "" /*workspace has empty name*/); //$NON-NLS-1$
+	super(null);
 }
 protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource)	/*throws JavaModelException*/ {
 
@@ -167,9 +167,8 @@ public static void flushExternalFileCache() {
  */
 public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner owner) {
 	switch (token.charAt(0)) {
-		case JEM_COUNT:
-			return getHandleUpdatingCountFromMemento(memento, owner);
 		case JEM_JAVAPROJECT:
+			if (!memento.hasMoreTokens()) return this;
 			String projectName = memento.nextToken();
 			JavaElement project = (JavaElement)getJavaProject(projectName);
 			return project.getHandleFromMemento(memento, owner);
@@ -177,10 +176,10 @@ public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento,
 	return null;
 }
 /**
- * @see JavaElement#getHandleMemento()
+ * @see JavaElement#getHandleMemento(StringBuffer)
  */
-public String getHandleMemento(){
-	return getElementName();
+protected void getHandleMemento(StringBuffer buff) {
+	buff.append(getElementName());
 }
 /**
  * Returns the <code>char</code> that marks the start of this handles

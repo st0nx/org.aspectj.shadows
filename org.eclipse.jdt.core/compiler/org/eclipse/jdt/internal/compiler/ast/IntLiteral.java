@@ -56,7 +56,7 @@ public void computeConstant() {
 		if (length == 1) {	constant = Constant.fromValue(0); return ;}
 		final int shift,radix;
 		int j ;
-		if ( (source[1] == 'x') | (source[1] == 'X') )
+		if ( (source[1] == 'x') || (source[1] == 'X') )
 		{	shift = 4 ; j = 2; radix = 16;}
 		else
 		{	shift = 3 ; j = 1; radix = 8;}
@@ -94,11 +94,9 @@ public void computeConstant() {
  */ 
 public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean valueRequired) {
 	int pc = codeStream.position;
-	if (valueRequired)
-		if ((implicitConversion >> 4) == T_int)
-			codeStream.generateInlinedValue(value);
-		else
-			codeStream.generateConstant(constant, implicitConversion);
+	if (valueRequired) {
+		codeStream.generateConstant(constant, implicitConversion);
+	}
 	codeStream.recordPositionsFrom(pc, this.sourceStart);
 }
 public TypeBinding literalType(BlockScope scope) {

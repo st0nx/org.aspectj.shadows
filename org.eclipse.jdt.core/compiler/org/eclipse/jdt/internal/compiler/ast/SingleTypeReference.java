@@ -25,22 +25,23 @@ public class SingleTypeReference extends TypeReference {
 		
 	}
 
-	public SingleTypeReference(char[] source ,TypeBinding type, long pos) {
-		this(source, pos) ;
-		this.resolvedType = type ;
-	}
-
 	public TypeReference copyDims(int dim){
 		//return a type reference copy of me with some dimensions
 		//warning : the new type ref has a null binding
 		
-		return new ArrayTypeReference(token,null,dim,(((long)sourceStart)<<32)+sourceEnd) ;
+		return new ArrayTypeReference(token, dim,(((long)sourceStart)<<32)+sourceEnd);
 	}
 
-	public TypeBinding getTypeBinding(Scope scope) {
+	protected TypeBinding getTypeBinding(Scope scope) {
 		if (this.resolvedType != null)
 			return this.resolvedType;
-		return scope.getType(token);
+
+		this.resolvedType = scope.getType(token);
+
+		if (scope.kind == Scope.CLASS_SCOPE && this.resolvedType.isValidBinding())
+			if (((ClassScope) scope).detectHierarchyCycle(this.resolvedType, this, null))
+				return null;
+		return this.resolvedType;
 	}
 
 	public char [][] getTypeName() {
@@ -54,14 +55,15 @@ public class SingleTypeReference extends TypeReference {
 
 	public TypeBinding resolveTypeEnclosing(BlockScope scope, ReferenceBinding enclosingType) {
 
-		ReferenceBinding memberTb = scope.getMemberType(token, enclosingType);
-		if (!memberTb.isValidBinding()) {
-			scope.problemReporter().invalidEnclosingType(this, memberTb, enclosingType);
+		ReferenceBinding memberType = scope.getMemberType(token, enclosingType);
+		if (!memberType.isValidBinding()) {
+			this.resolvedType = memberType;
+			scope.problemReporter().invalidEnclosingType(this, memberType, enclosingType);
 			return null;
 		}
-		if (isTypeUseDeprecated(memberTb, scope))
-			scope.problemReporter().deprecatedType(memberTb, this);
-		return this.resolvedType = memberTb;
+		if (isTypeUseDeprecated(memberType, scope))
+			scope.problemReporter().deprecatedType(memberType, this);
+		return this.resolvedType = scope.convertToRawType(memberType);
 	}
 
 	public void traverse(ASTVisitor visitor, BlockScope scope) {

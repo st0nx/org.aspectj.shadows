@@ -49,12 +49,34 @@ public abstract class AbstractTypeDeclaration extends BodyDeclaration {
 	abstract ChildListPropertyDescriptor internalBodyDeclarationsProperty();
 
 	/**
+	 * Returns structural property descriptor for the "bodyDeclarations" property
+	 * of this node.
+	 * 
+	 * @return the property descriptor
+	 * @since 3.1
+	 */
+	public final ChildListPropertyDescriptor getBodyDeclarationsProperty() {
+		return internalBodyDeclarationsProperty();
+	}
+
+	/**
 	 * Returns structural property descriptor for the "name" property
 	 * of this node.
 	 * 
 	 * @return the property descriptor
 	 */
 	abstract ChildPropertyDescriptor internalNameProperty();
+	
+	/**
+	 * Returns structural property descriptor for the "name" property
+	 * of this node.
+	 * 
+	 * @return the property descriptor
+	 * @since 3.1
+	 */
+	public final ChildPropertyDescriptor getNameProperty() {
+		return internalNameProperty();
+	}
 	
 	/**
 	 * Creates and returns a structural property descriptor for the
@@ -168,17 +190,18 @@ public abstract class AbstractTypeDeclaration extends BodyDeclaration {
 	 * Returns whether this type declaration is a type member.
 	 * <p>
 	 * Note that this is a convenience method that simply checks whether
-	 * this node's parent is a type declaration node, an anonymous 
-	 * class declaration, or an enumeration constant declaration.
+	 * this node's parent is a type declaration node or an anonymous 
+	 * class declaration.
 	 * </p>
 	 * 
 	 * @return <code>true</code> if this type declaration is a child of
-	 *   a type declaration node, a class instance creation node, or an
-	 *   enum constant declaration, and <code>false</code> otherwise
+	 *   a type declaration node or an anonymous class declaration node,
+	 *   and <code>false</code> otherwise
 	 * @since 2.0 (originally declared on <code>TypeDeclaration</code>)
 	 */
 	public boolean isMemberTypeDeclaration() {
 		ASTNode parent = getParent();
+		// TODO (jeem) - after 3.1 M4 remove mention of EnumConstantDeclaration
 		return (parent instanceof AbstractTypeDeclaration)
 			|| (parent instanceof AnonymousClassDeclaration)
 			|| (parent instanceof EnumConstantDeclaration);
@@ -199,6 +222,31 @@ public abstract class AbstractTypeDeclaration extends BodyDeclaration {
 		ASTNode parent = getParent();
 		return (parent instanceof TypeDeclarationStatement);
 	}
+	
+	/**
+	 * Resolves and returns the binding for the type declared in this type
+	 * declaration.
+	 * <p>
+	 * Note that bindings are generally unavailable unless requested when the
+	 * AST is being built.
+	 * </p>
+	 * 
+	 * @return the binding, or <code>null</code> if the binding cannot be 
+	 *    resolved
+	 * @since 3.1 Declared in 3.0 on the individual subclasses.
+	 */	
+	public final ITypeBinding resolveBinding() {
+		return internalResolveBinding();
+	}
+	
+	/**
+	 * Resolves and returns the binding for the type declared in this type
+	 * declaration. This method must be implemented by subclasses.
+	 * 
+	 * @return the binding, or <code>null</code> if the binding cannot be 
+	 *    resolved
+	 */	
+	abstract ITypeBinding internalResolveBinding();
 	
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.

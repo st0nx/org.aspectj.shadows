@@ -81,7 +81,7 @@ public int match(MessageSend node, MatchingNodeSet nodeSet) {
 	if (!this.pattern.findReferences) return IMPOSSIBLE_MATCH;
 
 	if (!matchesName(this.pattern.selector, node.selector)) return IMPOSSIBLE_MATCH;
-	if (this.pattern.parameterSimpleNames != null) {
+	if (this.pattern.parameterSimpleNames != null && !this.pattern.varargs) {
 		int length = this.pattern.parameterSimpleNames.length;
 		ASTNode[] args = node.arguments;
 		int argsLength = args == null ? 0 : args.length;
@@ -119,14 +119,27 @@ protected int matchMethod(MethodBinding method) {
 	if (parameterCount > -1) {
 		if (method.parameters == null) return INACCURATE_MATCH;
 		if (parameterCount != method.parameters.length) return IMPOSSIBLE_MATCH;
+		if (!method.isValidBinding() && ((ProblemMethodBinding)method).problemId() == ProblemReasons.Ambiguous)
+			// return inaccurate match for ambiguous call (bug 80890)
+			return INACCURATE_MATCH;
 		for (int i = 0; i < parameterCount; i++) {
-			int newLevel = resolveLevelForType(this.pattern.parameterSimpleNames[i], this.pattern.parameterQualifications[i], method.parameters[i]);
+			TypeBinding argType = method.parameters[i];
+			int newLevel = IMPOSSIBLE_MATCH;
+			if (argType.isMemberType()) {
+				// only compare source name for member type (bug 41018)
+				newLevel = CharOperation.match(this.pattern.parameterSimpleNames[i], argType.sourceName(), this.isCaseSensitive)
+					? ACCURATE_MATCH
+					: IMPOSSIBLE_MATCH;
+			} else {
+				newLevel = resolveLevelForType(this.pattern.parameterSimpleNames[i], this.pattern.parameterQualifications[i], method.parameters[i]);
+			}
 			if (level > newLevel) {
 				if (newLevel == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
 				level = newLevel; // can only be downgraded
 			}
 		}
 	}
+
 	return level;
 }
 /**
@@ -144,12 +157,26 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, int
 		if (element != null)
 			reportDeclaration(((MessageSend) reference).binding, locator, declPattern.knownMethods);
 	} else if (this.pattern.findReferences && reference instanceof MessageSend) {
+		IJavaElement focus = ((InternalSearchPattern) this.pattern).focus;
+		// verify closest match if pattern was bound
+		// (see bug 70827)
+		if (focus != null && focus.getElementType() == IJavaElement.METHOD) {
+			MethodBinding patternMethodBinding = locator.getMethodBinding((IMethod) focus);
+			if (patternMethodBinding != null && patternMethodBinding.isValidBinding()) {
+				MethodBinding method = ((MessageSend)reference).binding;
+				if (method != null) {
+					method = method.original();
+					if (method != null && patternMethodBinding.isPrivate() && patternMethodBinding.declaringClass != method.declaringClass)
+						return; // finally the match was not possible
+				}
+			}
+		}
 		int offset = (int) (((MessageSend) reference).nameSourcePosition >>> 32);
-		SearchMatch match = locator.newMethodReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, reference);
+		SearchMatch match = locator.newMethodReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, false /*not constructor*/, false/*not synthetic*/, reference);
 		locator.report(match);
 	} else {
 		int offset = reference.sourceStart;
-		SearchMatch match = locator.newMethodReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, reference);
+		SearchMatch match = locator.newMethodReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, false /*not constructor*/, false/*not synthetic*/, reference);
 		locator.report(match);
 	}
 }
@@ -180,6 +207,8 @@ protected void reportDeclaration(MethodBinding methodBinding, MatchLocator locat
 		info = locator.getBinaryInfo((org.eclipse.jdt.internal.core.ClassFile)type.getClassFile(), resource);
 		locator.reportBinaryMemberDeclaration(resource, method, info, SearchMatch.A_ACCURATE);
 	} else {
+		if (declaringClass instanceof ParameterizedTypeBinding)
+			declaringClass = ((ParameterizedTypeBinding) declaringClass).type;
 		ClassScope scope = ((SourceTypeBinding) declaringClass).scope;
 		if (scope != null) {
 			TypeDeclaration typeDecl = scope.referenceContext;
@@ -210,7 +239,7 @@ public int resolveLevel(Binding binding) {
 	if (binding == null) return INACCURATE_MATCH;
 	if (!(binding instanceof MethodBinding)) return IMPOSSIBLE_MATCH;
 
-	MethodBinding method = (MethodBinding) binding;
+	MethodBinding method = ((MethodBinding) binding).original();
 	int methodLevel = matchMethod(method);
 	if (methodLevel == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
 
@@ -218,15 +247,20 @@ public int resolveLevel(Binding binding) {
 	char[] qualifiedPattern = qualifiedPattern(this.pattern.declaringSimpleName, this.pattern.declaringQualification);
 	if (qualifiedPattern == null) return methodLevel; // since any declaring class will do
 
-	int declaringLevel = !method.isStatic() && !method.isPrivate()
+	boolean subType = !method.isStatic() && !method.isPrivate();
+	if (subType && this.pattern.declaringQualification != null && method.declaringClass != null && method.declaringClass.fPackage != null) {
+		subType = CharOperation.compareWith(this.pattern.declaringQualification, method.declaringClass.fPackage.shortReadableName()) == 0;
+	}
+	int declaringLevel = subType
 		? resolveLevelAsSubtype(qualifiedPattern, method.declaringClass)
 		: resolveLevelForType(qualifiedPattern, method.declaringClass);
 	return methodLevel > declaringLevel ? declaringLevel : methodLevel; // return the weaker match
 }
 protected int resolveLevel(MessageSend messageSend) {
 	MethodBinding method = messageSend.binding;
+	if (method != null) method = method.original();
 	if (method == null) return INACCURATE_MATCH;
-
+	
 	int methodLevel = matchMethod(method);
 	if (methodLevel == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
 
@@ -235,7 +269,7 @@ protected int resolveLevel(MessageSend messageSend) {
 	if (qualifiedPattern == null) return methodLevel; // since any declaring class will do
 
 	int declaringLevel;
-	if (isVirtualInvoke(method, messageSend) && !(messageSend.receiverType instanceof ArrayBinding)) {
+	if (isVirtualInvoke(method, messageSend) && !(messageSend.actualReceiverType instanceof ArrayBinding)) {
 		declaringLevel = resolveLevelAsSubtype(qualifiedPattern, method.declaringClass);
 		if (declaringLevel == IMPOSSIBLE_MATCH) {
 			if (method.declaringClass == null || this.allSuperDeclaringTypeNames == null) {

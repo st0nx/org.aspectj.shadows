@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
@@ -128,7 +129,7 @@ public class AssertStatement extends Statement {
 					case T_void :
 						scope.problemReporter().illegalVoidExpression(exceptionArgument);
 					default:
-					    id = T_Object;
+					    id = T_JavaLangObject;
 					case T_boolean :
 					case T_byte :
 					case T_char :
@@ -137,7 +138,7 @@ public class AssertStatement extends Statement {
 					case T_float :
 					case T_int :
 					case T_long :
-					case T_String :
+					case T_JavaLangString :
 						exceptionArgument.implicitConversion = (id << 4) + id;
 				}
 			}
@@ -168,7 +169,7 @@ public class AssertStatement extends Statement {
 			outerMostClass = (SourceTypeBinding) enclosing;
 		}
 
-		this.assertionSyntheticFieldBinding = outerMostClass.addSyntheticField(this, currentScope);
+		this.assertionSyntheticFieldBinding = outerMostClass.addSyntheticFieldForAssert(currentScope);
 
 		// find <clinit> and enable assertion support
 		TypeDeclaration typeDeclaration = outerMostClass.scope.referenceType();
@@ -176,7 +177,7 @@ public class AssertStatement extends Statement {
 		for (int i = 0, max = methods.length; i < max; i++) {
 			AbstractMethodDeclaration method = methods[i];
 			if (method.isClinit()) {
-				((Clinit) method).setAssertionSupport(assertionSyntheticFieldBinding);
+				((Clinit) method).setAssertionSupport(assertionSyntheticFieldBinding, currentScope.environment().options.sourceLevel < ClassFileConstants.JDK1_5);
 				break;
 			}
 		}

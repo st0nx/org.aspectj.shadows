@@ -14,7 +14,6 @@ import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
-import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 
 public class BlockScope extends Scope {
@@ -223,7 +222,7 @@ public class BlockScope extends Scope {
 				LocalVariableBinding local = locals[ilocal]; // if no local at all, will be locals[ilocal]==null
 				
 				// check if variable is actually used, and may force it to be preserved
-				boolean generateCurrentLocalVar = (local.useFlag == LocalVariableBinding.USED && (local.constant == Constant.NotAConstant));
+				boolean generateCurrentLocalVar = (local.useFlag == LocalVariableBinding.USED && !local.isConstantValue());
 					
 				// do not report fake used variable
 				if (local.useFlag == LocalVariableBinding.UNUSED
@@ -319,7 +318,7 @@ public class BlockScope extends Scope {
 	 */
 	public final ReferenceBinding findLocalType(char[] name) {
 
-	    long compliance = environment().options.complianceLevel;
+		long compliance = environment().options.complianceLevel;
 		for (int i = 0, length = subscopeCount; i < length; i++) {
 			if (subscopes[i] instanceof ClassScope) {
 				LocalTypeBinding sourceType = (LocalTypeBinding)((ClassScope) subscopes[i]).referenceContext.binding;
@@ -377,10 +376,11 @@ public class BlockScope extends Scope {
 	 */
 	public Binding getBinding(char[][] compoundName, int mask, InvocationSite invocationSite, boolean needResolve) {
 
-		Binding binding = getBinding(compoundName[0], mask | TYPE | PACKAGE, invocationSite, needResolve);
+		Binding binding = getBinding(compoundName[0], mask | Binding.TYPE | Binding.PACKAGE, invocationSite, needResolve);
 		invocationSite.setFieldIndex(1);
 		if (binding instanceof VariableBinding) return binding;
-		compilationUnitScope().recordSimpleReference(compoundName[0]);
+		CompilationUnitScope unitScope = compilationUnitScope();
+		unitScope.recordSimpleReference(compoundName[0]);
 		if (!binding.isValidBinding()) return binding;
 
 		int length = compoundName.length;
@@ -388,7 +388,7 @@ public class BlockScope extends Scope {
 		foundType : if (binding instanceof PackageBinding) {
 			PackageBinding packageBinding = (PackageBinding) binding;
 			while (currentIndex < length) {
-				compilationUnitScope().recordReference(packageBinding.compoundName, compoundName[currentIndex]);
+				unitScope.recordReference(packageBinding.compoundName, compoundName[currentIndex]);
 				binding = packageBinding.getTypeOrPackage(compoundName[currentIndex++]);
 				invocationSite.setFieldIndex(currentIndex);
 				if (binding == null) {
@@ -429,7 +429,7 @@ public class BlockScope extends Scope {
 			char[] nextName = compoundName[currentIndex++];
 			invocationSite.setFieldIndex(currentIndex);
 			invocationSite.setActualReceiverType(typeBinding);
-			if ((mask & FIELD) != 0 && (binding = findField(typeBinding, nextName, invocationSite, true /*resolve*/)) != null) {
+			if ((mask & Binding.FIELD) != 0 && (binding = findField(typeBinding, nextName, invocationSite, true /*resolve*/)) != null) {
 				if (!binding.isValidBinding())
 					return new ProblemFieldBinding(
 						((FieldBinding) binding).declaringClass,
@@ -438,7 +438,7 @@ public class BlockScope extends Scope {
 				break; // binding is now a field
 			}
 			if ((binding = findMemberType(nextName, typeBinding)) == null) {
-				if ((mask & FIELD) != 0) {
+				if ((mask & Binding.FIELD) != 0) {
 					return new ProblemBinding(
 						CharOperation.subarray(compoundName, 0, currentIndex),
 						typeBinding,
@@ -454,7 +454,7 @@ public class BlockScope extends Scope {
 					CharOperation.subarray(compoundName, 0, currentIndex),
 					binding.problemId());
 		}
-		if ((mask & FIELD) != 0 && (binding instanceof FieldBinding)) {
+		if ((mask & Binding.FIELD) != 0 && (binding instanceof FieldBinding)) {
 			// was looking for a field and found a field
 			FieldBinding field = (FieldBinding) binding;
 			if (!field.isStatic())
@@ -464,7 +464,7 @@ public class BlockScope extends Scope {
 					NonStaticReferenceInStaticContext);
 			return binding;
 		}
-		if ((mask & TYPE) != 0 && (binding instanceof ReferenceBinding)) {
+		if ((mask & Binding.TYPE) != 0 && (binding instanceof ReferenceBinding)) {
 			// was looking for a type and found a type
 			return binding;
 		}
@@ -484,7 +484,7 @@ public class BlockScope extends Scope {
 		Binding binding =
 			getBinding(
 				compoundName[currentIndex++],
-				VARIABLE | TYPE | PACKAGE,
+				Binding.VARIABLE | Binding.TYPE | Binding.PACKAGE,
 				invocationSite, 
 				true /*resolve*/);
 		if (!binding.isValidBinding())
@@ -638,7 +638,7 @@ public class BlockScope extends Scope {
 
 		// use 'this' if possible
 		if (!currentMethodScope.isConstructorCall && !currentMethodScope.isStatic) {
-			if (sourceType == targetEnclosingType || (!onlyExactMatch && targetEnclosingType.isSuperclassOf(sourceType))) {
+			if (sourceType == targetEnclosingType || (!onlyExactMatch && sourceType.findSuperTypeErasingTo(targetEnclosingType) != null)) {
 				return EmulationPathToImplicitThis; // implicit this is good enough
 			}
 		}
@@ -658,7 +658,7 @@ public class BlockScope extends Scope {
 				// reject allocation and super constructor call
 				if (ignoreEnclosingArgInConstructorCall 
 						&& currentMethodScope.isConstructorCall 
-						&& (sourceType == targetEnclosingType || (!onlyExactMatch && targetEnclosingType.isSuperclassOf(sourceType)))) {
+						&& (sourceType == targetEnclosingType || (!onlyExactMatch && sourceType.findSuperTypeErasingTo(targetEnclosingType) != null))) {
 					return NoEnclosingInstanceInConstructorCall;
 				}
 				return new Object[] { syntheticArg };
@@ -695,7 +695,7 @@ public class BlockScope extends Scope {
 
 				//done?
 				if (currentType == targetEnclosingType
-					|| (!onlyExactMatch && targetEnclosingType.isSuperclassOf(currentType)))	break;
+					|| (!onlyExactMatch && currentType.findSuperTypeErasingTo(targetEnclosingType) != null))	break;
 
 				if (currentMethodScope != null) {
 					currentMethodScope = currentMethodScope.enclosingMethodScope();
@@ -719,7 +719,7 @@ public class BlockScope extends Scope {
 				currentType = currentEnclosingType;
 			}
 			if (currentType == targetEnclosingType
-				|| (!onlyExactMatch && targetEnclosingType.isSuperclassOf(currentType))) {
+				|| (!onlyExactMatch && currentType.findSuperTypeErasingTo(targetEnclosingType) != null)) {
 				return path;
 			}
 		}

@@ -24,8 +24,9 @@ import org.eclipse.jdt.internal.compiler.problem.*;
 public class ConstructorDeclaration extends AbstractMethodDeclaration {
 
 	public ExplicitConstructorCall constructorCall;
-	public final static char[] ConstantPoolName = "<init>".toCharArray(); //$NON-NLS-1$
+	
 	public boolean isDefaultConstructor = false;
+	public TypeParameter[] typeParameters;
 
 	public ConstructorDeclaration(CompilationResult compilationResult){
 		super(compilationResult);
@@ -73,6 +74,13 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 						computedExceptions.toArray(actuallyThrownExceptions = new ReferenceBinding[size]);
 						binding.thrownExceptions = actuallyThrownExceptions;
 					}
+				}
+			}
+			
+			// tag parameters as being set
+			if (this.arguments != null) {
+				for (int i = 0, count = this.arguments.length; i < count; i++) {
+					flowInfo.markAsDefinitelyAssigned(this.arguments[i].binding);
 				}
 			}
 			
@@ -212,7 +220,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		
 		classFile.generateMethodInfoHeader(binding);
 		int methodAttributeOffset = classFile.contentsOffset;
-		int attributeNumber = classFile.generateMethodInfoAttribute(binding);
+		int attributeNumber = classFile.generateMethodInfoAttribute(this.binding);
 		if ((!binding.isNative()) && (!binding.isAbstract())) {
 			
 			TypeDeclaration declaringType = classScope.referenceContext;
@@ -224,18 +232,19 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 			// initialize local positions - including initializer scope.
 			ReferenceBinding declaringClass = binding.declaringClass;
 
-			int argSlotSize = 1; // this==aload0
-			
+			int enumOffset = declaringClass.isEnum() ? 2 : 0; // String name, int ordinal
+			int argSlotSize = 1 + enumOffset; // this==aload0
+
 			if (declaringClass.isNestedType()){
 				NestedTypeBinding nestedType = (NestedTypeBinding) declaringClass;
 				this.scope.extraSyntheticArguments = nestedType.syntheticOuterLocalVariables();
 				scope.computeLocalVariablePositions(// consider synthetic arguments if any
-					nestedType.enclosingInstancesSlotSize + 1,
+					nestedType.enclosingInstancesSlotSize + 1 + enumOffset,
 					codeStream);
 				argSlotSize += nestedType.enclosingInstancesSlotSize;
 				argSlotSize += nestedType.outerLocalVariablesSlotSize;
 			} else {
-				scope.computeLocalVariablePositions(1,  codeStream);
+				scope.computeLocalVariablePositions(1 + enumOffset,  codeStream);
 			}
 				
 			if (arguments != null) {
@@ -321,13 +330,10 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		return true;
 	}
 
-	/**
+	/*
 	 * Returns true if the constructor is directly involved in a cycle.
 	 * Given most constructors aren't, we only allocate the visited list
 	 * lazily.
-	 * 
-	 * @param visited
-	 * @return
 	 */
 	public boolean isRecursive(ArrayList visited) {
 
@@ -340,7 +346,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		}
 		
 		ConstructorDeclaration targetConstructor = 
-			((ConstructorDeclaration)this.scope.referenceType().declarationOf(constructorCall.binding));
+			((ConstructorDeclaration)this.scope.referenceType().declarationOf(constructorCall.binding.original()));
 		if (this == targetConstructor) return true; // direct case
 
 		if (visited == null) { // lazy allocation
@@ -359,10 +365,10 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		//fill up the constructor body with its statements
 		if (ignoreFurtherInvestigation)
 			return;
-		if (isDefaultConstructor){
-			constructorCall = SuperReference.implicitSuperConstructorCall();
-			constructorCall.sourceStart = sourceStart;
-			constructorCall.sourceEnd = sourceEnd; 
+		if (isDefaultConstructor && this.constructorCall == null){
+			this.constructorCall = SuperReference.implicitSuperConstructorCall();
+			this.constructorCall.sourceStart = this.sourceStart;
+			this.constructorCall.sourceEnd = this.sourceEnd; 
 			return;
 		}
 		parser.parse(this, unit);
@@ -406,11 +412,14 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 			scope.problemReporter().missingReturnType(this);
 		}
 
+		if (this.binding != null && this.binding.declaringClass.isAnnotationType()) {
+			scope.problemReporter().annotationTypeDeclarationCannotHaveConstructor(this);
+		}
 		// if null ==> an error has occurs at parsing time ....
 		if (this.constructorCall != null) {
 			// e.g. using super() in java.lang.Object
 			if (this.binding != null
-				&& this.binding.declaringClass.id == T_Object
+				&& this.binding.declaringClass.id == T_JavaLangObject
 				&& this.constructorCall.accessMode != ExplicitConstructorCall.This) {
 					if (this.constructorCall.accessMode == ExplicitConstructorCall.Super) {
 						scope.problemReporter().cannotUseSuperInJavaLangObject(this.constructorCall);
@@ -430,7 +439,19 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		ASTVisitor visitor,
 		ClassScope classScope) {
 
+		
 		if (visitor.visit(this, classScope)) {
+			if (this.annotations != null) {
+				int annotationsLength = this.annotations.length;
+				for (int i = 0; i < annotationsLength; i++)
+					this.annotations[i].traverse(visitor, scope);
+			}
+			if (this.typeParameters != null) {
+				int typeParametersLength = this.typeParameters.length;
+				for (int i = 0; i < typeParametersLength; i++) {
+					this.typeParameters[i].traverse(visitor, scope);
+				}
+			}			
 			if (arguments != null) {
 				int argumentLength = arguments.length;
 				for (int i = 0; i < argumentLength; i++)
@@ -451,4 +472,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		}
 		visitor.endVisit(this, classScope);
 	}
+	public TypeParameter[] typeParameters() {
+	    return this.typeParameters;
+	}		
 }

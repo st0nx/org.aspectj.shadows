@@ -18,8 +18,8 @@ import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.classfmt.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
+import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
-import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.core.util.Util;
 
 import java.io.*;
@@ -327,7 +327,7 @@ protected boolean findSourceFiles(IResourceDelta delta) throws CoreException {
 				try {
 					for (int j = 0, m = children.length; j < m; j++)
 						findSourceFiles(children[j], md, segmentCount);
-				} catch (org.eclipse.core.internal.resources.ResourceException e) {
+				} catch (CoreException e) {
 					// catch the case that a package has been renamed and collides on disk with an as-yet-to-be-deleted package
 					if (e.getStatus().getCode() == IResourceStatus.CASE_VARIANT_EXISTS) {
 						if (JavaBuilder.DEBUG)
@@ -406,7 +406,7 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 			if (isExcluded) return;
 
 			String resourceName = resource.getName();
-			if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(resourceName)) {
+			if (org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(resourceName)) {
 				IPath typePath = resource.getFullPath().removeFirstSegments(segmentCount).removeFileExtension();
 				String typeLocator = resource.getProjectRelativePath().toString();
 				switch (sourceDelta.getKind()) {
@@ -446,7 +446,8 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 						newState.removeLocator(typeLocator);
 						return;
 					case IResourceDelta.CHANGED :
-						if ((sourceDelta.getFlags() & IResourceDelta.CONTENT) == 0)
+						if ((sourceDelta.getFlags() & IResourceDelta.CONTENT) == 0
+								&& (sourceDelta.getFlags() & IResourceDelta.ENCODING) == 0)
 							return; // skip it since it really isn't changed
 						if (JavaBuilder.DEBUG)
 							System.out.println("Compile this changed source file " + typeLocator); //$NON-NLS-1$
@@ -473,7 +474,7 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 						createFolder(resourcePath.removeLastSegments(1), md.binaryFolder); // ensure package exists in the output folder
 						resource.copy(outputFile.getFullPath(), IResource.FORCE, null);
 						outputFile.setDerived(true);
-						outputFile.setReadOnly(false); // just in case the original was read only
+						Util.setReadOnly(outputFile, false); // just in case the original was read only
 						return;
 					case IResourceDelta.REMOVED :
 						if (outputFile.exists()) {
@@ -483,7 +484,8 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 						}
 						return;
 					case IResourceDelta.CHANGED :
-						if ((sourceDelta.getFlags() & IResourceDelta.CONTENT) == 0)
+						if ((sourceDelta.getFlags() & IResourceDelta.CONTENT) == 0
+								&& (sourceDelta.getFlags() & IResourceDelta.ENCODING) == 0)
 							return; // skip it since it really isn't changed
 						if (outputFile.exists()) {
 							if (JavaBuilder.DEBUG)
@@ -495,7 +497,7 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 						createFolder(resourcePath.removeLastSegments(1), md.binaryFolder); // ensure package exists in the output folder
 						resource.copy(outputFile.getFullPath(), IResource.FORCE, null);
 						outputFile.setDerived(true);
-						outputFile.setReadOnly(false); // just in case the original was read only
+						Util.setReadOnly(outputFile, false); // just in case the original was read only
 				}
 				return;
 			}
@@ -611,7 +613,7 @@ protected void writeClassFileBytes(byte[] bytes, IFile file, String qualifiedFil
 			System.out.println("Writing new class file " + file.getName());//$NON-NLS-1$
 		try {
 			file.create(new ByteArrayInputStream(bytes), IResource.FORCE, null);
-		} catch (org.eclipse.core.internal.resources.ResourceException e) {
+		} catch (CoreException e) {
 			if (e.getStatus().getCode() == IResourceStatus.CASE_VARIANT_EXISTS)
 				// catch the case that a nested type has been renamed and collides on disk with an as-yet-to-be-deleted type
 				throw new AbortCompilation(true, new AbortIncrementalBuildException(qualifiedFileName));

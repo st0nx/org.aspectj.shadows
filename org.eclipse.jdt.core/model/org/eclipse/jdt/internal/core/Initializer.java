@@ -28,7 +28,7 @@ import org.eclipse.jdt.internal.core.util.Util;
 /* package */ class Initializer extends Member implements IInitializer {
 
 protected Initializer(JavaElement parent, int count) {
-	super(parent, ""); //$NON-NLS-1$
+	super(parent);
 	// 0 is not valid: this first occurrence is occurrence 1.
 	if (count <= 0)
 		throw new IllegalArgumentException();
@@ -61,13 +61,12 @@ public int getElementType() {
 	return INITIALIZER;
 }
 /**
- * @see JavaElement#getHandleMemento()
+ * @see JavaElement#getHandleMemento(StringBuffer)
  */
-public String getHandleMemento(){
-	StringBuffer buff= new StringBuffer(((JavaElement)getParent()).getHandleMemento());
+protected void getHandleMemento(StringBuffer buff) {
+	((JavaElement)getParent()).getHandleMemento(buff);
 	buff.append(getHandleMementoDelimiter());
 	buff.append(this.occurrenceCount);
-	return buff.toString();
 }
 /**
  * @see JavaElement#getHandleMemento()

@@ -84,6 +84,11 @@ public void acceptResult(CompilationResult result) {
 			throw internalException(e);
 		}
 
+		if (result.hasInconsistentToplevelHierarchies)
+			// ensure that this file is always retrieved from source for the rest of the build
+			if (!problemSourceFiles.contains(compilationUnit))
+				problemSourceFiles.add(compilationUnit);
+
 		String typeLocator = compilationUnit.typeLocator();
 		ClassFile[] classFiles = result.getClassFiles();
 		int length = classFiles.length;
@@ -91,6 +96,7 @@ public void acceptResult(CompilationResult result) {
 		ArrayList definedTypeNames = new ArrayList(length);
 		for (int i = 0; i < length; i++) {
 			ClassFile classFile = classFiles[i];
+
 			char[][] compoundName = classFile.getCompoundName();
 			char[] typeName = compoundName[compoundName.length - 1];
 			boolean isNestedType = classFile.enclosingClassFile != null;
@@ -106,7 +112,13 @@ public void acceptResult(CompilationResult result) {
 					if (duplicateTypeNames == null)
 						duplicateTypeNames = new ArrayList();
 					duplicateTypeNames.add(compoundName);
-					createProblemFor(compilationUnit.resource, Util.bind("build.duplicateClassFile", new String(typeName)), JavaCore.ERROR); //$NON-NLS-1$
+					IType type = null;
+					try {
+						type = javaBuilder.javaProject.findType(qualifiedTypeName.replace('/', '.'));
+					} catch (JavaModelException e) {
+						// ignore
+					}
+					createProblemFor(compilationUnit.resource, type, Util.bind("build.duplicateClassFile", new String(typeName)), JavaCore.ERROR); //$NON-NLS-1$
 					continue;
 				}
 				newState.recordLocatorForType(qualifiedTypeName, typeLocator);
@@ -116,9 +128,9 @@ public void acceptResult(CompilationResult result) {
 			} catch (CoreException e) {
 				Util.log(e, "JavaBuilder handling CoreException"); //$NON-NLS-1$
 				if (e.getStatus().getCode() == IResourceStatus.CASE_VARIANT_EXISTS)
-					createProblemFor(compilationUnit.resource, Util.bind("build.classFileCollision", e.getMessage()), JavaCore.ERROR); //$NON-NLS-1$
+					createProblemFor(compilationUnit.resource, null, Util.bind("build.classFileCollision", e.getMessage()), JavaCore.ERROR); //$NON-NLS-1$
 				else
-					createProblemFor(compilationUnit.resource, Util.bind("build.inconsistentClassFile"), JavaCore.ERROR); //$NON-NLS-1$
+					createProblemFor(compilationUnit.resource, null, Util.bind("build.inconsistentClassFile"), JavaCore.ERROR); //$NON-NLS-1$
 			}
 		}
 		finishedWith(typeLocator, result, compilationUnit.getMainTypeName(), definedTypeNames, duplicateTypeNames);
@@ -212,14 +224,17 @@ void compile(SourceFile[] units, SourceFile[] additionalUnits) {
 	notifier.checkCancel();
 }
 
-protected void createProblemFor(IResource resource, String message, String problemSeverity) {
+protected void createProblemFor(IResource resource, IMember javaElement, String message, String problemSeverity) {
 	try {
 		IMarker marker = resource.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
 		int severity = problemSeverity.equals(JavaCore.WARNING) ? IMarker.SEVERITY_WARNING : IMarker.SEVERITY_ERROR;
 
+		ISourceRange range = javaElement == null ? null : javaElement.getNameRange();
+		int start = range == null ? 0 : range.getOffset();
+		int end = range == null ? 1 : start + range.getLength();
 		marker.setAttributes(
 			new String[] {IMarker.MESSAGE, IMarker.SEVERITY, IMarker.CHAR_START, IMarker.CHAR_END},
-			new Object[] {message, new Integer(severity), new Integer(0), new Integer(1)});
+			new Object[] {message, new Integer(severity), new Integer(start), new Integer(end)});
 	} catch (CoreException e) {
 		throw internalException(e);
 	}
@@ -317,31 +332,10 @@ protected void storeProblemsFor(SourceFile sourceFile, IProblem[] problems) thro
 	for (int i = 0, l = problems.length; i < l; i++) {
 		IProblem problem = problems[i];
 		int id = problem.getID();
-		switch (id) {
-			case IProblem.IsClassPathCorrect :
-				JavaBuilder.removeProblemsAndTasksFor(javaBuilder.currentProject); // make this the only problem for this project
-				String[] args = problem.getArguments();
-				missingClassFile = args[0];
-				break;
-			case IProblem.SuperclassMustBeAClass :
-			case IProblem.SuperInterfaceMustBeAnInterface :
-			case IProblem.HierarchyCircularitySelfReference :
-			case IProblem.HierarchyCircularity :
-			case IProblem.HierarchyHasProblems :
-			case IProblem.SuperclassNotFound :
-			case IProblem.SuperclassNotVisible :
-			case IProblem.SuperclassAmbiguous :
-			case IProblem.SuperclassInternalNameProvided :
-			case IProblem.SuperclassInheritedNameHidesEnclosingName :
-			case IProblem.InterfaceNotFound :
-			case IProblem.InterfaceNotVisible :
-			case IProblem.InterfaceAmbiguous :
-			case IProblem.InterfaceInternalNameProvided :
-			case IProblem.InterfaceInheritedNameHidesEnclosingName :
-				// ensure that this file is always retrieved from source for the rest of the build
-				if (!problemSourceFiles.contains(sourceFile))
-					problemSourceFiles.add(sourceFile);
-				break;
+		if (id == IProblem.IsClassPathCorrect) {
+			JavaBuilder.removeProblemsAndTasksFor(javaBuilder.currentProject); // make this the only problem for this project
+			String[] args = problem.getArguments();
+			missingClassFile = args[0];
 		}
 
 		if (id != IProblem.Task) {

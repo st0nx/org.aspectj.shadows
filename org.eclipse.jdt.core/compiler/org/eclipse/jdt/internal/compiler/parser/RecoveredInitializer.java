@@ -156,7 +156,7 @@ public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalanceV
 	}
 	RecoveredType element = new RecoveredType(typeDeclaration, this, bracketBalanceValue);
 	localTypes[localTypeCount++] = element;
-
+	
 	/* consider that if the opening brace was not found, it is there */
 	if (!foundOpeningBrace){
 		foundOpeningBrace = true;

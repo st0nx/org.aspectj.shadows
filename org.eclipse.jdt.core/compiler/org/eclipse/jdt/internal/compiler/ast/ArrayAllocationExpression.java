@@ -73,7 +73,7 @@ public class ArrayAllocationExpression extends Expression {
 		// Generate a sequence of bytecodes corresponding to an array allocation
 		if (this.resolvedType.dimensions() == 1) {
 			// Mono-dimensional array
-			codeStream.newArray(currentScope, (ArrayBinding)this.resolvedType);
+			codeStream.newArray((ArrayBinding)this.resolvedType);
 		} else {
 			// Multi-dimensional array
 			codeStream.multianewarray(this.resolvedType, nonNullDimensionsLength);
@@ -113,7 +113,7 @@ public class ArrayAllocationExpression extends Expression {
 		// only at the -end- like new int [4][][]. The parser allows new int[][4][]
 		// so this must be checked here......(this comes from a reduction to LL1 grammar)
 
-		TypeBinding referenceType = type.resolveType(scope);
+		TypeBinding referenceType = type.resolveType(scope, true /* check bounds*/);
 		
 		// will check for null after dimensions are checked
 		constant = Constant.NotAConstant;
@@ -124,12 +124,13 @@ public class ArrayAllocationExpression extends Expression {
 
 		// check the validity of the dimension syntax (and test for all null dimensions)
 		int explicitDimIndex = -1;
-		for (int i = dimensions.length; --i >= 0;) {
+		loop: for (int i = dimensions.length; --i >= 0;) {
 			if (dimensions[i] != null) {
 				if (explicitDimIndex < 0) explicitDimIndex = i;
-			} else if (explicitDimIndex> 0) {
+			} else if (explicitDimIndex > 0) {
 				// should not have an empty dimension before an non-empty one
-				scope.problemReporter().incorrectLocationForEmptyDimension(this, i);
+				scope.problemReporter().incorrectLocationForNonEmptyDimension(this, explicitDimIndex);
+				break loop;
 			}
 		}
 
@@ -138,6 +139,10 @@ public class ArrayAllocationExpression extends Expression {
 		if (initializer == null) {
 			if (explicitDimIndex < 0) {
 				scope.problemReporter().mustDefineDimensionsOrInitializer(this);
+			}
+			// allow new List<?>[5] - only check for generic array when no initializer, since also checked inside initializer resolution
+			if (referenceType != null && !referenceType.isReifiable()) {
+			    scope.problemReporter().illegalGenericArray(referenceType, this);
 			}
 		} else if (explicitDimIndex >= 0) {
 			scope.problemReporter().cannotDefineDimensionsAndInitializer(this);
@@ -148,7 +153,7 @@ public class ArrayAllocationExpression extends Expression {
 			if (dimensions[i] != null) {
 				TypeBinding dimensionType = dimensions[i].resolveTypeExpecting(scope, IntBinding);
 				if (dimensionType != null) {
-					dimensions[i].implicitWidening(IntBinding, dimensionType);
+					dimensions[i].computeConversion(scope, IntBinding, dimensionType);
 				}
 			}
 		}
@@ -158,7 +163,7 @@ public class ArrayAllocationExpression extends Expression {
 			if (dimensions.length > 255) {
 				scope.problemReporter().tooManyDimensions(this);
 			}
-			this.resolvedType = scope.createArray(referenceType, dimensions.length);
+			this.resolvedType = scope.createArrayType(referenceType, dimensions.length);
 
 			// check the initializer
 			if (initializer != null) {

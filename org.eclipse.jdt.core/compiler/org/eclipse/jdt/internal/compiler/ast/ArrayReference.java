@@ -51,10 +51,9 @@ public class ArrayReference extends Reference {
 		FlowContext flowContext,
 		FlowInfo flowInfo) {
 
-		return position.analyseCode(
-			currentScope,
-			flowContext,
-			receiver.analyseCode(currentScope, flowContext, flowInfo));
+		flowInfo = receiver.analyseCode(currentScope, flowContext, flowInfo);
+		receiver.checkNullStatus(currentScope, flowContext, flowInfo, FlowInfo.NON_NULL);
+		return position.analyseCode(currentScope, flowContext, flowInfo);
 	}
 
 	public void generateAssignment(
@@ -123,21 +122,25 @@ public class ArrayReference extends Reference {
 		codeStream.dup2();
 		codeStream.arrayAt(this.resolvedType.id);
 		int operationTypeID;
-		if ((operationTypeID = implicitConversion >> 4) == T_String) {
-			codeStream.generateStringAppend(currentScope, null, expression);
-		} else {
-			// promote the array reference to the suitable operation type
-			codeStream.generateImplicitConversion(implicitConversion);
-			// generate the increment value (will by itself  be promoted to the operation value)
-			if (expression == IntLiteral.One) { // prefix operation
-				codeStream.generateConstant(expression.constant, implicitConversion);
-			} else {
-				expression.generateCode(currentScope, codeStream, true);
-			}
-			// perform the operation
-			codeStream.sendOperator(operator, operationTypeID);
-			// cast the value back to the array reference type
-			codeStream.generateImplicitConversion(assignmentImplicitConversion);
+		switch(operationTypeID = (implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4) {
+			case T_JavaLangString :
+			case T_JavaLangObject :
+			case T_undefined :
+				codeStream.generateStringConcatenationAppend(currentScope, null, expression);
+				break;
+			default :
+				// promote the array reference to the suitable operation type
+				codeStream.generateImplicitConversion(implicitConversion);
+				// generate the increment value (will by itself  be promoted to the operation value)
+				if (expression == IntLiteral.One) { // prefix operation
+					codeStream.generateConstant(expression.constant, implicitConversion);
+				} else {
+					expression.generateCode(currentScope, codeStream, true);
+				}
+				// perform the operation
+				codeStream.sendOperator(operator, operationTypeID);
+				// cast the value back to the array reference type
+				codeStream.generateImplicitConversion(assignmentImplicitConversion);
 		}
 		codeStream.arrayAtPut(this.resolvedType.id, valueRequired);
 	}
@@ -164,10 +167,11 @@ public class ArrayReference extends Reference {
 				codeStream.dup_x2();
 			}
 		}
+		codeStream.generateImplicitConversion(implicitConversion);		
 		codeStream.generateConstant(
 			postIncrement.expression.constant,
 			implicitConversion);
-		codeStream.sendOperator(postIncrement.operator, this.resolvedType.id);
+		codeStream.sendOperator(postIncrement.operator, this.implicitConversion & COMPILE_TYPE_MASK);
 		codeStream.generateImplicitConversion(
 			postIncrement.assignmentImplicitConversion);
 		codeStream.arrayAtPut(this.resolvedType.id, false);
@@ -188,15 +192,16 @@ public class ArrayReference extends Reference {
 		}		
 		TypeBinding arrayType = receiver.resolveType(scope);
 		if (arrayType != null) {
+			receiver.computeConversion(scope, arrayType, arrayType);
 			if (arrayType.isArrayType()) {
-				this.resolvedType = ((ArrayBinding) arrayType).elementsType(scope);
+				this.resolvedType = ((ArrayBinding) arrayType).elementsType();
 			} else {
 				scope.problemReporter().referenceMustBeArrayTypeAt(arrayType, this);
 			}
 		}
 		TypeBinding positionType = position.resolveTypeExpecting(scope, IntBinding);
 		if (positionType != null) {
-			position.implicitWidening(IntBinding, positionType);
+			position.computeConversion(scope, IntBinding, positionType);
 		}
 		return this.resolvedType;
 	}

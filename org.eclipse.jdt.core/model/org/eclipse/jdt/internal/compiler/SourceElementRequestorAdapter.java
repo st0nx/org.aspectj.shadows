@@ -112,54 +112,23 @@ public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 	}
 
 	/**
-	 * @see ISourceElementRequestor#enterClass(int, int, char[], int, int, char[], char[][])
-	 */
-	public void enterClass(
-		int declarationStart,
-		int modifiers,
-		char[] name,
-		int nameSourceStart,
-		int nameSourceEnd,
-		char[] superclass,
-		char[][] superinterfaces) {
-		// default implementation: do nothing
-	}
-
-	/**
 	 * @see ISourceElementRequestor#enterCompilationUnit()
 	 */
 	public void enterCompilationUnit() {
 		// default implementation: do nothing
 	}
 
-	/**
-	 * @see ISourceElementRequestor#enterConstructor(int, int, char[], int, int, char[][], char[][], char[][])
-	 */
-	public void enterConstructor(
-		int declarationStart,
-		int modifiers,
-		char[] name,
-		int nameSourceStart,
-		int nameSourceEnd,
-		char[][] parameterTypes,
-		char[][] parameterNames,
-		char[][] exceptionTypes) {
+	public void enterConstructor(MethodInfo methodInfo) {
 		// default implementation: do nothing
 	}
-
+	
 	/**
-	 * @see ISourceElementRequestor#enterField(int, int, char[], char[], int, int)
+	 * @see ISourceElementRequestor#enterField(FieldInfo)
 	 */
-	public void enterField(
-		int declarationStart,
-		int modifiers,
-		char[] type,
-		char[] name,
-		int nameSourceStart,
-		int nameSourceEnd) {
+	public void enterField(FieldInfo fieldInfo) {
 		// default implementation: do nothing
 	}
-
+	
 	/**
 	 * @see ISourceElementRequestor#enterInitializer(int, int)
 	 */
@@ -167,42 +136,14 @@ public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 		// default implementation: do nothing
 	}
 
-	/**
-	 * @see ISourceElementRequestor#enterInterface(int, int, char[], int, int, char[][])
-	 */
-	public void enterInterface(
-		int declarationStart,
-		int modifiers,
-		char[] name,
-		int nameSourceStart,
-		int nameSourceEnd,
-		char[][] superinterfaces) {
+	public void enterMethod(MethodInfo methodInfo) {
 		// default implementation: do nothing
 	}
-
-	/**
-	 * @see ISourceElementRequestor#enterMethod(int, int, char[], char[], int, int, char[][], char[][], char[][])
-	 */
-	public void enterMethod(
-		int declarationStart,
-		int modifiers,
-		char[] returnType,
-		char[] name,
-		int nameSourceStart,
-		int nameSourceEnd,
-		char[][] parameterTypes,
-		char[][] parameterNames,
-		char[][] exceptionTypes) {
+	
+	public void enterType(TypeInfo typeInfo) {
 		// default implementation: do nothing
 	}
-
-	/**
-	 * @see ISourceElementRequestor#exitClass(int)
-	 */
-	public void exitClass(int declarationEnd) {
-		// default implementation: do nothing
-	}
-
+	
 	/**
 	 * @see ISourceElementRequestor#exitCompilationUnit(int)
 	 */
@@ -218,7 +159,7 @@ public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 	}
 
 	/**
-	 * @see ISourceElementRequestor#exitField(int)
+	 * @see ISourceElementRequestor#exitField(int, int, int)
 	 */
 	public void exitField(int initializationStart, int declarationEnd, int declarationSourceEnd) {
 		// default implementation: do nothing
@@ -232,17 +173,18 @@ public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 	}
 
 	/**
-	 * @see ISourceElementRequestor#exitInterface(int)
+	 * @see ISourceElementRequestor#exitMethod(int, int, int)
 	 */
-	public void exitInterface(int declarationEnd) {
+	public void exitMethod(int declarationEnd, int defaultValueStart, int defaultValueEnd) {
+		// default implementation: do nothing
+	}
+	
+	/**
+	 * @see ISourceElementRequestor#exitType(int)
+	 */
+	public void exitType(int declarationEnd) {
 		// default implementation: do nothing
 	}
 
-	/**
-	 * @see ISourceElementRequestor#exitMethod(int)
-	 */
-	public void exitMethod(int declarationEnd) {
-		// default implementation: do nothing
-	}
 }
 

@@ -11,6 +11,7 @@
 
 package org.eclipse.jdt.core.dom;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -41,7 +42,9 @@ import java.util.List;
  * 		     { <b>,</b> FormalParameter } ] <b>)</b> {<b>[</b> <b>]</b> }
  *        [ <b>throws</b> TypeName { <b>,</b> TypeName } ] ( Block | <b>;</b> )
  * ConstructorDeclaration:
- *    [ Javadoc ] { ExtendedModifier } Identifier <b>(</b>
+ *    [ Javadoc ] { ExtendedModifier }
+ *		  [ <b>&lt;</b> TypeParameter { <b>,</b> TypeParameter } <b>&gt;</b> ]
+ *        Identifier <b>(</b>
  * 		  [ FormalParameter
  * 			 { <b>,</b> FormalParameter } ] <b>)</b>
  *        [<b>throws</b> TypeName { <b>,</b> TypeName } ] Block
@@ -165,30 +168,32 @@ public class MethodDeclaration extends BodyDeclaration {
 	private static final List PROPERTY_DESCRIPTORS_3_0;
 	
 	static {
-		createPropertyList(MethodDeclaration.class);
-		addProperty(JAVADOC_PROPERTY);
-		addProperty(MODIFIERS_PROPERTY);
-		addProperty(CONSTRUCTOR_PROPERTY);
-		addProperty(RETURN_TYPE_PROPERTY);
-		addProperty(NAME_PROPERTY);
-		addProperty(PARAMETERS_PROPERTY);
-		addProperty(EXTRA_DIMENSIONS_PROPERTY);
-		addProperty(THROWN_EXCEPTIONS_PROPERTY);
-		addProperty(BODY_PROPERTY);
-		PROPERTY_DESCRIPTORS_2_0 = reapPropertyList();
+		List propertyList = new ArrayList(10);
+		createPropertyList(MethodDeclaration.class, propertyList);
+		addProperty(JAVADOC_PROPERTY, propertyList);
+		addProperty(MODIFIERS_PROPERTY, propertyList);
+		addProperty(CONSTRUCTOR_PROPERTY, propertyList);
+		addProperty(RETURN_TYPE_PROPERTY, propertyList);
+		addProperty(NAME_PROPERTY, propertyList);
+		addProperty(PARAMETERS_PROPERTY, propertyList);
+		addProperty(EXTRA_DIMENSIONS_PROPERTY, propertyList);
+		addProperty(THROWN_EXCEPTIONS_PROPERTY, propertyList);
+		addProperty(BODY_PROPERTY, propertyList);
+		PROPERTY_DESCRIPTORS_2_0 = reapPropertyList(propertyList);
 		
-		createPropertyList(MethodDeclaration.class);
-		addProperty(JAVADOC_PROPERTY);
-		addProperty(MODIFIERS2_PROPERTY);
-		addProperty(CONSTRUCTOR_PROPERTY);
-		addProperty(TYPE_PARAMETERS_PROPERTY);
-		addProperty(RETURN_TYPE2_PROPERTY);
-		addProperty(NAME_PROPERTY);
-		addProperty(PARAMETERS_PROPERTY);
-		addProperty(EXTRA_DIMENSIONS_PROPERTY);
-		addProperty(THROWN_EXCEPTIONS_PROPERTY);
-		addProperty(BODY_PROPERTY);
-		PROPERTY_DESCRIPTORS_3_0 = reapPropertyList();
+		propertyList = new ArrayList(11);
+		createPropertyList(MethodDeclaration.class, propertyList);
+		addProperty(JAVADOC_PROPERTY, propertyList);
+		addProperty(MODIFIERS2_PROPERTY, propertyList);
+		addProperty(CONSTRUCTOR_PROPERTY, propertyList);
+		addProperty(TYPE_PARAMETERS_PROPERTY, propertyList);
+		addProperty(RETURN_TYPE2_PROPERTY, propertyList);
+		addProperty(NAME_PROPERTY, propertyList);
+		addProperty(PARAMETERS_PROPERTY, propertyList);
+		addProperty(EXTRA_DIMENSIONS_PROPERTY, propertyList);
+		addProperty(THROWN_EXCEPTIONS_PROPERTY, propertyList);
+		addProperty(BODY_PROPERTY, propertyList);
+		PROPERTY_DESCRIPTORS_3_0 = reapPropertyList(propertyList);
 	}
 
 	/**
@@ -526,12 +531,6 @@ public class MethodDeclaration extends BodyDeclaration {
 	/**
 	 * Returns the live ordered list of type parameters of this method
 	 * declaration (added in JLS3 API). This list is non-empty for parameterized methods.
-	 * <p>
-	 * Note that these children are not relevant for constructor declarations
-	 * (although it does still figure in subtree equality comparisons
-	 * and visits), and is devoid of the binding information ordinarily
-	 * available.
-	 * </p>
 	 * <p>
 	 * Note: This API element is only needed for dealing with Java code that uses
 	 * new language features of J2SE 1.5. It is included in anticipation of J2SE

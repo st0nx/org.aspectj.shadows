@@ -18,6 +18,7 @@ import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.core.*;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class PossibleMatch implements ICompilationUnit {
 
@@ -73,6 +74,7 @@ public char[] getContents() {
 /**
  * The exact openable file name. In particular, will be the originating .class file for binary openable with attached
  * source.
+ * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
  * @see PackageReferenceLocator#isDeclaringPackageFragment(IPackageFragment, org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding)
  */
 public char[] getFileName() {
@@ -104,11 +106,11 @@ private char[] getQualifiedName() {
 		if (fileName == NO_SOURCE_FILE_NAME)
 			return ((ClassFile) this.openable).getType().getFullyQualifiedName('.').toCharArray();
 
-		String simpleName = fileName.substring(0, fileName.length() - 5); // length-".java".length()
-		String pkgName = this.openable.getParent().getElementName();
-		if (pkgName.length() == 0)
-			return simpleName.toCharArray();
-		return (pkgName + '.' + simpleName).toCharArray();
+		// Class file may have a source file name with ".java" extension (see bug 73784)
+		int index = Util.indexOfJavaLikeExtension(fileName);
+		String simpleName = index==-1 ? fileName : fileName.substring(0, index);
+		PackageFragment pkg = (PackageFragment) this.openable.getParent();
+		return Util.concatWith(pkg.names, simpleName, '.').toCharArray();
 	}
 	return null;
 }
@@ -120,12 +122,11 @@ private String getSourceFileName() {
 	if (this.sourceFileName != null) return this.sourceFileName;
 
 	this.sourceFileName = NO_SOURCE_FILE_NAME; 
-	SourceMapper sourceMapper = this.openable.getSourceMapper();
-	if (sourceMapper != null) {
-		IType type = ((ClassFile) this.openable).getType();
+	if (this.openable.getSourceMapper() != null) {
+		BinaryType type = (BinaryType) ((ClassFile) this.openable).getType();
 		ClassFileReader reader = MatchLocator.classFileReader(type);
 		if (reader != null)
-			this.sourceFileName = sourceMapper.findSourceFileName(type, reader);
+			this.sourceFileName = type.sourceFileName(reader);
 	}
 	return this.sourceFileName;
 }	

@@ -77,11 +77,21 @@ public static final TypeReference baseTypeReference(int baseType, int dim) {
 			return new ArrayTypeReference(LongBinding.simpleName, dim, 0);
 	}
 }
+public void checkBounds(Scope scope) {
+	// only parameterized type references have bounds
+}
 public abstract TypeReference copyDims(int dim);
 public int dimensions() {
 	return 0;
 }
-public abstract TypeBinding getTypeBinding(Scope scope);
+/**
+ * @return char[][]
+ * TODO (jerome) should merge back into #getTypeName()
+ */
+public char [][] getParameterizedTypeName(){
+	return getTypeName();
+}
+protected abstract TypeBinding getTypeBinding(Scope scope);
 /**
  * @return char[][]
  */
@@ -89,43 +99,65 @@ public abstract char [][] getTypeName() ;
 public boolean isTypeReference() {
 	return true;
 }
-public TypeBinding resolveType(BlockScope blockScope) {
-	// handle the error here
-	this.constant = NotAConstant;
-	if (this.resolvedType != null) { // is a shared type reference which was already resolved
-		if (!this.resolvedType.isValidBinding())
-			return null; // already reported error
-	} else {
-		this.resolvedType = getTypeBinding(blockScope);
-		if (!this.resolvedType.isValidBinding()) {
-			reportInvalidType(blockScope);
-			return null;
-		}
-		if (isTypeUseDeprecated(this.resolvedType, blockScope)) {
-			reportDeprecatedType(blockScope);
-		}
+public TypeBinding resolveSuperType(ClassScope scope) {
+	// assumes the implementation of resolveType(ClassScope) will call back to detect cycles
+	if (resolveType(scope) == null) return null;
+
+	if (this.resolvedType.isTypeVariable()) {
+		this.resolvedType = new ProblemReferenceBinding(getTypeName(), (ReferenceBinding) this.resolvedType, ProblemReasons.IllegalSuperTypeVariable);
+		reportInvalidType(scope);
+		return null;
 	}
 	return this.resolvedType;
 }
 
+public final TypeBinding resolveType(BlockScope blockScope) {
+	return resolveType(blockScope, true /* checkbounds if any */);
+}
+
+public TypeBinding resolveType(BlockScope blockScope, boolean checkBounds) {
+	// handle the error here
+	this.constant = NotAConstant;
+	if (this.resolvedType != null) // is a shared type reference which was already resolved
+		return this.resolvedType.isValidBinding() ? this.resolvedType : null; // already reported error
+
+	this.resolvedType = getTypeBinding(blockScope);
+	if (this.resolvedType == null)
+		return null; // detected cycle while resolving hierarchy	
+	if (!this.resolvedType.isValidBinding()) {
+		reportInvalidType(blockScope);
+		return null;
+	}
+	if (isTypeUseDeprecated(this.resolvedType, blockScope))
+		reportDeprecatedType(blockScope);
+	return this.resolvedType = blockScope.convertToRawType(this.resolvedType);
+}
 public TypeBinding resolveType(ClassScope classScope) {
 	// handle the error here
 	this.constant = NotAConstant;
-	if (this.resolvedType != null) { // is a shared type reference which was already resolved
-		if (!this.resolvedType.isValidBinding())
-			return null; // already reported error
-	} else {
-		this.resolvedType = getTypeBinding(classScope);
-		if (!this.resolvedType.isValidBinding()) {
-			reportInvalidType(classScope);
-			return null;
-		}
-		if (isTypeUseDeprecated(this.resolvedType, classScope)) {
-			reportDeprecatedType(classScope);
-		}
+	if (this.resolvedType != null) // is a shared type reference which was already resolved
+		return this.resolvedType.isValidBinding() ? this.resolvedType : null; // already reported error
+
+	this.resolvedType = getTypeBinding(classScope);
+	if (this.resolvedType == null)
+		return null; // detected cycle while resolving hierarchy	
+	if (!this.resolvedType.isValidBinding()) {
+		reportInvalidType(classScope);
+		return null;
 	}
-	return this.resolvedType;
+	if (isTypeUseDeprecated(this.resolvedType, classScope))
+		reportDeprecatedType(classScope);
+	return this.resolvedType = classScope.convertToRawType(this.resolvedType);
 }
+
+public TypeBinding resolveTypeArgument(BlockScope blockScope, ReferenceBinding genericType, int rank) {
+    return resolveType(blockScope, true /* check bounds*/);
+}
+
+public TypeBinding resolveTypeArgument(ClassScope classScope, ReferenceBinding genericType, int rank) {
+    return resolveType(classScope);
+}
+	
 protected void reportInvalidType(Scope scope) {
 	scope.problemReporter().invalidType(this, this.resolvedType);
 }
@@ -133,4 +165,5 @@ protected void reportDeprecatedType(Scope scope) {
 	scope.problemReporter().deprecatedType(this.resolvedType, this);
 }
 public abstract void traverse(ASTVisitor visitor, ClassScope classScope);
+public abstract void traverse(ASTVisitor visitor, BlockScope classScope);
 }

@@ -32,6 +32,22 @@ public abstract class AbstractCommentParser {
 	public static final char[] TAG_LINK = "link".toCharArray(); //$NON-NLS-1$
 	public static final char[] TAG_LINKPLAIN = "linkplain".toCharArray(); //$NON-NLS-1$
 	public static final char[] TAG_INHERITDOC = "inheritDoc".toCharArray(); //$NON-NLS-1$
+	public static final char[] TAG_VALUE = "value".toCharArray(); //$NON-NLS-1$
+
+	// tags value
+	public static final int NO_TAG_VALUE = 0;
+	public static final int TAG_DEPRECATED_VALUE = 1;
+	public static final int TAG_PARAM_VALUE = 2;
+	public static final int TAG_RETURN_VALUE = 3;
+	public static final int TAG_THROWS_VALUE = 4;
+	public static final int TAG_EXCEPTION_VALUE = 5;
+	public static final int TAG_SEE_VALUE = 6;
+	public static final int TAG_LINK_VALUE = 7;
+	public static final int TAG_LINKPLAIN_VALUE = 8;
+	public static final int TAG_INHERITDOC_VALUE = 9;
+	public static final int TAG_VALUE_VALUE = 10;
+	public static final int TAG_OTHERS_VALUE = 11;
+	protected int tagValue = NO_TAG_VALUE;
 	
 	// tags expected positions
 	public final static int ORDERED_TAGS_NUMBER = 3;
@@ -43,26 +59,32 @@ public abstract class AbstractCommentParser {
 	public final static int COMPIL_PARSER = 0x00000001;
 	public final static int DOM_PARSER = 0x00000002;
 	
-	// Public fields
+	// Parse infos
 	public Scanner scanner;
-	public boolean checkDocComment = false;
+	public char[] source;
+	protected Parser sourceParser;
+	private int currentTokenType = -1;
 	
-	// Protected fields
+	// Options
+	public boolean checkDocComment = false;
+	public boolean reportProblems;
+	protected boolean jdk15;
+	
+	// Results
 	protected boolean inherited, deprecated;
-	protected char[] source;
+	protected Object returnStatement;
+	
+	// Positions
 	protected int index, endComment, lineEnd;
-	protected int tokenPreviousPosition;
+	protected int tokenPreviousPosition, lastIdentifierEndPosition, starPosition;
 	protected int textStart, memberStart;
 	protected int tagSourceStart, tagSourceEnd;
 	protected int inlineTagStart;
-	protected Parser sourceParser;
-	protected Object returnStatement;
-	protected boolean lineStarted = false, inlineTagStarted = false;
-	protected int kind;
 	protected int[] lineEnds;
 	
-	// Private fields
-	private int currentTokenType = -1;
+	// Flags
+	protected boolean lineStarted = false, inlineTagStarted = false;
+	protected int kind;
 	
 	// Line pointers
 	private int linePtr, lastLinePtr;
@@ -88,6 +110,7 @@ public abstract class AbstractCommentParser {
 		this.identifierLengthStack = new int[10];
 		this.astStack = new Object[30];
 		this.astLengthStack = new int[20];
+		this.reportProblems = sourceParser != null;
 	}
 
 	/* (non-Javadoc)
@@ -96,7 +119,7 @@ public abstract class AbstractCommentParser {
 	 * If javadoc checking is enabled, will also construct an Javadoc node, which will be stored into Parser.javadoc
 	 * slot for being consumed later on.
 	 */
-	protected boolean parseComment(int javadocStart, int javadocEnd) {
+	protected boolean commentParse(int javadocStart, int javadocEnd) {
 
 		boolean validComment = true;
 		try {
@@ -121,7 +144,7 @@ public abstract class AbstractCommentParser {
 			this.deprecated = false;
 			this.linePtr = getLineNumber(javadocStart);
 			this.lastLinePtr = getLineNumber(javadocEnd);
-			this.lineEnd = (this.linePtr == this.lastLinePtr) ? this.endComment : getLineEnd(this.linePtr);
+			this.lineEnd = (this.linePtr == this.lastLinePtr) ? this.endComment : this.scanner.getLineEnd(this.linePtr);
 			this.textStart = -1;
 			char previousChar = 0;
 			int invalidTagLineEnd = -1;
@@ -161,15 +184,14 @@ public abstract class AbstractCommentParser {
 				
 				switch (nextCharacter) {
 					case '@' :
-						boolean valid = false;
-						// Start tag parsing only if we have a java identifier start character and if we are on line beginning or at inline tag beginning
+						// Start tag parsing only if we are on line beginning or at inline tag beginning
 						if ((!this.lineStarted || previousChar == '{')) {
 							this.lineStarted = true;
 							if (this.inlineTagStarted) {
 								this.inlineTagStarted = false;
 								// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=53279
 								// Cannot have @ inside inline comment
-								if (this.sourceParser != null) {
+								if (this.reportProblems) {
 									int end = previousPosition<invalidInlineTagLineEnd ? previousPosition : invalidInlineTagLineEnd;
 									this.sourceParser.problemReporter().javadocUnterminatedInlineTag(this.inlineTagStart, end);
 								}
@@ -191,173 +213,14 @@ public abstract class AbstractCommentParser {
 							this.scanner.resetTo(this.index, this.endComment);
 							this.currentTokenType = -1; // flush token cache at line begin
 							try {
-								int token = readTokenAndConsume();
-								this.tagSourceStart = this.scanner.getCurrentTokenStartPosition();
-								this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
-								char[] tag = this.scanner.getCurrentIdentifierSource(); // first token is either an identifier or a keyword
-								if (this.kind == DOM_PARSER) {
-									// For DOM parser, try to get tag name other than java identifier
-									// (see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=51660)
-									int tk = token;
-									int le = this.lineEnd;
-									char pc = peekChar();
-									tagNameToken: while (tk != TerminalTokens.TokenNameEOF) {
-										this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
-										token = tk;
-										// !, ", #, %, &, ', -, :, <, >, * chars and spaces are not allowed in tag names
-										switch (pc) {
-											case '}':
-											case '!':
-											case '#':
-											case '%':
-											case '&':
-											case '\'':
-											case ':':
-											case '-':
-											case '<':
-											case '>':
-											case '*': // break for '*' as this is perhaps the end of comment (bug 65288)
-												break tagNameToken;
-											default:
-												if (pc == ' ' || Character.isWhitespace(pc)) break tagNameToken;
-										}
-										tk = readTokenAndConsume();
-										pc = peekChar();
-									}
-									int length = this.tagSourceEnd-this.tagSourceStart+1;
-									tag = new char[length];
-									System.arraycopy(this.source, this.tagSourceStart, tag, 0, length);
-									this.index = this.tagSourceEnd+1;
-									this.scanner.currentPosition = this.tagSourceEnd+1;
-									this.tagSourceStart = previousPosition;
-									this.lineEnd = le;
-								}
-								switch (token) {
-									case TerminalTokens.TokenNameIdentifier :
-										if (CharOperation.equals(tag, TAG_DEPRECATED)) {
-											this.deprecated = true;
-											if (this.kind == DOM_PARSER) {
-												valid = parseTag();
-											} else {
-												valid = true;
-											}
-										} else if (CharOperation.equals(tag, TAG_INHERITDOC)) {
-											// inhibits inherited flag when tags have been already stored
-											// see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=51606
-											// Note that for DOM_PARSER, nodes stack may be not empty even no '@' tag
-											// was encountered in comment. But it cannot be the case for COMPILER_PARSER
-											// and so is enough as it is only this parser which signals the missing tag warnings...
-											this.inherited = this.astPtr==-1;
-											if (this.kind == DOM_PARSER) {
-												valid = parseTag();
-											} else {
-												valid = true;
-											}
-										} else if (CharOperation.equals(tag, TAG_PARAM)) {
-											valid = parseParam();
-										} else if (CharOperation.equals(tag, TAG_EXCEPTION)) {
-											valid = parseThrows(false);
-										} else if (CharOperation.equals(tag, TAG_SEE)) {
-											if (this.inlineTagStarted) {
-												// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=53290
-												// Cannot have @see inside inline comment
-												valid = false;
-												if (this.sourceParser != null)
-													this.sourceParser.problemReporter().javadocUnexpectedTag(this.tagSourceStart, this.tagSourceEnd);
-											} else {
-												valid = parseSee(false);
-											}
-										} else if (CharOperation.equals(tag, TAG_LINK)) {
-											if (this.inlineTagStarted) {
-												valid = parseSee(false);
-											} else {
-												// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=53290
-												// Cannot have @link outside inline comment
-												valid = false;
-												if (this.sourceParser != null)
-													this.sourceParser.problemReporter().javadocUnexpectedTag(this.tagSourceStart, this.tagSourceEnd);
-											}
-										} else if (CharOperation.equals(tag, TAG_LINKPLAIN)) {
-											if (this.inlineTagStarted) {
-												valid = parseSee(true);
-											} else {
-												valid = parseTag();
-											}
-										} else {
-											valid = parseTag();
-										}
-										break;
-									case TerminalTokens.TokenNamereturn :
-										valid = parseReturn();
-										break;
-									case TerminalTokens.TokenNamethrows :
-										valid = parseThrows(true);
-										break;
-									default:
-										if (this.kind == DOM_PARSER) {
-											switch (token) {
-												case TerminalTokens.TokenNameabstract:
-												case TerminalTokens.TokenNameassert:
-												case TerminalTokens.TokenNameboolean:
-												case TerminalTokens.TokenNamebreak:
-												case TerminalTokens.TokenNamebyte:
-												case TerminalTokens.TokenNamecase:
-												case TerminalTokens.TokenNamecatch:
-												case TerminalTokens.TokenNamechar:
-												case TerminalTokens.TokenNameclass:
-												case TerminalTokens.TokenNamecontinue:
-												case TerminalTokens.TokenNamedefault:
-												case TerminalTokens.TokenNamedo:
-												case TerminalTokens.TokenNamedouble:
-												case TerminalTokens.TokenNameelse:
-												case TerminalTokens.TokenNameextends:
-												case TerminalTokens.TokenNamefalse:
-												case TerminalTokens.TokenNamefinal:
-												case TerminalTokens.TokenNamefinally:
-												case TerminalTokens.TokenNamefloat:
-												case TerminalTokens.TokenNamefor:
-												case TerminalTokens.TokenNameif:
-												case TerminalTokens.TokenNameimplements:
-												case TerminalTokens.TokenNameimport:
-												case TerminalTokens.TokenNameinstanceof:
-												case TerminalTokens.TokenNameint:
-												case TerminalTokens.TokenNameinterface:
-												case TerminalTokens.TokenNamelong:
-												case TerminalTokens.TokenNamenative:
-												case TerminalTokens.TokenNamenew:
-												case TerminalTokens.TokenNamenull:
-												case TerminalTokens.TokenNamepackage:
-												case TerminalTokens.TokenNameprivate:
-												case TerminalTokens.TokenNameprotected:
-												case TerminalTokens.TokenNamepublic:
-												case TerminalTokens.TokenNameshort:
-												case TerminalTokens.TokenNamestatic:
-												case TerminalTokens.TokenNamestrictfp:
-												case TerminalTokens.TokenNamesuper:
-												case TerminalTokens.TokenNameswitch:
-												case TerminalTokens.TokenNamesynchronized:
-												case TerminalTokens.TokenNamethis:
-												case TerminalTokens.TokenNamethrow:
-												case TerminalTokens.TokenNametransient:
-												case TerminalTokens.TokenNametrue:
-												case TerminalTokens.TokenNametry:
-												case TerminalTokens.TokenNamevoid:
-												case TerminalTokens.TokenNamevolatile:
-												case TerminalTokens.TokenNamewhile:
-													valid = parseTag();
-													break;
-											}
-										}
-								}
-								this.textStart = this.index;
-								if (!valid) {
+								if (!parseTag(previousPosition)) {
 									// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=51600
 									// do not stop the inline tag when error is encountered to get text after
 									validComment = false;
 									// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=51600
 									// for DOM AST node, store tag as text in case of invalid syntax
 									if (this.kind == DOM_PARSER) {
-										parseTag();
+										createTag();
 										this.textStart = this.tagSourceEnd+1;
 										invalidTagLineEnd  = this.lineEnd;
 									}
@@ -396,7 +259,7 @@ public abstract class AbstractCommentParser {
 							this.inlineTagStarted = false;
 							// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=53279
 							// Cannot have opening brace in inline comment
-							if (this.sourceParser != null) {
+							if (this.reportProblems) {
 								int end = previousPosition<invalidInlineTagLineEnd ? previousPosition : invalidInlineTagLineEnd;
 								this.sourceParser.problemReporter().javadocUnterminatedInlineTag(this.inlineTagStart, end);
 							}
@@ -412,22 +275,24 @@ public abstract class AbstractCommentParser {
 						this.inlineTagStart = previousPosition;
 						break;
 					case '*' :
-						// do nothing for '*' character
+					case '\u000c' :	/* FORM FEED               */
+					case ' ' :			/* SPACE                   */
+					case '\t' :			/* HORIZONTAL TABULATION   */
+						// do nothing for space or '*' characters
 						break;
 					default :
-						if (!CharOperation.isWhitespace(nextCharacter)) {
-							if (!this.lineStarted) {
-								this.textStart = previousPosition;
-							}
-							this.lineStarted = true;
+						if (!this.lineStarted) {
+							this.textStart = previousPosition;
 						}
+						this.lineStarted = true;
+						break;
 				}
 			}
 			// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=53279
 			// Cannot leave comment inside inline comment
 			if (this.inlineTagStarted) {
 				this.inlineTagStarted = false;
-				if (this.sourceParser != null) {
+				if (this.reportProblems) {
 					int end = previousPosition<invalidInlineTagLineEnd ? previousPosition : invalidInlineTagLineEnd;
 					if (this.index >= this.endComment) end = invalidInlineTagLineEnd;
 					this.sourceParser.problemReporter().javadocUnterminatedInlineTag(this.inlineTagStart, end);
@@ -457,16 +322,59 @@ public abstract class AbstractCommentParser {
 	protected abstract Object createFieldReference(Object receiver) throws InvalidInputException;
 	protected abstract Object createMethodReference(Object receiver, List arguments) throws InvalidInputException;
 	protected Object createReturnStatement() { return null; }
+	protected abstract void createTag();
 	protected abstract Object createTypeReference(int primitiveToken);
+
+	private int getIndexPosition() {
+		if (this.index > this.lineEnd) {
+			return this.lineEnd;
+		} else {
+			return this.index-1;
+		}
+	}
+
+	/**
+	 * Search the line number corresponding to a specific position.
+	 * Warning: returned position is 1-based index!
+	 * @see Scanner#getLineNumber(int) We cannot directly use this method
+	 * when linePtr field is not initialized.
+	 */
+	private int getLineNumber(int position) {
 	
-	private int getEndPosition() {
+		if (this.scanner.linePtr != -1) {
+			return this.scanner.getLineNumber(position);
+		}
+		if (this.lineEnds == null)
+			return 1;
+		int length = this.lineEnds.length;
+		if (length == 0)
+			return 1;
+		int g = 0, d = length - 1;
+		int m = 0;
+		while (g <= d) {
+			m = (g + d) /2;
+			if (position < this.lineEnds[m]) {
+				d = m-1;
+			} else if (position > this.lineEnds[m]) {
+				g = m+1;
+			} else {
+				return m + 1;
+			}
+		}
+		if (position < this.lineEnds[m]) {
+			return m+1;
+		}
+		return m+2;
+	}
+
+	private int getTokenEndPosition() {
 		if (this.scanner.getCurrentTokenEndPosition() > this.lineEnd) {
 			return this.lineEnd;
 		} else {
 			return this.scanner.getCurrentTokenEndPosition();
 		}
 	}
-
+	
 	/*
 	 * Parse argument in @see tag method reference
 	 */
@@ -498,9 +406,11 @@ public abstract class AbstractCommentParser {
 			}
 			if (typeRef == null) {
 				if (firstArg && this.currentTokenType == TerminalTokens.TokenNameRPAREN) {
-					char pc = peekChar();
-					if (!Character.isWhitespace(pc) && (!this.inlineTagStarted || pc != '}')) {
-						if (this.sourceParser != null) this.sourceParser.problemReporter().javadocMalformedSeeReference(start, this.lineEnd);
+					// verify characters after arguments declaration (expecting white space or end comment)
+					if (!verifySpaceOrEndComment()) {
+						int end = this.starPosition == -1 ? this.lineEnd : this.starPosition;
+						if (this.source[end]=='\n') end--;
+						if (this.reportProblems) this.sourceParser.problemReporter().javadocMalformedSeeReference(start, end);
 						return null;
 					}
 					this.lineStarted = true;
@@ -566,9 +476,11 @@ public abstract class AbstractCommentParser {
 				consumeToken();
 				iToken++;
 			} else if (token == TerminalTokens.TokenNameRPAREN) {
-				char pc = peekChar();
-				if (!Character.isWhitespace(pc) && (!this.inlineTagStarted || pc != '}')) {
-					if (this.sourceParser != null) this.sourceParser.problemReporter().javadocMalformedSeeReference(start, this.lineEnd);
+				// verify characters after arguments declaration (expecting white space or end comment)
+				if (!verifySpaceOrEndComment()) {
+					int end = this.starPosition == -1 ? this.lineEnd : this.starPosition;
+					if (this.source[end]=='\n') end--;
+					if (this.reportProblems) this.sourceParser.problemReporter().javadocMalformedSeeReference(start, end);
 					return null;
 				}
 				// Create new argument
@@ -593,28 +505,48 @@ public abstract class AbstractCommentParser {
 		if (Character.toLowerCase(readChar()) == 'a') {
 			this.scanner.currentPosition = this.index;
 			if (readToken() == TerminalTokens.TokenNameIdentifier) {
-				this.currentTokenType = -1; // do not update line end
+				consumeToken();
 				try {
 					if (CharOperation.equals(this.scanner.getCurrentIdentifierSource(), new char[]{'h', 'r', 'e', 'f'}, false) &&
 						readToken() == TerminalTokens.TokenNameEQUAL) {
-						this.currentTokenType = -1; // do not update line end
+						consumeToken();
 						if (readToken() == TerminalTokens.TokenNameStringLiteral) {
-							this.currentTokenType = -1; // do not update line end
-							if (readToken() == TerminalTokens.TokenNameGREATER) {
+							consumeToken();
+							// Skip all characters after string literal until closing '>' (see bug 68726)
+							while (readToken() != TerminalTokens.TokenNameGREATER) {
+								if (this.scanner.currentPosition >= this.scanner.eofPosition || this.scanner.currentCharacter == '@' ||
+									(this.inlineTagStarted && this.scanner.currentCharacter == '}')) {
+									// Reset position: we want to rescan last token
+									this.index = this.tokenPreviousPosition;
+									this.scanner.currentPosition = this.tokenPreviousPosition;
+									this.currentTokenType = -1;
+									// Signal syntax error
+									if (this.tagValue != TAG_VALUE_VALUE) { // do not report error for @value tag, this will be done after...
+										if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidSeeUrlReference(start, this.lineEnd);
+									}
+									return false;
+								}
+								this.currentTokenType = -1; // do not update line end
+							}
+							if (this.currentTokenType == TerminalTokens.TokenNameGREATER) {
 								consumeToken(); // update line end as new lines are allowed in URL description
 								while (readToken() != TerminalTokens.TokenNameLESS) {
-									if (this.scanner.currentPosition >= this.scanner.eofPosition || this.scanner.currentCharacter == '@') {
+									if (this.scanner.currentPosition >= this.scanner.eofPosition || this.scanner.currentCharacter == '@' ||
+										(this.inlineTagStarted && this.scanner.currentCharacter == '}')) {
 										// Reset position: we want to rescan last token
 										this.index = this.tokenPreviousPosition;
 										this.scanner.currentPosition = this.tokenPreviousPosition;
 										this.currentTokenType = -1;
 										// Signal syntax error
-										if (this.sourceParser != null) this.sourceParser.problemReporter().javadocInvalidSeeUrlReference(start, this.lineEnd);
+										if (this.tagValue != TAG_VALUE_VALUE) { // do not report error for @value tag, this will be done after...
+											if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidSeeUrlReference(start, this.lineEnd);
+										}
 										return false;
 									}
 									consumeToken();
 								}
-								this.currentTokenType = -1; // do not update line end
+								consumeToken();
+								start = this.scanner.getCurrentTokenStartPosition();
 								if (readChar() == '/') {
 									if (Character.toLowerCase(readChar()) == 'a') {
 										if (readChar() == '>') {
@@ -636,7 +568,9 @@ public abstract class AbstractCommentParser {
 		this.scanner.currentPosition = this.tokenPreviousPosition;
 		this.currentTokenType = -1;
 		// Signal syntax error
-		if (this.sourceParser != null) this.sourceParser.problemReporter().javadocInvalidSeeUrlReference(start, this.lineEnd);
+		if (this.tagValue != TAG_VALUE_VALUE) { // do not report error for @value tag, this will be done after...
+			if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidSeeUrlReference(start, this.lineEnd);
+		}
 		return false;
 	}
 
@@ -649,11 +583,12 @@ public abstract class AbstractCommentParser {
 		this.identifierLengthPtr = -1;
 		int start = this.scanner.getCurrentTokenStartPosition();
 		this.memberStart = start;
-
+	
 		// Get member identifier
 		if (readToken() == TerminalTokens.TokenNameIdentifier) {
 			consumeToken();
 			pushIdentifier(true);
+			// Look for next token to know whether it's a field or method reference
 			int previousPosition = this.index;
 			if (readToken() == TerminalTokens.TokenNameLPAREN) {
 				consumeToken();
@@ -665,21 +600,28 @@ public abstract class AbstractCommentParser {
 							this.scanner.getCurrentTokenEndPosition() :
 							this.scanner.getCurrentTokenStartPosition();
 					end = end < this.lineEnd ? end : this.lineEnd;
-					if (this.sourceParser != null) this.sourceParser.problemReporter().javadocInvalidSeeReferenceArgs(start, end);
+					if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidSeeReferenceArgs(start, end);
 				}
 				return null;
 			}
+	
 			// Reset position: we want to rescan last token
-			if (this.currentTokenType != -1) {
-				this.index = previousPosition;
-				this.scanner.currentPosition = previousPosition;
-				this.currentTokenType = -1;
+			this.index = previousPosition;
+			this.scanner.currentPosition = previousPosition;
+			this.currentTokenType = -1;
+	
+			// Verify character(s) after identifier (expecting space or end comment)
+			if (!verifySpaceOrEndComment()) {
+				int end = this.starPosition == -1 ? this.lineEnd : this.starPosition;
+				if (this.source[end]=='\n') end--;
+				if (this.reportProblems) this.sourceParser.problemReporter().javadocMalformedSeeReference(start, end);
+				return null;
 			}
 			return createFieldReference(receiver);
 		}
-		int end = getEndPosition() - 1;
-		end = start > end ? getEndPosition() : end;
-		if (this.sourceParser != null) this.sourceParser.problemReporter().javadocInvalidSeeReference(start, end);
+		int end = getTokenEndPosition() - 1;
+		end = start > end ? start : end;
+		if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidReference(start, end);
 		// Reset position: we want to rescan last token
 		this.index = this.tokenPreviousPosition;
 		this.scanner.currentPosition = this.tokenPreviousPosition;
@@ -690,38 +632,201 @@ public abstract class AbstractCommentParser {
 	/*
 	 * Parse @param tag declaration
 	 */
-	protected boolean parseParam() {
+	protected boolean parseParam() throws InvalidInputException {
 
-		// Store current token state
+		// Store current state
 		int start = this.tagSourceStart;
 		int end = this.tagSourceEnd;
-
-		try {
-			// Push identifier next
-			int token = readToken();
+		boolean tokenWhiteSpace = this.scanner.tokenizeWhiteSpace;
+		this.scanner.tokenizeWhiteSpace = true;
+//		this.scanner.tokenizeLineSeparator = true;
+		
+		// Verify that there are whitespaces after tag
+		int token = readToken();
+		if (token != TerminalTokens.TokenNameWHITESPACE) {
+			if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidTag(start, this.scanner.getCurrentTokenEndPosition());
+			this.scanner.currentPosition = start;
+			this.index = start;
+			this.currentTokenType = -1;
+			this.scanner.tokenizeWhiteSpace = tokenWhiteSpace;
+			return false;
+		}
+		
+		// Get first non whitespace token
+		this.identifierPtr = -1;
+		this.identifierLengthPtr = -1;
+		boolean hasMultiLines = this.scanner.currentPosition > (this.lineEnd+1);
+		boolean isTypeParam = false;
+		boolean valid = true, empty = true;
+		nextToken: while (true) {
+			this.currentTokenType = -1;
+			try {
+				token = readToken();
+			} catch (InvalidInputException e) {
+				valid = false;
+			}
 			switch (token) {
 				case TerminalTokens.TokenNameIdentifier :
-					consumeToken();
-					return pushParamName();
-				case TerminalTokens.TokenNameEOF :
-					break;
-				default :
-					start = this.scanner.getCurrentTokenStartPosition();
-					end = getEndPosition();
-					if (end < start) start = this.tagSourceStart;
-					break;
+					if (valid) { 
+						// store param name id
+						pushIdentifier(true);
+						start = this.scanner.getCurrentTokenStartPosition();
+						end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
+						break nextToken;
+					}
+					// fall through next case to report error
+				case TerminalTokens.TokenNameLESS:
+					if (valid && this.jdk15) {
+						// store '<' in identifiers stack as we need to add it to tag element (bug 79809)
+						pushIdentifier(true);
+						start = this.scanner.getCurrentTokenStartPosition();
+						end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
+						isTypeParam = true;
+						break nextToken;
+					}
+					// fall through next case to report error
+				default:
+					if (token == TerminalTokens.TokenNameLEFT_SHIFT) isTypeParam = true;
+					if (valid && !hasMultiLines) start = this.scanner.getCurrentTokenStartPosition();
+					valid = false;
+					if (!hasMultiLines) {
+						empty = false;
+						end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
+						break;
+					}
+					end = this.lineEnd;
+					// when several lines, fall through next case to report problem immediately
+				case TerminalTokens.TokenNameWHITESPACE:
+					if (this.scanner.currentPosition > (this.lineEnd+1)) hasMultiLines = true;
+					if (valid) break;
+					// if not valid fall through next case to report error
+				case TerminalTokens.TokenNameEOF:
+					if (this.reportProblems)
+						if (empty)
+							this.sourceParser.problemReporter().javadocMissingParamName(start, end, this.sourceParser.modifiers);
+						else if (this.jdk15 && isTypeParam)
+							this.sourceParser.problemReporter().javadocInvalidParamTypeParameter(start, end);
+						else
+							this.sourceParser.problemReporter().javadocInvalidParamTagName(start, end);
+					this.scanner.currentPosition = start;
+					this.index = start;
+					this.currentTokenType = -1;
+					this.scanner.tokenizeWhiteSpace = tokenWhiteSpace;
+					return false;
 			}
-		} catch (InvalidInputException e) {
-			end = getEndPosition();
 		}
-
-		// Reset position to avoid missing tokens when new line was encountered
-		this.index = this.tokenPreviousPosition;
-		this.scanner.currentPosition = this.tokenPreviousPosition;
-		this.currentTokenType = -1;
-
+		
+		// Scan more tokens for type parameter declaration
+		if (isTypeParam && this.jdk15) {
+			// Get type parameter name
+			nextToken: while (true) {
+				this.currentTokenType = -1;
+				try {
+					token = readToken();
+				} catch (InvalidInputException e) {
+					valid = false;
+				}
+				switch (token) {
+					case TerminalTokens.TokenNameWHITESPACE:
+						if (valid && this.scanner.currentPosition <= (this.lineEnd+1)) break;
+						// if not valid fall through next case to report error
+					case TerminalTokens.TokenNameEOF:
+						if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidParamTypeParameter(start, end);
+						this.scanner.currentPosition = start;
+						this.index = start;
+						this.currentTokenType = -1;
+						this.scanner.tokenizeWhiteSpace = tokenWhiteSpace;
+						return false;
+					case TerminalTokens.TokenNameIdentifier :
+						end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
+						if (valid) {
+							// store param name id
+							pushIdentifier(false);
+							break nextToken;
+						}
+						break;
+					default:
+						end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
+						valid = false;
+						break;
+				}
+			}
+			
+			// Get last character of type parameter declaration
+			boolean spaces = false;
+			nextToken: while (true) {
+				this.currentTokenType = -1;
+				try {
+					token = readToken();
+				} catch (InvalidInputException e) {
+					valid = false;
+				}
+				switch (token) {
+					case TerminalTokens.TokenNameWHITESPACE:
+						if (this.scanner.currentPosition > (this.lineEnd+1)) {
+							// do not accept type parameter declaration on several lines
+							hasMultiLines = true;
+							valid = false;
+						}
+						spaces = true;
+						if (valid) break;
+						// if not valid fall through next case to report error
+					case TerminalTokens.TokenNameEOF:
+						if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidParamTypeParameter(start, end);
+						this.scanner.currentPosition = start;
+						this.index = start;
+						this.currentTokenType = -1;
+						this.scanner.tokenizeWhiteSpace = tokenWhiteSpace;
+						return false;
+					case TerminalTokens.TokenNameGREATER:
+						end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
+						if (valid) {
+							// store '>' in identifiers stack as we need to add it to tag element (bug 79809)
+							pushIdentifier(false);
+							break nextToken;
+						}
+						break;
+					default:
+						if (!spaces) end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
+						valid = false;
+						break;
+				}
+			}
+		}
+		
+		// Verify that tag name is well followed by white spaces
+		if (valid) {
+			this.currentTokenType = -1;
+			int restart = this.scanner.currentPosition;
+			try {
+				token = readToken();
+			} catch (InvalidInputException e) {
+				valid = false;
+			}
+			if (token == TerminalTokens.TokenNameWHITESPACE) {
+				this.scanner.currentPosition = restart;
+				this.index = restart;
+				this.scanner.tokenizeWhiteSpace = tokenWhiteSpace;
+				return pushParamName(isTypeParam);
+			}
+		}
+		
 		// Report problem
-		if (this.sourceParser != null) this.sourceParser.problemReporter().javadocMissingParamName(start, end);
+		this.currentTokenType = -1;
+		end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
+		while (readToken() != TerminalTokens.TokenNameWHITESPACE) {
+			this.currentTokenType = -1;
+			end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
+		}
+		if (this.reportProblems)
+			if (this.jdk15 && isTypeParam)
+				this.sourceParser.problemReporter().javadocInvalidParamTypeParameter(start, end);
+			else
+				this.sourceParser.problemReporter().javadocInvalidParamTagName(start, end);
+		this.scanner.currentPosition = start;
+		this.index = start;
+		this.currentTokenType = -1;
+		this.scanner.tokenizeWhiteSpace = tokenWhiteSpace;
 		return false;
 	}
 
@@ -795,160 +900,196 @@ public abstract class AbstractCommentParser {
 			this.scanner.currentPosition = this.tokenPreviousPosition;
 			this.currentTokenType = -1;
 		}
+		this.lastIdentifierEndPosition = (int) this.identifierPositionStack[this.identifierPtr];
 		return createTypeReference(primitiveToken);
 	}
 
 	/*
 	 * Parse a reference in @see tag
 	 */
-	protected boolean parseReference(boolean plain) throws InvalidInputException {
-		Object typeRef = null;
-		Object reference = null;
-		int previousPosition = -1;
-		nextToken : while (this.index < this.scanner.eofPosition) {
-			previousPosition = this.index;
-			int token = readToken();
-			switch (token) {
-				case TerminalTokens.TokenNameStringLiteral :
-					// @see "string"
-					int start = this.scanner.getCurrentTokenStartPosition();
-					if (typeRef == null) {
+	protected boolean parseReference() throws InvalidInputException {
+		int currentPosition = this.scanner.currentPosition;
+		try {
+			Object typeRef = null;
+			Object reference = null;
+			int previousPosition = -1;
+			int typeRefStartPosition = -1;
+			
+			// Get reference tokens
+			nextToken : while (this.index < this.scanner.eofPosition) {
+				previousPosition = this.index;
+				int token = readToken();
+				switch (token) {
+					case TerminalTokens.TokenNameStringLiteral : // @see "string"
 						consumeToken();
-						while (Character.isWhitespace(this.source[this.index])) {
-							if (this.source[this.index] == '\r' || this.source[this.index] == '\n') {
-								if (this.kind == DOM_PARSER) {
-									parseTag();
-									pushText(previousPosition, this.index);
-								}
-								return true;
-							}
-							this.index++;
+						int start = this.scanner.getCurrentTokenStartPosition();
+						if (this.tagValue == TAG_VALUE_VALUE) {
+							// String reference are not allowed for @value tag
+							if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidValueReference(start, getTokenEndPosition(), this.sourceParser.modifiers);
+							return false;
 						}
-					}
-					if (this.sourceParser != null) this.sourceParser.problemReporter().javadocInvalidSeeReference(start, this.lineEnd);
-					return false;
-				case TerminalTokens.TokenNameLESS :
-					// @see "<a href="URL#Value">label</a>
-					consumeToken();
-					start = this.scanner.getCurrentTokenStartPosition();
-					if (parseHref()) {
-						if (typeRef == null) {
+						// If typeRef != null we may raise a warning here to let user know there's an unused reference...
+						// Currently as javadoc 1.4.2 ignore it, we do the same (see bug 69302)
+						if (typeRef != null) {
+							start = this.tagSourceEnd+1;
+							previousPosition = start;
+							typeRef = null;
+						}
+						// verify end line
+						if (verifyEndLine(previousPosition)) {
+							return true;
+						}
+						if (this.reportProblems) this.sourceParser.problemReporter().javadocUnexpectedText(this.scanner.currentPosition, this.lineEnd);
+						return false;
+					case TerminalTokens.TokenNameLESS : // @see "<a href="URL#Value">label</a>
+						consumeToken();
+						start = this.scanner.getCurrentTokenStartPosition();
+						if (parseHref()) {
 							consumeToken();
-							while (Character.isWhitespace(this.source[this.index])) {
-								if (this.source[this.index] == '\r' || this.source[this.index] == '\n') {
-									if (this.kind == DOM_PARSER) {
-										parseTag();
-										pushText(previousPosition, this.index);
-									}
-									return true;
-								}
-								this.index++;
+							// If typeRef != null we may raise a warning here to let user know there's an unused reference...
+							// Currently as javadoc 1.4.2 ignore it, we do the same (see bug 69302)
+							if (typeRef != null) {
+								start = this.tagSourceEnd+1;
+								previousPosition = start;
+								typeRef = null;
 							}
+							if (this.tagValue == TAG_VALUE_VALUE) {
+								// String reference are not allowed for @value tag
+								if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidValueReference(start, getIndexPosition(), this.sourceParser.modifiers);
+								return false;
+							}
+							// verify end line
+							if (verifyEndLine(previousPosition)) return true;
+							if (this.reportProblems) this.sourceParser.problemReporter().javadocUnexpectedText(this.scanner.currentPosition, this.lineEnd);
 						}
-						if (this.sourceParser != null) this.sourceParser.problemReporter().javadocInvalidSeeReference(start, this.lineEnd);
-					}
-					return false;
-				case TerminalTokens.TokenNameERROR :
-					if (this.scanner.currentCharacter == '#') { // @see ...#member
-						consumeToken();
-						reference = parseMember(typeRef);
-						if (reference != null) {
-							return pushSeeRef(reference, plain);
+						else if (this.tagValue == TAG_VALUE_VALUE) {
+							if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidValueReference(start, getIndexPosition(), this.sourceParser.modifiers);
 						}
 						return false;
-					}
-					break nextToken;
-				case TerminalTokens.TokenNameIdentifier :
-					if (typeRef == null) {
-						typeRef = parseQualifiedName(true);
-						break;
-					}
-					break nextToken;
-				default :
-					break nextToken;
-			}
-		}
-		
-		// Verify that we got a reference
-		if (reference == null) reference = typeRef;
-		if (reference == null) {
-			this.index = this.tokenPreviousPosition;
-			this.scanner.currentPosition = this.tokenPreviousPosition;
-			this.currentTokenType = -1;
-			if (this.sourceParser != null) this.sourceParser.problemReporter().javadocMissingSeeReference(this.tagSourceStart, this.tagSourceEnd);
-			return false;
-		}
-
-		// Verify that line end does not start with an open parenthese (which could be a constructor reference wrongly written...)
-		// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=47215
-		int start = this.scanner.getCurrentTokenStartPosition();
-		try {
-			int token = readToken();
-			if (token != TerminalTokens.TokenNameLPAREN) {
-				// Reset position: we want to rescan last token
-				if (this.currentTokenType != -1) {
-					this.index = this.tokenPreviousPosition;
-					this.scanner.currentPosition = this.tokenPreviousPosition;
-					this.currentTokenType = -1;
+					case TerminalTokens.TokenNameERROR :
+						if (this.scanner.currentCharacter == '#') { // @see ...#member
+							consumeToken();
+							reference = parseMember(typeRef);
+							if (reference != null) {
+								return pushSeeRef(reference);
+							}
+							return false;
+						}
+						break nextToken;
+					case TerminalTokens.TokenNameIdentifier :
+						if (typeRef == null) {
+							typeRefStartPosition = this.scanner.getCurrentTokenStartPosition();
+							typeRef = parseQualifiedName(true);
+							break;
+						}
+					default :
+						break nextToken;
 				}
-				return pushSeeRef(reference, plain);
 			}
-		} catch (InvalidInputException e) {
-			// Do nothing as we report an error after
+
+			// Verify that we got a reference
+			if (reference == null) reference = typeRef;
+			if (reference == null) {
+				this.index = this.tokenPreviousPosition;
+				this.scanner.currentPosition = this.tokenPreviousPosition;
+				this.currentTokenType = -1;
+				if (this.tagValue == TAG_VALUE_VALUE) {
+					if (this.kind == DOM_PARSER) createTag();
+					return true;
+				}
+				if (this.reportProblems) {
+					this.sourceParser.problemReporter().javadocMissingReference(this.tagSourceStart, this.tagSourceEnd, this.sourceParser.modifiers);
+				}
+				return false;
+			}
+
+			// Reset position at the end of type reference
+			this.index = this.lastIdentifierEndPosition+1;
+			this.scanner.currentPosition = this.index;
+			this.currentTokenType = -1;
+
+			// In case of @value, we have an invalid reference (only static field refs are valid for this tag)
+			if (this.tagValue == TAG_VALUE_VALUE) {
+				if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidReference(typeRefStartPosition, this.lineEnd);
+				return false;
+			}
+
+			// Verify that line end does not start with an open parenthese (which could be a constructor reference wrongly written...)
+			// See bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=47215
+			char ch = peekChar();
+			if (ch == '(') {
+				if (this.reportProblems) this.sourceParser.problemReporter().javadocMissingHashCharacter(typeRefStartPosition, this.lineEnd, String.valueOf(this.source, typeRefStartPosition, this.lineEnd-typeRefStartPosition+1));
+				return false;
+			}
+
+			// Verify that we get white space after reference
+			if (!verifySpaceOrEndComment()) {
+				this.index = this.tokenPreviousPosition;
+				this.scanner.currentPosition = this.tokenPreviousPosition;
+				this.currentTokenType = -1;
+				int end = this.starPosition == -1 ? this.lineEnd : this.starPosition;
+				if (this.source[end]=='\n') end--;
+				if (this.reportProblems) this.sourceParser.problemReporter().javadocMalformedSeeReference(typeRefStartPosition, end);
+				return false;
+			}
+			
+			// Everything is OK, store reference
+			return pushSeeRef(reference);
+		}
+		catch (InvalidInputException ex) {
+			if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidReference(currentPosition, getTokenEndPosition());
 		}
 		// Reset position to avoid missing tokens when new line was encountered
 		this.index = this.tokenPreviousPosition;
 		this.scanner.currentPosition = this.tokenPreviousPosition;
 		this.currentTokenType = -1;
-		if (this.sourceParser != null) this.sourceParser.problemReporter().javadocInvalidSeeReference(start, this.lineEnd);
 		return false;
 	}
 
 	/*
-	 * Parse @return tag declaration
+	 * Parse tag declaration
 	 */
-	protected abstract boolean parseReturn();
-
-	/*
-	 * Parse @see tag declaration
-	 */
-	protected boolean parseSee(boolean plain) {
-		int start = this.scanner.currentPosition;
-		try {
-			return parseReference(plain);
-		} catch (InvalidInputException ex) {
-				if (this.sourceParser != null) this.sourceParser.problemReporter().javadocInvalidSeeReference(start, getEndPosition());
-		}
-		// Reset position to avoid missing tokens when new line was encountered
-		this.index = this.tokenPreviousPosition;
-		this.scanner.currentPosition = this.tokenPreviousPosition;
-		this.currentTokenType = -1;
-		return false;
-	}
-
-	/*
-	 * Parse @return tag declaration
-	 */
-	protected abstract boolean parseTag();
+	protected abstract boolean parseTag(int previousPosition) throws InvalidInputException;
 
 	/*
 	 * Parse @throws tag declaration
 	 */
-	protected boolean parseThrows(boolean real) {
+	protected boolean parseThrows() {
 		int start = this.scanner.currentPosition;
 		try {
 			Object typeRef = parseQualifiedName(true);
 			if (typeRef == null) {
-				if (this.sourceParser != null) this.sourceParser.problemReporter().javadocMissingThrowsClassName(this.tagSourceStart, this.tagSourceEnd);
+				if (this.reportProblems)
+					this.sourceParser.problemReporter().javadocMissingThrowsClassName(this.tagSourceStart, this.tagSourceEnd, this.sourceParser.modifiers);
 			} else {
-				return pushThrowName(typeRef, real);
+				return pushThrowName(typeRef);
 			}
 		} catch (InvalidInputException ex) {
-			if (this.sourceParser != null) this.sourceParser.problemReporter().javadocInvalidThrowsClass(start, getEndPosition());
+			if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidThrowsClass(start, getTokenEndPosition());
 		}
 		return false;
 	}
-	
+
+	/*
+	 * Return current character without move index position.
+	 */
+	protected char peekChar() {
+		int idx = this.index;
+		char c = this.source[idx++];
+		if (c == '\\' && this.source[idx] == 'u') {
+			int c1, c2, c3, c4;
+			idx++;
+			while (this.source[idx] == 'u')
+				idx++;
+			if (!(((c1 = Character.getNumericValue(this.source[idx++])) > 15 || c1 < 0)
+					|| ((c2 = Character.getNumericValue(this.source[idx++])) > 15 || c2 < 0)
+					|| ((c3 = Character.getNumericValue(this.source[idx++])) > 15 || c3 < 0) || ((c4 = Character.getNumericValue(this.source[idx++])) > 15 || c4 < 0))) {
+				c = (char) (((c1 * 16 + c2) * 16 + c3) * 16 + c4);
+			}
+		}
+		return c;
+	}
+
 	/*
 	 * push the consumeToken on the identifier stack. Increase the total number of identifier in the stack.
 	 */
@@ -1020,42 +1161,22 @@ public abstract class AbstractCommentParser {
 	/*
 	 * Push a param name in ast node stack.
 	 */
-	protected abstract boolean pushParamName();
+	protected abstract boolean pushParamName(boolean isTypeParam);
 
 	/*
 	 * Push a reference statement in ast node stack.
 	 */
-	protected abstract boolean pushSeeRef(Object statement, boolean plain);
-
-	protected abstract void pushText(int start, int end);
-	protected void refreshInlineTagPosition(int previousPosition) {
-		// do nothing by default
-	}
+	protected abstract boolean pushSeeRef(Object statement);
 
 	/*
-	 * Return current character without move index position.
+	 * Push a text element in ast node stack
 	 */
-	private char peekChar() {
-		int idx = this.index;
-		char c = this.source[idx++];
-		if (c == '\\' && this.source[idx] == 'u') {
-			int c1, c2, c3, c4;
-			idx++;
-			while (this.source[idx] == 'u')
-				idx++;
-			if (!(((c1 = Character.getNumericValue(this.source[idx++])) > 15 || c1 < 0)
-					|| ((c2 = Character.getNumericValue(this.source[idx++])) > 15 || c2 < 0)
-					|| ((c3 = Character.getNumericValue(this.source[idx++])) > 15 || c3 < 0) || ((c4 = Character.getNumericValue(this.source[idx++])) > 15 || c4 < 0))) {
-				c = (char) (((c1 * 16 + c2) * 16 + c3) * 16 + c4);
-			}
-		}
-		return c;
-	}
+	protected abstract void pushText(int start, int end);
 
 	/*
 	 * Push a throws type ref in ast node stack.
 	 */
-	protected abstract boolean pushThrowName(Object typeRef, boolean real);
+	protected abstract boolean pushThrowName(Object typeRef);
 
 	/*
 	 * Read current character and move index position.
@@ -1101,10 +1222,17 @@ public abstract class AbstractCommentParser {
 		return this.currentTokenType;
 	}
 
-	private int readTokenAndConsume() throws InvalidInputException {
+	protected int readTokenAndConsume() throws InvalidInputException {
 		int token = readToken();
 		consumeToken();
 		return token;
+	}
+	
+	/*
+	 * Refresh start position and length of an inline tag.
+	 */
+	protected void refreshInlineTagPosition(int previousPosition) {
+		// do nothing by default
 	}
 
 	public String toString() {
@@ -1159,73 +1287,127 @@ public abstract class AbstractCommentParser {
 	}
 
 	/*
+	 * Update 
+	 */
+	protected abstract void updateDocComment();
+
+	/*
 	 * Update line end
 	 */
 	protected void updateLineEnd() {
 		while (this.index > (this.lineEnd+1)) { // be sure to be on next line (lineEnd is still on the same line)
 			if (this.linePtr < this.lastLinePtr) {
-				this.lineEnd = getLineEnd(++this.linePtr) - 1;
+				this.lineEnd = this.scanner.getLineEnd(++this.linePtr) - 1;
 			} else {
 				this.lineEnd = this.endComment;
 				return;
 			}
 		}
 	}
-	protected abstract void updateDocComment();
 
-	/**
-	 * Search the line number corresponding to a specific position.
-	 * Warning: returned position is 1-based index!
-	 * @see Scanner#getLineNumber(int) We cannot directly use this method
-	 * when linePtr field is not initialized.
+	/*
+	 * Verify that end of the line only contains space characters or end of comment.
+	 * Note that end of comment may be preceeding by several contiguous '*' chars.
 	 */
-	public final int getLineNumber(int position) {
-	
-		if (this.scanner.linePtr != -1) {
-			return this.scanner.getLineNumber(position);
-		}
-		if (this.lineEnds == null)
-			return 1;
-		int length = this.lineEnds.length;
-		if (length == 0)
-			return 1;
-		int g = 0, d = length - 1;
-		int m = 0;
-		while (g <= d) {
-			m = (g + d) /2;
-			if (position < this.lineEnds[m]) {
-				d = m-1;
-			} else if (position > this.lineEnds[m]) {
-				g = m+1;
-			} else {
-				return m + 1;
+	private boolean verifyEndLine(int textPosition) {
+		// Special case for inline tag
+		if (this.inlineTagStarted) {
+			// expecting closing brace
+			if (peekChar() == '}') {
+				if (this.kind == DOM_PARSER) {
+					createTag();
+					pushText(textPosition, this.starPosition);
+				}
+				return true;
 			}
+			return false;
 		}
-		if (position < this.lineEnds[m]) {
-			return m+1;
+		
+		int startPosition = this.index;
+		int previousPosition = this.index;
+		this.starPosition = -1;
+		char ch = readChar();
+		nextChar: while (true) {
+			switch (ch) {
+				case '\r':
+				case '\n':
+					if (this.kind == DOM_PARSER) {
+						createTag();
+						pushText(textPosition, previousPosition);
+					}
+					this.index = previousPosition;
+					return true;
+				case '\u000c' :	/* FORM FEED               */
+				case ' ' :			/* SPACE                   */
+				case '\t' :			/* HORIZONTAL TABULATION   */
+					if (this.starPosition >= 0) break nextChar;
+					break;
+				case '*':
+					this.starPosition = previousPosition;
+					break;
+				case '/':
+					if (this.starPosition >= textPosition) {
+						if (this.kind == DOM_PARSER) {
+							createTag();
+							pushText(textPosition, this.starPosition);
+						}
+						return true;
+					}
+				default :
+					// leave loop
+					break nextChar;
+				
+			}
+			previousPosition = this.index;
+			ch = readChar();
 		}
-		return m+2;
+		this.index = startPosition;
+		return false;
 	}
 
-	/**
-	 * Search the source position corresponding to the end of a given line number.
-	 * Warning: returned position is 1-based index!
-	 * @see Scanner#getLineEnd(int) We cannot directly use this method
-	 * when linePtr field is not initialized.
+	/*
+	 * Verify characters after a name matches one of following conditions:
+	 * 	1- first character is a white space
+	 * 	2- first character is a closing brace *and* we're currently parsing an inline tag
+	 * 	3- are the end of comment (several contiguous star ('*') characters may be
+	 * 	    found before the last slash ('/') character).
 	 */
-	public final int getLineEnd(int lineNumber) {
-	
-		if (this.scanner.linePtr != -1) {
-			return this.scanner.getLineEnd(lineNumber);
+	private boolean verifySpaceOrEndComment() {
+		int startPosition = this.index;
+		// Whitespace or inline tag closing brace
+		char ch = peekChar();
+		switch (ch) {
+			case '}':
+				return this.inlineTagStarted;
+			default:
+				if (Character.isWhitespace(ch)) {
+					return true;
+				}
 		}
-		if (this.lineEnds == null) 
-			return -1;
-		if (lineNumber > this.lineEnds.length+1) 
-			return -1;
-		if (lineNumber <= 0) 
-			return -1;
-		if (lineNumber == this.lineEnds.length + 1) 
-			return this.scanner.eofPosition;
-		return this.lineEnds[lineNumber-1]; // next line start one character behind the lineEnd of the previous line
+		// End of comment
+		int previousPosition = this.index;
+		this.starPosition = -1;
+		ch = readChar();
+		nextChar: while (this.index<this.source.length) {
+			switch (ch) {
+				case '*':
+					// valid whatever the number of star before last '/'
+					this.starPosition = previousPosition;
+					break;
+				case '/':
+					if (this.starPosition >= startPosition) { // valid only if a star was previous character
+						return true;
+					}
+				default :
+					// invalid whatever other character, even white spaces
+					this.index = startPosition;
+					return false;
+				
+			}
+			previousPosition = this.index;
+			ch = readChar();
+		}
+		this.index = startPosition;
+		return false;
 	}
 }

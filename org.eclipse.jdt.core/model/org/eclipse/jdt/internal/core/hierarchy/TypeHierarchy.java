@@ -820,7 +820,7 @@ public synchronized boolean isAffected(IJavaElementDelta delta) {
 		case IJavaElement.PACKAGE_FRAGMENT_ROOT:
 			return isAffectedByPackageFragmentRoot(delta, element);
 		case IJavaElement.PACKAGE_FRAGMENT:
-			return isAffectedByPackageFragment(delta, element);
+			return isAffectedByPackageFragment(delta, (PackageFragment) element);
 		case IJavaElement.CLASS_FILE:
 		case IJavaElement.COMPILATION_UNIT:
 			return isAffectedByOpenable(delta, element);
@@ -860,7 +860,15 @@ private boolean isAffectedByJavaModel(IJavaElementDelta delta, IJavaElement elem
  * Returns true if the given java project delta could affect this type hierarchy
  */
 private boolean isAffectedByJavaProject(IJavaElementDelta delta, IJavaElement element) {
-	switch (delta.getKind()) {
+    int kind = delta.getKind();
+    int flags = delta.getFlags();
+    if ((flags & IJavaElementDelta.F_OPENED) != 0) {
+        kind = IJavaElementDelta.ADDED; // affected in the same way
+    }
+    if ((flags & IJavaElementDelta.F_CLOSED) != 0) {
+        kind = IJavaElementDelta.REMOVED; // affected in the same way
+    }
+	switch (kind) {
 		case IJavaElementDelta.ADDED :
 			try {
 				// if the added project is on the classpath, then the hierarchy has changed
@@ -894,7 +902,7 @@ private boolean isAffectedByJavaProject(IJavaElementDelta delta, IJavaElement el
 /**
  * Returns true if the given package fragment delta could affect this type hierarchy
  */
-private boolean isAffectedByPackageFragment(IJavaElementDelta delta, IJavaElement element) {
+private boolean isAffectedByPackageFragment(IJavaElementDelta delta, PackageFragment element) {
 	switch (delta.getKind()) {
 		case IJavaElementDelta.ADDED :
 			// if the package fragment is in the projects being considered, this could
@@ -971,7 +979,8 @@ protected boolean isAffectedByOpenable(IJavaElementDelta delta, IJavaElement ele
 		try {
 			collector.addChange(cu, delta);
 		} catch (JavaModelException e) {
-			e.printStackTrace();
+			if (DEBUG)
+				e.printStackTrace();
 		}
 		if (cu.isWorkingCopy()) {
 			// changes to working copies are batched
@@ -1193,12 +1202,12 @@ public static ITypeHierarchy load(IType type, InputStream input, WorkingCopyOwne
  * Returns <code>true</code> if an equivalent package fragment is included in the package
  * region. Package fragments are equivalent if they both have the same name.
  */
-protected boolean packageRegionContainsSamePackageFragment(IJavaElement element) {
+protected boolean packageRegionContainsSamePackageFragment(PackageFragment element) {
 	IJavaElement[] pkgs = this.packageRegion.getElements();
 	for (int i = 0; i < pkgs.length; i++) {
-		if (pkgs[i].getElementName().equals(element.getElementName())) {
+		PackageFragment pkg = (PackageFragment) pkgs[i];
+		if (Util.equalArraysOrNull(pkg.names, element.names))
 			return true;
-		}
 	}
 	return false;
 }
@@ -1437,7 +1446,8 @@ boolean subtypesIncludeSupertypeOf(IType type) {
 	try {
 		interfaceNames = type.getSuperInterfaceNames();
 	} catch (JavaModelException e) {
-		e.printStackTrace();
+		if (DEBUG)
+			e.printStackTrace();
 		return false;
 	}
 	for (int i = 0, length = interfaceNames.length; i < length; i++) {

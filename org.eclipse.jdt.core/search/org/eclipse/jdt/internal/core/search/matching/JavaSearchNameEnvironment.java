@@ -28,11 +28,14 @@ import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.ClasspathEntry;
 import org.eclipse.jdt.internal.core.JavaModel;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.JavaProject;
+import org.eclipse.jdt.internal.core.PackageFragmentRoot;
 import org.eclipse.jdt.internal.core.builder.ClasspathJar;
 import org.eclipse.jdt.internal.core.builder.ClasspathLocation;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /*
  * A name environment based on the classpath of a Java project.
@@ -56,7 +59,7 @@ public JavaSearchNameEnvironment(IJavaProject javaProject, org.eclipse.jdt.core.
 			IPackageDeclaration[] pkgs = workingCopy.getPackageDeclarations();
 			String pkg = pkgs.length > 0 ? pkgs[0].getElementName() : ""; //$NON-NLS-1$
 			String cuName = workingCopy.getElementName();
-			String mainTypeName = cuName.substring(0, cuName.length() - SUFFIX_JAVA.length);
+			String mainTypeName = cuName.substring(0, Util.indexOfJavaLikeExtension(cuName));
 			String qualifiedMainTypeName = pkg.length() == 0 ? mainTypeName : pkg.replace('.', '/') + '/' + mainTypeName;
 			this.workingCopies.put(qualifiedMainTypeName, workingCopy);
 		}
@@ -86,18 +89,22 @@ private void computeClasspathLocations(IWorkspaceRoot workspaceRoot, JavaProject
 	int index = 0;
 	JavaModelManager manager = JavaModelManager.getJavaModelManager();
 	for (int i = 0; i < length; i++) {
-		IPackageFragmentRoot root = roots[i];
+		PackageFragmentRoot root = (PackageFragmentRoot) roots[i];
 		IPath path = root.getPath();
 		try {
 			if (root.isArchive()) {
 				ZipFile zipFile = manager.getZipFile(path);
-				cpLocations[index++] = new ClasspathJar(zipFile);
+				cpLocations[index++] = new ClasspathJar(zipFile, ((ClasspathEntry) root.getRawClasspathEntry()).getImportRestriction());
 			} else {
 				Object target = JavaModel.getTarget(workspaceRoot, path, false);
-				if (root.getKind() == IPackageFragmentRoot.K_SOURCE) {
-					cpLocations[index++] = new ClasspathSourceDirectory((IContainer)target);
+				if (target == null) {
+					// target doesn't exist any longer
+					// just resize cpLocations
+					System.arraycopy(cpLocations, 0, cpLocations = new ClasspathLocation[cpLocations.length-1], 0, index);
+				} else if (root.getKind() == IPackageFragmentRoot.K_SOURCE) {
+					cpLocations[index++] = new ClasspathSourceDirectory((IContainer)target, root.fullExclusionPatternChars(), root.fullInclusionPatternChars());
 				} else {
-					cpLocations[index++] = ClasspathLocation.forBinaryFolder((IContainer) target, false);
+					cpLocations[index++] = ClasspathLocation.forBinaryFolder((IContainer) target, false, ((ClasspathEntry) root.getRawClasspathEntry()).getImportRestriction());
 				}
 			}
 		} catch (CoreException e1) {
@@ -120,23 +127,23 @@ private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeNam
 		NameEnvironmentAnswer answer;
 		if (location instanceof ClasspathSourceDirectory) {
 			if (sourceFileName == null) {
-				qSourceFileName = qualifiedTypeName + SUFFIX_STRING_java;
+				qSourceFileName = qualifiedTypeName; // doesn't include the file extension
 				sourceFileName = qSourceFileName;
 				qPackageName =  ""; //$NON-NLS-1$
 				if (qualifiedTypeName.length() > typeName.length) {
-					int typeNameStart = qSourceFileName.length() - typeName.length - 5; // size of ".java"
+					int typeNameStart = qSourceFileName.length() - typeName.length;
 					qPackageName =  qSourceFileName.substring(0, typeNameStart - 1);
 					sourceFileName = qSourceFileName.substring(typeNameStart);
 				}
 			}
 			ICompilationUnit workingCopy = (ICompilationUnit) this.workingCopies.get(qualifiedTypeName);
 			if (workingCopy != null) {
-				answer = new NameEnvironmentAnswer(workingCopy);
+				answer = new NameEnvironmentAnswer(workingCopy, null /*no access restriction*/);
 			} else {
 				answer = location.findClass(
-					sourceFileName,
+					sourceFileName, // doesn't include the file extension
 					qPackageName,
-					qSourceFileName);
+					qSourceFileName);  // doesn't include the file extension
 			}
 		} else {
 			if (binaryFileName == null) {

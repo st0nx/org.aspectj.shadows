@@ -20,6 +20,7 @@ import org.eclipse.jdt.core.search.*;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.*;
+import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.core.*;
@@ -134,7 +135,7 @@ protected CompilationUnitDeclaration buildBindings(ICompilationUnit compilationU
 			this.locator.basicParser().dietParse(sourceUnit, compilationResult) :
 			this.locator.basicParser().parse(sourceUnit, compilationResult);
 	if (unit != null) {
-		this.locator.lookupEnvironment.buildTypeBindings(unit);
+		this.locator.lookupEnvironment.buildTypeBindings(unit, null /*no access restriction*/);
 		this.locator.lookupEnvironment.completeTypeBindings(unit, !isTopLevelOrMember);
 		if (!isTopLevelOrMember) {
 			if (unit.scope != null)
@@ -153,7 +154,7 @@ public char[][][] collect() throws JavaModelException {
 		this.locator.initialize(javaProject, 0);
 		try {
 			if (this.type.isBinary()) {
-				BinaryTypeBinding binding = this.locator.cacheBinaryType(this.type);
+				BinaryTypeBinding binding = this.locator.cacheBinaryType(this.type, null);
 				if (binding != null)
 					collectSuperTypeNames(binding);
 			} else {
@@ -203,7 +204,7 @@ public char[][][] collect() throws JavaModelException {
 					parsedUnit.traverse(new TypeDeclarationVisitor(), parsedUnit.scope);
 			} else if (openable instanceof IClassFile) {
 				IClassFile classFile = (IClassFile) openable;
-				BinaryTypeBinding binding = this.locator.cacheBinaryType(classFile.getType());
+				BinaryTypeBinding binding = this.locator.cacheBinaryType(classFile.getType(), null);
 				if (matches(binding))
 					collectSuperTypeNames(binding);
 			}
@@ -249,10 +250,10 @@ protected String[] getPathsOfDeclaringType() {
 		IIndexConstants.TYPE_SUFFIX,
 		this.pattern.getMatchRule());
 	IndexQueryRequestor searchRequestor = new IndexQueryRequestor(){
-		public boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant) {
+		public boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant, AccessRestriction access) {
 			TypeDeclarationPattern record = (TypeDeclarationPattern)indexRecord;
 			if (record.enclosingTypeNames != IIndexConstants.ONE_ZERO_CHAR) {  // filter out local and anonymous classes
-				pathCollector.acceptIndexMatch(documentPath, indexRecord, participant);
+				pathCollector.acceptIndexMatch(documentPath, indexRecord, participant, access);
 			}
 			return true;
 		}		

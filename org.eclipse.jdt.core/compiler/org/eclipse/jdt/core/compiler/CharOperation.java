@@ -28,6 +28,12 @@ public final class CharOperation {
 	public static final char[][] NO_CHAR_CHAR = new char[0][];
 	
 	/**
+	 * Constant for an empty String array.
+	 * @since 3.1
+	 */
+	public static final String[] NO_STRINGS = new String[0];
+	
+	/**
 	 * Answers a new array with appending the suffix character at the end of the array.
 	 * <br>
 	 * <br>
@@ -171,13 +177,14 @@ public final class CharOperation {
 	 * @since 3.0
 	 */
 	public static String[] charArrayToStringArray(char[][] charArrays) {
-		if (charArrays == null) {
+		if (charArrays == null)
 			return null;
-		}
-		String[] strings= new String[charArrays.length];
-		for (int i= 0; i < charArrays.length; i++) {
+		int length = charArrays.length;
+		if (length == 0)
+			return NO_STRINGS;
+		String[] strings= new String[length];
+		for (int i= 0; i < length; i++)
 			strings[i]= new String(charArrays[i]);
-		}
 		return strings;
 	}
 	/**
@@ -490,7 +497,7 @@ public final class CharOperation {
 
 	/**
 	 * Answers the concatenation of the three arrays inserting the sep1 character between the 
-	 * two arrays and sep2 between the last two.
+	 * first two arrays and sep2 between the last two.
 	 * It answers null if the three arrays are null.
 	 * If the first array is null, then it answers the concatenation of second and third inserting
 	 * the sep2 character between them.
@@ -865,6 +872,40 @@ public final class CharOperation {
 		for (int i = array.length; --i >= 0;)
 			if (array[i] == character)
 				return true;
+		return false;
+	}
+
+	/**
+	 * Answers true if the array contains an occurrence of one of the characters, false otherwise.
+	 * 
+	 * <br>
+	 * <br>
+	 * For example:
+	 * <ol>
+	 * <li><pre>
+	 *    characters = { 'c', 'd' }
+	 *    array = { 'a', ' b'  }
+	 *    result => false
+	 * </pre>
+	 * </li>
+	 * <li><pre>
+	 *    characters = { 'c', 'd' }
+	 *    array = { 'a', ' b', 'c'  }
+	 *    result => true
+	 * </pre>
+	 * </li>
+	 * </ol>
+	 * 
+	 * @param characters the characters to search
+	 * @param array the array in which the search is done
+	 * @return true if the array contains an occurrence of one of the characters, false otherwise.
+	 * @throws NullPointerException if array is null.
+	 */
+	public static final boolean contains(char[] characters, char[] array) {
+		for (int i = array.length; --i >= 0;)
+			for (int j = characters.length; --j >= 0;)
+				if (array[i] == characters[j])
+					return true;
 		return false;
 	}
 	
@@ -2269,6 +2310,58 @@ public final class CharOperation {
 		System.arraycopy(array, inStart, result, outStart, max - inStart);
 		return result;
 	}
+	
+	/**
+	 * Replace all occurrence of the character to be replaced with the remplacement character 
+	 * in a copy of the given array. Returns the given array if no occurrences of the character
+	 * to be replaced are found.
+	 * <br>
+	 * <br>
+	 * For example:
+	 * <ol>
+	 * <li><pre>
+	 *    array = { 'a' , 'b', 'b', 'a', 'b', 'a' }
+	 *    toBeReplaced = 'b'
+	 *    replacementChar = 'a'
+	 *    result => A new array that is equals to { 'a' , 'a', 'a', 'a', 'a', 'a' }
+	 * </pre>
+	 * </li>
+	 * <li><pre>
+	 *    array = { 'a' , 'b', 'b', 'a', 'b', 'a' }
+	 *    toBeReplaced = 'c'
+	 *    replacementChar = 'a'
+	 *    result => The original array that remains unchanged.
+	 * </pre>
+	 * </li>
+	 * </ol>
+	 * 
+	 * @param array the given array
+	 * @param toBeReplaced the character to be replaced
+	 * @param replacementChar the replacement character
+	 * @throws NullPointerException if the given array is null
+	 * @since 3.1
+	 */
+	public static final char[] replaceOnCopy(
+		char[] array,
+		char toBeReplaced,
+		char replacementChar) {
+		
+		char[] result = null;
+		for (int i = 0, length = array.length; i < length; i++) {
+			char c = array[i];
+			if (c == toBeReplaced) {
+				if (result == null) {
+					result = new char[length];
+					System.arraycopy(array, 0, result, 0, i);
+				}
+				result[i] = replacementChar;
+			} else if (result != null) {
+				result[i] = c;
+			}
+		}
+		if (result == null) return array;
+		return result;
+	}
 
 	/**
 	 * Return a new array which is the split of the given array using the given divider and triming each subarray to remove
@@ -2677,7 +2770,9 @@ public final class CharOperation {
 	 * @since 3.0
 	 */
 	final static public String[] toStrings(char[][] array) {
+		if (array == null) return NO_STRINGS;
 		int length = array.length;
+		if (length == 0) return NO_STRINGS;
 		String[] result = new String[length];
 		for (int i = 0; i < length; i++)
 			result[i] = new String(array[i]);

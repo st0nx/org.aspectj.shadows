@@ -10,8 +10,11 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
+import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
 
 public class LocalVariableBinding extends VariableBinding {
 
@@ -30,14 +33,11 @@ public class LocalVariableBinding extends VariableBinding {
 	public int initializationCount = 0;
 
 	// for synthetic local variables	
+	// if declaration slot is not positionned, the variable will not be listed in attribute
+	// note that the name of a variable should be chosen so as not to conflict with user ones (usually starting with a space char is all needed)
 	public LocalVariableBinding(char[] name, TypeBinding type, int modifiers, boolean isArgument) {
-
-		this.name = name;
-		this.type = type;
-		this.modifiers = modifiers;
+		super(name, type, modifiers, isArgument ? Constant.NotAConstant : null);
 		this.isArgument = isArgument;
-		if (isArgument)
-			this.constant = Constant.NotAConstant;
 	}
 	
 	// regular local variable or argument
@@ -50,9 +50,54 @@ public class LocalVariableBinding extends VariableBinding {
 	/* API
 	* Answer the receiver's binding type from Binding.BindingID.
 	*/
-	public final int bindingType() {
+	public final int kind() {
 
 		return LOCAL;
+	}
+	
+	/*
+	 * declaringUniqueKey # scopeIndex / varName
+	 * p.X { void foo() { int local; } } --> Lp/X;.foo()V#1/local
+	 */
+	public char[] computeUniqueKey() {
+		StringBuffer buffer = new StringBuffer();
+		
+		// declaring method or type
+		BlockScope scope = this.declaringScope;
+		MethodScope methodScope = scope instanceof MethodScope ? (MethodScope) scope : scope.enclosingMethodScope();
+		ReferenceContext referenceContext = methodScope.referenceContext;
+		if (referenceContext instanceof AbstractMethodDeclaration) {
+			MethodBinding methodBinding = ((AbstractMethodDeclaration) referenceContext).binding;
+			if (methodBinding != null) {
+				buffer.append(methodBinding.computeUniqueKey());
+			}
+		} else if (referenceContext instanceof TypeDeclaration) {
+			TypeBinding typeBinding = ((TypeDeclaration) referenceContext).binding;
+			if (typeBinding != null) {
+				buffer.append(typeBinding.computeUniqueKey());
+			}
+		}
+
+		// scope index
+		getScopeKey(scope, buffer);
+
+		// variable name
+		buffer.append('#');
+		buffer.append(this.name);
+		
+		int length = buffer.length();
+		char[] uniqueKey = new char[length];
+		buffer.getChars(0, length, uniqueKey, 0);
+		return uniqueKey;
+	}
+	
+	private void getScopeKey(BlockScope scope, StringBuffer buffer) {
+		int scopeIndex = scope.scopeIndex();
+		if (scopeIndex != -1) {
+			getScopeKey((BlockScope)scope.parent, buffer);
+			buffer.append('#');
+			buffer.append(scopeIndex);
+		}
 	}
 	
 	// Answer whether the variable binding is a secret variable added for code gen purposes

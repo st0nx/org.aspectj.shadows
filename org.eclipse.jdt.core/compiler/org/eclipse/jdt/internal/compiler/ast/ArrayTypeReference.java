@@ -10,11 +10,16 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
-import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
+import org.eclipse.jdt.internal.compiler.lookup.ClassScope;
+import org.eclipse.jdt.internal.compiler.lookup.Scope;
+import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 
 public class ArrayTypeReference extends SingleTypeReference {
 	public int dimensions;
+	public int originalSourceEnd;
 
 	/**
 	 * ArrayTypeReference constructor comment.
@@ -25,12 +30,7 @@ public class ArrayTypeReference extends SingleTypeReference {
 	public ArrayTypeReference(char[] source, int dimensions, long pos) {
 		
 		super(source, pos);
-		this.dimensions = dimensions ;
-	}
-	
-	public ArrayTypeReference(char[] source, TypeBinding tb, int dimensions, long pos) {
-		
-		super(source, tb, pos);
+		this.originalSourceEnd = this.sourceEnd;
 		this.dimensions = dimensions ;
 	}
 	
@@ -38,27 +38,53 @@ public class ArrayTypeReference extends SingleTypeReference {
 		
 		return dimensions;
 	}
-	
-	public TypeBinding getTypeBinding(Scope scope) {
+	/**
+	 * @return char[][]
+	 */
+	public char [][] getParameterizedTypeName(){
+		int dim = this.dimensions;
+		char[] dimChars = new char[dim*2];
+		for (int i = 0; i < dim; i++) {
+			int index = i*2;
+			dimChars[index] = '[';
+			dimChars[index+1] = ']';
+		}
+		return new char[][]{ CharOperation.concat(token, dimChars) };
+	}	
+	protected TypeBinding getTypeBinding(Scope scope) {
 		
 		if (this.resolvedType != null) return this.resolvedType;
 		if (dimensions > 255) {
 			scope.problemReporter().tooManyDimensions(this);
 		}
-		return scope.createArray(scope.getType(token), dimensions);
+		TypeBinding leafComponentType = scope.getType(token);
+		return scope.createArrayType(leafComponentType, dimensions);
 	
 	}
 	
 	public StringBuffer printExpression(int indent, StringBuffer output){
 	
-		super.printExpression(indent, output)  ;
-		for (int i= 0 ; i < dimensions ; i++) {
-			output.append("[]"); //$NON-NLS-1$
+		super.printExpression(indent, output);
+		if ((this.bits & IsVarArgs) != 0) {
+			for (int i= 0 ; i < dimensions - 1; i++) {
+				output.append("[]"); //$NON-NLS-1$
+			}
+			output.append("..."); //$NON-NLS-1$
+		} else {
+			for (int i= 0 ; i < dimensions; i++) {
+				output.append("[]"); //$NON-NLS-1$
+			}
 		}
 		return output;
 	}
 	
 	public void traverse(ASTVisitor visitor, BlockScope scope) {
+		
+		visitor.visit(this, scope);
+		visitor.endVisit(this, scope);
+	}
+	
+	public void traverse(ASTVisitor visitor, ClassScope scope) {
 		
 		visitor.visit(this, scope);
 		visitor.endVisit(this, scope);

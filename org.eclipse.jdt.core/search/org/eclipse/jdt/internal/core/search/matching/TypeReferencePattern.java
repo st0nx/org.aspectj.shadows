@@ -10,6 +10,11 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
+import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.IType;
+import org.eclipse.jdt.core.ITypeParameter;
+import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
@@ -18,10 +23,11 @@ public class TypeReferencePattern extends AndPattern implements IIndexConstants 
 
 protected char[] qualification;
 protected char[] simpleName;
-
+	
 protected char[] currentCategory;
 
 /* Optimization: case where simpleName == null */
+public int segmentsSize;
 protected char[][] segments;
 protected int currentSegment;
 
@@ -37,8 +43,29 @@ public TypeReferencePattern(char[] qualification, char[] simpleName, int matchRu
 		this.segments = this.qualification == null ? ONE_STAR_CHAR : CharOperation.splitOn('.', this.qualification);
 	else
 		this.segments = null;
+	
+	if (this.segments == null)
+		if (this.qualification == null)
+			this.segmentsSize =  0;
+		else
+			this.segmentsSize =  CharOperation.occurencesOf('.', this.qualification) + 1;
+	else
+		this.segmentsSize = this.segments.length;
 
 	((InternalSearchPattern)this).mustResolve = true; // always resolve (in case of a simple name reference being a potential match)
+}
+/*
+ * Instanciate a type reference pattern with additional information for generics search
+ */
+public TypeReferencePattern(char[] qualification, char[] simpleName, String signature, int matchRule) {
+	this(qualification, simpleName,matchRule);
+
+	if (signature != null) computeSignature(signature);
+}
+public TypeReferencePattern(char[] qualification, char[] simpleName, IType type, int matchRule) {
+	this(qualification, simpleName, matchRule);
+
+	this.typeArguments = typeParameterNames(type);
 }
 TypeReferencePattern(int matchRule) {
 	super(TYPE_REF_PATTERN, matchRule);
@@ -77,34 +104,58 @@ protected void resetQuery() {
 	if (this.segments != null)
 		this.currentSegment = this.segments.length - 1;
 }
-public String toString() {
-	StringBuffer buffer = new StringBuffer(20);
-	buffer.append("TypeReferencePattern: qualification<"); //$NON-NLS-1$
+protected StringBuffer print(StringBuffer output) {
+	output.append("TypeReferencePattern: qualification<"); //$NON-NLS-1$
 	if (qualification != null) 
-		buffer.append(qualification);
+		output.append(qualification);
 	else
-		buffer.append("*"); //$NON-NLS-1$
-	buffer.append(">, type<"); //$NON-NLS-1$
+		output.append("*"); //$NON-NLS-1$
+	output.append(">, type<"); //$NON-NLS-1$
 	if (simpleName != null) 
-		buffer.append(simpleName);
+		output.append(simpleName);
 	else
-		buffer.append("*"); //$NON-NLS-1$
-	buffer.append(">, "); //$NON-NLS-1$
-	switch(getMatchMode()) {
-		case R_EXACT_MATCH : 
-			buffer.append("exact match, "); //$NON-NLS-1$
-			break;
-		case R_PREFIX_MATCH :
-			buffer.append("prefix match, "); //$NON-NLS-1$
-			break;
-		case R_PATTERN_MATCH :
-			buffer.append("pattern match, "); //$NON-NLS-1$
-			break;
+		output.append("*"); //$NON-NLS-1$
+	output.append(">"); //$NON-NLS-1$
+	return super.print(output);
+}
+/*
+ * Returns the type parameter names of the given type.
+ */
+private char[][][] typeParameterNames(IType type) {
+	char[][][] typeParameters = new char[10][][];
+	int ptr = -1;
+	boolean hasParameters = false;
+	try {
+		IJavaElement parent = type;
+		ITypeParameter[] parameters = null;
+		while (parent != null) {
+			if (parent.getElementType() != IJavaElement.TYPE) {
+				if (!hasParameters) return null;
+				if (++ptr < typeParameters.length)
+					System.arraycopy(typeParameters, 0, typeParameters = new char[ptr][][], 0, ptr);
+				return typeParameters;
+			}
+			if (++ptr > typeParameters.length) {
+				System.arraycopy(typeParameters, 0, typeParameters = new char[typeParameters.length+10][][], 0, ptr);
+			}
+			IType parentType = (IType) parent;
+			parameters = parentType.getTypeParameters();
+			int length = parameters==null ? 0 : parameters.length;
+			if (length > 0) {
+				hasParameters = true;
+				typeParameters[ptr] = new char[length][];
+				for (int i=0; i<length; i++)
+					typeParameters[ptr][i] = Signature.createTypeSignature(parameters[i].getElementName(), false).toCharArray();
+			}
+			parent = parent.getParent();
+		}
 	}
-	if (isCaseSensitive())
-		buffer.append("case sensitive"); //$NON-NLS-1$
-	else
-		buffer.append("case insensitive"); //$NON-NLS-1$
-	return buffer.toString();
+	catch (JavaModelException jme) {
+		return null;
+	}
+	if (!hasParameters) return null;
+	if (++ptr < typeParameters.length)
+		System.arraycopy(typeParameters, 0, typeParameters = new char[ptr][][], 0, ptr);
+	return typeParameters;
 }
 }

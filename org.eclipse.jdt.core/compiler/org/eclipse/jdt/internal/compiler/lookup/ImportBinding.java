@@ -18,7 +18,7 @@ public class ImportBinding extends Binding {
 	public boolean onDemand;
 	public ImportReference reference;
 
-	Binding resolvedImport; // must ensure the import is resolved
+	public Binding resolvedImport; // must ensure the import is resolved
 	
 public ImportBinding(char[][] compoundName, boolean isOnDemand, Binding binding, ImportReference reference) {
 	this.compoundName = compoundName;
@@ -30,8 +30,11 @@ public ImportBinding(char[][] compoundName, boolean isOnDemand, Binding binding,
 * Answer the receiver's binding type from Binding.BindingID.
 */
 
-public final int bindingType() {
+public final int kind() {
 	return IMPORT;
+}
+public boolean isStatic() {
+	return this.reference != null && this.reference.isStatic();
 }
 public char[] readableName() {
 	if (onDemand)

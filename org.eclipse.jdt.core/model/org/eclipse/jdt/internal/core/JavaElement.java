@@ -42,16 +42,7 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	public static final char JEM_IMPORTDECLARATION = '#';
 	public static final char JEM_COUNT = '!';
 	public static final char JEM_LOCALVARIABLE = '@';
-
-	/**
-	 * A count to uniquely identify this element in the case
-	 * that a duplicate named element exists. For example, if
-	 * there are two fields in a compilation unit with the
-	 * same name, the occurrence count is used to distinguish
-	 * them.  The occurrence count starts at 1 (thus the first 
-	 * occurrence is occurrence 1, not occurrence 0).
-	 */
-	public int occurrenceCount = 1;
+	public static final char JEM_TYPE_PARAMETER = ']';
 
 	/**
 	 * This element's parent, or <code>null</code> if this
@@ -59,29 +50,21 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 */
 	protected JavaElement parent;
 
-	/**
-	 * This element's name, or an empty <code>String</code> if this
-	 * element does not have a name.
-	 */
-	protected String name;
-
 	protected static final JavaElement[] NO_ELEMENTS = new JavaElement[0];
 	protected static final Object NO_INFO = new Object();
 	
 	/**
 	 * Constructs a handle for a java element with
-	 * the given parent element and name.
+	 * the given parent element.
 	 *
 	 * @param parent The parent of java element
-	 * @param name The name of java element
 	 *
 	 * @exception IllegalArgumentException if the type is not one of the valid
 	 *		Java element type constants
 	 *
 	 */
-	protected JavaElement(JavaElement parent, String name) throws IllegalArgumentException {
+	protected JavaElement(JavaElement parent) throws IllegalArgumentException {
 		this.parent = parent;
-		this.name = name;
 	}
 	/**
 	 * @see IOpenable
@@ -117,8 +100,7 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	
 		// assume instanceof check is done in subclass
 		JavaElement other = (JavaElement) o;		
-		return this.occurrenceCount == other.occurrenceCount &&
-				this.name.equals(other.name) &&
+		return getElementName().equals(other.getElementName()) &&
 				this.parent.equals(other.parent);
 	}
 	/**
@@ -312,7 +294,7 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 * @see IAdaptable
 	 */
 	public String getElementName() {
-		return this.name;
+		return ""; //$NON-NLS-1$
 	}
 	/*
 	 * Creates a Java element handle from the given memento.
@@ -329,16 +311,6 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 		String token = memento.nextToken();
 		return getHandleFromMemento(token, memento, owner);
 	}
-	/*
-	 * Update the occurence count of the receiver and creates a Java element handle from the given memento.
-	 * The given working copy owner is used only for compilation unit handles.
-	 */
-	public IJavaElement getHandleUpdatingCountFromMemento(MementoTokenizer memento, WorkingCopyOwner owner) {
-		this.occurrenceCount = Integer.parseInt(memento.nextToken());
-		if (!memento.hasMoreTokens()) return this;
-		String token = memento.nextToken();
-		return getHandleFromMemento(token, memento, owner);
-	}
 	/**
 	 * @see IJavaElement
 	 */
@@ -349,14 +321,14 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 * @see JavaElement#getHandleMemento()
 	 */
 	public String getHandleMemento(){
-		StringBuffer buff= new StringBuffer(((JavaElement)getParent()).getHandleMemento());
+		StringBuffer buff = new StringBuffer();
+		getHandleMemento(buff);
+		return buff.toString();
+	}
+	protected void getHandleMemento(StringBuffer buff) {
+		((JavaElement)getParent()).getHandleMemento(buff);
 		buff.append(getHandleMementoDelimiter());
 		escapeMementoName(buff, getElementName());
-		if (this.occurrenceCount > 1) {
-			buff.append(JEM_COUNT);
-			buff.append(this.occurrenceCount);
-		}
-		return buff.toString();
 	}
 	/**
 	 * Returns the <code>char</code> that marks the start of this handles
@@ -528,7 +500,7 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 */
 	public int hashCode() {
 		if (this.parent == null) return super.hashCode();
-		return Util.combineHashCodes(this.name.hashCode(), this.parent.hashCode());
+		return Util.combineHashCodes(getElementName().hashCode(), this.parent.hashCode());
 	}
 	/**
 	 * Returns true if this element is an ancestor of the given element,
@@ -549,16 +521,19 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 		return false;
 	}
 	/**
-	 * @see IJavaElement
+	 * Creates and returns a new not present exception for this element.
 	 */
-	public boolean isStructureKnown() throws JavaModelException {
-		return ((JavaElementInfo)getElementInfo()).isStructureKnown();
+	public JavaModelException newNotPresentException() {
+		return new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
 	}
 	/**
-	 * Creates and returns and not present exception for this element.
+	 * Creates and returns a new Java model exception for this element with the given status.
 	 */
-	protected JavaModelException newNotPresentException() {
-		return new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
+	public JavaModelException newJavaModelException(IStatus status) {
+		if (status instanceof IJavaModelStatus)
+			return new JavaModelException((IJavaModelStatus) status);
+		else
+			return new JavaModelException(new JavaModelStatus(status.getSeverity(), status.getCode(), status.getMessage()));
 	}
 	/*
 	 * Opens an <code>Openable</code> that is known to be closed (no check for <code>isOpen()</code>).
@@ -684,9 +659,5 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 */
 	protected void toStringName(StringBuffer buffer) {
 		buffer.append(getElementName());
-		if (this.occurrenceCount > 1) {
-			buffer.append("#"); //$NON-NLS-1$
-			buffer.append(this.occurrenceCount);
-		}
 	}
 }

@@ -11,6 +11,7 @@
 
 package org.eclipse.jdt.core.dom;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -103,22 +104,24 @@ public class SingleVariableDeclaration extends VariableDeclaration {
 	private static final List PROPERTY_DESCRIPTORS_3_0;
 	
 	static {
-		createPropertyList(SingleVariableDeclaration.class);
-		addProperty(MODIFIERS_PROPERTY);
-		addProperty(TYPE_PROPERTY);
-		addProperty(NAME_PROPERTY);
-		addProperty(EXTRA_DIMENSIONS_PROPERTY);
-		addProperty(INITIALIZER_PROPERTY);
-		PROPERTY_DESCRIPTORS_2_0 = reapPropertyList();
+		List propertyList = new ArrayList(6);
+		createPropertyList(SingleVariableDeclaration.class, propertyList);
+		addProperty(MODIFIERS_PROPERTY, propertyList);
+		addProperty(TYPE_PROPERTY, propertyList);
+		addProperty(NAME_PROPERTY, propertyList);
+		addProperty(EXTRA_DIMENSIONS_PROPERTY, propertyList);
+		addProperty(INITIALIZER_PROPERTY, propertyList);
+		PROPERTY_DESCRIPTORS_2_0 = reapPropertyList(propertyList);
 		
-		createPropertyList(SingleVariableDeclaration.class);
-		addProperty(MODIFIERS2_PROPERTY);
-		addProperty(TYPE_PROPERTY);
-		addProperty(VARARGS_PROPERTY);
-		addProperty(NAME_PROPERTY);
-		addProperty(EXTRA_DIMENSIONS_PROPERTY);
-		addProperty(INITIALIZER_PROPERTY);
-		PROPERTY_DESCRIPTORS_3_0 = reapPropertyList();
+		propertyList = new ArrayList(7);
+		createPropertyList(SingleVariableDeclaration.class, propertyList);
+		addProperty(MODIFIERS2_PROPERTY, propertyList);
+		addProperty(TYPE_PROPERTY, propertyList);
+		addProperty(VARARGS_PROPERTY, propertyList);
+		addProperty(NAME_PROPERTY, propertyList);
+		addProperty(EXTRA_DIMENSIONS_PROPERTY, propertyList);
+		addProperty(INITIALIZER_PROPERTY, propertyList);
+		PROPERTY_DESCRIPTORS_3_0 = reapPropertyList(propertyList);
 	}
 
 	/**
@@ -204,6 +207,30 @@ public class SingleVariableDeclaration extends VariableDeclaration {
 		if (ast.apiLevel >= AST.JLS3) {
 			this.modifiers = new ASTNode.NodeList(MODIFIERS2_PROPERTY);
 		}
+	}
+
+	/* (omit javadoc for this method)
+	 * Method declared on VariableDeclaration.
+	 * @since 3.1
+	 */
+	final SimplePropertyDescriptor internalExtraDimensionsProperty() {
+		return EXTRA_DIMENSIONS_PROPERTY;
+	}
+
+	/* (omit javadoc for this method)
+	 * Method declared on VariableDeclaration.
+	 * @since 3.1
+	 */
+	final ChildPropertyDescriptor internalInitializerProperty() {
+		return INITIALIZER_PROPERTY;
+	}
+
+	/* (omit javadoc for this method)
+	 * Method declared on VariableDeclaration.
+	 * @since 3.1
+	 */
+	final ChildPropertyDescriptor internalNameProperty() {
+		return NAME_PROPERTY;
 	}
 
 	/* (omit javadoc for this method)

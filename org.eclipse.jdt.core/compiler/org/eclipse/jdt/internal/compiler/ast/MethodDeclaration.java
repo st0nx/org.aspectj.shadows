@@ -13,6 +13,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.flow.ExceptionHandlingFlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
 import org.eclipse.jdt.internal.compiler.flow.InitializationFlowContext;
@@ -23,7 +24,8 @@ import org.eclipse.jdt.internal.compiler.problem.AbortMethod;
 public class MethodDeclaration extends AbstractMethodDeclaration {
 	
 	public TypeReference returnType;
-
+	public TypeParameter[] typeParameters;
+	
 	/**
 	 * MethodDeclaration constructor comment.
 	 */
@@ -49,10 +51,14 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 				}
 			}
 				
+			// skip enum implicit methods
+			if (binding.declaringClass.isEnum() && (this.selector == TypeConstants.VALUES || this.selector == TypeConstants.VALUEOF))
+				return;
+
 			// may be in a non necessary <clinit> for innerclass with static final constant fields
 			if (binding.isAbstract() || binding.isNative())
 				return;
-
+			
 			ExceptionHandlingFlowContext methodContext =
 				new ExceptionHandlingFlowContext(
 					initializationContext,
@@ -61,6 +67,12 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 					scope,
 					FlowInfo.DEAD_END);
 
+			// tag parameters as being set
+			if (this.arguments != null) {
+				for (int i = 0, count = this.arguments.length; i < count; i++) {
+					flowInfo.markAsDefinitelyAssigned(this.arguments[i].binding);
+				}
+			}
 			// propagate to statements
 			if (statements != null) {
 				boolean didAlreadyComplain = false;
@@ -89,6 +101,11 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 		}
 	}
 
+	public boolean isMethod() {
+
+		return true;
+	}
+
 	public void parseStatements(Parser parser, CompilationUnitDeclaration unit) {
 
 		//fill up the method body with statement
@@ -110,29 +127,35 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 			this.returnType.resolvedType = this.binding.returnType;
 			// record the return type binding
 		}
-		// look if the name of the method is correct
-		if (binding != null && isTypeUseDeprecated(binding.returnType, scope))
-			scope.problemReporter().deprecatedType(binding.returnType, returnType);
-
 		// check if method with constructor name
 		if (CharOperation.equals(scope.enclosingSourceType().sourceName, selector)) {
 			scope.problemReporter().methodWithConstructorName(this);
 		}
 		
+		// check @Override annotation
+		if (this.binding != null 
+				&& (this.binding.tagBits & TagBits.AnnotationOverride) != 0
+				&& (this.binding.modifiers & AccOverriding) == 0) {
+			scope.problemReporter().methodMustOverride(this);
+		}
+				
 		// by grammatical construction, interface methods are always abstract
-		if (!scope.enclosingSourceType().isInterface()){
-
-			// if a method has an semicolon body and is not declared as abstract==>error
-			// native methods may have a semicolon body 
-			if ((modifiers & AccSemicolonBody) != 0) {
-				if ((modifiers & AccNative) == 0)
-					if ((modifiers & AccAbstract) == 0)
-						scope.problemReporter().methodNeedBody(this);
-			} else {
-				// the method HAS a body --> abstract native modifiers are forbiden
-				if (((modifiers & AccNative) != 0) || ((modifiers & AccAbstract) != 0))
-					scope.problemReporter().methodNeedingNoBody(this);
-			}
+		switch (scope.referenceType().kind()) {
+			case IGenericType.ENUM_DECL :
+				if (this.selector == TypeConstants.VALUES) break;
+				if (this.selector == TypeConstants.VALUEOF) break;
+			case IGenericType.CLASS_DECL :
+				// if a method has an semicolon body and is not declared as abstract==>error
+				// native methods may have a semicolon body 
+				if ((modifiers & AccSemicolonBody) != 0) {
+					if ((modifiers & AccNative) == 0)
+						if ((modifiers & AccAbstract) == 0)
+							scope.problemReporter().methodNeedBody(this);
+				} else {
+					// the method HAS a body --> abstract native modifiers are forbiden
+					if (((modifiers & AccNative) != 0) || ((modifiers & AccAbstract) != 0))
+						scope.problemReporter().methodNeedingNoBody(this);
+				}
 		}
 		super.resolveStatements(); 
 	}
@@ -142,6 +165,17 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 		ClassScope classScope) {
 
 		if (visitor.visit(this, classScope)) {
+			if (this.annotations != null) {
+				int annotationsLength = this.annotations.length;
+				for (int i = 0; i < annotationsLength; i++)
+					this.annotations[i].traverse(visitor, scope);
+			}
+			if (this.typeParameters != null) {
+				int typeParametersLength = this.typeParameters.length;
+				for (int i = 0; i < typeParametersLength; i++) {
+					this.typeParameters[i].traverse(visitor, scope);
+				}
+			}			
 			if (returnType != null)
 				returnType.traverse(visitor, scope);
 			if (arguments != null) {
@@ -162,4 +196,7 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 		}
 		visitor.endVisit(this, classScope);
 	}
+	public TypeParameter[] typeParameters() {
+	    return this.typeParameters;
+	}		
 }

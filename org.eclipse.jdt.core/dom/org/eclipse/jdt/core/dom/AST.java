@@ -13,10 +13,13 @@ package org.eclipse.jdt.core.dom;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaProject;
@@ -229,6 +232,8 @@ public final class AST {
 	 * @param compilationUnitDeclaration an internal AST node for a compilation unit declaration
 	 * @param source the string of the Java compilation unit
 	 * @param options compiler options
+	 * @param workingCopyOwner the owner of the working copy that the AST is created from, 
+	 *     or <code>null</code> if none
 	 * @param monitor the progress monitor used to report progress and request cancelation,
 	 *     or <code>null</code> if none
 	 * @param isResolved whether the given compilation unit declaration is resolved
@@ -240,21 +245,21 @@ public final class AST {
 		char[] source,
 		Map options,
 		boolean isResolved,
+		WorkingCopyOwner workingCopyOwner,
 		IProgressMonitor monitor) {
 		
 		ASTConverter converter = new ASTConverter(options, isResolved, monitor);
 		AST ast = AST.newAST(level);
 		int savedDefaultNodeFlag = ast.getDefaultNodeFlag();
 		ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
-		BindingResolver resolver = isResolved ? new DefaultBindingResolver(compilationUnitDeclaration.scope) : new BindingResolver();
+		BindingResolver resolver = isResolved ? new DefaultBindingResolver(compilationUnitDeclaration.scope, workingCopyOwner, new DefaultBindingResolver.BindingTables()) : new BindingResolver();
 		ast.setBindingResolver(resolver);
 		converter.setAST(ast);
 	
-		CompilationUnit cu = converter.convert(compilationUnitDeclaration, source);
-		cu.setLineEndTable(compilationUnitDeclaration.compilationResult.lineSeparatorPositions);
-		resolver.storeModificationCount(ast.modificationCount());
+		CompilationUnit unit = converter.convert(compilationUnitDeclaration, source);
+		unit.setLineEndTable(compilationUnitDeclaration.compilationResult.lineSeparatorPositions);
 		ast.setDefaultNodeFlag(savedDefaultNodeFlag);
-		return cu;
+		return unit;
 	}
 
 	/**
@@ -281,17 +286,22 @@ public final class AST {
 	// TODO (jeem) When JLS3 support is complete (post 3.0) - deprecated Clients should port their code to use the new JLS3 API and call {@link #newAST(int)} instead of using this constructor.
 	public AST(Map options) {
 		this(JLS2);
-		// override scanner if 1.4 asked for
-		if (JavaCore.VERSION_1_4.equals(options.get(JavaCore.COMPILER_SOURCE))) {
-			this.scanner = new Scanner(
-				true /*comment*/, 
-				true /*whitespace*/, 
-				false /*nls*/, 
-				ClassFileConstants.JDK1_4 /*sourceLevel*/, 
-				null/*taskTag*/, 
-				null/*taskPriorities*/,
-				true/*taskCaseSensitive*/);
+		Object sourceLevelOption = options.get(JavaCore.COMPILER_SOURCE);
+		long sourceLevel = ClassFileConstants.JDK1_3;
+		if (JavaCore.VERSION_1_4.equals(sourceLevelOption)) {
+			sourceLevel = ClassFileConstants.JDK1_4;
+		} else if (JavaCore.VERSION_1_5.equals(sourceLevelOption)) {
+			sourceLevel = ClassFileConstants.JDK1_5;
 		}
+		// override scanner if 1.4 or 1.5 asked for
+		this.scanner = new Scanner(
+			true /*comment*/, 
+			true /*whitespace*/, 
+			false /*nls*/, 
+			sourceLevel /*sourceLevel*/,
+			null/*taskTag*/, 
+			null/*taskPriorities*/,
+			true/*taskCaseSensitive*/);
 	}
 		
 	/**
@@ -1546,7 +1556,7 @@ public final class AST {
 	 * Creates an unparented enum constant declaration node owned by this AST.
 	 * The name of the constant is an unspecified, but legal, name; 
 	 * no doc comment; no modifiers or annotations; no arguments; 
-	 * and an empty class body.
+	 * and does not declare an anonymous class.
 	 * 
 	 * @return a new unparented enum constant declaration node
 	 * @exception UnsupportedOperationException if this operation is used in
@@ -1562,7 +1572,8 @@ public final class AST {
 	 * Creates an unparented enum declaration node owned by this AST.
 	 * The name of the enum is an unspecified, but legal, name; 
 	 * no doc comment; no modifiers or annotations; 
-	 * no superinterfaces; and no body declarations.
+	 * no superinterfaces; and empty lists of enum constants
+	 * and body declarations.
 	 * 
 	 * @return a new unparented enum declaration node
 	 * @exception UnsupportedOperationException if this operation is used in
@@ -1633,6 +1644,62 @@ public final class AST {
 	public Modifier newModifier(Modifier.ModifierKeyword keyword) {
 		Modifier result = new Modifier(this);
 		result.setKeyword(keyword);
+		return result;
+	}
+
+	/**
+	 * Creates and returns a list of new unparented modifier nodes 
+	 * for the given modifier flags. When multiple modifiers are 
+	 * requested the modifiers nodes will appear in the following order:
+	 * public, protected, private, abstract, static, final, synchronized,
+	 * native, strictfp, transient, volatile. This order is consistent
+	 * with the recommendations in JLS2 8.1.1, 8.3.1, and 8.4.3.
+	 * 
+	 * @param flags bitwise or of modifier flags declared on {@link Modifier}
+	 * @return a possibly empty list of new unparented modifier nodes
+	 *   (element type <code>Modifier</code>)
+	 * @exception UnsupportedOperationException if this operation is used in
+	 * a JLS2 AST
+	 * @since 3.1
+	 */
+	public List newModifiers(int flags) {
+		if (this.apiLevel == AST.JLS2) {
+			unsupportedIn2();
+		}
+		List result = new ArrayList(3); // 3 modifiers is more than average
+		if (Modifier.isPublic(flags)) {
+			result.add(newModifier(Modifier.ModifierKeyword.PUBLIC_KEYWORD));
+		}
+		if (Modifier.isProtected(flags)) {
+			result.add(newModifier(Modifier.ModifierKeyword.PROTECTED_KEYWORD));
+		}
+		if (Modifier.isPrivate(flags)) {
+			result.add(newModifier(Modifier.ModifierKeyword.PRIVATE_KEYWORD));
+		}
+		if (Modifier.isAbstract(flags)) {
+			result.add(newModifier(Modifier.ModifierKeyword.ABSTRACT_KEYWORD));
+		}
+		if (Modifier.isStatic(flags)) {
+			result.add(newModifier(Modifier.ModifierKeyword.STATIC_KEYWORD));
+		}
+		if (Modifier.isFinal(flags)) {
+			result.add(newModifier(Modifier.ModifierKeyword.FINAL_KEYWORD));
+		}
+		if (Modifier.isSynchronized(flags)) {
+			result.add(newModifier(Modifier.ModifierKeyword.SYNCHRONIZED_KEYWORD));
+		}
+		if (Modifier.isNative(flags)) {
+			result.add(newModifier(Modifier.ModifierKeyword.NATIVE_KEYWORD));
+		}
+		if (Modifier.isStrictfp(flags)) {
+			result.add(newModifier(Modifier.ModifierKeyword.STRICTFP_KEYWORD));
+		}
+		if (Modifier.isTransient(flags)) {
+			result.add(newModifier(Modifier.ModifierKeyword.TRANSIENT_KEYWORD));
+		}
+		if (Modifier.isVolatile(flags)) {
+			result.add(newModifier(Modifier.ModifierKeyword.VOLATILE_KEYWORD));
+		}
 		return result;
 	}
 

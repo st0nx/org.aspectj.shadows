@@ -10,9 +10,11 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.indexing;
 
+import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.ISourceElementRequestor;
+import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
 
 /**
@@ -126,21 +128,29 @@ public char[][] enclosingTypeNames(){
 	System.arraycopy(this.enclosingTypeNames, 0, qualification, 0, this.depth);
 	return qualification;
 }
-/**
- * @see ISourceElementRequestor#enterClass(int, int, char[], int, int, char[], char[][])
- */
-public void enterClass(int declarationStart, int modifiers, char[] name, int nameSourceStart, int nameSourceEnd, char[] superclass, char[][] superinterfaces) {
+private void enterAnnotationType(TypeInfo typeInfo) {
+	char[][] typeNames;
+	if (this.methodDepth > 0) {
+		typeNames = ONE_ZERO_CHAR;
+	} else {
+		typeNames = this.enclosingTypeNames();
+	}
+	this.indexer.addAnnotationTypeDeclaration(typeInfo.modifiers, packageName, typeInfo.name, typeNames);
+	this.pushTypeName(typeInfo.name);	
+}
+
+private void enterClass(TypeInfo typeInfo) {
 
 	// eliminate possible qualifications, given they need to be fully resolved again
-	if (superclass != null){
-		superclass = CharOperation.lastSegment(superclass, '.');
+	if (typeInfo.superclass != null){
+		typeInfo.superclass = CharOperation.lastSegment(typeInfo.superclass, '.');
 		
 		// add implicit constructor reference to default constructor
-		this.indexer.addConstructorReference(superclass, 0);
+		this.indexer.addConstructorReference(typeInfo.superclass, 0);
 	}
-	if (superinterfaces != null){
-		for (int i = 0, length = superinterfaces.length; i < length; i++){
-			superinterfaces[i] = CharOperation.lastSegment(superinterfaces[i], '.');
+	if (typeInfo.superinterfaces != null){
+		for (int i = 0, length = typeInfo.superinterfaces.length; i < length; i++){
+			typeInfo.superinterfaces[i] = CharOperation.lastSegment(typeInfo.superinterfaces[i], '.');
 		}
 	}
 	char[][] typeNames;
@@ -149,8 +159,17 @@ public void enterClass(int declarationStart, int modifiers, char[] name, int nam
 	} else {
 		typeNames = this.enclosingTypeNames();
 	}
-	this.indexer.addClassDeclaration(modifiers, this.packageName, name, typeNames, superclass, superinterfaces);
-	this.pushTypeName(name);
+	char[][] typeParameterSignatures = null;
+	if (typeInfo.typeParameters != null) {
+		int typeParametersLength = typeInfo.typeParameters.length;
+		typeParameterSignatures = new char[typeParametersLength][];
+		for (int i = 0; i < typeParametersLength; i++) {
+			ISourceElementRequestor.TypeParameterInfo typeParameterInfo = typeInfo.typeParameters[i];
+			typeParameterSignatures[i] = Signature.createTypeParameterSignature(typeParameterInfo.name, typeParameterInfo.bounds == null ? CharOperation.NO_CHAR_CHAR : typeParameterInfo.bounds);
+		}
+	}
+	this.indexer.addClassDeclaration(typeInfo.modifiers, this.packageName, typeInfo.name, typeNames, typeInfo.superclass, typeInfo.superinterfaces, typeParameterSignatures);
+	this.pushTypeName(typeInfo.name);
 }
 /**
  * @see ISourceElementRequestor#enterCompilationUnit()
@@ -159,33 +178,17 @@ public void enterCompilationUnit() {
 	// implements interface method
 }
 /**
- * @see ISourceElementRequestor#enterConstructor(int, int, char[], int, int, char[][], char[][], char[][])
+ * @see ISourceElementRequestor#enterConstructor(MethodInfo)
  */
-public void enterConstructor(int declarationStart, int modifiers, char[] name, int nameSourceStart, int nameSourceEnd, char[][] parameterTypes, char[][] parameterNames, char[][] exceptionTypes) {
-	this.indexer.addConstructorDeclaration(name, parameterTypes, exceptionTypes);
+public void enterConstructor(MethodInfo methodInfo) {
+	this.indexer.addConstructorDeclaration(methodInfo.name, methodInfo.parameterTypes, methodInfo.exceptionTypes);
 	this.methodDepth++;
 }
-/**
- * @see ISourceElementRequestor#enterField(int, int, char[], char[], int, int)
- */
-public void enterField(int declarationStart, int modifiers, char[] type, char[] name, int nameSourceStart, int nameSourceEnd) {
-	this.indexer.addFieldDeclaration(type, name);
-	this.methodDepth++;
-}
-/**
- * @see ISourceElementRequestor#enterInitializer(int, int)
- */
-public void enterInitializer(int declarationSourceStart, int modifiers) {
-	this.methodDepth++;
-}
-/**
- * @see ISourceElementRequestor#enterInterface(int, int, char[], int, int, char[][])
- */
-public void enterInterface(int declarationStart, int modifiers, char[] name, int nameSourceStart, int nameSourceEnd, char[][] superinterfaces) {
+private void enterEnum(TypeInfo typeInfo) {
 	// eliminate possible qualifications, given they need to be fully resolved again
-	if (superinterfaces != null){
-		for (int i = 0, length = superinterfaces.length; i < length; i++){
-			superinterfaces[i] = CharOperation.lastSegment(superinterfaces[i], '.');
+	if (typeInfo.superinterfaces != null){
+		for (int i = 0, length = typeInfo.superinterfaces.length; i < length; i++){
+			typeInfo.superinterfaces[i] = CharOperation.lastSegment(typeInfo.superinterfaces[i], '.');
 		}
 	}	
 	char[][] typeNames;
@@ -194,22 +197,75 @@ public void enterInterface(int declarationStart, int modifiers, char[] name, int
 	} else {
 		typeNames = this.enclosingTypeNames();
 	}
-	this.indexer.addInterfaceDeclaration(modifiers, packageName, name, typeNames, superinterfaces);
-	this.pushTypeName(name);	
+	this.indexer.addEnumDeclaration(typeInfo.modifiers, packageName, typeInfo.name, typeNames, typeInfo.superinterfaces);
+	this.pushTypeName(typeInfo.name);	
 }
 /**
- * @see ISourceElementRequestor#enterMethod(int, int, char[], char[], int, int, char[][], char[][], char[][])
+ * @see ISourceElementRequestor#enterField(FieldInfo)
  */
-public void enterMethod(int declarationStart, int modifiers, char[] returnType, char[] name, int nameSourceStart, int nameSourceEnd, char[][] parameterTypes, char[][] parameterNames, char[][] exceptionTypes) {
-	this.indexer.addMethodDeclaration(name, parameterTypes, returnType, exceptionTypes);
+public void enterField(FieldInfo fieldInfo) {
+	this.indexer.addFieldDeclaration(fieldInfo.type, fieldInfo.name);
 	this.methodDepth++;
 }
 /**
- * @see ISourceElementRequestor#exitClass(int)
+ * @see ISourceElementRequestor#enterInitializer(int, int)
  */
-public void exitClass(int declarationEnd) {
-	popTypeName();
+public void enterInitializer(int declarationSourceStart, int modifiers) {
+	this.methodDepth++;
 }
+private void enterInterface(TypeInfo typeInfo) {
+	// eliminate possible qualifications, given they need to be fully resolved again
+	if (typeInfo.superinterfaces != null){
+		for (int i = 0, length = typeInfo.superinterfaces.length; i < length; i++){
+			typeInfo.superinterfaces[i] = CharOperation.lastSegment(typeInfo.superinterfaces[i], '.');
+		}
+	}	
+	char[][] typeNames;
+	if (this.methodDepth > 0) {
+		typeNames = ONE_ZERO_CHAR;
+	} else {
+		typeNames = this.enclosingTypeNames();
+	}
+	char[][] typeParameterSignatures = null;
+	if (typeInfo.typeParameters != null) {
+		int typeParametersLength = typeInfo.typeParameters.length;
+		typeParameterSignatures = new char[typeParametersLength][];
+		for (int i = 0; i < typeParametersLength; i++) {
+			ISourceElementRequestor.TypeParameterInfo typeParameterInfo = typeInfo.typeParameters[i];
+			typeParameterSignatures[i] = Signature.createTypeParameterSignature(typeParameterInfo.name, typeParameterInfo.bounds);
+		}
+	}
+	this.indexer.addInterfaceDeclaration(typeInfo.modifiers, packageName, typeInfo.name, typeNames, typeInfo.superinterfaces, typeParameterSignatures);
+	this.pushTypeName(typeInfo.name);	
+}
+/**
+ * @see ISourceElementRequestor#enterMethod(MethodInfo)
+ */
+public void enterMethod(MethodInfo methodInfo) {
+	this.indexer.addMethodDeclaration(methodInfo.name, methodInfo.parameterTypes, methodInfo.returnType, methodInfo.exceptionTypes);
+	this.methodDepth++;
+}
+/**
+ * @see ISourceElementRequestor#enterType(TypeInfo)
+ */
+public void enterType(TypeInfo typeInfo) {
+	// TODO (jerome) might want to merge the 4 methods
+	switch (typeInfo.kind) {
+		case IGenericType.CLASS_DECL:
+			enterClass(typeInfo);
+			break;
+		case IGenericType.ANNOTATION_TYPE_DECL: 
+			enterAnnotationType(typeInfo);
+			break;
+		case IGenericType.INTERFACE_DECL:
+			enterInterface(typeInfo);
+			break;
+		case IGenericType.ENUM_DECL: 
+			enterEnum(typeInfo);
+			break;
+	}
+}
+
 /**
  * @see ISourceElementRequestor#exitCompilationUnit(int)
  */
@@ -235,16 +291,16 @@ public void exitInitializer(int declarationEnd) {
 	this.methodDepth--;
 }
 /**
- * @see ISourceElementRequestor#exitInterface(int)
+ * @see ISourceElementRequestor#exitMethod(int, int, int)
  */
-public void exitInterface(int declarationEnd) {
-	popTypeName();	
+public void exitMethod(int declarationEnd, int defaultValueStart, int defaultValueEnd) {
+	this.methodDepth--;
 }
 /**
- * @see ISourceElementRequestor#exitMethod(int)
+ * @see ISourceElementRequestor#exitType(int)
  */
-public void exitMethod(int declarationEnd) {
-	this.methodDepth--;
+public void exitType(int declarationEnd) {
+	popTypeName();
 }
 public void popTypeName() {
 	if (depth > 0) {

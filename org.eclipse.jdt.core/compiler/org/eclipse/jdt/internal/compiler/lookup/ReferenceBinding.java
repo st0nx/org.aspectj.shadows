@@ -45,7 +45,7 @@ public MethodBinding[] availableMethods() {
 */
 
 public boolean canBeInstantiated() {
-	return !(isAbstract() || isInterface());
+	return (this.modifiers & (AccAbstract | AccInterface | AccEnum | AccAnnotation)) == 0;
 }
 /* Answer true if the receiver is visible to the invocationPackage.
 */
@@ -91,7 +91,19 @@ public final boolean canBeSeenBy(ReferenceBinding receiverType, SourceTypeBindin
 	if (isPrivate()) {
 		// answer true if the receiverType is the receiver or its enclosingType
 		// AND the invocationType and the receiver have a common enclosingType
-		if (!(receiverType == this || receiverType == enclosingType())) return false;
+		receiverCheck: {
+			if (!(receiverType == this || receiverType == enclosingType())) {
+				// special tolerance for type variable direct bounds
+				if (receiverType.isTypeVariable()) {
+					TypeVariableBinding typeVariable = (TypeVariableBinding) receiverType;
+					if (typeVariable.isErasureBoundTo(this.erasure()) || typeVariable.isErasureBoundTo(enclosingType().erasure())) {
+						break receiverCheck;
+					}
+				}
+				return false;
+			}
+		}
+		
 		
 		if (invocationType != this) {
 			ReferenceBinding outerInvocationType = invocationType;
@@ -101,7 +113,7 @@ public final boolean canBeSeenBy(ReferenceBinding receiverType, SourceTypeBindin
 				temp = temp.enclosingType();
 			}
 
-			ReferenceBinding outerDeclaringClass = this;
+			ReferenceBinding outerDeclaringClass = (ReferenceBinding)this.erasure();
 			temp = outerDeclaringClass.enclosingType();
 			while (temp != null) {
 				outerDeclaringClass = temp;
@@ -168,7 +180,7 @@ public final boolean canBeSeenBy(Scope scope) {
 			temp = temp.enclosingType();
 		}
 
-		ReferenceBinding outerDeclaringClass = this;
+		ReferenceBinding outerDeclaringClass = (ReferenceBinding)this.erasure();
 		temp = outerDeclaringClass.enclosingType();
 		while (temp != null) {
 			outerDeclaringClass = temp;
@@ -181,96 +193,157 @@ public final boolean canBeSeenBy(Scope scope) {
 	return invocationType.fPackage == fPackage;
 }
 public void computeId() {
-	if (compoundName.length != 3) {
-		if (compoundName.length == 4 && CharOperation.equals(JAVA_LANG_REFLECT_CONSTRUCTOR, compoundName))
-			id = T_JavaLangReflectConstructor;
-		return;
-	}
+	
+	switch (compoundName.length) {
 
-	if (!CharOperation.equals(JAVA, compoundName[0]))
-		return;
-
-	// remaining types MUST be in java.*.*
-	if (!CharOperation.equals(LANG, compoundName[1])) {
-		if (CharOperation.equals(JAVA_IO_PRINTSTREAM, compoundName))
-			id = T_JavaIoPrintStream;
-		else if (CharOperation.equals(JAVA_IO_SERIALIZABLE, compoundName))
-		    id = T_JavaIoSerializable;
-		return;
-	}
-
-	// remaining types MUST be in java.lang.*
-	char[] typeName = compoundName[2];
-	if (typeName.length == 0) return; // just to be safe
-	switch (typeName[0]) {
-		case 'A' :
-			if (CharOperation.equals(typeName, JAVA_LANG_ASSERTIONERROR[2]))
-				id = T_JavaLangAssertionError;
-			return;
-		case 'B' :
-			if (CharOperation.equals(typeName, JAVA_LANG_BOOLEAN[2]))
-				id = T_JavaLangBoolean;
-			else if (CharOperation.equals(typeName, JAVA_LANG_BYTE[2]))
-				id = T_JavaLangByte;
-			return;
-		case 'C' :
-			if (CharOperation.equals(typeName, JAVA_LANG_CHARACTER[2]))
-				id = T_JavaLangCharacter;
-			else if (CharOperation.equals(typeName, JAVA_LANG_CLASS[2]))
-				id = T_JavaLangClass;
-			else if (CharOperation.equals(typeName, JAVA_LANG_CLASSNOTFOUNDEXCEPTION[2]))
-				id = T_JavaLangClassNotFoundException;
-			else if (CharOperation.equals(typeName, JAVA_LANG_CLONEABLE[2]))
-			    id = T_JavaLangCloneable;
-			return;
-		case 'D' :
-			if (CharOperation.equals(typeName, JAVA_LANG_DOUBLE[2]))
-				id = T_JavaLangDouble;
-			return;
-		case 'E' :
-			if (CharOperation.equals(typeName, JAVA_LANG_ERROR[2]))
-				id = T_JavaLangError;
-			else if (CharOperation.equals(typeName, JAVA_LANG_EXCEPTION[2]))
-				id = T_JavaLangException;
-			return;
-		case 'F' :
-			if (CharOperation.equals(typeName, JAVA_LANG_FLOAT[2]))
-				id = T_JavaLangFloat;
-			return;
-		case 'I' :
-			if (CharOperation.equals(typeName, JAVA_LANG_INTEGER[2]))
-				id = T_JavaLangInteger;
-			return;
-		case 'L' :
-			if (CharOperation.equals(typeName, JAVA_LANG_LONG[2]))
-				id = T_JavaLangLong;
-			return;
-		case 'N' :
-			if (CharOperation.equals(typeName, JAVA_LANG_NOCLASSDEFERROR[2]))
-				id = T_JavaLangNoClassDefError;
-			return;
-		case 'O' :
-			if (CharOperation.equals(typeName, JAVA_LANG_OBJECT[2]))
-				id = T_JavaLangObject;
-			return;
-		case 'S' :
-			if (CharOperation.equals(typeName, JAVA_LANG_STRING[2]))
-				id = T_JavaLangString;
-			else if (CharOperation.equals(typeName, JAVA_LANG_STRINGBUFFER[2]))
-				id = T_JavaLangStringBuffer;
-			else if (CharOperation.equals(typeName, JAVA_LANG_SYSTEM[2]))
-				id = T_JavaLangSystem;
-			else if (CharOperation.equals(typeName, JAVA_LANG_SHORT[2]))
-				id = T_JavaLangShort;
-			return;
-		case 'T' :
-			if (CharOperation.equals(typeName, JAVA_LANG_THROWABLE[2]))
-				id = T_JavaLangThrowable;
-			return;
-		case 'V' :
-			if (CharOperation.equals(typeName, JAVA_LANG_VOID[2]))
-				id = T_JavaLangVoid;
-			return;
+		case 3 :
+			if (!CharOperation.equals(JAVA, compoundName[0]))
+				return;
+		
+			// remaining types MUST be in java.*.*
+			if (!CharOperation.equals(LANG, compoundName[1])) {
+				if (CharOperation.equals(JAVA_IO_PRINTSTREAM, compoundName))
+					id = T_JavaIoPrintStream;
+				else if (CharOperation.equals(JAVA_UTIL_ITERATOR, compoundName))
+					id = T_JavaUtilIterator;
+				else if (CharOperation.equals(JAVA_IO_SERIALIZABLE, compoundName))
+				    id = T_JavaIoSerializable;
+				return;
+			}
+		
+			// remaining types MUST be in java.lang.*
+			char[] typeName = compoundName[2];
+			if (typeName.length == 0) return; // just to be safe
+			switch (typeName[0]) {
+				case 'A' :
+					if (CharOperation.equals(typeName, JAVA_LANG_ASSERTIONERROR[2]))
+						id = T_JavaLangAssertionError;
+					return;
+				case 'B' :
+					if (CharOperation.equals(typeName, JAVA_LANG_BOOLEAN[2]))
+						id = T_JavaLangBoolean;
+					else if (CharOperation.equals(typeName, JAVA_LANG_BYTE[2]))
+						id = T_JavaLangByte;
+					return;
+				case 'C' :
+					if (CharOperation.equals(typeName, JAVA_LANG_CHARACTER[2]))
+						id = T_JavaLangCharacter;
+					else if (CharOperation.equals(typeName, JAVA_LANG_CLASS[2]))
+						id = T_JavaLangClass;
+					else if (CharOperation.equals(typeName, JAVA_LANG_CLASSNOTFOUNDEXCEPTION[2]))
+						id = T_JavaLangClassNotFoundException;
+					else if (CharOperation.equals(typeName, JAVA_LANG_CLONEABLE[2]))
+					    id = T_JavaLangCloneable;
+					return;
+				case 'D' :
+					if (CharOperation.equals(typeName, JAVA_LANG_DOUBLE[2]))
+						id = T_JavaLangDouble;
+					else if (CharOperation.equals(typeName, JAVA_LANG_DEPRECATED[2]))
+						id = T_JavaLangDeprecated;
+					return;
+				case 'E' :
+					if (CharOperation.equals(typeName, JAVA_LANG_ERROR[2]))
+						id = T_JavaLangError;
+					else if (CharOperation.equals(typeName, JAVA_LANG_EXCEPTION[2]))
+						id = T_JavaLangException;
+					else if (CharOperation.equals(typeName, JAVA_LANG_ENUM[2]))
+						id = T_JavaLangEnum;
+					return;
+				case 'F' :
+					if (CharOperation.equals(typeName, JAVA_LANG_FLOAT[2]))
+						id = T_JavaLangFloat;
+					return;
+				case 'I' :
+					if (CharOperation.equals(typeName, JAVA_LANG_INTEGER[2]))
+						id = T_JavaLangInteger;
+					else if (CharOperation.equals(typeName, JAVA_LANG_ITERABLE[2]))
+						id = T_JavaLangIterable;
+					else if (CharOperation.equals(typeName, JAVA_LANG_ILLEGALARGUMENTEXCEPTION[2]))
+						id = T_JavaLangIllegalArgumentException;
+					return;
+				case 'L' :
+					if (CharOperation.equals(typeName, JAVA_LANG_LONG[2]))
+						id = T_JavaLangLong;
+					return;
+				case 'N' :
+					if (CharOperation.equals(typeName, JAVA_LANG_NOCLASSDEFERROR[2]))
+						id = T_JavaLangNoClassDefError;
+					return;
+				case 'O' :
+					if (CharOperation.equals(typeName, JAVA_LANG_OBJECT[2]))
+						id = T_JavaLangObject;
+					else if (CharOperation.equals(typeName, JAVA_LANG_OVERRIDE[2]))
+						id = T_JavaLangOverride;
+					return;
+				case 'S' :
+					if (CharOperation.equals(typeName, JAVA_LANG_STRING[2]))
+						id = T_JavaLangString;
+					else if (CharOperation.equals(typeName, JAVA_LANG_STRINGBUFFER[2]))
+						id = T_JavaLangStringBuffer;
+					else if (CharOperation.equals(typeName, JAVA_LANG_STRINGBUILDER[2])) 
+						id = T_JavaLangStringBuilder;
+					else if (CharOperation.equals(typeName, JAVA_LANG_SYSTEM[2]))
+						id = T_JavaLangSystem;
+					else if (CharOperation.equals(typeName, JAVA_LANG_SHORT[2]))
+						id = T_JavaLangShort;
+					else if (CharOperation.equals(typeName, JAVA_LANG_SUPPRESSWARNINGS[2]))
+						id = T_JavaLangSuppressWarnings;
+					return;
+				case 'T' :
+					if (CharOperation.equals(typeName, JAVA_LANG_THROWABLE[2]))
+						id = T_JavaLangThrowable;
+					return;
+				case 'V' :
+					if (CharOperation.equals(typeName, JAVA_LANG_VOID[2]))
+						id = T_JavaLangVoid;
+					return;
+			}
+		break;
+			
+		case 4:
+			if (!CharOperation.equals(JAVA, compoundName[0]))
+				return;
+			if (!CharOperation.equals(LANG, compoundName[1]))
+				return;
+			char[] packageName = compoundName[2];
+			if (packageName.length == 0) return; // just to be safe			
+			typeName = compoundName[3];
+			if (typeName.length == 0) return; // just to be safe			
+			if (CharOperation.equals(packageName, REFLECT)) {
+				if (CharOperation.equals(typeName, JAVA_LANG_REFLECT_CONSTRUCTOR[3]))
+					id = T_JavaLangReflectConstructor;
+				return;
+			} else if (CharOperation.equals(packageName, ANNOTATION)) {
+				switch (typeName[0]) {
+					case 'A' :			
+						if (CharOperation.equals(typeName, JAVA_LANG_ANNOTATION_ANNOTATION[3]))
+							id = T_JavaLangAnnotationAnnotation;
+						return;
+					case 'D' :
+						if (CharOperation.equals(typeName, JAVA_LANG_ANNOTATION_DOCUMENTED[3]))
+							id = T_JavaLangAnnotationDocumented;
+						return;
+					case 'E' :
+						if (CharOperation.equals(typeName, JAVA_LANG_ANNOTATION_ELEMENTTYPE[3]))
+							id = T_JavaLangAnnotationElementType;
+						return;
+					case 'I' :
+						if (CharOperation.equals(typeName, JAVA_LANG_ANNOTATION_INHERITED[3]))
+							id = T_JavaLangAnnotationInherited;
+						return;
+					case 'R' :
+						if (CharOperation.equals(typeName, JAVA_LANG_ANNOTATION_RETENTION[3]))
+							id = T_JavaLangAnnotationRetention;
+						else if (CharOperation.equals(typeName, JAVA_LANG_ANNOTATION_RETENTIONPOLICY[3]))
+							id = T_JavaLangAnnotationRetentionPolicy;
+						return;
+					case 'T' :
+						if (CharOperation.equals(typeName, JAVA_LANG_ANNOTATION_TARGET[3]))
+							id = T_JavaLangAnnotationTarget;
+						return;
+				}				
+			}
+			break;
 	}
 }
 /* Answer the receiver's constant pool name.
@@ -282,7 +355,7 @@ public char[] constantPoolName() /* java/lang/Object */ {
 	if (constantPoolName != null) 	return constantPoolName;
 	return constantPoolName = CharOperation.concatWith(compoundName, '/');
 }
-String debugName() {
+public String debugName() {
 	return (compoundName != null) ? new String(readableName()) : "UNNAMED TYPE"; //$NON-NLS-1$
 }
 public final int depth() {
@@ -291,12 +364,6 @@ public final int depth() {
 	while ((current = current.enclosingType()) != null)
 		depth++;
 	return depth;
-}
-/* Answer the receiver's enclosing type... null if the receiver is a top level type.
-*/
-
-public ReferenceBinding enclosingType() {
-	return null;
 }
 public final ReferenceBinding enclosingTypeAt(int relativeDepth) {
 	ReferenceBinding current = this;
@@ -310,29 +377,118 @@ public int fieldCount() {
 public FieldBinding[] fields() {
 	return NoFields;
 }
+/**
+ * Find supertype which erases to a given well-known type, or null if not found
+ * (using id avoids triggering the load of well-known type: 73740)
+ * NOTE: only works for erasures of well-known types, as random other types may share
+ * same id though being distincts.
+ *
+ */
+public ReferenceBinding findSuperTypeErasingTo(int erasureId, boolean erasureIsClass) {
+
+    if (this.id == erasureId || erasure().id == erasureId) return this;
+    ReferenceBinding currentType = this;
+    // iterate superclass to avoid recording interfaces if searched supertype is class
+    if (erasureIsClass) {
+		while ((currentType = currentType.superclass()) != null) { 
+			if (currentType.id == erasureId || currentType.erasure().id == erasureId) return currentType;
+		}    
+		return null;
+    }
+	ReferenceBinding[][] interfacesToVisit = new ReferenceBinding[5][];
+	int lastPosition = -1;
+	do {
+		ReferenceBinding[] itsInterfaces = currentType.superInterfaces();
+		if (itsInterfaces != NoSuperInterfaces) {
+			if (++lastPosition == interfacesToVisit.length)
+				System.arraycopy(interfacesToVisit, 0, interfacesToVisit = new ReferenceBinding[lastPosition * 2][], 0, lastPosition);
+			interfacesToVisit[lastPosition] = itsInterfaces;
+		}
+	} while ((currentType = currentType.superclass()) != null);
+			
+	for (int i = 0; i <= lastPosition; i++) {
+		ReferenceBinding[] interfaces = interfacesToVisit[i];
+		for (int j = 0, length = interfaces.length; j < length; j++) {
+			if ((currentType = interfaces[j]).id == erasureId || currentType.erasure().id == erasureId)
+				return currentType;
+
+			ReferenceBinding[] itsInterfaces = currentType.superInterfaces();
+			if (itsInterfaces != NoSuperInterfaces) {
+				if (++lastPosition == interfacesToVisit.length)
+					System.arraycopy(interfacesToVisit, 0, interfacesToVisit = new ReferenceBinding[lastPosition * 2][], 0, lastPosition);
+				interfacesToVisit[lastPosition] = itsInterfaces;
+			}
+		}
+	}
+	return null;
+}
+/**
+ * Find supertype which erases to a given type, or null if not found
+ */
+public ReferenceBinding findSuperTypeErasingTo(ReferenceBinding erasure) {
+
+    if (this == erasure || erasure() == erasure) return this;
+    ReferenceBinding currentType = this;
+    if (erasure.isClass()) {
+		while ((currentType = currentType.superclass()) != null) {
+			if (currentType == erasure || currentType.erasure() == erasure) return currentType;
+		}
+		return null;
+    }
+	ReferenceBinding[][] interfacesToVisit = new ReferenceBinding[5][];
+	int lastPosition = -1;
+	do {
+		ReferenceBinding[] itsInterfaces = currentType.superInterfaces();
+		if (itsInterfaces != NoSuperInterfaces) {
+			if (++lastPosition == interfacesToVisit.length)
+				System.arraycopy(interfacesToVisit, 0, interfacesToVisit = new ReferenceBinding[lastPosition * 2][], 0, lastPosition);
+			interfacesToVisit[lastPosition] = itsInterfaces;
+		}
+	} while ((currentType = currentType.superclass()) != null);
+			
+	for (int i = 0; i <= lastPosition; i++) {
+		ReferenceBinding[] interfaces = interfacesToVisit[i];
+		for (int j = 0, length = interfaces.length; j < length; j++) {
+			if ((currentType = interfaces[j]) == erasure || currentType.erasure() == erasure)
+				return currentType;
+
+			ReferenceBinding[] itsInterfaces = currentType.superInterfaces();
+			if (itsInterfaces != NoSuperInterfaces) {
+				if (++lastPosition == interfacesToVisit.length)
+					System.arraycopy(interfacesToVisit, 0, interfacesToVisit = new ReferenceBinding[lastPosition * 2][], 0, lastPosition);
+				interfacesToVisit[lastPosition] = itsInterfaces;
+			}
+		}
+	}
+	return null;
+}
+
 public final int getAccessFlags() {
 	return modifiers & AccJustFlag;
 }
+
+/**
+ * @see org.eclipse.jdt.internal.compiler.lookup.Binding#getAnnotationTagBits()
+ */
+public long getAnnotationTagBits() {
+	return this.tagBits;
+}
+
 public MethodBinding getExactConstructor(TypeBinding[] argumentTypes) {
 	return null;
 }
 public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes) {
+	return getExactMethod(selector, argumentTypes, null);
+}
+public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes, CompilationUnitScope refScope) {
 	return null;
 }
 public FieldBinding getField(char[] fieldName, boolean needResolve) {
 	return null;
 }
 /**
- * Answer the file name which defines the type.
- *
- * The path part (optional) must be separated from the actual
- * file proper name by a java.io.File.separator.
- *
- * The proper file name includes the suffix extension (e.g. ".java")
- *
- * e.g. "c:/com/ibm/compiler/java/api/Compiler.java" 
+ * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
  */
-
 public char[] getFileName() {
 	return fileName;
 }
@@ -352,12 +508,30 @@ public PackageBinding getPackage() {
 public boolean hasMemberTypes() {
     return false;
 }
+public TypeVariableBinding getTypeVariable(char[] variableName) {
+	TypeVariableBinding[] typeVariables = typeVariables();
+	for (int i = typeVariables.length; --i >= 0;)
+		if (CharOperation.equals(typeVariables[i].sourceName, variableName))
+			return typeVariables[i];
+	return null;
+}
+public int hashCode() {
+	// ensure ReferenceBindings hash to the same posiiton as UnresolvedReferenceBindings so they can be replaced without rehashing
+	// ALL ReferenceBindings are unique when created so equals() is the same as ==
+	return (this.compoundName == null || this.compoundName.length == 0)
+		? super.hashCode()
+		: CharOperation.hashCode(this.compoundName[this.compoundName.length - 1]);
+}
+
+public final boolean hasRestrictedAccess() {
+	return (modifiers & AccRestrictedAccess) != 0;
+}
+
 /* Answer true if the receiver implements anInterface or is identical to anInterface.
 * If searchHierarchy is true, then also search the receiver's superclasses.
 *
 * NOTE: Assume that anInterface is an interface.
 */
-
 public boolean implementsInterface(ReferenceBinding anInterface, boolean searchHierarchy) {
 	if (this == anInterface)
 		return true;
@@ -377,7 +551,7 @@ public boolean implementsInterface(ReferenceBinding anInterface, boolean searchH
 	for (int i = 0; i <= lastPosition; i++) {
 		ReferenceBinding[] interfaces = interfacesToVisit[i];
 		for (int j = 0, length = interfaces.length; j < length; j++) {
-			if ((currentType = interfaces[j]) == anInterface)
+			if ((currentType = interfaces[j]).isEquivalentTo(anInterface))
 				return true;
 
 			ReferenceBinding[] itsInterfaces = currentType.superInterfaces();
@@ -409,66 +583,72 @@ boolean implementsMethod(MethodBinding method) {
 public final boolean isAbstract() {
 	return (modifiers & AccAbstract) != 0;
 }
+public boolean isAnnotationType() {
+	return (modifiers & AccAnnotation) != 0;
+}
 public final boolean isAnonymousType() {
 	return (tagBits & IsAnonymousType) != 0;
 }
 public final boolean isBinaryBinding() {
 	return (tagBits & IsBinaryBinding) != 0;
 }
-public final boolean isClass() {
-	return (modifiers & AccInterface) == 0;
+public boolean isClass() {
+	return (modifiers & (AccInterface | AccAnnotation | AccEnum)) == 0;
+}
+/*
+ * Returns true if the type hierarchy is being connected
+ */
+public boolean isHierarchyBeingConnected() {
+	return (this.tagBits & EndHierarchyCheck) == 0 && (this.tagBits & BeginHierarchyCheck) != 0;
 }
 /* Answer true if the receiver type can be assigned to the argument type (right)
 */
-	
-public boolean isCompatibleWith(TypeBinding right) {
-	if (right == this)
+public boolean isCompatibleWith(TypeBinding otherType) {
+    
+	if (otherType == this)
 		return true;
-	if (right.id == T_Object)
+	if (otherType.id == T_JavaLangObject)
 		return true;
-	if (!(right instanceof ReferenceBinding))
+	if (!(otherType instanceof ReferenceBinding))
 		return false;
-
-	ReferenceBinding referenceBinding = (ReferenceBinding) right;
-	if (referenceBinding.isInterface())
-		return implementsInterface(referenceBinding, true);
+	ReferenceBinding otherReferenceType = (ReferenceBinding) otherType;
+	if (this.isEquivalentTo(otherReferenceType)) return true;
+	if (otherReferenceType.isWildcard()) {
+		return false; // should have passed equivalence check above if wildcard
+	}
+	if (otherReferenceType.isInterface())
+		return implementsInterface(otherReferenceType, true);
 	if (isInterface())  // Explicit conversion from an interface to a class is not allowed
 		return false;
-	return referenceBinding.isSuperclassOf(this);
+	return otherReferenceType.isSuperclassOf(this);
 }
+
 /* Answer true if the receiver has default visibility
 */
-
 public final boolean isDefault() {
 	return (modifiers & (AccPublic | AccProtected | AccPrivate)) == 0;
 }
+
 /* Answer true if the receiver is a deprecated type
 */
-
 public final boolean isDeprecated() {
 	return (modifiers & AccDeprecated) != 0;
 }
+public boolean isEnum() {
+	return (modifiers & AccEnum) != 0;
+}
 /* Answer true if the receiver is final and cannot be subclassed
 */
-
 public final boolean isFinal() {
 	return (modifiers & AccFinal) != 0;
 }
-public final boolean isInterface() {
-	return (modifiers & AccInterface) != 0;
+public boolean isInterface() {
+	// only consider strict interfaces
+	return (modifiers & (AccInterface | AccAnnotation)) == AccInterface;
 }
-public final boolean isLocalType() {
-	return (tagBits & IsLocalType) != 0;
-}
-public final boolean isMemberType() {
-	return (tagBits & IsMemberType) != 0;
-}
-public final boolean isNestedType() {
-	return (tagBits & IsNestedType) != 0;
-}
+
 /* Answer true if the receiver has private visibility
 */
-
 public final boolean isPrivate() {
 	return (modifiers & AccPrivate) != 0;
 }
@@ -508,13 +688,13 @@ public final boolean isStrictfp() {
 * NOTE: Object.isSuperclassOf(Object) -> false
 */
 
-public boolean isSuperclassOf(ReferenceBinding type) {
-	do {
-		if (this == (type = type.superclass())) return true;
-	} while (type != null);
-
+public boolean isSuperclassOf(ReferenceBinding otherType) {
+	while ((otherType = otherType.superclass()) != null) {
+		if (otherType.isEquivalentTo(this)) return true;
+	}
 	return false;
 }
+
 /* Answer true if the receiver is deprecated (or any of its enclosing types)
 */
 
@@ -525,6 +705,26 @@ public final boolean isViewedAsDeprecated() {
 public ReferenceBinding[] memberTypes() {
 	return NoMemberTypes;
 }
+
+/**
+ * Meant to be invoked on compatible types, to figure if unchecked conversion is necessary
+ */
+public boolean needsUncheckedConversion(TypeBinding targetType) {
+	if (this == targetType) return false;
+	if (!(targetType instanceof ReferenceBinding)) 
+		return false;
+	TypeBinding compatible = this.findSuperTypeErasingTo((ReferenceBinding)targetType.erasure());
+	if (compatible == null) 
+		return false;
+	if (!compatible.isPartOfRawType()) return false;
+	do {
+		if (compatible.isRawType() && (targetType.isBoundParameterizedType() || targetType.isGenericType())) {
+			return true;
+		}
+	} while ((compatible = compatible.enclosingType()) != null && (targetType = targetType.enclosingType()) != null);
+	return false;
+}
+
 public MethodBinding[] methods() {
 	return NoMethods;
 }
@@ -540,16 +740,50 @@ public char[] qualifiedSourceName() {
 	return sourceName();
 }
 
-public char[] readableName() /*java.lang.Object*/ {
-	if (isMemberType())
-		return CharOperation.concat(enclosingType().readableName(), sourceName, '.');
-	return CharOperation.concatWith(compoundName, '.');
+public char[] readableName() /*java.lang.Object,  p.X<T> */ {
+    char[] readableName;
+	if (isMemberType()) {
+		readableName = CharOperation.concat(enclosingType().readableName(), sourceName, '.');
+	} else {
+		readableName = CharOperation.concatWith(compoundName, '.');
+	}
+	TypeVariableBinding[] typeVars;
+	if ((typeVars = this.typeVariables()) != NoTypeVariables) {
+	    StringBuffer nameBuffer = new StringBuffer(10);
+	    nameBuffer.append(readableName).append('<');
+	    for (int i = 0, length = typeVars.length; i < length; i++) {
+	        if (i > 0) nameBuffer.append(',');
+	        nameBuffer.append(typeVars[i].readableName());
+	    }
+	    nameBuffer.append('>');
+		int nameLength = nameBuffer.length();
+		readableName = new char[nameLength];
+		nameBuffer.getChars(0, nameLength, readableName, 0);  
+	}
+	return readableName;
 }
 
 public char[] shortReadableName() /*Object*/ {
-	if (isMemberType())
-		return CharOperation.concat(enclosingType().shortReadableName(), sourceName, '.');
-	return sourceName;
+    char[] shortReadableName;
+	if (isMemberType()) {
+		shortReadableName = CharOperation.concat(enclosingType().shortReadableName(), sourceName, '.');
+	} else {
+		shortReadableName = this.sourceName;
+	}
+	TypeVariableBinding[] typeVars;
+	if ((typeVars = this.typeVariables()) != NoTypeVariables) {
+	    StringBuffer nameBuffer = new StringBuffer(10);
+	    nameBuffer.append(shortReadableName).append('<');
+	    for (int i = 0, length = typeVars.length; i < length; i++) {
+	        if (i > 0) nameBuffer.append(',');
+	        nameBuffer.append(typeVars[i].shortReadableName());
+	    }
+	    nameBuffer.append('>');
+		int nameLength = nameBuffer.length();
+		shortReadableName = new char[nameLength];
+		nameBuffer.getChars(0, nameLength, shortReadableName, 0);	    
+	}
+	return shortReadableName;
 }
 
 /* Answer the receiver's signature.
@@ -566,6 +800,7 @@ public char[] signature() /* Ljava/lang/Object; */ {
 public char[] sourceName() {
 	return sourceName;
 }
+
 public ReferenceBinding superclass() {
 	return null;
 }
@@ -583,6 +818,7 @@ public ReferenceBinding[] syntheticEnclosingInstanceTypes() {
 public SyntheticArgumentBinding[] syntheticOuterLocalVariables() {
 	return null;		// is null if no enclosing instances are required
 }
+
 MethodBinding[] unResolvedMethods() { // for the MethodVerifier so it doesn't resolve types
 	return methods();
 }

@@ -55,22 +55,23 @@ public class WhileStatement extends Statement {
 		preCondInitStateIndex =
 			currentScope.methodScope().recordInitializationStates(flowInfo);
 		LoopingFlowContext condLoopContext;
-		FlowInfo postCondInfo =
-			this.condition.analyseCode(
+		FlowInfo condInfo = flowInfo.copy().unconditionalInits().discardNullRelatedInitializations();
+		condInfo = this.condition.analyseCode(
 				currentScope,
 				(condLoopContext =
 					new LoopingFlowContext(flowContext, this, null, null, currentScope)),
-				flowInfo);
+				condInfo);
 
 		LoopingFlowContext loopingContext;
 		FlowInfo actionInfo;
+		FlowInfo exitBranch;
 		if (action == null 
 			|| (action.isEmptyBlock() && currentScope.environment().options.complianceLevel <= ClassFileConstants.JDK1_3)) {
-			condLoopContext.complainOnFinalAssignmentsInLoop(currentScope, postCondInfo);
+			condLoopContext.complainOnDeferredChecks(currentScope, condInfo);
 			if (isConditionTrue) {
 				return FlowInfo.DEAD_END;
 			} else {
-				FlowInfo mergedInfo = postCondInfo.initsWhenFalse().unconditionalInits();
+				FlowInfo mergedInfo = condInfo.initsWhenFalse().unconditionalInits();
 				if (isConditionOptimizedTrue){
 					mergedInfo.setReachMode(FlowInfo.UNREACHABLE);
 				}
@@ -91,7 +92,7 @@ public class WhileStatement extends Statement {
 			if (isConditionFalse) {
 				actionInfo = FlowInfo.DEAD_END;
 			} else {
-				actionInfo = postCondInfo.initsWhenTrue().copy();
+				actionInfo = condInfo.initsWhenTrue().copy();
 				if (isConditionOptimizedFalse){
 					actionInfo.setReachMode(FlowInfo.UNREACHABLE);
 				}
@@ -100,20 +101,22 @@ public class WhileStatement extends Statement {
 			// for computing local var attributes
 			condIfTrueInitStateIndex =
 				currentScope.methodScope().recordInitializationStates(
-					postCondInfo.initsWhenTrue());
+					condInfo.initsWhenTrue());
 
 			if (!this.action.complainIfUnreachable(actionInfo, currentScope, false)) {
 				actionInfo = this.action.analyseCode(currentScope, loopingContext, actionInfo);
 			}
 
 			// code generation can be optimized when no need to continue in the loop
+			exitBranch = condInfo.initsWhenFalse();
+			exitBranch.addInitializationsFrom(flowInfo); // recover null inits from before condition analysis
 			if (!actionInfo.isReachable() && !loopingContext.initsOnContinue.isReachable()) {
 				continueLabel = null;
 			} else {
-				// TODO (philippe) should simplify in one Loop context
-				condLoopContext.complainOnFinalAssignmentsInLoop(currentScope, postCondInfo);
+				condLoopContext.complainOnDeferredChecks(currentScope, condInfo);
 				actionInfo = actionInfo.mergedWith(loopingContext.initsOnContinue.unconditionalInits());
-				loopingContext.complainOnFinalAssignmentsInLoop(currentScope, actionInfo);
+				loopingContext.complainOnDeferredChecks(currentScope, actionInfo);
+				exitBranch.addPotentialInitializationsFrom(actionInfo.unconditionalInits());
 			}
 		}
 
@@ -121,7 +124,7 @@ public class WhileStatement extends Statement {
 		FlowInfo mergedInfo = FlowInfo.mergedOptimizedBranches(
 				loopingContext.initsOnBreak, 
 				isConditionOptimizedTrue, 
-				postCondInfo.initsWhenFalse(), 
+				exitBranch,
 				isConditionOptimizedFalse,
 				!isConditionTrue /*while(true); unreachable(); */);
 		mergedInitStateIndex = currentScope.methodScope().recordInitializationStates(mergedInfo);
@@ -178,9 +181,7 @@ public class WhileStatement extends Statement {
 			action.generateCode(currentScope, codeStream);
 			// May loose some local variable initializations : affecting the local variable attributes
 			if (preCondInitStateIndex != -1) {
-				codeStream.removeNotDefinitelyAssignedVariables(
-					currentScope,
-					preCondInitStateIndex);
+				codeStream.removeNotDefinitelyAssignedVariables(currentScope, preCondInitStateIndex);
 			}
 
 		}
@@ -207,7 +208,7 @@ public class WhileStatement extends Statement {
 	public void resolve(BlockScope scope) {
 
 		TypeBinding type = condition.resolveTypeExpecting(scope, BooleanBinding);
-		condition.implicitWidening(type, type);
+		condition.computeConversion(scope, type, type);
 		if (action != null)
 			action.resolve(scope);
 	}

@@ -55,6 +55,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_ReportUnusedPrivateMember = "org.eclipse.jdt.core.compiler.problem.unusedPrivateMember"; //$NON-NLS-1$
 	public static final String OPTION_ReportNoImplicitStringConversion = "org.eclipse.jdt.core.compiler.problem.noImplicitStringConversion"; //$NON-NLS-1$
 	public static final String OPTION_ReportAssertIdentifier = "org.eclipse.jdt.core.compiler.problem.assertIdentifier"; //$NON-NLS-1$
+	public static final String OPTION_ReportEnumIdentifier = "org.eclipse.jdt.core.compiler.problem.enumIdentifier"; //$NON-NLS-1$
 	public static final String OPTION_ReportNonStaticAccessToStatic = "org.eclipse.jdt.core.compiler.problem.staticAccessReceiver"; //$NON-NLS-1$
 	public static final String OPTION_ReportIndirectStaticAccess = "org.eclipse.jdt.core.compiler.problem.indirectStaticAccess"; //$NON-NLS-1$
 	public static final String OPTION_ReportEmptyStatement = "org.eclipse.jdt.core.compiler.problem.emptyStatement"; //$NON-NLS-1$
@@ -63,6 +64,8 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_ReportUndocumentedEmptyBlock = "org.eclipse.jdt.core.compiler.problem.undocumentedEmptyBlock"; //$NON-NLS-1$
 	public static final String OPTION_ReportInvalidJavadoc = "org.eclipse.jdt.core.compiler.problem.invalidJavadoc"; //$NON-NLS-1$
 	public static final String OPTION_ReportInvalidJavadocTags = "org.eclipse.jdt.core.compiler.problem.invalidJavadocTags"; //$NON-NLS-1$
+	public static final String OPTION_ReportInvalidJavadocTagsDeprecatedRef = "org.eclipse.jdt.core.compiler.problem.invalidJavadocTagsDeprecatedRef"; //$NON-NLS-1$
+	public static final String OPTION_ReportInvalidJavadocTagsNotVisibleRef = "org.eclipse.jdt.core.compiler.problem.invalidJavadocTagsNotVisibleRef"; //$NON-NLS-1$
 	public static final String OPTION_ReportInvalidJavadocTagsVisibility = "org.eclipse.jdt.core.compiler.problem.invalidJavadocTagsVisibility"; //$NON-NLS-1$
 	public static final String OPTION_ReportMissingJavadocTags = "org.eclipse.jdt.core.compiler.problem.missingJavadocTags"; //$NON-NLS-1$
 	public static final String OPTION_ReportMissingJavadocTagsVisibility = "org.eclipse.jdt.core.compiler.problem.missingJavadocTagsVisibility"; //$NON-NLS-1$
@@ -74,6 +77,10 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_ReportUnusedDeclaredThrownException = "org.eclipse.jdt.core.compiler.problem.unusedDeclaredThrownException"; //$NON-NLS-1$
 	public static final String OPTION_ReportUnusedDeclaredThrownExceptionWhenOverriding = "org.eclipse.jdt.core.compiler.problem.unusedDeclaredThrownExceptionWhenOverriding"; //$NON-NLS-1$
 	public static final String OPTION_ReportUnqualifiedFieldAccess = "org.eclipse.jdt.core.compiler.problem.unqualifiedFieldAccess"; //$NON-NLS-1$
+	public static final String OPTION_ReportUncheckedTypeOperation = "org.eclipse.jdt.core.compiler.problem.uncheckedTypeOperation"; //$NON-NLS-1$
+	public static final String OPTION_ReportFinalParameterBound = "org.eclipse.jdt.core.compiler.problem.finalParameterBound"; //$NON-NLS-1$
+	public static final String OPTION_ReportMissingSerialVersion = "org.eclipse.jdt.core.compiler.problem.missingSerialVersion"; //$NON-NLS-1$
+	public static final String OPTION_ReportVarargsArgumentNeedCast = "org.eclipse.jdt.core.compiler.problem.varargsArgumentNeedCast"; //$NON-NLS-1$
 	public static final String OPTION_Source = "org.eclipse.jdt.core.compiler.source"; //$NON-NLS-1$
 	public static final String OPTION_TargetPlatform = "org.eclipse.jdt.core.compiler.codegen.targetPlatform"; //$NON-NLS-1$
 	public static final String OPTION_Compliance = "org.eclipse.jdt.core.compiler.compliance"; //$NON-NLS-1$
@@ -83,6 +90,13 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_TaskPriorities = "org.eclipse.jdt.core.compiler.taskPriorities"; //$NON-NLS-1$
 	public static final String OPTION_TaskCaseSensitive = "org.eclipse.jdt.core.compiler.taskCaseSensitive"; //$NON-NLS-1$
 	public static final String OPTION_InlineJsr = "org.eclipse.jdt.core.compiler.codegen.inlineJsrBytecode"; //$NON-NLS-1$
+	public static final String OPTION_ReportNullReference = "org.eclipse.jdt.core.compiler.problem.nullReference"; //$NON-NLS-1$
+	public static final String OPTION_ReportAutoboxing = "org.eclipse.jdt.core.compiler.problem.autoboxing"; //$NON-NLS-1$
+	public static final String OPTION_ReportForbiddenReference =  "org.eclipse.jdt.core.compiler.problem.forbiddenReference"; //$NON-NLS-1$
+	public static final String OPTION_ImportRestrictionInclude = "org.eclipse.jdt.core.compiler.accessRestriction.import.include"; //$NON-NLS-1$
+	public static final String OPTION_ImportRestrictionExclude = "org.eclipse.jdt.core.compiler.accessRestriction.import.exclude"; //$NON-NLS-1$
+	public static final String OPTION_ExportRestrictionInclude = "org.eclipse.jdt.core.compiler.accessRestriction.export.include"; //$NON-NLS-1$
+	public static final String OPTION_ExportRestrictionExclude = "org.eclipse.jdt.core.compiler.accessRestriction.export.exclude"; //$NON-NLS-1$
 	
 	// Backward compatibility
 	public static final String OPTION_ReportInvalidAnnotation = "org.eclipse.jdt.core.compiler.problem.invalidAnnotation"; //$NON-NLS-1$
@@ -147,6 +161,14 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final long UndocumentedEmptyBlock = ASTNode.Bit28;
 	public static final long IndirectStaticAccess = ASTNode.Bit29;
 	public static final long UnnecessaryElse  = ASTNode.Bit30;
+	public static final long UncheckedTypeOperation = ASTNode.Bit31;
+	public static final long FinalParameterBound = ASTNode.Bit32L;
+	public static final long MissingSerialVersion = ASTNode.Bit33L;
+	public static final long EnumUsedAsAnIdentifier = ASTNode.Bit34L;	
+	public static final long ForbiddenReference = ASTNode.Bit35L;
+	public static final long VarargsArgumentNeedCast = ASTNode.Bit36L;
+	public static final long NullReference = ASTNode.Bit37L;
+	public static final long Autoboxing = ASTNode.Bit38L;
 
 	// Default severity level for handlers
 	public long errorThreshold = 0;
@@ -162,7 +184,13 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		| IncompatibleNonInheritedInterfaceMethod
 		| NoImplicitStringConversion
 		| FinallyBlockNotCompleting
-		| AssertUsedAsAnIdentifier;
+		| AssertUsedAsAnIdentifier
+		| EnumUsedAsAnIdentifier
+		| UncheckedTypeOperation
+		| MissingSerialVersion
+		| VarargsArgumentNeedCast
+		| ForbiddenReference
+		/*| NullReference*/;
 
 	// Debug attributes
 	public static final int Source = 1; // SourceFileAttribute
@@ -197,6 +225,12 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	// max problems per compilation unit
 	public int maxProblemsPerUnit = 100; // no more than 100 problems per default
 	
+	// access restrictions
+	public char[][] importRestrictionInclude;
+	public char[][] importRestrictionExclude;
+	public char[][] exportRestrictionInclude;
+	public char[][] exportRestrictionExclude;
+	
 	// tags used to recognize tasks in comments
 	public char[][] taskTags = null;
 	public char[][] taskPriorites = null;
@@ -216,9 +250,11 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	// constructor/setter parameter hiding
 	public boolean reportSpecialParameterHidingField = false;
 
-	// check javadoc comments
+	// check javadoc comments tags
 	public int reportInvalidJavadocTagsVisibility = AccPrivate; 
-	public boolean reportInvalidJavadocTags = true; 
+	public boolean reportInvalidJavadocTags = true;
+	public boolean reportInvalidJavadocTagsDeprecatedRef = true;
+	public boolean reportInvalidJavadocTagsNotVisibleRef = true;
 
 	// check missing javadoc tags
 	public int reportMissingJavadocTagsVisibility = AccPrivate; 
@@ -281,12 +317,15 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		optionsMap.put(OPTION_ReportPossibleAccidentalBooleanAssignment, getSeverityString(AccidentalBooleanAssign)); 
 		optionsMap.put(OPTION_ReportEmptyStatement, getSeverityString(EmptyStatement)); 
 		optionsMap.put(OPTION_ReportAssertIdentifier, getSeverityString(AssertUsedAsAnIdentifier)); 
+		optionsMap.put(OPTION_ReportEnumIdentifier, getSeverityString(EnumUsedAsAnIdentifier)); 
 		optionsMap.put(OPTION_ReportUndocumentedEmptyBlock, getSeverityString(UndocumentedEmptyBlock)); 
 		optionsMap.put(OPTION_ReportUnnecessaryTypeCheck, getSeverityString(UnnecessaryTypeCheck)); 
 		optionsMap.put(OPTION_ReportUnnecessaryElse, getSeverityString(UnnecessaryElse)); 
 		optionsMap.put(OPTION_ReportInvalidJavadoc, getSeverityString(InvalidJavadoc));
 		optionsMap.put(OPTION_ReportInvalidJavadocTagsVisibility, getVisibilityString(this.reportInvalidJavadocTagsVisibility));
-		optionsMap.put(OPTION_ReportInvalidJavadocTags, this.reportInvalidJavadocTags? ENABLED : DISABLED);
+		optionsMap.put(OPTION_ReportInvalidJavadocTags, this.reportInvalidJavadocTags ? ENABLED : DISABLED);
+		optionsMap.put(OPTION_ReportInvalidJavadocTagsDeprecatedRef, this.reportInvalidJavadocTagsDeprecatedRef ? ENABLED : DISABLED);
+		optionsMap.put(OPTION_ReportInvalidJavadocTagsNotVisibleRef, this.reportInvalidJavadocTagsNotVisibleRef ? ENABLED : DISABLED);
 		optionsMap.put(OPTION_ReportMissingJavadocTags, getSeverityString(MissingJavadocTags));
 		optionsMap.put(OPTION_ReportMissingJavadocTagsVisibility, getVisibilityString(this.reportMissingJavadocTagsVisibility));
 		optionsMap.put(OPTION_ReportMissingJavadocTagsOverriding, this.reportMissingJavadocTagsOverriding ? ENABLED : DISABLED);
@@ -297,6 +336,11 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		optionsMap.put(OPTION_ReportUnusedDeclaredThrownException, getSeverityString(UnusedDeclaredThrownException));
 		optionsMap.put(OPTION_ReportUnusedDeclaredThrownExceptionWhenOverriding, this.reportUnusedDeclaredThrownExceptionWhenOverriding ? ENABLED : DISABLED); 
 		optionsMap.put(OPTION_ReportUnqualifiedFieldAccess, getSeverityString(UnqualifiedFieldAccess));
+		optionsMap.put(OPTION_ReportUncheckedTypeOperation, getSeverityString(UncheckedTypeOperation));
+		optionsMap.put(OPTION_ReportFinalParameterBound, getSeverityString(FinalParameterBound));
+		optionsMap.put(OPTION_ReportMissingSerialVersion, getSeverityString(MissingSerialVersion));
+		optionsMap.put(OPTION_ReportForbiddenReference, getSeverityString(ForbiddenReference));
+		optionsMap.put(OPTION_ReportVarargsArgumentNeedCast, getSeverityString(VarargsArgumentNeedCast)); 
 		optionsMap.put(OPTION_Compliance, versionFromJdkLevel(this.complianceLevel)); 
 		optionsMap.put(OPTION_Source, versionFromJdkLevel(this.sourceLevel)); 
 		optionsMap.put(OPTION_TargetPlatform, versionFromJdkLevel(this.targetJDK)); 
@@ -311,6 +355,11 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		optionsMap.put(OPTION_ReportSpecialParameterHidingField, this.reportSpecialParameterHidingField ? ENABLED : DISABLED); 
 		optionsMap.put(OPTION_MaxProblemPerUnit, String.valueOf(this.maxProblemsPerUnit));
 		optionsMap.put(OPTION_InlineJsr, this.inlineJsrBytecode ? ENABLED : DISABLED); 
+		optionsMap.put(OPTION_ImportRestrictionInclude, this.importRestrictionInclude == null ? "" : new String(CharOperation.concatWith(this.importRestrictionInclude,','))); //$NON-NLS-1$
+		optionsMap.put(OPTION_ImportRestrictionExclude, this.importRestrictionExclude == null ? "" : new String(CharOperation.concatWith(this.importRestrictionExclude,','))); //$NON-NLS-1$
+		optionsMap.put(OPTION_ImportRestrictionInclude, this.exportRestrictionInclude == null ? "" : new String(CharOperation.concatWith(this.exportRestrictionInclude,','))); //$NON-NLS-1$
+		optionsMap.put(OPTION_ExportRestrictionExclude, this.exportRestrictionExclude == null ? "" : new String(CharOperation.concatWith(this.exportRestrictionExclude,','))); //$NON-NLS-1$
+		optionsMap.put(OPTION_ReportNullReference, getSeverityString(NullReference)); 
 		return optionsMap;		
 	}
 	
@@ -406,6 +455,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		if ((optionValue = optionsMap.get(OPTION_TargetPlatform)) != null) {
 			long level = versionToJdkLevel(optionValue);
 			if (level != 0) this.targetJDK = level;
+			if (this.targetJDK >= JDK1_5) this.inlineJsrBytecode = true; // forced in 1.5 mode
 		}
 		if ((optionValue = optionsMap.get(OPTION_Encoding)) != null) {
 			if (optionValue instanceof String) {
@@ -484,11 +534,53 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 				this.isTaskCaseSensitive = false;
 			}
 		}
+		if ((optionValue = optionsMap.get(OPTION_ImportRestrictionInclude)) != null) {
+			if (optionValue instanceof String) {
+				String stringValue = (String) optionValue;
+				if (stringValue.length() == 0) {
+					this.importRestrictionInclude = null;
+				} else {
+					this.importRestrictionInclude = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+				}
+			}
+		}	
+		if ((optionValue = optionsMap.get(OPTION_ImportRestrictionExclude)) != null) {
+			if (optionValue instanceof String) {
+				String stringValue = (String) optionValue;
+				if (stringValue.length() == 0) {
+					this.importRestrictionExclude = null;
+				} else {
+					this.importRestrictionExclude = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+				}
+			}
+		}			
+		if ((optionValue = optionsMap.get(OPTION_ExportRestrictionInclude)) != null) {
+			if (optionValue instanceof String) {
+				String stringValue = (String) optionValue;
+				if (stringValue.length() == 0) {
+					this.exportRestrictionInclude = null;
+				} else {
+					this.exportRestrictionInclude = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+				}
+			}
+		}			
+		if ((optionValue = optionsMap.get(OPTION_ExportRestrictionExclude)) != null) {
+			if (optionValue instanceof String) {
+				String stringValue = (String) optionValue;
+				if (stringValue.length() == 0) {
+					this.exportRestrictionExclude = null;
+				} else {
+					this.exportRestrictionExclude = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+				}
+			}
+		}			
 		if ((optionValue = optionsMap.get(OPTION_InlineJsr)) != null) {
-			if (ENABLED.equals(optionValue)) {
-				this.inlineJsrBytecode = true;
-			} else if (DISABLED.equals(optionValue)) {
-				this.inlineJsrBytecode = false;
+			if (this.targetJDK < JDK1_5) { // only optional if target < 1.5 (inlining on from 1.5 on)
+				if (ENABLED.equals(optionValue)) {
+					this.inlineJsrBytecode = true;
+				} else if (DISABLED.equals(optionValue)) {
+					this.inlineJsrBytecode = false;
+				}
 			}
 		}
 		if ((optionValue = optionsMap.get(OPTION_ReportMethodWithConstructorName)) != null) updateSeverity(MethodWithConstructorName, optionValue);
@@ -508,16 +600,24 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		if ((optionValue = optionsMap.get(OPTION_ReportEmptyStatement)) != null) updateSeverity(EmptyStatement, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportNonExternalizedStringLiteral)) != null) updateSeverity(NonExternalizedString, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportAssertIdentifier)) != null) updateSeverity(AssertUsedAsAnIdentifier, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportEnumIdentifier)) != null) updateSeverity(EnumUsedAsAnIdentifier, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportNonStaticAccessToStatic)) != null) updateSeverity(NonStaticAccessToStatic, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportIndirectStaticAccess)) != null) updateSeverity(IndirectStaticAccess, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportIncompatibleNonInheritedInterfaceMethod)) != null) updateSeverity(IncompatibleNonInheritedInterfaceMethod, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportUndocumentedEmptyBlock)) != null) updateSeverity(UndocumentedEmptyBlock, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportUnnecessaryTypeCheck)) != null) updateSeverity(UnnecessaryTypeCheck, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportUnnecessaryElse)) != null) updateSeverity(UnnecessaryElse, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportFinallyBlockNotCompletingNormally)) != null) updateSeverity(FinallyBlockNotCompleting, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportUnqualifiedFieldAccess)) != null) updateSeverity(UnqualifiedFieldAccess, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportNoEffectAssignment)) != null) updateSeverity(NoEffectAssignment, optionValue);
-		if ((optionValue = optionsMap.get(OPTION_ReportUnnecessaryElse)) != null) updateSeverity(UnnecessaryElse, optionValue);
-
+		if ((optionValue = optionsMap.get(OPTION_ReportUncheckedTypeOperation)) != null) updateSeverity(UncheckedTypeOperation, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportFinalParameterBound)) != null) updateSeverity(FinalParameterBound, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportMissingSerialVersion)) != null) updateSeverity(MissingSerialVersion, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportForbiddenReference)) != null) updateSeverity(ForbiddenReference, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportVarargsArgumentNeedCast)) != null) updateSeverity(VarargsArgumentNeedCast, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportNullReference)) != null) updateSeverity(NullReference, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportAutoboxing)) != null) updateSeverity(Autoboxing, optionValue);
+		
 		// Javadoc options
 		if ((optionValue = optionsMap.get(OPTION_DocCommentSupport)) != null) {
 			if (ENABLED.equals(optionValue)) {
@@ -542,9 +642,23 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		}
 		if ((optionValue = optionsMap.get(OPTION_ReportInvalidJavadocTags)) != null) {
 			if (ENABLED.equals(optionValue)) {
-				this.reportInvalidJavadocTags= true;
+				this.reportInvalidJavadocTags = true;
 			} else if (DISABLED.equals(optionValue)) {
 				this.reportInvalidJavadocTags = false;
+			}
+		}
+		if ((optionValue = optionsMap.get(OPTION_ReportInvalidJavadocTagsDeprecatedRef)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.reportInvalidJavadocTagsDeprecatedRef = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.reportInvalidJavadocTagsDeprecatedRef = false;
+			}
+		}
+		if ((optionValue = optionsMap.get(OPTION_ReportInvalidJavadocTagsNotVisibleRef)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.reportInvalidJavadocTagsNotVisibleRef = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.reportInvalidJavadocTagsNotVisibleRef = false;
 			}
 		}
 		if ((optionValue = optionsMap.get(OPTION_ReportMissingJavadocTags)) != null) {
@@ -621,6 +735,8 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		buf.append("\n\t- javadoc comment support: ").append(this.docCommentSupport ? "ON" : " OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 		buf.append("\n\t\t+ invalid javadoc: ").append(getSeverityString(InvalidJavadoc)); //$NON-NLS-1$
 		buf.append("\n\t\t+ report invalid javadoc tags: ").append(this.reportInvalidJavadocTags ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t\t\t* deprecated references: ").append(this.reportInvalidJavadocTagsDeprecatedRef ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t\t\t* not visble references: ").append(this.reportInvalidJavadocTagsNotVisibleRef ? ENABLED : DISABLED); //$NON-NLS-1$
 		buf.append("\n\t\t+ visibility level to report invalid javadoc tags: ").append(getVisibilityString(this.reportInvalidJavadocTagsVisibility)); //$NON-NLS-1$
 		buf.append("\n\t\t+ missing javadoc tags: ").append(getSeverityString(MissingJavadocTags)); //$NON-NLS-1$
 		buf.append("\n\t\t+ visibility level to report missing javadoc tags: ").append(getVisibilityString(this.reportMissingJavadocTagsVisibility)); //$NON-NLS-1$
@@ -648,6 +764,17 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		buf.append("\n\t- report unused parameter when overriding concrete method : ").append(this.reportUnusedParameterWhenOverridingConcrete ? ENABLED : DISABLED); //$NON-NLS-1$
 		buf.append("\n\t- report constructor/setter parameter hiding existing field : ").append(this.reportSpecialParameterHidingField ? ENABLED : DISABLED); //$NON-NLS-1$
 		buf.append("\n\t- inline JSR bytecode : ").append(this.inlineJsrBytecode ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t- unsafe type operation: ").append(getSeverityString(UncheckedTypeOperation)); //$NON-NLS-1$
+		buf.append("\n\t- final bound for type parameter: ").append(getSeverityString(FinalParameterBound)); //$NON-NLS-1$
+		buf.append("\n\t- missing serialVersionUID: ").append(getSeverityString(MissingSerialVersion)); //$NON-NLS-1$
+		buf.append("\n\t- varargs argument need cast: ").append(getSeverityString(VarargsArgumentNeedCast)); //$NON-NLS-1$
+		buf.append("\n\t- forbidden reference to type with access restriction: ").append(getSeverityString(ForbiddenReference)); //$NON-NLS-1$
+		buf.append("\n\t- import access restriction includes: ").append(this.importRestrictionInclude == null ? "" : new String(CharOperation.concatWith(this.importRestrictionInclude,',')));  //$NON-NLS-1$ //$NON-NLS-2$
+		buf.append("\n\t- import access restriction excludes: ").append(this.importRestrictionExclude == null ? "" : new String(CharOperation.concatWith(this.importRestrictionExclude,',')));  //$NON-NLS-1$ //$NON-NLS-2$
+		buf.append("\n\t- export access restriction includes: ").append(this.exportRestrictionInclude == null ? "" : new String(CharOperation.concatWith(this.exportRestrictionInclude,',')));  //$NON-NLS-1$ //$NON-NLS-2$
+		buf.append("\n\t- export access restriction excludes: ").append(this.exportRestrictionExclude == null ? "" : new String(CharOperation.concatWith(this.exportRestrictionExclude,',')));  //$NON-NLS-1$ //$NON-NLS-2$
+		buf.append("\n\t- null reference: ").append(getSeverityString(NullReference)); //$NON-NLS-1$
+		buf.append("\n\t- autoboxing: ").append(getSeverityString(Autoboxing)); //$NON-NLS-1$
 		return buf.toString();
 	}
 

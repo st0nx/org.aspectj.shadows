@@ -15,8 +15,8 @@ import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.core.*;
-import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.core.util.Util;
 
 import java.io.*;
@@ -68,8 +68,7 @@ public static IMarker[] getTasksFor(IResource resource) {
  * This hook is invoked during PRE_AUTO_BUILD notification
  */
 public static void buildStarting() {
-	// do nothing
-	// TODO (philippe) is it still needed?
+	// build is about to start
 }
 
 /**

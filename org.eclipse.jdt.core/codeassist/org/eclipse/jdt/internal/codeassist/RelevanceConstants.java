@@ -20,6 +20,7 @@ public interface RelevanceConstants {
 	int R_EXACT_EXPECTED_TYPE = 30;
 	int R_INTERFACE = 20;
 	int R_CLASS = 20;
+	int R_ANNOTATION = 20;
 	int R_EXCEPTION = 20;
 	int R_ABSTRACT_METHOD = 20;
 	int R_NON_STATIC = 11;
@@ -30,5 +31,6 @@ public interface RelevanceConstants {
 	int R_NAME_FIRST_SUFFIX = 4;
 	int R_NAME_SUFFIX = 3;
 	int R_NON_STATIC_OVERIDE = 3;
+	int R_NON_RESTRICTED = 3;
 	
 }

@@ -31,7 +31,6 @@ import org.eclipse.core.runtime.*;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.core.runtime.Preferences;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.ElementChangedEvent;
 import org.eclipse.jdt.core.IClasspathEntry;
@@ -43,6 +42,7 @@ import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.core.builder.JavaBuilder;
 import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
 import org.eclipse.jdt.internal.core.search.AbstractSearchScope;
@@ -613,12 +613,11 @@ public class DeltaProcessor {
 			case IJavaElement.PACKAGE_FRAGMENT:
 				if (rootInfo != null) {
 					if (rootInfo.project.contains(resource)) {
-						IPackageFragmentRoot root = rootInfo.getPackageFragmentRoot(null);
+						PackageFragmentRoot root = (PackageFragmentRoot) rootInfo.getPackageFragmentRoot(null);
 						// create package handle
 						IPath pkgPath = path.removeFirstSegments(rootInfo.rootPath.segmentCount());
-						String pkg = Util.packageName(pkgPath);
-						if (pkg == null) return null;
-						element = root.getPackageFragment(pkg);
+						String[] pkgName = pkgPath.segments();
+						element = root.getPackageFragment(pkgName);
 					}
 				} else {
 					// find the element that encloses the resource
@@ -628,15 +627,14 @@ public class DeltaProcessor {
 						element = JavaCore.create(resource);
 					} else {
 						// find the root
-						IPackageFragmentRoot root = this.currentElement.getPackageFragmentRoot();
+						PackageFragmentRoot root = this.currentElement.getPackageFragmentRoot();
 						if (root == null) {
 							element =  JavaCore.create(resource);
 						} else if (((JavaProject)root.getJavaProject()).contains(resource)) {
 							// create package handle
 							IPath pkgPath = path.removeFirstSegments(root.getPath().segmentCount());
-							String pkg = Util.packageName(pkgPath);
-							if (pkg == null) return null;
-							element = root.getPackageFragment(pkg);
+							String[] pkgName = pkgPath.segments();
+							element = root.getPackageFragment(pkgName);
 						}
 					}
 				}
@@ -653,13 +651,11 @@ public class DeltaProcessor {
 					IPackageFragment pkgFragment = null;
 					switch (this.currentElement.getElementType()) {
 						case IJavaElement.PACKAGE_FRAGMENT_ROOT:
-							IPackageFragmentRoot root = (IPackageFragmentRoot)this.currentElement;
+							PackageFragmentRoot root = (PackageFragmentRoot)this.currentElement;
 							IPath rootPath = root.getPath();
 							IPath pkgPath = path.removeLastSegments(1);
-							String pkgName = Util.packageName(pkgPath.removeFirstSegments(rootPath.segmentCount()));
-							if (pkgName != null) {
-								pkgFragment = root.getPackageFragment(pkgName);
-							}
+							String[] pkgName = pkgPath.removeFirstSegments(rootPath.segmentCount()).segments();
+							pkgFragment = root.getPackageFragment(pkgName);
 							break;
 						case IJavaElement.PACKAGE_FRAGMENT:
 							Openable pkg = this.currentElement;
@@ -910,7 +906,8 @@ public class DeltaProcessor {
 					javaProject, 
 					javaProject.computePackageFragmentRoots(
 						javaProject.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/), 
-						false));
+						false,
+						null /*no reverse map*/));
 			}
 			
 			javaProject.close();
@@ -921,6 +918,8 @@ public class DeltaProcessor {
 			}
 			this.removeFromParentInfo(javaProject);
 
+			// remove preferences from per project info
+			this.manager.resetProjectPreferences(javaProject);	
 		} catch (JavaModelException e) {
 			// java project doesn't exist: ignore
 		}
@@ -1032,28 +1031,6 @@ public class DeltaProcessor {
 					project = (JavaProject) element.getJavaProject();
 					this.projectCachesToReset.add(project);						
 
-					// add subpackages
-					if (delta != null){
-						PackageFragmentRoot root = element.getPackageFragmentRoot();
-						String name = element.getElementName();
-						IResourceDelta[] children = delta.getAffectedChildren();
-						for (int i = 0, length = children.length; i < length; i++) {
-							IResourceDelta child = children[i];
-							IResource resource = child.getResource();
-							if (resource instanceof IFolder) {
-								String folderName = resource.getName();
-								if (Util.isValidFolderNameForPackage(folderName)) {
-									String subpkgName = 
-										name.length() == 0 ? 
-											folderName : 
-											name + "." + folderName; //$NON-NLS-1$
-									Openable subpkg = (Openable)root.getPackageFragment(subpkgName);
-									this.updateIndex(subpkg, child);
-									this.elementAdded(subpkg, child, rootInfo);
-								}
-							}
-						}
-					}
 					break;
 			}
 		}
@@ -1151,28 +1128,6 @@ public class DeltaProcessor {
 				project = (JavaProject) element.getJavaProject();
 				this.projectCachesToReset.add(project);
 
-				// remove subpackages
-				if (delta != null){
-					PackageFragmentRoot root = element.getPackageFragmentRoot();
-					String name = element.getElementName();
-					IResourceDelta[] children = delta.getAffectedChildren();
-					for (int i = 0, length = children.length; i < length; i++) {
-						IResourceDelta child = children[i];
-						IResource resource = child.getResource();
-						if (resource instanceof IFolder) {
-							String folderName = resource.getName();
-							if (Util.isValidFolderNameForPackage(folderName)) {
-								String subpkgName = 
-									name.length() == 0 ? 
-										folderName : 
-										name + "." + folderName; //$NON-NLS-1$
-								Openable subpkg = (Openable)root.getPackageFragment(subpkgName);
-								this.updateIndex(subpkg, child);
-								this.elementRemoved(subpkg, child, rootInfo);
-							}
-						}
-					}
-				}
 				break;
 		}
 	}
@@ -1342,6 +1297,7 @@ public class DeltaProcessor {
 		if (rootDelta != null) {
 			// use local exception to quickly escape from delta traversal
 			class FoundRelevantDeltaException extends RuntimeException {
+				private static final long serialVersionUID = 7137113252936111022L; // backward compatible
 				// only the class name is used (to differenciate from other RuntimeExceptions)
 			}
 			try {
@@ -1610,7 +1566,7 @@ public class DeltaProcessor {
 			}
 			if (currentElementPath != null) {
 				if (this.currentElement instanceof IPackageFragment 
-					&& this.currentElement.getElementName().length() == 0
+					&& ((IPackageFragment) this.currentElement).isDefaultPackage()
 					&& currentElementPath.segmentCount() != path.segmentCount()-1) {
 						// default package and path is not a direct child
 						this.currentElement = (Openable)this.currentElement.getParent();
@@ -1712,8 +1668,10 @@ public class DeltaProcessor {
 //				}
 				break;
 			case IResourceDelta.CHANGED :
-				if ((delta.getFlags() & IResourceDelta.CONTENT) == 0  // only consider content change
-					&& (delta.getFlags() & IResourceDelta.MOVED_FROM) == 0) {// and also move and overide scenario (see http://dev.eclipse.org/bugs/show_bug.cgi?id=21420)
+				int flags = delta.getFlags();
+				if ((flags & IResourceDelta.CONTENT) == 0  // only consider content change
+					&& (flags & IResourceDelta.ENCODING) == 0 // and encoding change
+					&& (flags & IResourceDelta.MOVED_FROM) == 0) {// and also move and overide scenario (see http://dev.eclipse.org/bugs/show_bug.cgi?id=21420)
 					break;
 				}
 			// fall through
@@ -1731,65 +1689,7 @@ public class DeltaProcessor {
 				}
 		}
 	}
-	/*
-	 * Update the JavaModel according to a .jprefs file change. The file can have changed as a result of a previous
-	 * call to JavaProject#setOptions or as a result of some user update (through repository)
-	 * Unused until preference file get shared (.jpref)
-	 */
-	void reconcilePreferenceFileUpdate(IResourceDelta delta, IFile file, JavaProject project) {
-			
-		switch (delta.getKind()) {
-			case IResourceDelta.REMOVED : // flush project custom settings
-				project.setOptions(null);
-				return;
-			case IResourceDelta.CHANGED :
-				if ((delta.getFlags() & IResourceDelta.CONTENT) == 0  // only consider content change
-						&& (delta.getFlags() & IResourceDelta.MOVED_FROM) == 0) // and also move and overide scenario
-					break;
-				identityCheck : { // check if any actual difference
-					// force to (re)read the property file
-					Preferences filePreferences = project.loadPreferences();
-					if (filePreferences == null){ 
-						project.setOptions(null); // should have got removed delta.
-						return;
-					}
-					Preferences projectPreferences = project.getPreferences();
-					if (projectPreferences == null) return; // not a Java project
-						
-					// compare preferences set to their default
-					String[] defaultProjectPropertyNames = projectPreferences.defaultPropertyNames();
-					String[] defaultFilePropertyNames = filePreferences.defaultPropertyNames();
-					if (defaultProjectPropertyNames.length == defaultFilePropertyNames.length) {
-						for (int i = 0; i < defaultProjectPropertyNames.length; i++){
-							String propertyName = defaultProjectPropertyNames[i];
-							if (!projectPreferences.getString(propertyName).trim().equals(filePreferences.getString(propertyName).trim())){
-								break identityCheck;
-							}
-						}		
-					} else break identityCheck;
 
-					// compare custom preferences not set to their default
-					String[] projectPropertyNames = projectPreferences.propertyNames();
-					String[] filePropertyNames = filePreferences.propertyNames();
-					if (projectPropertyNames.length == filePropertyNames.length) {
-						for (int i = 0; i < projectPropertyNames.length; i++){
-						String propertyName = projectPropertyNames[i];
-							if (!projectPreferences.getString(propertyName).trim().equals(filePreferences.getString(propertyName).trim())){
-								break identityCheck;
-							}
-						}		
-					} else break identityCheck;
-					
-					// identical - do nothing
-					return;
-				}
-			case IResourceDelta.ADDED :
-				// not identical, create delta and reset cached preferences
-				project.setPreferences(null);
-				// create delta
-				//fCurrentDelta.changed(project, IJavaElementDelta.F_OPTIONS_CHANGED);				
-		}
-	}
 	/*
 	 * Traverse the set of projects which have changed namespace, and reset their 
 	 * caches and their dependents
@@ -2272,7 +2172,7 @@ public class DeltaProcessor {
 				}
 				updateIndex(element, delta);
 				elementAdded(element, delta, rootInfo);
-				return false;
+				return elementType == IJavaElement.PACKAGE_FRAGMENT;
 			case IResourceDelta.REMOVED :
 				deltaRes = delta.getResource();
 				element = createElement(deltaRes, elementType, rootInfo);
@@ -2288,11 +2188,11 @@ public class DeltaProcessor {
 					// reset the corresponding project built state, since cannot reuse if added back
 					this.manager.setLastBuiltState((IProject)deltaRes, null /*no state*/);
 				}
-				return false;
+				return elementType == IJavaElement.PACKAGE_FRAGMENT;
 			case IResourceDelta.CHANGED :
 				int flags = delta.getFlags();
-				if ((flags & IResourceDelta.CONTENT) != 0) {
-					// content has changed
+				if ((flags & IResourceDelta.CONTENT) != 0 || (flags & IResourceDelta.ENCODING) != 0) {
+					// content or encoding has changed
 					element = createElement(delta.getResource(), elementType, rootInfo);
 					if (element == null) return false;
 					updateIndex(element, delta);
@@ -2309,14 +2209,23 @@ public class DeltaProcessor {
 						}
 						if (res.isOpen()) {
 							if (JavaProject.hasJavaNature(res)) {
-								elementAdded(element, delta, rootInfo);
+								addToParentInfo(element);
+								currentDelta().opened(element);
+								this.state.updateRoots(element.getPath(), delta, this);
+								
+								// refresh pkg fragment roots and caches of the project (and its dependents)
+								this.rootsToRefresh.add(element);
+								this.projectCachesToReset.add(element);
+								
 								this.manager.indexManager.indexAll(res);
 							}
 						} else {
 							JavaModel javaModel = this.manager.getJavaModel();
 							boolean wasJavaProject = javaModel.findJavaProject(res) != null;
 							if (wasJavaProject) {
-								elementRemoved(element, delta, rootInfo);
+								close(element);
+								removeFromParentInfo(element);
+								currentDelta().closed(element);
 								this.manager.indexManager.discardJobs(element.getElementName());
 								this.manager.indexManager.removeIndexFamily(res.getFullPath());
 							}
@@ -2396,8 +2305,8 @@ public class DeltaProcessor {
 				}
 				int kind = delta.getKind();
 				if (kind == IResourceDelta.ADDED || kind == IResourceDelta.REMOVED) {
-					IPackageFragmentRoot root = (IPackageFragmentRoot)element;
-					this.updateRootIndex(root, root.getPackageFragment(""), delta); //$NON-NLS-1$
+					PackageFragmentRoot root = (PackageFragmentRoot)element;
+					this.updateRootIndex(root, CharOperation.NO_STRINGS, delta);
 					break;
 				}
 				// don't break as packages of the package fragment root can be indexed below
@@ -2407,8 +2316,8 @@ public class DeltaProcessor {
 					case IResourceDelta.REMOVED:
 						IPackageFragment pkg = null;
 						if (element instanceof IPackageFragmentRoot) {
-							IPackageFragmentRoot root = (IPackageFragmentRoot)element;
-							pkg = root.getPackageFragment(""); //$NON-NLS-1$
+							PackageFragmentRoot root = (PackageFragmentRoot)element;
+							pkg = root.getPackageFragment(CharOperation.NO_STRINGS);
 						} else {
 							pkg = (IPackageFragment)element;
 						}
@@ -2420,10 +2329,11 @@ public class DeltaProcessor {
 						for (int i = 0, length = children.length; i < length; i++) {
 							IResourceDelta child = children[i];
 							IResource resource = child.getResource();
+							// TODO (philippe) Why do this? Every child is added anyway as the delta is walked
 							if (resource instanceof IFile) {
 								String name = resource.getName();
 								if (isSource) {
-									if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(name)) {
+									if (org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(name)) {
 										Openable cu = (Openable)pkg.getCompilationUnit(name);
 										this.updateIndex(cu, child);
 									}
@@ -2452,7 +2362,8 @@ public class DeltaProcessor {
 				switch (delta.getKind()) {
 					case IResourceDelta.CHANGED :
 						// no need to index if the content has not changed
-						if ((delta.getFlags() & IResourceDelta.CONTENT) == 0)
+						int flags = delta.getFlags();
+						if ((flags & IResourceDelta.CONTENT) == 0 && (flags & IResourceDelta.ENCODING) == 0)
 							break;
 					case IResourceDelta.ADDED :
 						indexManager.addBinary(file, binaryFolderPath);
@@ -2467,7 +2378,8 @@ public class DeltaProcessor {
 				switch (delta.getKind()) {
 					case IResourceDelta.CHANGED :
 						// no need to index if the content has not changed
-						if ((delta.getFlags() & IResourceDelta.CONTENT) == 0)
+						int flags = delta.getFlags();
+						if ((flags & IResourceDelta.CONTENT) == 0 && (flags & IResourceDelta.ENCODING) == 0)
 							break;
 					case IResourceDelta.ADDED :
 						indexManager.addSource(file, file.getProject().getFullPath());
@@ -2496,20 +2408,16 @@ public class DeltaProcessor {
 	 * Updates the index of the given root (assuming it's an addition or a removal).
 	 * This is done recusively, pkg being the current package.
 	 */
-	private void updateRootIndex(IPackageFragmentRoot root, IPackageFragment pkg, IResourceDelta delta) {
-		this.updateIndex((Openable)pkg, delta);
+	private void updateRootIndex(PackageFragmentRoot root, String[] pkgName, IResourceDelta delta) {
+		Openable pkg = root.getPackageFragment(pkgName);
+		this.updateIndex(pkg, delta);
 		IResourceDelta[] children = delta.getAffectedChildren();
-		String name = pkg.getElementName();
 		for (int i = 0, length = children.length; i < length; i++) {
 			IResourceDelta child = children[i];
 			IResource resource = child.getResource();
 			if (resource instanceof IFolder) {
-				String subpkgName = 
-					name.length() == 0 ? 
-						resource.getName() : 
-						name + "." + resource.getName(); //$NON-NLS-1$
-				IPackageFragment subpkg = root.getPackageFragment(subpkgName);
-				this.updateRootIndex(root, subpkg, child);
+				String[] subpkgName = Util.arrayConcat(pkgName, resource.getName());
+				this.updateRootIndex(root, subpkgName, child);
 			}
 		}
 	}

@@ -17,6 +17,39 @@ import org.eclipse.jdt.core.compiler.IProblem;
  */
 public interface ISelectionRequestor {
 	/**
+	 * Code assist notification of a enum selection.
+	 * @param packageName char[]
+	 * 		Declaring package name of the type.
+	 * 
+	 * @param annotationName char[]
+	 * 		Name of the type.
+	 * 
+	 * @param isDeclaration boolean
+	 *  	Answer if the selected type is a declaration
+	 *  
+	 * @param uniqueKey
+	 *  	unique key of the selected type if it is a
+	 *  	parameterized type ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
+	 * 
+	 * @param start
+	 *  	Start of the selection
+	 * 
+	 * @param end
+	 *  	End of the selection
+	 *
+	 * NOTE - All package and type names are presented in their readable form:
+	 *    Package names are in the form "a.b.c".
+	 *    Nested type names are in the qualified form "A.M".
+	 *    The default package is represented by an empty array.
+	 */
+	void acceptAnnotation(
+		char[] packageName,
+		char[] annotationName,
+		boolean isDeclaration,
+		char[] uniqueKey,
+		int start,
+		int end);
+	/**
 	 * Code assist notification of a class selection.
 	 * @param packageName char[]
 	 * 		Declaring package name of the class.
@@ -24,12 +57,12 @@ public interface ISelectionRequestor {
 	 * @param className char[]
 	 * 		Name of the class.
 	 * 
-	 * @param needQualification boolean
-	 * 		Flag indicating if the type name 
-	 *    	must be qualified by its package name (depending on imports).
-	 * 
 	 * @param isDeclaration boolean
 	 *  	Answer if the selected method is a declaration
+	 *  
+	 * @param uniqueKey
+	 *  	unique key of the selected type if it is a
+	 *  	parameterized type ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
 	 * 
 	 * @param start
 	 *  	Start of the selection
@@ -45,8 +78,42 @@ public interface ISelectionRequestor {
 	void acceptClass(
 		char[] packageName,
 		char[] className,
-		boolean needQualification,
 		boolean isDeclaration,
+		char[] uniqueKey,
+		int start,
+		int end);
+	
+	/**
+	 * Code assist notification of a enum selection.
+	 * @param packageName char[]
+	 * 		Declaring package name of the type.
+	 * 
+	 * @param enumName char[]
+	 * 		Name of the class.
+	 * 
+	 * @param isDeclaration boolean
+	 *  	Answer if the selected type is a declaration
+	 *  
+	 * @param uniqueKey
+	 *  	unique key of the selected type if it is a
+	 *  	parameterized type ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
+	 * 
+	 * @param start
+	 *  	Start of the selection
+	 * 
+	 * @param end
+	 *  	End of the selection
+	 *
+	 * NOTE - All package and type names are presented in their readable form:
+	 *    Package names are in the form "a.b.c".
+	 *    Nested type names are in the qualified form "A.M".
+	 *    The default package is represented by an empty array.
+	 */
+	void acceptEnum(
+		char[] packageName,
+		char[] enumName,
+		boolean isDeclaration,
+		char[] uniqueKey,
 		int start,
 		int end);
 
@@ -78,6 +145,10 @@ public interface ISelectionRequestor {
 	 * @param isDeclaration boolean
 	 *  	Answer if the selected field is a declaration
 	 * 
+	 * @param uniqueKey
+	 *  	unique key of the selected field if the field's type is a
+	 *  	parameterized type ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
+	 *  
 	 * @param start
 	 *  	Start of the selection
 	 * 
@@ -94,6 +165,7 @@ public interface ISelectionRequestor {
 		char[] declaringTypeName,
 		char[] name,
 		boolean isDeclaration,
+		char[] uniqueKey,
 		int start,
 		int end);
 
@@ -105,12 +177,12 @@ public interface ISelectionRequestor {
 	 * @param interfaceName char[]
 	 * 		Name of the interface.
 	 * 
-	 * @param needQualification boolean
-	 * 		Flag indicating if the type name 
-	 *    	must be qualified by its package name (depending on imports).
-	 * 
 	 * @param isDeclaration boolean
 	 *  	Answer if the selected method is a declaration
+	 *  
+	 * @param uniqueKey
+	 *  	unique key of the selected type if it is a
+	 *  	parameterized type ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
 	 * 
 	 * @param start
 	 *  	Start of the selection
@@ -126,8 +198,8 @@ public interface ISelectionRequestor {
 	void acceptInterface(
 		char[] packageName,
 		char[] interfaceName,
-		boolean needQualification,
 		boolean isDeclaration,
+		char[] uniqueKey,
 		int start,
 		int end);
 
@@ -138,6 +210,10 @@ public interface ISelectionRequestor {
 	 * 
 	 * @param declaringTypeName char[]
 	 * 		Name of the type declaring this new method.
+	 * 
+	 * @param enclosingDeclaringTypeSignature String
+	 *  	Type signature of the declaring type of the declaring type or <code>null</code>
+	 *  	if declaring type is a top level type.
 	 * 
 	 * @param selector char[]
 	 * 		Name of the new method.
@@ -150,12 +226,20 @@ public interface ISelectionRequestor {
 	 * 		Names of the parameters types.
 	 *    	Should contain as many elements as parameterPackageNames.
 	 * 
+	 * @param parameterSignatures String[]
+	 * 		Signature of the parameters types.
+	 *    	Should contain as many elements as parameterPackageNames.
+	 * 
 	 *  @param isConstructor boolean
 	 * 		Answer if the method is a constructor.
 	 * 
 	 * @param isDeclaration boolean
 	 *  	Answer if the selected method is a declaration
 	 * 
+	 * @param uniqueKey
+	 *  	unique key of the selected method if it is a
+	 *  	parameterized method ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
+	 *  
 	 * @param start
 	 *  	Start of the selection
 	 * 
@@ -173,11 +257,14 @@ public interface ISelectionRequestor {
 	void acceptMethod(
 		char[] declaringTypePackageName,
 		char[] declaringTypeName,
+		String enclosingDeclaringTypeSignature,
 		char[] selector,
 		char[][] parameterPackageNames,
 		char[][] parameterTypeNames,
+		String[] parameterSignatures,
 		boolean isConstructor,
 		boolean isDeclaration,
+		char[] uniqueKey,
 		int start,
 		int end);
 	
@@ -191,4 +278,83 @@ public interface ISelectionRequestor {
 	 *    The default package is represented by an empty array.
 	 */
 	void acceptPackage(char[] packageName);
+	/**
+	 * Code assist notification of a type parameter selection.
+	 * 
+	 * @param declaringTypePackageName char[]
+	 * 		Name of the package in which the type that contains this new method is declared.
+	 * 
+	 * @param declaringTypeName char[]
+	 * 		Name of the type declaring this new method.
+	 * 
+	 * @param typeParameterName char[]
+	 * 		Name of the type parameter.
+	 * 
+	 * @param isDeclaration boolean
+	 *  	Answer if the selected type parameter is a declaration
+	 * 
+	 * @param start
+	 *  	Start of the selection
+	 * 
+	 * @param end
+	 *  	End of the selection
+	 *
+	 * NOTE - All package and type names are presented in their readable form:
+	 *    Package names are in the form "a.b.c".
+	 *    Nested type names are in the qualified form "A.M".
+	 *    The default package is represented by an empty array.
+	 */
+	void acceptTypeParameter(
+		char[] declaringTypePackageName,
+		char[] declaringTypeName,
+		char[] typeParameterName,
+		boolean isDeclaration,
+		int start,
+		int end);
+	
+	/**
+	 * Code assist notification of a type parameter selection.
+	 * 
+	 * @param declaringTypePackageName char[]
+	 * 		Name of the package in which the type that contains this new method is declared.
+	 * 
+	 * @param declaringTypeName char[]
+	 * 		Name of the type declaring this new method.
+	 * 
+	 * @param selector char[]
+	 * 		Name of the declaring method.
+	 * 
+	 * @param selectorStart int
+	 * 		Start of the selector.
+	 * 
+	 * @param selectorEnd int
+	 * 		End of the selector.
+	 * 
+	 * @param typeParameterName char[]
+	 * 		Name of the type parameter.
+	 * 
+	 * @param isDeclaration boolean
+	 *  	Answer if the selected type parameter is a declaration
+	 * 
+	 * @param start
+	 *  	Start of the selection
+	 * 
+	 * @param end
+	 *  	End of the selection
+	 *
+	 * NOTE - All package and type names are presented in their readable form:
+	 *    Package names are in the form "a.b.c".
+	 *    Nested type names are in the qualified form "A.M".
+	 *    The default package is represented by an empty array.
+	 */
+	void acceptMethodTypeParameter(
+		char[] declaringTypePackageName,
+		char[] declaringTypeName,
+		char[] selector,
+		int selectorStart,
+		int selectorEnd,
+		char[] typeParameterName,
+		boolean isDeclaration,
+		int start,
+		int end);
 }

@@ -27,8 +27,9 @@ import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
 import org.eclipse.jdt.core.util.CompilationUnitSorter;
 import org.eclipse.jdt.internal.compiler.SourceElementRequestorAdapter;
-import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.env.IConstants;
+import org.eclipse.jdt.internal.compiler.env.IGenericType;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
@@ -927,12 +928,12 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 	int[] positionsToMap;
 	int positionsToMapIndex;
 	
-	public SortElementBuilder(char[] source, int[] positionsToMap, Comparator comparator) {
+	public SortElementBuilder(char[] source, int[] positionsToMap, Comparator comparator, CompilerOptions options) {
 		this.source = source;
 		this.comparator = comparator;
 		this.positionsToMap = positionsToMap;
-		this.scanner = new Scanner(false, false, false, ClassFileConstants.JDK1_3/*sourceLevel*/, null, null, true/*taskCaseSensitive*/);
 		this.ast = AST.newAST(AST.JLS2);
+		this.scanner = new Scanner(false, false, false, options.sourceLevel/*sourceLevel*/, null, null, true/*taskCaseSensitive*/);
 	}
 	
 	/*
@@ -999,22 +1000,6 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 		this.positionsToMapIndex = i;
 	}
 	/**
-	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#enterClass(int, int, char[], int, int, char[], char[][])
-	 */
-	public void enterClass(
-		int declarationStart,
-		int modifiers,
-		char[] name,
-		int nameSourceStart,
-		int nameSourceEnd,
-		char[] superclass,
-		char[][] superinterfaces) {
-			SortType type = new SortClassDeclaration(declarationStart, modifiers, name, superclass, superinterfaces);
-			this.currentElement.addChild(type);
-			push(type);
-	}
-
-	/**
 	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#enterCompilationUnit()
 	 */
 	public void enterCompilationUnit() {
@@ -1023,44 +1008,30 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 	}
 
 	/**
-	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#enterConstructor(int, int, char[], int, int, char[][], char[][], char[][])
+	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#enterConstructor(MethodInfo)
 	 */
-	public void enterConstructor(
-		int declarationStart,
-		int modifiers,
-		char[] name,
-		int nameSourceStart,
-		int nameSourceEnd,
-		char[][] parameterTypes,
-		char[][] parameterNames,
-		char[][] exceptionTypes) {
+	public void enterConstructor(MethodInfo methodInfo) {
 		if ((this.currentElement.id & SortJavaElement.TYPE) != 0) {
-			SortConstructorDeclaration constructorDeclaration = new SortConstructorDeclaration(declarationStart, modifiers, name, parameterNames, parameterTypes, exceptionTypes);
+			SortConstructorDeclaration constructorDeclaration = new SortConstructorDeclaration(methodInfo.declarationStart, methodInfo.modifiers, methodInfo.name, methodInfo.parameterNames, methodInfo.parameterTypes, methodInfo.exceptionTypes);
 			this.currentElement.addChild(constructorDeclaration);
 			push(constructorDeclaration);
 		}
 	}
 
 	/**
-	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#enterField(int, int, char[], char[], int, int)
+	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#enterField(FieldInfo)
 	 */
-	public void enterField(
-		int declarationStart,
-		int modifiers,
-		char[] type,
-		char[] name,
-		int nameSourceStart,
-		int nameSourceEnd) {
+	public void enterField(FieldInfo fieldInfo) {
 			if ((this.currentElement.id & SortJavaElement.TYPE) != 0) {
-				SortFieldDeclaration fieldDeclaration = new SortFieldDeclaration(declarationStart, modifiers, type, name, nameSourceStart);
+				SortFieldDeclaration fieldDeclaration = new SortFieldDeclaration(fieldInfo.declarationStart, fieldInfo.modifiers, fieldInfo.type, fieldInfo.name, fieldInfo.nameSourceStart);
 				SortElement[] currentElementChildren = this.currentElement.children;
 				if (currentElementChildren != null) {
 					SortElement previousElement = this.currentElement.children[this.currentElement.children_count - 1];
-					if (previousElement.id == SortJavaElement.FIELD && ((SortFieldDeclaration) previousElement).declarationStart == declarationStart) {
+					if (previousElement.id == SortJavaElement.FIELD && ((SortFieldDeclaration) previousElement).declarationStart == fieldInfo.declarationStart) {
 						SortMultipleFieldDeclaration multipleFielDeclaration = new SortMultipleFieldDeclaration((SortFieldDeclaration) previousElement);
 						multipleFielDeclaration.addField(fieldDeclaration);
 						this.currentElement.children[this.currentElement.children_count - 1] = multipleFielDeclaration;
-					} else if (previousElement.id == SortJavaElement.MULTIPLE_FIELD && ((SortMultipleFieldDeclaration) previousElement).declarationStart == declarationStart) {
+					} else if (previousElement.id == SortJavaElement.MULTIPLE_FIELD && ((SortMultipleFieldDeclaration) previousElement).declarationStart == fieldInfo.declarationStart) {
 						((SortMultipleFieldDeclaration) previousElement).addField(fieldDeclaration);
 					} else {
 						this.currentElement.addChild(fieldDeclaration);
@@ -1084,45 +1055,33 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 	}
 
 	/**
-	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#enterInterface(int, int, char[], int, int, char[][])
+	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#enterMethod(MethodInfo)
 	 */
-	public void enterInterface(
-		int declarationStart,
-		int modifiers,
-		char[] name,
-		int nameSourceStart,
-		int nameSourceEnd,
-		char[][] superinterfaces) {
-			SortType type = new SortInterfaceDeclaration(declarationStart, modifiers, name, superinterfaces);
-			this.currentElement.addChild(type);
-			push(type);
+	public void enterMethod(MethodInfo methodInfo) {
+		if ((this.currentElement.id & SortJavaElement.TYPE) != 0) {
+			SortMethodDeclaration methodDeclaration = new SortMethodDeclaration(methodInfo.declarationStart, methodInfo.modifiers, methodInfo.name, methodInfo.parameterNames, methodInfo.parameterTypes, methodInfo.exceptionTypes, methodInfo.returnType);
+			this.currentElement.addChild(methodDeclaration);
+			push(methodDeclaration);
+		}
 	}
 
 	/**
-	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#enterMethod(int, int, char[], char[], int, int, char[][], char[][], char[][])
+	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#enterType(TypeInfo)
 	 */
-	public void enterMethod(
-		int declarationStart,
-		int modifiers,
-		char[] returnType,
-		char[] name,
-		int nameSourceStart,
-		int nameSourceEnd,
-		char[][] parameterTypes,
-		char[][] parameterNames,
-		char[][] exceptionTypes) {
-			if ((this.currentElement.id & SortJavaElement.TYPE) != 0) {
-				SortMethodDeclaration methodDeclaration = new SortMethodDeclaration(declarationStart, modifiers, name, parameterNames, parameterTypes, exceptionTypes, returnType);
-				this.currentElement.addChild(methodDeclaration);
-				push(methodDeclaration);
-			}
-	}
-
-	/**
-	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#exitClass(int)
-	 */
-	public void exitClass(int declarationEnd) {
-		pop(declarationEnd);
+	public void enterType(TypeInfo typeInfo) {
+		SortType type = null;
+		switch (typeInfo.kind) {
+			case IGenericType.CLASS_DECL:
+			case IGenericType.ANNOTATION_TYPE_DECL: // TODO (olivier) might need a SortAnnotationTypeDeclaration
+				type = new SortClassDeclaration(typeInfo.declarationStart, typeInfo.modifiers, typeInfo.name, typeInfo.superclass, typeInfo.superinterfaces);
+				break;
+			case IGenericType.INTERFACE_DECL:
+			case IGenericType.ENUM_DECL: // TODO (olivier) might need a SortEnumDeclaration
+				type = new SortInterfaceDeclaration(typeInfo.declarationStart, typeInfo.modifiers, typeInfo.name, typeInfo.superinterfaces);
+				break;
+		}
+		this.currentElement.addChild(type);
+		push(type);
 	}
 
 	/**
@@ -1178,16 +1137,16 @@ public class SortElementBuilder extends SourceElementRequestorAdapter {
 	}
 
 	/**
-	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#exitInterface(int)
+	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#exitMethod(int, int, int)
 	 */
-	public void exitInterface(int declarationEnd) {
+	public void exitMethod(int declarationEnd, int defaultValueStart, int defaultValueEnd) {
 		pop(declarationEnd);
 	}
 
 	/**
-	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#exitMethod(int)
+	 * @see org.eclipse.jdt.internal.compiler.ISourceElementRequestor#exitType(int)
 	 */
-	public void exitMethod(int declarationEnd) {
+	public void exitType(int declarationEnd) {
 		pop(declarationEnd);
 	}
 

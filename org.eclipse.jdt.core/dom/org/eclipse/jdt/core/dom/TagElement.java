@@ -11,6 +11,7 @@
 
 package org.eclipse.jdt.core.dom;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -57,10 +58,11 @@ public final class TagElement extends ASTNode implements IDocElement {
 	private static final List PROPERTY_DESCRIPTORS;
 	
 	static {
-		createPropertyList(TagElement.class);
-		addProperty(TAG_NAME_PROPERTY);
-		addProperty(FRAGMENTS_PROPERTY);
-		PROPERTY_DESCRIPTORS = reapPropertyList();
+		List propertyList = new ArrayList(3);
+		createPropertyList(TagElement.class, propertyList);
+		addProperty(TAG_NAME_PROPERTY, propertyList);
+		addProperty(FRAGMENTS_PROPERTY, propertyList);
+		PROPERTY_DESCRIPTORS = reapPropertyList(propertyList);
 	}
 	
 	/**
@@ -81,6 +83,15 @@ public final class TagElement extends ASTNode implements IDocElement {
 	 * Standard doc tag name (value {@value}).
 	 */
 	public static final String TAG_AUTHOR = "@author"; //$NON-NLS-1$
+
+	/**
+	 * Standard inline doc tag name (value {@value}).
+	 * <p>
+	 * Note that this tag first appeared in J2SE 5.
+	 * </p>
+	 * @since 3.1
+	 */
+	public static final String TAG_CODE = "@code"; //$NON-NLS-1$
 
 	/**
 	 * Standard doc tag name (value {@value}).
@@ -111,6 +122,15 @@ public final class TagElement extends ASTNode implements IDocElement {
 	 * Standard inline doc tag name (value {@value}).
 	 */
 	public static final String TAG_LINKPLAIN = "@linkplain"; //$NON-NLS-1$
+
+	/**
+	 * Standard inline doc tag name (value {@value}).
+	 * <p>
+	 * Note that this tag first appeared in J2SE 5.
+	 * </p>
+	 * @since 3.1
+	 */
+	public static final String TAG_LITERAL = "@literal"; //$NON-NLS-1$
 
 	/**
 	 * Standard doc tag name (value {@value}).

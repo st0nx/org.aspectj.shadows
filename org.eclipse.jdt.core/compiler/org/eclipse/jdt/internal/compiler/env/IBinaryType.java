@@ -65,6 +65,16 @@ IBinaryMethod[] getMethods();
  */
 
 char[] getName();
+
+/**
+ * Answer the receiver's signature which describes the parameter &
+ * return types as specified in section 4.4.4 of the Java 2 VM spec 3rd edition.
+ * Returns null if none.
+ * 
+ * @return the receiver's signature, null if none
+ */
+char[] getGenericSignature();
+
 /**
  * Answer the resolved name of the receiver's superclass in the
  * class file format as specified in section 4.2 of the Java 2 VM spec
@@ -74,7 +84,10 @@ char[] getName();
  */
 
 char[] getSuperclassName();
-
+/**
+ * Answer the tagbits set according to the bits for annotations.
+ */
+long getTagBits();
 /**
  * Answer true if the receiver is an anonymous class.
  * false otherwise

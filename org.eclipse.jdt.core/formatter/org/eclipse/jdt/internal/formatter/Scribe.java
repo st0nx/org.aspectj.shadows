@@ -15,7 +15,10 @@ import java.util.Map;
 
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.ast.Annotation;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 import org.eclipse.jdt.internal.core.util.CodeSnippetParsingUtil;
@@ -72,12 +75,14 @@ public class Scribe {
 
 	Scribe(CodeFormatterVisitor formatter, Map settings, int offset, int length, CodeSnippetParsingUtil codeSnippetParsingUtil) {
 		if (settings != null) {
-			Object assertModeSetting = settings.get(JavaCore.COMPILER_SOURCE);
-			if (assertModeSetting != null) {
-				this.scanner = new Scanner(true, true, false/*nls*/, JavaCore.VERSION_1_4.equals(assertModeSetting) ? ClassFileConstants.JDK1_4 : ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
-			} else {
-				this.scanner = new Scanner(true, true, false/*nls*/, ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
+			Object sourceLevelOption = settings.get(JavaCore.COMPILER_SOURCE);
+			long sourceLevel = ClassFileConstants.JDK1_3;
+			if (JavaCore.VERSION_1_4.equals(sourceLevelOption)) {
+				sourceLevel = ClassFileConstants.JDK1_4;
+			} else if (JavaCore.VERSION_1_5.equals(sourceLevelOption)) {
+				sourceLevel = ClassFileConstants.JDK1_5;
 			}
+			this.scanner = new Scanner(true, true, false/*nls*/, sourceLevel/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
 		} else {
 			this.scanner = new Scanner(true, true, false/*nls*/, ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
 		}
@@ -644,6 +649,8 @@ public class Scribe {
 			}
 		} else if (this.textRegionStart <= editOffset && editOffset <= this.textRegionEnd) {
 			return true;
+		} else if (editOffset == this.scannerEndPosition && editOffset == this.textRegionEnd + 1) {
+			return true;
 		}
 		return false;
 	}
@@ -748,6 +755,123 @@ public class Scribe {
 			printNewLine();
 		}
 	}
+	
+	public void printEndOfCompilationUnit() {
+		try {
+			// if we have a space between two tokens we ensure it will be dumped in the formatted string
+			int currentTokenStartPosition = this.scanner.currentPosition;
+			boolean hasComment = false;
+			boolean hasLineComment = false;
+			boolean hasWhitespace = false;
+			int count = 0;
+			while (true) {
+				this.currentToken = this.scanner.getNextToken();
+				switch(this.currentToken) {
+					case TerminalTokens.TokenNameWHITESPACE :
+						char[] whiteSpaces = this.scanner.getCurrentTokenSource();
+						count = 0;
+						for (int i = 0, max = whiteSpaces.length; i < max; i++) {
+							switch(whiteSpaces[i]) {
+								case '\r' :
+									if ((i + 1) < max) {
+										if (whiteSpaces[i + 1] == '\n') {
+											i++;
+										}
+									}
+									count++;
+									break;
+								case '\n' :
+									count++;
+							}
+						}
+						if (count == 0) {
+							hasWhitespace = true;
+							addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
+						} else if (hasComment) {
+							if (count == 1) {
+								this.printNewLine(this.scanner.getCurrentTokenStartPosition());
+							} else {
+								preserveEmptyLines(count - 1, this.scanner.getCurrentTokenStartPosition());
+							}
+							addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
+						} else if (hasLineComment) {
+							this.preserveEmptyLines(count, this.scanner.getCurrentTokenStartPosition());
+							addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
+						} else {
+							addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
+						}
+						currentTokenStartPosition = this.scanner.currentPosition;						
+						break;
+					case TerminalTokens.TokenNameCOMMENT_LINE :
+						if (count >= 1) {
+							if (count > 1) {
+								preserveEmptyLines(count - 1, this.scanner.getCurrentTokenStartPosition());
+							} else if (count == 1) {
+								printNewLine(this.scanner.getCurrentTokenStartPosition());
+							}
+						} else if (hasWhitespace) {
+							space();
+						} 
+						hasWhitespace = false;
+						this.printCommentLine(this.scanner.getRawTokenSource());
+						currentTokenStartPosition = this.scanner.currentPosition;
+						hasLineComment = true;		
+						count = 0;
+						break;
+					case TerminalTokens.TokenNameCOMMENT_BLOCK :
+						if (count >= 1) {
+							if (count > 1) {
+								preserveEmptyLines(count - 1, this.scanner.getCurrentTokenStartPosition());
+							} else if (count == 1) {
+								printNewLine(this.scanner.getCurrentTokenStartPosition());
+							}
+						} else if (hasWhitespace) {
+							space();
+						} 
+						hasWhitespace = false;
+						this.printBlockComment(this.scanner.getRawTokenSource(), false);
+						currentTokenStartPosition = this.scanner.currentPosition;
+						hasLineComment = false;
+						hasComment = true;
+						count = 0;
+						break;
+					case TerminalTokens.TokenNameCOMMENT_JAVADOC :
+						if (count >= 1) {
+							if (count > 1) {
+								preserveEmptyLines(count - 1, this.scanner.getCurrentTokenStartPosition());
+							} else if (count == 1) {
+								printNewLine(this.scanner.getCurrentTokenStartPosition());
+							}
+						} else if (hasWhitespace) {
+							space();
+						} 
+						hasWhitespace = false;
+						this.printBlockComment(this.scanner.getRawTokenSource(), true);
+						currentTokenStartPosition = this.scanner.currentPosition;
+						hasLineComment = false;
+						hasComment = true;
+						count = 0;
+						break;
+					case TerminalTokens.TokenNameSEMICOLON :
+						char[] currentTokenSource = this.scanner.getRawTokenSource();
+						this.print(currentTokenSource, this.formatter.preferences.insert_space_before_semicolon);
+						break;
+					case TerminalTokens.TokenNameEOF :
+						if (count >= 1 || this.formatter.preferences.insert_new_line_at_end_of_file_if_missing) {
+							this.printNewLine(this.scannerEndPosition);
+						}
+						return;
+					default :
+						// step back one token
+						this.scanner.resetTo(currentTokenStartPosition, this.scannerEndPosition - 1);
+						return;
+				}
+			}
+		} catch (InvalidInputException e) {
+			throw new AbortFormatting(e);
+		}
+	}
+
 	public void printComment() {
 		try {
 			// if we have a space between two tokens we ensure it will be dumped in the formatted string
@@ -986,8 +1110,10 @@ public class Scribe {
 		}
 	}
 
-	public void printModifiers() {
+	public void printModifiers(Annotation[] annotations, ASTVisitor visitor) {
 		try {
+			int annotationsLength = annotations != null ? annotations.length : 0;
+			int annotationsIndex = 0;
 			boolean isFirstModifier = true;
 			int currentTokenStartPosition = this.scanner.currentPosition;
 			boolean hasComment = false;
@@ -1003,9 +1129,23 @@ public class Scribe {
 					case TerminalTokens.TokenNamesynchronized :
 					case TerminalTokens.TokenNametransient :
 					case TerminalTokens.TokenNamevolatile :
+					case TerminalTokens.TokenNamestrictfp :
 						this.print(this.scanner.getRawTokenSource(), !isFirstModifier);
 						isFirstModifier = false;
 						currentTokenStartPosition = this.scanner.getCurrentTokenStartPosition();
+						break;
+					case TerminalTokens.TokenNameAT :
+						if (!isFirstModifier) {
+							this.space();
+						}
+						this.scanner.resetTo(this.scanner.getCurrentTokenStartPosition(), this.scannerEndPosition - 1);
+						if (annotationsIndex < annotationsLength) {
+							annotations[annotationsIndex++].traverse(visitor, (BlockScope) null);
+						} else {
+							return;
+						}
+						isFirstModifier = false;
+						currentTokenStartPosition = this.scanner.currentPosition;
 						break;
 					case TerminalTokens.TokenNameCOMMENT_BLOCK :
 						this.printBlockComment(this.scanner.getRawTokenSource(), false);
@@ -1104,7 +1244,11 @@ public class Scribe {
 		}
 	}
 
-	public void printNextToken(int[] expectedTokenTypes){
+	public void printNextToken(int[] expectedTokenTypes) {
+		printNextToken(expectedTokenTypes, false);
+	}
+
+	public void printNextToken(int[] expectedTokenTypes, boolean considerSpaceIfAny){
 		printComment();
 		try {
 			this.currentToken = this.scanner.getNextToken();
@@ -1119,7 +1263,7 @@ public class Scribe {
 				}				
 				throw new AbortFormatting("unexpected token type, expecting:["+expectations.toString()+"], actual:"+this.currentToken);//$NON-NLS-1$//$NON-NLS-2$
 			}
-			this.print(currentTokenSource, false);
+			this.print(currentTokenSource, considerSpaceIfAny);
 		} catch (InvalidInputException e) {
 			throw new AbortFormatting(e);
 		}

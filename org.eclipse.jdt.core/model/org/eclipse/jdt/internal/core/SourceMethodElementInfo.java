@@ -10,13 +10,18 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.ISourceMethod;
 
 /** 
  * Element info for IMethod elements. 
  */
-public class SourceMethodElementInfo extends MemberElementInfo implements ISourceMethod {
+public abstract class SourceMethodElementInfo extends MemberElementInfo implements ISourceMethod {
+	
+	protected char[] selector;
 
 	/**
 	 * For a source method (that is, a method contained in a compilation unit)
@@ -38,12 +43,6 @@ public class SourceMethodElementInfo extends MemberElementInfo implements ISourc
 	protected char[][] argumentTypeNames;
 
 	/**
-	 * Return type name for this method. The return type of
-	 * constructors is equivalent to void.
-	 */
-	protected char[] returnType;
-
-	/**
 	 * A collection of type names of the exceptions this
 	 * method throws, or an empty collection if this method
 	 * does not declare to throw any exceptions. A name is a simple
@@ -52,10 +51,11 @@ public class SourceMethodElementInfo extends MemberElementInfo implements ISourc
 	 */
 	protected char[][] exceptionTypes;
 
-	/**
-	 * Constructor flag.
+	/*
+	 * The type parameters of this source type. Empty if none.
 	 */
-	protected boolean isConstructor= false;
+	protected ITypeParameter[] typeParameters = TypeParameter.NO_TYPE_PARAMETERS;
+	
 public char[][] getArgumentNames() {
 	return this.argumentNames;
 }
@@ -65,11 +65,10 @@ public char[][] getArgumentTypeNames() {
 public char[][] getExceptionTypeNames() {
 	return this.exceptionTypes;
 }
-public char[] getReturnTypeName() {
-	return this.returnType;
-}
+public abstract char[] getReturnTypeName();
+
 public char[] getSelector() {
-	return this.name;
+	return this.selector;
 }
 protected String getSignature() {
 
@@ -77,24 +76,40 @@ protected String getSignature() {
 	for (int i = 0; i < this.argumentTypeNames.length; ++i) {
 		paramSignatures[i] = Signature.createTypeSignature(this.argumentTypeNames[i], false);
 	}
-	return Signature.createMethodSignature(paramSignatures, Signature.createTypeSignature(this.returnType, false));
+	return Signature.createMethodSignature(paramSignatures, Signature.createTypeSignature(getReturnTypeName(), false));
 }
-public boolean isConstructor() {
-	return this.isConstructor;
+public char[][][] getTypeParameterBounds() {
+	int length = this.typeParameters.length;
+	char[][][] typeParameterBounds = new char[length][][];
+	for (int i = 0; i < length; i++) {
+		try {
+			TypeParameterElementInfo info = (TypeParameterElementInfo) ((JavaElement)this.typeParameters[i]).getElementInfo();
+			typeParameterBounds[i] = info.bounds;
+		} catch (JavaModelException e) {
+			// type parameter does not exist: ignore
+		}
+	}
+	return typeParameterBounds;
 }
+public char[][] getTypeParameterNames() {
+	int length = this.typeParameters.length;
+	if (length == 0) return CharOperation.NO_CHAR_CHAR;
+	char[][] typeParameterNames = new char[length][];
+	for (int i = 0; i < length; i++) {
+		typeParameterNames[i] = this.typeParameters[i].getElementName().toCharArray();
+	}
+	return typeParameterNames;
+}
+public abstract boolean isConstructor();
+public abstract boolean isAnnotationMethod();
 protected void setArgumentNames(char[][] names) {
 	this.argumentNames = names;
 }
 protected void setArgumentTypeNames(char[][] types) {
 	this.argumentTypeNames = types;
 }
-protected void setConstructor(boolean isConstructor) {
-	this.isConstructor = isConstructor;
-}
 protected void setExceptionTypeNames(char[][] types) {
 	this.exceptionTypes = types;
 }
-protected void setReturnType(char[] type) {
-	this.returnType = type;
-}
+protected abstract void setReturnType(char[] type);
 }

@@ -23,6 +23,7 @@ import org.eclipse.jdt.internal.compiler.ast.Statement;
 import org.eclipse.jdt.internal.compiler.ast.SuperReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
+import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.lookup.BaseTypes;
 import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
 
@@ -212,7 +213,7 @@ public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalanceV
 		}
 		return methodBody.add(typeDeclaration, bracketBalanceValue, true);	
 	}
-	if (typeDeclaration.isInterface()) {
+	if (typeDeclaration.kind() == IGenericType.INTERFACE_DECL) {
 		this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(typeDeclaration.declarationSourceStart - 1));
 		if (this.parent == null) {
 			return this; // ignore
@@ -391,7 +392,7 @@ public void updateFromParserState(){
 						}
 					}
 					if(canConsume) {
-						parser.consumeMethodHeaderParameters();
+						parser.consumeMethodHeaderRightParen();
 						/* fix-up positions, given they were updated against rParenPos, which did not get set */
 						if (parser.currentElement == this){ // parameter addition might have added an awaiting (no return type) method - see 1FVXQZ4 */
 							methodDeclaration.sourceEnd = methodDeclaration.arguments[methodDeclaration.arguments.length-1].sourceEnd;
@@ -403,6 +404,16 @@ public void updateFromParserState(){
 			}
 		}
 	}
+}
+public RecoveredElement updateOnClosingBrace(int braceStart, int braceEnd){
+	if(this.methodDeclaration.isAnnotationMethod()) {
+		this.updateSourceEndIfNecessary(braceStart, braceEnd);
+		if(!this.foundOpeningBrace && this.parent != null) {
+			return this.parent.updateOnClosingBrace(braceStart, braceEnd);
+		}
+		return this;
+	}
+	return super.updateOnClosingBrace(braceStart, braceEnd);
 }
 /*
  * An opening brace got consumed, might be the expected opening one of the current element,

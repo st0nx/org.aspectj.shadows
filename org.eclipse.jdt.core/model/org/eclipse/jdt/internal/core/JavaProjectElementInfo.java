@@ -10,8 +10,8 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Map;
 
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IResource;
@@ -22,6 +22,7 @@ import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.util.Util;
+import org.eclipse.jdt.internal.core.util.HashtableOfArrayToObject;
 
 /** 
  * Info for IJavaProject.
@@ -48,10 +49,12 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 	
 	/*
 	 * A cache of all package fragments in this project.
-	 * (a map from String (the package name) to IPackageFragment[] (the package fragments with this name)
+	 * (a map from String[] (the package name) to IPackageFragmentRoot[] (the package fragment roots that contain a package fragment with this name)
 	 */
-	private HashMap allPkgFragmentsCache;
+	private HashtableOfArrayToObject allPkgFragmentsCache;
 
+	public Map pathToResolvedEntries;
+	
 	/**
 	 * Create and initialize a new instance of the receiver
 	 */
@@ -165,7 +168,9 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 	IPackageFragmentRoot[] getAllPackageFragmentRoots(JavaProject project) {
 		if (this.allPkgFragmentRootsCache == null) {
 			try {
-				this.allPkgFragmentRootsCache = project.getAllPackageFragmentRoots();
+				Map reverseMap = new HashMap(3);
+				this.allPkgFragmentRootsCache = project.getAllPackageFragmentRoots(reverseMap);
+				this.pathToResolvedEntries = reverseMap;
 			} catch (JavaModelException e) {
 				// project does not exist: cannot happend since this is the info of the project
 			}
@@ -173,23 +178,32 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 		return this.allPkgFragmentRootsCache;
 	}
 	
-	HashMap getAllPackageFragments(JavaProject project) {
+	HashtableOfArrayToObject getAllPackageFragments(JavaProject project) {
 		if (this.allPkgFragmentsCache == null) {
-			HashMap cache = new HashMap();
+			HashtableOfArrayToObject cache = new HashtableOfArrayToObject();
 			IPackageFragmentRoot[] roots = getAllPackageFragmentRoots(project);
-			IPackageFragment[] frags = this.getPackageFragmentsInRoots(roots, project);
-			for (int i= 0; i < frags.length; i++) {
-				IPackageFragment fragment= frags[i];
-				IPackageFragment[] entry= (IPackageFragment[]) cache.get(fragment.getElementName());
-				if (entry == null) {
-					entry= new IPackageFragment[1];
-					entry[0]= fragment;
-					cache.put(fragment.getElementName(), entry);
-				} else {
-					IPackageFragment[] copy= new IPackageFragment[entry.length + 1];
-					System.arraycopy(entry, 0, copy, 0, entry.length);
-					copy[entry.length]= fragment;
-					cache.put(fragment.getElementName(), copy);
+			for (int i = 0, length = roots.length; i < length; i++) {
+				IPackageFragmentRoot root = roots[i];
+				IJavaElement[] frags = null;
+				try {
+					frags = root.getChildren();
+				} catch (JavaModelException e) {
+					// root doesn't exist: ignore
+					continue;
+				}
+				for (int j = 0, length2 = frags.length; j < length2; j++) {
+					PackageFragment fragment= (PackageFragment) frags[j];
+					String[] pkgName = fragment.names;
+					IPackageFragmentRoot[] entry= (IPackageFragmentRoot[]) cache.get(pkgName);
+					if (entry == null) {
+						entry= new IPackageFragmentRoot[] {root};
+						cache.put(pkgName, entry);
+					} else {
+						IPackageFragmentRoot[] copy= new IPackageFragmentRoot[entry.length + 1];
+						System.arraycopy(entry, 0, copy, 0, entry.length);
+						copy[entry.length]= root;
+						cache.put(pkgName, copy);
+					}
 				}
 			}
 			this.allPkgFragmentsCache = cache;
@@ -206,50 +220,6 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 			this.nonJavaResources = computeNonJavaResources(project);
 		}
 		return this.nonJavaResources;
-	}
-	
-	/**
-	 * Returns all the package fragments found in the specified
-	 * package fragment roots. Make sure the returned fragments have the given
-	 * project as great parent. This ensures the name lookup will not refer to another
-	 * project (through jar package fragment roots)
-	 */
-	private IPackageFragment[] getPackageFragmentsInRoots(IPackageFragmentRoot[] roots, IJavaProject project) {
-
-		// The following code assumes that all the roots have the given project as their parent
-		ArrayList frags = new ArrayList();
-		for (int i = 0; i < roots.length; i++) {
-			IPackageFragmentRoot root = roots[i];
-			try {
-				IJavaElement[] pkgs = root.getChildren();
-
-				/* 2 jar package fragment roots can be equals but not belonging 
-				   to the same project. As a result, they share the same element info.
-				   So this jar package fragment root could get the children of
-				   another jar package fragment root.
-				   The following code ensures that the children of this jar package
-				   fragment root have the given project as a great parent.
-				 */
-				int length = pkgs.length;
-				if (length == 0) continue;
-				if (pkgs[0].getParent().getParent().equals(project)) {
-					// the children have the right parent, simply add them to the list
-					for (int j = 0; j < length; j++) {
-						frags.add(pkgs[j]);
-					}
-				} else {
-					// create a new handle with the root as the parent
-					for (int j = 0; j < length; j++) {
-						frags.add(root.getPackageFragment(pkgs[j].getElementName()));
-					}
-				}
-			} catch (JavaModelException e) {
-				// do nothing
-			}
-		}
-		IPackageFragment[] fragments = new IPackageFragment[frags.size()];
-		frags.toArray(fragments);
-		return fragments;
 	}
 
 	/*
@@ -271,11 +241,25 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 	}
 	
 	/*
+	 * Creates a new name lookup for this project info. 
+	 * The given project is assumed to be the handle of this info.
+	 * This name lookup first looks in the given working copies.
+	 */
+	synchronized NameLookup newNameLookup(JavaProject project, ICompilationUnit[] workingCopies) {
+		// note that this method has to be synchronized so that the field pathToResolvedEntries is not reset while computing the roots and package fragments
+		// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=79766)
+		return new NameLookup(getAllPackageFragmentRoots(project), getAllPackageFragments(project), workingCopies, this.pathToResolvedEntries);
+	}
+	
+	/*
 	 * Reset the package fragment roots and package fragment caches
 	 */
-	void resetCaches() {
+	synchronized void resetCaches() {
+		// note that this method has to be synchronized so that the field pathToResolvedEntries is not reset while computing the roots and package fragments
+		// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=79766)
 		this.allPkgFragmentRootsCache = null;
 		this.allPkgFragmentsCache = null;
+		this.pathToResolvedEntries = null;
 	}
 	
 	/**

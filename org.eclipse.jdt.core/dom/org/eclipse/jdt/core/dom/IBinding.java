@@ -11,6 +11,8 @@
 
 package org.eclipse.jdt.core.dom;
 
+import org.eclipse.jdt.core.IJavaElement;
+
 /**
  * A binding represents a named entity in the Java language. The world of 
  * bindings provides an integrated picture of the structure of the program as
@@ -124,6 +126,16 @@ public interface IBinding {
 	public boolean isSynthetic();
 	
 	/**
+	 * Returns the Java element that corresponds to this binding.
+	 * Returns <code>null</code> if this binding has no corresponding Java element.
+	 * 
+	 * @return the Java element that corresponds to this binding, 
+	 * 		or <code>null</code> if none
+	 * @since 3.1
+	 */
+	public IJavaElement getJavaElement();
+	
+	/**
 	 * Returns the key for this binding.
 	 * <p>
 	 * Within a connected cluster of bindings (for example, all bindings 
@@ -157,10 +169,27 @@ public interface IBinding {
 	 *   block relative to its parent, the key of its method</li>
 	 * <li>anonymous types - the occurence count of the anonymous 
 	 *   type relative to its declaring type, the key of its declaring type</li>
+	 * <li>enum types - treated like classes</li>
+	 * <li>annotation types - treated like interfaces</li>
+	 * <li>type variables - the name of the type variable and 
+	 * the key of the generic type or generic method that declares that
+	 * type variable</li>
+	 * <li>wildcard types - the key of the optional wildcard type bound</li>
+	 * <li>generic type instances - the key of the generic type and the keys
+	 * of the type arguments used to instantiate it, and whether the
+	 * instance is explicit (a parameterized type reference) or
+	 * implicit (a raw type reference)</li>
+	 * <li>generic method instances - the key of the generic method and the keys
+	 * of the type arguments used to instantiate it, and whether the
+	 * instance is explicit (a parameterized method reference) or
+	 * implicit (a raw method reference)</li>
+	 * <li>members of generic type instances - the key of the generic type
+	 * instance and the key of the corresponding member in the generic
+	 * type</li>
 	 * </ul>
 	 * </p>
 	 * 
-	 * @return the key for this binding, or <code>null</code> if none
+	 * @return the key for this binding
 	 */
 	public String getKey();
 	
@@ -170,13 +199,31 @@ public interface IBinding {
 	 * bindings, each binding is represented by a distinct object. However,
 	 * between different clusters of bindings, the binding objects may or may
 	 * not be different; in these cases, the client should compare bindings
-	 * via their binding keys (<code>getKey</code>) if available.
+	 * using {@link #isEqualTo(IBinding)}, which checks their keys.
 	 * 
 	 * @param obj {@inheritDoc}
 	 * @return {@inheritDoc}
-	 * @see #getKey()
 	 */
 	public boolean equals(Object obj);
+	
+	/**
+	 * Returns whether this binding has the same key as that of the given
+	 * binding. Within the context of a single cluster of bindings, each
+	 * binding is represented by a distinct object. However, between
+	 * different clusters of bindings, the binding objects may or may
+	 * not be different objects; in these cases, the binding keys
+	 * are used where available.
+	 * 
+	 * @param binding the other binding, or <code>null</code>
+	 * @return <code>true</code> if the given binding is the identical
+	 * object as this binding, or if the keys of both bindings are the
+	 * same string; <code>false</code> if the given binding is
+	 * <code>null</code>, or if the bindings do not have the same key,
+	 * or if one or both of the bindings have no key
+	 * @see #getKey()
+	 * @since 3.1
+	 */
+	public boolean isEqualTo(IBinding binding);
 	
 	/**
 	 * Returns a string representation of this binding suitable for debugging

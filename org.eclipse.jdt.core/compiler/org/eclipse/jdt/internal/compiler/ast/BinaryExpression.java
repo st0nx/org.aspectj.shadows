@@ -96,8 +96,8 @@ public class BinaryExpression extends OperatorExpression {
 		switch ((bits & OperatorMASK) >> OperatorSHIFT) {
 			case PLUS :
 				switch (bits & ReturnTypeIDMASK) {
-					case T_String :
-						codeStream.generateStringAppend(currentScope, left, right);
+					case T_JavaLangString :
+						codeStream.generateStringConcatenationAppend(currentScope, left, right);
 						if (!valueRequired)
 							codeStream.pop();
 						break;
@@ -699,7 +699,7 @@ public class BinaryExpression extends OperatorExpression {
 		Label falseLabel,
 		boolean valueRequired) {
 
-		int promotedTypeID = left.implicitConversion >> 4;
+		int promotedTypeID = (left.implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4;
 		// both sides got promoted in the same way
 		if (promotedTypeID == T_int) {
 			// 0 > x
@@ -813,7 +813,7 @@ public class BinaryExpression extends OperatorExpression {
 		Label falseLabel,
 		boolean valueRequired) {
 
-		int promotedTypeID = left.implicitConversion >> 4;
+		int promotedTypeID = (left.implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4;
 		// both sides got promoted in the same way
 		if (promotedTypeID == T_int) {
 			// 0 >= x
@@ -927,7 +927,7 @@ public class BinaryExpression extends OperatorExpression {
 		Label falseLabel,
 		boolean valueRequired) {
 
-		int promotedTypeID = left.implicitConversion >> 4;
+		int promotedTypeID = (left.implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4;
 		// both sides got promoted in the same way
 		if (promotedTypeID == T_int) {
 			// 0 < x
@@ -1037,7 +1037,7 @@ public class BinaryExpression extends OperatorExpression {
 		Label falseLabel,
 		boolean valueRequired) {
 
-		int promotedTypeID = left.implicitConversion >> 4;
+		int promotedTypeID = (left.implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4;
 		// both sides got promoted in the same way
 		if (promotedTypeID == T_int) {
 			// 0 <= x
@@ -1152,7 +1152,7 @@ public class BinaryExpression extends OperatorExpression {
 		boolean valueRequired) {
 			
 		Constant condConst;
-		if ((left.implicitConversion & 0xF) == T_boolean) {
+		if ((left.implicitConversion & COMPILE_TYPE_MASK) == T_boolean) {
 			if ((condConst = left.optimizedBooleanConstant()) != NotAConstant) {
 				if (condConst.booleanValue() == true) {
 					// <something equivalent to true> & x
@@ -1290,7 +1290,7 @@ public class BinaryExpression extends OperatorExpression {
 		boolean valueRequired) {
 			
 		Constant condConst;
-		if ((left.implicitConversion & 0xF) == T_boolean) {
+		if ((left.implicitConversion & COMPILE_TYPE_MASK) == T_boolean) {
 			if ((condConst = left.optimizedBooleanConstant()) != NotAConstant) {
 				if (condConst.booleanValue() == true) {
 					// <something equivalent to true> | x
@@ -1426,7 +1426,7 @@ public class BinaryExpression extends OperatorExpression {
 		boolean valueRequired) {
 			
 		Constant condConst;
-		if ((left.implicitConversion & 0xF) == T_boolean) {
+		if ((left.implicitConversion & COMPILE_TYPE_MASK) == T_boolean) {
 			if ((condConst = left.optimizedBooleanConstant()) != NotAConstant) {
 				if (condConst.booleanValue() == true) {
 					// <something equivalent to true> ^ x
@@ -1525,7 +1525,7 @@ public class BinaryExpression extends OperatorExpression {
 		codeStream.updateLastRecordedEndPC(codeStream.position);					
 	}
 	
-	public void generateOptimizedStringBuffer(
+	public void generateOptimizedStringConcatenation(
 		BlockScope blockScope,
 		CodeStream codeStream,
 		int typeID) {
@@ -1536,30 +1536,30 @@ public class BinaryExpression extends OperatorExpression {
 		 */
 
 		if ((((bits & OperatorMASK) >> OperatorSHIFT) == PLUS)
-			&& ((bits & ReturnTypeIDMASK) == T_String)) {
+			&& ((bits & ReturnTypeIDMASK) == T_JavaLangString)) {
 			if (constant != NotAConstant) {
 				codeStream.generateConstant(constant, implicitConversion);
-				codeStream.invokeStringBufferAppendForType(implicitConversion & 0xF);
+				codeStream.invokeStringConcatenationAppendForType(implicitConversion & COMPILE_TYPE_MASK);
 			} else {
 				int pc = codeStream.position;
-				left.generateOptimizedStringBuffer(
+				left.generateOptimizedStringConcatenation(
 					blockScope,
 					codeStream,
-					left.implicitConversion & 0xF);
+					left.implicitConversion & COMPILE_TYPE_MASK);
 				codeStream.recordPositionsFrom(pc, left.sourceStart);
 				pc = codeStream.position;
-				right.generateOptimizedStringBuffer(
+				right.generateOptimizedStringConcatenation(
 					blockScope,
 					codeStream,
-					right.implicitConversion & 0xF);
+					right.implicitConversion & COMPILE_TYPE_MASK);
 				codeStream.recordPositionsFrom(pc, right.sourceStart);
 			}
 		} else {
-			super.generateOptimizedStringBuffer(blockScope, codeStream, typeID);
+			super.generateOptimizedStringConcatenation(blockScope, codeStream, typeID);
 		}
 	}
 	
-	public void generateOptimizedStringBufferCreation(
+	public void generateOptimizedStringConcatenationCreation(
 		BlockScope blockScope,
 		CodeStream codeStream,
 		int typeID) {
@@ -1570,29 +1570,29 @@ public class BinaryExpression extends OperatorExpression {
 		 */
 
 		if ((((bits & OperatorMASK) >> OperatorSHIFT) == PLUS)
-			&& ((bits & ReturnTypeIDMASK) == T_String)) {
+			&& ((bits & ReturnTypeIDMASK) == T_JavaLangString)) {
 			if (constant != NotAConstant) {
-				codeStream.newStringBuffer(); // new: java.lang.StringBuffer
+				codeStream.newStringContatenation(); // new: java.lang.StringBuffer
 				codeStream.dup();
 				codeStream.ldc(constant.stringValue());
-				codeStream.invokeStringBufferStringConstructor();
+				codeStream.invokeStringConcatenationStringConstructor();
 				// invokespecial: java.lang.StringBuffer.<init>(Ljava.lang.String;)V
 			} else {
 				int pc = codeStream.position;
-				left.generateOptimizedStringBufferCreation(
+				left.generateOptimizedStringConcatenationCreation(
 					blockScope,
 					codeStream,
-					left.implicitConversion & 0xF);
+					left.implicitConversion & COMPILE_TYPE_MASK);
 				codeStream.recordPositionsFrom(pc, left.sourceStart);
 				pc = codeStream.position;
-				right.generateOptimizedStringBuffer(
+				right.generateOptimizedStringConcatenation(
 					blockScope,
 					codeStream,
-					right.implicitConversion & 0xF);
+					right.implicitConversion & COMPILE_TYPE_MASK);
 				codeStream.recordPositionsFrom(pc, right.sourceStart);
 			}
 		} else {
-			super.generateOptimizedStringBufferCreation(blockScope, codeStream, typeID);
+			super.generateOptimizedStringConcatenationCreation(blockScope, codeStream, typeID);
 		}
 	}
 	
@@ -1670,14 +1670,27 @@ public class BinaryExpression extends OperatorExpression {
 			constant = Constant.NotAConstant;
 			return null;
 		}
-		int leftTypeId = leftType.id;
-		int rightTypeId = rightType.id;
-		if (leftTypeId > 15
-			|| rightTypeId > 15) { // must convert String + Object || Object + String
-			if (leftTypeId == T_String) {
-				rightTypeId = T_Object;
-			} else if (rightTypeId == T_String) {
-				leftTypeId = T_Object;
+
+		int leftTypeID = leftType.id;
+		int rightTypeID = rightType.id;
+
+		// autoboxing support
+		LookupEnvironment env = scope.environment();
+		boolean use15specifics = env.options.sourceLevel >= JDK1_5;
+		if (use15specifics) {
+			if (!leftType.isBaseType() && rightTypeID != T_JavaLangString && rightTypeID != T_null) {
+				leftTypeID = env.computeBoxingType(leftType).id;
+			}
+			if (!rightType.isBaseType() && leftTypeID != T_JavaLangString && leftTypeID != T_null) {
+				rightTypeID = env.computeBoxingType(rightType).id;
+			}
+		}
+		if (leftTypeID > 15
+			|| rightTypeID > 15) { // must convert String + Object || Object + String
+			if (leftTypeID == T_JavaLangString) {
+				rightTypeID = T_JavaLangObject;
+			} else if (rightTypeID == T_JavaLangString) {
+				leftTypeID = T_JavaLangObject;
 			} else {
 				constant = Constant.NotAConstant;
 				scope.problemReporter().invalidOperator(this, leftType, rightType);
@@ -1685,14 +1698,17 @@ public class BinaryExpression extends OperatorExpression {
 			}
 		}
 		if (((bits & OperatorMASK) >> OperatorSHIFT) == PLUS) {
-			if (leftTypeId == T_String
-					&& rightType.isArrayType()
-					&& ((ArrayBinding) rightType).elementsType(scope) == CharBinding) {
-				scope.problemReporter().signalNoImplicitStringConversionForCharArrayExpression(right);
-					} else if (rightTypeId == T_String
-							&& leftType.isArrayType()
-							&& ((ArrayBinding) leftType).elementsType(scope) == CharBinding) {
-				scope.problemReporter().signalNoImplicitStringConversionForCharArrayExpression(left);
+			if (leftTypeID == T_JavaLangString) {
+				this.left.computeConversion(scope, leftType, leftType);
+				if (rightType.isArrayType() && ((ArrayBinding) rightType).elementsType() == CharBinding) {
+					scope.problemReporter().signalNoImplicitStringConversionForCharArrayExpression(right);
+				}
+			}
+			if (rightTypeID == T_JavaLangString) {
+				this.right.computeConversion(scope, rightType, rightType);
+				if (leftType.isArrayType() && ((ArrayBinding) leftType).elementsType() == CharBinding) {
+					scope.problemReporter().signalNoImplicitStringConversionForCharArrayExpression(left);
+				}
 			}
 		}
 
@@ -1704,10 +1720,10 @@ public class BinaryExpression extends OperatorExpression {
 		// Don't test for result = 0. If it is zero, some more work is done.
 		// On the one hand when it is not zero (correct code) we avoid doing the test	
 		int operator = (bits & OperatorMASK) >> OperatorSHIFT;
-		int operatorSignature = OperatorSignatures[operator][(leftTypeId << 4) + rightTypeId];
-		left.implicitConversion = operatorSignature >>> 12;
-		right.implicitConversion = (operatorSignature >>> 4) & 0x000FF;
+		int operatorSignature = OperatorSignatures[operator][(leftTypeID << 4) + rightTypeID];
 
+		left.computeConversion(	scope, 	TypeBinding.wellKnownType(scope, (operatorSignature >>> 16) & 0x0000F), leftType);
+		right.computeConversion(scope, TypeBinding.wellKnownType(scope, (operatorSignature >>> 8) & 0x0000F), rightType);
 		bits |= operatorSignature & 0xF;
 		switch (operatorSignature & 0xF) { // record the current ReturnTypeID
 			// only switch on possible result type.....
@@ -1732,7 +1748,7 @@ public class BinaryExpression extends OperatorExpression {
 			case T_long :
 				this.resolvedType = LongBinding;
 				break;
-			case T_String :
+			case T_JavaLangString :
 				this.resolvedType = scope.getJavaLangString();
 				break;
 			default : //error........
@@ -1743,10 +1759,10 @@ public class BinaryExpression extends OperatorExpression {
 
 		// check need for operand cast
 		if (leftIsCast || rightIsCast) {
-			CastExpression.checkNeedForArgumentCasts(scope, operator, operatorSignature, left, leftTypeId, leftIsCast, right, rightTypeId, rightIsCast);
+			CastExpression.checkNeedForArgumentCasts(scope, operator, operatorSignature, left, leftTypeID, leftIsCast, right, rightTypeID, rightIsCast);
 		}
 		// compute the constant when valid
-		computeConstant(scope, leftTypeId, rightTypeId);
+		computeConstant(scope, leftTypeID, rightTypeID);
 		return this.resolvedType;
 	}
 

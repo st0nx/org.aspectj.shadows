@@ -17,6 +17,7 @@ import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 public class JavadocAllocationExpression extends AllocationExpression {
 
 	public int tagSourceStart, tagSourceEnd;
+	public int tagValue;
 	public boolean superAccess = false;
 	
 	public JavadocAllocationExpression(long pos) {
@@ -37,7 +38,7 @@ public class JavadocAllocationExpression extends AllocationExpression {
 		} else if (scope.kind == Scope.CLASS_SCOPE) {
 			this.resolvedType = this.type.resolveType((ClassScope)scope);
 		} else {
-			this.resolvedType = this.type.resolveType((BlockScope)scope);
+			this.resolvedType = this.type.resolveType((BlockScope)scope, true /* check bounds*/);
 		}
 
 		// buffering the arguments' types
@@ -85,7 +86,7 @@ public class JavadocAllocationExpression extends AllocationExpression {
 		if (isMethodUseDeprecated(this.binding, scope)) {
 			scope.problemReporter().javadocDeprecatedMethod(this.binding, this, scope.getDeclarationModifiers());
 		}
-
+		// TODO (frederic) add support for unsafe type operation warning
 		return allocationType;
 	}
 	

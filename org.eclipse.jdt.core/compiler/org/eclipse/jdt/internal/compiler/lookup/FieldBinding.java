@@ -10,20 +10,21 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 
 public class FieldBinding extends VariableBinding {
 	public ReferenceBinding declaringClass;
 protected FieldBinding() {
+	super(null, null, 0, null);
 	// for creating problem field
 }
 public FieldBinding(char[] name, TypeBinding type, int modifiers, ReferenceBinding declaringClass, Constant constant) {
-	this.modifiers = modifiers;
-	this.type = type;
-	this.name = name;
+	super(name, type, modifiers, constant);
 	this.declaringClass = declaringClass;
-	this.constant = constant;
 
 	// propagate the deprecated modifier
 	if (this.declaringClass != null)
@@ -36,19 +37,26 @@ public FieldBinding(FieldDeclaration field, TypeBinding type, int modifiers, Ref
 }
 // special API used to change field declaring class for runtime visibility check
 public FieldBinding(FieldBinding initialFieldBinding, ReferenceBinding declaringClass) {
-	this.modifiers = initialFieldBinding.modifiers;
-	this.type = initialFieldBinding.type;
-	this.name = initialFieldBinding.name;
+	super(initialFieldBinding.name, initialFieldBinding.type, initialFieldBinding.modifiers, initialFieldBinding.constant());
 	this.declaringClass = declaringClass;
-	this.constant = initialFieldBinding.constant;
 	this.id = initialFieldBinding.id;
 }
 /* API
 * Answer the receiver's binding type from Binding.BindingID.
 */
 
-public final int bindingType() {
+public final int kind() {
 	return FIELD;
+}
+/* Answer true if the receiver is visible to the invocationPackage.
+*/
+
+public final boolean canBeSeenBy(PackageBinding invocationPackage) {
+	if (isPublic()) return true;
+	if (isPrivate()) return false;
+
+	// isProtected() or isDefault()
+	return invocationPackage == declaringClass.getPackage();
 }
 /* Answer true if the receiver is visible to the type provided by the scope.
 * InvocationSite implements isSuperAccess() to provide additional information
@@ -101,7 +109,15 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 	if (isPrivate()) {
 		// answer true if the receiverType is the declaringClass
 		// AND the invocationType and the declaringClass have a common enclosingType
-		if (receiverType != declaringClass) return false;
+		receiverCheck: {
+			if (receiverType != declaringClass) {
+				// special tolerance for type variable direct bounds
+				if (receiverType.isTypeVariable() && ((TypeVariableBinding) receiverType).isErasureBoundTo(declaringClass.erasure())) {
+					break receiverCheck;
+				}
+				return false;
+			}
+		}
 
 		if (invocationType != declaringClass) {
 			ReferenceBinding outerInvocationType = invocationType;
@@ -111,7 +127,7 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 				temp = temp.enclosingType();
 			}
 
-			ReferenceBinding outerDeclaringClass = declaringClass;
+			ReferenceBinding outerDeclaringClass = (ReferenceBinding)declaringClass.erasure();
 			temp = outerDeclaringClass.enclosingType();
 			while (temp != null) {
 				outerDeclaringClass = temp;
@@ -136,8 +152,45 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 	} while ((currentType = currentType.superclass()) != null);
 	return false;
 }
+/*
+ * declaringUniqueKey dot fieldName
+ * p.X { X<T> x} --> Lp/X;.x;
+ */
+public char[] computeUniqueKey() {
+	char[] declaringKey = this.declaringClass == null /*case of length field for an array*/ ? CharOperation.NO_CHAR : this.declaringClass.computeUniqueKey();
+	int declaringLength = declaringKey.length;
+	int nameLength = this.name.length;
+	char[] uniqueKey = new char[declaringLength + 1 + nameLength];
+	System.arraycopy(declaringKey, 0, uniqueKey, 0, declaringLength);
+	uniqueKey[declaringLength] = '.';
+	System.arraycopy(this.name, 0, uniqueKey, declaringLength + 1, nameLength);
+	return uniqueKey;
+}
+/**
+ * X<T> t   -->  LX<TT;>;
+ */
+public char[] genericSignature() {
+    if ((this.modifiers & AccGenericSignature) == 0) return null;
+    return this.type.genericTypeSignature();
+}
+
 public final int getAccessFlags() {
 	return modifiers & AccJustFlag;
+}
+
+/**
+ * Compute the tagbits for standard annotations. For source types, these could require
+ * lazily resolving corresponding annotation nodes, in case of forward references.
+ * @see org.eclipse.jdt.internal.compiler.lookup.Binding#getAnnotationTagBits()
+ */
+public long getAnnotationTagBits() {
+	FieldBinding originalField = this.original();
+	if ((originalField.tagBits & TagBits.AnnotationResolved) == 0 && originalField.declaringClass instanceof SourceTypeBinding) {
+		TypeDeclaration typeDecl = ((SourceTypeBinding)originalField.declaringClass).scope.referenceContext;
+		FieldDeclaration fieldDecl = typeDecl.declarationOf(originalField);
+		ASTNode.resolveAnnotations(isStatic() ? typeDecl.staticInitializerScope : typeDecl.initializerScope, fieldDecl.annotations, originalField);
+	}
+	return originalField.tagBits;
 }
 
 /* Answer true if the receiver has default visibility
@@ -206,5 +259,27 @@ public final boolean isViewedAsDeprecated() {
 
 public final boolean isVolatile() {
 	return (modifiers & AccVolatile) != 0;
+}
+/**
+ * Returns the original field (as opposed to parameterized instances)
+ */
+public FieldBinding original() {
+	return this;
+}
+public FieldDeclaration sourceField() {
+	SourceTypeBinding sourceType;
+	try {
+		sourceType = (SourceTypeBinding) declaringClass;
+	} catch (ClassCastException e) {
+		return null;		
+	}
+
+	FieldDeclaration[] fields = sourceType.scope.referenceContext.fields;
+	if (fields != null) {
+		for (int i = fields.length; --i >= 0;)
+			if (this == fields[i].binding)
+				return fields[i];
+	}
+	return null;		
 }
 }

@@ -12,6 +12,7 @@ package org.eclipse.jdt.internal.core.search;
 
 import org.eclipse.jdt.core.search.SearchParticipant;
 import org.eclipse.jdt.core.search.SearchPattern;
+import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
 
 /**
  * TODO add spec
@@ -19,6 +20,6 @@ import org.eclipse.jdt.core.search.SearchPattern;
 public abstract class IndexQueryRequestor {
 	
 	// answer false if requesting cancel
-	public abstract boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant);
+	public abstract boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant, AccessRestriction access);
 	
 }

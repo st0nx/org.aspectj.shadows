@@ -12,6 +12,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.*;
+import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class NullLiteral extends MagicLiteral {
@@ -37,14 +38,20 @@ public class NullLiteral extends MagicLiteral {
 	 */ 
 	public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean valueRequired) {
 		int pc = codeStream.position;
-		if (valueRequired)
+		if (valueRequired) {
 			codeStream.aconst_null();
+			codeStream.generateImplicitConversion(this.implicitConversion);
+		}
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 	public TypeBinding literalType(BlockScope scope) {
 		return NullBinding;
 	}
 
+	public int nullStatus(FlowInfo flowInfo) {
+		return FlowInfo.NULL;
+	}
+	
 	/**
 	 * 
 	 */

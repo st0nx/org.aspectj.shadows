@@ -11,6 +11,7 @@
 
 package org.eclipse.jdt.core.dom;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -34,6 +35,12 @@ import java.util.List;
  *    { ExtendedModifier } Type VariableDeclarationFragment 
  *        { <b>,</b> VariableDeclarationFragment } <b>;</b>
  * </pre>
+ * <p>
+ * Note: This type of node is a convenience of sorts. 
+ * An equivalent way to represent the same statement is to use
+ * a <code>VariableDeclarationExpression</code>
+ * wrapped in an <code>ExpressionStatement</code>.
+ * </p>
  * 
  * @since 2.0
  */
@@ -85,17 +92,19 @@ public class VariableDeclarationStatement extends Statement {
 	private static final List PROPERTY_DESCRIPTORS_3_0;
 	
 	static {
-		createPropertyList(VariableDeclarationStatement.class);
-		addProperty(MODIFIERS_PROPERTY);
-		addProperty(TYPE_PROPERTY);
-		addProperty(FRAGMENTS_PROPERTY);
-		PROPERTY_DESCRIPTORS_2_0 = reapPropertyList();
+		List propertyList = new ArrayList(4);
+		createPropertyList(VariableDeclarationStatement.class, propertyList);
+		addProperty(MODIFIERS_PROPERTY, propertyList);
+		addProperty(TYPE_PROPERTY, propertyList);
+		addProperty(FRAGMENTS_PROPERTY, propertyList);
+		PROPERTY_DESCRIPTORS_2_0 = reapPropertyList(propertyList);
 		
-		createPropertyList(VariableDeclarationStatement.class);
-		addProperty(MODIFIERS2_PROPERTY);
-		addProperty(TYPE_PROPERTY);
-		addProperty(FRAGMENTS_PROPERTY);
-		PROPERTY_DESCRIPTORS_3_0 = reapPropertyList();
+		propertyList = new ArrayList(4);
+		createPropertyList(VariableDeclarationStatement.class, propertyList);
+		addProperty(MODIFIERS2_PROPERTY, propertyList);
+		addProperty(TYPE_PROPERTY, propertyList);
+		addProperty(FRAGMENTS_PROPERTY, propertyList);
+		PROPERTY_DESCRIPTORS_3_0 = reapPropertyList(propertyList);
 	}
 
 	/**

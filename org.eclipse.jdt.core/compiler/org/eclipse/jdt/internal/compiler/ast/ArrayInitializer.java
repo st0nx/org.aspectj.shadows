@@ -47,7 +47,7 @@ public class ArrayInitializer extends Expression {
 		int pc = codeStream.position;
 		int expressionLength = (expressions == null) ? 0: expressions.length;
 		codeStream.generateInlinedValue(expressionLength);
-		codeStream.newArray(currentScope, binding);
+		codeStream.newArray(binding);
 		if (expressions != null) {
 			// binding is an ArrayType, so I can just deal with the dimension
 			int elementsTypeID = binding.dimensions > 1 ? -1 : binding.leafComponentType.id;
@@ -101,7 +101,9 @@ public class ArrayInitializer extends Expression {
 				}
 			}
 		}
-		if (!valueRequired) {
+		if (valueRequired) {
+			codeStream.generateImplicitConversion(this.implicitConversion);
+		} else {
 			codeStream.pop();
 		}
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
@@ -133,12 +135,19 @@ public class ArrayInitializer extends Expression {
 	
 		// this method is recursive... (the test on isArrayType is the stop case)
 	
-		constant = NotAConstant;
+		this.constant = NotAConstant;
+		
+		// allow new List<?>[5]
+		TypeBinding leafComponentType = expectedTb.leafComponentType();
+		if (leafComponentType.isBoundParameterizedType() || leafComponentType.isGenericType() || leafComponentType.isTypeVariable()) {
+		    scope.problemReporter().illegalGenericArray(leafComponentType, this);
+		}
+			
 		if (expectedTb.isArrayType()) {
 			binding = (ArrayBinding) expectedTb;
 			if (expressions == null)
 				return binding;
-			TypeBinding expectedElementsTb = binding.elementsType(scope);
+			TypeBinding expectedElementsTb = binding.elementsType();
 			if (expectedElementsTb.isBaseType()) {
 				for (int i = 0, length = expressions.length; i < length; i++) {
 					Expression expression = expressions[i];
@@ -150,12 +159,14 @@ public class ArrayInitializer extends Expression {
 						return null;
 	
 					// Compile-time conversion required?
-					if (expression.isConstantValueOfTypeAssignableToType(expressionTb, expectedElementsTb)) {
-						expression.implicitWidening(expectedElementsTb, expressionTb);
-					} else if (BaseTypeBinding.isWidening(expectedElementsTb.id, expressionTb.id)) {
-						expression.implicitWidening(expectedElementsTb, expressionTb);
+					if (expectedElementsTb != expressionTb) // must call before computeConversion() and typeMismatchError()
+						scope.compilationUnitScope().recordTypeConversion(expectedElementsTb, expressionTb);
+					if (expression.isConstantValueOfTypeAssignableToType(expressionTb, expectedElementsTb)
+						|| BaseTypeBinding.isWidening(expectedElementsTb.id, expressionTb.id)
+						|| scope.isBoxingCompatibleWith(expressionTb, expectedElementsTb)) {
+							expression.computeConversion(scope, expectedElementsTb, expressionTb);
 					} else {
-						scope.problemReporter().typeMismatchErrorActualTypeExpectedType(expression, expressionTb, expectedElementsTb);
+						scope.problemReporter().typeMismatchError(expressionTb, expectedElementsTb, expression);
 						return null;
 					}
 				}
@@ -189,8 +200,8 @@ public class ArrayInitializer extends Expression {
 			}
 		}
 		if (leafElementType != null) {
-			TypeBinding probableTb = scope.createArray(leafElementType, dim);
-			scope.problemReporter().typeMismatchErrorActualTypeExpectedType(this, probableTb, expectedTb);
+			TypeBinding probableTb = scope.createArrayType(leafElementType, dim);
+			scope.problemReporter().typeMismatchError(probableTb, expectedTb, this);
 		}
 		return null;
 	}

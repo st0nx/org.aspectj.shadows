@@ -21,13 +21,13 @@ import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
+import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.index.Index;
 import org.eclipse.jdt.internal.core.search.JavaWorkspaceScope;
 import org.eclipse.jdt.internal.core.search.PatternSearchJob;
 import org.eclipse.jdt.internal.core.search.processing.IJob;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
-import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.core.util.Util;
 
 public class IndexManager extends JobManager implements IIndexConstants {
@@ -244,10 +244,31 @@ private SimpleLookupTable getIndexStates() {
 	char[] savedIndexNames = readIndexState();
 	if (savedIndexNames.length > 0) {
 		char[][] names = CharOperation.splitOn('\n', savedIndexNames);
-		for (int i = 0, l = names.length; i < l; i++) {
-			char[] name = names[i];
-			if (name.length > 0)
-				this.indexStates.put(new String(name), SAVED_STATE);
+		if (names.length > 0) {
+			// check to see if workspace has moved, if so then do not trust saved indexes
+			File indexesDirectory = new File(getJavaPluginWorkingLocation().toOSString());
+			char[] dirName = indexesDirectory.getAbsolutePath().toCharArray();
+			int delimiterPos = dirName.length;
+			if (CharOperation.match(names[0], 0, delimiterPos, dirName, 0, delimiterPos, true)) {
+				for (int i = 0, l = names.length; i < l; i++) {
+					char[] name = names[i];
+					if (name.length > 0)
+						this.indexStates.put(new String(name), SAVED_STATE);
+				}
+			} else {
+				savedIndexNamesFile.delete(); // forget saved indexes & delete each index file
+				File[] files = indexesDirectory.listFiles();
+				if (files != null) {
+					for (int i = 0, l = files.length; i < l; i++) {
+						String fileName = files[i].getAbsolutePath();
+						if (fileName.toLowerCase().endsWith(".index")) { //$NON-NLS-1$
+							if (VERBOSE)
+								Util.verbose("Deleting index file " + files[i]); //$NON-NLS-1$
+							files[i].delete();
+						}
+					}
+				}
+			}
 		}
 	}
 	return this.indexStates;
@@ -256,14 +277,9 @@ private IPath getJavaPluginWorkingLocation() {
 	if (this.javaPluginLocation != null) return this.javaPluginLocation;
 
 	IPath stateLocation = JavaCore.getPlugin().getStateLocation();
-	
-	// TODO (jerome) workaround for https://bugs.eclipse.org/bugs/show_bug.cgi?id=62267
-	String device = stateLocation.getDevice();
-	if (device != null && device.charAt(0) == '/') stateLocation = stateLocation.setDevice(device.substring(1));
-	
 	return this.javaPluginLocation = stateLocation;
 }
-public void indexDocument(SearchDocument searchDocument, SearchParticipant searchParticipant, Index index, IPath indexLocation) throws IOException {
+public void indexDocument(SearchDocument searchDocument, SearchParticipant searchParticipant, Index index, IPath indexLocation) {
 	try {
 		((InternalSearchDocument) searchDocument).index = index;
 		searchParticipant.indexDocument(searchDocument, indexLocation);
@@ -297,9 +313,8 @@ public void indexAll(IProject project) {
 
 	// check if the same request is not already in the queue
 	IndexRequest request = new IndexAllProject(project, this);
-	for (int i = this.jobEnd; i > this.jobStart; i--) // NB: don't check job at jobStart, as it may have already started (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=32488)
-		if (request.equals(this.awaitingJobs[i])) return;
-	this.request(request);
+	if (!isJobWaiting(request))
+		this.request(request);
 }
 /**
  * Trigger addition of a library to an index
@@ -326,9 +341,8 @@ public void indexLibrary(IPath path, IProject requestingProject) {
 	}
 
 	// check if the same request is not already in the queue
-	for (int i = this.jobEnd; i > this.jobStart; i--)  // NB: don't check job at jobStart, as it may have already started (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=32488)
-		if (request.equals(this.awaitingJobs[i])) return;
-	this.request(request);
+	if (!isJobWaiting(request))
+		this.request(request);
 }
 /**
  * Index the content of the given source folder.
@@ -336,10 +350,9 @@ public void indexLibrary(IPath path, IProject requestingProject) {
 public void indexSourceFolder(JavaProject javaProject, IPath sourceFolder, char[][] inclusionPatterns, char[][] exclusionPatterns) {
 	IProject project = javaProject.getProject();
 	if (this.jobEnd > this.jobStart) {
-		// check if a job to index the project is not already in the queue
+		// skip it if a job to index the project is already in the queue
 		IndexRequest request = new IndexAllProject(project, this);
-		for (int i = this.jobEnd; i > this.jobStart; i--) // NB: don't check job at jobStart, as it may have already started (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=32488)
-			if (request.equals(this.awaitingJobs[i])) return;
+		if (isJobWaiting(request)) return;
 	}
 
 	this.request(new AddFolderToIndex(sourceFolder, project, inclusionPatterns, exclusionPatterns, this));
@@ -478,10 +491,9 @@ public synchronized void removeIndexFamily(IPath path) {
 public void removeSourceFolderFromIndex(JavaProject javaProject, IPath sourceFolder, char[][] inclusionPatterns, char[][] exclusionPatterns) {
 	IProject project = javaProject.getProject();
 	if (this.jobEnd > this.jobStart) {
-		// check if a job to index the project is not already in the queue
+		// skip it if a job to index the project is already in the queue
 		IndexRequest request = new IndexAllProject(project, this);
-		for (int i = this.jobEnd; i > this.jobStart; i--) // NB: don't check job at jobStart, as it may have already started (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=32488)
-			if (request.equals(this.awaitingJobs[i])) return;
+		if (isJobWaiting(request)) return;
 	}
 
 	this.request(new RemoveFolderFromIndex(sourceFolder, inclusionPatterns, exclusionPatterns, project, this));
@@ -510,10 +522,12 @@ public void saveIndex(Index index) throws IOException {
 	if (this.jobEnd > this.jobStart) {
 		Object containerPath = this.indexLocations.keyForValue(indexLocation);
 		if (containerPath != null) {
-			for (int i = this.jobEnd; i > this.jobStart; i--) { // skip the current job
-				IJob job = this.awaitingJobs[i];
-				if (job instanceof IndexRequest)
-					if (((IndexRequest) job).containerPath.equals(containerPath)) return;
+			synchronized(this) {
+				for (int i = this.jobEnd; i > this.jobStart; i--) { // skip the current job
+					IJob job = this.awaitingJobs[i];
+					if (job instanceof IndexRequest)
+						if (((IndexRequest) job).containerPath.equals(containerPath)) return;
+				}
 			}
 		}
 	}
@@ -565,13 +579,13 @@ public void saveIndexes() {
 	}
 	this.needToSave = !allSaved;
 }
-public void scheduleDocumentIndexing(final SearchDocument searchDocument, IPath containerPath, final String indexLocation, final SearchParticipant searchParticipant) {
-	request(new IndexRequest(containerPath, this) {
+public void scheduleDocumentIndexing(final SearchDocument searchDocument, IPath container, final String indexLocation, final SearchParticipant searchParticipant) {
+	request(new IndexRequest(container, this) {
 		public boolean execute(IProgressMonitor progressMonitor) {
 			if (this.isCancelled || progressMonitor != null && progressMonitor.isCanceled()) return true;
 			
 			/* ensure no concurrent write access to index */
-			Index index = getIndex(containerPath, indexLocation, true, /*reuse index file*/ true /*create if none*/);
+			Index index = getIndex(this.containerPath, indexLocation, true, /*reuse index file*/ true /*create if none*/);
 			if (index == null) return true;
 			ReadWriteMonitor monitor = index.monitor;
 			if (monitor == null) return true; // index got deleted since acquired
@@ -579,12 +593,6 @@ public void scheduleDocumentIndexing(final SearchDocument searchDocument, IPath 
 			try {
 				monitor.enterWrite(); // ask permission to write
 				indexDocument(searchDocument, searchParticipant, index, new Path(indexLocation));
-			} catch (IOException e) {
-				if (JobManager.VERBOSE) {
-					Util.verbose("-> failed to index " + searchDocument.getPath() + " because of the following exception:", System.err); //$NON-NLS-1$ //$NON-NLS-2$
-					e.printStackTrace();
-				}
-				return false;
 			} finally {
 				monitor.exitWrite(); // free write lock
 			}

@@ -30,7 +30,26 @@ public FieldLocator(FieldPattern pattern) {
 
 	this.isDeclarationOfAccessedFieldsPattern = this.pattern instanceof DeclarationOfAccessedFieldsPattern;
 }
-//public int match(ASTNode node, MatchingNodeSet nodeSet) - SKIP IT
+public int match(ASTNode node, MatchingNodeSet nodeSet) {
+	int declarationsLevel = IMPOSSIBLE_MATCH;
+	if (this.pattern.findReferences) {
+		if (node instanceof ImportReference) {
+			// With static import, we can have static field reference in import reference
+			ImportReference importRef = (ImportReference) node;
+			int length = importRef.tokens.length-1;
+			if (importRef.isStatic() && !importRef.onDemand && matchesName(this.pattern.name, importRef.tokens[length])) {
+				char[][] compoundName = new char[length][];
+				System.arraycopy(importRef.tokens, 0, compoundName, 0, length);
+				FieldPattern fieldPattern = (FieldPattern) this.pattern;
+				char[] declaringType = CharOperation.concat(fieldPattern.declaringQualification, fieldPattern.declaringSimpleName, '.');
+				if (matchesName(declaringType, CharOperation.concatWith(compoundName, '.'))) {
+					declarationsLevel = ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
+				}
+			}
+		}
+	}
+	return nodeSet.addMatch(node, declarationsLevel);
+}
 //public int match(ConstructorDeclaration node, MatchingNodeSet nodeSet) - SKIP IT
 public int match(FieldDeclaration node, MatchingNodeSet nodeSet) {
 	int referencesLevel = IMPOSSIBLE_MATCH;
@@ -41,12 +60,16 @@ public int match(FieldDeclaration node, MatchingNodeSet nodeSet) {
 				referencesLevel = ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
 
 	int declarationsLevel = IMPOSSIBLE_MATCH;
-	if (this.pattern.findDeclarations)
-		if (node.isField()) // ignore field initializers
-			if (matchesName(this.pattern.name, node.name))
-				if (matchesTypeReference(((FieldPattern)this.pattern).typeSimpleName, node.type))
-					declarationsLevel = ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
-
+	if (this.pattern.findDeclarations) {
+		switch (node.getKind()) {
+			case AbstractVariableDeclaration.FIELD :
+			case AbstractVariableDeclaration.ENUM_CONSTANT :
+				if (matchesName(this.pattern.name, node.name))
+					if (matchesTypeReference(((FieldPattern)this.pattern).typeSimpleName, node.type))
+						declarationsLevel = ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
+				break;
+		}
+	}
 	return nodeSet.addMatch(node, referencesLevel >= declarationsLevel ? referencesLevel : declarationsLevel); // use the stronger match
 }
 //public int match(MethodDeclaration node, MatchingNodeSet nodeSet) - SKIP IT
@@ -56,8 +79,8 @@ public int match(FieldDeclaration node, MatchingNodeSet nodeSet) {
 
 protected int matchContainer() {
 	if (this.pattern.findReferences) {
-		// need to look almost everywhere to find in javadocs
-		return CLASS_CONTAINER | METHOD_CONTAINER | FIELD_CONTAINER;
+		// need to look everywhere to find in javadocs and static import
+		return ALL_CONTAINER;
 	}
 	return CLASS_CONTAINER;
 }
@@ -84,8 +107,23 @@ protected int matchField(FieldBinding field, boolean matchName) {
 	// look at field type only if declaring type is not specified
 	if (fieldPattern.declaringSimpleName == null) return declaringLevel;
 
-	int typeLevel = resolveLevelForType(fieldPattern.typeSimpleName, fieldPattern.typeQualification, field.type);
+	// get real field binding
+	FieldBinding fieldBinding = field;
+	if (field instanceof ParameterizedFieldBinding) {
+		fieldBinding = ((ParameterizedFieldBinding) field).originalField;
+	}
+
+	int typeLevel = resolveLevelForType(fieldBinding.type);
 	return declaringLevel > typeLevel ? typeLevel : declaringLevel; // return the weaker match
+}
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.internal.core.search.matching.PatternLocator#matchLevelAndReportImportRef(org.eclipse.jdt.internal.compiler.ast.ImportReference, org.eclipse.jdt.internal.compiler.lookup.Binding, org.eclipse.jdt.internal.core.search.matching.MatchLocator)
+ * Accept to report match of static field on static import
+ */
+protected void matchLevelAndReportImportRef(ImportReference importRef, Binding binding, MatchLocator locator) throws CoreException {
+	if (importRef.isStatic() && binding instanceof FieldBinding) {
+		super.matchLevelAndReportImportRef(importRef, binding, locator);
+	}
 }
 protected int matchReference(Reference node, MatchingNodeSet nodeSet, boolean writeOnlyAccess) {
 	if (node instanceof FieldReference) {
@@ -119,6 +157,14 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, int
 				reportDeclaration((FieldBinding)((SingleNameReference) reference).binding, locator, declPattern.knownFields);
 			}
 		}
+	} else if (reference instanceof ImportReference) {
+		ImportReference importRef = (ImportReference) reference;
+		long[] positions = importRef.sourcePositions;
+		int lastIndex = importRef.tokens.length - 1;
+		int start = (int) ((positions[lastIndex]) >>> 32);
+		int end = (int) positions[lastIndex];
+		SearchMatch match = locator.newFieldReferenceMatch(element, accuracy, start, end-start+1, importRef);
+		locator.report(match);
 	} else if (reference instanceof FieldReference) {
 		FieldReference fieldReference = (FieldReference) reference;
 		long position = fieldReference.nameSourcePosition;
@@ -149,7 +195,10 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, int
 						accuracies[indexOfFirstFieldBinding] = SearchMatch.A_ACCURATE;
 						break;
 					case INACCURATE_MATCH:
-						accuracies[indexOfFirstFieldBinding] = SearchMatch.A_INACCURATE;
+						if (fieldBinding.type.isParameterizedType() && this.pattern.isParameterized())
+							accuracies[indexOfFirstFieldBinding] = refineAccuracy(SearchMatch.A_INACCURATE, (ParameterizedTypeBinding) fieldBinding.type, this.pattern.typeArguments, locator);
+						else
+							accuracies[indexOfFirstFieldBinding] = SearchMatch.A_INACCURATE;
 						break;
 					default:
 						accuracies[indexOfFirstFieldBinding] = -1;
@@ -171,8 +220,11 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, int
 							accuracies[i] = SearchMatch.A_ACCURATE;
 							break;
 						case INACCURATE_MATCH:
-							accuracies[i] = SearchMatch.A_INACCURATE;
-							break;
+							if (otherBinding.type.isParameterizedType() && this.pattern.isParameterized())
+								accuracies[i] = refineAccuracy(SearchMatch.A_INACCURATE, (ParameterizedTypeBinding) otherBinding.type, this.pattern.typeArguments, locator);
+							else
+								accuracies[i] = SearchMatch.A_INACCURATE;
+								break;
 						default:
 							accuracies[i] = -1;
 					}
@@ -184,6 +236,18 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, int
 		locator.reportAccurateFieldReference(qNameRef, element, accuracies);
 	}
 }
+	/* (non-Javadoc)
+	 * Overridden to filter rule values from refined accuracy.
+	 * @see org.eclipse.jdt.internal.core.search.matching.PatternLocator#refineAccuracy(int, org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding, char[][][], org.eclipse.jdt.internal.core.search.matching.MatchLocator)
+	 */
+	protected int refineAccuracy(int accuracy, ParameterizedTypeBinding parameterizedBinding, char[][][] patternTypeArguments, MatchLocator locator) {
+		// We can only refine if locator has an unit scope.
+		if (locator.unitScope == null) return accuracy;
+		int refinedAccuracy = refineAccuracy(accuracy, parameterizedBinding, patternTypeArguments, false, 0, locator);
+		if (refinedAccuracy > SearchMatch.A_INACCURATE)
+			return -1; // canot accept neither erasure nor compatible match
+		return refinedAccuracy;
+	}
 protected void reportDeclaration(FieldBinding fieldBinding, MatchLocator locator, SimpleSet knownFields) throws CoreException {
 	// ignore length field
 	if (fieldBinding == ArrayBinding.ArrayLength) return;
@@ -206,6 +270,8 @@ protected void reportDeclaration(FieldBinding fieldBinding, MatchLocator locator
 		info = locator.getBinaryInfo((org.eclipse.jdt.internal.core.ClassFile) type.getClassFile(), resource);
 		locator.reportBinaryMemberDeclaration(resource, field, info, SearchMatch.A_ACCURATE);
 	} else {
+		if (declaringClass instanceof ParameterizedTypeBinding)
+			declaringClass = ((ParameterizedTypeBinding) declaringClass).type;
 		ClassScope scope = ((SourceTypeBinding) declaringClass).scope;
 		if (scope != null) {
 			TypeDeclaration typeDecl = scope.referenceContext;
@@ -221,7 +287,6 @@ protected void reportDeclaration(FieldBinding fieldBinding, MatchLocator locator
 				int offset = fieldDecl.sourceStart;
 				SearchMatch match = new FieldDeclarationMatch(field, SearchMatch.A_ACCURATE, offset, fieldDecl.sourceEnd-offset+1, locator.getParticipant(), resource);
 				locator.report(match);
-
 			}
 		}
 	}
@@ -274,5 +339,17 @@ protected int resolveLevel(NameReference nameRef) {
 		}
 	}
 	return IMPOSSIBLE_MATCH;
+}
+/* (non-Javadoc)
+ * Resolve level for type with a given binding.
+ */
+protected int resolveLevelForType(TypeBinding typeBinding) {
+	FieldPattern fieldPattern = (FieldPattern) this.pattern;
+	return resolveLevelForType(
+			fieldPattern.typeSimpleName,
+			fieldPattern.typeQualification,
+			fieldPattern.typeArguments,
+			0,
+			typeBinding);
 }
 }

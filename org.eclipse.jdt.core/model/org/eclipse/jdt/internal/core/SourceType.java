@@ -20,9 +20,9 @@ import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
-import org.eclipse.jdt.internal.codeassist.ISearchableNameEnvironment;
 import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
 import org.eclipse.jdt.internal.codeassist.SelectionEngine;
+import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
 import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
@@ -36,35 +36,56 @@ import org.eclipse.jdt.internal.core.util.Util;
  * @see IType
  */
 
-public class SourceType extends Member implements IType {
-	/**
-	 * An empty list of Strings
-	 */
-	protected static final String[] fgEmptyList= new String[] {};
+public class SourceType extends NamedMember implements IType {
+	
 protected SourceType(JavaElement parent, String name) {
 	super(parent, name);
 	Assert.isTrue(name.indexOf('.') == -1, Util.bind("sourcetype.invalidName", name)); //$NON-NLS-1$
 }
+protected void closing(Object info) throws JavaModelException {
+	super.closing(info);
+	SourceTypeElementInfo elementInfo = (SourceTypeElementInfo) info;
+	ITypeParameter[] typeParameters = elementInfo.typeParameters;
+	for (int i = 0, length = typeParameters.length; i < length; i++) {
+		((TypeParameter) typeParameters[i]).close();
+	}
+}
 /**
  * @see IType
+ * @deprecated
  */
 public void codeComplete(char[] snippet,int insertion,int position,char[][] localVariableTypeNames,char[][] localVariableNames,int[] localVariableModifiers,boolean isStatic,ICompletionRequestor requestor) throws JavaModelException {
 	codeComplete(snippet, insertion, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic, requestor, DefaultWorkingCopyOwner.PRIMARY);
 }
 /**
  * @see IType
+ * @deprecated
  */
 public void codeComplete(char[] snippet,int insertion,int position,char[][] localVariableTypeNames,char[][] localVariableNames,int[] localVariableModifiers,boolean isStatic,ICompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
 	if (requestor == null) {
 		throw new IllegalArgumentException("Completion requestor cannot be null"); //$NON-NLS-1$
 	}
+	codeComplete(snippet, insertion, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic, new org.eclipse.jdt.internal.codeassist.CompletionRequestorWrapper(requestor), owner);
+
+}
+/**
+ * @see IType
+ */
+public void codeComplete(char[] snippet,int insertion,int position,char[][] localVariableTypeNames,char[][] localVariableNames,int[] localVariableModifiers,boolean isStatic,CompletionRequestor requestor) throws JavaModelException {
+	codeComplete(snippet, insertion, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic, requestor, DefaultWorkingCopyOwner.PRIMARY);
+}
+/**
+ * @see IType
+ */
+public void codeComplete(char[] snippet,int insertion,int position,char[][] localVariableTypeNames,char[][] localVariableNames,int[] localVariableModifiers,boolean isStatic,CompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
+	if (requestor == null) {
+		throw new IllegalArgumentException("Completion requestor cannot be null"); //$NON-NLS-1$
+	}
 	
 	JavaProject project = (JavaProject) getJavaProject();
-	SearchableEnvironment environment = (SearchableEnvironment) project.newSearchableNameEnvironment(owner);
-	CompletionRequestorWrapper requestorWrapper = new CompletionRequestorWrapper(requestor, environment.nameLookup);
-	CompletionEngine engine = new CompletionEngine(environment, requestorWrapper, project.getOptions(true), project);
-	requestorWrapper.completionEngine = engine;
-	
+	SearchableEnvironment environment = project.newSearchableNameEnvironment(owner);
+	CompletionEngine engine = new CompletionEngine(environment, requestor, project.getOptions(true), project);
+
 	String source = getCompilationUnit().getSource();
 	if (source != null && insertion > -1 && insertion < source.length()) {
 		
@@ -83,6 +104,8 @@ public void codeComplete(char[] snippet,int insertion,int position,char[][] loca
 	} else {
 		engine.complete(this, snippet, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic);
 	}
+	if (NameLookup.VERBOSE)
+		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
 }
 /**
  * @see IType
@@ -145,7 +168,7 @@ protected boolean equalsDOMNode(IDOMNode node) {
  */
 public IMethod[] findMethods(IMethod method) {
 	try {
-		return this.findMethods(method, this.getMethods());
+		return findMethods(method, getMethods());
 	} catch (JavaModelException e) {
 		// if type doesn't exist, no matching method can exist
 		return null;
@@ -199,11 +222,18 @@ public String getFullyQualifiedName() {
  * @see IType#getFullyQualifiedName(char)
  */
 public String getFullyQualifiedName(char enclosingTypeSeparator) {
-	String packageName = getPackageFragment().getElementName();
-	if (packageName.equals(IPackageFragment.DEFAULT_PACKAGE_NAME)) {
-		return getTypeQualifiedName(enclosingTypeSeparator);
+	try {
+		return getFullyQualifiedName(enclosingTypeSeparator, false/*don't show parameters*/);
+	} catch (JavaModelException e) {
+		// exception thrown only when showing parameters
+		return null;
 	}
-	return packageName + '.' + getTypeQualifiedName(enclosingTypeSeparator);
+}
+/*
+ * @see IType#getFullyQualifiedParameterizedName()
+ */
+public String getFullyQualifiedParameterizedName() throws JavaModelException {
+	return getFullyQualifiedName('.', true/*show parameters*/);
 }
 /*
  * @see JavaElement
@@ -213,26 +243,32 @@ public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento,
 		case JEM_COUNT:
 			return getHandleUpdatingCountFromMemento(memento, workingCopyOwner);
 		case JEM_FIELD:
+			if (!memento.hasMoreTokens()) return this;
 			String fieldName = memento.nextToken();
 			JavaElement field = (JavaElement)getField(fieldName);
 			return field.getHandleFromMemento(memento, workingCopyOwner);
 		case JEM_INITIALIZER:
+			if (!memento.hasMoreTokens()) return this;
 			String count = memento.nextToken();
 			JavaElement initializer = (JavaElement)getInitializer(Integer.parseInt(count));
 			return initializer.getHandleFromMemento(memento, workingCopyOwner);
 		case JEM_METHOD:
+			if (!memento.hasMoreTokens()) return this;
 			String selector = memento.nextToken();
 			ArrayList params = new ArrayList();
 			nextParam: while (memento.hasMoreTokens()) {
 				token = memento.nextToken();
 				switch (token.charAt(0)) {
 					case JEM_TYPE:
+					case JEM_TYPE_PARAMETER:
 						break nextParam;
 					case JEM_METHOD:
+						if (!memento.hasMoreTokens()) return this;
 						String param = memento.nextToken();
 						StringBuffer buffer = new StringBuffer();
-						while (Signature.C_ARRAY == param.charAt(0)) {
+						while (param.length() == 1 && Signature.C_ARRAY == param.charAt(0)) { // backward compatible with 3.0 mementos
 							buffer.append(Signature.C_ARRAY);
+							if (!memento.hasMoreTokens()) return this;
 							param = memento.nextToken();
 						}
 						params.add(buffer.toString() + param);
@@ -247,6 +283,7 @@ public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento,
 			if (token != null) {
 				switch (token.charAt(0)) {
 					case JEM_TYPE:
+					case JEM_TYPE_PARAMETER:
 					case JEM_LOCALVARIABLE:
 						return method.getHandleFromMemento(token, memento, workingCopyOwner);
 					default:
@@ -276,6 +313,12 @@ public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento,
 			} else {
 				return type.getHandleFromMemento(token, memento, workingCopyOwner);
 			}
+		case JEM_TYPE_PARAMETER:
+			if (!memento.hasMoreTokens()) return this;
+			String typeParameterName = memento.nextToken();
+			JavaElement typeParameter = new TypeParameter(this, typeParameterName);
+			return typeParameter.getHandleFromMemento(memento, workingCopyOwner);
+			
 	}
 	return null;
 }
@@ -377,14 +420,7 @@ public String getSuperclassTypeSignature() throws JavaModelException {
 public String[] getSuperInterfaceNames() throws JavaModelException {
 	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
 	char[][] names= info.getInterfaceNames();
-	if (names == null) {
-		return fgEmptyList;
-	}
-	String[] strings= new String[names.length];
-	for (int i= 0; i < names.length; i++) {
-		strings[i]= new String(names[i]);
-	}
-	return strings;
+	return CharOperation.toStrings(names);
 }
 
 /**
@@ -394,23 +430,46 @@ public String[] getSuperInterfaceNames() throws JavaModelException {
 public String[] getSuperInterfaceTypeSignatures() throws JavaModelException {
 	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
 	char[][] names= info.getInterfaceNames();
-	if (names == null) {
-		return fgEmptyList;
-	}
-	String[] strings= new String[names.length];
-	for (int i= 0; i < names.length; i++) {
-		strings[i]= new String(Signature.createTypeSignature(names[i], false));
-	}
-	return strings;
+	return CharOperation.toStrings(names);
+}
+
+public ITypeParameter[] getTypeParameters() throws JavaModelException {
+	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
+	return info.typeParameters;
+}
+
+// Get type parameter names
+// TODO (frederic) see if this method needs to be added to API
+public char[][] getTypeParameterNames() throws JavaModelException {
+	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
+	return info.getTypeParameterNames();
 }
 
 /**
  * @see IType#getTypeParameterSignatures()
  * @since 3.0
+ * @deprecated
  */
 public String[] getTypeParameterSignatures() throws JavaModelException {
-	// TODO (jerome) - missing implementation
-	return new String[0];
+	ITypeParameter[] typeParameters = getTypeParameters();
+	int length = typeParameters.length;
+	String[] typeParameterSignatures = new String[length];
+	for (int i = 0; i < length; i++) {
+		TypeParameter typeParameter = (TypeParameter) typeParameters[i];
+		TypeParameterElementInfo info = (TypeParameterElementInfo) typeParameter.getElementInfo();
+		char[][] bounds = info.bounds;
+		if (bounds == null) {
+			typeParameterSignatures[i] = Signature.createTypeParameterSignature(typeParameter.getElementName(), CharOperation.NO_STRINGS);
+		} else {
+			int boundsLength = bounds.length;
+			char[][] boundSignatures = new char[boundsLength][];
+			for (int j = 0; j < boundsLength; j++) {
+				boundSignatures[j] = Signature.createCharArrayTypeSignature(bounds[j], false);
+			}
+			typeParameterSignatures[i] = new String(Signature.createTypeParameterSignature(typeParameter.getElementName().toCharArray(), boundSignatures));
+		}
+	}
+	return typeParameterSignatures;
 }
 
 /**
@@ -418,6 +477,9 @@ public String[] getTypeParameterSignatures() throws JavaModelException {
  */
 public IType getType(String typeName) {
 	return new SourceType(this, typeName);
+}
+public ITypeParameter getTypeParameter(String typeParameterName) {
+	return new TypeParameter(this, typeParameterName);
 }
 /**
  * @see IType#getTypeQualifiedName()
@@ -429,21 +491,12 @@ public String getTypeQualifiedName() {
  * @see IType#getTypeQualifiedName(char)
  */
 public String getTypeQualifiedName(char enclosingTypeSeparator) {
-	switch (this.parent.getElementType()) {
-		case IJavaElement.COMPILATION_UNIT:
-			return this.name;
-		case IJavaElement.TYPE:
-			String simpleName = this.name.length() == 0 ? Integer.toString(this.occurrenceCount) : this.name;
-			return ((IType) this.parent).getTypeQualifiedName(enclosingTypeSeparator) + enclosingTypeSeparator + simpleName;
-		case IJavaElement.FIELD:
-		case IJavaElement.INITIALIZER:
-		case IJavaElement.METHOD:
-			simpleName = this.name.length() == 0 ? Integer.toString(this.occurrenceCount) : this.name;
-			return 
-				((IMember) this.parent).getDeclaringType().getTypeQualifiedName(enclosingTypeSeparator) 
-				+ enclosingTypeSeparator + simpleName;
+	try {
+		return getTypeQualifiedName(enclosingTypeSeparator, false/*don't show parameters*/);
+	} catch (JavaModelException e) {
+		// exception thrown only when showing parameters
+		return null;
 	}
-	return null;
 }
 
 /**
@@ -475,8 +528,8 @@ public boolean isClass() throws JavaModelException {
  * @since 3.0
  */
 public boolean isEnum() throws JavaModelException {
-	// TODO (jerome) - missing implementation - should only return true for enum classes
-	return false;
+	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
+	return info.getKind() == IGenericType.ENUM_DECL;
 }
 
 /**
@@ -484,8 +537,7 @@ public boolean isEnum() throws JavaModelException {
  */
 public boolean isInterface() throws JavaModelException {
 	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
-	// TODO (jerome) - isInterface should not return true for annotation types
-	return info.isInterface();
+	return info.getKind() == IGenericType.INTERFACE_DECL;
 }
 
 /**
@@ -493,8 +545,8 @@ public boolean isInterface() throws JavaModelException {
  * @since 3.0
  */
 public boolean isAnnotation() throws JavaModelException {
-	// TODO (jerome) - missing implementation - should only return true for annotation types
-	return false;
+	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
+	return info.getKind() == IGenericType.ANNOTATION_TYPE_DECL;
 }
 
 /**
@@ -704,7 +756,7 @@ public String[][] resolveType(String typeName) throws JavaModelException {
 public String[][] resolveType(String typeName, WorkingCopyOwner owner) throws JavaModelException {
 	ISourceType info = (ISourceType) getElementInfo();
 	JavaProject project = (JavaProject) getJavaProject();
-	ISearchableNameEnvironment environment = project.newSearchableNameEnvironment(owner);
+	SearchableEnvironment environment = project.newSearchableNameEnvironment(owner);
 
 	class TypeResolveRequestor implements ISelectionRequestor {
 		String[][] answers = null;
@@ -718,24 +770,35 @@ public String[][] resolveType(String typeName, WorkingCopyOwner owner) throws Ja
 				this.answers[length] = answer;
 			}
 		}
-		public void acceptClass(char[] packageName, char[] className, boolean needQualification, boolean isDeclaration, int start, int end) {
+		public void acceptAnnotation(char[] packageName, char[] annotationName, boolean isDeclaration, char[] genericTypeSignature, int start, int end) {
+			acceptType(new String[]  { new String(packageName), new String(annotationName) });
+		}
+		public void acceptClass(char[] packageName, char[] className, boolean isDeclaration, char[] genericTypeSignature, int start, int end) {
 			acceptType(new String[]  { new String(packageName), new String(className) });
 		}
-		
-		public void acceptInterface(char[] packageName, char[] interfaceName, boolean needQualification, boolean isDeclaration, int start, int end) {
+		public void acceptEnum(char[] packageName, char[] enumName, boolean isDeclaration, char[] genericTypeSignature, int start, int end) {
+			acceptType(new String[]  { new String(packageName), new String(enumName) });
+		}
+		public void acceptInterface(char[] packageName, char[] interfaceName, boolean isDeclaration, char[] genericTypeSignature, int start, int end) {
 			acceptType(new String[]  { new String(packageName), new String(interfaceName) });
 		}
 
 		public void acceptError(IProblem error) {
 			// ignore
 		}
-		public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] fieldName, boolean isDeclaration, int start, int end) {
+		public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] fieldName, boolean isDeclaration, char[] uniqueKey, int start, int end) {
 			// ignore
 		}
-		public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, boolean isConstructor, boolean isDeclaration, int start, int end) {
+		public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, String enclosingDeclaringTypeSignature, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, String[] parameterSignatures, boolean isConstructor, boolean isDeclaration, char[] uniqueKey, int start, int end) {
 			// ignore
 		}
 		public void acceptPackage(char[] packageName){
+			// ignore
+		}
+		public void acceptTypeParameter(char[] declaringTypePackageName, char[] declaringTypeName, char[] typeParameterName, boolean isDeclaration, int start, int end) {
+			// ignore
+		}
+		public void acceptMethodTypeParameter(char[] declaringTypePackageName, char[] declaringTypeName, char[] selector, int selectorStart, int selcetorEnd, char[] typeParameterName, boolean isDeclaration, int start, int end) {
 			// ignore
 		}
 
@@ -752,6 +815,8 @@ public String[][] resolveType(String typeName, WorkingCopyOwner owner) throws Ja
 	}
 		
 	engine.selectType(info, typeName.toCharArray(), topLevelInfos, false);
+	if (NameLookup.VERBOSE)
+		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
 	return requestor.answers;
 }
 /**

@@ -83,14 +83,15 @@ public class ForStatement extends Statement {
 		
 		// process the condition
 		LoopingFlowContext condLoopContext = null;
+		FlowInfo condInfo = flowInfo.copy().unconditionalInits().discardNullRelatedInitializations();
 		if (condition != null) {
 			if (!isConditionTrue) {
-				flowInfo =
+				condInfo =
 					condition.analyseCode(
 						scope,
 						(condLoopContext =
 							new LoopingFlowContext(flowContext, this, null, null, scope)),
-						flowInfo);
+						condInfo);
 			}
 		}
 
@@ -100,28 +101,28 @@ public class ForStatement extends Statement {
 		if (action == null 
 			|| (action.isEmptyBlock() && currentScope.environment().options.complianceLevel <= ClassFileConstants.JDK1_3)) {
 			if (condLoopContext != null)
-				condLoopContext.complainOnFinalAssignmentsInLoop(scope, flowInfo);
+				condLoopContext.complainOnDeferredChecks(scope, condInfo);
 			if (isConditionTrue) {
 				return FlowInfo.DEAD_END;
 			} else {
 				if (isConditionFalse){
 					continueLabel = null; // for(;false;p());
 				}
-				actionInfo = flowInfo.initsWhenTrue().copy();
+				actionInfo = condInfo.initsWhenTrue().copy().unconditionalInits().discardNullRelatedInitializations();
 				loopingContext =
 					new LoopingFlowContext(flowContext, this, breakLabel, continueLabel, scope);
 			}
 		} else {
 			loopingContext =
 				new LoopingFlowContext(flowContext, this, breakLabel, continueLabel, scope);
-			FlowInfo initsWhenTrue = flowInfo.initsWhenTrue();
+			FlowInfo initsWhenTrue = condInfo.initsWhenTrue();
 			condIfTrueInitStateIndex =
 				currentScope.methodScope().recordInitializationStates(initsWhenTrue);
 
 				if (isConditionFalse) {
 					actionInfo = FlowInfo.DEAD_END;
 				} else {
-					actionInfo = initsWhenTrue.copy();
+					actionInfo = initsWhenTrue.copy().unconditionalInits().discardNullRelatedInitializations();
 					if (isConditionOptimizedFalse){
 						actionInfo.setReachMode(FlowInfo.UNREACHABLE);
 					}
@@ -135,26 +136,31 @@ public class ForStatement extends Statement {
 				continueLabel = null;
 			} else {
 				if (condLoopContext != null)
-					condLoopContext.complainOnFinalAssignmentsInLoop(scope, flowInfo);
+					condLoopContext.complainOnDeferredChecks(scope, condInfo);
 				actionInfo = actionInfo.mergedWith(loopingContext.initsOnContinue.unconditionalInits());
-				loopingContext.complainOnFinalAssignmentsInLoop(scope, actionInfo);
+				loopingContext.complainOnDeferredChecks(scope, actionInfo);
 			}
 		}
 		// for increments
-		if ((continueLabel != null) && (increments != null)) {
-			LoopingFlowContext loopContext =
-				new LoopingFlowContext(flowContext, this, null, null, scope);
-			for (int i = 0, count = increments.length; i < count; i++) {
-				actionInfo = increments[i].analyseCode(scope, loopContext, actionInfo);
+		FlowInfo exitBranch = condInfo.initsWhenFalse();
+		exitBranch.addInitializationsFrom(flowInfo); // recover null inits from before condition analysis
+		if (continueLabel != null) {
+			if (increments != null) {
+				LoopingFlowContext loopContext =
+					new LoopingFlowContext(flowContext, this, null, null, scope);
+				for (int i = 0, count = increments.length; i < count; i++) {
+					actionInfo = increments[i].analyseCode(scope, loopContext, actionInfo);
+				}
+				loopContext.complainOnDeferredChecks(scope, actionInfo);
 			}
-			loopContext.complainOnFinalAssignmentsInLoop(scope, actionInfo);
+			exitBranch.addPotentialInitializationsFrom(actionInfo.unconditionalInits());
 		}
 
 		//end of loop
 		FlowInfo mergedInfo = FlowInfo.mergedOptimizedBranches(
 				loopingContext.initsOnBreak, 
 				isConditionOptimizedTrue, 
-				flowInfo.initsWhenFalse(), 
+				exitBranch, 
 				isConditionOptimizedFalse, 
 				!isConditionTrue /*for(;;){}while(true); unreachable(); */);
 		mergedInitStateIndex = currentScope.methodScope().recordInitializationStates(mergedInfo);
@@ -221,9 +227,7 @@ public class ForStatement extends Statement {
 
 		// May loose some local variable initializations : affecting the local variable attributes
 		if (preCondInitStateIndex != -1) {
-			codeStream.removeNotDefinitelyAssignedVariables(
-				currentScope,
-				preCondInitStateIndex);
+			codeStream.removeNotDefinitelyAssignedVariables(currentScope, preCondInitStateIndex);
 		}
 
 		// generate the condition
@@ -290,7 +294,7 @@ public class ForStatement extends Statement {
 				initializations[i].resolve(scope);
 		if (condition != null) {
 			TypeBinding type = condition.resolveTypeExpecting(scope, BooleanBinding);
-			condition.implicitWidening(type, type);
+			condition.computeConversion(scope, type, type);
 		}
 		if (increments != null)
 			for (int i = 0, length = increments.length; i < length; i++)

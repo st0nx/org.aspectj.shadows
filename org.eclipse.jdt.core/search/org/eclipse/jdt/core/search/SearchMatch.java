@@ -21,7 +21,6 @@ import org.eclipse.jdt.internal.core.JavaElement;
  * merely potential matches (<code>A_INACCURATE</code>). The latter occurs when
  * a compile-time problem prevents the search engine from completely resolving
  * the match.
- * </p>
  * <p>
  * This class is intended to be instantiated and subclassed by clients.
  * </p>
@@ -33,6 +32,8 @@ public class SearchMatch {
 	
 	/**
 	 * The search result corresponds an exact match of the search pattern.
+	 * 
+	 * @see #getAccuracy()
 	 */
 	public static final int A_ACCURATE = 0;
 
@@ -40,6 +41,8 @@ public class SearchMatch {
 	 * The search result is potentially a match for the search pattern,
 	 * but the search engine is unable to fully check it (for example, because
 	 * there are errors in the code or the classpath are not correctly set).
+	 * 
+	 * @see #getAccuracy()
 	 */
 	public static final int A_INACCURATE = 1;
 	
@@ -52,6 +55,9 @@ public class SearchMatch {
 	private IResource resource;
 
 	private boolean insideDocComment = false;
+	
+	// store the rule used while reporting the match
+	private int matchRule = SearchPattern.R_EXACT_MATCH;
 
 	/**
 	 * Creates a new search match.
@@ -139,6 +145,21 @@ public class SearchMatch {
 	}
 
 	/**
+	 * Returns the rule used while creating the match.
+	 * 
+	 * @return the rule of the match. Legal values are combination of following
+	 * {@link SearchPattern} constants:
+	 * <ul>
+	 * 	<li>{@link SearchPattern#R_ERASURE_MATCH}</li>
+	 * 	<li>{@link SearchPattern#R_EQUIVALENT_MATCH}</li>
+	 * </ul>
+	 * @since 3.1
+	 */
+	public final int getMatchRule() {
+		return this.matchRule;
+	}
+
+	/**
 	 * Returns whether this search match is inside a doc comment of a Java
 	 * source file.
 	 * 
@@ -168,6 +189,18 @@ public class SearchMatch {
 	public final void setElement (Object element) {
 		this.element = element;
 	}
+
+	/**
+	 * Sets whether this search match is inside a doc comment of a Java
+	 * source file.
+	 * 
+	 * @param insideDoc <code>true</code> if this search match is inside a doc
+	 * comment, and <code>false</code> otherwise
+	 */
+	public final void setInsideDocComment (boolean insideDoc) {
+		this.insideDocComment = insideDoc;
+	}
+
 	/**
 	 * Sets the length of this search match.
 	 * 
@@ -205,14 +238,18 @@ public class SearchMatch {
 	}
 
 	/**
-	 * Sets whether this search match is inside a doc comment of a Java
-	 * source file.
+	 * Returns the rule used while creating the match.
 	 * 
-	 * @param insideDoc <code>true</code> if this search match is inside a doc
-	 * comment, and <code>false</code> otherwise
+	 * @param rule the rule to set. Legal values are combination of following
+	 * {@link SearchPattern} constants:
+	 * <ul>
+	 * 	<li>{@link SearchPattern#R_ERASURE_MATCH}</li>
+	 * 	<li>{@link SearchPattern#R_EQUIVALENT_MATCH}</li>
+	 * </ul>
+	 * @since 3.1
 	 */
-	public final void setInsideDocComment (boolean insideDoc) {
-		this.insideDocComment = insideDoc;
+	public final void setMatchRule(int rule) {
+		this.matchRule = rule;
 	}
 
 	/* (non-javadoc)
@@ -223,6 +260,16 @@ public class SearchMatch {
 		buffer.append("Search match"); //$NON-NLS-1$
 		buffer.append("\n  accuracy="); //$NON-NLS-1$
 		buffer.append(this.accuracy == A_ACCURATE ? "ACCURATE" : "INACCURATE"); //$NON-NLS-1$ //$NON-NLS-2$
+		buffer.append("\n  rule="); //$NON-NLS-1$
+		if ((this.matchRule & SearchPattern.R_EQUIVALENT_MATCH) != 0) {
+			buffer.append("EQUIVALENT"); //$NON-NLS-1$
+			if ((this.matchRule & SearchPattern.R_ERASURE_MATCH) != 0)
+				buffer.append("+ERASURE"); //$NON-NLS-1$
+		} else if ((this.matchRule & SearchPattern.R_ERASURE_MATCH) != 0) {
+			buffer.append("ERASURE"); //$NON-NLS-1$
+		} else {
+			buffer.append("EXACT"); //$NON-NLS-1$
+		}
 		buffer.append("\n  offset="); //$NON-NLS-1$
 		buffer.append(this.offset);
 		buffer.append("\n  length="); //$NON-NLS-1$

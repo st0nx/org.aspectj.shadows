@@ -32,11 +32,11 @@ public class CompletionNodeDetector extends ASTVisitor {
 	}
 	
 	public boolean containsCompletionNode() {
-		return result;
+		return this.result;
 	}
 	
 	public ASTNode getCompletionNodeParent() {
-		return parent;
+		return this.parent;
 	}
 	public void endVisit(AllocationExpression allocationExpression, BlockScope scope) {
 		endVisit(allocationExpression);
@@ -97,6 +97,18 @@ public class CompletionNodeDetector extends ASTVisitor {
 	}
 	public void endVisit(OR_OR_Expression or_or_Expression, BlockScope scope) {
 		endVisit(or_or_Expression);
+	}
+	public void endVisit(ParameterizedQualifiedTypeReference parameterizedQualifiedTypeReference, BlockScope scope) {
+		endVisit(parameterizedQualifiedTypeReference);
+	}
+	public void endVisit(ParameterizedQualifiedTypeReference parameterizedQualifiedTypeReference, ClassScope scope) {
+		endVisit(parameterizedQualifiedTypeReference);
+	}
+	public void endVisit(ParameterizedSingleTypeReference parameterizedSingleTypeReference, BlockScope scope) {
+		endVisit(parameterizedSingleTypeReference);
+	}
+	public void endVisit(ParameterizedSingleTypeReference parameterizedSingleTypeReference, ClassScope scope) {
+		endVisit(parameterizedSingleTypeReference);
 	}
 	public void endVisit(PostfixExpression postfixExpression, BlockScope scope) {
 		endVisit(postfixExpression);
@@ -200,6 +212,18 @@ public class CompletionNodeDetector extends ASTVisitor {
 	public boolean visit(OR_OR_Expression or_or_Expression, BlockScope scope) {
 		return this.visit(or_or_Expression);
 	}
+	public boolean visit(ParameterizedQualifiedTypeReference parameterizedQualifiedTypeReference, BlockScope scope) {
+		return this.visit(parameterizedQualifiedTypeReference);
+	}
+	public boolean visit(ParameterizedQualifiedTypeReference parameterizedQualifiedTypeReference, ClassScope scope) {
+		return this.visit(parameterizedQualifiedTypeReference);
+	}
+	public boolean visit(ParameterizedSingleTypeReference parameterizedSingleTypeReference, BlockScope scope) {
+		return this.visit(parameterizedSingleTypeReference);
+	}
+	public boolean visit(ParameterizedSingleTypeReference parameterizedSingleTypeReference, ClassScope scope) {
+		return this.visit(parameterizedSingleTypeReference);
+	}
 	public boolean visit(PostfixExpression postfixExpression, BlockScope scope) {
 		return this.visit(postfixExpression);
 	}
@@ -244,18 +268,18 @@ public class CompletionNodeDetector extends ASTVisitor {
 	}
 	
 	private void endVisit(ASTNode astNode) {
-		if(result && parent == null && astNode != searchedNode) {
-			if(!(astNode instanceof AllocationExpression && ((AllocationExpression) astNode).type == searchedNode)
-				&& !(astNode instanceof ConditionalExpression && ((ConditionalExpression) astNode).valueIfTrue == searchedNode)
-				&& !(astNode instanceof ConditionalExpression && ((ConditionalExpression) astNode).valueIfFalse == searchedNode)) {
-				parent = astNode;	
+		if(this.result && this.parent == null && astNode != this.searchedNode) {
+			if(!(astNode instanceof AllocationExpression && ((AllocationExpression) astNode).type == this.searchedNode)
+				&& !(astNode instanceof ConditionalExpression && ((ConditionalExpression) astNode).valueIfTrue == this.searchedNode)
+				&& !(astNode instanceof ConditionalExpression && ((ConditionalExpression) astNode).valueIfFalse == this.searchedNode)) {
+				this.parent = astNode;	
 			}
 		}
 	}
 	private boolean visit(ASTNode astNode) {
-		if(astNode == searchedNode) {
-			result = true;
+		if(astNode == this.searchedNode) {
+			this.result = true;
 		}
-		return !result;
+		return !this.result;
 	}
 }

@@ -20,6 +20,7 @@ import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
+import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
@@ -34,6 +35,7 @@ import org.eclipse.jdt.internal.core.search.indexing.IndexManager;
 import org.eclipse.jdt.internal.core.search.matching.MatchLocator;
 import org.eclipse.jdt.internal.core.search.matching.SuperTypeReferencePattern;
 import org.eclipse.jdt.internal.core.util.HandleFactory;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class IndexBasedHierarchyBuilder extends HierarchyBuilder implements SuffixConstants {
 	public static final int MAXTICKS = 800; // heuristic so that there still progress for deep hierachies
@@ -165,7 +167,7 @@ private void buildForProject(JavaProject project, ArrayList potentialSubtypes, o
 			}
 		}
 
-		SearchableEnvironment searchableEnvironment = (SearchableEnvironment)project.newSearchableNameEnvironment(unitsToLookInside);
+		SearchableEnvironment searchableEnvironment = project.newSearchableNameEnvironment(unitsToLookInside);
 		this.nameLookup = searchableEnvironment.nameLookup;
 		this.hierarchyResolver = 
 			new HierarchyResolver(searchableEnvironment, project.getOptions(true), this, new DefaultProblemFactory());
@@ -427,7 +429,7 @@ public static void searchAllPossibleSubTypes(
 
 	/* use a special collector to collect paths and queue new subtype names */
 	IndexQueryRequestor searchRequestor = new IndexQueryRequestor() {
-		public boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant) {
+		public boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant, AccessRestriction access) {
 			SuperTypeReferencePattern record = (SuperTypeReferencePattern)indexRecord;
 			pathRequestor.acceptPath(documentPath, record.enclosingTypeName == IIndexConstants.ONE_ZERO);
 			char[] typeName = record.simpleName;
@@ -446,10 +448,10 @@ public static void searchAllPossibleSubTypes(
 							typeName = documentPath.substring(lastSlash+1, suffix).toCharArray();
 						} else {
 							enclosingTypeName = documentPath.substring(lastSlash+1, lastDollar).toCharArray();
-							typeName = documentPath.substring(lastDollar+1, suffix).toCharArray();
+							typeName = Util.localTypeName(documentPath, lastDollar, suffix).toCharArray();
 						}
 					}
-					binaryType = new HierarchyBinaryType(record.modifiers, record.pkgName, typeName, enclosingTypeName, record.classOrInterface);
+					binaryType = new HierarchyBinaryType(record.modifiers, record.pkgName, typeName, enclosingTypeName, record.typeParameterSignatures, record.classOrInterface);
 					binariesFromIndexMatches.put(documentPath, binaryType);
 				}
 				binaryType.recordSuperType(record.superSimpleName, record.superQualification, record.superClassOrInterface);

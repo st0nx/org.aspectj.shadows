@@ -38,7 +38,7 @@ public static boolean isDeclaringPackageFragment(IPackageFragment packageFragmen
 		try { 
 			switch (packageFragment.getKind()) {
 				case IPackageFragmentRoot.K_SOURCE :
-					if (!Util.isJavaFileName(fileName) || !packageFragment.getCompilationUnit(new String(fileName)).exists()) {
+					if (!org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(fileName) || !packageFragment.getCompilationUnit(new String(fileName)).exists()) {
 						return false; // unit doesn't live in selected package
 					}
 					break;
@@ -91,7 +91,8 @@ public int match(TypeReference node, MatchingNodeSet nodeSet) { // interested in
 }
 
 protected int matchLevel(ImportReference importRef) {
-	if (!importRef.onDemand)
+	// Compare prefix also for static import
+	if (!importRef.onDemand || importRef.isStatic())
 		return matchLevelForTokens(importRef.tokens);
 
 	return matchesName(this.pattern.pkgName, CharOperation.concatWith(importRef.tokens, '.'))
@@ -116,6 +117,25 @@ protected int matchLevelForTokens(char[][] tokens) {
 			break;
 	}
 	return IMPOSSIBLE_MATCH;
+}
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.internal.core.search.matching.PatternLocator#matchLevelAndReportImportRef(org.eclipse.jdt.internal.compiler.ast.ImportReference, org.eclipse.jdt.internal.compiler.lookup.Binding, org.eclipse.jdt.internal.core.search.matching.MatchLocator)
+ */
+protected void matchLevelAndReportImportRef(ImportReference importRef, Binding binding, MatchLocator locator) throws CoreException {
+	Binding refBinding = binding;
+	if (importRef.isStatic()) {
+		// for static import, binding can be a field binding or a member type binding
+		// verify that in this case binding is static and use declaring class for fields
+		if (binding instanceof FieldBinding) {
+			FieldBinding fieldBinding = (FieldBinding) binding;
+			if (!fieldBinding.isStatic()) return;
+			refBinding = fieldBinding.declaringClass;
+		} else if (binding instanceof MemberTypeBinding) {
+			MemberTypeBinding memberBinding = (MemberTypeBinding) binding;
+			if (!memberBinding.isStatic()) return;
+		}
+	}
+	super.matchLevelAndReportImportRef(importRef, refBinding, locator);
 }
 protected void matchReportImportRef(ImportReference importRef, Binding binding, IJavaElement element, int accuracy, MatchLocator locator) throws CoreException {
 	if (binding == null) {
@@ -153,15 +173,15 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, int
 			QualifiedNameReference qNameRef = (QualifiedNameReference) reference;
 			positions = qNameRef.sourcePositions;
 			switch (qNameRef.bits & ASTNode.RestrictiveFlagMASK) {
-				case BindingIds.FIELD : // reading a field
+				case Binding.FIELD : // reading a field
 					typeBinding = qNameRef.actualReceiverType;
 					break;
-				case BindingIds.TYPE : //=============only type ==============
+				case Binding.TYPE : //=============only type ==============
 					if (qNameRef.binding instanceof TypeBinding)
 						typeBinding = (TypeBinding) qNameRef.binding;
 					break;
-				case BindingIds.VARIABLE : //============unbound cases===========
-				case BindingIds.TYPE | BindingIds.VARIABLE :
+				case Binding.VARIABLE : //============unbound cases===========
+				case Binding.TYPE | Binding.VARIABLE :
 					Binding binding = qNameRef.binding; 
 					if (binding instanceof TypeBinding) {
 						typeBinding = (TypeBinding) binding;
@@ -179,6 +199,11 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, int
 			QualifiedTypeReference qTypeRef = (QualifiedTypeReference) reference;
 			positions = qTypeRef.sourcePositions;
 			typeBinding = qTypeRef.resolvedType;
+		} else if (reference instanceof JavadocSingleTypeReference) {
+			JavadocSingleTypeReference jsTypeRef = (JavadocSingleTypeReference) reference;
+			positions = new long[1];
+			positions[0] = (((long)jsTypeRef.sourceStart) << 32) + jsTypeRef.sourceEnd;
+			typeBinding = jsTypeRef.resolvedType;
 		}
 		if (typeBinding instanceof ArrayBinding)
 			typeBinding = ((ArrayBinding) typeBinding).leafComponentType;
@@ -204,6 +229,18 @@ protected int referenceType() {
 	return IJavaElement.PACKAGE_FRAGMENT;
 }
 public int resolveLevel(ASTNode node) {
+	if (node instanceof JavadocQualifiedTypeReference) {
+		JavadocQualifiedTypeReference qualifRef = (JavadocQualifiedTypeReference) node;
+		if (qualifRef.packageBinding != null)
+			return resolveLevel(qualifRef.packageBinding);
+		return resolveLevel(qualifRef.resolvedType);
+	}
+	if (node instanceof JavadocSingleTypeReference) {
+		JavadocSingleTypeReference singleRef = (JavadocSingleTypeReference) node;
+		if (singleRef.packageBinding != null)
+			return resolveLevel(singleRef.packageBinding);
+		return IMPOSSIBLE_MATCH;
+	}
 	if (node instanceof QualifiedTypeReference)
 		return resolveLevel(((QualifiedTypeReference) node).resolvedType);
 	if (node instanceof QualifiedNameReference)
@@ -235,7 +272,8 @@ public int resolveLevel(Binding binding) {
 	if (compoundName != null && matchesName(this.pattern.pkgName, CharOperation.concatWith(compoundName, '.'))) {
 		if (((InternalSearchPattern) this.pattern).focus instanceof IPackageFragment && binding instanceof ReferenceBinding) {
 			// check that type is located inside this instance of a package fragment
-			if (!isDeclaringPackageFragment((IPackageFragment)((InternalSearchPattern) this.pattern).focus, (ReferenceBinding)binding)) return IMPOSSIBLE_MATCH;
+			if (!isDeclaringPackageFragment((IPackageFragment)((InternalSearchPattern) this.pattern).focus, (ReferenceBinding)binding))
+				return IMPOSSIBLE_MATCH;
 		}				
 		return ACCURATE_MATCH;
 	} else {
@@ -245,14 +283,14 @@ public int resolveLevel(Binding binding) {
 protected int resolveLevel(QualifiedNameReference qNameRef) {
 	TypeBinding typeBinding = null;
 	switch (qNameRef.bits & ASTNode.RestrictiveFlagMASK) {
-		case BindingIds.FIELD : // reading a field
+		case Binding.FIELD : // reading a field
 			if (qNameRef.tokens.length < (qNameRef.otherBindings == null ? 3 : qNameRef.otherBindings.length + 3))
 				return IMPOSSIBLE_MATCH; // must be at least p1.A.x
 			typeBinding = qNameRef.actualReceiverType;
 			break;
-		case BindingIds.LOCAL : // reading a local variable
+		case Binding.LOCAL : // reading a local variable
 			return IMPOSSIBLE_MATCH; // no package match in it
-		case BindingIds.TYPE : //=============only type ==============
+		case Binding.TYPE : //=============only type ==============
 			if (qNameRef.binding instanceof TypeBinding)
 				typeBinding = (TypeBinding) qNameRef.binding;
 			break;
@@ -260,8 +298,8 @@ protected int resolveLevel(QualifiedNameReference qNameRef) {
 		 * Handling of unbound qualified name references. The match may reside in the resolved fragment,
 		 * which is recorded inside the problem binding, along with the portion of the name until it became a problem.
 		 */
-		case BindingIds.VARIABLE : //============unbound cases===========
-		case BindingIds.TYPE | BindingIds.VARIABLE :
+		case Binding.VARIABLE : //============unbound cases===========
+		case Binding.TYPE | Binding.VARIABLE :
 			Binding binding = qNameRef.binding; 
 			if (binding instanceof ProblemReferenceBinding) {
 				typeBinding = (TypeBinding) binding;

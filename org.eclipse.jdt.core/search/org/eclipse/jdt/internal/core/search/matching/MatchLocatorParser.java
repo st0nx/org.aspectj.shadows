@@ -101,7 +101,7 @@ public void checkComment() {
 	super.checkComment();
 	if (this.javadocParser.checkDocComment && this.javadoc != null) {
 		// Search for pattern locator matches in javadoc comment @throws/@exception tags
-		TypeReference[] thrownExceptions = this.javadoc.thrownExceptions;
+		TypeReference[] thrownExceptions = this.javadoc.exceptionReferences;
 		int throwsTagsLength = thrownExceptions == null ? 0 : thrownExceptions.length;
 		for (int i = 0; i < throwsTagsLength; i++) {
 			TypeReference typeRef = thrownExceptions[i];
@@ -109,7 +109,7 @@ public void checkComment() {
 		}
 
 		// Search for pattern locator matches in javadoc comment @see tags
-		Expression[] references = this.javadoc.references;
+		Expression[] references = this.javadoc.seeReferences;
 		int seeTagsLength = references == null ? 0 : references.length;
 		for (int i = 0; i < seeTagsLength; i++) {
 			Expression reference = references[i];
@@ -130,11 +130,28 @@ public void checkComment() {
 					TypeReference typeRef = (TypeReference) messageSend.receiver;
 					this.patternLocator.match(typeRef, this.nodeSet);
 				}
+				if (messageSend.arguments != null) {
+					for (int a=0,al=messageSend.arguments.length; a<al; a++) {
+						JavadocArgumentExpression argument = (JavadocArgumentExpression) messageSend.arguments[a];
+						if (argument.argument != null && argument.argument.type != null) {
+							this.patternLocator.match(argument.argument.type, this.nodeSet);
+						}
+					}
+				}
 			} else if (reference instanceof JavadocAllocationExpression) {
 				JavadocAllocationExpression constructor = (JavadocAllocationExpression) reference;
 				this.patternLocator.match(constructor, this.nodeSet);
 				if (constructor.type != null && !constructor.type.isThis()) {
 					this.patternLocator.match(constructor.type, this.nodeSet);
+				}
+				if (constructor.arguments != null) {
+					for (int a=0,al=constructor.arguments.length; a<al; a++) {
+						this.patternLocator.match(constructor.arguments[a], this.nodeSet);
+						JavadocArgumentExpression argument = (JavadocArgumentExpression) constructor.arguments[a];
+						if (argument.argument != null && argument.argument.type != null) {
+							this.patternLocator.match(argument.argument.type, this.nodeSet);
+						}
+					}
 				}
 			}
 		}
@@ -144,12 +161,23 @@ protected void classInstanceCreation(boolean alwaysQualified) {
 	super.classInstanceCreation(alwaysQualified);
 	this.patternLocator.match(this.expressionStack[this.expressionPtr], this.nodeSet);
 }
+protected void consumeAnnotationAsModifier() {
+	super.consumeAnnotationAsModifier();
+	Expression expression = this.expressionStack[this.expressionPtr];
+	if (expression instanceof Annotation) {
+		this.patternLocator.match(((Annotation)expression).type, this.nodeSet);
+	}
+}
 protected void consumeAssignment() {
 	super.consumeAssignment();
 	this.patternLocator.match(this.expressionStack[this.expressionPtr], this.nodeSet);
 }
 protected void consumeExplicitConstructorInvocation(int flag, int recFlag) {
 	super.consumeExplicitConstructorInvocation(flag, recFlag);
+	this.patternLocator.match(this.astStack[this.astPtr], this.nodeSet);
+}
+protected void consumeExplicitConstructorInvocationWithTypeArguments(int flag, int recFlag) {
+	super.consumeExplicitConstructorInvocationWithTypeArguments(flag, recFlag);
 	this.patternLocator.match(this.astStack[this.astPtr], this.nodeSet);
 }
 protected void consumeFieldAccess(boolean isSuperAccess) {
@@ -170,8 +198,20 @@ protected void consumeMethodInvocationName() {
 	// this is always a MessageSend
 	this.patternLocator.match((MessageSend) this.expressionStack[this.expressionPtr], this.nodeSet);
 }
+protected void consumeMethodInvocationNameWithTypeArguments() {
+	super.consumeMethodInvocationNameWithTypeArguments();
+
+	// this is always a MessageSend
+	this.patternLocator.match((MessageSend) this.expressionStack[this.expressionPtr], this.nodeSet);
+}
 protected void consumeMethodInvocationPrimary() {
 	super.consumeMethodInvocationPrimary(); 
+
+	// this is always a MessageSend
+	this.patternLocator.match((MessageSend) this.expressionStack[this.expressionPtr], this.nodeSet);
+}
+protected void consumeMethodInvocationPrimaryWithTypeArguments() {
+	super.consumeMethodInvocationPrimaryWithTypeArguments();
 
 	// this is always a MessageSend
 	this.patternLocator.match((MessageSend) this.expressionStack[this.expressionPtr], this.nodeSet);
@@ -182,7 +222,22 @@ protected void consumeMethodInvocationSuper() {
 	// this is always a MessageSend
 	this.patternLocator.match((MessageSend) this.expressionStack[this.expressionPtr], this.nodeSet);
 }
+protected void consumeMethodInvocationSuperWithTypeArguments() {
+	super.consumeMethodInvocationSuperWithTypeArguments();
+
+	// this is always a MessageSend
+	this.patternLocator.match((MessageSend) this.expressionStack[this.expressionPtr], this.nodeSet);
+}
 protected void consumePrimaryNoNewArray() {
+	// pop parenthesis positions (and don't update expression positions
+	// (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=23329)
+	intPtr--;
+	intPtr--;
+}
+
+protected void consumePrimaryNoNewArrayWithName() {
+	// PrimaryNoNewArray ::=  PushLPAREN Expression PushRPAREN 
+	pushOnExpressionStack(getUnspecifiedReferenceOptimized());
 	// pop parenthesis positions (and don't update expression positions
 	// (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=23329)
 	intPtr--;
@@ -280,6 +335,14 @@ class ImportMatchLocatorParser extends MatchLocatorParser {
 
 protected ImportMatchLocatorParser(ProblemReporter problemReporter, MatchLocator locator) {
 	super(problemReporter, locator);
+}
+protected void consumeStaticImportOnDemandDeclarationName() {
+	super.consumeStaticImportOnDemandDeclarationName();
+	this.patternLocator.match(this.astStack[this.astPtr], this.nodeSet);
+}
+protected void consumeSingleStaticImportDeclarationName() {
+	super.consumeSingleStaticImportDeclarationName();
+	this.patternLocator.match(this.astStack[this.astPtr], this.nodeSet);
 }
 protected void consumeSingleTypeImportDeclarationName() {
 	super.consumeSingleTypeImportDeclarationName();

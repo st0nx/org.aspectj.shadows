@@ -11,6 +11,7 @@
 
 package org.eclipse.jdt.core.dom;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -62,11 +63,12 @@ public class EnhancedForStatement extends Statement {
 	private static final List PROPERTY_DESCRIPTORS;
 	
 	static {
-		createPropertyList(EnhancedForStatement.class);
-		addProperty(PARAMETER_PROPERTY);
-		addProperty(EXPRESSION_PROPERTY);
-		addProperty(BODY_PROPERTY);
-		PROPERTY_DESCRIPTORS = reapPropertyList();
+		List properyList = new ArrayList(4);
+		createPropertyList(EnhancedForStatement.class, properyList);
+		addProperty(PARAMETER_PROPERTY, properyList);
+		addProperty(EXPRESSION_PROPERTY, properyList);
+		addProperty(BODY_PROPERTY, properyList);
+		PROPERTY_DESCRIPTORS = reapPropertyList(properyList);
 	}
 
 	/**
@@ -316,18 +318,11 @@ public class EnhancedForStatement extends Statement {
 	}
 	
 	/**
-	 * Resolves and returns the binding for the loop variable of this
-	 * enhanced for statement.
-	 * <p>
-	 * Note that bindings are generally unavailable unless requested when the
-	 * AST is being built.
-	 * </p>
-	 * 
-	 * @return the binding, or <code>null</code> if the binding cannot be 
-	 *    resolved
-	 */	
+	 * @deprecated Use getParameter().resolveBinding() instead.
+	 */
+	// TODO (jeem) remove after 3.1 M4 - https://bugs.eclipse.org/bugs/show_bug.cgi?id=79098
 	public IVariableBinding resolveBinding() {
-		return this.ast.getBindingResolver().resolveVariable(this);
+		return null;
 	}
 
 	/* (omit javadoc for this method)

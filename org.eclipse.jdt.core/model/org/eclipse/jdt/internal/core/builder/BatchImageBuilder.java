@@ -74,7 +74,7 @@ protected void addAllSourceFiles(final ArrayList sourceFiles) throws CoreExcepti
 								resource = proxy.requestResource();
 								if (Util.isExcluded(resource, inclusionPatterns, exclusionPatterns)) return false;
 							}
-							if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName())) {
+							if (org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(proxy.getName())) {
 								if (resource == null)
 									resource = proxy.requestResource();
 								sourceFiles.add(new SourceFile((IFile) resource, sourceLocation));
@@ -200,7 +200,7 @@ protected void copyExtraResourcesBack(ClasspathMultiDirectory sourceLocation, fi
 				IResource resource = null;
 				switch(proxy.getType()) {
 					case IResource.FILE :
-						if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName()) ||
+						if (org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(proxy.getName()) ||
 							org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(proxy.getName())) return false;
 
 						resource = proxy.requestResource();
@@ -217,6 +217,7 @@ protected void copyExtraResourcesBack(ClasspathMultiDirectory sourceLocation, fi
 								String id = originalResource.getFullPath().removeFirstSegments(1).toString();
 								createProblemFor(
 									resource,
+									null,
 									Util.bind("build.duplicateResource", id), //$NON-NLS-1$
 									javaBuilder.javaProject.getOption(JavaCore.CORE_JAVA_BUILD_DUPLICATE_RESOURCE, true));
 								return false;
@@ -225,7 +226,7 @@ protected void copyExtraResourcesBack(ClasspathMultiDirectory sourceLocation, fi
 						}
 						resource.copy(copiedResource.getFullPath(), IResource.FORCE, null);
 						copiedResource.setDerived(true);
-						copiedResource.setReadOnly(false); // just in case the original was read only
+						Util.setReadOnly(copiedResource, false); // just in case the original was read only
 						return false;
 					case IResource.FOLDER :
 						resource = proxy.requestResource();

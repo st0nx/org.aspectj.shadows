@@ -18,7 +18,6 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 public class ReturnStatement extends Statement {
 		
 	public Expression expression;
-	public TypeBinding expressionType;
 	public boolean isSynchronized;
 	public SubRoutineStatement[] subroutines;
 	public boolean isAnySubRoutineEscaping = false;
@@ -92,7 +91,7 @@ public class ReturnStatement extends Statement {
 			}
 		} else {
 			this.saveValueVariable = null;
-			if ((!isSynchronized) && (expressionType == BooleanBinding)) {
+			if (!isSynchronized && this.expression != null && this.expression.resolvedType == BooleanBinding) {
 				this.expression.bits |= ValueForReturnMASK;
 			}
 		}
@@ -151,7 +150,13 @@ public class ReturnStatement extends Statement {
 		if (expression == null) {
 			codeStream.return_();
 		} else {
-			switch (expression.implicitConversion >> 4) {
+			final int implicitConversion = expression.implicitConversion;
+			if ((implicitConversion & BOXING) != 0) {
+				codeStream.areturn();
+				return;
+			}
+			int runtimeType = (implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4;
+			switch (runtimeType) {
 				case T_boolean :
 				case T_int :
 					codeStream.ireturn();
@@ -187,7 +192,9 @@ public class ReturnStatement extends Statement {
 			expression.printExpression(0, output) ;
 		return output.append(';');
 	}
+	
 	public void resolve(BlockScope scope) {
+		
 		MethodScope methodScope = scope.methodScope();
 		MethodBinding methodBinding;
 		TypeBinding methodType =
@@ -196,6 +203,7 @@ public class ReturnStatement extends Statement {
 					? null 
 					: methodBinding.returnType)
 				: VoidBinding;
+		TypeBinding expressionType;
 		if (methodType == VoidBinding) {
 			// the expression should be null
 			if (expression == null)
@@ -208,25 +216,30 @@ public class ReturnStatement extends Statement {
 			if (methodType != null) scope.problemReporter().shouldReturn(methodType, this);
 			return;
 		}
-		if ((expressionType = expression.resolveType(scope)) == null)
-			return;
-	
-		if (methodType != null && expression.isConstantValueOfTypeAssignableToType(expressionType, methodType)) {
-			// dealing with constant
-			expression.implicitWidening(methodType, expressionType);
-			return;
-		}
+		expression.setExpectedType(methodType); // needed in case of generic method invocation
+		if ((expressionType = expression.resolveType(scope)) == null) return;
 		if (expressionType == VoidBinding) {
 			scope.problemReporter().attemptToReturnVoidValue(this);
 			return;
 		}
-		if (methodType != null && expressionType.isCompatibleWith(methodType)) {
-			expression.implicitWidening(methodType, expressionType);
+		if (methodType == null) 
+			return;
+	
+		if (methodType != expressionType) // must call before computeConversion() and typeMismatchError()
+			scope.compilationUnitScope().recordTypeConversion(methodType, expressionType);
+		if (expression.isConstantValueOfTypeAssignableToType(expressionType, methodType)
+				|| expressionType.isCompatibleWith(methodType)) {
+
+			expression.computeConversion(scope, methodType, expressionType);
+			if (expressionType.needsUncheckedConversion(methodType)) {
+			    scope.problemReporter().unsafeRawConversion(this.expression, expressionType, methodType);
+			}
+			return;
+		} else if (scope.isBoxingCompatibleWith(expressionType, methodType)) {
+			expression.computeConversion(scope, methodType, expressionType);
 			return;
 		}
-		if (methodType != null){
-			scope.problemReporter().typeMismatchErrorActualTypeExpectedType(expression, expressionType, methodType);
-		}
+		scope.problemReporter().typeMismatchError(expressionType, methodType, expression);
 	}
 	public void traverse(ASTVisitor visitor, BlockScope scope) {
 		if (visitor.visit(this, scope)) {

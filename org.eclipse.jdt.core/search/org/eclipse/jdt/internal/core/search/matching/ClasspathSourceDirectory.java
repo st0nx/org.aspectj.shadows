@@ -18,8 +18,9 @@ import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.internal.compiler.batch.CompilationUnit;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
+import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.core.builder.ClasspathLocation;
-import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class ClasspathSourceDirectory extends ClasspathLocation {
 
@@ -28,8 +29,10 @@ public class ClasspathSourceDirectory extends ClasspathLocation {
 	String encoding;
 	SimpleLookupTable directoryCache;
 	String[] missingPackageHolder = new String[1];
+	char[][] fullExclusionPatternChars;
+	char[][] fulInclusionPatternChars;
 
-ClasspathSourceDirectory(IContainer sourceFolder) {
+ClasspathSourceDirectory(IContainer sourceFolder, char[][] fullExclusionPatternChars, char[][] fulInclusionPatternChars) {
 	this.sourceFolder = sourceFolder;
 	IPath location = sourceFolder.getLocation();
 	this.sourceLocation = location != null ? location.addTrailingSeparator().toString() : ""; //$NON-NLS-1$
@@ -41,6 +44,8 @@ ClasspathSourceDirectory(IContainer sourceFolder) {
 		// let use no encoding by default
 	}
 	this.directoryCache = new SimpleLookupTable(5);
+	this.fullExclusionPatternChars = fullExclusionPatternChars;
+	this.fulInclusionPatternChars = fulInclusionPatternChars;
 }
 
 public void cleanup() {
@@ -61,7 +66,7 @@ String[] directoryList(String qualifiedPackageName) {
 			for (int i = 0, l = members.length; i < l; i++) {
 				IResource m = members[i];
 				String name;
-				if (m.getType() == IResource.FILE && org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(name = m.getName()))
+				if (m.getType() == IResource.FILE && org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(name = m.getName()))
 					dirList[index++] = name;
 			}
 			if (index < dirList.length)
@@ -93,20 +98,30 @@ public boolean equals(Object o) {
 	return sourceFolder.equals(((ClasspathSourceDirectory) o).sourceFolder);
 } 
 
-public NameEnvironmentAnswer findClass(String sourceFileName, String qualifiedPackageName, String qualifiedSourceFileName) {
-	if (!doesFileExist(sourceFileName, qualifiedPackageName)) return null; // most common case
-
-	String fullSourcePath = this.sourceLocation + qualifiedSourceFileName;
-	IPath path = new Path(qualifiedSourceFileName);
-	IFile file = this.sourceFolder.getFile(path);
-	String fileEncoding = this.encoding;
-	try {
-		fileEncoding = file.getCharset();
+public NameEnvironmentAnswer findClass(String sourceFileWithoutExtension, String qualifiedPackageName, String qualifiedSourceFileWithoutExtension) {
+	
+	String sourceFolderPath = this.sourceFolder.getFullPath().toString() + IPath.SEPARATOR;
+	for (int i = 0, length = Util.JAVA_LIKE_EXTENSIONS.length; i < length; i++) {
+		String extension = new String(Util.JAVA_LIKE_EXTENSIONS[i]);
+		String sourceFileName = sourceFileWithoutExtension + extension;
+		if (!doesFileExist(sourceFileName, qualifiedPackageName)) continue; // most common case
+	
+		String qualifiedSourceFileName = qualifiedSourceFileWithoutExtension + extension;
+		String fullSourcePath = this.sourceLocation + qualifiedSourceFileName;
+		if (org.eclipse.jdt.internal.compiler.util.Util.isExcluded((sourceFolderPath + qualifiedSourceFileName).toCharArray(), this.fulInclusionPatternChars, this.fullExclusionPatternChars, false/*not a folder path*/))
+			continue;
+		IPath path = new Path(qualifiedSourceFileName);
+		IFile file = this.sourceFolder.getFile(path);
+		String fileEncoding = this.encoding;
+		try {
+			fileEncoding = file.getCharset();
+		}
+		catch (CoreException ce) {
+			// let use default encoding
+		}
+		return new NameEnvironmentAnswer(new CompilationUnit(null, fullSourcePath, fileEncoding), null /* no access restriction */);
 	}
-	catch (CoreException ce) {
-		// let use default encoding
-	}
-	return new NameEnvironmentAnswer(new CompilationUnit(null, fullSourcePath, fileEncoding));
+	return null;
 }
 
 public IPath getProjectRelativePath() {

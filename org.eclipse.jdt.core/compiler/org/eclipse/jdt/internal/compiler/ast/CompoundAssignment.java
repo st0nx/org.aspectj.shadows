@@ -54,6 +54,10 @@ public class CompoundAssignment extends Assignment implements OperatorIds {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 	
+	public int nullStatus(FlowInfo flowInfo) {
+		return FlowInfo.NON_NULL;
+	}
+	
 	public String operatorToString() {
 		switch (operator) {
 			case PLUS :
@@ -94,23 +98,41 @@ public class CompoundAssignment extends Assignment implements OperatorIds {
 			scope.problemReporter().expressionShouldBeAVariable(this.lhs);
 			return null;
 		}
-		TypeBinding lhsType = lhs.resolveType(scope);
-		TypeBinding expressionType = expression.resolveType(scope);
-		if (lhsType == null || expressionType == null)
+		TypeBinding originalLhsType = lhs.resolveType(scope);
+		TypeBinding originalExpressionType = expression.resolveType(scope);
+		if (originalLhsType == null || originalExpressionType == null)
 			return null;
 	
-		int lhsId = lhsType.id;
-		int expressionId = expressionType.id;
+		// autoboxing support
+		LookupEnvironment env = scope.environment();
+		TypeBinding lhsType = originalLhsType, expressionType = originalExpressionType;
+		boolean use15specifics = scope.environment().options.sourceLevel >= JDK1_5;
+		boolean unboxedLhs = false;
+		if (use15specifics) {
+			if (!lhsType.isBaseType() && expressionType.id != T_JavaLangString && expressionType.id != T_null) {
+				TypeBinding unboxedType = env.computeBoxingType(lhsType);
+				if (unboxedType != lhsType) {
+					lhsType = unboxedType;
+					unboxedLhs = true;
+				}
+			}
+			if (!expressionType.isBaseType() && lhsType.id != T_JavaLangString  && lhsType.id != T_null) {
+				expressionType = env.computeBoxingType(expressionType);
+			}
+		}
+		
 		if (restrainUsageToNumericTypes() && !lhsType.isNumericType()) {
 			scope.problemReporter().operatorOnlyValidOnNumericType(this, lhsType, expressionType);
 			return null;
 		}
-		if (lhsId > 15 || expressionId > 15) {
-			if (lhsId != T_String) { // String += Thread is valid whereas Thread += String  is not
+		int lhsID = lhsType.id;
+		int expressionID = expressionType.id;
+		if (lhsID > 15 || expressionID > 15) {
+			if (lhsID != T_JavaLangString) { // String += Thread is valid whereas Thread += String  is not
 				scope.problemReporter().invalidOperator(this, lhsType, expressionType);
 				return null;
 			}
-			expressionId = T_Object; // use the Object has tag table
+			expressionID = T_JavaLangObject; // use the Object has tag table
 		}
 	
 		// the code is an int
@@ -119,28 +141,30 @@ public class CompoundAssignment extends Assignment implements OperatorIds {
 		//  <<16   <<12       <<8     <<4        <<0
 	
 		// the conversion is stored INTO the reference (info needed for the code gen)
-		int result = OperatorExpression.OperatorSignatures[operator][ (lhsId << 4) + expressionId];
+		int result = OperatorExpression.OperatorSignatures[operator][ (lhsID << 4) + expressionID];
 		if (result == T_undefined) {
 			scope.problemReporter().invalidOperator(this, lhsType, expressionType);
 			return null;
 		}
 		if (operator == PLUS){
-			if(lhsId == T_JavaLangObject) {
+			if(lhsID == T_JavaLangObject) {
 				// <Object> += <String> is illegal (39248)
 				scope.problemReporter().invalidOperator(this, lhsType, expressionType);
 				return null;
 			} else {
 				// <int | boolean> += <String> is illegal
-				if ((lhsType.isNumericType() || lhsId == T_boolean) && !expressionType.isNumericType()){
+				if ((lhsType.isNumericType() || lhsID == T_boolean) && !expressionType.isNumericType()){
 					scope.problemReporter().invalidOperator(this, lhsType, expressionType);
 					return null;
 				}
 			}
 		}
-		lhs.implicitConversion = result >>> 12;
-		expression.implicitConversion = (result >>> 4) & 0x000FF;
-		assignmentImplicitConversion = (lhsId << 4) + (result & 0x0000F);
-		return this.resolvedType = lhsType;
+		this.lhs.implicitConversion = (unboxedLhs ? UNBOXING : 0) | (result >>> 12);
+		scope.problemReporter().autoboxing(this.lhs, originalLhsType, lhsType);
+		this.expression.computeConversion(scope, TypeBinding.wellKnownType(scope, (result >>> 8) & 0x0000F), originalExpressionType);
+		this.assignmentImplicitConversion =  (unboxedLhs ? BOXING : 0) | (lhsID << 4) | (result & 0x0000F);
+		scope.problemReporter().autoboxing(this, lhsType, originalLhsType);
+		return this.resolvedType = originalLhsType;
 	}
 	
 	public boolean restrainUsageToNumericTypes(){

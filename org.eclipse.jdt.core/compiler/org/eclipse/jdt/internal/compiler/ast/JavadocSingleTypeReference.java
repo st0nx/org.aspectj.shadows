@@ -46,40 +46,39 @@ public class JavadocSingleTypeReference extends SingleTypeReference {
 		visitor.visit(this, scope);
 		visitor.endVisit(this, scope);
 	}
+	
+	public void traverse(ASTVisitor visitor, ClassScope scope) {
+		visitor.visit(this, scope);
+		visitor.endVisit(this, scope);
+	}
 
-	/*
-	 * 
-	 */
-	private TypeBinding internalResolveType(Scope scope) {
+	TypeBinding internalResolveType(Scope scope) {
 		// handle the error here
 		this.constant = NotAConstant;
-		if (this.resolvedType != null) { // is a shared type reference which was already resolved
-			if (!this.resolvedType.isValidBinding())
-				return null; // already reported error
-		} else {
-			this.resolvedType = getTypeBinding(scope);
-			if (!this.resolvedType.isValidBinding()) {
-				char[][] tokens = { this.token };
-				Binding binding = scope.getTypeOrPackage(tokens);
-				if (binding instanceof PackageBinding) {
-					this.packageBinding = (PackageBinding) binding;
-				} else {
-					reportInvalidType(scope);
-				}
-				return null;
+		if (this.resolvedType != null)// is a shared type reference which was already resolved
+			return this.resolvedType.isValidBinding() ? this.resolvedType : null; // already reported error
+
+		this.resolvedType = getTypeBinding(scope);
+		if (!this.resolvedType.isValidBinding()) {
+			char[][] tokens = { this.token };
+			Binding binding = scope.getTypeOrPackage(tokens);
+			if (binding instanceof PackageBinding) {
+				this.packageBinding = (PackageBinding) binding;
+			} else {
+				reportInvalidType(scope);
 			}
-			if (isTypeUseDeprecated(this.resolvedType, scope)) {
-				reportDeprecatedType(scope);
-			}
+			return null;
 		}
-		return this.resolvedType;
+		if (isTypeUseDeprecated(this.resolvedType, scope))
+			reportDeprecatedType(scope);
+		return this.resolvedType = scope.convertToRawType(this.resolvedType);
 	}
 
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.ast.Expression#resolveType(org.eclipse.jdt.internal.compiler.lookup.BlockScope)
 	 * We need to override to handle package references
 	 */
-	public TypeBinding resolveType(BlockScope blockScope) {
+	public TypeBinding resolveType(BlockScope blockScope, boolean checkBounds) {
 		return internalResolveType(blockScope);
 	}
 

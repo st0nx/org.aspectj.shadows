@@ -23,8 +23,9 @@ import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Util;
 
 
-public class LocalVariable extends JavaElement implements ILocalVariable {
+public class LocalVariable extends SourceRefElement implements ILocalVariable {
 
+	String name;
 	public int declarationSourceStart, declarationSourceEnd;
 	public int nameStart, nameEnd;
 	String typeSignature;
@@ -38,7 +39,8 @@ public class LocalVariable extends JavaElement implements ILocalVariable {
 			int nameEnd,
 			String typeSignature) {
 		
-		super(parent, name);
+		super(parent);
+		this.name = name;
 		this.declarationSourceStart = declarationSourceStart;
 		this.declarationSourceEnd = declarationSourceEnd;
 		this.nameStart = nameStart;
@@ -83,10 +85,10 @@ public class LocalVariable extends JavaElement implements ILocalVariable {
 	}
 
 	/*
-	 * @see JavaElement#getHandleMemento()
+	 * @see JavaElement#getHandleMemento(StringBuffer)
 	 */
-	public String getHandleMemento(){
-		StringBuffer buff= new StringBuffer(((JavaElement)getParent()).getHandleMemento());
+	protected void getHandleMemento(StringBuffer buff) {
+		((JavaElement)getParent()).getHandleMemento(buff);
 		buff.append(getHandleMementoDelimiter());
 		buff.append(this.name);
 		buff.append(JEM_COUNT);
@@ -103,7 +105,6 @@ public class LocalVariable extends JavaElement implements ILocalVariable {
 			buff.append(JEM_COUNT);
 			buff.append(this.occurrenceCount);
 		}
-		return buff.toString();
 	}
 
 	protected char getHandleMementoDelimiter() {
@@ -112,6 +113,10 @@ public class LocalVariable extends JavaElement implements ILocalVariable {
 
 	public IResource getCorrespondingResource() {
 		return null;
+	}
+	
+	public String getElementName() {
+		return this.name;
 	}
 
 	public int getElementType() {

@@ -32,6 +32,7 @@ import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.NameReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.parser.RecoveredBlock;
 import org.eclipse.jdt.internal.compiler.parser.RecoveredElement;
@@ -117,7 +118,7 @@ public RecoveredElement buildInitialRecoveryState(){
 			for (int i = 0; i < type.fields.length; i++){
 				FieldDeclaration field = type.fields[i];					
 				if (field != null
-						&& !field.isField()
+						&& field.getKind() == AbstractVariableDeclaration.INITIALIZER
 						&& field.declarationSourceStart <= scanner.initialPosition
 						&& scanner.initialPosition <= field.declarationSourceEnd
 						&& scanner.eofPosition <= field.declarationSourceEnd+1){
@@ -140,6 +141,10 @@ public RecoveredElement buildInitialRecoveryState(){
 
 	for(int i = 0; i <= astPtr; i++){
 		ASTNode node = astStack[i];
+		
+		if(node instanceof ForeachStatement && ((ForeachStatement)node).action == null) {
+			node = ((ForeachStatement)node).elementVariable;
+		}
 
 		/* check for intermediate block creation, so recovery can properly close them afterwards */
 		int nodeStart = node.sourceStart;
@@ -240,6 +245,10 @@ public RecoveredElement buildInitialRecoveryState(){
 	
 	return element;
 }
+protected void consumeAnnotationTypeDeclarationHeader() {
+	super.consumeAnnotationTypeDeclarationHeader();
+	pushOnElementStack(K_TYPE_DELIMITER);
+}
 protected void consumeClassBodyDeclaration() {
 	popElement(K_METHOD_DELIMITER);
 	super.consumeClassBodyDeclaration();
@@ -263,6 +272,15 @@ protected void consumeConstructorHeader() {
 protected void consumeEnterAnonymousClassBody() {
 	super.consumeEnterAnonymousClassBody();
 	popElement(K_SELECTOR);
+	pushOnElementStack(K_TYPE_DELIMITER);
+}
+protected void consumeEnterAnonymousClassBodySimpleName() {
+	super.consumeEnterAnonymousClassBodySimpleName();
+	popElement(K_SELECTOR);
+	pushOnElementStack(K_TYPE_DELIMITER);
+}
+protected void consumeEnumHeader() {
+	super.consumeEnumHeader();
 	pushOnElementStack(K_TYPE_DELIMITER);
 }
 protected void consumeExplicitConstructorInvocation(int flag, int recFlag) {
@@ -297,6 +315,14 @@ protected void consumeMethodInvocationName() {
 		this.lastCheckPoint = messageSend.sourceEnd + 1;
 	}
 }
+protected void consumeMethodInvocationNameWithTypeArguments() {
+	super.consumeMethodInvocationNameWithTypeArguments();
+	popElement(K_SELECTOR);
+	MessageSend messageSend = (MessageSend)expressionStack[expressionPtr];
+	if (messageSend == assistNode){
+		this.lastCheckPoint = messageSend.sourceEnd + 1;
+	}
+}
 protected void consumeMethodInvocationPrimary() {
 	super.consumeMethodInvocationPrimary();
 	popElement(K_SELECTOR);
@@ -305,8 +331,24 @@ protected void consumeMethodInvocationPrimary() {
 		this.lastCheckPoint = messageSend.sourceEnd + 1;
 	}
 }
+protected void consumeMethodInvocationPrimaryWithTypeArguments() {
+	super.consumeMethodInvocationPrimaryWithTypeArguments();
+	popElement(K_SELECTOR);
+	MessageSend messageSend = (MessageSend)expressionStack[expressionPtr];
+	if (messageSend == assistNode){
+		this.lastCheckPoint = messageSend.sourceEnd + 1;
+	}
+}
 protected void consumeMethodInvocationSuper() {
 	super.consumeMethodInvocationSuper();
+	popElement(K_SELECTOR);
+	MessageSend messageSend = (MessageSend)expressionStack[expressionPtr];
+	if (messageSend == assistNode){
+		this.lastCheckPoint = messageSend.sourceEnd + 1;
+	}
+}
+protected void consumeMethodInvocationSuperWithTypeArguments() {
+	super.consumeMethodInvocationSuperWithTypeArguments();
 	popElement(K_SELECTOR);
 	MessageSend messageSend = (MessageSend)expressionStack[expressionPtr];
 	if (messageSend == assistNode){
@@ -378,12 +420,122 @@ protected void consumePackageDeclarationName() {
 		restartRecovery = true; // used to avoid branching back into the regular automaton		
 	}	
 }
+protected void consumePackageDeclarationNameWithModifiers() {
+	// PackageDeclarationName ::= Modifiers 'package' PushRealModifiers Name
+	/* build an ImportRef build from the last name 
+	stored in the identifier stack. */
+
+	int index;
+
+	/* no need to take action if not inside assist identifiers */
+	if ((index = indexOfAssistIdentifier()) < 0) {
+		super.consumePackageDeclarationNameWithModifiers();
+		return;
+	}
+	/* retrieve identifiers subset and whole positions, the assist node positions
+		should include the entire replaced source. */
+	int length = identifierLengthStack[identifierLengthPtr];
+	char[][] subset = identifierSubSet(index+1); // include the assistIdentifier
+	identifierLengthPtr--;
+	identifierPtr -= length;
+	long[] positions = new long[length];
+	System.arraycopy(
+		identifierPositionStack, 
+		identifierPtr + 1, 
+		positions, 
+		0, 
+		length); 
+
+	this.intPtr--; // we don't need the modifiers start
+	this.intPtr--; // we don't need the package modifiers
+	ImportReference reference = this.createAssistPackageReference(subset, positions);
+	// consume annotations
+	if ((length = this.expressionLengthStack[this.expressionLengthPtr--]) != 0) {
+		System.arraycopy(
+			this.expressionStack, 
+			(this.expressionPtr -= length) + 1, 
+			reference.annotations = new Annotation[length], 
+			0, 
+			length); 
+	}	
+	/* build specific assist node on package statement */
+	assistNode = reference;
+	this.lastCheckPoint = reference.sourceEnd + 1;
+	compilationUnit.currentPackage = reference; 
+
+	if (currentToken == TokenNameSEMICOLON){
+		reference.declarationSourceEnd = scanner.currentPosition - 1;
+	} else {
+		reference.declarationSourceEnd = (int) positions[length-1];
+	}
+	//endPosition is just before the ;
+	reference.declarationSourceStart = intStack[intPtr--];
+	// flush comments defined prior to import statements
+	reference.declarationSourceEnd = this.flushCommentsDefinedPriorTo(reference.declarationSourceEnd);
+
+	// recovery
+	if (currentElement != null){
+		lastCheckPoint = reference.declarationSourceEnd+1;
+		restartRecovery = true; // used to avoid branching back into the regular automaton		
+	}	
+}
 protected void consumeRestoreDiet() {
 	super.consumeRestoreDiet();
 	// if we are not in a method (ie. we were not in a local variable initializer)
 	// then we are exiting a field initializer
 	if (!isInsideMethod()) {
 		popElement(K_FIELD_INITIALIZER_DELIMITER);
+	}
+}
+protected void consumeSingleStaticImportDeclarationName() {
+	// SingleTypeImportDeclarationName ::= 'import' 'static' Name
+	/* push an ImportRef build from the last name 
+	stored in the identifier stack. */
+
+	int index;
+
+	/* no need to take action if not inside assist identifiers */
+	if ((index = indexOfAssistIdentifier()) < 0) {
+		super.consumeSingleStaticImportDeclarationName();
+		return;
+	}
+	/* retrieve identifiers subset and whole positions, the assist node positions
+		should include the entire replaced source. */
+	int length = identifierLengthStack[identifierLengthPtr];
+	char[][] subset = identifierSubSet(index+1); // include the assistIdentifier
+	identifierLengthPtr--;
+	identifierPtr -= length;
+	long[] positions = new long[length];
+	System.arraycopy(
+		identifierPositionStack, 
+		identifierPtr + 1, 
+		positions, 
+		0, 
+		length); 
+
+	/* build specific assist node on import statement */
+	ImportReference reference = this.createAssistImportReference(subset, positions, AccStatic);
+	assistNode = reference;
+	this.lastCheckPoint = reference.sourceEnd + 1;
+
+	pushOnAstStack(reference);
+
+	if (currentToken == TokenNameSEMICOLON){
+		reference.declarationSourceEnd = scanner.currentPosition - 1;
+	} else {
+		reference.declarationSourceEnd = (int) positions[length-1];
+	}
+	//endPosition is just before the ;
+	reference.declarationSourceStart = intStack[intPtr--];
+	// flush annotations defined prior to import statements
+	reference.declarationSourceEnd = this.flushCommentsDefinedPriorTo(reference.declarationSourceEnd);
+
+	// recovery
+	if (currentElement != null){
+		lastCheckPoint = reference.declarationSourceEnd+1;
+		currentElement = currentElement.add(reference, 0);
+		lastIgnoredToken = -1;
+		restartRecovery = true; // used to avoid branching back into the regular automaton		
 	}
 }
 protected void consumeSingleTypeImportDeclarationName() {
@@ -427,6 +579,58 @@ protected void consumeSingleTypeImportDeclarationName() {
 	//endPosition is just before the ;
 	reference.declarationSourceStart = intStack[intPtr--];
 	// flush comments defined prior to import statements
+	reference.declarationSourceEnd = this.flushCommentsDefinedPriorTo(reference.declarationSourceEnd);
+
+	// recovery
+	if (currentElement != null){
+		lastCheckPoint = reference.declarationSourceEnd+1;
+		currentElement = currentElement.add(reference, 0);
+		lastIgnoredToken = -1;
+		restartRecovery = true; // used to avoid branching back into the regular automaton		
+	}
+}
+protected void consumeStaticImportOnDemandDeclarationName() {
+	// TypeImportOnDemandDeclarationName ::= 'import' 'static' Name '.' '*'
+	/* push an ImportRef build from the last name 
+	stored in the identifier stack. */
+
+	int index;
+
+	/* no need to take action if not inside assist identifiers */
+	if ((index = indexOfAssistIdentifier()) < 0) {
+		super.consumeStaticImportOnDemandDeclarationName();
+		return;
+	}
+	/* retrieve identifiers subset and whole positions, the assist node positions
+		should include the entire replaced source. */
+	int length = identifierLengthStack[identifierLengthPtr];
+	char[][] subset = identifierSubSet(index+1); // include the assistIdentifier
+	identifierLengthPtr--;
+	identifierPtr -= length;
+	long[] positions = new long[length];
+	System.arraycopy(
+		identifierPositionStack, 
+		identifierPtr + 1, 
+		positions, 
+		0, 
+		length); 
+
+	/* build specific assist node on import statement */
+	ImportReference reference = this.createAssistImportReference(subset, positions, AccStatic);
+	reference.onDemand = true;
+	assistNode = reference;
+	this.lastCheckPoint = reference.sourceEnd + 1;
+
+	pushOnAstStack(reference);
+
+	if (currentToken == TokenNameSEMICOLON){
+		reference.declarationSourceEnd = scanner.currentPosition - 1;
+	} else {
+		reference.declarationSourceEnd = (int) positions[length-1];
+	}
+	//endPosition is just before the ;
+	reference.declarationSourceStart = intStack[intPtr--];
+	// flush annotations defined prior to import statements
 	reference.declarationSourceEnd = this.flushCommentsDefinedPriorTo(reference.declarationSourceEnd);
 
 	// recovery
@@ -540,8 +744,10 @@ public abstract ImportReference createAssistImportReference(char[][] tokens, lon
 public abstract ImportReference createAssistPackageReference(char[][] tokens, long[] positions);
 public abstract NameReference createQualifiedAssistNameReference(char[][] previousIdentifiers, char[] assistName, long[] positions);
 public abstract TypeReference createQualifiedAssistTypeReference(char[][] previousIdentifiers, char[] assistName, long[] positions);
+public abstract TypeReference createParameterizedQualifiedAssistTypeReference(char[][] previousIdentifiers, TypeReference[][] typeArguments, char[] asistIdentifier, TypeReference[] assistTypeArguments, long[] positions);
 public abstract NameReference createSingleAssistNameReference(char[] assistName, long position);
 public abstract TypeReference createSingleAssistTypeReference(char[] assistName, long position);
+public abstract TypeReference createParameterizedSingleAssistTypeReference(TypeReference[] typeArguments, char[] assistName, long position);
 /*
  * Flush parser/scanner state regarding to code assist
  */
@@ -563,38 +769,142 @@ protected TypeReference getTypeReference(int dim) {
 	int index;
 
 	/* no need to take action if not inside completed identifiers */
-	if ((index = indexOfAssistIdentifier()) < 0) {
+	if ((index = indexOfAssistIdentifier(true)) < 0) {
 		return super.getTypeReference(dim);
 	}
-
-	/* retrieve identifiers subset and whole positions, the assist node positions
-		should include the entire replaced source. */
 	int length = identifierLengthStack[identifierLengthPtr];
-	char[][] subset = identifierSubSet(index);
-	identifierLengthPtr--;
-	identifierPtr -= length;
-	long[] positions = new long[length];
-	System.arraycopy(
-		identifierPositionStack, 
-		identifierPtr + 1, 
-		positions, 
-		0, 
-		length); 
-
-	/* build specific assist on type reference */
 	TypeReference reference;
-	if (index == 0) {
-		/* assist inside first identifier */
-		reference = this.createSingleAssistTypeReference(
-						assistIdentifier(), 
-						positions[0]);
+	int numberOfIdentifiers = this.genericsIdentifiersLengthStack[this.genericsIdentifiersLengthPtr--];
+	if (length != numberOfIdentifiers || this.genericsLengthStack[this.genericsLengthPtr] != 0) {
+		identifierLengthPtr--;
+		// generic type
+		reference = getAssistTypeReferenceForGenericType(dim, length, numberOfIdentifiers);
 	} else {
-		/* assist inside subsequent identifier */
-		reference =	this.createQualifiedAssistTypeReference(
-						subset,  
-						assistIdentifier(), 
-						positions);
+		/* retrieve identifiers subset and whole positions, the assist node positions
+			should include the entire replaced source. */
+		
+		char[][] subset = identifierSubSet(index);
+		identifierLengthPtr--;
+		identifierPtr -= length;
+		long[] positions = new long[length];
+		System.arraycopy(
+			identifierPositionStack, 
+			identifierPtr + 1, 
+			positions, 
+			0, 
+			length); 
+	
+		/* build specific assist on type reference */
+		
+		if (index == 0) {
+//			genericsIdentifiersLengthPtr--;
+			genericsLengthPtr--;
+			/* assist inside first identifier */
+			reference = this.createSingleAssistTypeReference(
+							assistIdentifier(), 
+							positions[0]);
+		} else {
+//			genericsIdentifiersLengthPtr--;
+			genericsLengthPtr--;
+			/* assist inside subsequent identifier */
+			reference =	this.createQualifiedAssistTypeReference(
+							subset,  
+							assistIdentifier(), 
+							positions);
+		}
+		assistNode = reference;
+		this.lastCheckPoint = reference.sourceEnd + 1;
 	}
+	return reference;
+}
+protected TypeReference getAssistTypeReferenceForGenericType(int dim, int identifierLength, int numberOfIdentifiers) {
+	/* no need to take action if not inside completed identifiers */
+	if (/*(indexOfAssistIdentifier()) < 0 ||*/ (identifierLength == 1 && numberOfIdentifiers == 1)) {
+		int currentTypeArgumentsLength = this.genericsLengthStack[this.genericsLengthPtr--];
+		TypeReference[] typeArguments = new TypeReference[currentTypeArgumentsLength];
+		this.genericsPtr -= currentTypeArgumentsLength;
+		System.arraycopy(this.genericsStack, this.genericsPtr + 1, typeArguments, 0, currentTypeArgumentsLength);
+		long[] positions = new long[identifierLength];
+		System.arraycopy(
+			identifierPositionStack, 
+			identifierPtr, 
+			positions, 
+			0, 
+			identifierLength); 
+		
+		this.identifierPtr--;
+				
+		TypeReference reference = this.createParameterizedSingleAssistTypeReference(
+				typeArguments,
+				assistIdentifier(),
+				positions[0]);
+		
+		this.assistNode = reference;
+		this.lastCheckPoint = reference.sourceEnd + 1;
+		return reference;
+	}
+	
+	TypeReference[][] typeArguments = new TypeReference[numberOfIdentifiers][];
+	char[][] tokens = new char[numberOfIdentifiers][];
+	long[] positions = new long[numberOfIdentifiers];
+	int index = numberOfIdentifiers;
+	int currentIdentifiersLength = identifierLength;
+	while (index > 0) {
+		int currentTypeArgumentsLength = this.genericsLengthStack[this.genericsLengthPtr--];
+		if (currentTypeArgumentsLength != 0) {
+			this.genericsPtr -= currentTypeArgumentsLength;
+			System.arraycopy(this.genericsStack, this.genericsPtr + 1, typeArguments[index - 1] = new TypeReference[currentTypeArgumentsLength], 0, currentTypeArgumentsLength);
+		}
+		switch(currentIdentifiersLength) {
+			case 1 :
+				// we are in a case A<B>.C<D> or A<B>.C<D>
+				tokens[index - 1] = this.identifierStack[this.identifierPtr];
+				positions[index - 1] = this.identifierPositionStack[this.identifierPtr--];
+				break;
+			default:
+				// we are in a case A.B.C<B>.C<D> or A.B.C<B>...
+				this.identifierPtr -= currentIdentifiersLength;
+				System.arraycopy(this.identifierStack, this.identifierPtr + 1, tokens, index - currentIdentifiersLength, currentIdentifiersLength);
+				System.arraycopy(this.identifierPositionStack, this.identifierPtr + 1, positions, index - currentIdentifiersLength, currentIdentifiersLength);
+		}
+		index -= currentIdentifiersLength;
+		if (index > 0) {
+			currentIdentifiersLength = this.identifierLengthStack[this.identifierLengthPtr--];
+		}
+	}
+	
+	// remove completion token
+	int realLength = numberOfIdentifiers;
+	for (int i = 0; i < numberOfIdentifiers; i++) {
+		if(tokens[i] == assistIdentifier()) {
+			realLength = i;
+		}
+	}
+	TypeReference reference;
+	if(realLength == 0) {
+		if(typeArguments[0] != null && typeArguments[0].length > 0) {
+			reference = this.createParameterizedSingleAssistTypeReference(typeArguments[0], assistIdentifier(), positions[0]);
+		} else {
+			reference = this.createSingleAssistTypeReference(assistIdentifier(), positions[0]);
+		}
+	} else {
+		TypeReference[] assistTypeArguments = typeArguments[realLength];
+		System.arraycopy(tokens, 0, tokens = new char[realLength][], 0, realLength);
+		System.arraycopy(typeArguments, 0, typeArguments = new TypeReference[realLength][], 0, realLength);
+		
+		boolean isParameterized = false;
+		for (int i = 0; i < typeArguments.length; i++) {
+			if(typeArguments[i] != null) {
+				isParameterized = true;
+			}
+		}
+		if(isParameterized || (assistTypeArguments != null && assistTypeArguments.length > 0)) {
+			reference = this.createParameterizedQualifiedAssistTypeReference(tokens, typeArguments, assistIdentifier(), assistTypeArguments, positions);
+		} else {
+			reference = this.createQualifiedAssistTypeReference(tokens, assistIdentifier(), positions);
+		}
+	}
+
 	assistNode = reference;
 	this.lastCheckPoint = reference.sourceEnd + 1;
 	return reference;
@@ -638,7 +948,7 @@ protected NameReference getUnspecifiedReferenceOptimized() {
 		reference = this.createQualifiedAssistNameReference(subset, assistIdentifier(), positions);
 	}
 	reference.bits &= ~ASTNode.RestrictiveFlagMASK;
-	reference.bits |= LOCAL | FIELD;
+	reference.bits |= Binding.LOCAL | Binding.FIELD;
 	
 	assistNode = reference;
 	lastCheckPoint = reference.sourceEnd + 1;
@@ -678,6 +988,10 @@ protected char[][] identifierSubSet(int subsetLength){
 		subsetLength);
 	return subset;
 }
+
+protected int indexOfAssistIdentifier(){
+	return this.indexOfAssistIdentifier(false);
+}
 /*
  * Iterate the most recent group of awaiting identifiers (grouped for qualified name reference (eg. aa.bb.cc)
  * so as to check whether one of them is the assist identifier.
@@ -685,7 +999,7 @@ protected char[][] identifierSubSet(int subsetLength){
  *	eg. aa(0).bb(1).cc(2)
  * If no assist identifier was found, answers -1.
  */
-protected int indexOfAssistIdentifier(){
+protected int indexOfAssistIdentifier(boolean useGenericsStack){
 
 	if (identifierLengthPtr < 0){
 		return -1; // no awaiting identifier
@@ -698,6 +1012,9 @@ protected int indexOfAssistIdentifier(){
 
 	// iterate awaiting identifiers backwards
 	int length = identifierLengthStack[identifierLengthPtr];
+	if(useGenericsStack && length > 0 && this.genericsIdentifiersLengthPtr > -1 ) {
+		length = this.genericsIdentifiersLengthStack[this.genericsIdentifiersLengthPtr];
+	}
 	for (int i = 0; i < length; i++){ 
 		if (identifierStack[identifierPtr - i] == assistIdentifier){
 			return length - i - 1;
@@ -1109,15 +1426,22 @@ public void reset(){
 protected boolean resumeAfterRecovery() {
 
 	// reset internal stacks 
-	astPtr = -1;
-	astLengthPtr = -1;
-	expressionPtr = -1;
-	expressionLengthPtr = -1;
-	identifierPtr = -1;	
-	identifierLengthPtr	= -1;
-	intPtr = -1;
-	dimensions = 0 ;
-	recoveredStaticInitializerStart = 0;
+	this.astPtr = -1;
+	this.astLengthPtr = -1;
+	this.expressionPtr = -1;
+	this.expressionLengthPtr = -1;
+	this.identifierPtr = -1;	
+	this.identifierLengthPtr	= -1;
+	this.intPtr = -1;
+	this.dimensions = 0 ;
+	this.recoveredStaticInitializerStart = 0;
+	
+	this.genericsIdentifiersLengthPtr = -1;
+	this.genericsLengthPtr = -1;
+	this.genericsPtr = -1;
+	
+	this.modifiers = AccDefault;
+	this.modifiersSourceStart = -1;
 
 	// if in diet mode, reset the diet counter because we're going to restart outside an initializer.
 	if (diet) dietInt = 0;

@@ -23,6 +23,7 @@ public class ImportReference extends ASTNode {
 	public int declarationSourceEnd;
 	public boolean used;
 	public int modifiers; // 1.5 addition for static imports
+	public Annotation[] annotations;
 
 	public ImportReference(
 			char[][] tokens,
@@ -36,6 +37,10 @@ public class ImportReference extends ASTNode {
 		this.sourceEnd = (int) (sourcePositions[sourcePositions.length-1] & 0x00000000FFFFFFFF);
 		this.sourceStart = (int) (sourcePositions[0] >>> 32);
 		this.modifiers = modifiers;
+	}
+	
+	public boolean isStatic() {
+		return (this.modifiers & AccStatic) != 0;
 	}
 
 	/**
@@ -67,6 +72,11 @@ public class ImportReference extends ASTNode {
 	public void traverse(ASTVisitor visitor, CompilationUnitScope scope) {
 
 		visitor.visit(this, scope);
+		if (this.annotations != null) {
+			int annotationsLength = this.annotations.length;
+			for (int i = 0; i < annotationsLength; i++)
+				this.annotations[i].traverse(visitor, scope);
+		}
 		visitor.endVisit(this, scope);
 	}
 }

@@ -10,36 +10,86 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
+
 public interface TagBits {
+    
 	// Tag bits in the tagBits int of every TypeBinding
-	final int IsArrayType = 0x0001;
-	final int IsBaseType = 0x0002;
-	final int IsNestedType = 0x0004;
-	final int IsMemberType = 0x0008;
-	final int MemberTypeMask = IsNestedType | IsMemberType;
-	final int IsLocalType = 0x0010;
-	final int LocalTypeMask = IsNestedType | IsLocalType;
-	final int IsAnonymousType = 0x0020;
-	final int AnonymousTypeMask = LocalTypeMask | IsAnonymousType;
-	final int IsBinaryBinding = 0x0040;
-
-	// for the type hierarchy check used by ClassScope
-	final int BeginHierarchyCheck = 0x0100;
-	final int EndHierarchyCheck = 0x0200;
-
+	long IsArrayType = ASTNode.Bit1;
+	long IsBaseType = ASTNode.Bit2;
+	long IsNestedType = ASTNode.Bit3;
+	long IsMemberType = ASTNode.Bit4;
+	long MemberTypeMask = IsNestedType | IsMemberType;
+	long IsLocalType = ASTNode.Bit5;
+	long LocalTypeMask = IsNestedType | IsLocalType;
+	long IsAnonymousType = ASTNode.Bit6;
+	long AnonymousTypeMask = LocalTypeMask | IsAnonymousType;
+	long IsBinaryBinding = ASTNode.Bit7;
+	
+	// for the type cycle hierarchy check used by ClassScope
+	long BeginHierarchyCheck = ASTNode.Bit9;  // type
+	long EndHierarchyCheck = ASTNode.Bit10; // type
+	long HasParameterAnnotations = ASTNode.Bit11; // method
+	
 	// test bit to see if default abstract methods were computed
-	final int KnowsDefaultAbstractMethods = 0x0400;
+	long KnowsDefaultAbstractMethods = ASTNode.Bit11;
 
 	// Reusable bit currently used by Scopes
-	final int InterfaceVisited = 0x0800;
+	long InterfaceVisited = ASTNode.Bit12;
 
 	// test bits to see if parts of binary types are faulted
-	final int AreFieldsComplete = 0x1000;
-	final int AreMethodsComplete = 0x2000;
+	long AreFieldsComplete = ASTNode.Bit13;
+	long AreMethodsComplete = ASTNode.Bit14;
 
 	// test bit to avoid asking a type for a member type (includes inherited member types)
-	final int HasNoMemberTypes = 0x4000;
+	long HasNoMemberTypes = ASTNode.Bit15;
 
 	// test bit to identify if the type's hierarchy is inconsistent
-	final int HierarchyHasProblems = 0x8000;
+	long HierarchyHasProblems = ASTNode.Bit16;
+
+	// set for parameterized type NOT of the form X<?,?>
+	long IsBoundParameterizedType = ASTNode.Bit24; 
+
+	// used by BinaryTypeBinding
+	long HasUnresolvedTypeVariables = ASTNode.Bit25;
+	long HasUnresolvedSuperclass = ASTNode.Bit26;
+	long HasUnresolvedSuperinterfaces = ASTNode.Bit27;
+	long HasUnresolvedEnclosingType = ASTNode.Bit28;
+	long HasUnresolvedMemberTypes = ASTNode.Bit29;
+
+	long HasTypeVariable = ASTNode.Bit30; // set either for type variables (direct) or parameterized types indirectly referencing type variables
+	long HasDirectWildcard = ASTNode.Bit31; // set for parameterized types directly referencing wildcards
+	
+	// for the annotation cycle hierarchy check used by ClassScope
+	long BeginAnnotationCheck = ASTNode.Bit32L;
+	long EndAnnotationCheck = ASTNode.Bit33L;
+	
+	// standard annotations
+	// 9-bits for targets
+	long AnnotationResolved = ASTNode.Bit34L;
+	long AnnotationTarget = ASTNode.Bit35L; // @Target({}) only sets this bit
+	long AnnotationForType = ASTNode.Bit36L;
+	long AnnotationForField = ASTNode.Bit37L;
+	long AnnotationForMethod = ASTNode.Bit38L;
+	long AnnotationForParameter = ASTNode.Bit39L;
+	long AnnotationForConstructor = ASTNode.Bit40L;
+	long AnnotationForLocalVariable = ASTNode.Bit41L;
+	long AnnotationForAnnotationType = ASTNode.Bit42L;
+	long AnnotationForPackage = ASTNode.Bit43L;
+	long AnnotationTargetMASK = AnnotationTarget
+				| AnnotationForType | AnnotationForField
+				| AnnotationForMethod | AnnotationForParameter
+				| AnnotationForConstructor | AnnotationForLocalVariable
+				| AnnotationForAnnotationType | AnnotationForPackage;
+	// 2-bits for retention (should check (tagBits & RetentionMask) == RuntimeRetention
+	long AnnotationSourceRetention = ASTNode.Bit44L;
+	long AnnotationClassRetention = ASTNode.Bit45L;
+	long AnnotationRuntimeRetention = AnnotationSourceRetention | AnnotationClassRetention;
+	long AnnotationRetentionMASK = AnnotationSourceRetention | AnnotationClassRetention | AnnotationRuntimeRetention;
+	// marker annotations
+	long AnnotationDeprecated = ASTNode.Bit46L;
+	long AnnotationDocumented = ASTNode.Bit47L;
+	long AnnotationInherited = ASTNode.Bit48L;
+	long AnnotationOverride = ASTNode.Bit49L;
+	long AnnotationSuppressWarnings = ASTNode.Bit50L;
 }

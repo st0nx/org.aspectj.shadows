@@ -10,7 +10,6 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.io.File;
 import java.util.*;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -33,6 +32,7 @@ import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaModelException;
 
+import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
 import org.eclipse.jdt.internal.compiler.util.ObjectVector;
 import org.eclipse.jdt.internal.core.search.indexing.IndexManager;
 import org.eclipse.jdt.internal.core.util.Util;
@@ -54,11 +54,12 @@ public class SetClasspathOperation extends JavaModelOperation {
 	IPath newOutputLocation;
 	JavaProject project;
 	boolean identicalRoots;
-
-	public static final IClasspathEntry[] ReuseClasspath = new IClasspathEntry[0];
-	public static final IClasspathEntry[] UpdateClasspath = new IClasspathEntry[0];
+	
+	public static final IClasspathEntry[] REUSE_ENTRIES = new IClasspathEntry[0];
+	public static final IClasspathEntry[] UPDATE_ENTRIES = new IClasspathEntry[0];
 	// if reusing output location, then also reuse clean flag
-	public static final IPath ReuseOutputLocation = new Path("Reuse Existing Output Location");  //$NON-NLS-1$
+	public static final IPath REUSE_PATH = new Path("Reuse Existing Output Location");  //$NON-NLS-1$
+	public static final IPath[] REUSE_PATHS = new IPath[0];
 	
 	/**
 	 * When executed, this operation sets the classpath of the given project.
@@ -214,7 +215,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 				IPath path = classpath[i].getPath();
 				if (entry.getEntryKind() != IClasspathEntry.CPE_PROJECT && path.isPrefixOf(location) && !path.equals(location)) {
 					IPackageFragmentRoot[] roots = project.computePackageFragmentRoots(classpath[i]);
-					IPackageFragmentRoot root = roots[0];
+					PackageFragmentRoot root = (PackageFragmentRoot) roots[0];
 					// now the output location becomes a package fragment - along with any subfolders
 					ArrayList folders = new ArrayList();
 					folders.add(folder);
@@ -224,12 +225,8 @@ public class SetClasspathOperation extends JavaModelOperation {
 					while (elements.hasNext()) {
 						IFolder f = (IFolder) elements.next();
 						IPath relativePath = f.getFullPath().removeFirstSegments(segments);
-						String name = relativePath.toOSString();
-						name = name.replace(File.pathSeparatorChar, '.');
-						if (name.endsWith(".")) { //$NON-NLS-1$
-							name = name.substring(0, name.length() - 1);
-						}
-						IPackageFragment pkg = root.getPackageFragment(name);
+						String[] pkgName = relativePath.segments();
+						IPackageFragment pkg = root.getPackageFragment(pkgName);
 						fragments.add(pkg);
 					}
 				}
@@ -254,8 +251,8 @@ public class SetClasspathOperation extends JavaModelOperation {
 		JavaModelException originalException = null;
 
 		try {
-			if (this.newRawPath == UpdateClasspath) this.newRawPath = project.getRawClasspath();
-			if (this.newRawPath != ReuseClasspath){
+			if (this.newRawPath == UPDATE_ENTRIES) this.newRawPath = project.getRawClasspath();
+			if (this.newRawPath != REUSE_ENTRIES){
 				updateClasspath();
 				project.updatePackageFragmentRoots();
 				JavaModelManager.getJavaModelManager().getDeltaProcessor().addForRefresh(project);
@@ -268,7 +265,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 		} finally { // if traversed by an exception we still need to update the output location when necessary
 
 			try {
-				if (this.newOutputLocation != ReuseOutputLocation) updateOutputLocation();
+				if (this.newOutputLocation != REUSE_PATH) updateOutputLocation();
 
 			} catch(JavaModelException e){
 				if (originalException != null) throw originalException; 
@@ -357,9 +354,10 @@ public class SetClasspathOperation extends JavaModelOperation {
 							oldResolvedPath[i], 
 							accumulatedRoots, 
 							rootIDs,
-							true, // inside original project
+							null, // inside original project
 							false, // don't check existency
-							false); // don't retrieve exported roots
+							false, // don't retrieve exported roots
+							null); /*no reverse map*/
 						pkgFragmentRoots = new IPackageFragmentRoot[accumulatedRoots.size()];
 						accumulatedRoots.copyInto(pkgFragmentRoots);
 					} catch (JavaModelException e) {
@@ -413,7 +411,21 @@ public class SetClasspathOperation extends JavaModelOperation {
 			} else {
 				// do not notify remote project changes
 				if (oldResolvedPath[i].getEntryKind() == IClasspathEntry.CPE_PROJECT){
-					this.needCycleCheck |= (oldResolvedPath[i].isExported() != newResolvedPath[index].isExported());
+					// Need to updated dependents in case old and/or new entries are exported and have an access restriction
+					ClasspathEntry oldEntry = (ClasspathEntry) oldResolvedPath[i];
+					ClasspathEntry newEntry = (ClasspathEntry) newResolvedPath[index];
+					if (oldEntry.isExported || newEntry.isExported) { // then we need to verify if there's access restriction
+						AccessRestriction oldRestriction = oldEntry.getImportRestriction();
+						AccessRestriction newRestriction = newEntry.getImportRestriction();
+						if (index != i) { // entry has been moved
+							needToUpdateDependents |= (oldRestriction != null || newRestriction != null); // there's an access restriction, this may change combination
+						} else if (oldRestriction == null) {
+							needToUpdateDependents |= newRestriction != null; // access restriction was added
+						} else {
+							needToUpdateDependents |= !oldRestriction.equals(newRestriction); // access restriction has changed or has been removed
+						}
+					}
+					this.needCycleCheck |= (oldEntry.isExported() != newEntry.isExported());
 					continue; 
 				}				
 				needToUpdateDependents |= (oldResolvedPath[i].isExported() != newResolvedPath[index].isExported());
@@ -569,13 +581,13 @@ public class SetClasspathOperation extends JavaModelOperation {
 		if (!this.canChangeResources || !this.needSave) return;
 				
 		IClasspathEntry[] classpathForSave;
-		if (this.newRawPath == ReuseClasspath || this.newRawPath == UpdateClasspath){
+		if (this.newRawPath == REUSE_ENTRIES || this.newRawPath == UPDATE_ENTRIES){
 			classpathForSave = project.getRawClasspath();
 		} else {
 			classpathForSave = this.newRawPath;
 		}
 		IPath outputLocationForSave;
-		if (this.newOutputLocation == ReuseOutputLocation){
+		if (this.newOutputLocation == REUSE_PATH){
 			outputLocationForSave = project.getOutputLocation();
 		} else {
 			outputLocationForSave = this.newOutputLocation;
@@ -591,7 +603,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 		StringBuffer buffer = new StringBuffer(20);
 		buffer.append("SetClasspathOperation\n"); //$NON-NLS-1$
 		buffer.append(" - classpath : "); //$NON-NLS-1$
-		if (this.newRawPath == ReuseClasspath){
+		if (this.newRawPath == REUSE_ENTRIES){
 			buffer.append("<Reuse Existing Classpath>"); //$NON-NLS-1$
 		} else {
 			buffer.append("{"); //$NON-NLS-1$
@@ -602,7 +614,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 			}
 		}
 		buffer.append("\n - output location : ");  //$NON-NLS-1$
-		if (this.newOutputLocation == ReuseOutputLocation){
+		if (this.newOutputLocation == REUSE_PATH){
 			buffer.append("<Reuse Existing Output Location>"); //$NON-NLS-1$
 		} else {
 			buffer.append(this.newOutputLocation.toString()); //$NON-NLS-1$
@@ -639,7 +651,8 @@ public class SetClasspathOperation extends JavaModelOperation {
 	protected void updateAffectedProjects(IPath prerequisiteProjectPath) {
 
 		// remove all update classpath post actions for this project
-		removeAllPostAction(prerequisiteProjectPath.toString());
+		final String updateClasspath = "UpdateClassPath:"; //$NON-NLS-1$
+		removeAllPostAction(updateClasspath + prerequisiteProjectPath.toString());
 		
 		try {
 			IJavaModel model = JavaModelManager.getJavaModelManager().getJavaModel();
@@ -661,12 +674,12 @@ public class SetClasspathOperation extends JavaModelOperation {
 								
 							postAction(new IPostAction() {
 									public String getID() {
-										return affectedProject.getPath().toString();
+										return updateClasspath + affectedProject.getPath().toString();
 									}
 									public void run() throws JavaModelException {
 										affectedProject.setRawClasspath(
-											UpdateClasspath, 
-											SetClasspathOperation.ReuseOutputLocation, 
+											UPDATE_ENTRIES, 
+											SetClasspathOperation.REUSE_PATH, 
 											SetClasspathOperation.this.progressMonitor, 
 											SetClasspathOperation.this.canChangeResources,  
 											affectedProject.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/), 
@@ -766,7 +779,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 	 */
 	protected void updateProjectReferencesIfNecessary() throws JavaModelException {
 		
-		if (this.newRawPath == ReuseClasspath || this.newRawPath == UpdateClasspath) return;
+		if (this.newRawPath == REUSE_ENTRIES || this.newRawPath == UPDATE_ENTRIES) return;
 		// will run now, or be deferred until next pre-auto-build notification if resource tree is locked
 		JavaModelManager.getJavaModelManager().deltaState.performClasspathResourceChange(
 		        project, 
@@ -786,7 +799,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 		if (needValidation) {
 			// retrieve classpath 
 			IClasspathEntry[] entries = this.newRawPath;
-			if (entries == ReuseClasspath){
+			if (entries == REUSE_ENTRIES){
 				try {
 					entries = project.getRawClasspath();			
 				} catch (JavaModelException e) {
@@ -795,7 +808,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 			}		
 			// retrieve output location
 			IPath outputLocation = this.newOutputLocation;
-			if (outputLocation == ReuseOutputLocation){
+			if (outputLocation == REUSE_PATH){
 				try {
 					outputLocation = project.getOutputLocation();
 				} catch (JavaModelException e) {
