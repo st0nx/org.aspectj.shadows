@@ -346,12 +346,17 @@ public abstract class Scope
 						// if interface as not already been visited
 						anInterface.tagBits |= InterfaceVisited;
 						if ((field = anInterface.getField(fieldName, true /*resolve*/, invocationSite, this)) != null) {  // AspectJ Extension - pass extra info
-							if (visibleField == null) {
-								visibleField = field;
-							} else {
-								ambiguous = new ProblemFieldBinding(visibleField.declaringClass, fieldName, Ambiguous);
-								break done;
-							}
+							//	AspectJ Extension
+							field = field.getVisibleBinding(receiverType, invocationSite, this);
+							if (field != null) {
+							//	End AspectJ Extension
+								if (visibleField == null) {
+									visibleField = field;
+								} else {
+									ambiguous = new ProblemFieldBinding(visibleField.declaringClass, fieldName, Ambiguous);
+									break done;
+								}
+							} // AspectJ Extension (added block close)
 						} else {
 							ReferenceBinding[] itsInterfaces = anInterface.superInterfaces();
 							if (itsInterfaces != NoSuperInterfaces) {
