@@ -83,7 +83,7 @@ import org.eclipse.jdt.internal.core.util.Util;
  * automatically if not already active.
  * </p>
  */
-public final class JavaCore extends Plugin {
+public /* AspectJ Extension non- final */ class JavaCore extends Plugin {
 
 	private static Plugin JAVA_CORE_PLUGIN = null; 
 	/**
@@ -2281,7 +2281,9 @@ public final class JavaCore extends Plugin {
 		HashSet optionNames = JavaModelManager.OptionNames;
 		
 		// Compiler settings
-		Map compilerOptionsMap = new CompilerOptions().getMap(); // compiler defaults
+		// AspectJ Extension
+		Map compilerOptionsMap = getCompilerOptions();
+		// End AspectJ Extension
 		for (Iterator iter = compilerOptionsMap.entrySet().iterator(); iter.hasNext();) {
 			Map.Entry entry = (Map.Entry) iter.next();
 			String optionName = (String) entry.getKey();
@@ -2398,6 +2400,12 @@ public final class JavaCore extends Plugin {
 		preferences.setDefault(CODEASSIST_ARGUMENT_SUFFIXES, ""); //$NON-NLS-1$
 		optionNames.add(CODEASSIST_ARGUMENT_SUFFIXES);
 	}
+	
+	// AspectJ Extension
+	protected Map getCompilerOptions() {
+		return new CompilerOptions().getMap(); // compiler defaults
+	}
+	// End AspectJ Extension
 	
 	/**
 	 * Returns whether the given marker references the given Java element.
