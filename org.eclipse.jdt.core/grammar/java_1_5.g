@@ -551,10 +551,66 @@ AspectBodyDeclarationsopt ::= NestedType AspectBodyDeclarations
 /.$putCase consumeClassBodyDeclarationsopt(); $break ./
 
 
-AspectBodyDeclaration ::= ClassBodyDeclaration
+AspectBodyDeclaration ::= ClassBodyDeclarationNoAroundMethod
 /.$putCase consumeClassBodyDeclarationInAspect(); $break ./
 
+--*****************************************
+-- these rules are a copy of ClassBodyDeclaration rules, going down the member route until
+-- we hit method declarations, at which point we disallow a method called around.
+--*****************************************
 
+ClassBodyDeclarationNoAroundMethod -> ClassMemberDeclarationNoAroundMethod
+ClassBodyDeclarationNoAroundMethod -> StaticInitializer
+ClassBodyDeclarationNoAroundMethod -> ConstructorDeclaration
+--1.1 feature
+ClassBodyDeclarationNoAroundMethod ::= Diet NestedMethod Block
+/.$putCase consumeClassBodyDeclaration(); $break ./
+/:$readableName ClassBodyDeclarationNoAroundMethod:/
+
+ClassMemberDeclarationNoAroundMethod -> PointcutDeclaration
+ClassMemberDeclarationNoAroundMethod -> AspectDeclaration
+ClassMemberDeclarationNoAroundMethod -> FieldDeclaration
+ClassMemberDeclarationNoAroundMethod -> MethodDeclarationNoAround
+--1.1 feature
+ClassMemberDeclarationNoAroundMethod -> ClassDeclaration
+--1.1 feature
+ClassMemberDeclarationNoAroundMethod -> InterfaceDeclaration
+-- 1.5 feature
+ClassMemberDeclarationNoAroundMethod -> EnumDeclaration
+ClassMemberDeclarationNoAroundMethod -> AnnotationTypeDeclaration
+/:$readableName ClassMemberDeclaration:/
+
+-- Empty declarations are not valid Java ClassMemberDeclarations.
+-- However, since the current (2/14/97) Java compiler accepts them 
+-- (in fact, some of the official tests contain this erroneous
+-- syntax)
+ClassMemberDeclarationNoAroundMethod ::= ';'
+/.$putCase consumeEmptyClassMemberDeclaration(); $break./
+
+MethodDeclarationNoAround -> AbstractMethodDeclarationNoAround
+MethodDeclarationNoAround ::= MethodHeaderNoAround MethodBody 
+/.$putCase // set to true to consume a method with a body
+  consumeMethodDeclaration(true);  $break ./
+/:$readableName MethodDeclarationNoAround:/
+
+AbstractMethodDeclarationNoAround ::= MethodHeaderNoAround ';'
+/.$putCase // set to false to consume a method without body
+  consumeMethodDeclaration(false); $break ./
+/:$readableName MethodDeclaration:/
+
+MethodHeaderNoAround ::= MethodHeaderNameNoAround FormalParameterListopt MethodHeaderRightParen MethodHeaderExtendedDims MethodHeaderThrowsClauseopt
+/.$putCase consumeMethodHeader(); $break ./
+/:$readableName MethodDeclaration:/
+
+MethodHeaderNameNoAround ::= Modifiersopt TypeParameters Type JavaIdentifierNoAround '('
+/.$putCase consumeMethodHeaderNameWithTypeParameters(false); $break ./
+MethodHeaderNameNoAround ::= Modifiersopt Type JavaIdentifierNoAround '('
+/.$putCase consumeMethodHeaderName(false); $break ./
+/:$readableName MethodHeaderName:/
+
+--*****************************************
+-- end copy of ClassBodyDeclaration rules *
+--*****************************************
 
 -- pointcuts and advice
 
@@ -657,11 +713,21 @@ InterTypeConstructorHeaderName ::= Modifiersopt Name '.' 'new' '('
 /.$putCase consumeInterTypeConstructorHeaderName(); $break ./
 
 
-InterTypeFieldDeclaration ::= Modifiersopt Type OnType '.' JavaIdentifier InterTypeFieldBody ';'
+InterTypeFieldDeclaration ::= Modifiersopt Type OnType '.' ITDFieldVariableDeclarator ';'
 /.$putCase consumeInterTypeFieldDeclaration(); $break ./
 
+ITDFieldVariableDeclarator ::= JavaIdentifier EnterITDVariable InterTypeFieldBody
+/:$readableName ITDFieldVariableDeclarator:/
+
+EnterITDVariable ::= $empty
+/.$putCase consumeEnterITDVariable(); $break ./
+/:$readableName EnterITDVariable:/
+
 InterTypeFieldBody ::=  $empty
+/.$putCase consumeExitITDVariableWithoutInitializer(); $break ./
+
 InterTypeFieldBody ::= '=' ForceNoDiet VariableInitializer RestoreDiet
+/.$putCase consumeExitITDVariableWithInitializer(); $break ./
 
 -- declares (more fun than a pcd)
 AspectBodyDeclaration -> DeclareDeclaration
@@ -672,11 +738,31 @@ DeclareDeclaration ::= DeclareHeader PseudoTokens ';'
 DeclareHeader ::= 'declare' 'Identifier' ':' 
 /.$putCase consumeDeclareHeader(); $break ./
 
+-- for declare annotation support
+DeclareDeclaration ::= DeclareAnnotationHeader PseudoTokensNoColon ':' Annotation ';'
+/.$putCase consumeDeclareAnnotation(); $break ./
+
+DeclareAnnotationHeader ::= 'declare' '@' 'Identifier' ':'
+/.$putCase consumeDeclareAnnotationHeader(); $break ./
 
 -- the joy of pcds
 PseudoTokens ::= PseudoToken
+PseudoTokens ::= ColonPseudoToken
+
+PseudoTokens ::= PseudoTokens ColonPseudoToken
+/.$putCase consumePseudoTokens(); $break ./
+
 PseudoTokens ::= PseudoTokens PseudoToken
 /.$putCase consumePseudoTokens(); $break ./
+
+
+PseudoTokensNoColon ::= PseudoToken
+PseudoTokensNoColon ::= PseudoTokensNoColon PseudoToken
+/.$putCase consumePseudoTokens(); $break ./
+
+
+ColonPseudoToken ::= ':'
+/.$putCase consumePseudoToken(":"); $break ./
 
 PseudoToken ::= JavaIdentifier
 /.$putCase consumePseudoTokenIdentifier(); $break ./
@@ -704,9 +790,6 @@ PseudoToken ::= '||'
 
 PseudoToken ::= '!'
 /.$putCase consumePseudoToken("!"); $break ./
-
-PseudoToken ::= ':'
-/.$putCase consumePseudoToken(":"); $break ./
 
 PseudoToken ::= ','
 /.$putCase consumePseudoToken(","); $break ./
@@ -978,9 +1061,9 @@ MethodHeader ::= MethodHeaderName FormalParameterListopt MethodHeaderRightParen 
 /.$putCase consumeMethodHeader(); $break ./
 /:$readableName MethodDeclaration:/
 
-MethodHeaderName ::= Modifiersopt TypeParameters Type JavaIdentifierNoAround '(' -- AspectJ Extension, was 'Identifier'
+MethodHeaderName ::= Modifiersopt TypeParameters Type JavaIdentifier '(' -- AspectJ Extension, was 'Identifier'
 /.$putCase consumeMethodHeaderNameWithTypeParameters(false); $break ./
-MethodHeaderName ::= Modifiersopt Type JavaIdentifierNoAround '(' -- AspectJ Extension, was 'Identifier'
+MethodHeaderName ::= Modifiersopt Type JavaIdentifier '('  -- AspectJ Extension, was 'Identifier'
 /.$putCase consumeMethodHeaderName(false); $break ./
 /:$readableName MethodHeaderName:/
 
