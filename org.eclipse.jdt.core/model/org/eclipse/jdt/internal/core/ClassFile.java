@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,7 +12,6 @@ package org.eclipse.jdt.internal.core;
 
 import java.io.IOException;
 import java.util.Map;
-import java.util.StringTokenizer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -39,13 +38,14 @@ import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.IParent;
 import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaCore;
+//import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -102,17 +102,33 @@ public void codeComplete(int offset, ICompletionRequestor requestor) throws Java
 public void codeComplete(int offset, ICompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
 	String source = getSource();
 	if (source != null) {
-		String encoding = this.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
 		String elementName = getElementName();
 		BasicCompilationUnit cu = 
 			new BasicCompilationUnit(
 				getSource().toCharArray(), 
 				null,
 				elementName.substring(0, elementName.length()-SUFFIX_STRING_class.length()) + SUFFIX_STRING_java,
-				encoding); 
+				getJavaProject()); // use project to retrieve corresponding .java IFile
 		codeComplete(cu, cu, offset, requestor, owner);
 	}
 }
+
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.ICodeAssist#codeComplete(int, org.eclipse.jdt.core.CompletionRequestor)
+ */
+public void codeComplete(int offset, CompletionRequestor requestor) throws JavaModelException {
+	// TODO (jerome) - Missing implementation
+	throw new RuntimeException("Not implemented yet");  //$NON-NLS-1$
+}
+
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.ICodeAssist#codeComplete(int, org.eclipse.jdt.core.CompletionRequestor, org.eclipse.jdt.core.WorkingCopyOwner)
+ */
+public void codeComplete(int offset, CompletionRequestor requestor, WorkingCopyOwner wcowner) throws JavaModelException {
+	// TODO (jerome) - Missing implementation
+	throw new RuntimeException("Not implemented yet");  //$NON-NLS-1$
+}
+
 /**
  * @see ICodeAssist#codeSelect(int, int)
  */
@@ -127,7 +143,7 @@ public IJavaElement[] codeSelect(int offset, int length, WorkingCopyOwner owner)
 	char[] contents;
 	if (buffer != null && (contents = buffer.getCharacters()) != null) {
 	    String topLevelTypeName = getTopLevelTypeName();
-		BasicCompilationUnit cu = new BasicCompilationUnit(contents, null, topLevelTypeName + SUFFIX_STRING_java, null);
+		BasicCompilationUnit cu = new BasicCompilationUnit(contents, null, topLevelTypeName + SUFFIX_STRING_java);
 		return super.codeSelect(cu, offset, length, owner);
 	} else {
 		//has no associated souce
@@ -145,8 +161,7 @@ public boolean equals(Object o) {
 	return super.equals(o);
 }
 public boolean exists() {
-	if (!isValidClassFile()) return false;
-	return super.exists();
+	return super.exists() && isValidClassFile();
 }
 
 /**
@@ -213,6 +228,9 @@ public IBinaryType getBinaryTypeInfo(IFile file) throws JavaModelException {
 			return info;
 		} catch (ClassFormatException cfe) {
 			//the structure remains unknown
+			if (JavaCore.getPlugin().isDebugging()) {
+				cfe.printStackTrace(System.err);
+			}
 			return null;
 		} catch (IOException ioe) {
 			throw new JavaModelException(ioe, IJavaModelStatusConstants.IO_EXCEPTION);
@@ -231,6 +249,14 @@ public IBinaryType getBinaryTypeInfo(IFile file) throws JavaModelException {
 			//the structure remains unknown
 			return null;
 		}
+	}
+}
+public IBuffer getBuffer() throws JavaModelException {
+	if (isValidClassFile()) {
+		return super.getBuffer();
+	} else {
+		// .class file not on classpath, create a new buffer to be nice (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=41444)
+		return openBuffer(null, null);
 	}
 }
 /**
@@ -282,7 +308,7 @@ public int getElementType() {
 /*
  * @see JavaElement
  */
-public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner owner) {
+public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner owner) {
 	switch (token.charAt(0)) {
 		case JEM_COUNT:
 			return getHandleUpdatingCountFromMemento(memento, owner);
@@ -303,11 +329,11 @@ protected char getHandleMementoDelimiter() {
  * @see IJavaElement
  */
 public IPath getPath() {
-	PackageFragmentRoot root = this.getPackageFragmentRoot();
+	PackageFragmentRoot root = getPackageFragmentRoot();
 	if (root.isArchive()) {
 		return root.getPath();
 	} else {
-		return this.getParent().getPath().append(this.getElementName());
+		return getParent().getPath().append(getElementName());
 	}
 }
 /*
@@ -414,18 +440,6 @@ protected boolean hasBuffer() {
 	return true;
 }
 /**
- * If I am not open, return true to avoid parsing.
- *
- * @see IParent 
- */
-public boolean hasChildren() throws JavaModelException {
-	if (isOpen()) {
-		return getChildren().length > 0;
-	} else {
-		return true;
-	}
-}
-/**
  * @see IClassFile
  */
 public boolean isClass() throws JavaModelException {
@@ -506,7 +520,7 @@ protected IBuffer openBuffer(IProgressMonitor pm, Object info) throws JavaModelE
 		} else {
 			// Attempts to find the corresponding java file
 			String qualifiedName = getType().getFullyQualifiedName();
-			NameLookup lookup = ((JavaProject) getJavaProject()).getNameLookup();
+			NameLookup lookup = ((JavaProject) getJavaProject()).newNameLookup(DefaultWorkingCopyOwner.PRIMARY);
 			ICompilationUnit cu = lookup.findCompilationUnit(qualifiedName);
 			if (cu != null) {
 				return cu.getBuffer();

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,10 +10,10 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.jdom;
 
+import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.jdom.IDOMImport;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
 
@@ -22,12 +22,23 @@ import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
  *
  * @see IDOMImport
  * @see DOMNode
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the 
+ * org.eclipse.jdt.core.dom package.
  */
+// TODO (jerome) - add implementation support for 1.5 features
 class DOMImport extends DOMNode implements IDOMImport {
 	/**
 	 * Indicates if this import is an on demand type import
 	 */
 	protected boolean fOnDemand;
+	
+	/**
+	 * Modifiers for this import.
+	 * @since 3.0
+	 */
+	protected int fFlags = Flags.AccDefault;
+	
 /**
  * Creates a new empty IMPORT node.
  */
@@ -139,7 +150,7 @@ protected DOMNode newDOMNode() {
 	return new DOMImport();
 }
 /**
- * @see IDOMNode#setName(char[])
+ * @see IDOMNode#setName(String)
  */
 public void setName(String name) {
 	if (name == null) {
@@ -154,5 +165,21 @@ public void setName(String name) {
  */
 public String toString() {
 	return "IMPORT: " + getName(); //$NON-NLS-1$
+}
+
+/**
+ * @see IDOMImport#getFlags()
+ * @since 3.0
+ */
+public int getFlags() {
+	return this.fFlags;
+}
+
+/**
+ * @see IDOMImport#setFlags(int)
+ * @since 3.0
+ */
+public void setFlags(int flags) {
+	this.fFlags = flags;
 }
 }

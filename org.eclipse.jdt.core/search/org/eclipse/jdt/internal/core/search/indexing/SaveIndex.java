@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,8 +14,9 @@ import java.io.IOException;
 
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.jdt.internal.core.index.IIndex;
+import org.eclipse.jdt.internal.core.index.Index;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /*
  * Save the index of a project.
@@ -29,9 +30,9 @@ public class SaveIndex extends IndexRequest {
 		if (this.isCancelled || progressMonitor != null && progressMonitor.isCanceled()) return true;
 
 		/* ensure no concurrent write access to index */
-		IIndex index = this.manager.getIndex(this.containerPath, true /*reuse index file*/, false /*don't create if none*/);
+		Index index = this.manager.getIndex(this.containerPath, true /*reuse index file*/, false /*don't create if none*/);
 		if (index == null) return true;
-		ReadWriteMonitor monitor = this.manager.getMonitorFor(index);
+		ReadWriteMonitor monitor = index.monitor;
 		if (monitor == null) return true; // index got deleted since acquired
 
 		try {
@@ -39,7 +40,7 @@ public class SaveIndex extends IndexRequest {
 			this.manager.saveIndex(index);
 		} catch (IOException e) {
 			if (JobManager.VERBOSE) {
-				JobManager.verbose("-> failed to save index " + this.containerPath + " because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
+				Util.verbose("-> failed to save index " + this.containerPath + " because of the following exception:", System.err); //$NON-NLS-1$ //$NON-NLS-2$
 				e.printStackTrace();
 			}
 			return false;

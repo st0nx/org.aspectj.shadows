@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -30,18 +30,34 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 	private static final char[] BOOLEAN = "boolean".toCharArray(); //$NON-NLS-1$
 	private static final char[] VOID = "void".toCharArray(); //$NON-NLS-1$
 	private static final char[] INIT = "<init>".toCharArray(); //$NON-NLS-1$
-	
-	private static final char[] ONE_DOLLAR = "$".toCharArray(); //$NON-NLS-1$
-	private static final char[] ONE_DOT = ".".toCharArray(); //$NON-NLS-1$
 
-	public BinaryIndexer(SearchDocument document, String indexPath) {
-		super(document, indexPath);
+	public BinaryIndexer(SearchDocument document) {
+		super(document);
 	}
-	public void addTypeReference(char[] typeName){
-	 
+	public void addTypeReference(char[] typeName) {
+		int length = typeName.length;
+		if (length > 2 && typeName[length - 2] == '$') {
+			switch (typeName[length - 1]) {
+				case '0' :
+				case '1' :
+				case '2' :
+				case '3' :
+				case '4' :
+				case '5' :
+				case '6' :
+				case '7' :
+				case '8' :
+				case '9' :
+					return; // skip local type names
+			}
+		}
+
 	 	// consider that A$B is a member type: so replace '$' with '.'
 	 	// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=40116)
-	 	typeName = CharOperation.replace(typeName, ONE_DOLLAR, ONE_DOT); // note this doesn't create a new array if no replacement is needed
+		if (CharOperation.indexOf('$', typeName) > 0) {
+			System.arraycopy(typeName, 0, typeName = new char[length], 0, length); // copy it so the original is not modified
+			CharOperation.replace(typeName, '$', '.');
+		}
 	 	super.addTypeReference(typeName);
 	}
 	/**
@@ -80,66 +96,60 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 		for (int i = 0, max = signature.length; i < max; i++) {
 			switch(signature[i]) {
 				case 'B':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(BYTE, arrayDim);
-					} else {
-						return BYTE;
-					}
+					return BYTE;
+					
 				case 'C':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(CHAR, arrayDim);
-					} else {
-						return CHAR;
-					}
+					return CHAR;
+					
 				case 'D':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(DOUBLE, arrayDim);
-					} else {
-						return DOUBLE;
-					}
+					return DOUBLE;
+					
 				case 'F':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(FLOAT, arrayDim);
-					} else {
-						return FLOAT;
-					}
+					return FLOAT;
+					
 				case 'I':
-					if (arrayDim > 0) {
-						return convertToArrayType(INT, arrayDim);
-					} else {
-						return INT;
-					}
+					if (arrayDim > 0)
+					return convertToArrayType(INT, arrayDim);
+					return INT;
+					
 				case 'J':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(LONG, arrayDim);
-					} else {
-						return LONG;
-					}
+					return LONG;
+					
 				case 'L':
 					int indexOfSemiColon = CharOperation.indexOf(';', signature, i+1);
 					if (indexOfSemiColon == -1) throw new ClassFormatException(ClassFormatException.ErrInvalidMethodSignature);
 					if (arrayDim > 0) {
 						return convertToArrayType(replace('/','.',CharOperation.subarray(signature, i + 1, indexOfSemiColon)), arrayDim);
-					} else {
-						return replace('/','.',CharOperation.subarray(signature, i + 1, indexOfSemiColon));
 					}
+					return replace('/','.',CharOperation.subarray(signature, i + 1, indexOfSemiColon));
+					
 				case 'S':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(SHORT, arrayDim);
-					} else {
-						return SHORT;
-					}
+					return SHORT;
+					
 				case 'Z':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(BOOLEAN, arrayDim);
-					} else {
-						return BOOLEAN;
-					}
+					return BOOLEAN;
+					
 				case 'V':
 					return VOID;
+					
 				case '[':
 					arrayDim++;
 					break;
+					
 				default:
 					throw new ClassFormatException(ClassFormatException.ErrInvalidMethodSignature);
 			}
@@ -172,73 +182,74 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 			switch(signature[i]) {
 				case 'B':
 					parameterTypes[parameterTypesCounter++] = BYTE;
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						convertToArrayType(parameterTypes, parameterTypesCounter-1, arrayDim);
-					}
 					arrayDim = 0;
 					break;
+					
 				case 'C':
 					parameterTypes[parameterTypesCounter++] = CHAR;
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						convertToArrayType(parameterTypes, parameterTypesCounter-1, arrayDim);
-					}
 					arrayDim = 0;
 					break;
+
 				case 'D':
 					parameterTypes[parameterTypesCounter++] = DOUBLE;
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						convertToArrayType(parameterTypes, parameterTypesCounter-1, arrayDim);
-					}
 					arrayDim = 0;
 					break;
+
 				case 'F':
 					parameterTypes[parameterTypesCounter++] = FLOAT;
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						convertToArrayType(parameterTypes, parameterTypesCounter-1, arrayDim);
-					}
 					arrayDim = 0;
 					break;
+					
 				case 'I':
 					parameterTypes[parameterTypesCounter++] = INT;
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						convertToArrayType(parameterTypes, parameterTypesCounter-1, arrayDim);
-					}
 					arrayDim = 0;
 					break;
+					
 				case 'J':
 					parameterTypes[parameterTypesCounter++] = LONG;
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						convertToArrayType(parameterTypes, parameterTypesCounter-1, arrayDim);
-					}
 					arrayDim = 0;
 					break;
+
 				case 'L':
 					int indexOfSemiColon = CharOperation.indexOf(';', signature, i+1);
 					if (indexOfSemiColon == -1) throw new ClassFormatException(ClassFormatException.ErrInvalidMethodSignature);
 					parameterTypes[parameterTypesCounter++] = replace('/','.',CharOperation.subarray(signature, i + 1, indexOfSemiColon));
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						convertToArrayType(parameterTypes, parameterTypesCounter-1, arrayDim);
-					}
 					i = indexOfSemiColon;
 					arrayDim = 0;
 					break;
+
 				case 'S':
 					parameterTypes[parameterTypesCounter++] = SHORT;
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						convertToArrayType(parameterTypes, parameterTypesCounter-1, arrayDim);
-					}
 					arrayDim = 0;
 					break;
+
 				case 'Z':
 					parameterTypes[parameterTypesCounter++] = BOOLEAN;
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						convertToArrayType(parameterTypes, parameterTypesCounter-1, arrayDim);
-					}
 					arrayDim = 0;
 					break;
+
 				case '[':
 					arrayDim++;
 					break;
+					
 				default:
 					throw new ClassFormatException(ClassFormatException.ErrInvalidMethodSignature);
 			}
@@ -256,66 +267,60 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 		for (int i = indexOfClosingParen + 1, max = signature.length; i < max; i++) {
 			switch(signature[i]) {
 				case 'B':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(BYTE, arrayDim);
-					} else {
-						return BYTE;
-					}
+					return BYTE;
+					
 				case 'C':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(CHAR, arrayDim);
-					} else {
-						return CHAR;
-					}
+					return CHAR;
+					
 				case 'D':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(DOUBLE, arrayDim);
-					} else {
-						return DOUBLE;
-					}
+					return DOUBLE;
+
 				case 'F':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(FLOAT, arrayDim);
-					} else {
-						return FLOAT;
-					}
+					return FLOAT;
+
 				case 'I':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(INT, arrayDim);
-					} else {
-						return INT;
-					}
+					return INT;
+
 				case 'J':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(LONG, arrayDim);
-					} else {
-						return LONG;
-					}
+					return LONG;
+
 				case 'L':
 					int indexOfSemiColon = CharOperation.indexOf(';', signature, i+1);
 					if (indexOfSemiColon == -1) throw new ClassFormatException(ClassFormatException.ErrInvalidMethodSignature);
 					if (arrayDim > 0) {
 						return convertToArrayType(replace('/','.',CharOperation.subarray(signature, i + 1, indexOfSemiColon)), arrayDim);
-					} else {
-						return replace('/','.',CharOperation.subarray(signature, i + 1, indexOfSemiColon));
 					}
+					return replace('/','.',CharOperation.subarray(signature, i + 1, indexOfSemiColon));
+
 				case 'S':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(SHORT, arrayDim);
-					} else {
-						return SHORT;
-					}
+					return SHORT;
+
 				case 'Z':
-					if (arrayDim > 0) {
+					if (arrayDim > 0)
 						return convertToArrayType(BOOLEAN, arrayDim);
-					} else {
-						return BOOLEAN;
-					}
+					return BOOLEAN;
+
 				case 'V':
 					return VOID;
+
 				case '[':
 					arrayDim++;
 					break;
+					
 				default:
 					throw new ClassFormatException(ClassFormatException.ErrInvalidMethodSignature);
 			}
@@ -411,8 +416,11 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 					}
 					break;
 				case ClassFileConstants.ClassTag :
-					// add a type reference 
-					name = replace('/', '.', extractClassReference(constantPoolOffsets, reader, i)); // so that it looks like java.lang.String
+					// add a type reference
+					name = extractClassReference(constantPoolOffsets, reader, i);
+					if (name.length > 0 && name[0] == '[')
+						break; // skip over array references
+					name = replace('/', '.', name); // so that it looks like java.lang.String
 					addTypeReference(name);
 					
 					// also add a simple reference on each segment of the qualification (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=24741)

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -41,7 +41,6 @@ protected NameEnvironment nameEnvironment;
 protected ClasspathMultiDirectory[] sourceLocations;
 protected BuildNotifier notifier;
 
-protected String encoding;
 protected Compiler compiler;
 protected WorkQueue workQueue;
 protected ArrayList problemSourceFiles;
@@ -60,7 +59,6 @@ protected AbstractImageBuilder(JavaBuilder javaBuilder) {
 	this.sourceLocations = this.nameEnvironment.sourceLocations;
 	this.notifier = javaBuilder.notifier;
 
-	this.encoding = javaBuilder.javaProject.getOption(JavaCore.CORE_ENCODING, true);
 	this.compiler = newCompiler();
 	this.workQueue = new WorkQueue();
 	this.problemSourceFiles = new ArrayList(3);
@@ -95,7 +93,7 @@ public void acceptResult(CompilationResult result) {
 			ClassFile classFile = classFiles[i];
 			char[][] compoundName = classFile.getCompoundName();
 			char[] typeName = compoundName[compoundName.length - 1];
-			boolean isNestedType = CharOperation.contains('$', typeName);
+			boolean isNestedType = classFile.enclosingClassFile != null;
 
 			// Look for a possible collision, if one exists, report an error but do not write the class file
 			if (isNestedType) {
@@ -269,12 +267,24 @@ protected RuntimeException internalException(CoreException t) {
 
 protected Compiler newCompiler() {
 	// called once when the builder is initialized... can override if needed
-	return new Compiler(
+	Compiler newCompiler = new Compiler(
 		nameEnvironment,
 		DefaultErrorHandlingPolicies.proceedWithAllProblems(),
 		javaBuilder.javaProject.getOptions(true),
 		this,
 		ProblemFactory.getProblemFactory(Locale.getDefault()));
+	// enable the compiler reference info support
+	newCompiler.options.produceReferenceInfo = true;
+
+	org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment env = newCompiler.lookupEnvironment;
+	synchronized (env) {
+		// enable shared byte[]'s used by ClassFile to avoid allocating MBs during a build
+		env.sharedArraysUsed = false;
+		env.sharedClassFileHeader = new byte[30000];
+		env.sharedClassFileContents = new byte[30000];
+	}
+
+	return newCompiler;
 }
 
 protected boolean isExcludedFromProject(IPath childPath) throws JavaModelException {
@@ -443,6 +453,13 @@ protected char[] writeClassFile(ClassFile classFile, SourceFile compilationUnit,
 
 	IFile file = container.getFile(filePath.addFileExtension(SuffixConstants.EXTENSION_class));
 	writeClassFileBytes(classFile.getBytes(), file, fileName, isSecondaryType, compilationUnit.updateClassFile);
+	if (classFile.ownSharedArrays) {
+		org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment env = this.compiler.lookupEnvironment;
+		synchronized (env) {
+			env.sharedArraysUsed = false;
+		}
+	}
+
 	// answer the name of the class file as in Y or Y$M
 	return filePath.lastSegment().toCharArray();
 }

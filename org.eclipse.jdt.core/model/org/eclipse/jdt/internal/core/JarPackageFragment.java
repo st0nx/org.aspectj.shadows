@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,7 +26,7 @@ import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 /**
  * A package fragment that represents a package fragment found in a JAR.
  *
- * @see IPackageFragment
+ * @see org.eclipse.jdt.core.IPackageFragment
  */
 class JarPackageFragment extends PackageFragment implements SuffixConstants {
 /**
@@ -39,11 +39,10 @@ protected JarPackageFragment(PackageFragmentRoot root, String name) {
  * Compute the children of this package fragment. Children of jar package fragments
  * can only be IClassFile (representing .class files).
  */
-protected boolean computeChildren(OpenableElementInfo info) {
-	JarPackageFragmentInfo jInfo= (JarPackageFragmentInfo)info;
-	if (jInfo.entryNames != null){
+protected boolean computeChildren(OpenableElementInfo info, ArrayList entryNames) {
+	if (entryNames != null && entryNames.size() > 0) {
 		ArrayList vChildren = new ArrayList();
-		for (Iterator iter = jInfo.entryNames.iterator(); iter.hasNext();) {
+		for (Iterator iter = entryNames.iterator(); iter.hasNext();) {
 			String child = (String) iter.next();
 			IClassFile classFile = getClassFile(child);
 			vChildren.add(classFile);
@@ -65,22 +64,26 @@ protected boolean computeChildren(OpenableElementInfo info) {
 		return;
 	}
 	int max = resNames.length;
-	Object[] res = new Object[max];
-	int index = 0;
-	for (int i = 0; i < max; i++) {
-		String resName = resNames[i];
-		// consider that a .java file is not a non-java resource (see bug 12246 Packages view shows .class and .java files when JAR has source)
-		if (!resName.toLowerCase().endsWith(SUFFIX_STRING_java)) {
-			if (!this.isDefaultPackage()) {
-				resName = this.getElementName().replace('.', '/') + "/" + resName;//$NON-NLS-1$
+	if (max == 0) {
+	    info.setNonJavaResources(JavaElementInfo.NO_NON_JAVA_RESOURCES);
+	} else {
+		Object[] res = new Object[max];
+		int index = 0;
+		for (int i = 0; i < max; i++) {
+			String resName = resNames[i];
+			// consider that a .java file is not a non-java resource (see bug 12246 Packages view shows .class and .java files when JAR has source)
+			if (!resName.toLowerCase().endsWith(SUFFIX_STRING_java)) {
+				if (!this.isDefaultPackage()) {
+					resName = this.getElementName().replace('.', '/') + "/" + resName;//$NON-NLS-1$
+				}
+				res[index++] = new JarEntryFile(resName, zipName);
 			}
-			res[index++] = new JarEntryFile(resName, zipName);
+		} 
+		if (index != max) {
+			System.arraycopy(res, 0, res = new Object[index], 0, index);
 		}
-	} 
-	if (index != max) {
-		System.arraycopy(res, 0, res = new Object[index], 0, index);
+		info.setNonJavaResources(res);
 	}
-	info.setNonJavaResources(res);
 }
 /**
  * Returns true if this fragment contains at least one java resource.
@@ -90,7 +93,7 @@ public boolean containsJavaResources() throws JavaModelException {
 	return ((JarPackageFragmentInfo) getElementInfo()).containsJavaResources();
 }
 /**
- * @see IPackageFragment
+ * @see org.eclipse.jdt.core.IPackageFragment
  */
 public ICompilationUnit createCompilationUnit(String cuName, String contents, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, this));
@@ -112,7 +115,7 @@ protected void generateInfos(Object info, HashMap newElements, IProgressMonitor 
 	}
 }
 /**
- * @see IPackageFragment
+ * @see org.eclipse.jdt.core.IPackageFragment
  */
 public IClassFile[] getClassFiles() throws JavaModelException {
 	ArrayList list = getChildrenOfType(CLASS_FILE);
@@ -122,7 +125,7 @@ public IClassFile[] getClassFiles() throws JavaModelException {
 }
 /**
  * A jar package fragment never contains compilation units.
- * @see IPackageFragment
+ * @see org.eclipse.jdt.core.IPackageFragment
  */
 public ICompilationUnit[] getCompilationUnits() {
 	return NO_COMPILATION_UNITS;

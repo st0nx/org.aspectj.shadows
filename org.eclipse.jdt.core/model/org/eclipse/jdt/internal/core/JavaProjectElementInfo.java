@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,11 +10,16 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IClasspathEntry;
+import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.util.Util;
 
@@ -32,26 +37,26 @@ import org.eclipse.jdt.internal.core.util.Util;
 class JavaProjectElementInfo extends OpenableElementInfo {
 
 	/**
-	 * The name lookup facility to use with this project.
-	 */
-	protected NameLookup fNameLookup = null;
-
-	/**
-	 * The searchable builder environment facility used
-	 * with this project (doubles as the builder environment). 
-	 */
-	protected SearchableEnvironment fSearchableEnvironment = null;
-
-	/**
 	 * A array with all the non-java resources contained by this PackageFragment
 	 */
-	private Object[] fNonJavaResources;
+	private Object[] nonJavaResources;
+	
+	/*
+	 * A cache of all package fragment roots of this project.
+	 */
+	public IPackageFragmentRoot[] allPkgFragmentRootsCache;
+	
+	/*
+	 * A cache of all package fragments in this project.
+	 * (a map from String (the package name) to IPackageFragment[] (the package fragments with this name)
+	 */
+	private HashMap allPkgFragmentsCache;
 
 	/**
 	 * Create and initialize a new instance of the receiver
 	 */
 	public JavaProjectElementInfo() {
-		fNonJavaResources = null;
+		this.nonJavaResources = null;
 	}
 	
 	/**
@@ -63,15 +68,17 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 		IPath projectPath = project.getProject().getFullPath();
 		boolean srcIsProject = false;
 		boolean binIsProject = false;
+		char[][] inclusionPatterns = null;
 		char[][] exclusionPatterns = null;
 		IClasspathEntry[] classpath = null;
 		IPath projectOutput = null;
 		try {
-			classpath = project.getResolvedClasspath(true/*ignore unresolved variable*/);
+			classpath = project.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
 			for (int i = 0; i < classpath.length; i++) {
 				IClasspathEntry entry = classpath[i];
 				if (projectPath.equals(entry.getPath())) {
 					srcIsProject = true;
+					inclusionPatterns = ((ClasspathEntry)entry).fullInclusionPatternChars();
 					exclusionPatterns = ((ClasspathEntry)entry).fullExclusionPatternChars();
 					break;
 				}
@@ -82,8 +89,8 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 			// ignore
 		}
 
-		Object[] nonJavaResources = new IResource[5];
-		int nonJavaResourcesCounter = 0;
+		Object[] resources = new IResource[5];
+		int resourcesCounter = 0;
 		try {
 			IResource[] members = ((IContainer) project.getResource()).members();
 			for (int i = 0, max = members.length; i < max; i++) {
@@ -100,7 +107,7 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 						// ignore .java file if src == project
 						if (srcIsProject 
 							&& Util.isValidCompilationUnitName(resName)
-							&& !Util.isExcluded(res, exclusionPatterns)) {
+							&& !Util.isExcluded(res, inclusionPatterns, exclusionPatterns)) {
 							break;
 						}
 						// ignore .class file if bin == project
@@ -108,59 +115,86 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 							break;
 						}
 						// else add non java resource
-						if (nonJavaResources.length == nonJavaResourcesCounter) {
+						if (resources.length == resourcesCounter) {
 							// resize
 							System.arraycopy(
-								nonJavaResources,
+								resources,
 								0,
-								(nonJavaResources = new IResource[nonJavaResourcesCounter * 2]),
+								(resources = new IResource[resourcesCounter * 2]),
 								0,
-								nonJavaResourcesCounter);
+								resourcesCounter);
 						}
-						nonJavaResources[nonJavaResourcesCounter++] = res;
+						resources[resourcesCounter++] = res;
 						break;
 					case IResource.FOLDER :
 						resFullPath = res.getFullPath();
 						
 						// ignore non-excluded folders on the classpath or that correspond to an output location
-						if ((srcIsProject && !Util.isExcluded(res, exclusionPatterns) && Util.isValidFolderNameForPackage(res.getName()))
+						if ((srcIsProject && !Util.isExcluded(res, inclusionPatterns, exclusionPatterns) && Util.isValidFolderNameForPackage(res.getName()))
 								|| this.isClasspathEntryOrOutputLocation(resFullPath, classpath, projectOutput)) {
 							break;
 						}
 						// else add non java resource
-						if (nonJavaResources.length == nonJavaResourcesCounter) {
+						if (resources.length == resourcesCounter) {
 							// resize
 							System.arraycopy(
-								nonJavaResources,
+								resources,
 								0,
-								(nonJavaResources = new IResource[nonJavaResourcesCounter * 2]),
+								(resources = new IResource[resourcesCounter * 2]),
 								0,
-								nonJavaResourcesCounter);
+								resourcesCounter);
 						}
-						nonJavaResources[nonJavaResourcesCounter++] = res;
+						resources[resourcesCounter++] = res;
 				}
 			}
-			if (nonJavaResources.length != nonJavaResourcesCounter) {
+			if (resources.length != resourcesCounter) {
 				System.arraycopy(
-					nonJavaResources,
+					resources,
 					0,
-					(nonJavaResources = new IResource[nonJavaResourcesCounter]),
+					(resources = new IResource[resourcesCounter]),
 					0,
-					nonJavaResourcesCounter);
+					resourcesCounter);
 			}
 		} catch (CoreException e) {
-			nonJavaResources = NO_NON_JAVA_RESOURCES;
-			nonJavaResourcesCounter = 0;
+			resources = NO_NON_JAVA_RESOURCES;
+			resourcesCounter = 0;
 		}
-		return nonJavaResources;
+		return resources;
+	}
+
+	IPackageFragmentRoot[] getAllPackageFragmentRoots(JavaProject project) {
+		if (this.allPkgFragmentRootsCache == null) {
+			try {
+				this.allPkgFragmentRootsCache = project.getAllPackageFragmentRoots();
+			} catch (JavaModelException e) {
+				// project does not exist: cannot happend since this is the info of the project
+			}
+		}
+		return this.allPkgFragmentRootsCache;
 	}
 	
-	/**
-	 * @see IJavaProject
-	 */
-	protected NameLookup getNameLookup() {
-
-		return fNameLookup;
+	HashMap getAllPackageFragments(JavaProject project) {
+		if (this.allPkgFragmentsCache == null) {
+			HashMap cache = new HashMap();
+			IPackageFragmentRoot[] roots = getAllPackageFragmentRoots(project);
+			IPackageFragment[] frags = this.getPackageFragmentsInRoots(roots, project);
+			for (int i= 0; i < frags.length; i++) {
+				IPackageFragment fragment= frags[i];
+				IPackageFragment[] entry= (IPackageFragment[]) cache.get(fragment.getElementName());
+				if (entry == null) {
+					entry= new IPackageFragment[1];
+					entry[0]= fragment;
+					cache.put(fragment.getElementName(), entry);
+				} else {
+					IPackageFragment[] copy= new IPackageFragment[entry.length + 1];
+					System.arraycopy(entry, 0, copy, 0, entry.length);
+					copy[entry.length]= fragment;
+					cache.put(fragment.getElementName(), copy);
+				}
+			}
+			this.allPkgFragmentsCache = cache;
+		}
+		return this.allPkgFragmentsCache;
 	}
 	
 	/**
@@ -168,21 +202,56 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 	 */
 	Object[] getNonJavaResources(JavaProject project) {
 
-		Object[] nonJavaResources = fNonJavaResources;
-		if (nonJavaResources == null) {
-			nonJavaResources = computeNonJavaResources(project);
-			fNonJavaResources = nonJavaResources;
+		if (this.nonJavaResources == null) {
+			this.nonJavaResources = computeNonJavaResources(project);
 		}
-		return nonJavaResources;
+		return this.nonJavaResources;
 	}
 	
 	/**
-	 * @see IJavaProject 
+	 * Returns all the package fragments found in the specified
+	 * package fragment roots. Make sure the returned fragments have the given
+	 * project as great parent. This ensures the name lookup will not refer to another
+	 * project (through jar package fragment roots)
 	 */
-	protected SearchableEnvironment getSearchableEnvironment() {
+	private IPackageFragment[] getPackageFragmentsInRoots(IPackageFragmentRoot[] roots, IJavaProject project) {
 
-		return fSearchableEnvironment;
+		// The following code assumes that all the roots have the given project as their parent
+		ArrayList frags = new ArrayList();
+		for (int i = 0; i < roots.length; i++) {
+			IPackageFragmentRoot root = roots[i];
+			try {
+				IJavaElement[] pkgs = root.getChildren();
+
+				/* 2 jar package fragment roots can be equals but not belonging 
+				   to the same project. As a result, they share the same element info.
+				   So this jar package fragment root could get the children of
+				   another jar package fragment root.
+				   The following code ensures that the children of this jar package
+				   fragment root have the given project as a great parent.
+				 */
+				int length = pkgs.length;
+				if (length == 0) continue;
+				if (pkgs[0].getParent().getParent().equals(project)) {
+					// the children have the right parent, simply add them to the list
+					for (int j = 0; j < length; j++) {
+						frags.add(pkgs[j]);
+					}
+				} else {
+					// create a new handle with the root as the parent
+					for (int j = 0; j < length; j++) {
+						frags.add(root.getPackageFragment(pkgs[j].getElementName()));
+					}
+				}
+			} catch (JavaModelException e) {
+				// do nothing
+			}
+		}
+		IPackageFragment[] fragments = new IPackageFragment[frags.size()];
+		frags.toArray(fragments);
+		return fragments;
 	}
+
 	/*
 	 * Returns whether the given path is a classpath entry or an output location.
 	 */
@@ -201,13 +270,12 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 		return false;
 	}
 	
-	protected void setNameLookup(NameLookup newNameLookup) {
-
-		fNameLookup = newNameLookup;
-
-		// Reinitialize the searchable name environment since it caches
-		// the name lookup.
-		fSearchableEnvironment = null;
+	/*
+	 * Reset the package fragment roots and package fragment caches
+	 */
+	void resetCaches() {
+		this.allPkgFragmentRootsCache = null;
+		this.allPkgFragmentsCache = null;
 	}
 	
 	/**
@@ -215,11 +283,7 @@ class JavaProjectElementInfo extends OpenableElementInfo {
 	 */
 	void setNonJavaResources(Object[] resources) {
 
-		fNonJavaResources = resources;
+		this.nonJavaResources = resources;
 	}
 	
-	protected void setSearchableEnvironment(SearchableEnvironment newSearchableEnvironment) {
-
-		fSearchableEnvironment = newSearchableEnvironment;
-	}
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,7 +13,7 @@ package org.eclipse.jdt.internal.core;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.jdom.*;
 
 /**
  * Handle for an import declaration. Info object is a ImportDeclarationElementInfo.
@@ -36,7 +36,9 @@ public boolean equals(Object o) {
 }
 /**
  * @see JavaElement#equalsDOMNode
+ * @deprecated JDOM is obsolete
  */
+// TODO - JDOM - remove once model ported off of JDOM
 protected boolean equalsDOMNode(IDOMNode node) {
 	return (node.getNodeType() == IDOMNode.IMPORT) && getElementName().equals(node.getName());
 }
@@ -46,7 +48,7 @@ protected boolean equalsDOMNode(IDOMNode node) {
 public int getElementType() {
 	return IMPORT_DECLARATION;
 }
-/* (non-Javadoc)
+/**
  * @see org.eclipse.jdt.core.IImportDeclaration#getFlags()
  */
 public int getFlags() throws JavaModelException {
@@ -59,7 +61,7 @@ public int getFlags() throws JavaModelException {
  */
 public String getHandleMemento(){
 	StringBuffer buff= new StringBuffer(((JavaElement)getParent()).getHandleMemento());
-	buff.append(getElementName());
+	escapeMementoName(buff, getElementName());
 	if (this.occurrenceCount > 1) {
 		buff.append(JEM_COUNT);
 		buff.append(this.occurrenceCount);
@@ -100,7 +102,7 @@ public String readableName() {
 protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 	buffer.append(this.tabString(tab));
 	buffer.append("import "); //$NON-NLS-1$
-	buffer.append(getElementName());
+	toStringName(buffer);
 	if (info == null) {
 		buffer.append(" (not open)"); //$NON-NLS-1$
 	}

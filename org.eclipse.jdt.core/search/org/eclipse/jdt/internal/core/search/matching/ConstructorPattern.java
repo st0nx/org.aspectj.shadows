@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,16 +10,14 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
+import java.io.IOException;
+
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.core.search.*;
+import org.eclipse.jdt.core.search.SearchPattern;
+import org.eclipse.jdt.internal.core.index.*;
+import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
-public class ConstructorPattern extends SearchPattern {
-
-private static ThreadLocal indexRecord = new ThreadLocal() {
-	protected Object initialValue() {
-		return new ConstructorPattern(false, false, null,null, null, null, R_EXACT_MATCH | R_CASE_SENSITIVE);
-	}
-};
+public class ConstructorPattern extends JavaSearchPattern implements IIndexConstants {
 
 protected boolean findDeclarations;
 protected boolean findReferences;
@@ -31,15 +29,21 @@ public char[][] parameterQualifications;
 public char[][] parameterSimpleNames;
 public int parameterCount;
 
+protected static char[][] REF_CATEGORIES = { CONSTRUCTOR_REF };
+protected static char[][] REF_AND_DECL_CATEGORIES = { CONSTRUCTOR_REF, CONSTRUCTOR_DECL };
+protected static char[][] DECL_CATEGORIES = { CONSTRUCTOR_DECL };
+
+/**
+ * Constructor entries are encoded as TypeName '/' Arity:
+ * e.g. 'X/0'
+ */
 public static char[] createIndexKey(char[] typeName, int argCount) {
-	ConstructorPattern record = getConstructorRecord();
-	record.declaringSimpleName = typeName;
-	record.parameterCount = argCount;
-	return record.encodeIndexKey();
+	char[] countChars = argCount < 10
+		? COUNTS[argCount]
+		: ("/" + String.valueOf(argCount)).toCharArray(); //$NON-NLS-1$
+	return CharOperation.concat(typeName, countChars);
 }
-public static ConstructorPattern getConstructorRecord() {
-	return (ConstructorPattern)indexRecord.get();
-}
+
 public ConstructorPattern(
 	boolean findDeclarations,
 	boolean findReferences,
@@ -49,27 +53,29 @@ public ConstructorPattern(
 	char[][] parameterSimpleNames,
 	int matchRule) {
 
-	super(CONSTRUCTOR_PATTERN, matchRule);
+	this(matchRule);
 
 	this.findDeclarations = findDeclarations;
 	this.findReferences = findReferences;
 
-	boolean isCaseSensitive = isCaseSensitive();
-	this.declaringQualification = isCaseSensitive ? declaringQualification : CharOperation.toLowerCase(declaringQualification);
-	this.declaringSimpleName = isCaseSensitive ? declaringSimpleName : CharOperation.toLowerCase(declaringSimpleName);
+	this.declaringQualification = isCaseSensitive() ? declaringQualification : CharOperation.toLowerCase(declaringQualification);
+	this.declaringSimpleName = isCaseSensitive() ? declaringSimpleName : CharOperation.toLowerCase(declaringSimpleName);
 	if (parameterSimpleNames != null) {
 		this.parameterCount = parameterSimpleNames.length;
 		this.parameterQualifications = new char[this.parameterCount][];
 		this.parameterSimpleNames = new char[this.parameterCount][];
 		for (int i = 0; i < this.parameterCount; i++) {
-			this.parameterQualifications[i] = isCaseSensitive ? parameterQualifications[i] : CharOperation.toLowerCase(parameterQualifications[i]);
-			this.parameterSimpleNames[i] = isCaseSensitive ? parameterSimpleNames[i] : CharOperation.toLowerCase(parameterSimpleNames[i]);
+			this.parameterQualifications[i] = isCaseSensitive() ? parameterQualifications[i] : CharOperation.toLowerCase(parameterQualifications[i]);
+			this.parameterSimpleNames[i] = isCaseSensitive() ? parameterSimpleNames[i] : CharOperation.toLowerCase(parameterSimpleNames[i]);
 		}
 	} else {
 		this.parameterCount = -1;
 	}
 
-	this.mustResolve = mustResolve();
+	((InternalSearchPattern)this).mustResolve = mustResolve();
+}
+ConstructorPattern(int matchRule) {
+	super(CONSTRUCTOR_PATTERN, matchRule);
 }
 public void decodeIndexKey(char[] key) {
 	int size = key.length;
@@ -78,60 +84,21 @@ public void decodeIndexKey(char[] key) {
 	this.parameterCount = Integer.parseInt(new String(key, lastSeparatorIndex + 1, size - lastSeparatorIndex - 1));
 	this.declaringSimpleName = CharOperation.subarray(key, 0, lastSeparatorIndex);
 }
-/**
- * Constructor declaration entries are encoded as 'constructorDecl/' TypeName '/' Arity:
- * e.g. 'constructorDecl/X/0'
- *
- * Constructor reference entries are encoded as 'constructorRef/' TypeName '/' Arity:
- * e.g. 'constructorRef/X/0'
- */
-public char[] encodeIndexKey() {
-	// will have a common pattern in the new story
-	if (isCaseSensitive() && this.declaringSimpleName != null) {
-		switch(matchMode()) {
-			case EXACT_MATCH :
-				int arity = this.parameterCount;
-				if (arity >= 0) {
-					char[] countChars = arity < 10 ? COUNTS[arity] : ("/" + String.valueOf(arity)).toCharArray(); //$NON-NLS-1$
-					return CharOperation.concat(this.declaringSimpleName, countChars);
-				}
-			case PREFIX_MATCH :
-				return this.declaringSimpleName;
-			case PATTERN_MATCH :
-				int starPos = CharOperation.indexOf('*', this.declaringSimpleName);
-				switch(starPos) {
-					case -1 :
-						return this.declaringSimpleName;
-					default : 
-						char[] result = new char[starPos];
-						System.arraycopy(this.declaringSimpleName, 0, result, 0, starPos);
-						return result;
-					case 0 : // fall through
-				}
-		}
-	}
-	return CharOperation.NO_CHAR; // find them all
+public SearchPattern getBlankPattern() {
+	return new ConstructorPattern(R_EXACT_MATCH | R_CASE_SENSITIVE);
 }
-public SearchPattern getIndexRecord() {
-	return getConstructorRecord();
-}
-public char[][] getMatchCategories() {
+public char[][] getIndexCategories() {
 	if (this.findReferences)
-		if (this.findDeclarations) 
-			return new char[][] {CONSTRUCTOR_REF, CONSTRUCTOR_DECL};
-		else
-			return new char[][] {CONSTRUCTOR_REF};
-	else
-		if (this.findDeclarations)
-			return new char[][] {CONSTRUCTOR_DECL};
-		else
-			return CharOperation.NO_CHAR_CHAR;
+		return this.findDeclarations ? REF_AND_DECL_CATEGORIES : REF_CATEGORIES;
+	if (this.findDeclarations)
+		return DECL_CATEGORIES;
+	return CharOperation.NO_CHAR_CHAR;
 }
-public boolean isMatchingIndexRecord() {
-	ConstructorPattern record = getConstructorRecord();
-	if (this.parameterCount != -1 && this.parameterCount != record.parameterCount) return false;
+public boolean matchesDecodedKey(SearchPattern decodedPattern) {
+	ConstructorPattern pattern = (ConstructorPattern) decodedPattern;
 
-	return matchesName(this.declaringSimpleName, record.declaringSimpleName);
+	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1)
+		&& matchesName(this.declaringSimpleName, pattern.declaringSimpleName);
 }
 protected boolean mustResolve() {
 	if (this.declaringQualification != null) return true;
@@ -141,6 +108,31 @@ protected boolean mustResolve() {
 		for (int i = 0, max = this.parameterSimpleNames.length; i < max; i++)
 			if (this.parameterQualifications[i] != null) return true;
 	return this.findReferences; // need to check resolved default constructors and explicit constructor calls
+}
+EntryResult[] queryIn(Index index) throws IOException {
+	char[] key = this.declaringSimpleName; // can be null
+	int matchRule = getMatchRule();
+
+	switch(getMatchMode()) {
+		case R_EXACT_MATCH :
+			if (this.declaringSimpleName != null && this.parameterCount >= 0)
+				key = createIndexKey(this.declaringSimpleName, this.parameterCount);
+			else // do a prefix query with the declaringSimpleName
+				matchRule = matchRule - R_EXACT_MATCH + R_PREFIX_MATCH;
+			break;
+		case R_PREFIX_MATCH :
+			// do a prefix query with the declaringSimpleName
+			break;
+		case R_PATTERN_MATCH :
+			if (this.parameterCount >= 0)
+				key = createIndexKey(this.declaringSimpleName == null ? ONE_STAR : this.declaringSimpleName, this.parameterCount);
+			else if (this.declaringSimpleName != null && this.declaringSimpleName[this.declaringSimpleName.length - 1] != '*')
+				key = CharOperation.concat(this.declaringSimpleName, ONE_STAR, SEPARATOR);
+			// else do a pattern query with just the declaringSimpleName
+			break;
+	}
+
+	return index.query(getIndexCategories(), key, matchRule); // match rule is irrelevant when the key is null
 }
 public String toString() {
 	StringBuffer buffer = new StringBuffer(20);
@@ -170,14 +162,14 @@ public String toString() {
 	}
 	buffer.append(')');
 	buffer.append(", "); //$NON-NLS-1$
-	switch(matchMode()) {
-		case EXACT_MATCH : 
+	switch(getMatchMode()) {
+		case R_EXACT_MATCH : 
 			buffer.append("exact match, "); //$NON-NLS-1$
 			break;
-		case PREFIX_MATCH :
+		case R_PREFIX_MATCH :
 			buffer.append("prefix match, "); //$NON-NLS-1$
 			break;
-		case PATTERN_MATCH :
+		case R_PATTERN_MATCH :
 			buffer.append("pattern match, "); //$NON-NLS-1$
 			break;
 	}

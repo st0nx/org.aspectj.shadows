@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,17 +10,15 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.*;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 
-import org.eclipse.core.resources.IResourceStatus;
-import org.eclipse.core.resources.ResourcesPlugin;
+import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.*;
+import org.eclipse.core.runtime.jobs.ISchedulingRule;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.jdom.IDOMCompilationUnit;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.jdom.*;
+import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -30,8 +28,9 @@ import org.eclipse.jdt.internal.core.util.Util;
  */
 public abstract class JavaElement extends PlatformObject implements IJavaElement {
 
+	public static final char JEM_ESCAPE = '\\';
 	public static final char JEM_JAVAPROJECT = '=';
-	public static final char JEM_PACKAGEFRAGMENTROOT = IPath.SEPARATOR;
+	public static final char JEM_PACKAGEFRAGMENTROOT = '/';
 	public static final char JEM_PACKAGEFRAGMENT = '<';
 	public static final char JEM_FIELD = '^';
 	public static final char JEM_METHOD = '~';
@@ -73,7 +72,8 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 * Constructs a handle for a java element with
 	 * the given parent element and name.
 	 *
-	 * @param type - one of the constants defined in IJavaLanguageElement
+	 * @param parent The parent of java element
+	 * @param name The name of java element
 	 *
 	 * @exception IllegalArgumentException if the type is not one of the valid
 	 *		Java element type constants
@@ -124,9 +124,34 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	/**
 	 * Returns true if this <code>JavaElement</code> is equivalent to the given
 	 * <code>IDOMNode</code>.
+	 * @deprecated JDOM is obsolete
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	protected boolean equalsDOMNode(IDOMNode node) {
 		return false;
+	}
+	protected void escapeMementoName(StringBuffer buffer, String mementoName) {
+		for (int i = 0, length = mementoName.length(); i < length; i++) {
+			char character = mementoName.charAt(i);
+			switch (character) {
+				case JEM_ESCAPE:
+				case JEM_COUNT:
+				case JEM_JAVAPROJECT:
+				case JEM_PACKAGEFRAGMENTROOT:
+				case JEM_PACKAGEFRAGMENT:
+				case JEM_FIELD:
+				case JEM_METHOD:
+				case JEM_INITIALIZER:
+				case JEM_COMPILATIONUNIT:
+				case JEM_CLASSFILE:
+				case JEM_TYPE:
+				case JEM_PACKAGEDECLARATION:
+				case JEM_IMPORTDECLARATION:
+				case JEM_LOCALVARIABLE:
+					buffer.append(JEM_ESCAPE);
+			}
+			buffer.append(character);
+		}
 	}
 	/**
 	 * @see IJavaElement
@@ -145,7 +170,9 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	/**
 	 * Returns the <code>IDOMNode</code> that corresponds to this <code>JavaElement</code>
 	 * or <code>null</code> if there is no corresponding node.
+	 * @deprecated JDOM is obsolete
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	public IDOMNode findNode(IDOMCompilationUnit dom) {
 		int type = getElementType();
 		if (type == IJavaElement.COMPILATION_UNIT || 
@@ -177,7 +204,9 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 		}
 	}
 	/**
+	 * @deprecated JDOM is obsolete
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	protected IDOMNode followPath(ArrayList path, int position, IDOMNode node) {
 	
 		if (equalsDOMNode(node)) {
@@ -229,7 +258,7 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 * Returns a collection of (immediate) children of this node of the
 	 * specified type.
 	 *
-	 * @param type - one of constants defined by IJavaLanguageElementTypes
+	 * @param type - one of the JEM_* constants defined by JavaElement
 	 */
 	public ArrayList getChildrenOfType(int type) throws JavaModelException {
 		IJavaElement[] children = getChildren();
@@ -290,12 +319,12 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 * The given token is the current delimiter indicating the type of the next token(s).
 	 * The given working copy owner is used only for compilation unit handles.
 	 */
-	public abstract IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner owner);
+	public abstract IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner owner);
 	/*
 	 * Creates a Java element handle from the given memento.
 	 * The given working copy owner is used only for compilation unit handles.
 	 */
-	public IJavaElement getHandleFromMemento(StringTokenizer memento, WorkingCopyOwner owner) {
+	public IJavaElement getHandleFromMemento(MementoTokenizer memento, WorkingCopyOwner owner) {
 		if (!memento.hasMoreTokens()) return this;
 		String token = memento.nextToken();
 		return getHandleFromMemento(token, memento, owner);
@@ -304,7 +333,7 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 * Update the occurence count of the receiver and creates a Java element handle from the given memento.
 	 * The given working copy owner is used only for compilation unit handles.
 	 */
-	public IJavaElement getHandleUpdatingCountFromMemento(StringTokenizer memento, WorkingCopyOwner owner) {
+	public IJavaElement getHandleUpdatingCountFromMemento(MementoTokenizer memento, WorkingCopyOwner owner) {
 		this.occurrenceCount = Integer.parseInt(memento.nextToken());
 		if (!memento.hasMoreTokens()) return this;
 		String token = memento.nextToken();
@@ -322,7 +351,7 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	public String getHandleMemento(){
 		StringBuffer buff= new StringBuffer(((JavaElement)getParent()).getHandleMemento());
 		buff.append(getHandleMementoDelimiter());
-		buff.append(getElementName());
+		escapeMementoName(buff, getElementName());
 		if (this.occurrenceCount > 1) {
 			buff.append(JEM_COUNT);
 			buff.append(this.occurrenceCount);
@@ -399,14 +428,31 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	protected IJavaElement getSourceElementAt(int position) throws JavaModelException {
 		if (this instanceof ISourceReference) {
 			IJavaElement[] children = getChildren();
-			int i;
-			for (i = 0; i < children.length; i++) {
+			for (int i = children.length-1; i >= 0; i--) {
 				IJavaElement aChild = children[i];
 				if (aChild instanceof SourceRefElement) {
 					SourceRefElement child = (SourceRefElement) children[i];
 					ISourceRange range = child.getSourceRange();
-					if (position < range.getOffset() + range.getLength() && position >= range.getOffset()) {
-						if (child instanceof IParent) {
+					int start = range.getOffset();
+					int end = start + range.getLength();
+					if (start <= position && position <= end) {
+						if (child instanceof IField) {
+							// check muti-declaration case (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=39943)
+							int declarationStart = start;
+							SourceRefElement candidate = null;
+							do {
+								// check name range
+								range = ((IField)child).getNameRange();
+								if (position <= range.getOffset() + range.getLength()) {
+									candidate = child;
+								} else {
+									return candidate == null ? child.getSourceElementAt(position) : candidate.getSourceElementAt(position);
+								}
+								child = --i>=0 ? (SourceRefElement) children[i] : null;
+							} while (child != null && child.getSourceRange().getOffset() == declarationStart);
+							// position in field's type: use first field
+							return candidate.getSourceElementAt(position);
+						} else if (child instanceof IParent) {
 							return child.getSourceElementAt(position);
 						} else {
 							return child;
@@ -428,12 +474,50 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	public SourceMapper getSourceMapper() {
 		return ((JavaElement)getParent()).getSourceMapper();
 	}
-
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.core.IJavaElement#getSchedulingRule()
+	 */
+	public ISchedulingRule getSchedulingRule() {
+		IResource resource = getResource();
+		if (resource == null) {
+			class NoResourceSchedulingRule implements ISchedulingRule {
+				public IPath path;
+				public NoResourceSchedulingRule(IPath path) {
+					this.path = path;
+				}
+				public boolean contains(ISchedulingRule rule) {
+					if (rule instanceof NoResourceSchedulingRule) {
+						return this.path.isPrefixOf(((NoResourceSchedulingRule)rule).path);
+					} else {
+						return false;
+					}
+				}
+				public boolean isConflicting(ISchedulingRule rule) {
+					if (rule instanceof NoResourceSchedulingRule) {
+						IPath otherPath = ((NoResourceSchedulingRule)rule).path;
+						return this.path.isPrefixOf(otherPath) || otherPath.isPrefixOf(this.path);
+					} else {
+						return false;
+					}
+				}
+			}
+			return new NoResourceSchedulingRule(getPath());
+		} else {
+			return resource;
+		}
+	}
 	/**
 	 * @see IParent 
 	 */
 	public boolean hasChildren() throws JavaModelException {
-		return getChildren().length > 0;
+		// if I am not open, return true to avoid opening (case of a Java project, a compilation unit or a class file).
+		// also see https://bugs.eclipse.org/bugs/show_bug.cgi?id=52474
+		Object elementInfo = JavaModelManager.getJavaModelManager().getInfo(this);
+		if (elementInfo instanceof JavaElementInfo) {
+			return ((JavaElementInfo)elementInfo).getChildren().length > 0;
+		} else {
+			return true;
+		}
 	}
 
 	/**
@@ -490,14 +574,12 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 				info = newElements.get(this);
 			}
 			if (info == null) { // a source ref element could not be opened
-				// close any buffer that was opened for the openable parent
-				Iterator iterator = newElements.keySet().iterator();
-				while (iterator.hasNext()) {
-					IJavaElement element = (IJavaElement)iterator.next();
-					if (element instanceof Openable) {
-						((Openable)element).closeBuffer();
-					}
-				}
+				// close the buffer that was opened for the openable parent
+			    // close only the openable's buffer (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=62854)
+			    Openable openable = (Openable) getOpenable();
+			    if (newElements.containsKey(openable)) {
+			        openable.closeBuffer();
+			    }
 				throw newNotPresentException();
 			}
 			if (!hadTemporaryCache) {
@@ -514,33 +596,6 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 */
 	public String readableName() {
 		return this.getElementName();
-	}
-	/**
-	 * Runs a Java Model Operation
-	 */
-	public static void runOperation(JavaModelOperation operation, IProgressMonitor monitor) throws JavaModelException {
-		try {
-			if (operation.isReadOnly()) {
-				operation.run(monitor);
-			} else {
-				// Use IWorkspace.run(...) to ensure that a build will be done in autobuild mode.
-				// Note that if the tree is locked, this will throw a CoreException, but this is ok
-				// as this operation is modifying the tree (not read-only) and a CoreException will be thrown anyway.
-				ResourcesPlugin.getWorkspace().run(operation, monitor);
-			}
-		} catch (CoreException ce) {
-			if (ce instanceof JavaModelException) {
-				throw (JavaModelException)ce;
-			} else {
-				if (ce.getStatus().getCode() == IResourceStatus.OPERATION_FAILED) {
-					Throwable e= ce.getStatus().getException();
-					if (e instanceof JavaModelException) {
-						throw (JavaModelException) e;
-					}
-				}
-				throw new JavaModelException(ce);
-			}
-		}
 	}
 	protected String tabString(int tab) {
 		StringBuffer buffer = new StringBuffer();
@@ -619,9 +674,19 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 */
 	protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 		buffer.append(this.tabString(tab));
-		buffer.append(getElementName());
+		toStringName(buffer);
 		if (info == null) {
 			buffer.append(" (not open)"); //$NON-NLS-1$
+		}
+	}
+	/**
+	 *  Debugging purposes
+	 */
+	protected void toStringName(StringBuffer buffer) {
+		buffer.append(getElementName());
+		if (this.occurrenceCount > 1) {
+			buffer.append("#"); //$NON-NLS-1$
+			buffer.append(this.occurrenceCount);
 		}
 	}
 }

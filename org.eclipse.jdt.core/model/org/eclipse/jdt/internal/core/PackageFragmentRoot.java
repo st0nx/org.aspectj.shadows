@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,7 +10,6 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.*;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Map;
@@ -25,6 +24,7 @@ import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -190,7 +190,7 @@ public void delete(
 	throws JavaModelException {
 
 	DeletePackageFragmentRootOperation op = new DeletePackageFragmentRootOperation(this, updateResourceFlags, updateModelFlags);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 }
 
 /**
@@ -207,8 +207,10 @@ protected boolean computeChildren(OpenableElementInfo info, Map newElements) thr
 		IResource underlyingResource = getResource();
 		if (underlyingResource.getType() == IResource.FOLDER || underlyingResource.getType() == IResource.PROJECT) {
 			ArrayList vChildren = new ArrayList(5);
+			IContainer rootFolder = (IContainer) underlyingResource;
+			char[][] inclusionPatterns = fullInclusionPatternChars();
 			char[][] exclusionPatterns = fullExclusionPatternChars();
-			computeFolderChildren((IContainer) underlyingResource, "", vChildren, exclusionPatterns); //$NON-NLS-1$
+			computeFolderChildren(rootFolder, !Util.isExcluded(rootFolder, inclusionPatterns, exclusionPatterns), "", vChildren, inclusionPatterns, exclusionPatterns); //$NON-NLS-1$
 			IJavaElement[] children = new IJavaElement[vChildren.size()];
 			vChildren.toArray(children);
 			info.setChildren(children);
@@ -227,29 +229,50 @@ protected boolean computeChildren(OpenableElementInfo info, Map newElements) thr
  * 
  * @exception JavaModelException  The resource associated with this package fragment does not exist
  */
-protected void computeFolderChildren(IContainer folder, String prefix, ArrayList vChildren, char[][] exclusionPatterns) throws JavaModelException {
-	IPackageFragment pkg = getPackageFragment(prefix);
-	vChildren.add(pkg);
+protected void computeFolderChildren(IContainer folder, boolean isIncluded, String prefix, ArrayList vChildren, char[][] inclusionPatterns, char[][] exclusionPatterns) throws JavaModelException {
+
+	if (isIncluded) {
+	    IPackageFragment pkg = getPackageFragment(prefix);
+		vChildren.add(pkg);
+	}
 	try {
 		JavaProject javaProject = (JavaProject)getJavaProject();
 		IResource[] members = folder.members();
+		boolean hasIncluded = isIncluded;
 		for (int i = 0, max = members.length; i < max; i++) {
 			IResource member = members[i];
 			String memberName = member.getName();
-			if (member.getType() == IResource.FOLDER 
-				&& Util.isValidFolderNameForPackage(memberName)
-				&& !Util.isExcluded(member, exclusionPatterns)) {
-					
-				// eliminate binary output only if nested inside direct subfolders
-				if (javaProject.contains(member)) {
-					String newPrefix;
-					if (prefix.length() == 0) {
-						newPrefix = memberName;
-					} else {
-						newPrefix = prefix + "." + memberName; //$NON-NLS-1$
+			
+			switch(member.getType()) {
+			    
+			    case IResource.FOLDER:
+					if (Util.isValidFolderNameForPackage(memberName)) {
+					    boolean isMemberIncluded = !Util.isExcluded(member, inclusionPatterns, exclusionPatterns);
+						// keep looking inside as long as included already, or may have child included due to inclusion patterns
+					    if (isMemberIncluded || inclusionPatterns != null) { 
+							// eliminate binary output only if nested inside direct subfolders
+							if (javaProject.contains(member)) {
+								String newPrefix;
+								if (prefix.length() == 0) {
+									newPrefix = memberName;
+								} else {
+									newPrefix = prefix + "." + memberName; //$NON-NLS-1$
+								}
+								computeFolderChildren((IFolder) member, isMemberIncluded, newPrefix, vChildren, inclusionPatterns, exclusionPatterns);
+							}
+						}
 					}
-					computeFolderChildren((IFolder) member, newPrefix, vChildren, exclusionPatterns);
-				}
+			    	break;
+			    case IResource.FILE:
+			        // inclusion filter may only include files, in which case we still want to include the immediate parent package (lazily)
+					if (!hasIncluded
+								&& Util.isValidCompilationUnitName(memberName)
+								&& !Util.isExcluded(member, inclusionPatterns, exclusionPatterns)) {
+						hasIncluded = true;
+					    IPackageFragment pkg = getPackageFragment(prefix);
+					    vChildren.add(pkg); 
+					}
+			        break;
 			}
 		}
 	} catch(IllegalArgumentException e){
@@ -272,7 +295,7 @@ public void copy(
 		
 	CopyPackageFragmentRootOperation op = 
 		new CopyPackageFragmentRootOperation(this, destination, updateResourceFlags, updateModelFlags, sibling);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 }
 
 /**
@@ -287,7 +310,7 @@ protected Object createElementInfo() {
  */
 public IPackageFragment createPackageFragment(String pkgName, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	CreatePackageFragmentOperation op = new CreatePackageFragmentOperation(this, pkgName, force);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return getPackageFragment(pkgName);
 }
 
@@ -295,7 +318,7 @@ public IPackageFragment createPackageFragment(String pkgName, boolean force, IPr
  * Returns the root's kind - K_SOURCE or K_BINARY, defaults
  * to K_SOURCE if it is not on the classpath.
  *
- * @exception NotPresentException if the project and root do
+ * @exception JavaModelException if the project and root do
  * 		not exist.
  */
 protected int determineKind(IResource underlyingResource) throws JavaModelException {
@@ -312,7 +335,7 @@ protected int determineKind(IResource underlyingResource) throws JavaModelExcept
 /**
  * Compares two objects for equality;
  * for <code>PackageFragmentRoot</code>s, equality is having the
- * same <code>JavaModel</code>, same resources, and occurrence count.
+ * same parent, same resources, and occurrence count.
  *
  */
 public boolean equals(Object o) {
@@ -322,17 +345,15 @@ public boolean equals(Object o) {
 		return false;
 	PackageFragmentRoot other = (PackageFragmentRoot) o;
 	return this.resource.equals(other.resource) &&
-			this.occurrenceCount == other.occurrenceCount;
+			this.occurrenceCount == other.occurrenceCount && 
+			this.parent.equals(other.parent);
 }
 
 /**
  * @see IJavaElement
  */
 public boolean exists() {
-	return 
-		parentExists() 
-			&& resourceExists() 
-			&& isOnClasspath();
+	return super.exists() && isOnClasspath();
 }
 
 public IClasspathEntry findSourceAttachmentRecommendation() {
@@ -347,15 +368,16 @@ public IClasspathEntry findSourceAttachmentRecommendation() {
 			entry = parentProject.getClasspathEntryFor(rootPath);
 			if (entry != null){
 				Object target = JavaModel.getTarget(workspaceRoot, entry.getSourceAttachmentPath(), true);
-				if (target instanceof IFile){
-					IFile file = (IFile) target;
-					if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())){
+				if (target instanceof IResource) {
+					if (target instanceof IFile) {
+						IFile file = (IFile) target;
+						if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())){
+							return entry;
+						}
+					} else if (target instanceof IContainer) {
 						return entry;
 					}
-				} else if (target instanceof IFolder) {
-					return entry;
-				}
-				if (target instanceof java.io.File){
+				} else if (target instanceof java.io.File){
 					java.io.File file = (java.io.File) target;
 					if (file.isFile()) {
 						if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())){
@@ -381,15 +403,16 @@ public IClasspathEntry findSourceAttachmentRecommendation() {
 				entry = jProject.getClasspathEntryFor(rootPath);
 				if (entry != null){
 					Object target = JavaModel.getTarget(workspaceRoot, entry.getSourceAttachmentPath(), true);
-					if (target instanceof IFile){
-						IFile file = (IFile) target;
-						if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())){
+					if (target instanceof IResource) {
+						if (target instanceof IFile){
+							IFile file = (IFile) target;
+							if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())){
+								return entry;
+							}
+						} else if (target instanceof IContainer) {
 							return entry;
 						}
-					} else if (target instanceof IFolder) {
-						return entry;
-					}
-					if (target instanceof java.io.File){
+					} else if (target instanceof java.io.File){
 						java.io.File file = (java.io.File) target;
 						if (file.isFile()) {
 							if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())){
@@ -428,6 +451,24 @@ public char[][] fullExclusionPatternChars() {
 		return null;
 	}
 }		
+
+/*
+ * Returns the inclusion patterns from the classpath entry associated with this root.
+ */
+public char[][] fullInclusionPatternChars() {
+	try {
+		if (this.isOpen() && this.getKind() != IPackageFragmentRoot.K_SOURCE) return null;
+		ClasspathEntry entry = (ClasspathEntry)getRawClasspathEntry();
+		if (entry == null) {
+			return null;
+		} else {
+			return entry.fullInclusionPatternChars();
+		}
+	} catch (JavaModelException e) { 
+		return null;
+	}
+}		
+
 /**
  * @see IJavaElement
  */
@@ -443,7 +484,7 @@ protected char getHandleMementoDelimiter() {
 /*
  * @see JavaElement
  */
-public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner owner) {
+public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner owner) {
 	switch (token.charAt(0)) {
 		case JEM_COUNT:
 			return getHandleUpdatingCountFromMemento(memento, owner);
@@ -490,7 +531,7 @@ public String getHandleMemento(){
 	}
 	StringBuffer buff= new StringBuffer(((JavaElement)getParent()).getHandleMemento());
 	buff.append(getHandleMementoDelimiter());
-	buff.append(path.toString()); 
+	escapeMementoName(buff, path.toString()); 
 	if (this.occurrenceCount > 1) {
 		buff.append(JEM_COUNT);
 		buff.append(this.occurrenceCount);
@@ -562,7 +603,7 @@ public IClasspathEntry getRawClasspathEntry() throws JavaModelException {
 
 	IClasspathEntry rawEntry = null;
 	JavaProject project = (JavaProject)this.getJavaProject();
-	project.getResolvedClasspath(true); // force the reverse rawEntry cache to be populated
+	project.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/); // force the reverse rawEntry cache to be populated
 	JavaModelManager.PerProjectInfo perProjectInfo = project.getPerProjectInfo();
 	if (perProjectInfo != null && perProjectInfo.resolvedPathToRawEntries != null) {
 		rawEntry = (IClasspathEntry) perProjectInfo.resolvedPathToRawEntries.get(this.getPath());
@@ -726,6 +767,14 @@ public IResource getUnderlyingResource() throws JavaModelException {
 	return getResource();
 }
 
+/**
+ * @see IParent 
+ */
+public boolean hasChildren() throws JavaModelException {
+	// a package fragment root always has the default package as a child
+	return true;
+}
+
 public int hashCode() {
 	return this.resource.hashCode();
 }
@@ -752,8 +801,8 @@ protected boolean isOnClasspath() {
 	IPath path = this.getPath();
 	try {
 		// check package fragment root on classpath of its project
-		IJavaProject project = this.getJavaProject();
-		IClasspathEntry[] classpath = project.getResolvedClasspath(true);	
+		JavaProject project = (JavaProject) getJavaProject();
+		IClasspathEntry[] classpath = project.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);	
 		for (int i = 0, length = classpath.length; i < length; i++) {
 			IClasspathEntry entry = classpath[i];
 			if (entry.getPath().equals(path)) {
@@ -778,7 +827,7 @@ public void move(
 
 	MovePackageFragmentRootOperation op = 
 		new MovePackageFragmentRootOperation(this, destination, updateResourceFlags, updateModelFlags, sibling);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 }
 
 /**
@@ -786,15 +835,19 @@ public void move(
  */
 protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 	buffer.append(this.tabString(tab));
-	if (getElementName().length() == 0) {
-		buffer.append("<project root>"); //$NON-NLS-1$
-	} else {
-		IPath path = getPath();
-		if (getJavaProject().getElementName().equals(path.segment(0))) {
+	IPath path = getPath();
+	if (getJavaProject().getElementName().equals(path.segment(0))) {
+	    if (path.segmentCount() == 1) {
+	buffer.append("<project root>"); //$NON-NLS-1$
+	    } else {
 			buffer.append(path.removeFirstSegments(1).makeRelative());
-		} else {
+	    }
+	} else {
+	    if (isExternal()) {
+			buffer.append(path.toOSString());
+	    } else {
 			buffer.append(path);
-		}
+	    }
 	}
 	if (info == null) {
 		buffer.append(" (not open)"); //$NON-NLS-1$

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -90,7 +90,8 @@ public class ASTNodeFinder {
 				AbstractMethodDeclaration method = methods[i];
 				if (CharOperation.equals(selector, method.selector)) {
 					Argument[] args = method.arguments;
-					if (args != null && args.length == parameterCount) {
+					int argsLength = args == null ? 0 : args.length;
+					if (argsLength == parameterCount) {
 						for (int j = 0; j < parameterCount; j++) {
 							TypeReference type = args[j].type;
 							String signature = Util.typeSignature(type);
@@ -101,7 +102,6 @@ public class ASTNodeFinder {
 						return method;
 					}
 				}
-					
 			}
 		}
 		return null;

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,8 +26,7 @@ import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.internal.core.ClasspathEntry;
 import org.eclipse.jdt.internal.core.JavaProject;
-import org.eclipse.jdt.internal.core.index.IIndex;
-import org.eclipse.jdt.internal.core.search.JavaSearchDocument;
+import org.eclipse.jdt.internal.core.index.Index;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
 import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.core.util.Util;
@@ -54,16 +53,15 @@ public class IndexAllProject extends IndexRequest {
 		if (this.isCancelled || progressMonitor != null && progressMonitor.isCanceled()) return true;
 		if (!project.isAccessible()) return true; // nothing to do
 
-		IIndex index = this.manager.getIndexForUpdate(this.containerPath, true, /*reuse index file*/ true /*create if none*/);
+		Index index = this.manager.getIndexForUpdate(this.containerPath, true, /*reuse index file*/ true /*create if none*/);
 		if (index == null) return true;
-		ReadWriteMonitor monitor = this.manager.getMonitorFor(index);
+		ReadWriteMonitor monitor = index.monitor;
 		if (monitor == null) return true; // index got deleted since acquired
 
 		try {
 			monitor.enterRead(); // ask permission to read
-			saveIfNecessary(index, monitor);
 
-			String[] paths = index.queryInDocumentNames(""); // all file names //$NON-NLS-1$
+			String[] paths = index.queryDocumentNames(""); // all file names //$NON-NLS-1$
 			int max = paths == null ? 0 : paths.length;
 			final SimpleLookupTable indexedFileNames = new SimpleLookupTable(max == 0 ? 33 : max + 11);
 			final String OK = "OK"; //$NON-NLS-1$
@@ -98,7 +96,8 @@ public class IndexAllProject extends IndexRequest {
 						}
 						final boolean hasOutputs = !outputs.isEmpty();
 						
-						final char[][] patterns = ((ClasspathEntry) entry).fullExclusionPatternChars();
+						final char[][] inclusionPatterns = ((ClasspathEntry) entry).fullInclusionPatternChars();
+						final char[][] exclusionPatterns = ((ClasspathEntry) entry).fullExclusionPatternChars();
 						if (max == 0) {
 							sourceFolder.accept(
 								new IResourceProxyVisitor() {
@@ -108,16 +107,21 @@ public class IndexAllProject extends IndexRequest {
 											case IResource.FILE :
 												if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName())) {
 													IFile file = (IFile) proxy.requestResource();
-													if (file.getLocation() != null && (patterns == null || !Util.isExcluded(file, patterns)))
-														indexedFileNames.put(new JavaSearchDocument(file, null).getPath(), file);
+													if (file.getLocation() == null) return false;
+													if (exclusionPatterns != null || inclusionPatterns != null)
+														if (Util.isExcluded(file, inclusionPatterns, exclusionPatterns))
+															return false;
+													indexedFileNames.put(file.getFullPath().toString(), file);
 												}
 												return false;
 											case IResource.FOLDER :
-												if (patterns != null && Util.isExcluded(proxy.requestResource(), patterns))
-													return false;
-												if (hasOutputs && outputs.contains(proxy.requestFullPath())) {
-													return false;
+												if (exclusionPatterns != null && inclusionPatterns == null) {
+													// if there are inclusion patterns then we must walk the children
+													if (Util.isExcluded(proxy.requestFullPath(), inclusionPatterns, exclusionPatterns, true)) 
+													    return false;
 												}
+												if (hasOutputs && outputs.contains(proxy.requestFullPath()))
+													return false;
 										}
 										return true;
 									}
@@ -134,21 +138,23 @@ public class IndexAllProject extends IndexRequest {
 												if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName())) {
 													IFile file = (IFile) proxy.requestResource();
 													IPath location = file.getLocation();
-													if (location != null && (patterns == null || !Util.isExcluded(file, patterns))) {
-														String path = new JavaSearchDocument(file, null).getPath();
-														indexedFileNames.put(path,
-															indexedFileNames.get(path) == null || indexLastModified < location.toFile().lastModified()
-																? (Object) file
-																: (Object) OK);
-													}
+													if (location == null) return false;
+													if (exclusionPatterns != null || inclusionPatterns != null)
+														if (Util.isExcluded(file, inclusionPatterns, exclusionPatterns))
+															return false;
+													String path = file.getFullPath().toString();
+													indexedFileNames.put(path,
+														indexedFileNames.get(path) == null || indexLastModified < location.toFile().lastModified()
+															? (Object) file
+															: (Object) OK);
 												}
 												return false;
 											case IResource.FOLDER :
-												if (patterns != null && Util.isExcluded(proxy.requestResource(), patterns))
+												if (exclusionPatterns != null || inclusionPatterns != null)
+													if (Util.isExcluded(proxy.requestResource(), inclusionPatterns, exclusionPatterns))
+														return false;
+												if (hasOutputs && outputs.contains(proxy.requestFullPath()))
 													return false;
-												if (hasOutputs && outputs.contains(proxy.requestFullPath())) {
-													return false;
-												}
 										}
 										return true;
 									}
@@ -181,14 +187,14 @@ public class IndexAllProject extends IndexRequest {
 			this.manager.request(new SaveIndex(this.containerPath, this.manager));
 		} catch (CoreException e) {
 			if (JobManager.VERBOSE) {
-				JobManager.verbose("-> failed to index " + this.project + " because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
+				Util.verbose("-> failed to index " + this.project + " because of the following exception:", System.err); //$NON-NLS-1$ //$NON-NLS-2$
 				e.printStackTrace();
 			}
 			this.manager.removeIndex(this.containerPath);
 			return false;
 		} catch (IOException e) {
 			if (JobManager.VERBOSE) {
-				JobManager.verbose("-> failed to index " + this.project + " because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
+				Util.verbose("-> failed to index " + this.project + " because of the following exception:", System.err); //$NON-NLS-1$ //$NON-NLS-2$
 				e.printStackTrace();
 			}
 			this.manager.removeIndex(this.containerPath);

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,18 +16,20 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.Path;
-import org.eclipse.jdt.internal.core.index.IIndex;
+import org.eclipse.jdt.internal.core.index.Index;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
 import org.eclipse.jdt.internal.core.util.Util;
 
 class RemoveFolderFromIndex extends IndexRequest {
 	IPath folderPath;
+	char[][] inclusionPatterns;
 	char[][] exclusionPatterns;
 	IProject project;
 
-	public RemoveFolderFromIndex(IPath folderPath, char[][] exclusionPatterns, IProject project, IndexManager manager) {
+	public RemoveFolderFromIndex(IPath folderPath, char[][] inclusionPatterns, char[][] exclusionPatterns, IProject project, IndexManager manager) {
 		super(project.getFullPath(), manager);
 		this.folderPath = folderPath;
+		this.inclusionPatterns = inclusionPatterns;
 		this.exclusionPatterns = exclusionPatterns;
 		this.project = project;
 	}
@@ -36,24 +38,28 @@ class RemoveFolderFromIndex extends IndexRequest {
 		if (this.isCancelled || progressMonitor != null && progressMonitor.isCanceled()) return true;
 
 		/* ensure no concurrent write access to index */
-		IIndex index = manager.getIndex(this.containerPath, true, /*reuse index file*/ false /*create if none*/);
+		Index index = this.manager.getIndex(this.containerPath, true, /*reuse index file*/ false /*create if none*/);
 		if (index == null) return true;
-		ReadWriteMonitor monitor = manager.getMonitorFor(index);
+		ReadWriteMonitor monitor = index.monitor;
 		if (monitor == null) return true; // index got deleted since acquired
 
 		try {
 			monitor.enterRead(); // ask permission to read
-			String[] paths = index.queryInDocumentNames(this.folderPath.toString());
+			String[] paths = index.queryDocumentNames(this.folderPath.toString());
 			// all file names belonging to the folder or its subfolders and that are not excluded (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=32607)
-			for (int i = 0, max = paths == null ? 0 : paths.length; i < max; i++) {
-				String documentPath = paths[i];
-				if (this.exclusionPatterns == null || !Util.isExcluded(new Path(documentPath), this.exclusionPatterns)) {
-					manager.remove(documentPath, this.containerPath); // write lock will be acquired by the remove operation
+			if (this.exclusionPatterns == null && this.inclusionPatterns == null) {
+				for (int i = 0, max = paths == null ? 0 : paths.length; i < max; i++)
+					manager.remove(paths[i], this.containerPath); // write lock will be acquired by the remove operation
+			} else {
+				for (int i = 0, max = paths == null ? 0 : paths.length; i < max; i++) {
+					String documentPath = paths[i];
+					if (!Util.isExcluded(new Path(documentPath), this.inclusionPatterns, this.exclusionPatterns, false))
+						manager.remove(documentPath, this.containerPath); // write lock will be acquired by the remove operation
 				}
 			}
 		} catch (IOException e) {
 			if (JobManager.VERBOSE) {
-				JobManager.verbose("-> failed to remove " + this.folderPath + " from index because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
+				Util.verbose("-> failed to remove " + this.folderPath + " from index because of the following exception:", System.err); //$NON-NLS-1$ //$NON-NLS-2$
 				e.printStackTrace();
 			}
 			return false;

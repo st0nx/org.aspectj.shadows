@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -28,6 +28,26 @@ public interface IJavaSearchScope {
  * to the .class file in the jar.
  */
 String JAR_FILE_ENTRY_SEPARATOR = "|"; //$NON-NLS-1$
+/**
+ * Include type constant (bit mask) indicating that source folders should be considered in the search scope.
+ * @since 3.0
+ */
+int SOURCES = 1;
+/**
+ * Include type constant (bit mask) indicating that application libraries should be considered in the search scope.
+ * @since 3.0
+ */
+int APPLICATION_LIBRARIES = 2;
+/**
+ * Include type constant (bit mask) indicating that system libraries should be considered in the search scope.
+ * @since 3.0
+ */
+int SYSTEM_LIBRARIES = 4;
+/**
+ * Include type constant (bit mask) indicating that referenced projects should be considered in the search scope.
+ * @since 3.0
+ */
+int REFERENCED_PROJECTS = 8;
 /**
  * Checks whether the resource at the given path is enclosed by this scope.
  *
@@ -72,8 +92,9 @@ IPath[] enclosingProjectsAndJars();
  * in folders or within JARs).
  * 
  * @return whether this scope contains any <code>.class</code> files
- * @deprecated Use SearchEngine.createJavaSearchScope(IJavaElement[]) with the package fragment
- * 				roots that correspond to the binaries instead
+ * @deprecated Use
+ * {@link org.eclipse.jdt.core.search.SearchEngine#createJavaSearchScope(IJavaElement[])}
+ * with the package fragment roots that correspond to the binaries instead.
  */
 boolean includesBinaries();
 /**
@@ -81,8 +102,9 @@ boolean includesBinaries();
  * the projects of the resources of this search scope.
  * 
  * @return whether this scope includes classpaths
- * @deprecated Use SearchEngine.createJavaSearchScope(IJavaElement[]) 
- * 				with a java project instead
+ * @deprecated Use
+ * {@link org.eclipse.jdt.core.search.SearchEngine#createJavaSearchScope(IJavaElement[])}
+ * with a Java project instead.
  */
 boolean includesClasspaths();
 /**
@@ -90,17 +112,19 @@ boolean includesClasspaths();
  * in folders or within JARs).
  * 
  * @param includesBinaries whether this scope contains any <code>.class</code> files
- * @deprecated Use SearchEngine.createJavaSearchScope(IJavaElement[]) with the package fragment
- * 				roots that correspond to the binaries instead
+ * @deprecated Use
+ * {@link org.eclipse.jdt.core.search.SearchEngine#createJavaSearchScope(IJavaElement[])}
+ * with the package fragment roots that correspond to the binaries instead.
  */
 public void setIncludesBinaries(boolean includesBinaries);
 /**
  * Sets whether this scope includes the classpaths defined by 
  * the projects of the resources of this search scope.
  * 
- * @return includesClasspaths whether this scope includes classpaths
- * @deprecated Use SearchEngine.createJavaSearchScope(IJavaElement[]) 
- * 				with a java project instead
+ * @param includesClasspaths whether this scope includes classpaths
+ * @deprecated Use
+ * {@link org.eclipse.jdt.core.search.SearchEngine#createJavaSearchScope(IJavaElement[])}
+ * with a Java project instead.
  */
 public void setIncludesClasspaths(boolean includesClasspaths);
 }

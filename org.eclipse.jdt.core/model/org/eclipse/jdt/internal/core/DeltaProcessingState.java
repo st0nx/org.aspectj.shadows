@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -27,6 +27,7 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IJavaModel;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * Keep the global states used during Java element delta processing.
@@ -39,6 +40,12 @@ public class DeltaProcessingState implements IResourceChangeListener {
 	public IElementChangedListener[] elementChangedListeners = new IElementChangedListener[5];
 	public int[] elementChangedListenerMasks = new int[5];
 	public int elementChangedListenerCount = 0;
+	
+	/*
+	 * Collection of pre Java resource change listeners
+	 */
+	public IResourceChangeListener[] preResourceChangeListeners = new IResourceChangeListener[1];
+	public int preResourceChangeListenerCount = 0;
 
 	/*
 	 * The delta processor for the current thread.
@@ -71,13 +78,90 @@ public class DeltaProcessingState implements IResourceChangeListener {
 	private Set initializingThreads = Collections.synchronizedSet(new HashSet());	
 	
 	public Hashtable externalTimeStamps = new Hashtable();
+	
+	public HashMap projectUpdates = new HashMap();
 
+	public static class ProjectUpdateInfo {
+		JavaProject project;
+		IClasspathEntry[] oldResolvedPath;
+		IClasspathEntry[] newResolvedPath;
+		IClasspathEntry[] newRawPath;
+		
+		/**
+		 * Update projects references so that the build order is consistent with the classpath
+		 */
+		public void updateProjectReferencesIfNecessary() throws JavaModelException {
+			
+			String[] oldRequired = this.project.projectPrerequisites(this.oldResolvedPath);
+	
+			if (this.newResolvedPath == null) {
+				this.newResolvedPath = this.project.getResolvedClasspath(this.newRawPath, null, true, true, null/*no reverse map*/);
+			}
+			String[] newRequired = this.project.projectPrerequisites(this.newResolvedPath);
+			try {
+				IProject projectResource = this.project.getProject();
+				IProjectDescription description = projectResource.getDescription();
+				 
+				IProject[] projectReferences = description.getDynamicReferences();
+				
+				HashSet oldReferences = new HashSet(projectReferences.length);
+				for (int i = 0; i < projectReferences.length; i++){
+					String projectName = projectReferences[i].getName();
+					oldReferences.add(projectName);
+				}
+				HashSet newReferences = (HashSet)oldReferences.clone();
+		
+				for (int i = 0; i < oldRequired.length; i++){
+					String projectName = oldRequired[i];
+					newReferences.remove(projectName);
+				}
+				for (int i = 0; i < newRequired.length; i++){
+					String projectName = newRequired[i];
+					newReferences.add(projectName);
+				}
+		
+				Iterator iter;
+				int newSize = newReferences.size();
+				
+				checkIdentity: {
+					if (oldReferences.size() == newSize){
+						iter = newReferences.iterator();
+						while (iter.hasNext()){
+							if (!oldReferences.contains(iter.next())){
+								break checkIdentity;
+							}
+						}
+						return;
+					}
+				}
+				String[] requiredProjectNames = new String[newSize];
+				int index = 0;
+				iter = newReferences.iterator();
+				while (iter.hasNext()){
+					requiredProjectNames[index++] = (String)iter.next();
+				}
+				Util.sort(requiredProjectNames); // ensure that if changed, the order is consistent
+				
+				IProject[] requiredProjectArray = new IProject[newSize];
+				IWorkspaceRoot wksRoot = projectResource.getWorkspace().getRoot();
+				for (int i = 0; i < newSize; i++){
+					requiredProjectArray[i] = wksRoot.getProject(requiredProjectNames[i]);
+				}
+				description.setDynamicReferences(requiredProjectArray);
+				projectResource.setDescription(description, null);
+		
+			} catch(CoreException e){
+				throw new JavaModelException(e);
+			}
+		}
+	}
+	
 	/**
 	 * Workaround for bug 15168 circular errors not reported  
 	 * This is a cache of the projects before any project addition/deletion has started.
 	 */
 	public IJavaProject[] modelProjectsCache;
-		
+	
 	/*
 	 * Need to clone defensively the listener information, in case some listener is reacting to some notification iteration by adding/changing/removing
 	 * any of the other (for example, if it deregisters itself).
@@ -105,6 +189,21 @@ public class DeltaProcessingState implements IResourceChangeListener {
 		this.elementChangedListenerCount++;
 	}
 
+	public void addPreResourceChangedListener(IResourceChangeListener listener) {
+		for (int i = 0; i < this.preResourceChangeListenerCount; i++){
+			if (this.preResourceChangeListeners[i].equals(listener)) {
+				return;
+			}
+		}
+		// may need to grow, no need to clone, since iterators will have cached original arrays and max boundary and we only add to the end.
+		int length;
+		if ((length = this.preResourceChangeListeners.length) == this.preResourceChangeListenerCount){
+			System.arraycopy(this.preResourceChangeListeners, 0, this.preResourceChangeListeners = new IResourceChangeListener[length*2], 0, length);
+		}
+		this.preResourceChangeListeners[this.preResourceChangeListenerCount] = listener;
+		this.preResourceChangeListenerCount++;
+	}
+
 	public DeltaProcessor getDeltaProcessor() {
 		DeltaProcessor deltaProcessor = (DeltaProcessor)this.deltaProcessors.get();
 		if (deltaProcessor != null) return deltaProcessor;
@@ -113,6 +212,20 @@ public class DeltaProcessingState implements IResourceChangeListener {
 		return deltaProcessor;
 	}
 
+	public void performClasspathResourceChange(JavaProject project, IClasspathEntry[] oldResolvedPath, IClasspathEntry[] newResolvedPath, IClasspathEntry[] newRawPath, boolean canChangeResources) throws JavaModelException {
+	    ProjectUpdateInfo info = new ProjectUpdateInfo();
+	    info.project = project;
+	    info.oldResolvedPath = oldResolvedPath;
+	    info.newResolvedPath = newResolvedPath;
+	    info.newRawPath = newRawPath;
+	    if (canChangeResources) {
+            this.projectUpdates.remove(project); // remove possibly awaiting one
+	        info.updateProjectReferencesIfNecessary();
+	        return;
+	    }
+	    this.recordProjectUpdate(info);
+	}
+	
 	public void initializeRoots() {
 		
 		// recompute root infos only if necessary
@@ -141,10 +254,10 @@ public class DeltaProcessingState implements IResourceChangeListener {
 					return;
 				}
 				for (int i = 0, length = projects.length; i < length; i++) {
-					IJavaProject project = projects[i];
+					JavaProject project = (JavaProject) projects[i];
 					IClasspathEntry[] classpath;
 					try {
-						classpath = project.getResolvedClasspath(true);
+						classpath = project.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
 					} catch (JavaModelException e) {
 						// continue with next project
 						continue;
@@ -156,14 +269,14 @@ public class DeltaProcessingState implements IResourceChangeListener {
 						// root path
 						IPath path = entry.getPath();
 						if (newRoots.get(path) == null) {
-							newRoots.put(path, new DeltaProcessor.RootInfo(project, path, ((ClasspathEntry)entry).fullExclusionPatternChars(), entry.getEntryKind()));
+							newRoots.put(path, new DeltaProcessor.RootInfo(project, path, ((ClasspathEntry)entry).fullInclusionPatternChars(), ((ClasspathEntry)entry).fullExclusionPatternChars(), entry.getEntryKind()));
 						} else {
 							ArrayList rootList = (ArrayList)newOtherRoots.get(path);
 							if (rootList == null) {
 								rootList = new ArrayList();
 								newOtherRoots.put(path, rootList);
 							}
-							rootList.add(new DeltaProcessor.RootInfo(project, path, ((ClasspathEntry)entry).fullExclusionPatternChars(), entry.getEntryKind()));
+							rootList.add(new DeltaProcessor.RootInfo(project, path, ((ClasspathEntry)entry).fullInclusionPatternChars(), ((ClasspathEntry)entry).fullExclusionPatternChars(), entry.getEntryKind()));
 						}
 						
 						// source attachment path
@@ -205,6 +318,26 @@ public class DeltaProcessingState implements IResourceChangeListener {
 		}
 	}
 
+	public synchronized void recordProjectUpdate(ProjectUpdateInfo newInfo) {
+	    
+	    JavaProject project = newInfo.project;
+	    ProjectUpdateInfo oldInfo = (ProjectUpdateInfo) this.projectUpdates.get(project);
+	    if (oldInfo != null) { // refresh new classpath information
+	        oldInfo.newRawPath = newInfo.newRawPath;
+	        oldInfo.newResolvedPath = newInfo.newResolvedPath;
+	    } else {
+	        this.projectUpdates.put(project, newInfo);
+	    }
+	}
+	public synchronized ProjectUpdateInfo[] removeAllProjectUpdates() {
+	    int length = this.projectUpdates.size();
+	    if (length == 0) return null;
+	    ProjectUpdateInfo[]  updates = new ProjectUpdateInfo[length];
+	    this.projectUpdates.values().toArray(updates);
+	    this.projectUpdates.clear();
+	    return updates;
+	}
+	
 	public void removeElementChangedListener(IElementChangedListener listener) {
 		
 		for (int i = 0; i < this.elementChangedListenerCount; i++){
@@ -235,12 +368,53 @@ public class DeltaProcessingState implements IResourceChangeListener {
 		}
 	}
 
-	public void resourceChanged(IResourceChangeEvent event) {
+	public void removePreResourceChangedListener(IResourceChangeListener listener) {
+		
+		for (int i = 0; i < this.preResourceChangeListenerCount; i++){
+			
+			if (this.preResourceChangeListeners[i].equals(listener)){
+				
+				// need to clone defensively since we might be in the middle of listener notifications (#fire)
+				int length = this.preResourceChangeListeners.length;
+				IResourceChangeListener[] newListeners = new IResourceChangeListener[length];
+				System.arraycopy(this.preResourceChangeListeners, 0, newListeners, 0, i);
+				
+				// copy trailing listeners
+				int trailingLength = this.preResourceChangeListenerCount - i - 1;
+				if (trailingLength > 0){
+					System.arraycopy(this.preResourceChangeListeners, i+1, newListeners, i, trailingLength);
+				}
+				
+				// update manager listener state (#fire need to iterate over original listeners through a local variable to hold onto
+				// the original ones)
+				this.preResourceChangeListeners = newListeners;
+				this.preResourceChangeListenerCount--;
+				return;
+			}
+		}
+	}
+
+	public void resourceChanged(final IResourceChangeEvent event) {
+		boolean isPostChange = event.getType() == IResourceChangeEvent.POST_CHANGE;
+		if (isPostChange) {
+			for (int i = 0; i < this.preResourceChangeListenerCount; i++) {
+				// wrap callbacks with Safe runnable for subsequent listeners to be called when some are causing grief
+				final IResourceChangeListener listener = this.preResourceChangeListeners[i];
+				Platform.run(new ISafeRunnable() {
+					public void handleException(Throwable exception) {
+						Util.log(exception, "Exception occurred in listener of pre Java resource change notification"); //$NON-NLS-1$
+					}
+					public void run() throws Exception {
+						listener.resourceChanged(event);
+					}
+				});
+			}
+		}
 		try {
 			getDeltaProcessor().resourceChanged(event);
 		} finally {
 			// TODO (jerome) see 47631, may want to get rid of following so as to reuse delta processor ? 
-			if (event.getType() == IResourceChangeEvent.POST_CHANGE) {
+			if (isPostChange) {
 				this.deltaProcessors.set(null);
 			}
 		}

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,13 +12,12 @@ package org.eclipse.jdt.internal.core;
 
 import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.StringTokenizer;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
 import org.eclipse.jdt.internal.codeassist.ISearchableNameEnvironment;
@@ -26,6 +25,7 @@ import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
 import org.eclipse.jdt.internal.codeassist.SelectionEngine;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
 import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
+import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -60,40 +60,26 @@ public void codeComplete(char[] snippet,int insertion,int position,char[][] loca
 	}
 	
 	JavaProject project = (JavaProject) getJavaProject();
-	SearchableEnvironment environment = (SearchableEnvironment) project.getSearchableNameEnvironment();
-	NameLookup nameLookup = project.getNameLookup();
-	CompletionRequestorWrapper requestorWrapper = new CompletionRequestorWrapper(requestor,nameLookup);
+	SearchableEnvironment environment = (SearchableEnvironment) project.newSearchableNameEnvironment(owner);
+	CompletionRequestorWrapper requestorWrapper = new CompletionRequestorWrapper(requestor, environment.nameLookup);
 	CompletionEngine engine = new CompletionEngine(environment, requestorWrapper, project.getOptions(true), project);
 	requestorWrapper.completionEngine = engine;
 	
 	String source = getCompilationUnit().getSource();
 	if (source != null && insertion > -1 && insertion < source.length()) {
-		try {
-			// set the units to look inside
-			JavaModelManager manager = JavaModelManager.getJavaModelManager();
-			ICompilationUnit[] workingCopies = manager.getWorkingCopies(owner, true/*add primary WCs*/);
-			nameLookup.setUnitsToLookInside(workingCopies);
-	
-			// code complete
-			String encoding = project.getOption(JavaCore.CORE_ENCODING, true);
-			
-			char[] prefix = CharOperation.concat(source.substring(0, insertion).toCharArray(), new char[]{'{'});
-			char[] suffix = CharOperation.concat(new char[]{'}'}, source.substring(insertion).toCharArray());
-			char[] fakeSource = CharOperation.concat(prefix, snippet, suffix);
-			
-			BasicCompilationUnit cu = 
-				new BasicCompilationUnit(
-					fakeSource, 
-					null,
-					getElementName(),
-					encoding); 
-	
-			engine.complete(cu, prefix.length + position, prefix.length);
-		} finally {
-			if (nameLookup != null) {
-				nameLookup.setUnitsToLookInside(null);
-			}
-		}
+		
+		char[] prefix = CharOperation.concat(source.substring(0, insertion).toCharArray(), new char[]{'{'});
+		char[] suffix = CharOperation.concat(new char[]{'}'}, source.substring(insertion).toCharArray());
+		char[] fakeSource = CharOperation.concat(prefix, snippet, suffix);
+		
+		BasicCompilationUnit cu = 
+			new BasicCompilationUnit(
+				fakeSource, 
+				null,
+				getElementName(),
+				getParent());
+
+		engine.complete(cu, prefix.length + position, prefix.length);
 	} else {
 		engine.complete(this, snippet, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic);
 	}
@@ -106,7 +92,7 @@ public IField createField(String contents, IJavaElement sibling, boolean force, 
 	if (sibling != null) {
 		op.createBefore(sibling);
 	}
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return (IField) op.getResultElements()[0];
 }
 /**
@@ -117,7 +103,7 @@ public IInitializer createInitializer(String contents, IJavaElement sibling, IPr
 	if (sibling != null) {
 		op.createBefore(sibling);
 	}
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return (IInitializer) op.getResultElements()[0];
 }
 /**
@@ -128,7 +114,7 @@ public IMethod createMethod(String contents, IJavaElement sibling, boolean force
 	if (sibling != null) {
 		op.createBefore(sibling);
 	}
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return (IMethod) op.getResultElements()[0];
 }
 /**
@@ -139,7 +125,7 @@ public IType createType(String contents, IJavaElement sibling, boolean force, IP
 	if (sibling != null) {
 		op.createBefore(sibling);
 	}
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return (IType) op.getResultElements()[0];
 }
 public boolean equals(Object o) {
@@ -148,7 +134,9 @@ public boolean equals(Object o) {
 }
 /**
  * @see JavaElement#equalsDOMNode
+ * @deprecated JDOM is obsolete
  */
+// TODO - JDOM - remove once model ported off of JDOM
 protected boolean equalsDOMNode(IDOMNode node) {
 	return (node.getNodeType() == IDOMNode.TYPE) && super.equalsDOMNode(node);
 }
@@ -202,7 +190,7 @@ public IField[] getFields() throws JavaModelException {
 	return array;
 }
 /**
- * @see IType#getFullyQualifiedName
+ * @see IType#getFullyQualifiedName()
  */
 public String getFullyQualifiedName() {
 	return this.getFullyQualifiedName('$');
@@ -220,7 +208,7 @@ public String getFullyQualifiedName(char enclosingTypeSeparator) {
 /*
  * @see JavaElement
  */
-public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner workingCopyOwner) {
+public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner workingCopyOwner) {
 	switch (token.charAt(0)) {
 		case JEM_COUNT:
 			return getHandleUpdatingCountFromMemento(memento, workingCopyOwner);
@@ -369,6 +357,20 @@ public String getSuperclassName() throws JavaModelException {
 	}
 	return new String(superclassName);
 }
+
+/**
+ * @see IType#getSuperclassTypeSignature()
+ * @since 3.0
+ */
+public String getSuperclassTypeSignature() throws JavaModelException {
+	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
+	char[] superclassName= info.getSuperclassName();
+	if (superclassName == null) {
+		return null;
+	}
+	return new String(Signature.createTypeSignature(superclassName, false));
+}
+
 /**
  * @see IType
  */
@@ -384,6 +386,33 @@ public String[] getSuperInterfaceNames() throws JavaModelException {
 	}
 	return strings;
 }
+
+/**
+ * @see IType#getSuperInterfaceTypeSignatures()
+ * @since 3.0
+ */
+public String[] getSuperInterfaceTypeSignatures() throws JavaModelException {
+	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
+	char[][] names= info.getInterfaceNames();
+	if (names == null) {
+		return fgEmptyList;
+	}
+	String[] strings= new String[names.length];
+	for (int i= 0; i < names.length; i++) {
+		strings[i]= new String(Signature.createTypeSignature(names[i], false));
+	}
+	return strings;
+}
+
+/**
+ * @see IType#getTypeParameterSignatures()
+ * @since 3.0
+ */
+public String[] getTypeParameterSignatures() throws JavaModelException {
+	// TODO (jerome) - missing implementation
+	return new String[0];
+}
+
 /**
  * @see IType
  */
@@ -391,7 +420,7 @@ public IType getType(String typeName) {
 	return new SourceType(this, typeName);
 }
 /**
- * @see IType#getTypeQualifiedName
+ * @see IType#getTypeQualifiedName()
  */
 public String getTypeQualifiedName() {
 	return this.getTypeQualifiedName('$');
@@ -404,13 +433,15 @@ public String getTypeQualifiedName(char enclosingTypeSeparator) {
 		case IJavaElement.COMPILATION_UNIT:
 			return this.name;
 		case IJavaElement.TYPE:
-			return ((IType) this.parent).getTypeQualifiedName(enclosingTypeSeparator) + enclosingTypeSeparator + this.name;
+			String simpleName = this.name.length() == 0 ? Integer.toString(this.occurrenceCount) : this.name;
+			return ((IType) this.parent).getTypeQualifiedName(enclosingTypeSeparator) + enclosingTypeSeparator + simpleName;
 		case IJavaElement.FIELD:
 		case IJavaElement.INITIALIZER:
 		case IJavaElement.METHOD:
+			simpleName = this.name.length() == 0 ? Integer.toString(this.occurrenceCount) : this.name;
 			return 
 				((IMember) this.parent).getDeclaringType().getTypeQualifiedName(enclosingTypeSeparator) 
-				+ enclosingTypeSeparator + this.name;
+				+ enclosingTypeSeparator + simpleName;
 	}
 	return null;
 }
@@ -430,19 +461,42 @@ public IType[] getTypes() throws JavaModelException {
 public boolean isAnonymous() {
 	return this.name.length() == 0;
 }
+
 /**
  * @see IType
  */
 public boolean isClass() throws JavaModelException {
+	// TODO (jerome) - isClass should only return true for classes other than enum classes
 	return !isInterface();
 }
+
+/**
+ * @see IType#isEnum()
+ * @since 3.0
+ */
+public boolean isEnum() throws JavaModelException {
+	// TODO (jerome) - missing implementation - should only return true for enum classes
+	return false;
+}
+
 /**
  * @see IType
  */
 public boolean isInterface() throws JavaModelException {
 	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
+	// TODO (jerome) - isInterface should not return true for annotation types
 	return info.isInterface();
 }
+
+/**
+ * @see IType#isAnnotation()
+ * @since 3.0
+ */
+public boolean isAnnotation() throws JavaModelException {
+	// TODO (jerome) - missing implementation - should only return true for annotation types
+	return false;
+}
+
 /**
  * @see IType#isLocal()
  */
@@ -488,7 +542,7 @@ public ITypeHierarchy loadTypeHierachy(InputStream input, IProgressMonitor monit
  * @exception JavaModelException if the hierarchy could not be restored, reasons include:
  *      - type is not the focus of the hierarchy or 
  *		- unable to read the input stream (wrong format, IOException during reading, ...)
- * @see ITypeHierarchy#store(OutputStream, IProgressMonitor)
+ * @see ITypeHierarchy#store(java.io.OutputStream, IProgressMonitor)
  * @since 3.0
  */
 public ITypeHierarchy loadTypeHierachy(InputStream input, WorkingCopyOwner owner, IProgressMonitor monitor) throws JavaModelException {
@@ -510,7 +564,7 @@ public ITypeHierarchy newSupertypeHierarchy(
 	throws JavaModelException {
 
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, workingCopies, SearchEngine.createWorkspaceScope(), false);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return op.getResult();
 }
 /**
@@ -547,7 +601,7 @@ public ITypeHierarchy newSupertypeHierarchy(
 
 	ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary working copies*/);
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, workingCopies, SearchEngine.createWorkspaceScope(), false);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return op.getResult();
 }
 /**
@@ -584,7 +638,7 @@ public ITypeHierarchy newTypeHierarchy(IJavaProject project, WorkingCopyOwner ow
 		projectWCs,
 		project, 
 		true);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return op.getResult();
 }
 /**
@@ -592,7 +646,7 @@ public ITypeHierarchy newTypeHierarchy(IJavaProject project, WorkingCopyOwner ow
  */
 public ITypeHierarchy newTypeHierarchy(IProgressMonitor monitor) throws JavaModelException {
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, null, SearchEngine.createWorkspaceScope(), true);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return op.getResult();
 }
 /*
@@ -604,7 +658,7 @@ public ITypeHierarchy newTypeHierarchy(
 	throws JavaModelException {
 		
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, workingCopies, SearchEngine.createWorkspaceScope(), true);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return op.getResult();
 }
 /**
@@ -635,7 +689,7 @@ public ITypeHierarchy newTypeHierarchy(
 		
 	ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary working copies*/);
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, workingCopies, SearchEngine.createWorkspaceScope(), true);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return op.getResult();	
 }
 /**
@@ -648,95 +702,81 @@ public String[][] resolveType(String typeName) throws JavaModelException {
  * @see IType#resolveType(String, WorkingCopyOwner)
  */
 public String[][] resolveType(String typeName, WorkingCopyOwner owner) throws JavaModelException {
-	JavaProject project = (JavaProject)getJavaProject();
-	NameLookup lookup = null;
-	try {
-		// set the units to look inside
-		lookup = project.getNameLookup();
-		JavaModelManager manager = JavaModelManager.getJavaModelManager();
-		ICompilationUnit[] workingCopies = manager.getWorkingCopies(owner, true/*add primary WCs*/);
-		lookup.setUnitsToLookInside(workingCopies);
-			
-		// resolve
-		ISourceType info = (ISourceType) this.getElementInfo();
-		ISearchableNameEnvironment environment = project.getSearchableNameEnvironment();
-	
-		class TypeResolveRequestor implements ISelectionRequestor {
-			String[][] answers = null;
-			void acceptType(String[] answer){
-				if (answers == null) {
-					answers = new String[][]{ answer };
-				} else {
-					// grow
-					int length = answers.length;
-					System.arraycopy(answers, 0, answers = new String[length+1][], 0, length);
-					answers[length] = answer;
-				}
+	ISourceType info = (ISourceType) getElementInfo();
+	JavaProject project = (JavaProject) getJavaProject();
+	ISearchableNameEnvironment environment = project.newSearchableNameEnvironment(owner);
+
+	class TypeResolveRequestor implements ISelectionRequestor {
+		String[][] answers = null;
+		void acceptType(String[] answer){
+			if (this.answers == null) {
+				this.answers = new String[][]{ answer };
+			} else {
+				// grow
+				int length = this.answers.length;
+				System.arraycopy(this.answers, 0, this.answers = new String[length+1][], 0, length);
+				this.answers[length] = answer;
 			}
-			public void acceptClass(char[] packageName, char[] className, boolean needQualification) {
-				acceptType(new String[]  { new String(packageName), new String(className) });
-			}
-			
-			public void acceptInterface(char[] packageName, char[] interfaceName, boolean needQualification) {
-				acceptType(new String[]  { new String(packageName), new String(interfaceName) });
-			}
-	
-			public void acceptError(IProblem error) {
-				// ignore
-			}
-			public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] fieldName) {
-				// ignore
-			}
-			public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, boolean isConstructor) {
-				// ignore
-			}
-			public void acceptPackage(char[] packageName){
-				// ignore
-			}
-	
 		}
-		TypeResolveRequestor requestor = new TypeResolveRequestor();
-		SelectionEngine engine = 
-			new SelectionEngine(environment, requestor, this.getJavaProject().getOptions(true));
-			
-	 	IType[] topLevelTypes = this.getCompilationUnit().getTypes();
-	 	int length = topLevelTypes.length;
-	 	ISourceType[] topLevelInfos = new ISourceType[length];
-	 	for (int i = 0; i < length; i++) {
-			topLevelInfos[i] = (ISourceType)((SourceType)topLevelTypes[i]).getElementInfo();
+		public void acceptClass(char[] packageName, char[] className, boolean needQualification, boolean isDeclaration, int start, int end) {
+			acceptType(new String[]  { new String(packageName), new String(className) });
 		}
-			
-		engine.selectType(info, typeName.toCharArray(), topLevelInfos, false);
-		return requestor.answers;
-	} finally {
-		if (lookup != null) {
-			lookup.setUnitsToLookInside(null);
+		
+		public void acceptInterface(char[] packageName, char[] interfaceName, boolean needQualification, boolean isDeclaration, int start, int end) {
+			acceptType(new String[]  { new String(packageName), new String(interfaceName) });
 		}
+
+		public void acceptError(IProblem error) {
+			// ignore
+		}
+		public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] fieldName, boolean isDeclaration, int start, int end) {
+			// ignore
+		}
+		public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, boolean isConstructor, boolean isDeclaration, int start, int end) {
+			// ignore
+		}
+		public void acceptPackage(char[] packageName){
+			// ignore
+		}
+
 	}
+	TypeResolveRequestor requestor = new TypeResolveRequestor();
+	SelectionEngine engine = 
+		new SelectionEngine(environment, requestor, project.getOptions(true));
+		
+ 	IType[] topLevelTypes = getCompilationUnit().getTypes();
+ 	int length = topLevelTypes.length;
+ 	SourceTypeElementInfo[] topLevelInfos = new SourceTypeElementInfo[length];
+ 	for (int i = 0; i < length; i++) {
+		topLevelInfos[i] = (SourceTypeElementInfo) ((SourceType)topLevelTypes[i]).getElementInfo();
+	}
+		
+	engine.selectType(info, typeName.toCharArray(), topLevelInfos, false);
+	return requestor.answers;
 }
 /**
  * @private Debugging purposes
  */
 protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
-	buffer.append(this.tabString(tab));
+	buffer.append(tabString(tab));
 	if (info == null) {
-		String elementName = this.getElementName();
+		String elementName = getElementName();
 		if (elementName.length() == 0) {
 			buffer.append("<anonymous #"); //$NON-NLS-1$
 			buffer.append(this.occurrenceCount);
 			buffer.append(">"); //$NON-NLS-1$
 		} else {
-			buffer.append(elementName);
+			toStringName(buffer);
 		}
 		buffer.append(" (not open)"); //$NON-NLS-1$
 	} else if (info == NO_INFO) {
-		String elementName = this.getElementName();
+		String elementName = getElementName();
 		if (elementName.length() == 0) {
 			buffer.append("<anonymous #"); //$NON-NLS-1$
 			buffer.append(this.occurrenceCount);
 			buffer.append(">"); //$NON-NLS-1$
 		} else {
-			buffer.append(elementName);
+			toStringName(buffer);
 		}
 	} else {
 		try {
@@ -745,13 +785,13 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 			} else {
 				buffer.append("class "); //$NON-NLS-1$
 			}
-			String elementName = this.getElementName();
+			String elementName = getElementName();
 			if (elementName.length() == 0) {
 				buffer.append("<anonymous #"); //$NON-NLS-1$
 				buffer.append(this.occurrenceCount);
 				buffer.append(">"); //$NON-NLS-1$
 			} else {
-				buffer.append(elementName);
+				toStringName(buffer);
 			}
 		} catch (JavaModelException e) {
 			buffer.append("<JavaModelException in toString of " + getElementName()); //$NON-NLS-1$

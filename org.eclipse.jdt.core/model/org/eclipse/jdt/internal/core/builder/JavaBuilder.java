@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -165,14 +165,14 @@ protected IProject[] build(int kind, Map ignored, IProgressMonitor monitor) thro
 			ok = true;
 		}
 	} catch (CoreException e) {
-		Util.log(e, "JavaBuilder handling CoreException"); //$NON-NLS-1$
+		Util.log(e, "JavaBuilder handling CoreException while building: " + currentProject.getName()); //$NON-NLS-1$
 		IMarker marker = currentProject.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
 		marker.setAttribute(IMarker.MESSAGE, Util.bind("build.inconsistentProject", e.getLocalizedMessage())); //$NON-NLS-1$
 		marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
 	} catch (ImageBuilderInternalException e) {
-		Util.log(e.getThrowable(), "JavaBuilder handling ImageBuilderInternalException"); //$NON-NLS-1$
+		Util.log(e.getThrowable(), "JavaBuilder handling ImageBuilderInternalException while building: " + currentProject.getName()); //$NON-NLS-1$
 		IMarker marker = currentProject.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
-		marker.setAttribute(IMarker.MESSAGE, Util.bind("build.inconsistentProject", e.coreException.getLocalizedMessage())); //$NON-NLS-1$
+		marker.setAttribute(IMarker.MESSAGE, Util.bind("build.inconsistentProject", e.getLocalizedMessage())); //$NON-NLS-1$
 		marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
 	} catch (MissingClassFileException e) {
 		// do not log this exception since its thrown to handle aborted compiles because of missing class files
@@ -225,6 +225,38 @@ private void buildDeltas(SimpleLookupTable deltas) {
 		recordNewState(imageBuilder.newState);
 	else
 		buildAll();
+}
+
+protected void clean(IProgressMonitor monitor) throws CoreException {
+	this.currentProject = getProject();
+	if (currentProject == null || !currentProject.isAccessible()) return;
+
+	if (DEBUG)
+		System.out.println("\nCleaning " + currentProject.getName() //$NON-NLS-1$
+			+ " @ " + new Date(System.currentTimeMillis())); //$NON-NLS-1$
+	this.notifier = new BuildNotifier(monitor, currentProject);
+	notifier.begin();
+	try {
+		notifier.checkCancel();
+
+		initializeBuilder();
+		if (DEBUG)
+			System.out.println("Clearing last state as part of clean : " + lastState); //$NON-NLS-1$
+		clearLastState();
+		removeProblemsAndTasksFor(currentProject);
+		new BatchImageBuilder(this).cleanOutputFolders(false);
+	} catch (CoreException e) {
+		Util.log(e, "JavaBuilder handling CoreException while cleaning: " + currentProject.getName()); //$NON-NLS-1$
+		IMarker marker = currentProject.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
+		marker.setAttribute(IMarker.MESSAGE, Util.bind("build.inconsistentProject", e.getLocalizedMessage())); //$NON-NLS-1$
+		marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
+	} finally {
+		notifier.done();
+		cleanup();
+	}
+	if (DEBUG)
+		System.out.println("Finished cleaning " + currentProject.getName() //$NON-NLS-1$
+			+ " @ " + new Date(System.currentTimeMillis())); //$NON-NLS-1$
 }
 
 private void cleanup() {
@@ -500,8 +532,6 @@ private boolean isWorthBuilding() throws CoreException {
 	if (isClasspathBroken(javaProject.getRawClasspath(), currentProject)) {
 		if (DEBUG)
 			System.out.println("Aborted build because project has classpath errors (incomplete or involved in cycle)"); //$NON-NLS-1$
-
-		JavaModelManager.getJavaModelManager().getDeltaProcessor().addForRefresh(javaProject);
 
 		removeProblemsAndTasksFor(currentProject); // remove all compilation problems
 

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -42,10 +42,9 @@ public class SourceIndexer extends AbstractIndexer implements SuffixConstants {
 	
 	protected DefaultProblemFactory problemFactory= new DefaultProblemFactory(Locale.getDefault());
 	
-	public SourceIndexer(SearchDocument document, String indexPath)	{
-		super(document, indexPath);
+	public SourceIndexer(SearchDocument document) {
+		super(document);
 	}
-	
 	public void indexDocument() {
 		// Create a new Parser
 		SourceIndexerRequestor requestor = new SourceIndexerRequestor(this);
@@ -57,9 +56,10 @@ public class SourceIndexer extends AbstractIndexer implements SuffixConstants {
 			this.problemFactory, 
 			new CompilerOptions(JavaCore.create(project).getOptions(true)), 
 			true); // index local declarations
+		parser.reportOnlyOneSyntaxError = true;
 	
 		// Always check javadoc while indexing
-		parser.javadocParser.checkJavadoc = true;
+		parser.javadocParser.checkDocComment = true;
 		
 		// Launch the parser
 		char[] source = null;

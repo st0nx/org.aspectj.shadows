@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,6 +21,11 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.*;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.core.util.IClassFileAttribute;
+import org.eclipse.jdt.core.util.IClassFileReader;
+import org.eclipse.jdt.core.util.ICodeAttribute;
+import org.eclipse.jdt.core.util.IFieldInfo;
+import org.eclipse.jdt.core.util.IMethodInfo;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Argument;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
@@ -29,8 +34,6 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.core.Assert;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.PackageFragmentRoot;
-import org.eclipse.jdt.internal.core.index.impl.IndexedFile;
-import org.eclipse.jdt.internal.core.index.impl.WordEntry;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.text.edits.MalformedTreeException;
 import org.eclipse.text.edits.TextEdit;
@@ -116,24 +119,24 @@ public class Util {
 		// for compatibility with MessageFormat which eliminates double quotes in original message
 		char[] messageWithNoDoubleQuotes =
 			CharOperation.replace(message.toCharArray(), DOUBLE_QUOTES, SINGLE_QUOTE);
-		message = new String(messageWithNoDoubleQuotes);
-		if (bindings == null) return message;
-
-		int length = message.length();
-		int start = -1;
+	
+		if (bindings == null) return new String(messageWithNoDoubleQuotes);
+	
+		int length = messageWithNoDoubleQuotes.length;
+		int start = 0;
 		int end = length;
 		StringBuffer output = null;
 		while (true) {
-			if ((end = message.indexOf('{', start)) > -1) {
-				if (output == null) output = new StringBuffer(80);
-				output.append(message.substring(start + 1, end));
-				if ((start = message.indexOf('}', end)) > -1) {
+			if ((end = CharOperation.indexOf('{', messageWithNoDoubleQuotes, start)) > -1) {
+				if (output == null) output = new StringBuffer(length+bindings.length*20);
+				output.append(messageWithNoDoubleQuotes, start, end - start);
+				if ((start = CharOperation.indexOf('}', messageWithNoDoubleQuotes, end + 1)) > -1) {
 					int index = -1;
+					String argId = new String(messageWithNoDoubleQuotes, end + 1, start - end - 1);
 					try {
-						index = Integer.parseInt(message.substring(end + 1, start));
+						index = Integer.parseInt(argId);
 						output.append(bindings[index]);
 					} catch (NumberFormatException nfe) { // could be nested message ID {compiler.name}
-						String argId = message.substring(end + 1, start);
 						boolean done = false;
 						if (!id.equals(argId)) {
 							String argMessage = null;
@@ -145,17 +148,18 @@ public class Util {
 								// unable to bind argument, ignore (will leave argument in)
 							}
 						}
-						if (!done) output.append(message.substring(end + 1, start + 1));
+						if (!done) output.append(messageWithNoDoubleQuotes, end + 1, start - end);
 					} catch (ArrayIndexOutOfBoundsException e) {
 						output.append("{missing " + Integer.toString(index) + "}"); //$NON-NLS-2$ //$NON-NLS-1$
 					}
+					start++;
 				} else {
-					output.append(message.substring(end, length));
+					output.append(messageWithNoDoubleQuotes, end, length);
 					break;
 				}
 			} else {
-				if (output == null) return message;
-				output.append(message.substring(start + 1, length));
+				if (output == null) return new String(messageWithNoDoubleQuotes);
+				output.append(messageWithNoDoubleQuotes, start, length - start);
 				break;
 			}
 		}
@@ -317,7 +321,7 @@ public class Util {
 		s3.getChars(0, l3, buf, l1 + l2);
 		return new String(buf);
 	}
-	
+		
 	/**
 	 * Converts a type signature from the IBinaryType representation to the DC representation.
 	 */
@@ -580,7 +584,46 @@ public class Util {
 		// not found
 		return null;
 	}
+	
+	public static IClassFileAttribute getAttribute(IClassFileReader classFileReader, char[] attributeName) {
+		IClassFileAttribute[] attributes = classFileReader.getAttributes();
+		for (int i = 0, max = attributes.length; i < max; i++) {
+			if (CharOperation.equals(attributes[i].getAttributeName(), attributeName)) {
+				return attributes[i];
+			}
+		}
+		return null;
+	}
+	
+	public static IClassFileAttribute getAttribute(ICodeAttribute codeAttribute, char[] attributeName) {
+		IClassFileAttribute[] attributes = codeAttribute.getAttributes();
+		for (int i = 0, max = attributes.length; i < max; i++) {
+			if (CharOperation.equals(attributes[i].getAttributeName(), attributeName)) {
+				return attributes[i];
+			}
+		}
+		return null;
+	}	
+	
+	public static IClassFileAttribute getAttribute(IFieldInfo fieldInfo, char[] attributeName) {
+		IClassFileAttribute[] attributes = fieldInfo.getAttributes();
+		for (int i = 0, max = attributes.length; i < max; i++) {
+			if (CharOperation.equals(attributes[i].getAttributeName(), attributeName)) {
+				return attributes[i];
+			}
+		}
+		return null;
+	}
 
+	public static IClassFileAttribute getAttribute(IMethodInfo methodInfo, char[] attributeName) {
+		IClassFileAttribute[] attributes = methodInfo.getAttributes();
+		for (int i = 0, max = attributes.length; i < max; i++) {
+			if (CharOperation.equals(attributes[i].getAttributeName(), attributeName)) {
+				return attributes[i];
+			}
+		}
+		return null;
+	}
 	/**
 	 * Get the jdk level of this root.
 	 * The value can be:
@@ -779,11 +822,19 @@ public class Util {
 	 * Returns the given file's contents as a character array.
 	 */
 	public static char[] getResourceContentsAsCharArray(IFile file) throws JavaModelException {
-		String encoding = JavaCore.create(file.getProject()).getOption(JavaCore.CORE_ENCODING, true);
+		// Get encoding from file
+		String encoding = null;
+		try {
+			encoding = file.getCharset();
+		}
+		catch(CoreException ce) {
+			// do not use any encoding
+		}
 		return getResourceContentsAsCharArray(file, encoding);
 	}
 
 	public static char[] getResourceContentsAsCharArray(IFile file, String encoding) throws JavaModelException {
+		// Get resource contents
 		InputStream stream= null;
 		try {
 			stream = new BufferedInputStream(file.getContents(true));
@@ -816,15 +867,22 @@ public class Util {
 	}
 	
 		/*
-	 * Returns the index of the first argument paths which is strictly enclosing the path to check
+	 * Returns the index of the most specific argument paths which is strictly enclosing the path to check
 	 */
 	public static int indexOfEnclosingPath(IPath checkedPath, IPath[] paths, int pathCount) {
 
+	    int bestMatch = -1, bestLength = -1;
 		for (int i = 0; i < pathCount; i++){
 			if (paths[i].equals(checkedPath)) continue;
-			if (paths[i].isPrefixOf(checkedPath)) return i;
+			if (paths[i].isPrefixOf(checkedPath)) {
+			    int currentLength = paths[i].segmentCount();
+			    if (currentLength > bestLength) {
+			        bestLength = currentLength;
+			        bestMatch = i;
+			    }
+			}
 		}
-		return -1;
+		return bestMatch;
 	}
 	
 	/*
@@ -852,51 +910,87 @@ public class Util {
 
 	/*
 	 * Returns whether the given java element is exluded from its root's classpath.
+	 * It doesn't check whether the root itself is on the classpath or not
 	 */
 	public static final boolean isExcluded(IJavaElement element) {
 		int elementType = element.getElementType();
 		switch (elementType) {
+			case IJavaElement.JAVA_MODEL:
+			case IJavaElement.JAVA_PROJECT:
+			case IJavaElement.PACKAGE_FRAGMENT_ROOT:
+				return false;
+
 			case IJavaElement.PACKAGE_FRAGMENT:
 				PackageFragmentRoot root = (PackageFragmentRoot)element.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
 				IResource resource = element.getResource();
-				return resource != null && Util.isExcluded(resource, root.fullExclusionPatternChars());
+				return resource != null && isExcluded(resource, root.fullInclusionPatternChars(), root.fullExclusionPatternChars());
+				
 			case IJavaElement.COMPILATION_UNIT:
 				root = (PackageFragmentRoot)element.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
 				resource = element.getResource();
-				if (resource != null && Util.isExcluded(resource, root.fullExclusionPatternChars()))
+				if (resource != null && isExcluded(resource, root.fullInclusionPatternChars(), root.fullExclusionPatternChars()))
 					return true;
 				return isExcluded(element.getParent());
+				
 			default:
 				IJavaElement cu = element.getAncestor(IJavaElement.COMPILATION_UNIT);
 				return cu != null && isExcluded(cu);
 		}
 	}
 	/*
-	 * Returns whether the given resource path matches one of the exclusion
+	 * Returns whether the given resource path matches one of the inclusion/exclusion
 	 * patterns.
-	 * 
+	 * NOTE: should not be asked directly using pkg root pathes
+	 * @see IClasspathEntry#getInclusionPatterns
 	 * @see IClasspathEntry#getExclusionPatterns
 	 */
-	public final static boolean isExcluded(IPath resourcePath, char[][] exclusionPatterns) {
-		if (exclusionPatterns == null) return false;
+	public final static boolean isExcluded(IPath resourcePath, char[][] inclusionPatterns, char[][] exclusionPatterns, boolean isFolderPath) {
+		if (inclusionPatterns == null && exclusionPatterns == null) return false;
 		char[] path = resourcePath.toString().toCharArray();
-		for (int i = 0, length = exclusionPatterns.length; i < length; i++)
-			if (CharOperation.pathMatch(exclusionPatterns[i], path, true, '/'))
-				return true;
+
+		inclusionCheck: if (inclusionPatterns != null) {
+			for (int i = 0, length = inclusionPatterns.length; i < length; i++) {
+				char[] pattern = inclusionPatterns[i];
+				char[] folderPattern = pattern;
+				if (isFolderPath) {
+					int lastSlash = CharOperation.lastIndexOf('/', pattern);
+					if (lastSlash != -1 && lastSlash != pattern.length-1){ // trailing slash -> adds '**' for free (see http://ant.apache.org/manual/dirtasks.html)
+						int star = CharOperation.indexOf('*', pattern, lastSlash);
+						if ((star == -1
+								|| star >= pattern.length-1 
+								|| pattern[star+1] != '*')) {
+							folderPattern = CharOperation.subarray(pattern, 0, lastSlash);
+						}
+					}
+				}
+				if (CharOperation.pathMatch(folderPattern, path, true, '/')) {
+					break inclusionCheck;
+				}
+			}
+			return true; // never included
+		}
+		if (isFolderPath) {
+			path = CharOperation.concat(path, new char[] {'*'}, '/');
+		}
+		exclusionCheck: if (exclusionPatterns != null) {
+			for (int i = 0, length = exclusionPatterns.length; i < length; i++) {
+				if (CharOperation.pathMatch(exclusionPatterns[i], path, true, '/')) {
+					return true;
+				}
+			}
+		}
 		return false;
 	}	
 	
 	/*
 	 * Returns whether the given resource matches one of the exclusion patterns.
-	 * 
+	 * NOTE: should not be asked directly using pkg root pathes
 	 * @see IClasspathEntry#getExclusionPatterns
 	 */
-	public final static boolean isExcluded(IResource resource, char[][] exclusionPatterns) {
+	public final static boolean isExcluded(IResource resource, char[][] inclusionPatterns, char[][] exclusionPatterns) {
 		IPath path = resource.getFullPath();
 		// ensure that folders are only excluded if all of their children are excluded
-		if (resource.getType() == IResource.FOLDER)
-			path = path.append("*"); //$NON-NLS-1$
-		return isExcluded(path, exclusionPatterns);
+		return isExcluded(path, inclusionPatterns, exclusionPatterns, resource.getType() == IResource.FOLDER);
 	}
 
 	/**
@@ -985,7 +1079,7 @@ public class Util {
 		}
 		IStatus status= new Status(
 			IStatus.ERROR, 
-			JavaCore.getPlugin().getDescriptor().getUniqueIdentifier(), 
+			JavaCore.PLUGIN_ID, 
 			IStatus.ERROR, 
 			message, 
 			e); 
@@ -1048,9 +1142,8 @@ public class Util {
 				result.append(lastLine);
 			}
 			return result.getContents();
-		} else {
-			return text;
 		}
+		return text;
 	}
 
 	/**
@@ -1154,32 +1247,6 @@ public class Util {
 		}
 		if (left < original_right) {
 			quickSort(sortedCollection, left, original_right);
-		}
-	}
-	private static void quickSort(IndexedFile[] list, int left, int right) {
-		int original_left= left;
-		int original_right= right;
-		String mid= list[(left + right) / 2].path;
-		do {
-			while (list[left].path.compareTo(mid) < 0) {
-				left++;
-			}
-			while (mid.compareTo(list[right].path) < 0) {
-				right--;
-			}
-			if (left <= right) {
-				IndexedFile tmp= list[left];
-				list[left]= list[right];
-				list[right]= tmp;
-				left++;
-				right--;
-			}
-		} while (left <= right);
-		if (original_left < right) {
-			quickSort(list, original_left, right);
-		}
-		if (left < original_right) {
-			quickSort(list, left, original_right);
 		}
 	}
 	private static void quickSort(int[] list, int left, int right) {
@@ -1299,32 +1366,6 @@ public class Util {
 		}
 		if (left < original_right) {
 			quickSort(sortedCollection, left, original_right);
-		}
-	}
-	private static void quickSort(WordEntry[] list, int left, int right) {
-		int original_left= left;
-		int original_right= right;
-		char[] mid= list[(left + right) / 2].fWord;
-		do {
-			while (compare(list[left].fWord, mid) < 0) {
-				left++;
-			}
-			while (compare(mid, list[right].fWord) < 0) {
-				right--;
-			}
-			if (left <= right) {
-				WordEntry tmp= list[left];
-				list[left]= list[right];
-				list[right]= tmp;
-				left++;
-				right--;
-			}
-		} while (left <= right);
-		if (original_left < right) {
-			quickSort(list, original_left, right);
-		}
-		if (left < original_right) {
-			quickSort(list, left, original_right);
 		}
 	}
 
@@ -1457,10 +1498,6 @@ public class Util {
 		if (objects.length > 1)
 			quickSort(objects, 0, objects.length - 1);
 	}
-	public static void sort(IndexedFile[] list) {
-		if (list.length > 1)
-			quickSort(list, 0, list.length - 1);
-	}
 	public static void sort(int[] list) {
 		if (list.length > 1)
 			quickSort(list, 0, list.length - 1);
@@ -1489,10 +1526,6 @@ public class Util {
 	public static void sort(String[] strings) {
 		if (strings.length > 1)
 			quickSort(strings, 0, strings.length - 1);
-	}
-	public static void sort(WordEntry[] list) {
-		if (list.length > 1)
-			quickSort(list, 0, list.length - 1);
 	}
 
 	/**
@@ -1665,6 +1698,20 @@ public class Util {
 	public static void validateTypeSignature(String sig, boolean allowVoid) {
 		Assert.isTrue(isValidTypeSignature(sig, allowVoid));
 	}
+	public static void verbose(String log) {
+		verbose(log, System.out);
+	}
+	public static synchronized void verbose(String log, PrintStream printStream) {
+		int start = 0;
+		do {
+			int end = log.indexOf('\n', start);
+			printStream.print(Thread.currentThread());
+			printStream.print(" "); //$NON-NLS-1$
+			printStream.print(log.substring(start, end == -1 ? log.length() : end+1));
+			start = end+1;
+		} while (start != 0);
+		printStream.println();
+	}
 	/**
 	 * Writes a string to the given output stream using UTF-8 
 	 * encoding in a machine-independent manner. 
@@ -1677,10 +1724,11 @@ public class Util {
 	 * for the character. 
 	 *
 	 * @param      str   a string to be written.
+	 * @return     the number of bytes written to the stream.
 	 * @exception  IOException  if an I/O error occurs.
 	 * @since      JDK1.0
 	 */
-	public static void writeUTF(OutputStream out, char[] str) throws IOException {
+	public static int writeUTF(OutputStream out, char[] str) throws IOException {
 		int strlen= str.length;
 		int utflen= 0;
 		for (int i= 0; i < strlen; i++) {
@@ -1697,18 +1745,24 @@ public class Util {
 			throw new UTFDataFormatException();
 		out.write((utflen >>> 8) & 0xFF);
 		out.write((utflen >>> 0) & 0xFF);
-		for (int i= 0; i < strlen; i++) {
-			int c= str[i];
-			if ((c >= 0x0001) && (c <= 0x007F)) {
-				out.write(c);
-			} else if (c > 0x07FF) {
-				out.write(0xE0 | ((c >> 12) & 0x0F));
-				out.write(0x80 | ((c >> 6) & 0x3F));
-				out.write(0x80 | ((c >> 0) & 0x3F));
-			} else {
-				out.write(0xC0 | ((c >> 6) & 0x1F));
-				out.write(0x80 | ((c >> 0) & 0x3F));
+		if (strlen == utflen) {
+			for (int i= 0; i < strlen; i++)
+				out.write(str[i]);
+		} else {
+			for (int i= 0; i < strlen; i++) {
+				int c= str[i];
+				if ((c >= 0x0001) && (c <= 0x007F)) {
+					out.write(c);
+				} else if (c > 0x07FF) {
+					out.write(0xE0 | ((c >> 12) & 0x0F));
+					out.write(0x80 | ((c >> 6) & 0x3F));
+					out.write(0x80 | ((c >> 0) & 0x3F));
+				} else {
+					out.write(0xC0 | ((c >> 6) & 0x1F));
+					out.write(0x80 | ((c >> 0) & 0x3F));
+				}
 			}
 		}
+		return utflen + 2; // the number of bytes written to the stream
 	}	
 }

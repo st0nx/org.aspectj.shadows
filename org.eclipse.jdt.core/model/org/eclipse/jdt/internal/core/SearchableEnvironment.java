@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,12 +12,14 @@ package org.eclipse.jdt.internal.core;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.core.search.*;
 import org.eclipse.jdt.core.search.IJavaSearchConstants;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.core.search.ITypeNameRequestor;
@@ -36,7 +38,8 @@ import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
  */
 public class SearchableEnvironment
 	implements ISearchableNameEnvironment, IJavaSearchConstants {
-	protected NameLookup nameLookup;
+	
+	public NameLookup nameLookup;
 	protected ICompilationUnit unitToSkip;
 
 	protected IJavaProject project;
@@ -45,9 +48,20 @@ public class SearchableEnvironment
 	/**
 	 * Creates a SearchableEnvironment on the given project
 	 */
-	public SearchableEnvironment(IJavaProject project) throws JavaModelException {
+	public SearchableEnvironment(JavaProject project, org.eclipse.jdt.core.ICompilationUnit[] workingCopies) throws JavaModelException {
 		this.project = project;
-		this.nameLookup = ((JavaProject) project).getNameLookup();
+		this.nameLookup = project.newNameLookup(workingCopies);
+
+		// Create search scope with visible entry on the project's classpath
+		this.searchScope = SearchEngine.createJavaSearchScope(this.project.getAllPackageFragmentRoots());
+	}
+
+	/**
+	 * Creates a SearchableEnvironment on the given project
+	 */
+	public SearchableEnvironment(JavaProject project, WorkingCopyOwner owner) throws JavaModelException {
+		this.project = project;
+		this.nameLookup = project.newNameLookup(owner);
 
 		// Create search scope with visible entry on the project's classpath
 		this.searchScope = SearchEngine.createJavaSearchScope(this.project.getAllPackageFragmentRoots());
@@ -88,10 +102,11 @@ public class SearchableEnvironment
 
 					// in the resulting collection, ensure the requested type is the first one
 					sourceTypes[0] = sourceType;
-					for (int i = 0, index = 1; i < types.length; i++) {
+					int length = types.length;
+					for (int i = 0, index = 1; i < length; i++) {
 						ISourceType otherType =
 							(ISourceType) ((JavaElement) types[i]).getElementInfo();
-						if (!otherType.equals(topLevelType))
+						if (!otherType.equals(topLevelType) && index < length) // check that the index is in bounds (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=62861)
 							sourceTypes[index++] = otherType;
 					}
 					return new NameEnvironmentAnswer(sourceTypes);
@@ -114,7 +129,7 @@ public class SearchableEnvironment
 	}
 
 	/**
-	 * @see INameEnvironment#findType(char[][])
+	 * @see org.eclipse.jdt.internal.compiler.env.INameEnvironment#findType(char[][])
 	 */
 	public NameEnvironmentAnswer findType(char[][] compoundTypeName) {
 		if (compoundTypeName == null) return null;
@@ -135,7 +150,7 @@ public class SearchableEnvironment
 	}
 
 	/**
-	 * @see INameEnvironment#findType(char[], char[][])
+	 * @see org.eclipse.jdt.internal.compiler.env.INameEnvironment#findType(char[], char[][])
 	 */
 	public NameEnvironmentAnswer findType(char[] name, char[][] packageName) {
 		if (name == null) return null;
@@ -236,11 +251,9 @@ public class SearchableEnvironment
 			};
 			try {
 				new SearchEngine().searchAllTypeNames(
-					this.project.getProject().getWorkspace(),
 					qualification,
 					simpleName,
-					PREFIX_MATCH,
-					CASE_INSENSITIVE,
+					SearchPattern.R_PREFIX_MATCH, // not case sensitive
 					IJavaSearchConstants.TYPE,
 					this.searchScope,
 					nameRequestor,
@@ -287,7 +300,7 @@ public class SearchableEnvironment
 	}
 
 	/**
-	 * @see INameEnvironment#isPackage(char[][], char[])
+	 * @see org.eclipse.jdt.internal.compiler.env.INameEnvironment#isPackage(char[][], char[])
 	 */
 	public boolean isPackage(char[][] parentPackageName, char[] subPackageName) {
 		if (subPackageName == null || CharOperation.contains('.', subPackageName))

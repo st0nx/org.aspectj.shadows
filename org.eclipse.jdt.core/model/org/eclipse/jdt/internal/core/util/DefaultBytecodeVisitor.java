@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,8 +10,6 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
-import org.eclipse.jdt.core.Signature;
-import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.util.IBytecodeVisitor;
 import org.eclipse.jdt.core.util.IConstantPoolConstant;
 import org.eclipse.jdt.core.util.IConstantPoolEntry;
@@ -22,8 +20,7 @@ import org.eclipse.jdt.core.util.OpcodeStringValues;
  * Default implementation of ByteCodeVisitor
  */
 public class DefaultBytecodeVisitor implements IBytecodeVisitor {
-	private static final char[] INIT	= "<init>".toCharArray(); //$NON-NLS-1$
-	private static final char[] EMPTY_NAME = CharOperation.NO_CHAR;
+	private static final String EMPTY_CLASS_NAME = "\"\""; //$NON-NLS-1$
 	private static final int T_BOOLEAN = 4;
 	private static final int T_CHAR = 5;
 	private static final int T_FLOAT = 6;
@@ -42,7 +39,7 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 		this.buffer = buffer;
 		this.lineSeparator = lineSeparator;
 		this.tabNumber = tabNumber + 1;
-		this.digitNumberForPC = (int) (Math.log(codeLength) / Math.log(10));
+		this.digitNumberForPC = (int) (Math.log(codeLength - 1) / Math.log(10));
 	}
 	/**
 	 * @see IBytecodeVisitor#_aaload(int)
@@ -829,7 +826,7 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
 			.append(constantFieldref.getFieldName())
 			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnFieldrefDescriptor(constantFieldref))
+			.append(constantFieldref.getFieldDescriptor())
 			.append(Util.bind("classformat.getfieldclose")); //$NON-NLS-1$
 		writeNewLine();
 	}
@@ -847,7 +844,7 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
 			.append(constantFieldref.getFieldName())
 			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnFieldrefDescriptor(constantFieldref))
+			.append(constantFieldref.getFieldDescriptor())
 			.append(Util.bind("classformat.getstaticclose")); //$NON-NLS-1$
 		writeNewLine();
 	}
@@ -1312,11 +1309,6 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 		byte nargs,
 		IConstantPoolEntry constantInterfaceMethodref) {
 
-		char[] methodDescriptor = constantInterfaceMethodref.getMethodDescriptor();
-		CharOperation.replace(methodDescriptor, '/', '.');
-		char[] returnType = Signature.getReturnType(methodDescriptor);
-		CharOperation.replace(returnType, '/', '.');
-		
 		dumpPcNumber(pc);
 		buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKEINTERFACE])
 			.append(Util.bind("classformat.nargs")) //$NON-NLS-1$
@@ -1326,15 +1318,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 			.append(Util.bind("classformat.invokeinterfacemethod")) //$NON-NLS-1$
 			.append(returnDeclaringClassName(constantInterfaceMethodref))
 			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-			.append(
-				Signature.toCharArray(
-					methodDescriptor,
-					constantInterfaceMethodref.getMethodName(),
-					getParameterNames(methodDescriptor),
-					true,
-					false))
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(Signature.toCharArray(returnType))
+			.append(constantInterfaceMethodref.getMethodName())
+			.append(constantInterfaceMethodref.getMethodDescriptor())
 			.append(Util.bind("classformat.invokeinterfacemethodclose")); //$NON-NLS-1$
 		writeNewLine();
 	}
@@ -1343,62 +1328,23 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_invokespecial(int, int, IConstantPoolEntry)
 	 */
 	public void _invokespecial(int pc, int index, IConstantPoolEntry constantMethodref) {
-
-		char[] methodDescriptor = constantMethodref.getMethodDescriptor();
-		CharOperation.replace(methodDescriptor, '/', '.');
-		char[] methodName = constantMethodref.getMethodName();
-		char[] returnType = Signature.getReturnType(methodDescriptor);
-		CharOperation.replace(returnType, '/', '.');
-		
-		if (CharOperation.equals(INIT, methodName)) {
-			methodName = EMPTY_NAME;
-			dumpPcNumber(pc);
-			buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKESPECIAL])
-				.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-				.append(index)
-				.append(Util.bind("classformat.invokespecialconstructor")) //$NON-NLS-1$
-				.append(returnDeclaringClassName(constantMethodref))
-				.append(
-					Signature.toCharArray(
-						methodDescriptor,
-						methodName,
-						getParameterNames(methodDescriptor),
-						true,
-						false))
-				.append(Util.bind("classformat.invokespecialconstructorclose")); //$NON-NLS-1$
-			writeNewLine();
-		} else {
-			dumpPcNumber(pc);
-			buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKESPECIAL])
-				.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-				.append(index)
-				.append(Util.bind("classformat.invokespecialmethod")) //$NON-NLS-1$
-				.append(returnDeclaringClassName(constantMethodref))
-				.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-				.append(
-					Signature.toCharArray(
-						methodDescriptor,
-						constantMethodref.getMethodName(),
-						getParameterNames(methodDescriptor),
-						true,
-						false))
-				.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(Signature.toCharArray(returnType))
-				.append(Util.bind("classformat.invokespecialmethodclose")); //$NON-NLS-1$
-			writeNewLine();
-		}
+		dumpPcNumber(pc);
+		buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKESPECIAL])
+			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
+			.append(index)
+			.append(Util.bind("classformat.invokespecialmethod")) //$NON-NLS-1$
+			.append(returnDeclaringClassName(constantMethodref))
+			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
+			.append(constantMethodref.getMethodName())
+			.append(constantMethodref.getMethodDescriptor())
+			.append(Util.bind("classformat.invokespecialmethodclose")); //$NON-NLS-1$
+		writeNewLine();
 	}
 
 	/**
 	 * @see IBytecodeVisitor#_invokestatic(int, int, IConstantPoolEntry)
 	 */
 	public void _invokestatic(int pc, int index, IConstantPoolEntry constantMethodref) {
-
-		char[] methodDescriptor = constantMethodref.getMethodDescriptor();
-		CharOperation.replace(methodDescriptor, '/', '.');
-		char[] returnType = Signature.getReturnType(methodDescriptor);
-		CharOperation.replace(returnType, '/', '.');
-		
 		dumpPcNumber(pc);
 		buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKESTATIC])
 			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
@@ -1406,15 +1352,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 			.append(Util.bind("classformat.invokestaticmethod")) //$NON-NLS-1$
 			.append(returnDeclaringClassName(constantMethodref))
 			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-			.append(
-				Signature.toCharArray(
-					methodDescriptor,
-					constantMethodref.getMethodName(),
-					getParameterNames(methodDescriptor),
-					true,
-					false))
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(Signature.toCharArray(returnType))
+			.append(constantMethodref.getMethodName())
+			.append(constantMethodref.getMethodDescriptor())
 			.append(Util.bind("classformat.invokestaticmethodclose")); //$NON-NLS-1$
 		writeNewLine();
 	}
@@ -1423,12 +1362,6 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_invokevirtual(int, int, IConstantPoolEntry)
 	 */
 	public void _invokevirtual(int pc, int index, IConstantPoolEntry constantMethodref) {
-
-		char[] methodDescriptor = constantMethodref.getMethodDescriptor();
-		CharOperation.replace(methodDescriptor, '/', '.');
-		char[] returnType = Signature.getReturnType(methodDescriptor);
-		CharOperation.replace(returnType, '/', '.');
-		
 		dumpPcNumber(pc);
 		buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKEVIRTUAL])
 			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
@@ -1436,15 +1369,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 			.append(Util.bind("classformat.invokevirtualmethod")) //$NON-NLS-1$
 			.append(returnDeclaringClassName(constantMethodref))
 			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-			.append(
-				Signature.toCharArray(
-					methodDescriptor,
-					constantMethodref.getMethodName(),
-					getParameterNames(methodDescriptor),
-					true,
-					false))
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(Signature.toCharArray(returnType))
+			.append(constantMethodref.getMethodName())
+			.append(constantMethodref.getMethodDescriptor())
 			.append(Util.bind("classformat.invokevirtualmethodclose")); //$NON-NLS-1$
 		writeNewLine();
 	}
@@ -1698,6 +1624,7 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 				break;
 			case IConstantPoolConstant.CONSTANT_String :
 				appendOutputForConstantString(constantPoolEntry);
+				break;
 			case IConstantPoolConstant.CONSTANT_Class :
 				appendOutputForConstantClass(constantPoolEntry);
 		}
@@ -1722,6 +1649,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 				break;
 			case IConstantPoolConstant.CONSTANT_String :
 				appendOutputForConstantString(constantPoolEntry);
+				break;
+			case IConstantPoolConstant.CONSTANT_Class :
+				appendOutputForConstantClass(constantPoolEntry);
 		}
 		writeNewLine();
 	}
@@ -2060,7 +1990,7 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
 			.append(constantFieldref.getFieldName())
 			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnFieldrefDescriptor(constantFieldref))
+			.append(constantFieldref.getFieldDescriptor())
 			.append(Util.bind("classformat.putfieldclose")); //$NON-NLS-1$
 		writeNewLine();
 	}
@@ -2078,15 +2008,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
 			.append(constantFieldref.getFieldName())
 			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnFieldrefDescriptor(constantFieldref))
+			.append(constantFieldref.getFieldDescriptor())
 			.append(Util.bind("classformat.putstaticclose")); //$NON-NLS-1$
 		writeNewLine();
-	}
-
-	private char[] returnFieldrefDescriptor(IConstantPoolEntry constantFieldref) throws IllegalArgumentException {
-		char[] fieldDescriptor = constantFieldref.getFieldDescriptor();
-		CharOperation.replace(fieldDescriptor, '/', '.');
-		return Signature.toCharArray(fieldDescriptor);
 	}
 
 	/**
@@ -2288,20 +2212,16 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	}
 
 	private String returnConstantClassName(IConstantPoolEntry constantClass) {
-		return new String(constantClass.getClassInfoName()).replace('/', '.');
+		char[] classInfoName = constantClass.getClassInfoName();
+		if (classInfoName.length == 0) {
+			return EMPTY_CLASS_NAME;
+		} else {
+			return new String(classInfoName);
+		}
 	}
 
 	private String returnDeclaringClassName(IConstantPoolEntry constantRef) {
-		return new String(constantRef.getClassName()).replace('/', '.');
-	}
-
-	private char[][] getParameterNames(char[] methodDescriptor) {
-		int paramCount = Signature.getParameterCount(methodDescriptor);
-		char[][] parameterNames = new char[paramCount][];
-		for (int i = 0; i < paramCount; i++) {
-			parameterNames[i] = Util.bind("disassembler.parametername").toCharArray(); //$NON-NLS-1$
-		}
-		return parameterNames;
+		return new String(constantRef.getClassName());
 	}
 
 	private void appendOutputForConstantDouble(IConstantPoolEntry constantPoolEntry) {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -179,8 +179,9 @@ public class TypeConverter {
 			}
 		}
 		boolean isInterface = type.isInterface();
+		neededCount = isInterface ? 0 : neededCount;
 		typeDeclaration.methods = new AbstractMethodDeclaration[methodCount + neededCount];
-		if (neededCount != 0 && !isInterface) { // add default constructor in first position
+		if (neededCount != 0) { // add default constructor in first position
 			typeDeclaration.methods[0] = typeDeclaration.createsInternalConstructor(false, false);
 		}
 		for (int i = 0; i < methodCount; i++) {

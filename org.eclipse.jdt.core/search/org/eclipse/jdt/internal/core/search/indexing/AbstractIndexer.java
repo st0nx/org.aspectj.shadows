@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,34 +10,35 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.indexing;
 
-
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchDocument;
-import org.eclipse.jdt.core.search.SearchParticipant;
 import org.eclipse.jdt.internal.core.search.matching.*;
 
 public abstract class AbstractIndexer implements IIndexConstants {
 
 	SearchDocument document;
-	String indexPath;
-	
-	public AbstractIndexer(SearchDocument document, String indexPath) {
+
+	public AbstractIndexer(SearchDocument document) {
 		this.document = document;
-		this.indexPath = indexPath;
 	}
 	public void addClassDeclaration(int modifiers, char[] packageName,char[] name,  char[][] enclosingTypeNames, char[] superclass, char[][] superinterfaces) {
-		addIndexEntry(TYPE_DECL, TypeDeclarationPattern.createIndexKey(packageName, enclosingTypeNames, name, true));
-	
+		addIndexEntry(TYPE_DECL, TypeDeclarationPattern.createIndexKey(name, packageName, enclosingTypeNames, CLASS_SUFFIX));
+
+		if (superclass != null)
+			addTypeReference(superclass);
 		addIndexEntry(
 			SUPER_REF, 
 			SuperTypeReferencePattern.createIndexKey(
 				modifiers, packageName, name, enclosingTypeNames, CLASS_SUFFIX, superclass, CLASS_SUFFIX));
-		if (superinterfaces != null)
-			for (int i = 0, max = superinterfaces.length; i < max; i++)
+		if (superinterfaces != null) {
+			for (int i = 0, max = superinterfaces.length; i < max; i++) {
+				addTypeReference(superinterfaces[i]);
 				addIndexEntry(
 					SUPER_REF,
 					SuperTypeReferencePattern.createIndexKey(
 						modifiers, packageName, name, enclosingTypeNames, CLASS_SUFFIX, superinterfaces[i], INTERFACE_SUFFIX));
+			}
+		}
 	}
 	public void addConstructorDeclaration(char[] typeName, char[][] parameterTypes, char[][] exceptionTypes) {
 		int argCount = parameterTypes == null ? 0 : parameterTypes.length;
@@ -50,27 +51,32 @@ public abstract class AbstractIndexer implements IIndexConstants {
 				addTypeReference(exceptionTypes[i]);
 	}
 	public void addConstructorReference(char[] typeName, int argCount) {
-		addIndexEntry(CONSTRUCTOR_REF, ConstructorPattern.createIndexKey(CharOperation.lastSegment(typeName,'.'), argCount));
+		char[] simpleTypeName = CharOperation.lastSegment(typeName,'.');
+		addTypeReference(simpleTypeName);
+		addIndexEntry(CONSTRUCTOR_REF, ConstructorPattern.createIndexKey(simpleTypeName, argCount));
 	}
 	public void addFieldDeclaration(char[] typeName, char[] fieldName) {
 		addIndexEntry(FIELD_DECL, FieldPattern.createIndexKey(fieldName));
 		addTypeReference(typeName);
 	}
 	public void addFieldReference(char[] fieldName) {
-		addIndexEntry(FIELD_REF, FieldPattern.createIndexKey(fieldName));
+		addNameReference(fieldName);
 	}
 	protected void addIndexEntry(char[] category, char[] key) {
-		SearchParticipant.addIndexEntry(category, key, this.document, this.indexPath);
+		this.document.addIndexEntry(category, key);
 	}
 	public void addInterfaceDeclaration(int modifiers, char[] packageName, char[] name, char[][] enclosingTypeNames, char[][] superinterfaces) {
-		addIndexEntry(TYPE_DECL, TypeDeclarationPattern.createIndexKey(packageName, enclosingTypeNames, name, false));
-	
-		if (superinterfaces != null)
-			for (int i = 0, max = superinterfaces.length; i < max; i++)
+		addIndexEntry(TYPE_DECL, TypeDeclarationPattern.createIndexKey(name, packageName, enclosingTypeNames, INTERFACE_SUFFIX));
+
+		if (superinterfaces != null) {
+			for (int i = 0, max = superinterfaces.length; i < max; i++) {
+				addTypeReference(superinterfaces[i]);
 				addIndexEntry(
 					SUPER_REF,
 					SuperTypeReferencePattern.createIndexKey(
 						modifiers, packageName, name, enclosingTypeNames, INTERFACE_SUFFIX, superinterfaces[i], INTERFACE_SUFFIX));
+			}
+		}
 	}
 	public void addMethodDeclaration(char[] methodName, char[][] parameterTypes, char[] returnType, char[][] exceptionTypes) {
 		int argCount = parameterTypes == null ? 0 : parameterTypes.length;
@@ -91,7 +97,7 @@ public abstract class AbstractIndexer implements IIndexConstants {
 		addIndexEntry(REF, name);
 	}
 	public void addTypeReference(char[] typeName) {
-		addIndexEntry(TYPE_REF, TypeReferencePattern.createIndexKey(CharOperation.lastSegment(typeName, '.')));
+		addNameReference(CharOperation.lastSegment(typeName, '.'));
 	}
 	public abstract void indexDocument();
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -38,7 +38,7 @@ public static final int ALL_CONTAINER =
 	COMPILATION_UNIT_CONTAINER | CLASS_CONTAINER | METHOD_CONTAINER | FIELD_CONTAINER;
 
 public static PatternLocator patternLocator(SearchPattern pattern) {
-	switch (pattern.kind) {
+	switch (((InternalSearchPattern)pattern).kind) {
 		case IIndexConstants.PKG_REF_PATTERN :
 			return new PackageReferenceLocator((PackageReferencePattern) pattern);
 		case IIndexConstants.PKG_DECL_PATTERN :
@@ -86,8 +86,9 @@ public static char[] qualifiedSourceName(TypeBinding binding) {
 
 
 public PatternLocator(SearchPattern pattern) {
-	this.matchMode = pattern.matchMode();
-	this.isCaseSensitive = pattern.isCaseSensitive();
+	int matchRule = pattern.getMatchRule();
+	this.isCaseSensitive = (matchRule & SearchPattern.R_CASE_SENSITIVE) != 0;
+	this.matchMode = matchRule - (this.isCaseSensitive ? SearchPattern.R_CASE_SENSITIVE : 0);
 }
 /**
  * Initializes this search pattern so that polymorphic search can be performed.
@@ -155,11 +156,11 @@ protected boolean matchesName(char[] pattern, char[] name) {
 	if (pattern == null) return true; // null is as if it was "*"
 	if (name != null) {
 		switch (this.matchMode) {
-			case IJavaSearchConstants.EXACT_MATCH :
+			case SearchPattern.R_EXACT_MATCH :
 				return CharOperation.equals(pattern, name, this.isCaseSensitive);
-			case IJavaSearchConstants.PREFIX_MATCH :
+			case SearchPattern.R_PREFIX_MATCH :
 				return CharOperation.prefixEquals(pattern, name, this.isCaseSensitive);
-			case IJavaSearchConstants.PATTERN_MATCH :
+			case SearchPattern.R_PATTERN_MATCH :
 				if (!this.isCaseSensitive)
 					pattern = CharOperation.toLowerCase(pattern);
 				return CharOperation.match(pattern, name, this.isCaseSensitive);
@@ -208,8 +209,8 @@ protected void matchLevelAndReportImportRef(ImportReference importRef, Binding b
 			binding, 
 			locator.createImportHandle(importRef), 
 			level == ACCURATE_MATCH
-				? IJavaSearchResultCollector.EXACT_MATCH
-				: IJavaSearchResultCollector.POTENTIAL_MATCH,
+				? SearchMatch.A_ACCURATE
+				: SearchMatch.A_INACCURATE,
 			locator);
 	}
 }
@@ -217,15 +218,41 @@ protected void matchLevelAndReportImportRef(ImportReference importRef, Binding b
  * Reports the match of the given import reference.
  */
 protected void matchReportImportRef(ImportReference importRef, Binding binding, IJavaElement element, int accuracy, MatchLocator locator) throws CoreException {
-	// default is to report a match as a regular ref.
-	this.matchReportReference(importRef, element, accuracy, locator);
+	if (locator.encloses(element)) {
+		// default is to report a match as a regular ref.
+		this.matchReportReference(importRef, element, accuracy, locator);
+	}
 }
 /**
  * Reports the match of the given reference.
  */
 protected void matchReportReference(ASTNode reference, IJavaElement element, int accuracy, MatchLocator locator) throws CoreException {
-	// default is to report a match on the whole node.
-	locator.report(reference.sourceStart, reference.sourceEnd, element, accuracy);
+	SearchMatch match = null;
+	int referenceType = referenceType();
+	int offset = reference.sourceStart;
+	switch (referenceType) {
+		case IJavaElement.PACKAGE_FRAGMENT:
+			match = locator.newPackageReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, reference);
+			break;
+		case IJavaElement.TYPE:
+			match = locator.newTypeReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, reference);
+			break;
+		case IJavaElement.FIELD:
+			match = locator.newFieldReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, reference);
+			break;
+		case IJavaElement.METHOD:
+			match = locator.newMethodReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, reference);
+			break;
+		case IJavaElement.LOCAL_VARIABLE:
+			match = locator.newLocalVariableReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, reference);
+			break;
+	}
+	if (match != null) {
+		locator.report(match);
+	}
+}
+protected int referenceType() {
+	return 0; // defaults to unknown (a generic JavaSearchMatch will be created)
 }
 /**
  * Finds out whether the given ast node matches this search pattern.

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,7 +14,6 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
-import org.eclipse.jdt.core.search.IJavaSearchResultCollector;
 import org.eclipse.jdt.internal.compiler.env.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
@@ -64,10 +63,10 @@ public void locateMatches(MatchLocator locator, ClassFile classFile, IBinaryType
 	SearchPattern pattern = locator.pattern;
 	BinaryType binaryType = (BinaryType) classFile.getType();
 	if (matchBinary(pattern, info, null))
-		locator.reportBinaryMatch(null, binaryType, info, IJavaSearchResultCollector.EXACT_MATCH);
+		locator.reportBinaryMemberDeclaration(null, binaryType, info, SearchMatch.A_ACCURATE);
 
-	int accuracy = IJavaSearchResultCollector.EXACT_MATCH;
-	if (pattern.mustResolve) {
+	int accuracy = SearchMatch.A_ACCURATE;
+	if (((InternalSearchPattern)pattern).mustResolve) {
 		try {
 			BinaryTypeBinding binding = locator.cacheBinaryType(binaryType);
 			if (binding != null) {
@@ -81,7 +80,7 @@ public void locateMatches(MatchLocator locator, ClassFile classFile, IBinaryType
 						IMethod methodHandle = binaryType.getMethod(
 							new String(method.isConstructor() ? binding.compoundName[binding.compoundName.length-1] : method.selector),
 							CharOperation.toStrings(Signature.getParameterTypes(convertClassFileFormat(method.signature()))));
-						locator.reportBinaryMatch(null, methodHandle, info, IJavaSearchResultCollector.EXACT_MATCH);
+						locator.reportBinaryMemberDeclaration(null, methodHandle, info, SearchMatch.A_ACCURATE);
 					}
 				}
 
@@ -90,7 +89,7 @@ public void locateMatches(MatchLocator locator, ClassFile classFile, IBinaryType
 					FieldBinding field = fields[i];
 					if (locator.patternLocator.resolveLevel(field) == PatternLocator.ACCURATE_MATCH) {
 						IField fieldHandle = binaryType.getField(new String(field.name));
-						locator.reportBinaryMatch(null, fieldHandle, info, IJavaSearchResultCollector.EXACT_MATCH);
+						locator.reportBinaryMemberDeclaration(null, fieldHandle, info, SearchMatch.A_ACCURATE);
 					}
 				}
 
@@ -100,7 +99,7 @@ public void locateMatches(MatchLocator locator, ClassFile classFile, IBinaryType
 		} catch (AbortCompilation e) { // if compilation was aborted it is a problem with the class path
 		}
 		// report as a potential match if binary info matches the pattern		
-		accuracy = IJavaSearchResultCollector.POTENTIAL_MATCH;
+		accuracy = SearchMatch.A_INACCURATE;
 	}
 
 	IBinaryMethod[] methods = info.getMethods();
@@ -111,7 +110,7 @@ public void locateMatches(MatchLocator locator, ClassFile classFile, IBinaryType
 				IMethod methodHandle = binaryType.getMethod(
 					new String(method.isConstructor() ? info.getName() : method.getSelector()),
 					CharOperation.toStrings(Signature.getParameterTypes(convertClassFileFormat(method.getMethodDescriptor()))));
-				locator.reportBinaryMatch(null, methodHandle, info, accuracy);
+				locator.reportBinaryMemberDeclaration(null, methodHandle, info, accuracy);
 			}
 		}
 	}
@@ -122,7 +121,7 @@ public void locateMatches(MatchLocator locator, ClassFile classFile, IBinaryType
 			IBinaryField field = fields[i];
 			if (matchBinary(pattern, field, info)) {
 				IField fieldHandle = binaryType.getField(new String(field.getName()));
-				locator.reportBinaryMatch(null, fieldHandle, info, accuracy);
+				locator.reportBinaryMemberDeclaration(null, fieldHandle, info, accuracy);
 			}
 		}
 	}
@@ -132,7 +131,7 @@ public void locateMatches(MatchLocator locator, ClassFile classFile, IBinaryType
  * Default is to return false.
  */
 boolean matchBinary(SearchPattern pattern, Object binaryInfo, IBinaryType enclosingBinaryType) {
-	switch (pattern.kind) {
+	switch (((InternalSearchPattern)pattern).kind) {
 		case CONSTRUCTOR_PATTERN :
 			return matchConstructor((ConstructorPattern) pattern, binaryInfo, enclosingBinaryType);
 		case FIELD_PATTERN :

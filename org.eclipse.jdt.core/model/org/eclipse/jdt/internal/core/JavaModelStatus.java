@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -336,7 +336,7 @@ public class JavaModelStatus extends Status implements IJavaModelStatus, IJavaMo
 				if (path.segment(0).toString().equals(projectName)) {
 					newPath = path.removeFirstSegments(1);
 				}
-				return Util.bind("classpath.disabledExclusionPatterns", newPath.makeRelative().toString(), projectName); //$NON-NLS-1$
+				return Util.bind("classpath.disabledInclusionExclusionPatterns", newPath.makeRelative().toString(), projectName); //$NON-NLS-1$
 
 			case DISABLED_CP_MULTIPLE_OUTPUT_LOCATIONS:
 				javaProject = (IJavaProject)elements[0];

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,16 +10,17 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import org.eclipse.core.resources.IResource;
+import org.eclipse.core.resources.IWorkspace;
+import org.eclipse.core.runtime.jobs.ISchedulingRule;
 import org.eclipse.jdt.core.IBuffer;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.DOMFactory;
-import org.eclipse.jdt.core.jdom.IDOMCompilationUnit;
-import org.eclipse.jdt.core.jdom.IDOMNode;
-import org.eclipse.jdt.internal.core.jdom.DOMNode;
+import org.eclipse.jdt.core.jdom.*;
+import org.eclipse.jdt.internal.core.jdom.*;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -36,7 +37,9 @@ import org.eclipse.jdt.internal.core.util.Util;
 public abstract class CreateElementInCUOperation extends JavaModelOperation {
 	/**
 	 * The compilation unit DOM used for this operation
+	 * @deprecated JDOM is obsolete
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	protected IDOMCompilationUnit fCUDOM;
 	/**
 	 * A constant meaning to position the new element
@@ -76,7 +79,9 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 	protected boolean fCreationOccurred = true;
 	/**
 	 * The element that is being created.
+	 * @deprecated JDOM is obsolete
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	protected DOMNode fCreatedElement;
 	/**
 	 * The position of the element that is being created.
@@ -138,7 +143,7 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 				if (buffer  == null) return;
 				char[] bufferContents = buffer.getCharacters();
 				if (bufferContents == null) return;
-				char[] elementContents = Util.normalizeCRs(fCreatedElement.getCharacters(), bufferContents);
+				char[] elementContents = Util.normalizeCRs(getCreatedElementCharacters(), bufferContents);
 				switch (fReplacementLength) {
 					case -1 : 
 						// element is append at the end
@@ -173,12 +178,25 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 		}
 	}
 	/**
-	 * Returns a JDOM document fragment for the element being created.
+	 * Returns the current contents of the created document fragment as a
+	 * character array.
+	 * @deprecated marked deprecated to suppress JDOM-related deprecation warnings
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
+	private char[] getCreatedElementCharacters() {
+		return fCreatedElement.getCharacters();
+	}
+	/**
+	 * Returns a JDOM document fragment for the element being created.
+	 * @deprecated JDOM is obsolete
+	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	protected abstract IDOMNode generateElementDOM() throws JavaModelException;
 	/**
 	 * Returns the DOM with the new source to use for the given compilation unit.
+	 * @deprecated JDOM is obsolete
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	protected void generateNewCompilationUnitDOM(ICompilationUnit cu) throws JavaModelException {
 		IBuffer buffer = cu.getBuffer();
 		if (buffer == null) return;
@@ -222,6 +240,11 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 	 */
 	public abstract String getMainTaskName();
 
+	protected ISchedulingRule getSchedulingRule() {
+		IResource resource = getCompilationUnit().getResource();
+		IWorkspace workspace = resource.getWorkspace();
+		return workspace.getRuleFactory().modifyRule(resource);
+	}
 	/**
 	 * Sets the default position in which to create the new type
 	 * member. 
@@ -236,9 +259,11 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 	 * Inserts the given child into the given JDOM, 
 	 * based on the position settings of this operation.
 	 *
-	 * @see createAfter(IJavaElement)
-	 * @see createBefore(IJavaElement);
+	 * @see #createAfter(IJavaElement)
+	 * @see #createBefore(IJavaElement)
+	 * @deprecated JDOM is obsolete
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	protected void insertDOMNode(IDOMNode parent, IDOMNode child) {
 		if (fInsertionPolicy != INSERT_LAST) {
 			IDOMNode sibling = ((JavaElement)fAnchorElement).findNode(fCUDOM);
@@ -255,8 +280,8 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 		}
 		//add as the last element of the parent
 		parent.addChild(child);
-		fCreatedElement = (DOMNode)child;
-		fInsertionPosition = ((DOMNode)parent).getInsertionPosition();
+		fCreatedElement = (org.eclipse.jdt.internal.core.jdom.DOMNode)child;
+		fInsertionPosition = ((org.eclipse.jdt.internal.core.jdom.DOMNode)parent).getInsertionPosition();
 	//	fInsertionPosition = lastChild == null ? ((DOMNode)parent).getInsertionPosition() : lastChild.getInsertionPosition();
 		fReplacementLength = parent.getParent() == null ? -1 : 0;
 	}
@@ -293,7 +318,7 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 	 *  <li>INVALID_SIBLING - the sibling provided for positioning is not valid.
 	 * </ul>
 	 * @see IJavaModelStatus
-	 * @see JavaConventions
+	 * @see org.eclipse.jdt.core.JavaConventions
 	 */
 	public IJavaModelStatus verify() {
 		if (getParentElement() == null) {

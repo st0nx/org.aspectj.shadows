@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,7 +11,6 @@
 package org.eclipse.jdt.internal.core;
 
 import java.util.HashMap;
-import java.util.StringTokenizer;
 
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IPath;
@@ -24,6 +23,7 @@ import org.eclipse.jdt.core.IOpenable;
 import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.ISourceReference;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -102,7 +102,7 @@ public IResource getCorrespondingResource() throws JavaModelException {
 /*
  * @see JavaElement
  */
-public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner workingCopyOwner) {
+public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner workingCopyOwner) {
 	switch (token.charAt(0)) {
 		case JEM_COUNT:
 			return getHandleUpdatingCountFromMemento(memento, workingCopyOwner);
@@ -169,6 +169,12 @@ public ISourceRange getSourceRange() throws JavaModelException {
 public IResource getUnderlyingResource() throws JavaModelException {
 	if (!exists()) throw newNotPresentException();
 	return getParent().getUnderlyingResource();
+}
+/**
+ * @see IParent 
+ */
+public boolean hasChildren() throws JavaModelException {
+	return getChildren().length > 0;
 }
 /**
  * @see ISourceManipulation

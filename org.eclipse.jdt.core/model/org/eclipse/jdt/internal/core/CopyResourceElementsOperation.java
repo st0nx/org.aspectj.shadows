@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -61,7 +61,9 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 	/**
 	 * The <code>DOMFactory</code> used to manipulate the source code of
 	 * <code>ICompilationUnit</code>.
+	 * @deprecated JDOM is obsolete
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	protected DOMFactory fFactory;
 	/**
 	 * A collection of renamed compilation units.  These cus do
@@ -83,6 +85,13 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 	 */
 	public CopyResourceElementsOperation(IJavaElement[] resourcesToCopy, IJavaElement[] destContainers, boolean force) {
 		super(resourcesToCopy, destContainers, force);
+		initializeDOMFactory();
+	}
+	/**
+	 * @deprecated marked deprecated to suppress JDOM-related deprecation warnings
+	 */
+    // TODO - JDOM - remove once model ported off of JDOM
+	private void initializeDOMFactory() {
 		fFactory = new DOMFactory();
 	}
 	/**
@@ -136,7 +145,8 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 		JavaElementDelta projectDelta = null;
 		String[] names = Util.getTrimmedSimpleNames(newFragName);
 		StringBuffer sideEffectPackageName = new StringBuffer();
-		char[][] exclusionsPatterns = ((PackageFragmentRoot)root).fullExclusionPatternChars();
+		char[][] inclusionPatterns = ((PackageFragmentRoot)root).fullInclusionPatternChars();
+		char[][] exclusionPatterns = ((PackageFragmentRoot)root).fullExclusionPatternChars();
 		for (int i = 0; i < names.length; i++) {
 			String subFolderName = names[i];
 			sideEffectPackageName.append(subFolderName);
@@ -153,7 +163,7 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 				}
 				IPackageFragment sideEffectPackage = root.getPackageFragment(sideEffectPackageName.toString());
 				if (i < names.length - 1 // all but the last one are side effect packages
-						&& !Util.isExcluded(parentFolder, exclusionsPatterns)) { 
+						&& !Util.isExcluded(parentFolder, inclusionPatterns, exclusionPatterns)) { 
 					if (projectDelta == null) {
 						projectDelta = getDeltaFor(root.getJavaProject());
 					}
@@ -223,8 +233,18 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 		String destName = (newCUName != null) ? newCUName : source.getElementName();
 		String newContent = updatedContent(source, dest, newCUName); // null if unchanged
 	
-		// copy resource
+		// TODO (frederic) remove when bug 67606 will be fixed (bug 67823)
+		// store encoding (fix bug 66898)
 		IFile sourceResource = (IFile)source.getResource();
+		String sourceEncoding = null;
+		try {
+			sourceEncoding = sourceResource.getCharset(false);
+		}
+		catch (CoreException ce) {
+			// no problem, use default encoding
+		}
+		// end todo
+		// copy resource
 		IContainer destFolder = (IContainer)dest.getResource(); // can be an IFolder or an IProject
 		IFile destFile = destFolder.getFile(new Path(destName));
 		if (!destFile.equals(sourceResource)) {
@@ -259,8 +279,17 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 			if (newContent != null){
 				boolean wasReadOnly = destFile.isReadOnly();
 				try {
-					String encoding = source.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
-					
+					String encoding = null;
+					try {
+						// TODO (frederic) remove when bug 67606 will be fixed (bug 67823)
+						// fix bug 66898
+						if (sourceEncoding != null) destFile.setCharset(sourceEncoding, this.progressMonitor);
+						// end todo
+						encoding = destFile.getCharset();
+					}
+					catch (CoreException ce) {
+						// use no encoding
+					}
 					// when the file was copied, its read-only flag was preserved -> temporary set it to false
 					// note this doesn't interfer with repository providers as this is a new resource that cannot be under
 					// version control yet
@@ -301,7 +330,17 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 			// see http://dev.eclipse.org/bugs/show_bug.cgi?id=9351
 			try {
 				if (newContent != null){
-					String encoding = source.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
+					String encoding = null;
+					try {
+						// TODO (frederic) remove when bug 67606 will be fixed (bug 67823)
+						// fix bug 66898
+						if (sourceEncoding != null) destFile.setCharset(sourceEncoding, this.progressMonitor);
+						// end todo
+						encoding = destFile.getCharset();
+					}
+					catch (CoreException ce) {
+						// use no encoding
+					}
 					destFile.setContents(
 						new ByteArrayInputStream(encoding == null ? newContent.getBytes() : newContent.getBytes(encoding)), 
 						force ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY, 
@@ -365,7 +404,9 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 	 *
 	 * @exception JavaModelException if the operation is unable to
 	 * complete
+	 * @deprecated marked deprecated to suppress JDOM-related deprecation warnings
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	private void processPackageFragmentResource(IPackageFragment source, IPackageFragmentRoot root, String newName) throws JavaModelException {
 		try {
 			String newFragName = (newName == null) ? source.getElementName() : newName;
@@ -450,10 +491,13 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 	
 			// Update package statement in compilation unit if needed
 			if (!newFrag.getElementName().equals(source.getElementName())) { // if package has been renamed, update the compilation units
+				char[][] inclusionPatterns = ((PackageFragmentRoot)root).fullInclusionPatternChars();
+				char[][] exclusionPatterns = ((PackageFragmentRoot)root).fullExclusionPatternChars();
 				for (int i = 0; i < resources.length; i++) {
 					if (resources[i].getName().endsWith(SUFFIX_STRING_java)) {
 						// we only consider potential compilation units
 						ICompilationUnit cu = newFrag.getCompilationUnit(resources[i].getName());
+						if (Util.isExcluded(cu.getPath(), inclusionPatterns, exclusionPatterns, false/*not a folder*/)) continue;
 						IDOMCompilationUnit domCU = fFactory.createCompilationUnit(cu.getSource(), cu.getElementName());
 						if (domCU != null) {
 							updatePackageStatement(domCU, newFragName);
@@ -512,8 +556,13 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 				// in case of a copy
 				updateReadOnlyPackageFragmentsForCopy((IContainer) source.getParent().getResource(), root, newFragName);
 			}
-			//register the correct change deltas
-			prepareDeltas(source, newFrag, isMove() && isEmpty);
+			// workaround for bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=24505
+			if (isEmpty && isMove() && !(Util.isExcluded(source) || Util.isExcluded(newFrag))) {
+				IJavaProject sourceProject = source.getJavaProject();
+				getDeltaFor(sourceProject).movedFrom(source, newFrag);
+				IJavaProject destProject = newFrag.getJavaProject();
+				getDeltaFor(destProject).movedTo(newFrag, source);
+			}
 		} catch (DOMException dom) {
 			throw new JavaModelException(dom, IJavaModelStatusConstants.DOM_EXCEPTION);
 		} catch (JavaModelException e) {
@@ -527,7 +576,9 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 	 * declaration as necessary.
 	 *
 	 * @return the new source
+	 * @deprecated marked deprecated to suppress JDOM-related deprecation warnings
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	private String updatedContent(ICompilationUnit cu, IPackageFragment dest, String newName) throws JavaModelException {
 		String currPackageName = cu.getParent().getElementName();
 		String destPackageName = dest.getElementName();
@@ -549,13 +600,15 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 	}
 	/**
 	 * Makes sure that <code>cu</code> declares to be in the <code>pkgName</code> package.
+	 * @deprecated marked deprecated to suppress JDOM-related deprecation warnings
 	 */
+    // TODO - JDOM - remove once model ported off of JDOM
 	private void updatePackageStatement(IDOMCompilationUnit domCU, String pkgName) {
 		boolean defaultPackage = pkgName.equals(IPackageFragment.DEFAULT_PACKAGE_NAME);
 		boolean seenPackageNode = false;
-		Enumeration enum = domCU.getChildren();
-		while (enum.hasMoreElements()) {
-			IDOMNode node = (IDOMNode) enum.nextElement();
+		Enumeration nodes = domCU.getChildren();
+		while (nodes.hasMoreElements()) {
+			IDOMNode node = (IDOMNode) nodes.nextElement();
 			if (node.getNodeType() == IDOMNode.PACKAGE) {
 				if (! defaultPackage) {
 					node.setName(pkgName);
@@ -612,7 +665,9 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 	}
 		/**
 		 * Renames the main type in <code>cu</code>.
+	     * @deprecated marked deprecated to suppress JDOM-related deprecation warnings
 		 */
+        // TODO - JDOM - remove once model ported off of JDOM
 		private void updateTypeName(ICompilationUnit cu, IDOMCompilationUnit domCU, String oldName, String newName) throws JavaModelException {
 			if (newName != null) {
 				if (fRenamedCompilationUnits == null) {

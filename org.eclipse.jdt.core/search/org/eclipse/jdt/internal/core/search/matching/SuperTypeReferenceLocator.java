@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
+import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
@@ -32,7 +33,7 @@ public SuperTypeReferenceLocator(SuperTypeReferencePattern pattern) {
 //public int match(TypeDeclaration node, MatchingNodeSet nodeSet) - SKIP IT
 public int match(TypeReference node, MatchingNodeSet nodeSet) {
 	if (this.pattern.superSimpleName == null)
-		return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+		return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 
 	char[] typeRefSimpleName = null;
 	if (node instanceof SingleTypeReference) {
@@ -42,13 +43,16 @@ public int match(TypeReference node, MatchingNodeSet nodeSet) {
 		typeRefSimpleName = tokens[tokens.length-1];
 	}				
 	if (matchesName(this.pattern.superSimpleName, typeRefSimpleName))
-		return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+		return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 
 	return IMPOSSIBLE_MATCH;
 }
 
 protected int matchContainer() {
 	return CLASS_CONTAINER;
+}
+protected int referenceType() {
+	return IJavaElement.TYPE;
 }
 public int resolveLevel(ASTNode node) {
 	if (!(node instanceof TypeReference)) return IMPOSSIBLE_MATCH;

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -23,7 +23,7 @@ import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.core.search.SearchParticipant;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.JavaModelManager;
-import org.eclipse.jdt.internal.core.index.IIndex;
+import org.eclipse.jdt.internal.core.index.Index;
 import org.eclipse.jdt.internal.core.search.JavaSearchDocument;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
 import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
@@ -62,23 +62,23 @@ class AddJarFileToIndex extends IndexRequest {
 		try {
 			// if index is already cached, then do not perform any check
 			// MUST reset the IndexManager if a jar file is changed
-			IIndex index = manager.getIndexForUpdate(this.containerPath, false, /*do not reuse index file*/ false /*do not create if none*/);
+			Index index = this.manager.getIndexForUpdate(this.containerPath, false, /*do not reuse index file*/ false /*do not create if none*/);
 			if (index != null) {
 				if (JobManager.VERBOSE)
-					JobManager.verbose("-> no indexing required (index already exists) for " + this.containerPath); //$NON-NLS-1$
+					org.eclipse.jdt.internal.core.util.Util.verbose("-> no indexing required (index already exists) for " + this.containerPath); //$NON-NLS-1$
 				return true;
 			}
 
-			index = manager.getIndexForUpdate(this.containerPath, true, /*reuse index file*/ true /*create if none*/);
+			index = this.manager.getIndexForUpdate(this.containerPath, true, /*reuse index file*/ true /*create if none*/);
 			if (index == null) {
 				if (JobManager.VERBOSE)
-					JobManager.verbose("-> index could not be created for " + this.containerPath); //$NON-NLS-1$
+					org.eclipse.jdt.internal.core.util.Util.verbose("-> index could not be created for " + this.containerPath); //$NON-NLS-1$
 				return true;
 			}
-			ReadWriteMonitor monitor = manager.getMonitorFor(index);
+			ReadWriteMonitor monitor = index.monitor;
 			if (monitor == null) {
 				if (JobManager.VERBOSE)
-					JobManager.verbose("-> index for " + this.containerPath + " just got deleted"); //$NON-NLS-1$//$NON-NLS-2$
+					org.eclipse.jdt.internal.core.util.Util.verbose("-> index for " + this.containerPath + " just got deleted"); //$NON-NLS-1$//$NON-NLS-2$
 				return true; // index got deleted since acquired
 			}
 			ZipFile zip = null;
@@ -106,15 +106,15 @@ class AddJarFileToIndex extends IndexRequest {
 
 				if (this.isCancelled) {
 					if (JobManager.VERBOSE)
-						JobManager.verbose("-> indexing of " + zip.getName() + " has been cancelled"); //$NON-NLS-1$ //$NON-NLS-2$
+						org.eclipse.jdt.internal.core.util.Util.verbose("-> indexing of " + zip.getName() + " has been cancelled"); //$NON-NLS-1$ //$NON-NLS-2$
 					return false;
 				}
 
 				if (JobManager.VERBOSE)
-					JobManager.verbose("-> indexing " + zip.getName()); //$NON-NLS-1$
+					org.eclipse.jdt.internal.core.util.Util.verbose("-> indexing " + zip.getName()); //$NON-NLS-1$
 				long initialTime = System.currentTimeMillis();
 
-				String[] paths = index.queryInDocumentNames(""); // all file names //$NON-NLS-1$
+				String[] paths = index.queryDocumentNames(""); // all file names //$NON-NLS-1$
 				int max = paths == null ? 0 : paths.length;
 				if (max != 0) {
 					/* check integrity of the existing index file
@@ -146,7 +146,7 @@ class AddJarFileToIndex extends IndexRequest {
 						}
 						if (!needToReindex) {
 							if (JobManager.VERBOSE)
-								JobManager.verbose("-> no indexing required (index is consistent with library) for " //$NON-NLS-1$
+								org.eclipse.jdt.internal.core.util.Util.verbose("-> no indexing required (index is consistent with library) for " //$NON-NLS-1$
 								+ zip.getName() + " (" //$NON-NLS-1$
 								+ (System.currentTimeMillis() - initialTime) + "ms)"); //$NON-NLS-1$
 							return true;
@@ -161,7 +161,7 @@ class AddJarFileToIndex extends IndexRequest {
 				for (Enumeration e = zip.entries(); e.hasMoreElements();) {
 					if (this.isCancelled) {
 						if (JobManager.VERBOSE)
-							JobManager.verbose("-> indexing of " + zip.getName() + " has been cancelled"); //$NON-NLS-1$ //$NON-NLS-2$
+							org.eclipse.jdt.internal.core.util.Util.verbose("-> indexing of " + zip.getName() + " has been cancelled"); //$NON-NLS-1$ //$NON-NLS-2$
 						return false;
 					}
 
@@ -170,12 +170,12 @@ class AddJarFileToIndex extends IndexRequest {
 					if (Util.isClassFileName(ze.getName())) {
 						final byte[] classFileBytes = org.eclipse.jdt.internal.compiler.util.Util.getZipEntryByteContent(ze, zip);
 						JavaSearchDocument entryDocument = new JavaSearchDocument(ze, zipFilePath, classFileBytes, participant);
-						this.manager.indexDocument(entryDocument, participant, index);
+						this.manager.indexDocument(entryDocument, participant, index, this.containerPath);
 					}
 				}
 				this.manager.saveIndex(index);
 				if (JobManager.VERBOSE)
-					JobManager.verbose("-> done indexing of " //$NON-NLS-1$
+					org.eclipse.jdt.internal.core.util.Util.verbose("-> done indexing of " //$NON-NLS-1$
 						+ zip.getName() + " (" //$NON-NLS-1$
 						+ (System.currentTimeMillis() - initialTime) + "ms)"); //$NON-NLS-1$
 			} finally {
@@ -188,7 +188,7 @@ class AddJarFileToIndex extends IndexRequest {
 			}
 		} catch (IOException e) {
 			if (JobManager.VERBOSE) {
-				JobManager.verbose("-> failed to index " + this.containerPath + " because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
+				org.eclipse.jdt.internal.core.util.Util.verbose("-> failed to index " + this.containerPath + " because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
 				e.printStackTrace();
 			}
 			manager.removeIndex(this.containerPath);

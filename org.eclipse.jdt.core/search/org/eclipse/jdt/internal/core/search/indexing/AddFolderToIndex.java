@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,20 +18,22 @@ import org.eclipse.core.resources.IResourceProxyVisitor;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.jdt.internal.core.index.IIndex;
+import org.eclipse.jdt.internal.core.index.Index;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
 import org.eclipse.jdt.internal.core.util.Util;
 
 class AddFolderToIndex extends IndexRequest {
 	IPath folderPath;
 	IProject project;
-	char[][] exclusionPattern;
+	char[][] inclusionPatterns;
+	char[][] exclusionPatterns;
 
-	public AddFolderToIndex(IPath folderPath, IProject project, char[][] exclusionPattern, IndexManager manager) {
+	public AddFolderToIndex(IPath folderPath, IProject project, char[][] inclusionPatterns, char[][] exclusionPatterns, IndexManager manager) {
 		super(project.getFullPath(), manager);
 		this.folderPath = folderPath;
 		this.project = project;
-		this.exclusionPattern = exclusionPattern;
+		this.inclusionPatterns = inclusionPatterns;
+		this.exclusionPatterns = exclusionPatterns;
 	}
 	public boolean execute(IProgressMonitor progressMonitor) {
 
@@ -41,9 +43,9 @@ class AddFolderToIndex extends IndexRequest {
 		if (folder == null || folder.getType() == IResource.FILE) return true; // nothing to do, source folder was removed
 
 		/* ensure no concurrent write access to index */
-		IIndex index = manager.getIndex(this.containerPath, true, /*reuse index file*/ true /*create if none*/);
+		Index index = this.manager.getIndex(this.containerPath, true, /*reuse index file*/ true /*create if none*/);
 		if (index == null) return true;
-		ReadWriteMonitor monitor = manager.getMonitorFor(index);
+		ReadWriteMonitor monitor = index.monitor;
 		if (monitor == null) return true; // index got deleted since acquired
 
 		try {
@@ -51,30 +53,48 @@ class AddFolderToIndex extends IndexRequest {
 
 			final IPath container = this.containerPath;
 			final IndexManager indexManager = this.manager;
-			final char[][] pattern = exclusionPattern;
-			folder.accept(
-				new IResourceProxyVisitor() {
-					public boolean visit(IResourceProxy proxy) /* throws CoreException */{
-						switch(proxy.getType()) {
-							case IResource.FILE :
-								if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName())) {
-									IResource resource = proxy.requestResource();
-									if (pattern == null || !Util.isExcluded(resource, pattern))
-										indexManager.addSource((IFile)resource, container);
-								}
+			if (this.exclusionPatterns == null && this.inclusionPatterns == null) {
+				folder.accept(
+					new IResourceProxyVisitor() {
+						public boolean visit(IResourceProxy proxy) /* throws CoreException */{
+							if (proxy.getType() == IResource.FILE) {
+								if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName()))
+									indexManager.addSource((IFile) proxy.requestResource(), container);
 								return false;
-							case IResource.FOLDER :
-								if (pattern != null && Util.isExcluded(proxy.requestResource(), pattern))
-									return false;
+							}
+							return true;
 						}
-						return true;
-					}
-				},
-				IResource.NONE
-			);
+					},
+					IResource.NONE
+				);
+			} else {
+				folder.accept(
+					new IResourceProxyVisitor() {
+						public boolean visit(IResourceProxy proxy) /* throws CoreException */{
+							switch(proxy.getType()) {
+								case IResource.FILE :
+									if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(proxy.getName())) {
+										IResource resource = proxy.requestResource();
+										if (!Util.isExcluded(resource, inclusionPatterns, exclusionPatterns))
+											indexManager.addSource((IFile)resource, container);
+									}
+									return false;
+								case IResource.FOLDER :
+									if (exclusionPatterns != null && inclusionPatterns == null) {
+										// if there are inclusion patterns then we must walk the children
+										if (Util.isExcluded(proxy.requestFullPath(), inclusionPatterns, exclusionPatterns, true)) 
+										    return false;
+									}
+							}
+							return true;
+						}
+					},
+					IResource.NONE
+				);
+			}
 		} catch (CoreException e) {
 			if (JobManager.VERBOSE) {
-				JobManager.verbose("-> failed to add " + this.folderPath + " to index because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
+				Util.verbose("-> failed to add " + this.folderPath + " to index because of the following exception:", System.err); //$NON-NLS-1$ //$NON-NLS-2$
 				e.printStackTrace();
 			}
 			return false;

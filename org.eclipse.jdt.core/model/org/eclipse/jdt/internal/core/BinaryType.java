@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,7 +13,6 @@ package org.eclipse.jdt.internal.core;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.StringTokenizer;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.*;
@@ -23,6 +22,7 @@ import org.eclipse.jdt.internal.codeassist.CompletionEngine;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
+import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -50,12 +50,14 @@ protected void closing(Object info) throws JavaModelException {
 	ClassFileInfo cfi = getClassFileInfo();
 	cfi.removeBinaryChildren();
 }
+
 /*
  * @see IType#codeComplete(char[], int, int, char[][], char[][], int[], boolean, ICompletionRequestor)
  */
 public void codeComplete(char[] snippet,int insertion,int position,char[][] localVariableTypeNames,char[][] localVariableNames,int[] localVariableModifiers,boolean isStatic,ICompletionRequestor requestor) throws JavaModelException {
 	codeComplete(snippet, insertion, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic, requestor, DefaultWorkingCopyOwner.PRIMARY);
 }
+
 /*
  * @see IType#codeComplete(char[], int, int, char[][], char[][], int[], boolean, ICompletionRequestor, WorkingCopyOwner)
  */
@@ -64,44 +66,32 @@ public void codeComplete(char[] snippet,int insertion,int position,char[][] loca
 		throw new IllegalArgumentException("Completion requestor cannot be null"); //$NON-NLS-1$
 	}
 	JavaProject project = (JavaProject) getJavaProject();
-	SearchableEnvironment environment = (SearchableEnvironment) project.getSearchableNameEnvironment();
-	NameLookup nameLookup = project.getNameLookup();
-	CompletionRequestorWrapper requestorWrapper = new CompletionRequestorWrapper(requestor,nameLookup);
+	SearchableEnvironment environment = (SearchableEnvironment) project.newSearchableNameEnvironment(owner);
+	CompletionRequestorWrapper requestorWrapper = new CompletionRequestorWrapper(requestor, environment.nameLookup);
 	CompletionEngine engine = new CompletionEngine(environment, requestorWrapper, project.getOptions(true), project);
 	requestorWrapper.completionEngine = engine;
 
 	String source = getClassFile().getSource();
 	if (source != null && insertion > -1 && insertion < source.length()) {
-		try {
-			// set the units to look inside
-			JavaModelManager manager = JavaModelManager.getJavaModelManager();
-			ICompilationUnit[] workingCopies = manager.getWorkingCopies(owner, true/*add primary WCs*/);
-			nameLookup.setUnitsToLookInside(workingCopies);
-	
-			// code complete
-			String encoding = project.getOption(JavaCore.CORE_ENCODING, true); 
-			
-			char[] prefix = CharOperation.concat(source.substring(0, insertion).toCharArray(), new char[]{'{'});
-			char[] suffix =  CharOperation.concat(new char[]{'}'}, source.substring(insertion).toCharArray());
-			char[] fakeSource = CharOperation.concat(prefix, snippet, suffix);
-			
-			BasicCompilationUnit cu = 
-				new BasicCompilationUnit(
-					fakeSource, 
-					null,
-					getElementName(),
-					encoding); 
-	
-			engine.complete(cu, prefix.length + position, prefix.length);
-		} finally {
-			if (nameLookup != null) {
-				nameLookup.setUnitsToLookInside(null);
-			}
-		}
+		// code complete
+		
+		char[] prefix = CharOperation.concat(source.substring(0, insertion).toCharArray(), new char[]{'{'});
+		char[] suffix =  CharOperation.concat(new char[]{'}'}, source.substring(insertion).toCharArray());
+		char[] fakeSource = CharOperation.concat(prefix, snippet, suffix);
+		
+		BasicCompilationUnit cu = 
+			new BasicCompilationUnit(
+				fakeSource, 
+				null,
+				getElementName(),
+				project); // use project to retrieve corresponding .java IFile
+
+		engine.complete(cu, prefix.length + position, prefix.length);
 	} else {
 		engine.complete(this, snippet, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic);
 	}
 }
+
 /*
  * @see IType#createField(String, IJavaElement, boolean, IProgressMonitor)
  */
@@ -277,7 +267,7 @@ public String getFullyQualifiedName(char enclosingTypeSeparator) {
 /*
  * @see JavaElement
  */
-public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner workingCopyOwner) {
+public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner workingCopyOwner) {
 	switch (token.charAt(0)) {
 		case JEM_COUNT:
 			return getHandleUpdatingCountFromMemento(memento, workingCopyOwner);
@@ -396,6 +386,20 @@ public IPackageFragment getPackageFragment() {
 	Assert.isTrue(false);  // should not happen
 	return null;
 }
+
+/**
+ * @see IType#getSuperclassTypeSignature()
+ * @since 3.0
+ */
+public String getSuperclassTypeSignature() throws JavaModelException {
+	IBinaryType info = (IBinaryType) getElementInfo();
+	char[] superclassName = info.getSuperclassName();
+	if (superclassName == null) {
+		return null;
+	}
+	return new String(Signature.createTypeSignature(ClassFile.translatedName(superclassName), true));
+}
+
 /*
  * @see IType#getSuperclassName()
  */
@@ -424,6 +428,35 @@ public String[] getSuperInterfaceNames() throws JavaModelException {
 	}
 	return strings;
 }
+
+/**
+ * @see IType#getSuperInterfaceTypeSignatures()
+ * @since 3.0
+ */
+public String[] getSuperInterfaceTypeSignatures() throws JavaModelException {
+	IBinaryType info = (IBinaryType) getElementInfo();
+	char[][] names= info.getInterfaceNames();
+	int length;
+	if (names == null || (length = names.length) == 0) {
+		return NO_STRINGS;
+	}
+	names= ClassFile.translatedNames(names);
+	String[] strings= new String[length];
+	for (int i= 0; i < length; i++) {
+		strings[i]= new String(Signature.createTypeSignature(names[i], true));
+	}
+	return strings;
+}
+
+/**
+ * @see IType#getTypeParameterSignatures()
+ * @since 3.0
+ */
+public String[] getTypeParameterSignatures() throws JavaModelException {
+	// TODO (jerome) - missing implementation
+	return new String[0];
+}
+
 /*
  * @see IType#getType(String)
  */
@@ -472,12 +505,7 @@ public IType[] getTypes() throws JavaModelException {
 		return array;
 	}
 }
-/*
- * @see IParent#hasChildren()
- */
-public boolean hasChildren() throws JavaModelException {
-	return getChildren().length > 0;
-}
+
 /*
  * @see IType#isAnonymous()
  */
@@ -489,14 +517,35 @@ public boolean isAnonymous() throws JavaModelException {
  * @see IType#isClass()
  */
 public boolean isClass() throws JavaModelException {
+	// TODO (jerome) - isClass should only return true for classes other than enum classes
 	return !isInterface();
 }
+
+/**
+ * @see IType#isEnum()
+ * @since 3.0
+ */
+public boolean isEnum() throws JavaModelException {
+	// TODO (jerome) - missing implementation - should only return true for enum classes
+	return false;
+}
+
 /*
  * @see IType#isInterface()
  */
 public boolean isInterface() throws JavaModelException {
 	IBinaryType info = (IBinaryType) getElementInfo();
+	// TODO (jerome) - isInterface should not return true for annotation types
 	return info.isInterface();
+}
+
+/**
+ * @see IType#isAnnotation()
+ * @since 3.0
+ */
+public boolean isAnnotation() throws JavaModelException {
+	// TODO (jerome) - missing implementation - should only return true for annotation types
+	return false;
 }
 
 /*
@@ -540,7 +589,7 @@ public ITypeHierarchy newSupertypeHierarchy(
 	throws JavaModelException {
 	
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, workingCopies, SearchEngine.createWorkspaceScope(), false);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return op.getResult();
 }
 /**
@@ -577,7 +626,7 @@ public ITypeHierarchy newSupertypeHierarchy(
 
 	ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary working copies*/);
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, workingCopies, SearchEngine.createWorkspaceScope(), false);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return op.getResult();
 }
 /*
@@ -614,7 +663,7 @@ public ITypeHierarchy newTypeHierarchy(IJavaProject project, WorkingCopyOwner ow
 		projectWCs,
 		project, 
 		true);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return op.getResult();
 }
 /**
@@ -638,7 +687,7 @@ public ITypeHierarchy newTypeHierarchy(
 	throws JavaModelException {
 
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, workingCopies, SearchEngine.createWorkspaceScope(), true);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return op.getResult();
 }
 /**
@@ -669,7 +718,7 @@ public ITypeHierarchy newTypeHierarchy(
 		
 	ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary working copies*/);
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, workingCopies, SearchEngine.createWorkspaceScope(), true);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return op.getResult();	
 }
 /*
@@ -692,10 +741,10 @@ public String[][] resolveType(String typeName, WorkingCopyOwner owner) {
 protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 	buffer.append(this.tabString(tab));
 	if (info == null) {
-		buffer.append(this.getElementName());
+		toStringName(buffer);
 		buffer.append(" (not open)"); //$NON-NLS-1$
 	} else if (info == NO_INFO) {
-		buffer.append(getElementName());
+		toStringName(buffer);
 	} else {
 		try {
 			if (this.isInterface()) {
@@ -703,7 +752,7 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 			} else {
 				buffer.append("class "); //$NON-NLS-1$
 			}
-			buffer.append(this.getElementName());
+			toStringName(buffer);
 		} catch (JavaModelException e) {
 			buffer.append("<JavaModelException in toString of " + getElementName()); //$NON-NLS-1$
 		}

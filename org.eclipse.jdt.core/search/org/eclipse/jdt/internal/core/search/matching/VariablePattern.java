@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,9 +11,8 @@
 package org.eclipse.jdt.internal.core.search.matching;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.core.search.*;
 
-public abstract class VariablePattern extends SearchPattern {
+public abstract class VariablePattern extends JavaSearchPattern {
 
 protected boolean findDeclarations;
 protected boolean findReferences;
@@ -21,15 +20,8 @@ protected boolean readAccess;
 protected boolean writeAccess;
 
 protected char[] name;
-	
-public VariablePattern(
-	int patternKind,
-	boolean findDeclarations,
-	boolean readAccess,
-	boolean writeAccess,
-	char[] name,
-	int matchRule) {
 
+public VariablePattern(int patternKind, boolean findDeclarations, boolean readAccess, boolean writeAccess, char[] name, int matchRule) {
 	super(patternKind, matchRule);
 
 	this.findDeclarations = findDeclarations; // set to find declarations & all occurences

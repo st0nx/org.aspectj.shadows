@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,7 +13,6 @@ package org.eclipse.jdt.internal.core;
 import java.util.*;
 import java.util.ArrayList;
 import java.util.Map;
-import java.util.StringTokenizer;
 
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IFolder;
@@ -31,6 +30,7 @@ import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -72,12 +72,14 @@ protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, 
 	// add compilation units/class files from resources
 	HashSet vChildren = new HashSet();
 	try {
-		char[][] exclusionPatterns = getPackageFragmentRoot().fullExclusionPatternChars();
+	    PackageFragmentRoot root = getPackageFragmentRoot();
+		char[][] inclusionPatterns = root.fullInclusionPatternChars();
+		char[][] exclusionPatterns = root.fullExclusionPatternChars();
 		IResource[] members = ((IContainer) underlyingResource).members();
 		for (int i = 0, max = members.length; i < max; i++) {
 			IResource child = members[i];
 			if (child.getType() != IResource.FOLDER
-					&& !Util.isExcluded(child, exclusionPatterns)) {
+					&& !Util.isExcluded(child, inclusionPatterns, exclusionPatterns)) {
 				String extension = child.getProjectRelativePath().getFileExtension();
 				if (extension != null) {
 					if (extension.equalsIgnoreCase(extType)) {
@@ -142,7 +144,7 @@ public void copy(IJavaElement container, IJavaElement sibling, String rename, bo
  */
 public ICompilationUnit createCompilationUnit(String cuName, String contents, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	CreateCompilationUnitOperation op= new CreateCompilationUnitOperation(this, cuName, contents, force);
-	runOperation(op, monitor);
+	op.runOperation(monitor);
 	return new CompilationUnit(this, cuName, DefaultWorkingCopyOwner.PRIMARY);
 }
 /**
@@ -164,7 +166,7 @@ public boolean equals(Object o) {
 }
 /**
  * @see IPackageFragment#getClassFile(String)
- * @exception IllegalArgumentExcpetion if the name does not end with ".class"
+ * @exception IllegalArgumentException if the name does not end with ".class"
  */
 public IClassFile getClassFile(String classFileName) {
 	if (!org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(classFileName)) {
@@ -191,7 +193,7 @@ public IClassFile[] getClassFiles() throws JavaModelException {
 }
 /**
  * @see IPackageFragment#getCompilationUnit(String)
- * @exception IllegalArgumentExcpetion if the name does not end with ".java"
+ * @exception IllegalArgumentException if the name does not end with ".java"
  */
 public ICompilationUnit getCompilationUnit(String cuName) {
 	if (!org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(cuName)) {
@@ -217,13 +219,13 @@ public ICompilationUnit[] getCompilationUnits() throws JavaModelException {
  */
 public ICompilationUnit[] getCompilationUnits(WorkingCopyOwner owner) {
 	ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, false/*don't add primary*/);
-	if (workingCopies == null) return JavaModelManager.NoWorkingCopy;
+	if (workingCopies == null) return JavaModelManager.NO_WORKING_COPY;
 	int length = workingCopies.length;
 	ICompilationUnit[] result = new ICompilationUnit[length];
 	int index = 0;
 	for (int i = 0; i < length; i++) {
 		ICompilationUnit wc = workingCopies[i];
-		if (equals(wc.getParent())) {
+		if (equals(wc.getParent()) && !Util.isExcluded(wc)) { // 59933 - excluded wc shouldn't be answered back
 			result[index++] = wc;
 		}
 	}
@@ -241,7 +243,7 @@ public int getElementType() {
 /*
  * @see JavaElement
  */
-public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner owner) {
+public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner owner) {
 	switch (token.charAt(0)) {
 		case JEM_COUNT:
 			return getHandleUpdatingCountFromMemento(memento, owner);
@@ -333,6 +335,12 @@ public IResource getUnderlyingResource() throws JavaModelException {
 	}
 }
 /**
+ * @see IParent 
+ */
+public boolean hasChildren() throws JavaModelException {
+	return getChildren().length > 0;
+}
+/**
  * @see IPackageFragment#hasSubpackages()
  */
 public boolean hasSubpackages() throws JavaModelException {
@@ -401,7 +409,7 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 	if (getElementName().length() == 0) {
 		buffer.append("<default>"); //$NON-NLS-1$
 	} else {
-		buffer.append(getElementName());
+		toStringName(buffer);
 	}
 	if (info == null) {
 		buffer.append(" (not open)"); //$NON-NLS-1$

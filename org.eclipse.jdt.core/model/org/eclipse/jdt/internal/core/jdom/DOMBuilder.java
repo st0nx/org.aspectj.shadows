@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -28,8 +28,10 @@ import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
  * DOMFactory to hide the implmentation of node creation and the
  * public Requestor API methods.
  * 
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the 
+ * org.eclipse.jdt.core.dom package.
  */
-
 public class DOMBuilder extends AbstractDOMBuilder implements IDocumentElementRequestor {
 	
 	/**
@@ -318,7 +320,7 @@ protected void enterAbstractMethod(int declarationStart, int[] javaDocPositions,
 	int[] commentRange = {-1, -1};
 	if (javaDocPositions != null) {
 		int length = javaDocPositions.length;
-		commentRange[0] = javaDocPositions[0];
+		commentRange[0] = javaDocPositions[length - 2]; // get last javadoc comment (see bug 68772)
 		commentRange[1] = javaDocPositions[length - 1];
 	}
 	int[] modifiersRange = {-1, -1};
@@ -454,7 +456,7 @@ public void enterField(int declarationStart, int[] javaDocPositions, int modifie
 	int[] commentRange = {-1, -1};
 		if (javaDocPositions != null) {
 			int length = javaDocPositions.length;
-			commentRange[0] = javaDocPositions[0];
+			commentRange[0] = javaDocPositions[length - 2]; // get last javadoc comment (see bug 68772)
 			commentRange[1] = javaDocPositions[length - 1];
 		}
 	int[] modifiersRange = {-1, -1};
@@ -553,7 +555,7 @@ protected void enterType(int declarationStart, int[] javaDocPositions,
 		int[] commentRange = {-1, -1};
 		if (javaDocPositions != null) {
 			int length = javaDocPositions.length;
-			commentRange[0] = javaDocPositions[0];
+			commentRange[0] = javaDocPositions[length - 2];  // get last javadoc comment (see bug 68772)
 			commentRange[1] = javaDocPositions[length - 1];
 		}
 		int[] modifiersRange = {-1, -1};

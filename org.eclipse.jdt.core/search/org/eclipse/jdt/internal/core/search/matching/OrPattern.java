@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,20 +13,19 @@ package org.eclipse.jdt.internal.core.search.matching;
 import java.io.IOException;
 
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
-import org.eclipse.jdt.core.search.IJavaSearchScope;
-import org.eclipse.jdt.core.search.SearchParticipant;
-import org.eclipse.jdt.internal.core.index.impl.IndexInput;
+import org.eclipse.jdt.internal.core.index.Index;
 import org.eclipse.jdt.internal.core.search.IndexQueryRequestor;
+import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
-public class OrPattern extends SearchPattern {
+public class OrPattern extends SearchPattern implements IIndexConstants {
 
 protected SearchPattern[] patterns;
 
 public OrPattern(SearchPattern leftPattern, SearchPattern rightPattern) {
-	super(OR_PATTERN, Math.max(leftPattern.matchRule, rightPattern.matchRule));
-	this.mustResolve = leftPattern.mustResolve || rightPattern.mustResolve;
+	super(Math.max(leftPattern.getMatchRule(), rightPattern.getMatchRule()));
+	((InternalSearchPattern)this).kind = OR_PATTERN;
+	((InternalSearchPattern)this).mustResolve = ((InternalSearchPattern) leftPattern).mustResolve || ((InternalSearchPattern) rightPattern).mustResolve;
 
 	SearchPattern[] leftPatterns = leftPattern instanceof OrPattern ? ((OrPattern) leftPattern).patterns : null;
 	SearchPattern[] rightPatterns = rightPattern instanceof OrPattern ? ((OrPattern) rightPattern).patterns : null;
@@ -43,54 +42,24 @@ public OrPattern(SearchPattern leftPattern, SearchPattern rightPattern) {
 	else
 		System.arraycopy(rightPatterns, 0, this.patterns, leftSize, rightSize);
 }
-
-public void decodeIndexKey(char[] key) {
-	// not used for OrPattern
-}
-
-public char[] encodeIndexKey() {
-	// not used for OrPattern
-	return null;
-}
-
-/**
- * Query a given index for matching entries. 
- *
- */
-public void findIndexMatches(IndexInput input, IndexQueryRequestor requestor, SearchParticipant participant, IJavaSearchScope scope, IProgressMonitor progressMonitor) throws IOException {
+void findIndexMatches(Index index, IndexQueryRequestor requestor, SearchParticipant participant, IJavaSearchScope scope, IProgressMonitor progressMonitor) throws IOException {
 	// per construction, OR pattern can only be used with a PathCollector (which already gather results using a set)
-	for (int i = 0, length = this.patterns.length; i < length; i++)
-		this.patterns[i].findIndexMatches(input, requestor, participant, scope, progressMonitor);
+	try {
+		index.startQuery();
+		for (int i = 0, length = this.patterns.length; i < length; i++)
+			((InternalSearchPattern)this.patterns[i]).findIndexMatches(index, requestor, participant, scope, progressMonitor);
+	} finally {
+		index.stopQuery();
+	}
 }
-
-public SearchPattern getIndexRecord() {
-	// not used for OrPattern
+public SearchPattern getBlankPattern() {
 	return null;
 }
-
-/* (non-Javadoc)
- * @see org.eclipse.jdt.internal.core.search.pattern.InternalSearchPattern#isMatchingIndexEntry()
- */
-public boolean isMatchingIndexRecord() {
-	return false;
-}
-
-/**
- * see SearchPattern.isPolymorphicSearch
- */
-public boolean isPolymorphicSearch() {
+boolean isPolymorphicSearch() {
 	for (int i = 0, length = this.patterns.length; i < length; i++)
-		if (this.patterns[i].isPolymorphicSearch()) return true;
+		if (((InternalSearchPattern) this.patterns[i]).isPolymorphicSearch()) return true;
 	return false;
 }
-
-/* (non-Javadoc)
- * @see org.eclipse.jdt.internal.core.search.pattern.InternalSearchPattern#getMatchCategories()
- */
-public char[][] getMatchCategories() {
-	return CharOperation.NO_CHAR_CHAR;
-}
-
 public String toString() {
 	StringBuffer buffer = new StringBuffer();
 	buffer.append(this.patterns[0].toString());

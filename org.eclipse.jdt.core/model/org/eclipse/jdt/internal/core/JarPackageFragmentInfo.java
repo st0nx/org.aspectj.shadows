@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,35 +10,14 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.ArrayList;
-
 /**
- * Element info for JarPackageFragments.  Caches the zip entry names
- * of the types (.class files) of the JarPackageFragment.  The entries
- * are used to compute the children of the JarPackageFragment.
+ * Element info for JarPackageFragments.
  */
 class JarPackageFragmentInfo extends PackageFragmentInfo {
-	/**
-	 * The names of the zip entries that are the class files associated
-	 * with this package fragment info in the JAR file of the JarPackageFragmentRootInfo.
-	 */
-	protected ArrayList entryNames;
-/**
- */
-boolean containsJavaResources() {
-	return this.entryNames != null && this.entryNames.size() != 0;
-}
 /**
  * Returns an array of non-java resources contained in the receiver.
  */
 Object[] getNonJavaResources() {
 	return this.nonJavaResources;
-}
-/**
- * Set the names of the zip entries that are the types associated
- * with this package fragment info in the JAR file of the JarPackageFragmentRootInfo.
- */
-protected void setEntryNames(ArrayList entries) {
-	this.entryNames = entries;
 }
 }

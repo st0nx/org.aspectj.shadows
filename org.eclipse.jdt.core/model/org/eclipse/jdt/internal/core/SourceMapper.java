@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,7 +21,8 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-import org.eclipse.core.resources.*;
+import org.eclipse.core.resources.IContainer;
+import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.ResourcesPlugin;
@@ -29,8 +30,17 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Path;
-import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.compiler.*;
+import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.IMember;
+import org.eclipse.jdt.core.IMethod;
+import org.eclipse.jdt.core.IPackageFragment;
+import org.eclipse.jdt.core.IPackageFragmentRoot;
+import org.eclipse.jdt.core.ISourceRange;
+import org.eclipse.jdt.core.IType;
+import org.eclipse.jdt.core.JavaConventions;
+import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.ISourceElementRequestor;
@@ -110,7 +120,7 @@ public class SourceMapper
 	/**
 	 * The unknown source range {-1, 0}
 	 */
-	protected static SourceRange fgUnknownRange = new SourceRange(-1, 0);
+	public static SourceRange fgUnknownRange = new SourceRange(-1, 0);
 
 	/**
 	 * The position within the source of the start of the
@@ -184,7 +194,11 @@ public class SourceMapper
 	public SourceMapper(IPath sourcePath, String rootPath, Map options) {
 		this.areRootPathsComputed = false;
 		this.options = options;
-		this.encoding = (String)options.get(JavaCore.CORE_ENCODING);
+		try {
+			this.encoding = ResourcesPlugin.getWorkspace().getRoot().getDefaultCharset();
+		} catch (CoreException e) {
+			// use no encoding
+		}
 		if (rootPath != null) {
 			this.rootPaths = new HashSet();
 			this.rootPaths.add(rootPath);
@@ -269,7 +283,7 @@ public class SourceMapper
 	 * Converts these type names to unqualified signatures. This needs to be done in order to be consistent
 	 * with the way the source range is retrieved.
 	 * @see SourceMapper#getUnqualifiedMethodHandle
-	 * @see Signature.
+	 * @see Signature
 	 */
 	private String[] convertTypeNamesToSigs(char[][] typeNames) {
 		if (typeNames == null)
@@ -292,8 +306,7 @@ public class SourceMapper
 		return typeSigs;
 	}
 	
-	private void computeAllRootPaths(IType type) {
-		IPackageFragmentRoot root = (IPackageFragmentRoot) type.getPackageFragment().getParent();
+	private void computeAllRootPaths(IPackageFragmentRoot root) {
 		if (this.rootPaths == null) {
 			this.rootPaths = new HashSet();
 		}
@@ -334,11 +347,11 @@ public class SourceMapper
 			}
 		} else {
 			Object target = JavaModel.getTarget(ResourcesPlugin.getWorkspace().getRoot(), root.getPath(), true);
-			if (target instanceof IFolder) {
-				IResource resource = root.getResource();
-				if (resource.getType() == IResource.FOLDER) {
+			if (target instanceof IResource) {
+				IResource resource = (IResource) target;
+				if (resource instanceof IContainer) {
 					try {
-						IResource[] members = ((IFolder) resource).members();
+						IResource[] members = ((IContainer) resource).members();
 						for (int i = 0, max = members.length; i < max; i++) {
 							IResource member = members[i];
 							if (member.getType() == IResource.FOLDER) {
@@ -399,8 +412,10 @@ public class SourceMapper
 			}
 		} else {
 			Object target = JavaModel.getTarget(ResourcesPlugin.getWorkspace().getRoot(), this.sourcePath, true);
-			if (target instanceof IFolder) {
-				computeRootPath((IFolder)target, firstLevelPackageNames, containsADefaultPackage);
+			if (target instanceof IResource) {
+				if (target instanceof IContainer) {
+					computeRootPath((IContainer)target, firstLevelPackageNames, containsADefaultPackage);
+				}
 			} else if (target instanceof File) {
 				File file = (File)target;
 				if (file.isDirectory()) {
@@ -441,16 +456,16 @@ public class SourceMapper
 		}
 	}	
 
-	private void computeRootPath(IFolder directory, HashSet firstLevelPackageNames, boolean hasDefaultPackage) {
+	private void computeRootPath(IContainer container, HashSet firstLevelPackageNames, boolean hasDefaultPackage) {
 		try {
-			IResource[] resources = directory.members();
+			IResource[] resources = container.members();
 			boolean hasSubDirectories = false;
 			loop: for (int i = 0, max = resources.length; i < max; i++) {
 				IResource resource = resources[i];
 				if (resource.getType() == IResource.FOLDER) {
 					hasSubDirectories = true;
 					if (firstLevelPackageNames.contains(resource.getName())) {
-						IPath fullPath = resource.getParent().getFullPath();
+						IPath fullPath = container.getFullPath();
 						IPath rootPathEntry = fullPath.removeFirstSegments(this.sourcePath.segmentCount()).setDevice(null);
 						this.rootPaths.add(rootPathEntry.toString());
 						break loop;
@@ -459,12 +474,10 @@ public class SourceMapper
 					}
 				}
 				if (i == max - 1 && !hasSubDirectories && hasDefaultPackage) {
-					IContainer container = resource.getParent();
 					// check if one member is a .java file
-					IResource[] members = container.members();
 					boolean hasJavaSourceFile = false;
-					for (int j = 0, max2 = members.length; j < max2; j++) {
-						if (Util.isJavaFileName(members[i].getName())) {
+					for (int j = 0; j < max; j++) {
+						if (Util.isJavaFileName(resources[i].getName())) {
 							hasJavaSourceFile = true;
 							break;
 						}
@@ -792,7 +805,7 @@ public class SourceMapper
 		char[] source = null;
 		
 		if (!areRootPathsComputed) {
-			computeAllRootPaths(type);
+			computeAllRootPaths((IPackageFragmentRoot) type.getPackageFragment().getParent());
 		}
 		
 		if (this.rootPath != null) {
@@ -836,27 +849,27 @@ public class SourceMapper
 			 * For example, A.class comes from A.java and p.A.class comes from a file A.java
 			 * in the folder p.
 			 */
-			try {
-				if (type.isMember()) {
-					IType enclosingType = type.getDeclaringType();
-					if (enclosingType == null) return null; // play it safe
-					while (enclosingType.getDeclaringType() != null) {
-						enclosingType = enclosingType.getDeclaringType();
-					}
-					return enclosingType.getElementName() + SUFFIX_STRING_java;
-				} else if (type.isLocal() || type.isAnonymous()){
-					String typeQualifiedName = type.getTypeQualifiedName();
-					return typeQualifiedName.substring(0, typeQualifiedName.indexOf('$')) + SUFFIX_STRING_java;
-				} else {
+			if (info.isMember()) {
+				IType enclosingType = type.getDeclaringType();
+				if (enclosingType == null) return null; // play it safe
+				while (enclosingType.getDeclaringType() != null) {
+					enclosingType = enclosingType.getDeclaringType();
+				}
+				return enclosingType.getElementName() + SUFFIX_STRING_java;
+			} else if (info.isLocal() || info.isAnonymous()){
+				String typeQualifiedName = type.getTypeQualifiedName();
+				int dollar = typeQualifiedName.indexOf('$');
+				if (dollar == -1) {
+					// malformed inner type: name doesn't contain a dollar
 					return type.getElementName() + SUFFIX_STRING_java;
 				}
-			} catch (JavaModelException e) {
-				// ignore
+				return typeQualifiedName.substring(0, dollar) + SUFFIX_STRING_java;
+			} else {
+				return type.getElementName() + SUFFIX_STRING_java;
 			}
 		} else {
 			return  new String(sourceFileName);
 		}
-		return null;
 	}
 
 	private char[] getSourceForRootPath(String currentRootPath, String name) {
@@ -894,24 +907,27 @@ public class SourceMapper
 			}
 		} else {
 			Object target = JavaModel.getTarget(ResourcesPlugin.getWorkspace().getRoot(), this.sourcePath, true);
-			if (target instanceof IFolder) {
-				IFolder folder = (IFolder)target;
-				IResource res = folder.findMember(fullName);
-				if (res instanceof IFile) {
-					try {
-						source = org.eclipse.jdt.internal.core.util.Util.getResourceContentsAsCharArray((IFile)res, this.encoding);
-					} catch (JavaModelException e) {
-						// ignore
+			if (target instanceof IResource) {
+				if (target instanceof IContainer) {
+					IResource res = ((IContainer)target).findMember(fullName);
+					if (res instanceof IFile) {
+						try {
+							source = org.eclipse.jdt.internal.core.util.Util.getResourceContentsAsCharArray((IFile)res);
+						} catch (JavaModelException e) {
+							// ignore
+						}
 					}
 				}
 			} else if (target instanceof File) {
 				File file = (File)target;
 				if (file.isDirectory()) {
 					File sourceFile = new File(file, fullName);
-					try {
-						source = Util.getFileCharContent(sourceFile, this.encoding);
-					} catch (IOException e) {
-						// ignore
+					if (sourceFile.isFile()) {
+						try {
+							source = Util.getFileCharContent(sourceFile, this.encoding);
+						} catch (IOException e) {
+							// ignore
+						}
 					}
 				}
 			}
@@ -1101,8 +1117,10 @@ public class SourceMapper
 			}
 			boolean doFullParse = hasToRetrieveSourceRangesForLocalClass(fullName);
 			parser = new SourceElementParser(this, factory, new CompilerOptions(this.options), doFullParse);
+			IJavaElement javaElement = this.fType.getCompilationUnit();
+			if (javaElement == null) javaElement = this.fType.getParent();
 			parser.parseCompilationUnit(
-				new BasicCompilationUnit(contents, null, type.getElementName() + SUFFIX_STRING_java, encoding),
+				new BasicCompilationUnit(contents, null, type.getElementName() + SUFFIX_STRING_java, javaElement),
 				doFullParse);
 			if (elementToFind != null) {
 				ISourceRange range = this.getNameRange(elementToFind);
@@ -1137,7 +1155,7 @@ public class SourceMapper
 	/** 
 	 * Sets the mapping for this method to its parameter names.
 	 *
-	 * @see fParameterNames
+	 * @see #fParameterNames
 	 */
 	protected void setMethodParameterNames(
 		IMethod method,
@@ -1152,7 +1170,7 @@ public class SourceMapper
 	 * Sets the mapping for this element to its source ranges for its source range
 	 * and name range.
 	 *
-	 * @see fSourceRanges
+	 * @see #fSourceRanges
 	 */
 	protected void setSourceRange(
 		IJavaElement element,

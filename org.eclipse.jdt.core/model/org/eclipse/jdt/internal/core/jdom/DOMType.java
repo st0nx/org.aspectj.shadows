@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -17,9 +17,7 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
-import org.eclipse.jdt.core.jdom.IDOMMethod;
-import org.eclipse.jdt.core.jdom.IDOMNode;
-import org.eclipse.jdt.core.jdom.IDOMType;
+import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
@@ -29,8 +27,11 @@ import org.eclipse.jdt.internal.core.util.Util;
  *
  * @see IDOMType
  * @see DOMNode
- */
- 
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the 
+ * org.eclipse.jdt.core.dom package.
+ */ 
+// TODO (jerome) - add implementation support for 1.5 features
 /* package */ class DOMType extends DOMMember implements IDOMType {
 
 	private static final String[] EMPTY_SUPERINTERFACES = new String[] {};
@@ -115,6 +116,24 @@ import org.eclipse.jdt.internal.core.util.Util;
 	 * or implement any interfaces.
 	 */
 	protected String[] fSuperInterfaces= new String[0];
+	
+	/**
+	 * The formal type parameters.
+	 * @since 3.0
+	 */
+	protected String[] fTypeParameters = new String[0];
+
+	/**
+	 * Indicates this type is an enum class.
+	 * @since 3.0
+	 */
+	protected boolean fIsEnum= false;
+	
+	/**
+	 * Indicates this type is an annotatation type (interface).
+	 * @since 3.0
+	 */
+	protected boolean fIsAnnotation= false;
 	
 	/**
 	 * This position is the position of the end of the last line separator before the closing brace starting
@@ -331,7 +350,7 @@ protected void appendMemberDeclarationContents(CharArrayBuffer  buffer) {
 	
 }
 /**
- * @see DOMNode#appendSimpleContents(CharArrayBuffer)
+ * @see DOMMember#appendSimpleContents(CharArrayBuffer)
  */
 protected void appendSimpleContents(CharArrayBuffer buffer) {
 	// append eveything before my name
@@ -623,7 +642,7 @@ void setCloseBodyRangeStart(int start) {
  * as fragmented, since the names of the constructors must reflect the name
  * of this type.
  *
- * @see IDOMNode#setName(char[])
+ * @see IDOMNode#setName(String)
  */
 public void setName(String name) throws IllegalArgumentException {
 	if (name == null) {
@@ -651,7 +670,7 @@ void setOpenBodyRangeStart(int start) {
 	fOpenBodyRange[0] = start;
 }
 /**
- * @see IDOMType#setSuperclass(char[])
+ * @see IDOMType#setSuperclass(String)
  */
 public void setSuperclass(String superclassName) {
 	becomeDetailed();
@@ -714,5 +733,64 @@ protected void shareContents(DOMNode node) {
  */
 public String toString() {
 	return "TYPE: " + getName(); //$NON-NLS-1$
+}
+
+/**
+ * @see IDOMType#getTypeParameters()
+ * @since 3.0
+ */
+public String[] getTypeParameters() {
+	return this.fTypeParameters;
+}
+
+/**
+ * @see IDOMType#isEnum()
+ * @since 3.0
+ */
+public boolean isEnum() {
+	return this.fIsEnum;
+}
+
+/**
+ * @see IDOMType#isAnnotation()
+ * @since 3.0
+ */
+public boolean isAnnotation() {
+	return this.fIsAnnotation;
+}
+
+/**
+ * @see IDOMType#setEnum(boolean)
+ * @since 3.0
+ */
+public void setEnum(boolean b) {
+	this.fIsEnum = b;
+	if (this.fIsEnum) {
+		// enums are always classes with no superclass
+		setClass(true);
+		setSuperclass(null);
+	}
+}
+
+/**
+ * @see IDOMType#setAnnotation(boolean)
+ * @since 3.0
+ */
+public void setAnnotation(boolean b) {
+	this.fIsAnnotation= b;
+	if (this.fIsAnnotation) {
+		// annotation types are always interface with no superclass or superinterfaces
+		setClass(false);
+		setSuperclass(null);
+		setSuperInterfaces(new String[0]);
+	}
+}
+
+/**
+ * @see IDOMType#setTypeParameters(java.lang.String[])
+ * @since 3.0
+ */
+public void setTypeParameters(String[] typeParameters) {
+	this.fTypeParameters = typeParameters;
 }
 }

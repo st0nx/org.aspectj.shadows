@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,9 +10,11 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.processing;
 
+import org.eclipse.core.runtime.*;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.core.runtime.SubProgressMonitor;
+import org.eclipse.core.runtime.jobs.Job;
 import org.eclipse.jdt.internal.core.util.Util;
 
 public abstract class JobManager implements Runnable {
@@ -26,18 +28,15 @@ public abstract class JobManager implements Runnable {
 	/* background processing */
 	protected Thread processingThread;
 
-	/* flag indicating whether job execution is enabled or not */
-	private boolean enabled = true;
+	/* counter indicating whether job execution is enabled or not, disabled if <= 0 
+	    it cannot go beyond 1 */
+	private int enableCount = 1;
 
 	public static boolean VERBOSE = false;
 	/* flag indicating that the activation has completed */
 	public boolean activated = false;
 	
 	private int awaitingClients = 0;
-
-	public static void verbose(String log) {
-		System.out.println("(" + Thread.currentThread() + ") " + log); //$NON-NLS-1$//$NON-NLS-2$
-	}
 
 	/**
 	 * Invoked exactly once, in background, before starting processing any job
@@ -57,14 +56,14 @@ public abstract class JobManager implements Runnable {
 	 * Until the job has completed, the job manager will keep answering the same job.
 	 */
 	public synchronized IJob currentJob() {
-		if (this.enabled && this.jobStart <= this.jobEnd)
+		if (this.enableCount > 0 && this.jobStart <= this.jobEnd)
 			return this.awaitingJobs[this.jobStart];
 		return null;
 	}
 	public void disable() {
-		this.enabled = false;
+		this.enableCount--;
 		if (VERBOSE)
-			JobManager.verbose("DISABLING background indexing"); //$NON-NLS-1$
+			Util.verbose("DISABLING background indexing"); //$NON-NLS-1$
 	}
 	/**
 	 * Remove the index from cache for a given project.
@@ -73,9 +72,8 @@ public abstract class JobManager implements Runnable {
 	public void discardJobs(String jobFamily) {
 
 		if (VERBOSE)
-			JobManager.verbose("DISCARD   background job family - " + jobFamily); //$NON-NLS-1$
+			Util.verbose("DISCARD   background job family - " + jobFamily); //$NON-NLS-1$
 
-		boolean wasEnabled = isEnabled();
 		try {
 			IJob currentJob;
 			// cancel current job if it belongs to the given family
@@ -90,7 +88,7 @@ public abstract class JobManager implements Runnable {
 				while (this.processingThread != null && this.executing){
 					try {
 						if (VERBOSE)
-							JobManager.verbose("-> waiting end of current background job - " + currentJob); //$NON-NLS-1$ //$NON-NLS-2$
+							Util.verbose("-> waiting end of current background job - " + currentJob); //$NON-NLS-1$ //$NON-NLS-2$
 						Thread.sleep(50);
 					} catch(InterruptedException e){
 						// ignore
@@ -108,7 +106,7 @@ public abstract class JobManager implements Runnable {
 						this.awaitingJobs[++loc] = currentJob;
 					} else {
 						if (VERBOSE)
-							JobManager.verbose("-> discarding background job  - " + currentJob); //$NON-NLS-1$
+							Util.verbose("-> discarding background job  - " + currentJob); //$NON-NLS-1$
 						currentJob.cancel();
 					}
 				}
@@ -116,20 +114,16 @@ public abstract class JobManager implements Runnable {
 				this.jobEnd = loc;
 			}
 		} finally {
-			if (wasEnabled)
-				enable();
+			enable();
 		}
 		if (VERBOSE)
-			JobManager.verbose("DISCARD   DONE with background job family - " + jobFamily); //$NON-NLS-1$
+			Util.verbose("DISCARD   DONE with background job family - " + jobFamily); //$NON-NLS-1$
 	}
 	public synchronized void enable() {
-		this.enabled = true;
+		this.enableCount++;
 		if (VERBOSE)
-			JobManager.verbose("ENABLING  background indexing"); //$NON-NLS-1$
+			Util.verbose("ENABLING  background indexing"); //$NON-NLS-1$
 		this.notifyAll(); // wake up the background thread if it is waiting (context must be synchronized)			
-	}
-	public boolean isEnabled() {
-		return this.enabled;
 	}
 	/**
 	 * Advance to the next available job, once the current one has been completed.
@@ -169,7 +163,7 @@ public abstract class JobManager implements Runnable {
 	 */
 	public boolean performConcurrentJob(IJob searchJob, int waitingPolicy, IProgressMonitor progress) {
 		if (VERBOSE)
-			JobManager.verbose("STARTING  concurrent job - " + searchJob); //$NON-NLS-1$
+			Util.verbose("STARTING  concurrent job - " + searchJob); //$NON-NLS-1$
 
 		searchJob.ensureReadyToRun();
 
@@ -182,25 +176,23 @@ public abstract class JobManager implements Runnable {
 
 				case IJob.ForceImmediate :
 					if (VERBOSE)
-						JobManager.verbose("-> NOT READY - forcing immediate - " + searchJob);//$NON-NLS-1$
-					boolean wasEnabled = isEnabled();
+						Util.verbose("-> NOT READY - forcing immediate - " + searchJob);//$NON-NLS-1$
 					try {
 						disable(); // pause indexing
 						status = searchJob.execute(progress == null ? null : new SubProgressMonitor(progress, concurrentJobWork));
 					} finally {
-						if (wasEnabled)
-							enable();
+						enable();
 					}
 					if (VERBOSE)
-						JobManager.verbose("FINISHED  concurrent job - " + searchJob); //$NON-NLS-1$
+						Util.verbose("FINISHED  concurrent job - " + searchJob); //$NON-NLS-1$
 					return status;
 
 				case IJob.CancelIfNotReady :
 					if (VERBOSE)
-						JobManager.verbose("-> NOT READY - cancelling - " + searchJob); //$NON-NLS-1$
+						Util.verbose("-> NOT READY - cancelling - " + searchJob); //$NON-NLS-1$
 					if (progress != null) progress.setCanceled(true);
 					if (VERBOSE)
-						JobManager.verbose("CANCELED concurrent job - " + searchJob); //$NON-NLS-1$
+						Util.verbose("CANCELED concurrent job - " + searchJob); //$NON-NLS-1$
 					throw new OperationCanceledException();
 
 				case IJob.WaitUntilReady :
@@ -231,7 +223,7 @@ public abstract class JobManager implements Runnable {
 							// currentJob can be null when jobs have been added to the queue but job manager is not enabled
 							if (currentJob != null && currentJob != previousJob) {
 								if (VERBOSE)
-									JobManager.verbose("-> NOT READY - waiting until ready - " + searchJob);//$NON-NLS-1$
+									Util.verbose("-> NOT READY - waiting until ready - " + searchJob);//$NON-NLS-1$
 								if (subProgress != null) {
 									subProgress.subTask(
 										Util.bind("manager.filesToIndex", Integer.toString(awaitingWork))); //$NON-NLS-1$
@@ -241,7 +233,7 @@ public abstract class JobManager implements Runnable {
 							}
 							try {
 								if (VERBOSE)
-									JobManager.verbose("-> GOING TO SLEEP - " + searchJob);//$NON-NLS-1$
+									Util.verbose("-> GOING TO SLEEP - " + searchJob);//$NON-NLS-1$
 								Thread.sleep(50);
 							} catch (InterruptedException e) {
 								// ignore
@@ -262,7 +254,7 @@ public abstract class JobManager implements Runnable {
 		if (progress != null)
 			progress.done();
 		if (VERBOSE)
-			JobManager.verbose("FINISHED  concurrent job - " + searchJob); //$NON-NLS-1$
+			Util.verbose("FINISHED  concurrent job - " + searchJob); //$NON-NLS-1$
 		return status;
 	}
 	public abstract String processName();
@@ -280,17 +272,17 @@ public abstract class JobManager implements Runnable {
 		}
 		this.awaitingJobs[this.jobEnd] = job;
 		if (VERBOSE) {
-			JobManager.verbose("REQUEST   background job - " + job); //$NON-NLS-1$
-			JobManager.verbose("AWAITING JOBS count: " + awaitingJobsCount()); //$NON-NLS-1$
+			Util.verbose("REQUEST   background job - " + job); //$NON-NLS-1$
+			Util.verbose("AWAITING JOBS count: " + awaitingJobsCount()); //$NON-NLS-1$
 		}
 		notifyAll(); // wake up the background thread if it is waiting
 	}
 	/**
 	 * Flush current state
 	 */
-	public void reset() {
+	public synchronized void reset() {
 		if (VERBOSE)
-			JobManager.verbose("Reset"); //$NON-NLS-1$
+			Util.verbose("Reset"); //$NON-NLS-1$
 
 		if (this.processingThread != null) {
 			discardJobs(null); // discard all jobs
@@ -311,6 +303,24 @@ public abstract class JobManager implements Runnable {
 		long idlingStart = -1;
 		activateProcessing();
 		try {
+			class ProgressJob extends Job {
+				ProgressJob(String name) {
+					super(name);
+				}
+				protected IStatus run(IProgressMonitor monitor) {
+					int awaitingJobsCount;
+					while ((awaitingJobsCount = awaitingJobsCount()) > 0) {
+						monitor.subTask(Util.bind("manager.filesToIndex", Integer.toString(awaitingJobsCount))); //$NON-NLS-1$
+						try {
+							Thread.sleep(500);
+						} catch (InterruptedException e) {
+							// ignore
+						}
+					}
+					return Status.OK_STATUS;
+				}
+			}
+			ProgressJob progressJob = null;
 			while (this.processingThread != null) {
 				try {
 					IJob job;
@@ -320,6 +330,7 @@ public abstract class JobManager implements Runnable {
 
 						// must check for new job inside this sync block to avoid timing hole
 						if ((job = currentJob()) == null) {
+							if (progressJob != null) progressJob = null;
 							if (idlingStart < 0)
 								idlingStart = System.currentTimeMillis();
 							else
@@ -336,17 +347,23 @@ public abstract class JobManager implements Runnable {
 						continue;
 					}
 					if (VERBOSE) {
-						JobManager.verbose(awaitingJobsCount() + " awaiting jobs"); //$NON-NLS-1$
-						JobManager.verbose("STARTING background job - " + job); //$NON-NLS-1$
+						Util.verbose(awaitingJobsCount() + " awaiting jobs"); //$NON-NLS-1$
+						Util.verbose("STARTING background job - " + job); //$NON-NLS-1$
 					}
 					try {
 						this.executing = true;
+						if (progressJob == null) {
+							progressJob = new ProgressJob(Util.bind("manager.indexingInProgress")); //$NON-NLS-1$
+							progressJob.setPriority(Job.LONG);
+							progressJob.setSystem(true);
+							progressJob.schedule();
+						}
 						/*boolean status = */job.execute(null);
 						//if (status == FAILED) request(job);
 					} finally {
 						this.executing = false;
 						if (VERBOSE)
-							JobManager.verbose("FINISHED background job - " + job); //$NON-NLS-1$
+							Util.verbose("FINISHED background job - " + job); //$NON-NLS-1$
 						moveToNextJob();
 						if (this.awaitingClients == 0)
 							Thread.sleep(50);
@@ -383,6 +400,9 @@ public abstract class JobManager implements Runnable {
 	 */
 	public void shutdown() {
 
+		if (VERBOSE)
+			Util.verbose("Shutdown"); //$NON-NLS-1$
+
 		disable();
 		discardJobs(null); // will wait until current executing job has completed
 		Thread thread = this.processingThread;
@@ -401,7 +421,7 @@ public abstract class JobManager implements Runnable {
 	}
 	public String toString() {
 		StringBuffer buffer = new StringBuffer(10);
-		buffer.append("Enabled:").append(this.enabled).append('\n'); //$NON-NLS-1$
+		buffer.append("Enable count:").append(this.enableCount).append('\n'); //$NON-NLS-1$
 		int numJobs = this.jobEnd - this.jobStart + 1;
 		buffer.append("Jobs in queue:").append(numJobs).append('\n'); //$NON-NLS-1$
 		for (int i = 0; i < numJobs && i < 15; i++) {

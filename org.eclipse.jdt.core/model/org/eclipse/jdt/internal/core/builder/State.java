@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -40,7 +40,7 @@ private long previousStructuralBuildTime;
 private StringSet structurallyChangedTypes;
 public static int MaxStructurallyChangedTypes = 100; // keep track of ? structurally changed types, otherwise consider all to be changed
 
-static final byte VERSION = 0x0007;
+static final byte VERSION = 0x0008;
 
 static final byte SOURCE_FOLDER = 1;
 static final byte BINARY_FOLDER = 2;
@@ -153,12 +153,17 @@ void record(String typeLocator, char[][][] qualifiedRefs, char[][] simpleRefs, c
 
 void recordLocatorForType(String qualifiedTypeName, String typeLocator) {
 	this.knownPackageNames = null;
+	// in the common case, the qualifiedTypeName is a substring of the typeLocator so share the char[] by using String.substring()
+	int start = typeLocator.indexOf(qualifiedTypeName, 0);
+	if (start > 0)
+		qualifiedTypeName = typeLocator.substring(start, start + qualifiedTypeName.length());
 	typeLocators.put(qualifiedTypeName, typeLocator);
 }
 
 void recordStructuralDependency(IProject prereqProject, State prereqState) {
 	if (prereqState != null)
-		structuralBuildTimes.put(prereqProject.getName(), new Long(prereqState.lastStructuralBuildTime));
+		if (prereqState.lastStructuralBuildTime > 0) // can skip if 0 (full build) since its assumed to be 0 if unknown
+			structuralBuildTimes.put(prereqProject.getName(), new Long(prereqState.lastStructuralBuildTime));
 }
 
 void removeLocator(String typeLocatorToRemove) {
@@ -214,7 +219,7 @@ static State read(IProject project, DataInputStream in) throws IOException {
 		if ((folderName = in.readUTF()).length() > 0) sourceFolder = project.getFolder(folderName);
 		if ((folderName = in.readUTF()).length() > 0) outputFolder = project.getFolder(folderName);
 		ClasspathMultiDirectory md =
-			(ClasspathMultiDirectory) ClasspathLocation.forSourceFolder(sourceFolder, outputFolder, readNames(in));
+			(ClasspathMultiDirectory) ClasspathLocation.forSourceFolder(sourceFolder, outputFolder, readNames(in), readNames(in));
 		if (in.readBoolean())
 			md.hasIndependentOutputFolder = true;
 		newState.sourceLocations[i] = md;
@@ -253,7 +258,7 @@ static State read(IProject project, DataInputStream in) throws IOException {
 
 	newState.typeLocators = new SimpleLookupTable(length = in.readInt());
 	for (int i = 0; i < length; i++)
-		newState.typeLocators.put(in.readUTF(), internedTypeLocators[in.readInt()]);
+		newState.recordLocatorForType(in.readUTF(), internedTypeLocators[in.readInt()]);
 
 	char[][] internedSimpleNames = ReferenceCollection.internSimpleNames(readNames(in), false);
 	char[][][] internedQualifiedNames = new char[length = in.readInt()][][];
@@ -368,6 +373,7 @@ void write(DataOutputStream out) throws IOException {
 		ClasspathMultiDirectory md = sourceLocations[i];
 		out.writeUTF(md.sourceFolder.getProjectRelativePath().toString());
 		out.writeUTF(md.binaryFolder.getProjectRelativePath().toString());
+		writeNames(md.inclusionPatterns, out);
 		writeNames(md.exclusionPatterns, out);
 		out.writeBoolean(md.hasIndependentOutputFolder);
 	}

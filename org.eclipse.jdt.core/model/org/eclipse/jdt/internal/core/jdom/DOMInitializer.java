@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,8 +13,7 @@ package org.eclipse.jdt.internal.core.jdom;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.core.jdom.IDOMInitializer;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
 /**
@@ -22,6 +21,9 @@ import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
  *
  * @see IDOMInitializer
  * @see DOMNode
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the 
+ * org.eclipse.jdt.core.dom package.
  */
 class DOMInitializer extends DOMMember implements IDOMInitializer {
 
@@ -116,7 +118,7 @@ protected void appendMemberDeclarationContents(CharArrayBuffer buffer) {
 	// nothing to do
 }
 /**
- * @see DOMNode#appendSimpleContents(CharArrayBuffer)
+ * @see DOMMember#appendSimpleContents(CharArrayBuffer)
  */
 protected void appendSimpleContents(CharArrayBuffer buffer) {
 	// append eveything before my name
@@ -178,7 +180,7 @@ public int getNodeType() {
 	return IDOMNode.INITIALIZER;
 }
 /**
- * @see IDOMNode#isSigantureEqual(IDOMNode).
+ * @see IDOMNode#isSignatureEqual(IDOMNode)
  *
  * <p>This method always answers false since an initializer
  * does not have a signature.
@@ -200,7 +202,7 @@ protected void offset(int offset) {
 	offsetRange(fBodyRange, offset);
 }
 /**
- * @see IDOMInitializer#setBody(char[])
+ * @see IDOMInitializer#setBody(String)
  */
 public void setBody(String body) {
 	becomeDetailed();

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IPath;
+import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModel;
@@ -23,7 +24,10 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.internal.core.JarPackageFragmentRoot;
+import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.JavaProject;
+import org.eclipse.jdt.internal.core.search.indexing.IndexManager;
+import org.eclipse.jdt.internal.core.search.matching.MatchLocator;
 
 /**
  * Selects the indexes that correspond to projects in a given search scope
@@ -32,7 +36,7 @@ import org.eclipse.jdt.internal.core.JavaProject;
 public class IndexSelector {
 	IJavaSearchScope searchScope;
 	SearchPattern pattern;
-	IPath[] indexKeys; // cache of the keys for looking index up
+	IPath[] indexLocations; // cache of the keys for looking index up
 	
 public IndexSelector(
 		IJavaSearchScope searchScope,
@@ -55,8 +59,8 @@ public static boolean canSeeFocus(IJavaElement focus, boolean isPolymorphicSearc
 			// it can see the focus only if it is on the classpath of a project that can see the focus
 			IJavaProject[] allProjects = model.getJavaProjects();
 			for (int i = 0, length = allProjects.length; i < length; i++) {
-				IJavaProject otherProject = allProjects[i];
-				IClasspathEntry[] entries = otherProject.getResolvedClasspath(true);
+				JavaProject otherProject = (JavaProject) allProjects[i];
+				IClasspathEntry[] entries = otherProject.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
 				for (int j = 0, length2 = entries.length; j < length2; j++) {
 					IClasspathEntry entry = entries[j];
 					if ((entry.getEntryKind() == IClasspathEntry.CPE_LIBRARY) 
@@ -68,51 +72,48 @@ public static boolean canSeeFocus(IJavaElement focus, boolean isPolymorphicSearc
 				}
 			}
 			return false;
-		} else {
-			// projectOrJarPath is a project
-			JavaProject focusProject = focus instanceof JarPackageFragmentRoot ? (JavaProject)focus.getParent() : (JavaProject)focus;
-			if (isPolymorphicSearch) {
-				// look for refering project
-				IClasspathEntry[] entries = focusProject.getExpandedClasspath(true);
-				for (int i = 0, length = entries.length; i < length; i++) {
-					IClasspathEntry entry = entries[i];
-					if ((entry.getEntryKind() == IClasspathEntry.CPE_PROJECT) 
-						&& entry.getPath().equals(projectOrJarPath)) {
-							return true;
-					}
-				}
-			}
-			if (focus instanceof JarPackageFragmentRoot) {
-				// focus is part of a jar
-				IPath focusPath = focus.getPath();
-				IClasspathEntry[] entries = ((JavaProject)project).getExpandedClasspath(true);
-				for (int i = 0, length = entries.length; i < length; i++) {
-					IClasspathEntry entry = entries[i];
-					if ((entry.getEntryKind() == IClasspathEntry.CPE_LIBRARY) 
-						&& entry.getPath().equals(focusPath)) {
-							return true;
-					}
-				}
-				return false;
-			} else {
-				// focus is part of a project
-				if (focus.equals(project)) {
-					return true;
-				} else {
-					// look for dependent projects
-					IPath focusPath = focusProject.getProject().getFullPath();
-					IClasspathEntry[] entries = ((JavaProject)project).getExpandedClasspath(true);
-					for (int i = 0, length = entries.length; i < length; i++) {
-						IClasspathEntry entry = entries[i];
-						if ((entry.getEntryKind() == IClasspathEntry.CPE_PROJECT) 
-							&& entry.getPath().equals(focusPath)) {
-								return true;
-						}
-					}
-					return false;
+		}
+		// projectOrJarPath is a project
+		JavaProject focusProject = focus instanceof JarPackageFragmentRoot ? (JavaProject)focus.getParent() : (JavaProject)focus;
+		if (isPolymorphicSearch) {
+			// look for refering project
+			IClasspathEntry[] entries = focusProject.getExpandedClasspath(true);
+			for (int i = 0, length = entries.length; i < length; i++) {
+				IClasspathEntry entry = entries[i];
+				if ((entry.getEntryKind() == IClasspathEntry.CPE_PROJECT) 
+					&& entry.getPath().equals(projectOrJarPath)) {
+						return true;
 				}
 			}
 		}
+		if (focus instanceof JarPackageFragmentRoot) {
+			// focus is part of a jar
+			IPath focusPath = focus.getPath();
+			IClasspathEntry[] entries = ((JavaProject)project).getExpandedClasspath(true);
+			for (int i = 0, length = entries.length; i < length; i++) {
+				IClasspathEntry entry = entries[i];
+				if ((entry.getEntryKind() == IClasspathEntry.CPE_LIBRARY) 
+					&& entry.getPath().equals(focusPath)) {
+						return true;
+				}
+			}
+			return false;
+		} 
+		// focus is part of a project
+		if (focus.equals(project)) {
+			return true;
+		} 
+		// look for dependent projects
+		IPath focusPath = focusProject.getProject().getFullPath();
+		IClasspathEntry[] entries = ((JavaProject)project).getExpandedClasspath(true);
+		for (int i = 0, length = entries.length; i < length; i++) {
+			IClasspathEntry entry = entries[i];
+			if ((entry.getEntryKind() == IClasspathEntry.CPE_PROJECT) 
+				&& entry.getPath().equals(focusPath)) {
+					return true;
+			}
+		}
+		return false;
 	} catch (JavaModelException e) {
 		return false;
 	}
@@ -120,13 +121,14 @@ public static boolean canSeeFocus(IJavaElement focus, boolean isPolymorphicSearc
 /*
  *  Compute the list of paths which are keying index files.
  */
-private void initializeIndexKeys() {
+private void initializeIndexLocations() {
 	
 	ArrayList requiredIndexKeys = new ArrayList();
 	IPath[] projectsAndJars = this.searchScope.enclosingProjectsAndJars();
 	IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
-	IJavaElement projectOrJarFocus = this.pattern == null || this.pattern.focus == null ? null : getProjectOrJar(this.pattern.focus);
-	boolean isPolymorphicSearch = this.pattern == null ? false : this.pattern.isPolymorphicSearch();
+	IJavaElement projectOrJarFocus = MatchLocator.projectOrJarFocus(this.pattern);
+	boolean isPolymorphicSearch = this.pattern == null ? false : MatchLocator.isPolymorphicSearch(this.pattern);
+	IndexManager manager = JavaModelManager.getJavaModelManager().getIndexManager();
 	for (int i = 0; i < projectsAndJars.length; i++) {
 		IPath location;
 		IPath path = projectsAndJars[i];
@@ -139,18 +141,18 @@ private void initializeIndexKeys() {
 		}
 		if (projectOrJarFocus == null || canSeeFocus(projectOrJarFocus, isPolymorphicSearch, path)) {
 			if (requiredIndexKeys.indexOf(path) == -1) {
-				requiredIndexKeys.add(path);
+				requiredIndexKeys.add(new Path(manager.computeIndexLocation(path)));
 			}
 		}
 	}
-	this.indexKeys = new IPath[requiredIndexKeys.size()];
-	requiredIndexKeys.toArray(this.indexKeys);
+	this.indexLocations = new IPath[requiredIndexKeys.size()];
+	requiredIndexKeys.toArray(this.indexLocations);
 }
-public IPath[] getIndexKeys() {
-	if (this.indexKeys == null) {
-		this.initializeIndexKeys(); 
+public IPath[] getIndexLocations() {
+	if (this.indexLocations == null) {
+		this.initializeIndexLocations(); 
 	}
-	return this.indexKeys;
+	return this.indexLocations;
 }
 
 /**
@@ -161,14 +163,7 @@ private static IJavaProject getJavaProject(IPath path, IJavaModel model) {
 	IJavaProject project = model.getJavaProject(path.lastSegment());
 	if (project.exists()) {
 		return project;
-	} else {
-		return null;
 	}
-}
-public static IJavaElement getProjectOrJar(IJavaElement element) {
-	while (!(element instanceof IJavaProject) && !(element instanceof JarPackageFragmentRoot)) {
-		element = element.getParent();
-	}
-	return element;
+	return null;
 }
 }

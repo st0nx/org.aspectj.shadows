@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -19,7 +19,7 @@ import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaCore;
+//import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
@@ -42,10 +42,6 @@ public abstract class HierarchyBuilder implements IHierarchyRequestor {
 	 */
 	protected TypeHierarchy hierarchy;
 	/**
-	 * The name environment used by the HierarchyResolver
-	 */
-	protected SearchableEnvironment searchableEnvironment;
-	/**
 	 * @see NameLookup
 	 */
 	protected NameLookup nameLookup;
@@ -65,12 +61,28 @@ public abstract class HierarchyBuilder implements IHierarchyRequestor {
 		
 		this.hierarchy = hierarchy;
 		JavaProject project = (JavaProject) hierarchy.javaProject();
-		this.searchableEnvironment =
-			(SearchableEnvironment) project.getSearchableNameEnvironment();
-		this.nameLookup = project.getNameLookup();
+		
+		IType focusType = hierarchy.getType();
+		org.eclipse.jdt.core.ICompilationUnit unitToLookInside = focusType == null ? null : focusType.getCompilationUnit();
+		org.eclipse.jdt.core.ICompilationUnit[] workingCopies = this.hierarchy.workingCopies;
+		org.eclipse.jdt.core.ICompilationUnit[] unitsToLookInside;
+		if (unitToLookInside != null) {
+			int wcLength = workingCopies == null ? 0 : workingCopies.length;
+			if (wcLength == 0) {
+				unitsToLookInside = new org.eclipse.jdt.core.ICompilationUnit[] {unitToLookInside};
+			} else {
+				unitsToLookInside = new org.eclipse.jdt.core.ICompilationUnit[wcLength+1];
+				unitsToLookInside[0] = unitToLookInside;
+				System.arraycopy(workingCopies, 0, unitsToLookInside, 1, wcLength);
+			}
+		} else {
+			unitsToLookInside = workingCopies;
+		}
+		SearchableEnvironment searchableEnvironment = (SearchableEnvironment) project.newSearchableNameEnvironment(unitsToLookInside);
+		this.nameLookup = searchableEnvironment.nameLookup;
 		this.hierarchyResolver =
 			new HierarchyResolver(
-				this.searchableEnvironment,
+				searchableEnvironment,
 				project.getOptions(true),
 				this,
 				new DefaultProblemFactory());
@@ -98,33 +110,8 @@ public abstract class HierarchyBuilder implements IHierarchyRequestor {
 		//NB: no need to set focus type on hierarchy resolver since no other type is injected
 		//    in the hierarchy resolver, thus there is no need to check that a type is 
 		//    a sub or super type of the focus type.
-		org.eclipse.jdt.core.ICompilationUnit unitToLookInside = focusType.getCompilationUnit();
-		if (nameLookup != null) {
-			org.eclipse.jdt.core.ICompilationUnit[] workingCopies = this.hierarchy.workingCopies;
-			org.eclipse.jdt.core.ICompilationUnit[] unitsToLookInside;
-			if (unitToLookInside != null) {
-				int wcLength = workingCopies == null ? 0 : workingCopies.length;
-				if (wcLength == 0) {
-					unitsToLookInside = new org.eclipse.jdt.core.ICompilationUnit[] {unitToLookInside};
-				} else {
-					unitsToLookInside = new org.eclipse.jdt.core.ICompilationUnit[wcLength+1];
-					unitsToLookInside[0] = unitToLookInside;
-					System.arraycopy(workingCopies, 0, unitsToLookInside, 1, wcLength);
-				}
-			} else {
-				unitsToLookInside = workingCopies;
-			}
-			try {
-				nameLookup.setUnitsToLookInside(unitsToLookInside); // NB: this uses a PerThreadObject, so it is thread safe
-				// resolve
-				this.hierarchyResolver.resolve(type);
-			} finally {
-				nameLookup.setUnitsToLookInside(null);
-			}
-		} else {
-			// resolve
-			this.hierarchyResolver.resolve(type);
-		}
+		this.hierarchyResolver.resolve(type);
+
 		// Add focus if not already in (case of a type with no explicit super type)
 		if (!this.hierarchy.contains(focusType)) {
 			this.hierarchy.addRootClass(focusType);
@@ -222,7 +209,14 @@ public abstract class HierarchyBuilder implements IHierarchyRequestor {
 	protected IType getHandle(IGenericType genericType) {
 		if (genericType == null)
 			return null;
-		if (genericType.isBinaryType()) {
+		if (genericType instanceof HierarchyType) {
+			IType handle = (IType)this.infoToHandle.get(genericType);
+			if (handle == null) {
+				handle = ((HierarchyType)genericType).typeHandle;
+				this.infoToHandle.put(genericType, handle);
+			}
+			return handle;
+		} else if (genericType.isBinaryType()) {
 			IClassFile classFile = (IClassFile) this.infoToHandle.get(genericType);
 			// if it's null, it's from outside the region, so do lookup
 			if (classFile == null) {
@@ -276,13 +270,12 @@ public abstract class HierarchyBuilder implements IHierarchyRequestor {
  * Create an ICompilationUnit info from the given compilation unit on disk.
  */
 protected ICompilationUnit createCompilationUnitFromPath(Openable handle, String osPath) {
-	String encoding = handle.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
 	return 
 		new BasicCompilationUnit(
 			null,
 			null,
 			osPath,
-			encoding);
+			handle);
 }
 	/**
  * Creates the type info from the given class file on disk and

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,8 +14,7 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.core.jdom.IDOMMethod;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
 /**
@@ -23,8 +22,11 @@ import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
  *
  * @see IDOMMethod
  * @see DOMNode
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the 
+ * org.eclipse.jdt.core.dom package.
  */
- 
+// TODO (jerome) - add implementation support for 1.5 features
 class DOMMethod extends DOMMember implements IDOMMethod {
 
 	/**
@@ -110,6 +112,18 @@ class DOMMethod extends DOMMember implements IDOMMethod {
 	 */
 	protected String[] fExceptions;
 
+	/**
+	 * The formal type parameters.
+	 * @since 3.0
+	 */
+	protected String[] fTypeParameters = new String[0];
+
+	/**
+	 * Default value for this attotation type member (only),
+	 * or <code>null</code> if none.
+	 * @since 3.0
+	 */
+	protected String fDefaultValue = null;
 	
 /**
  * Constructs an empty method node.
@@ -336,7 +350,7 @@ protected void appendMemberDeclarationContents(CharArrayBuffer buffer) {
 	
 }
 /**
- * @see DOMNode#appendSimpleContents(CharArrayBuffer)
+ * @see DOMMember#appendSimpleContents(CharArrayBuffer)
  */
 protected void appendSimpleContents(CharArrayBuffer buffer) {
 	// append eveything before my name
@@ -505,7 +519,7 @@ protected boolean isReturnTypeAltered() {
 	return getMask(MASK_RETURN_TYPE_ALTERED);
 }
 /**
- * @see IDOMNode#isSigantureEqual(IDOMNode).
+ * @see IDOMNode#isSignatureEqual(IDOMNode)
  *
  * <p>Two methods have equal signatures if there names are the same
  * and their parameter types are the same.
@@ -595,7 +609,7 @@ public void setConstructor(boolean b) {
 	fragment();
 }
 /**
- * @see IDOMMethod#setExceptions(char[][])
+ * @see IDOMMethod#setExceptions(String[])
  */
 public void setExceptions(String[] names) {
 	becomeDetailed();
@@ -625,7 +639,7 @@ public void setName(String name) {
 	}
 }
 /**
- * @see IDOMMethod#setParameters(char[][], char[][])
+ * @see IDOMMethod#setParameters(String[], String[])
  */
 public void setParameters(String[] types, String[] names) throws IllegalArgumentException {
 	becomeDetailed();
@@ -662,7 +676,7 @@ public void setParameters(String[] types, String[] names) throws IllegalArgument
 	fragment();
 }
 /**
- * @see IDOMMethod#setReturnType(char[])
+ * @see IDOMMethod#setReturnType(String)
  */
 public void setReturnType(String name) throws IllegalArgumentException {
 	if (name == null) {
@@ -713,5 +727,37 @@ public String toString() {
 	} else {
 		return "METHOD: " + getName(); //$NON-NLS-1$
 	}
+}
+
+/**
+ * @see IDOMMethod#setDefault(java.lang.String)
+ * @since 3.0
+ */
+public void setDefault(String defaultValue) {
+	this.fDefaultValue =  defaultValue;
+}
+
+/**
+ * @see IDOMMethod#getDefault()
+ * @since 3.0
+ */
+public String getDefault() {
+	return this.fDefaultValue;
+}
+
+/**
+ * @see IDOMMethod#getTypeParameters()
+ * @since 3.0
+ */
+public String[] getTypeParameters() {
+	return this.fTypeParameters;
+}
+
+/**
+ * @see IDOMMethod#setTypeParameters(java.lang.String[])
+ * @since 3.0
+ */
+public void setTypeParameters(String[] typeParameters) {
+	this.fTypeParameters = typeParameters;
 }
 }

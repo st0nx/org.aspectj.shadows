@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -145,9 +145,6 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 				ArrayList[] entries= (ArrayList[]) packageFragToTypes.get(packName);
 				JarPackageFragment packFrag= (JarPackageFragment) getPackageFragment(packName);
 				JarPackageFragmentInfo fragInfo= new JarPackageFragmentInfo();
-				if (entries[0].size() > 0){
-					fragInfo.setEntryNames(entries[JAVA]);
-				}
 				int resLength= entries[NON_JAVA].size();
 				if (resLength == 0) {
 					packFrag.computeNonJavaResources(NO_STRINGS, fragInfo, jar.getName());
@@ -156,7 +153,7 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 					entries[NON_JAVA].toArray(resNames);
 					packFrag.computeNonJavaResources(resNames, fragInfo, jar.getName());
 				}
-				packFrag.computeChildren(fragInfo);
+				packFrag.computeChildren(fragInfo, entries[JAVA]);
 				newElements.put(packFrag, fragInfo);
 				vChildren.add(packFrag);
 			}
@@ -261,18 +258,6 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 			return null;
 		} else {
 			return super.getUnderlyingResource();
-		}
-	}
-	/**
-	 * If I am not open, return true to avoid parsing.
-	 *
-	 * @see IParent 
-	 */
-	public boolean hasChildren() throws JavaModelException {
-		if (isOpen()) {
-			return getChildren().length > 0;
-		} else {
-			return true;
 		}
 	}
 	public int hashCode() {

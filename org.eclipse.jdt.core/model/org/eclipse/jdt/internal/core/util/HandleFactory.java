@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -162,16 +162,13 @@ public class HandleFactory {
 		    int nodeIndex = -1;
 			
 		    public void push(ASTNode node) {
-		        try {
-		            this.nodeStack[++this.nodeIndex] = node;
-		        } catch (IndexOutOfBoundsException e) {
+		    	if (++this.nodeIndex >= this.nodeStack.length) 
 		            System.arraycopy(this.nodeStack, 0, this.nodeStack = new ASTNode[this.nodeStack.length*2], 0, this.nodeIndex-1);
-		            this.nodeStack[this.nodeIndex] = node;
-		        }
+	            this.nodeStack[this.nodeIndex] = node;
 		    }
 		    
 		    public void pop(ASTNode node) {
-		    	while (this.nodeIndex >= 0 && this.nodeStack[this.nodeIndex--] != node);
+		    	while (this.nodeIndex >= 0 && this.nodeStack[this.nodeIndex--] != node){/*empty*/}
 		    }
 		    
 			public boolean visit(Argument node, BlockScope scope) {
@@ -484,10 +481,10 @@ public class HandleFactory {
 			//  e.g. org.eclipse.swt.win32/ws/win32/swt.jar 
 			//        is NOT on the classpath of org.eclipse.swt.win32
 			IFile jarFile = (IFile)target;
-			IJavaProject javaProject = this.javaModel.getJavaProject(jarFile);
+			JavaProject javaProject = (JavaProject) this.javaModel.getJavaProject(jarFile);
 			IClasspathEntry[] classpathEntries;
 			try {
-				classpathEntries = javaProject.getResolvedClasspath(true);
+				classpathEntries = javaProject.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
 				for (int j= 0, entryCount= classpathEntries.length; j < entryCount; j++) {
 					if (classpathEntries[j].getPath().equals(jarPath)) {
 						return javaProject.getPackageFragmentRoot(jarFile);
@@ -537,7 +534,7 @@ public class HandleFactory {
 		for (int i= 0, projectCount= projects.length; i < projectCount; i++) {
 			try {
 				JavaProject javaProject= (JavaProject)projects[i];
-				IClasspathEntry[] classpathEntries= javaProject.getResolvedClasspath(true);
+				IClasspathEntry[] classpathEntries= javaProject.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
 				for (int j= 0, entryCount= classpathEntries.length; j < entryCount; j++) {
 					if (classpathEntries[j].getPath().equals(jarPath)) {
 						if (target instanceof IFile) {
@@ -607,7 +604,7 @@ public class HandleFactory {
 				IPackageFragmentRoot[] roots= javaProject.getPackageFragmentRoots();
 				for (int j= 0, rootCount= roots.length; j < rootCount; j++) {
 					PackageFragmentRoot root= (PackageFragmentRoot)roots[j];
-					if (root.getPath().isPrefixOf(path) && !Util.isExcluded(path, root.fullExclusionPatternChars())) {
+					if (root.getPath().isPrefixOf(path) && !Util.isExcluded(path, root.fullInclusionPatternChars(), root.fullExclusionPatternChars(), false)) {
 						return root;
 					}
 				}

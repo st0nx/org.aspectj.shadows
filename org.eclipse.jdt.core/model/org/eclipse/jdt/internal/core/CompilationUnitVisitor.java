@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,11 +13,10 @@ package org.eclipse.jdt.internal.core;
 import java.util.Locale;
 import java.util.Map;
 
-import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.JavaCore;
+//import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
@@ -117,12 +116,6 @@ public class CompilationUnitVisitor extends Compiler {
 		};
 	}
 
-	protected static INameEnvironment getNameEnvironment(ICompilationUnit sourceUnit)
-		throws JavaModelException {
-		return (SearchableEnvironment) ((JavaProject) sourceUnit.getJavaProject())
-			.getSearchableNameEnvironment();
-	}
-
 	/*
 	 * Answer the component to which will be handed back compilation results from the compiler
 	 */
@@ -139,10 +132,10 @@ public class CompilationUnitVisitor extends Compiler {
 		ASTVisitor visitor)
 		throws JavaModelException {
 
-		IJavaProject project = unitElement.getJavaProject();
+		JavaProject project = (JavaProject) unitElement.getJavaProject();
 		CompilationUnitVisitor compilationUnitVisitor =
 			new CompilationUnitVisitor(
-				getNameEnvironment(unitElement),
+				project.newSearchableNameEnvironment(unitElement.getOwner()),
 				getHandlingPolicy(),
 				project.getOptions(true),
 				getRequestor(),
@@ -150,7 +143,6 @@ public class CompilationUnitVisitor extends Compiler {
 
 		CompilationUnitDeclaration unit = null;
 		try {
-			String encoding = project.getOption(JavaCore.CORE_ENCODING, true);
 
 			IPackageFragment packageFragment = (IPackageFragment)unitElement.getAncestor(IJavaElement.PACKAGE_FRAGMENT);
 			char[][] expectedPackageName = null;
@@ -163,7 +155,7 @@ public class CompilationUnitVisitor extends Compiler {
 						unitElement.getSource().toCharArray(),
 						expectedPackageName,
 						unitElement.getElementName(),
-						encoding),
+						unitElement),
 					true, // method verification
 					false, // no flow analysis
 					false); // no code generation

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -100,6 +100,9 @@ private void generateMethodInfos(IType type, IBinaryType typeInfo, HashMap newEl
 	}
 	for (int i = 0, methodCount = methods.length; i < methodCount; i++) {
 		IBinaryMethod methodInfo = methods[i];
+		// TODO (jerome) filter out synthetic members
+		//                        indexer should not index them as well
+		// if ((methodInfo.getModifiers() & IConstants.AccSynthetic) != 0) continue; // skip synthetic
 		String[] pNames= Signature.getParameterTypes(new String(methodInfo.getMethodDescriptor()));
 		char[][] paramNames= new char[pNames.length][];
 		for (int j= 0; j < pNames.length; j++) {

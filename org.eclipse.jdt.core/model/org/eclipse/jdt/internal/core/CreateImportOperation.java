@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -19,9 +19,7 @@ import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaConventions;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.DOMFactory;
-import org.eclipse.jdt.core.jdom.IDOMImport;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -56,8 +54,10 @@ public CreateImportOperation(String importName, ICompilationUnit parentElement) 
 	fImportName = importName;
 }
 /**
- * @see CreateTypeMemberOperation#generateElementDOM
+ * @see CreateTypeMemberOperation
+ * @deprecated JDOM is obsolete
  */
+// TODO - JDOM - remove once model ported off of JDOM
 protected IDOMNode generateElementDOM() {
 	if (fCUDOM.getChild(fImportName) == null) {
 		DOMFactory factory = new DOMFactory();

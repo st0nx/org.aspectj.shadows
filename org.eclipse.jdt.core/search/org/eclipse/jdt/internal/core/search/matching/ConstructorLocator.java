@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
+import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
@@ -34,7 +35,7 @@ public int match(ASTNode node, MatchingNodeSet nodeSet) { // interested in Expli
 		if (length != argsLength) return IMPOSSIBLE_MATCH;
 	}
 
-	return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+	return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 }
 public int match(ConstructorDeclaration node, MatchingNodeSet nodeSet) {
 	int referencesLevel = this.pattern.findReferences ? matchLevelForReferences(node) : IMPOSSIBLE_MATCH;
@@ -59,7 +60,7 @@ public int match(Expression node, MatchingNodeSet nodeSet) { // interested in Al
 		if (length != argsLength) return IMPOSSIBLE_MATCH;
 	}
 
-	return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+	return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 }
 //public int match(FieldDeclaration node, MatchingNodeSet nodeSet) - SKIP IT
 //public int match(MethodDeclaration node, MatchingNodeSet nodeSet) - SKIP IT
@@ -69,7 +70,7 @@ public int match(TypeDeclaration node, MatchingNodeSet nodeSet) {
 	if (!this.pattern.findReferences) return IMPOSSIBLE_MATCH;
 
 	// need to look for a generated default constructor
-	return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+	return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 }
 //public int match(TypeReference node, MatchingNodeSet nodeSet) - SKIP IT
 
@@ -94,7 +95,7 @@ protected int matchLevelForReferences(ConstructorDeclaration constructor) {
 		int argsLength = args == null ? 0 : args.length;
 		if (length != argsLength) return IMPOSSIBLE_MATCH;
 	}
-	return this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
+	return ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
 }
 protected int matchLevelForDeclarations(ConstructorDeclaration constructor) {
 	// constructor name is stored in selector field
@@ -112,7 +113,7 @@ protected int matchLevelForDeclarations(ConstructorDeclaration constructor) {
 				return IMPOSSIBLE_MATCH;
 	}
 
-	return this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
+	return ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
 }
 public int resolveLevel(ASTNode node) {
 	if (this.pattern.findReferences) {
@@ -126,6 +127,9 @@ public int resolveLevel(ASTNode node) {
 	if (node instanceof ConstructorDeclaration)
 		return resolveLevel((ConstructorDeclaration) node, true);
 	return IMPOSSIBLE_MATCH;
+}
+protected int referenceType() {
+	return IJavaElement.METHOD;
 }
 protected int resolveLevel(AllocationExpression allocation) {
 	// constructor name is simple type name

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -100,7 +100,7 @@ protected String getMainTaskName() {
 	return Util.bind("operation.deleteResourceProgress"); //$NON-NLS-1$
 }
 /**
- * @see MultiOperation. This method delegate to <code>deleteResource</code> or
+ * @see MultiOperation This method delegate to <code>deleteResource</code> or
  * <code>deletePackageFragment</code> depending on the type of <code>element</code>.
  */
 protected void processElement(IJavaElement element) throws JavaModelException {

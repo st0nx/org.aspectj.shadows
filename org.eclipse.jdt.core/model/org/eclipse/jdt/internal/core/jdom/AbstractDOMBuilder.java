@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,13 +12,15 @@ package org.eclipse.jdt.internal.core.jdom;
 
 import java.util.Stack;
 
-import org.eclipse.jdt.core.jdom.IDOMCompilationUnit;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.core.util.ReferenceInfoAdapter;
 
 /**
  * An abstract DOM builder that contains shared functionality of DOMBuilder and SimpleDOMBuilder.
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the 
+ * org.eclipse.jdt.core.dom package.
  */
 public class AbstractDOMBuilder extends ReferenceInfoAdapter implements ILineStartFinder {
 	/**
@@ -81,7 +83,7 @@ public AbstractDOMBuilder() {
  *
  * <p>A line separator might corresponds to several characters in the source.
  *
- * @see IDocumentElementRequestor#acceptLineSeparatorPositions(int[])
+ * @see org.eclipse.jdt.internal.compiler.IDocumentElementRequestor#acceptLineSeparatorPositions(int[])
  */
 public void acceptLineSeparatorPositions(int[] positions) {
 	if (positions != null) {
@@ -145,11 +147,11 @@ public IDOMCompilationUnit createCompilationUnit(ICompilationUnit compilationUni
 	return (IDOMCompilationUnit)fNode;
 }
 /**
- * @see IDocumentElementRequestor#enterClass(int, int[], int, int, int, char[], int, int, char[], int, int, char[][], int[], int[], int)
+ * @see org.eclipse.jdt.internal.compiler.IDocumentElementRequestor#enterClass(int, int[], int, int, int, char[], int, int, char[], int, int, char[][], int[], int[], int)
  */
 public void enterCompilationUnit() {
  	if (fBuildingCU) {
-	 	IDOMCompilationUnit cu= new DOMCompilationUnit(fDocument, new int[] {0, fDocument.length - 1});
+ 		IDOMCompilationUnit cu= new DOMCompilationUnit(fDocument, new int[] {0, fDocument.length - 1});
  		fStack.push(cu);
  	}
 }
@@ -157,7 +159,7 @@ public void enterCompilationUnit() {
  * Finishes the configuration of the compilation unit DOM object which
  * was created by a previous enterCompilationUnit call.
  *
- * @see IDocumentElementRequestor#exitCompilationUnit(int)
+ * @see org.eclipse.jdt.internal.compiler.IDocumentElementRequestor#exitCompilationUnit(int)
  */
 public void exitCompilationUnit(int declarationEnd) {
 	DOMCompilationUnit cu = (DOMCompilationUnit) fStack.pop();

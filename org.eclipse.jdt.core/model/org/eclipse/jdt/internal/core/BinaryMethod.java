@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -143,10 +143,11 @@ public int getFlags() throws JavaModelException {
  */
 public String getHandleMemento() {
 	StringBuffer buff = new StringBuffer(((JavaElement) getParent()).getHandleMemento());
-	buff.append(getHandleMementoDelimiter());
-	buff.append(getElementName());
+	char delimiter = getHandleMementoDelimiter();
+	buff.append(delimiter);
+	escapeMementoName(buff, getElementName());
 	for (int i = 0; i < this.parameterTypes.length; i++) {
-		buff.append(getHandleMementoDelimiter());
+		buff.append(delimiter);
 		buff.append(this.parameterTypes[i]);
 	}
 	if (this.occurrenceCount > 1) {
@@ -215,6 +216,16 @@ public String[] getParameterNames() throws JavaModelException {
 public String[] getParameterTypes() {
 	return this.parameterTypes;
 }
+
+/**
+ * @see IMethod#getTypeParameterSignatures()
+ * @since 3.0
+ */
+public String[] getTypeParameterSignatures() throws JavaModelException {
+	// TODO (jerome) - missing implementation
+	return new String[0];
+}
+
 /*
  * @see IMethod
  */
@@ -232,6 +243,16 @@ public String getReturnType() throws JavaModelException {
 public String getSignature() throws JavaModelException {
 	IBinaryMethod info = (IBinaryMethod) getElementInfo();
 	return new String(info.getMethodDescriptor());
+}
+/**
+ * @see org.eclipse.jdt.internal.core.JavaElement#hashCode()
+ */
+public int hashCode() {
+   int hash = super.hashCode();
+	for (int i = 0, length = parameterTypes.length; i < length; i++) {
+	    hash = Util.combineHashCodes(hash, parameterTypes[i].hashCode());
+	}
+	return hash;
 }
 /*
  * @see IMethod
@@ -281,12 +302,10 @@ public String readableName() {
 protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 	buffer.append(this.tabString(tab));
 	if (info == null) {
-		buffer.append(getElementName());
-		toStringParameters(buffer);
+		toStringName(buffer);
 		buffer.append(" (not open)"); //$NON-NLS-1$
 	} else if (info == NO_INFO) {
-		buffer.append(getElementName());
-		toStringParameters(buffer);
+		toStringName(buffer);
 	} else {
 		try {
 			if (Flags.isStatic(this.getFlags())) {
@@ -296,14 +315,14 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 				buffer.append(Signature.toString(this.getReturnType()));
 				buffer.append(' ');
 			}
-			buffer.append(this.getElementName());
-			toStringParameters(buffer);
+			toStringName(buffer);
 		} catch (JavaModelException e) {
 			buffer.append("<JavaModelException in toString of " + getElementName()); //$NON-NLS-1$
 		}
 	}
 }
-private void toStringParameters(StringBuffer buffer) {
+protected void toStringName(StringBuffer buffer) {
+	buffer.append(getElementName());
 	buffer.append('(');
 	String[] parameters = this.getParameterTypes();
 	int length;
@@ -316,5 +335,9 @@ private void toStringParameters(StringBuffer buffer) {
 		}
 	}
 	buffer.append(')');
+	if (this.occurrenceCount > 1) {
+		buffer.append("#"); //$NON-NLS-1$
+		buffer.append(this.occurrenceCount);
+	}
 }
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -72,9 +72,9 @@ class XMLWriter extends PrintWriter {
 		sb.append("<"); //$NON-NLS-1$
 		sb.append(name);
 		if (parameters != null) {
-			for (Enumeration enum= Collections.enumeration(parameters.keySet()); enum.hasMoreElements();) {
+			for (Enumeration en = Collections.enumeration(parameters.keySet()); en.hasMoreElements();) {
 				sb.append(" "); //$NON-NLS-1$
-				String key= (String) enum.nextElement();
+				String key= (String) en.nextElement();
 				sb.append(key);
 				sb.append("=\""); //$NON-NLS-1$
 				sb.append(getEscaped(String.valueOf(parameters.get(key))));

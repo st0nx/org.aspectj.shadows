@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -43,6 +43,11 @@ public PossibleMatch(MatchLocator locator, IResource resource, Openable openable
 }
 public void cleanUp() {
 	this.source = null;
+	if (this.parsedUnit != null) {
+		this.parsedUnit.cleanUp();
+		this.parsedUnit = null;
+	}
+	this.nodeSet = null;
 }
 public boolean equals(Object obj) {
 	if (this.compoundName == null) return super.equals(obj);
@@ -68,7 +73,7 @@ public char[] getContents() {
 /**
  * The exact openable file name. In particular, will be the originating .class file for binary openable with attached
  * source.
- * @see PackageReferenceLocator#isDeclaringPackageFragment(IPackageFragment, ReferenceBinding)
+ * @see PackageReferenceLocator#isDeclaringPackageFragment(IPackageFragment, org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding)
  */
 public char[] getFileName() {
 	return this.openable.getElementName().toCharArray();

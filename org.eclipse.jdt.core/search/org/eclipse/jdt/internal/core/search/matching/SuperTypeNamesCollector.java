@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,6 +26,7 @@ import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.search.*;
 import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 import org.eclipse.jdt.internal.core.search.indexing.IndexManager;
+import org.eclipse.jdt.internal.core.util.ASTNodeFinder;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -35,6 +36,42 @@ import org.eclipse.jdt.internal.core.util.Util;
  */
 public class SuperTypeNamesCollector {
 
+	/**
+	 * An ast visitor that visits type declarations and member type declarations
+	 * collecting their super type names.
+	 */
+	public class TypeDeclarationVisitor extends ASTVisitor {
+		public boolean visit(TypeDeclaration typeDeclaration, BlockScope scope) {
+			ReferenceBinding binding = typeDeclaration.binding;
+			if (SuperTypeNamesCollector.this.matches(binding))
+				SuperTypeNamesCollector.this.collectSuperTypeNames(binding);
+			return true;
+		}
+		public boolean visit(TypeDeclaration typeDeclaration, CompilationUnitScope scope) {
+			ReferenceBinding binding = typeDeclaration.binding;
+			if (SuperTypeNamesCollector.this.matches(binding))
+				SuperTypeNamesCollector.this.collectSuperTypeNames(binding);
+			return true;
+		}
+		public boolean visit(TypeDeclaration memberTypeDeclaration, ClassScope scope) {
+			ReferenceBinding binding = memberTypeDeclaration.binding;
+			if (SuperTypeNamesCollector.this.matches(binding))
+				SuperTypeNamesCollector.this.collectSuperTypeNames(binding);
+			return true;
+		}
+		public boolean visit(FieldDeclaration fieldDeclaration, MethodScope scope) {
+			return false; // don't visit field declarations
+		}
+		public boolean visit(Initializer initializer, MethodScope scope) {
+			return false; // don't visit initializers
+		}
+		public boolean visit(ConstructorDeclaration constructorDeclaration, ClassScope scope) {
+			return false; // don't visit constructor declarations
+		}
+		public boolean visit(MethodDeclaration methodDeclaration, ClassScope scope) {
+			return false; // don't visit method declarations
+		}
+	}
 SearchPattern pattern;
 char[] typeSimpleName;
 char[] typeQualification;
@@ -43,43 +80,6 @@ IType type;
 IProgressMonitor progressMonitor;
 char[][][] result;
 int resultIndex;
-
-/**
- * An ast visitor that visits type declarations and member type declarations
- * collecting their super type names.
- */
-public class TypeDeclarationVisitor extends ASTVisitor {
-	public boolean visit(TypeDeclaration typeDeclaration, BlockScope scope) {
-		ReferenceBinding binding = typeDeclaration.binding;
-		if (SuperTypeNamesCollector.this.matches(binding))
-			SuperTypeNamesCollector.this.collectSuperTypeNames(binding);
-		return true;
-	}
-	public boolean visit(TypeDeclaration typeDeclaration, CompilationUnitScope scope) {
-		ReferenceBinding binding = typeDeclaration.binding;
-		if (SuperTypeNamesCollector.this.matches(binding))
-			SuperTypeNamesCollector.this.collectSuperTypeNames(binding);
-		return true;
-	}
-	public boolean visit(TypeDeclaration memberTypeDeclaration, ClassScope scope) {
-		ReferenceBinding binding = memberTypeDeclaration.binding;
-		if (SuperTypeNamesCollector.this.matches(binding))
-			SuperTypeNamesCollector.this.collectSuperTypeNames(binding);
-		return true;
-	}
-	public boolean visit(FieldDeclaration fieldDeclaration, MethodScope scope) {
-		return false; // don't visit field declarations
-	}
-	public boolean visit(Initializer initializer, MethodScope scope) {
-		return false; // don't visit initializers
-	}
-	public boolean visit(ConstructorDeclaration constructorDeclaration, ClassScope scope) {
-		return false; // don't visit constructor declarations
-	}
-	public boolean visit(MethodDeclaration methodDeclaration, ClassScope scope) {
-		return false; // don't visit method declarations
-	}
-}
 
 public SuperTypeNamesCollector(
 	SearchPattern pattern,
@@ -108,9 +108,8 @@ protected void addToResult(char[][] compoundName) {
 }
 /*
  * Parse the given compiation unit and build its type bindings.
- * Don't build methods and fields.
  */
-protected CompilationUnitDeclaration buildBindings(ICompilationUnit compilationUnit) throws JavaModelException {
+protected CompilationUnitDeclaration buildBindings(ICompilationUnit compilationUnit, boolean isTopLevelOrMember) throws JavaModelException {
 	final IFile file = (IFile) compilationUnit.getResource();
 	final String fileName = file.getFullPath().lastSegment();
 	final char[] mainTypeName = fileName.substring(0, fileName.length() - 5).toCharArray();
@@ -130,10 +129,18 @@ protected CompilationUnitDeclaration buildBindings(ICompilationUnit compilationU
 		};
 
 	CompilationResult compilationResult = new CompilationResult(sourceUnit, 1, 1, 0);
-	CompilationUnitDeclaration unit = this.locator.basicParser().dietParse(sourceUnit, compilationResult);
+	CompilationUnitDeclaration unit = 
+		isTopLevelOrMember ?
+			this.locator.basicParser().dietParse(sourceUnit, compilationResult) :
+			this.locator.basicParser().parse(sourceUnit, compilationResult);
 	if (unit != null) {
 		this.locator.lookupEnvironment.buildTypeBindings(unit);
-		this.locator.lookupEnvironment.completeTypeBindings(unit, false);
+		this.locator.lookupEnvironment.completeTypeBindings(unit, !isTopLevelOrMember);
+		if (!isTopLevelOrMember) {
+			if (unit.scope != null)
+				unit.scope.faultInTypes(); // fault in fields & methods
+			unit.resolve();
+		}
 	}
 	return unit;
 }
@@ -144,7 +151,6 @@ public char[][][] collect() throws JavaModelException {
 		this.resultIndex = 0;
 		JavaProject javaProject = (JavaProject) this.type.getJavaProject();
 		this.locator.initialize(javaProject, 0);
-		this.locator.nameLookup.setUnitsToLookInside(this.locator.workingCopies); // NB: this uses a PerThreadObject, so it is thread safe
 		try {
 			if (this.type.isBinary()) {
 				BinaryTypeBinding binding = this.locator.cacheBinaryType(this.type);
@@ -152,15 +158,18 @@ public char[][][] collect() throws JavaModelException {
 					collectSuperTypeNames(binding);
 			} else {
 				ICompilationUnit unit = this.type.getCompilationUnit();
-				CompilationUnitDeclaration parsedUnit = buildBindings(unit);
-				if (parsedUnit != null)
-					parsedUnit.traverse(new TypeDeclarationVisitor(), parsedUnit.scope);
+				SourceType sourceType = (SourceType) this.type;
+				boolean isTopLevelOrMember = sourceType.getOuterMostLocalContext() == null;
+				CompilationUnitDeclaration parsedUnit = buildBindings(unit, isTopLevelOrMember);
+				if (parsedUnit != null) {
+					TypeDeclaration typeDecl = new ASTNodeFinder(parsedUnit).findType(this.type);
+					if (typeDecl != null && typeDecl.binding != null) 
+						collectSuperTypeNames(typeDecl.binding);
+				}
 			}
 		} catch (AbortCompilation e) {
 			// problem with classpath: report inacurrate matches
 			return null;
-		} finally {
-			this.locator.nameLookup.setUnitsToLookInside(null);
 		}
 		if (this.result.length > this.resultIndex)
 			System.arraycopy(this.result, 0, this.result = new char[this.resultIndex][][], 0, this.resultIndex);
@@ -177,40 +186,32 @@ public char[][][] collect() throws JavaModelException {
 	JavaProject previousProject = null;
 	this.result = new char[1][][];
 	this.resultIndex = 0;
-	try {
-		for (int i = 0, length = paths.length; i < length; i++) {
-			try {
-				Openable openable = this.locator.handleFactory.createOpenable(paths[i], this.locator.scope);
-				if (openable == null) continue; // outside classpath
+	for (int i = 0, length = paths.length; i < length; i++) {
+		try {
+			Openable openable = this.locator.handleFactory.createOpenable(paths[i], this.locator.scope);
+			if (openable == null) continue; // outside classpath
 
-				IJavaProject project = openable.getJavaProject();
-				if (!project.equals(previousProject)) {
-					if (previousProject != null)
-						this.locator.nameLookup.setUnitsToLookInside(null);
-					previousProject = (JavaProject) project;
-					this.locator.initialize(previousProject, 0);
-					this.locator.nameLookup.setUnitsToLookInside(this.locator.workingCopies);
-				}
-				if (openable instanceof ICompilationUnit) {
-					ICompilationUnit unit = (ICompilationUnit) openable;
-					CompilationUnitDeclaration parsedUnit = buildBindings(unit);
-					if (parsedUnit != null)
-						parsedUnit.traverse(new TypeDeclarationVisitor(), parsedUnit.scope);
-				} else if (openable instanceof IClassFile) {
-					IClassFile classFile = (IClassFile) openable;
-					BinaryTypeBinding binding = this.locator.cacheBinaryType(classFile.getType());
-					if (matches(binding))
-						collectSuperTypeNames(binding);
-				}
-			} catch (AbortCompilation e) {
-				// ignore: continue with next element
-			} catch (JavaModelException e) {
-				// ignore: continue with next element
+			IJavaProject project = openable.getJavaProject();
+			if (!project.equals(previousProject)) {
+				previousProject = (JavaProject) project;
+				this.locator.initialize(previousProject, 0);
 			}
+			if (openable instanceof ICompilationUnit) {
+				ICompilationUnit unit = (ICompilationUnit) openable;
+				CompilationUnitDeclaration parsedUnit = buildBindings(unit, true /*only toplevel and member types are visible to the focus type*/);
+				if (parsedUnit != null)
+					parsedUnit.traverse(new TypeDeclarationVisitor(), parsedUnit.scope);
+			} else if (openable instanceof IClassFile) {
+				IClassFile classFile = (IClassFile) openable;
+				BinaryTypeBinding binding = this.locator.cacheBinaryType(classFile.getType());
+				if (matches(binding))
+					collectSuperTypeNames(binding);
+			}
+		} catch (AbortCompilation e) {
+			// ignore: continue with next element
+		} catch (JavaModelException e) {
+			// ignore: continue with next element
 		}
-	} finally {
-		if (previousProject != null)
-			this.locator.nameLookup.setUnitsToLookInside(null);
 	}
 	if (this.result.length > this.resultIndex)
 		System.arraycopy(this.result, 0, this.result = new char[this.resultIndex][][], 0, this.resultIndex);
@@ -246,7 +247,7 @@ protected String[] getPathsOfDeclaringType() {
 		null, // do find member types
 		this.typeSimpleName,
 		IIndexConstants.TYPE_SUFFIX,
-		this.pattern.matchRule);
+		this.pattern.getMatchRule());
 	IndexQueryRequestor searchRequestor = new IndexQueryRequestor(){
 		public boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant) {
 			TypeDeclarationPattern record = (TypeDeclarationPattern)indexRecord;
@@ -260,7 +261,7 @@ protected String[] getPathsOfDeclaringType() {
 	indexManager.performConcurrentJob(
 		new PatternSearchJob(
 			searchPattern, 
-			new JavaSearchParticipant(this.locator.workingCopies),
+			new JavaSearchParticipant(),
 			scope, 
 			searchRequestor),
 		IJavaSearchConstants.WAIT_UNTIL_READY_TO_SEARCH,

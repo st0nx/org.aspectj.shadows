@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -17,11 +17,8 @@ import java.util.HashSet;
 import java.util.Iterator;
 
 import org.eclipse.core.resources.IFolder;
-import org.eclipse.core.resources.IProject;
-import org.eclipse.core.resources.IProjectDescription;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspace;
-import org.eclipse.core.resources.IWorkspaceRoot;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
@@ -50,6 +47,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 	IClasspathEntry[] oldResolvedPath, newResolvedPath;
 	IClasspathEntry[] newRawPath;
 	boolean canChangeResources;
+	boolean classpathWasSaved;
 	boolean needCycleCheck;
 	boolean needValidation;
 	boolean needSave;
@@ -122,6 +120,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 		IClasspathEntry entry) {
 
 		IPath[] exclusionPatterns = entry.getExclusionPatterns();
+		IPath[] inclusionPatterns = entry.getInclusionPatterns();
 		nextEntry: for (int i = 0; i < list.length; i++) {
 			IClasspathEntry other = list[i];
 			if (other.getContentKind() == entry.getContentKind()
@@ -139,11 +138,26 @@ public class SetClasspathOperation extends JavaModelOperation {
 							continue;
 					}
 					
+					// check inclusion patterns
+					IPath[] otherIncludes = other.getInclusionPatterns();
+					if (inclusionPatterns != otherIncludes) {
+					    if (inclusionPatterns == null) continue;
+						int includeLength = inclusionPatterns.length;
+						if (otherIncludes == null || otherIncludes.length != includeLength)
+							continue;
+						for (int j = 0; j < includeLength; j++) {
+							// compare toStrings instead of IPaths 
+							// since IPath.equals is specified to ignore trailing separators
+							if (!inclusionPatterns[j].toString().equals(otherIncludes[j].toString()))
+								continue nextEntry;
+						}
+					}
 					// check exclusion patterns
 					IPath[] otherExcludes = other.getExclusionPatterns();
 					if (exclusionPatterns != otherExcludes) {
+					    if (exclusionPatterns == null) continue;
 						int excludeLength = exclusionPatterns.length;
-						if (otherExcludes.length != excludeLength)
+						if (otherExcludes == null || otherExcludes.length != excludeLength)
 							continue;
 						for (int j = 0; j < excludeLength; j++) {
 							// compare toStrings instead of IPaths 
@@ -266,7 +280,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 						this.project.getProject().touch(this.progressMonitor);
 					} catch (CoreException e) {
 						if (JavaModelManager.CP_RESOLVE_VERBOSE){
-							System.out.println("CPInit - FAILED to touch project: "+ this.project.getElementName()); //$NON-NLS-1$
+							Util.verbose("CPContainer INIT - FAILED to touch project: "+ this.project.getElementName(), System.err); //$NON-NLS-1$
 							e.printStackTrace();
 						}
 					}
@@ -287,6 +301,10 @@ public class SetClasspathOperation extends JavaModelOperation {
 		boolean needToUpdateDependents = false;
 		JavaElementDelta delta = new JavaElementDelta(getJavaModel());
 		boolean hasDelta = false;
+		if (this.classpathWasSaved) {
+			delta.changed(this.project, IJavaElementDelta.F_CLASSPATH_CHANGED);
+			hasDelta = true;
+		}
 		int oldLength = oldResolvedPath.length;
 		int newLength = newResolvedPath.length;
 			
@@ -360,13 +378,14 @@ public class SetClasspathOperation extends JavaModelOperation {
 					final IPath path = oldEntry.getPath();
 					switch (changeKind) {
 						case IClasspathEntry.CPE_SOURCE:
+							final char[][] inclusionPatterns = ((ClasspathEntry)oldEntry).fullInclusionPatternChars();
 							final char[][] exclusionPatterns = ((ClasspathEntry)oldEntry).fullExclusionPatternChars();
 							postAction(new IPostAction() {
 								public String getID() {
 									return path.toString();
 								}
 								public void run() /* throws JavaModelException */ {
-									indexManager.removeSourceFolderFromIndex(project, path, exclusionPatterns);
+									indexManager.removeSourceFolderFromIndex(project, path, inclusionPatterns, exclusionPatterns);
 								}
 							}, 
 							REMOVEALL_APPEND);
@@ -486,13 +505,14 @@ public class SetClasspathOperation extends JavaModelOperation {
 						case IClasspathEntry.CPE_SOURCE:
 							IClasspathEntry entry = newResolvedPath[i];
 							final IPath path = entry.getPath();
+							final char[][] inclusionPatterns = ((ClasspathEntry)entry).fullInclusionPatternChars();
 							final char[][] exclusionPatterns = ((ClasspathEntry)entry).fullExclusionPatternChars();
 							postAction(new IPostAction() {
 								public String getID() {
 									return path.toString();
 								}
 								public void run() /* throws JavaModelException */ {
-									indexManager.indexSourceFolder(project, path, exclusionPatterns);
+									indexManager.indexSourceFolder(project, path, inclusionPatterns, exclusionPatterns);
 								}
 							}, 
 							APPEND); // append so that a removeSourceFolder action is not removed
@@ -515,7 +535,6 @@ public class SetClasspathOperation extends JavaModelOperation {
 			updateAffectedProjects(project.getProject().getFullPath());
 		}
 	}
-
 	/*
 	 * Returns the source attachment flag for the delta between the 2 give source paths.
 	 * Returns either F_SOURCEATTACHED, F_SOURCEDETACHED, F_SOURCEATTACHED | F_SOURCEDETACHED
@@ -563,6 +582,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 		}
 		// if read-only .classpath, then the classpath setting will never been performed completely
 		if (project.saveClasspath(classpathForSave, outputLocationForSave)) {
+			this.classpathWasSaved = true;
 			this.setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
 		}
 	}
@@ -599,7 +619,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 
 		// resolve new path (asking for marker creation if problems)
 		if (this.newResolvedPath == null) {
-			this.newResolvedPath = project.getResolvedClasspath(true, this.canChangeResources);
+			this.newResolvedPath = project.getResolvedClasspath(true, this.canChangeResources, false/*don't returnResolutionInProgress*/);
 		}
 		
 		if (this.oldResolvedPath != null) {
@@ -649,7 +669,7 @@ public class SetClasspathOperation extends JavaModelOperation {
 											SetClasspathOperation.ReuseOutputLocation, 
 											SetClasspathOperation.this.progressMonitor, 
 											SetClasspathOperation.this.canChangeResources,  
-											affectedProject.getResolvedClasspath(true), 
+											affectedProject.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/), 
 											false, // updating only - no validation
 											false); // updating only - no need to save
 									}
@@ -746,72 +766,14 @@ public class SetClasspathOperation extends JavaModelOperation {
 	 */
 	protected void updateProjectReferencesIfNecessary() throws JavaModelException {
 		
-		if (!this.canChangeResources) return;
 		if (this.newRawPath == ReuseClasspath || this.newRawPath == UpdateClasspath) return;
-	
-		String[] oldRequired = this.project.projectPrerequisites(this.oldResolvedPath);
-
-		if (this.newResolvedPath == null) {
-			this.newResolvedPath = this.project.getResolvedClasspath(this.newRawPath, null, true, true, null/*no reverse map*/);
-		}
-		String[] newRequired = this.project.projectPrerequisites(this.newResolvedPath);
-	
-		try {		
-			IProject projectResource = this.project.getProject();
-			IProjectDescription description = projectResource.getDescription();
-			 
-			IProject[] projectReferences = description.getReferencedProjects();
-			
-			HashSet oldReferences = new HashSet(projectReferences.length);
-			for (int i = 0; i < projectReferences.length; i++){
-				String projectName = projectReferences[i].getName();
-				oldReferences.add(projectName);
-			}
-			HashSet newReferences = (HashSet)oldReferences.clone();
-	
-			for (int i = 0; i < oldRequired.length; i++){
-				String projectName = oldRequired[i];
-				newReferences.remove(projectName);
-			}
-			for (int i = 0; i < newRequired.length; i++){
-				String projectName = newRequired[i];
-				newReferences.add(projectName);
-			}
-	
-			Iterator iter;
-			int newSize = newReferences.size();
-			
-			checkIdentity: {
-				if (oldReferences.size() == newSize){
-					iter = newReferences.iterator();
-					while (iter.hasNext()){
-						if (!oldReferences.contains(iter.next())){
-							break checkIdentity;
-						}
-					}
-					return;
-				}
-			}
-			String[] requiredProjectNames = new String[newSize];
-			int index = 0;
-			iter = newReferences.iterator();
-			while (iter.hasNext()){
-				requiredProjectNames[index++] = (String)iter.next();
-			}
-			Util.sort(requiredProjectNames); // ensure that if changed, the order is consistent
-			
-			IProject[] requiredProjectArray = new IProject[newSize];
-			IWorkspaceRoot wksRoot = projectResource.getWorkspace().getRoot();
-			for (int i = 0; i < newSize; i++){
-				requiredProjectArray[i] = wksRoot.getProject(requiredProjectNames[i]);
-			}
-	
-			description.setReferencedProjects(requiredProjectArray);
-			projectResource.setDescription(description, this.progressMonitor);
-	
-		} catch(CoreException e){
-			throw new JavaModelException(e);
-		}
+		// will run now, or be deferred until next pre-auto-build notification if resource tree is locked
+		JavaModelManager.getJavaModelManager().deltaState.performClasspathResourceChange(
+		        project, 
+		        oldResolvedPath, 
+		        newResolvedPath, 
+		        newRawPath, 
+		        canChangeResources);
 	}
 
 	public IJavaModelStatus verify() {

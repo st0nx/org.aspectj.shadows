@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,7 +11,9 @@
 package org.eclipse.jdt.internal.core.search.matching;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.zip.ZipFile;
 
 import org.eclipse.core.resources.IResource;
@@ -32,18 +34,22 @@ import org.eclipse.jdt.internal.compiler.impl.ITypeRequestor;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
+import org.eclipse.jdt.internal.compiler.util.HashtableOfIntValues;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.hierarchy.HierarchyResolver;
+import org.eclipse.jdt.internal.core.index.Index;
+import org.eclipse.jdt.internal.core.search.*;
 import org.eclipse.jdt.internal.core.search.HierarchyScope;
-import org.eclipse.jdt.internal.core.search.JavaSearchParticipant;
+import org.eclipse.jdt.internal.core.search.IndexSelector;
+import org.eclipse.jdt.internal.core.search.JavaSearchDocument;
 import org.eclipse.jdt.internal.core.util.HandleFactory;
 import org.eclipse.jdt.internal.core.util.SimpleSet;
 import org.eclipse.jdt.internal.core.util.Util;
 
 public class MatchLocator implements ITypeRequestor {
 
-public static final int MAX_AT_ONCE = 500;
+public static final int MAX_AT_ONCE = 400;
 
 // permanent state
 public SearchPattern pattern;
@@ -85,32 +91,31 @@ public long resultCollectorTime = 0;
 public class LocalDeclarationVisitor extends ASTVisitor {
 	IJavaElement enclosingElement;
 	MatchingNodeSet nodeSet;
-	// TODO (jerome) Use an HashtableOfIntValues instead
-	HashMap occurrencesCounts = new HashMap(); // key = class name (String), value = occurrenceCount (Integer)
+	HashtableOfIntValues occurrencesCounts = new HashtableOfIntValues(); // key = class name (char[]), value = occurrenceCount (int)
 	public LocalDeclarationVisitor(IJavaElement enclosingElement, MatchingNodeSet nodeSet) {
 		this.enclosingElement = enclosingElement;
 		this.nodeSet = nodeSet;
 	}
 	public boolean visit(TypeDeclaration typeDeclaration, BlockScope unused) {
 		try {
-			String simpleName;
+			char[] simpleName;
 			if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0) {				
-				simpleName = ""; //$NON-NLS-1$
+				simpleName = CharOperation.NO_CHAR;
 			} else {
-				simpleName = new String(typeDeclaration.name);
+				simpleName = typeDeclaration.name;
 			}
-			Integer occurrenceCount = (Integer)occurrencesCounts.get(simpleName);
-			if (occurrenceCount == null) {
-				occurrenceCount = new Integer(1);
+			int occurrenceCount = occurrencesCounts.get(simpleName);
+			if (occurrenceCount == HashtableOfIntValues.NO_VALUE) {
+				occurrenceCount = 1;
 			} else {
-				occurrenceCount = new Integer(occurrenceCount.intValue()+1);
+				occurrenceCount = occurrenceCount + 1;
 			}
 			occurrencesCounts.put(simpleName, occurrenceCount);
 			if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0) {				
-				reportMatching(typeDeclaration, enclosingElement, -1, nodeSet, occurrenceCount.intValue());
+				reportMatching(typeDeclaration, enclosingElement, -1, nodeSet, occurrenceCount);
 			} else {
 				Integer level = (Integer) nodeSet.matchingNodes.removeKey(typeDeclaration);
-				reportMatching(typeDeclaration, enclosingElement, level != null ? level.intValue() : -1, nodeSet, occurrenceCount.intValue());
+				reportMatching(typeDeclaration, enclosingElement, level != null ? level.intValue() : -1, nodeSet, occurrenceCount);
 			}
 			return false; // don't visit members as this was done during reportMatching(...)
 		} catch (CoreException e) {
@@ -119,11 +124,83 @@ public class LocalDeclarationVisitor extends ASTVisitor {
 	}
 }
 
+public static class WorkingCopyDocument extends JavaSearchDocument {
+	public org.eclipse.jdt.core.ICompilationUnit workingCopy;
+	WorkingCopyDocument(org.eclipse.jdt.core.ICompilationUnit workingCopy, SearchParticipant participant) {
+		super(workingCopy.getPath().toString(), participant);
+		this.charContents = ((CompilationUnit)workingCopy).getContents();
+		this.workingCopy = workingCopy;
+	}
+	public String toString() {
+		return "WorkingCopyDocument for " + getPath(); //$NON-NLS-1$
+	}
+}
+	
 public class WrappedCoreException extends RuntimeException {
 	public CoreException coreException;
 	public WrappedCoreException(CoreException coreException) {
 		this.coreException = coreException;
 	}
+}
+
+public static SearchDocument[] addWorkingCopies(InternalSearchPattern pattern, SearchDocument[] indexMatches, org.eclipse.jdt.core.ICompilationUnit[] copies, SearchParticipant participant) {
+	// working copies take precedence over corresponding compilation units
+	HashMap workingCopyDocuments = workingCopiesThatCanSeeFocus(copies, pattern.focus, pattern.isPolymorphicSearch(), participant);
+	SearchDocument[] matches = null;
+	int length = indexMatches.length;
+	for (int i = 0; i < length; i++) {
+		SearchDocument searchDocument = indexMatches[i];
+		if (searchDocument.getParticipant() == participant) {
+			SearchDocument workingCopyDocument = (SearchDocument) workingCopyDocuments.remove(searchDocument.getPath());
+			if (workingCopyDocument != null) {
+				if (matches == null) {
+					System.arraycopy(indexMatches, 0, matches = new SearchDocument[length], 0, length);
+				}
+				matches[i] = workingCopyDocument;
+			}
+		}
+	}
+	if (matches == null) { // no working copy
+		matches = indexMatches;
+	}
+	int remainingWorkingCopiesSize = workingCopyDocuments.size();
+	if (remainingWorkingCopiesSize != 0) {
+		System.arraycopy(matches, 0, matches = new SearchDocument[length+remainingWorkingCopiesSize], 0, length);
+		Iterator iterator = workingCopyDocuments.values().iterator();
+		int index = length;
+		while (iterator.hasNext()) {
+			matches[index++] = (SearchDocument) iterator.next();
+		}
+	}
+	return matches;
+}
+
+public static void setFocus(InternalSearchPattern pattern, IJavaElement focus) {
+	pattern.focus = focus;
+}
+
+/*
+ * Returns the working copies that can see the given focus.
+ */
+private static HashMap workingCopiesThatCanSeeFocus(org.eclipse.jdt.core.ICompilationUnit[] copies, IJavaElement focus, boolean isPolymorphicSearch, SearchParticipant participant) {
+	if (copies == null) return new HashMap();
+	if (focus != null) {
+		while (!(focus instanceof IJavaProject) && !(focus instanceof JarPackageFragmentRoot)) {
+			focus = focus.getParent();
+		}
+	}
+	HashMap result = new HashMap();
+	for (int i=0, length = copies.length; i<length; i++) {
+		org.eclipse.jdt.core.ICompilationUnit workingCopy = copies[i];
+		IPath projectOrJar = MatchLocator.getProjectOrJar(workingCopy).getPath();
+		if (focus == null || IndexSelector.canSeeFocus(focus, isPolymorphicSearch, projectOrJar)) {
+			result.put(
+				workingCopy.getPath().toString(),
+				new WorkingCopyDocument(workingCopy, participant)
+			);
+		}
+	}
+	return result;
 }
 
 public static ClassFileReader classFileReader(IType type) {
@@ -163,11 +240,51 @@ public static ClassFileReader classFileReader(IType type) {
 	return null;
 }
 
+public static SearchPattern createAndPattern(final SearchPattern leftPattern, final SearchPattern rightPattern) {
+	return new AndPattern(0/*no kind*/, 0/*no rule*/) {
+		SearchPattern current = leftPattern;
+		public SearchPattern currentPattern() {
+			return current;
+		}
+		protected boolean hasNextQuery() {
+			if (current == leftPattern) {
+				current = rightPattern;
+				return true;
+			}
+			return false; 
+		}
+		protected void resetQuery() {
+			current = leftPattern;
+		}
+	};
+}
+
+/**
+ * Query a given index for matching entries. Assumes the sender has opened the index and will close when finished.
+ */
+public static void findIndexMatches(InternalSearchPattern pattern, Index index, IndexQueryRequestor requestor, SearchParticipant participant, IJavaSearchScope scope, IProgressMonitor monitor) throws IOException {
+	pattern.findIndexMatches(index, requestor, participant, scope, monitor);
+}
+
+public static IJavaElement getProjectOrJar(IJavaElement element) {
+	while (!(element instanceof IJavaProject) && !(element instanceof JarPackageFragmentRoot)) {
+		element = element.getParent();
+	}
+	return element;
+}
+
+public static boolean isPolymorphicSearch(InternalSearchPattern pattern) {
+	return pattern.isPolymorphicSearch();
+}
+
+public static IJavaElement projectOrJarFocus(InternalSearchPattern pattern) {
+	return pattern == null || pattern.focus == null ? null : getProjectOrJar(pattern.focus);
+}
+
 public MatchLocator(
 	SearchPattern pattern,
 	SearchRequestor requestor,
 	IJavaSearchScope scope,
-	org.eclipse.jdt.core.ICompilationUnit[] workingCopies,
 	IProgressMonitor progressMonitor) {
 		
 	this.pattern = pattern;
@@ -175,7 +292,6 @@ public MatchLocator(
 	this.matchContainer = this.patternLocator.matchContainer();
 	this.requestor = requestor;
 	this.scope = scope;
-	this.workingCopies = workingCopies;
 	this.progressMonitor = progressMonitor;
 }
 /**
@@ -241,6 +357,7 @@ protected Parser basicParser() {
 				this.options,
 				new DefaultProblemFactory());
 		this.basicParser = new Parser(problemReporter, false);
+		this.basicParser.reportOnlyOneSyntaxError = true;
 	}
 	return this.basicParser;
 }
@@ -248,7 +365,7 @@ protected Parser basicParser() {
  * Add the possibleMatch to the loop
  *  ->  build compilation unit declarations, their bindings and record their results.
  */
-protected void buildBindings(PossibleMatch possibleMatch) {
+protected void parseAndBuildBindings(PossibleMatch possibleMatch, boolean mustResolve) {
 	if (this.progressMonitor != null && this.progressMonitor.isCanceled())
 		throw new OperationCanceledException();
 
@@ -260,7 +377,7 @@ protected void buildBindings(PossibleMatch possibleMatch) {
 		CompilationResult unitResult = new CompilationResult(possibleMatch, 1, 1, this.options.maxProblemsPerUnit);
 		CompilationUnitDeclaration parsedUnit = this.parser.dietParse(possibleMatch, unitResult);
 		if (parsedUnit != null) {
-			if (!parsedUnit.isEmpty())
+			if (mustResolve && !parsedUnit.isEmpty())
 				this.lookupEnvironment.buildTypeBindings(parsedUnit);
 
 			// add the possibleMatch with its parsedUnit to matchesToProcess
@@ -269,9 +386,6 @@ protected void buildBindings(PossibleMatch possibleMatch) {
 			if (this.numberOfMatches == size)
 				System.arraycopy(this.matchesToProcess, 0, this.matchesToProcess = new PossibleMatch[size == 0 ? 1 : size * 2], 0, this.numberOfMatches);
 			this.matchesToProcess[this.numberOfMatches++] = possibleMatch;
-
-			if (this.progressMonitor != null)
-				this.progressMonitor.worked(4);
 		}
 	} finally {
 		this.parser.nodeSet = null;
@@ -310,7 +424,7 @@ protected char[][][] computeSuperTypeNames(IType focusType) {
 			this.pattern, 
 			simpleName,
 			qualification,
-			new MatchLocator(this.pattern, this.requestor, this.scope, this.workingCopies, this.progressMonitor), // clone MatchLocator so that it has no side effect
+			new MatchLocator(this.pattern, this.requestor, this.scope, this.progressMonitor), // clone MatchLocator so that it has no side effect
 			focusType, 
 			this.progressMonitor);
 	try {
@@ -337,13 +451,9 @@ protected IJavaElement createHandle(AbstractMethodDeclaration method, IJavaEleme
 			IBinaryMethod[] methods = reader.getMethods();
 			if (methods != null) {
 				boolean firstIsSynthetic = false;
-				try {
-					if (type.isMember() && method.isConstructor() && !Flags.isStatic(type.getFlags())) { // see https://bugs.eclipse.org/bugs/show_bug.cgi?id=48261
-						firstIsSynthetic = true;
-						argCount++;
-					}
-				} catch (JavaModelException e) {
-					// ignored
+				if (reader.isMember() && method.isConstructor() && !Flags.isStatic(reader.getModifiers())) { // see https://bugs.eclipse.org/bugs/show_bug.cgi?id=48261
+					firstIsSynthetic = true;
+					argCount++;
 				}
 				nextMethod : for (int i = 0, methodsLength = methods.length; i < methodsLength; i++) {
 					IBinaryMethod binaryMethod = methods[i];
@@ -474,6 +584,9 @@ protected IType createTypeHandle(String simpleTypeName) {
 	}
 	return null;
 }
+protected boolean encloses(IJavaElement element) {
+	return element != null && this.scope.encloses(element);
+}
 protected IBinaryType getBinaryInfo(ClassFile classFile, IResource resource) throws CoreException {
 	BinaryType binaryType = (BinaryType) classFile.getType();
 	if (classFile.isOpen())
@@ -533,7 +646,7 @@ protected void getMethodBodies(CompilationUnitDeclaration unit) {
 		this.parser.scanner.lineEnds = lineSeparatorPositions;
 		this.parser.scanner.linePtr = lineSeparatorPositions.length - 1;
 
-		if (this.parser.javadocParser.checkJavadoc) {
+		if (this.parser.javadocParser.checkDocComment) {
 			this.parser.javadocParser.scanner.setSource(contents);
 		}
 		this.parser.nodeSet = this.currentPossibleMatch.nodeSet;
@@ -561,12 +674,14 @@ public void initialize(JavaProject project, int possibleMatchSize) throws JavaMo
 	if (this.nameEnvironment != null)
 		this.nameEnvironment.cleanup();
 
+	SearchableEnvironment searchableEnvironment = (SearchableEnvironment) project.newSearchableNameEnvironment(this.workingCopies);
+	
 	// if only one possible match, a file name environment costs too much,
 	// so use the existing searchable  environment which will populate the java model
 	// only for this possible match and its required types.
 	this.nameEnvironment = possibleMatchSize == 1
-		? (INameEnvironment) project.getSearchableNameEnvironment()
-		: (INameEnvironment) new JavaSearchNameEnvironment(project);
+		? (INameEnvironment) searchableEnvironment
+		: (INameEnvironment) new JavaSearchNameEnvironment(project, this.workingCopies);
 
 	// create lookup environment
 	this.options = new CompilerOptions(project.getOptions(true));
@@ -580,95 +695,112 @@ public void initialize(JavaProject project, int possibleMatchSize) throws JavaMo
 	this.parser = MatchLocatorParser.createParser(problemReporter, this);
 
 	// remember project's name lookup
-	this.nameLookup = project.getNameLookup();
+	this.nameLookup = searchableEnvironment.nameLookup;
 
 	// initialize queue of units
 	this.numberOfMatches = 0;
 	this.matchesToProcess = new PossibleMatch[possibleMatchSize];
 }
-protected void locateMatches(JavaProject javaProject, PossibleMatch[] possibleMatches, int start, int length) throws JavaModelException {
+protected void locateMatches(JavaProject javaProject, PossibleMatch[] possibleMatches, int start, int length) throws CoreException {
 	initialize(javaProject, length);
 
+	// create and resolve binding (equivalent to beginCompilation() in Compiler)
+	boolean mustResolve = ((InternalSearchPattern)this.pattern).mustResolve;
+	boolean bindingsWereCreated = mustResolve;
 	try {
-		this.nameLookup.setUnitsToLookInside(this.workingCopies);
-
-		// create and resolve binding (equivalent to beginCompilation() in Compiler)
-		boolean bindingsWereCreated = true;
-		try {
-			for (int i = start, maxUnits = start + length; i < maxUnits; i++)
-				buildBindings(possibleMatches[i]);
+		for (int i = start, maxUnits = start + length; i < maxUnits; i++) {
+			PossibleMatch possibleMatch = possibleMatches[i];
+			try {
+				parseAndBuildBindings(possibleMatch, mustResolve);
+				if (!mustResolve)
+					process(possibleMatch, bindingsWereCreated);
+			} finally {
+				if (!mustResolve)
+					possibleMatch.cleanUp();
+			}
+		}
+		if (mustResolve)
 			lookupEnvironment.completeTypeBindings();
 
-			// create hierarchy resolver if needed
-			IType focusType = getFocusType();
-			if (focusType == null) {
-				this.hierarchyResolver = null;
-			} else if (!createHierarchyResolver(focusType, possibleMatches)) {
-				// focus type is not visible, use the super type names instead of the bindings
-				if (computeSuperTypeNames(focusType) == null) return;
-			}
-		} catch (AbortCompilation e) {
-			bindingsWereCreated = false;
+		// create hierarchy resolver if needed
+		IType focusType = getFocusType();
+		if (focusType == null) {
+			this.hierarchyResolver = null;
+		} else if (!createHierarchyResolver(focusType, possibleMatches)) {
+			// focus type is not visible, use the super type names instead of the bindings
+			if (computeSuperTypeNames(focusType) == null) return;
 		}
+	} catch (AbortCompilation e) {
+		bindingsWereCreated = false;
+	}
 
-		// possible match resolution
-		for (int i = 0; i < this.numberOfMatches; i++) {
-			if (this.progressMonitor != null && this.progressMonitor.isCanceled())
-				throw new OperationCanceledException();
-			PossibleMatch possibleMatch = this.matchesToProcess[i];
-			this.matchesToProcess[i] = null; // release reference to processed possible match
-			try {
-				process(possibleMatch, bindingsWereCreated);
-			} catch (AbortCompilation e) {
-				// problem with class path: it could not find base classes
-				// continue and try next matching openable reporting innacurate matches (since bindings will be null)
-				bindingsWereCreated = false;
-			} catch (JavaModelException e) {
-				// problem with class path: it could not find base classes
-				// continue and try next matching openable reporting innacurate matches (since bindings will be null)
-				bindingsWereCreated = false;
-			} catch (CoreException e) {
-				// core exception thrown by client's code: let it through
-				throw new JavaModelException(e);
-			} finally {
-				if (this.options.verbose)
-					System.out.println(Util.bind("compilation.done", //$NON-NLS-1$
-						new String[] {
-							String.valueOf(i + 1),
-							String.valueOf(numberOfMatches),
-							new String(possibleMatch.parsedUnit.getFileName())}));
-				// cleanup compilation unit result
-				possibleMatch.parsedUnit.cleanUp();
-				possibleMatch.parsedUnit = null;
-			}
-			if (this.progressMonitor != null)
-				this.progressMonitor.worked(5);
+	if (!mustResolve) {
+		return;
+	}
+	
+	// possible match resolution
+	for (int i = 0; i < this.numberOfMatches; i++) {
+		if (this.progressMonitor != null && this.progressMonitor.isCanceled())
+			throw new OperationCanceledException();
+		PossibleMatch possibleMatch = this.matchesToProcess[i];
+		this.matchesToProcess[i] = null; // release reference to processed possible match
+		try {
+			process(possibleMatch, bindingsWereCreated);
+		} catch (AbortCompilation e) {
+			// problem with class path: it could not find base classes
+			// continue and try next matching openable reporting innacurate matches (since bindings will be null)
+			bindingsWereCreated = false;
+		} catch (JavaModelException e) {
+			// problem with class path: it could not find base classes
+			// continue and try next matching openable reporting innacurate matches (since bindings will be null)
+			bindingsWereCreated = false;
+		} finally {
+			if (this.options.verbose)
+				System.out.println(Util.bind("compilation.done", //$NON-NLS-1$
+					new String[] {
+						String.valueOf(i + 1),
+						String.valueOf(numberOfMatches),
+						new String(possibleMatch.parsedUnit.getFileName())}));
+			// cleanup compilation unit result
+			possibleMatch.cleanUp();
 		}
-	} finally {
-		this.nameLookup.setUnitsToLookInside(null);
 	}
 }
 /**
  * Locate the matches amongst the possible matches.
  */
-protected void locateMatches(JavaProject javaProject, PossibleMatchSet matchSet) throws JavaModelException {
+protected void locateMatches(JavaProject javaProject, PossibleMatchSet matchSet) throws CoreException {
 	PossibleMatch[] possibleMatches = matchSet.getPossibleMatches(javaProject.getPackageFragmentRoots());
 	for (int index = 0, length = possibleMatches.length; index < length;) {
 		int max = Math.min(MAX_AT_ONCE, length - index);
 		locateMatches(javaProject, possibleMatches, index, max);
 		index += max;
+		if (this.progressMonitor != null)
+			this.progressMonitor.worked(max);
 	}
 }
 /**
  * Locate the matches in the given files and report them using the search requestor. 
  */
-public void locateMatches(SearchDocument[] searchDocuments) throws JavaModelException {
+public void locateMatches(SearchDocument[] searchDocuments) throws CoreException {
 	if (SearchEngine.VERBOSE) {
 		System.out.println("Locating matches in documents ["); //$NON-NLS-1$
 		for (int i = 0, length = searchDocuments.length; i < length; i++)
 			System.out.println("\t" + searchDocuments[i]); //$NON-NLS-1$
 		System.out.println("]"); //$NON-NLS-1$
 	}
+	
+	// extract working copies
+	ArrayList copies = new ArrayList();
+	for (int i = 0, length = searchDocuments.length; i < length; i++) {
+		SearchDocument document = searchDocuments[i];
+		if (document instanceof WorkingCopyDocument) {
+			copies.add(((WorkingCopyDocument)document).workingCopy);
+		}
+	}
+	int copiesLength = copies.size();
+	this.workingCopies = new org.eclipse.jdt.core.ICompilationUnit[copiesLength];
+	copies.toArray(this.workingCopies);
 
 	JavaModelManager manager = JavaModelManager.getJavaModelManager();
 	try {
@@ -680,14 +812,14 @@ public void locateMatches(SearchDocument[] searchDocuments) throws JavaModelExce
 			this.handleFactory = new HandleFactory();
 
 		if (this.progressMonitor != null) {
-			// 1 for file path, 4 for parsing and binding creation, 5 for binding resolution? //$NON-NLS-1$
-			this.progressMonitor.beginTask("", searchDocuments.length * (this.pattern.mustResolve ? 10 : 5)); //$NON-NLS-1$
+			this.progressMonitor.beginTask("", searchDocuments.length); //$NON-NLS-1$
 		}
 
 		// initialize pattern for polymorphic search (ie. method reference pattern)
 		this.patternLocator.initializePolymorphicSearch(this);
 
 		JavaProject previousJavaProject = null;
+		int skipped = 0;
 		PossibleMatchSet matchSet = new PossibleMatchSet();
 		Util.sort(searchDocuments, new Util.Comparer() {
 			public int compare(Object a, Object b) {
@@ -701,12 +833,15 @@ public void locateMatches(SearchDocument[] searchDocuments) throws JavaModelExce
 			// skip duplicate paths
 			SearchDocument searchDocument = searchDocuments[i];
 			String pathString = searchDocument.getPath();
-			if (i > 0 && pathString.equals(searchDocuments[i - 1].getPath())) continue;
+			if (i > 0 && pathString.equals(searchDocuments[i - 1].getPath())) {
+				skipped++;
+				continue;
+			}
 
 			Openable openable;
 			org.eclipse.jdt.core.ICompilationUnit workingCopy = null;
-			if (searchDocument instanceof JavaSearchParticipant.WorkingCopyDocument) {
-				workingCopy = ((JavaSearchParticipant.WorkingCopyDocument)searchDocument).workingCopy;
+			if (searchDocument instanceof WorkingCopyDocument) {
+				workingCopy = ((WorkingCopyDocument)searchDocument).workingCopy;
 				openable = (Openable) workingCopy;
 			} else {
 				openable = this.handleFactory.createOpenable(pathString, this.scope);
@@ -715,32 +850,27 @@ public void locateMatches(SearchDocument[] searchDocuments) throws JavaModelExce
 
 			// create new parser and lookup environment if this is a new project
 			IResource resource = null;
-			try {
-				JavaProject javaProject = (JavaProject) openable.getJavaProject();
-				resource = workingCopy != null ? workingCopy.getResource() : openable.getResource();
-				if (resource == null)
-					resource = javaProject.getProject(); // case of a file in an external jar
-				if (!javaProject.equals(previousJavaProject)) {
-					// locate matches in previous project
-					if (previousJavaProject != null) {
-						try {
-							locateMatches(previousJavaProject, matchSet);
-						} catch (JavaModelException e) {
-							if (e.getException() instanceof CoreException) throw e;
-							// problem with classpath in this project -> skip it
-						}
-						matchSet.reset();
+			JavaProject javaProject = (JavaProject) openable.getJavaProject();
+			resource = workingCopy != null ? workingCopy.getResource() : openable.getResource();
+			if (resource == null)
+				resource = javaProject.getProject(); // case of a file in an external jar
+			if (!javaProject.equals(previousJavaProject)) {
+				// locate matches in previous project
+				if (previousJavaProject != null) {
+					try {
+						locateMatches(previousJavaProject, matchSet);
+					} catch (JavaModelException e) {
+						// problem with classpath in this project -> skip it
 					}
-					previousJavaProject = javaProject;
+					if (this.progressMonitor != null)
+						this.progressMonitor.worked(skipped);
+					matchSet.reset();
 				}
-			} catch (JavaModelException e) {
-				// file doesn't exist -> skip it
-				continue;
+				previousJavaProject = javaProject;
+				skipped = 0;
 			}
 			matchSet.add(new PossibleMatch(this, resource, openable, searchDocument));
-
-			if (this.progressMonitor != null)
-				this.progressMonitor.worked(1);
+			skipped++;
 		}
 
 		// last project
@@ -748,9 +878,10 @@ public void locateMatches(SearchDocument[] searchDocuments) throws JavaModelExce
 			try {
 				locateMatches(previousJavaProject, matchSet);
 			} catch (JavaModelException e) {
-				if (e.getException() instanceof CoreException) throw e;
-				// problem with classpath in last project -> skip it
+				// problem with classpath in last project -> ignore
 			}
+			if (this.progressMonitor != null)
+				this.progressMonitor.worked(skipped);
 		} 
 
 		if (this.progressMonitor != null)
@@ -764,31 +895,26 @@ public void locateMatches(SearchDocument[] searchDocuments) throws JavaModelExce
 /**
  * Locates the package declarations corresponding to this locator's pattern. 
  */
-public void locatePackageDeclarations(SearchParticipant participant) throws JavaModelException {
+public void locatePackageDeclarations(SearchParticipant participant) throws CoreException {
 	locatePackageDeclarations(this.pattern, participant);
 }
 /**
  * Locates the package declarations corresponding to the search pattern. 
  */
-protected void locatePackageDeclarations(SearchPattern searchPattern, SearchParticipant participant) throws JavaModelException {
+protected void locatePackageDeclarations(SearchPattern searchPattern, SearchParticipant participant) throws CoreException {
 	if (searchPattern instanceof OrPattern) {
 		SearchPattern[] patterns = ((OrPattern) searchPattern).patterns;
 		for (int i = 0, length = patterns.length; i < length; i++)
 			locatePackageDeclarations(patterns[i], participant);
 	} else if (searchPattern instanceof PackageDeclarationPattern) {
-		if (searchPattern.focus != null) {
-			IResource resource = searchPattern.focus.getResource();
-			SearchDocument document = participant.getDocument(resource.getFullPath().toString());
-			this.currentPossibleMatch = new PossibleMatch(this, resource, null, document);
-			try {
-				this.report(-1, -2, searchPattern.focus, IJavaSearchResultCollector.EXACT_MATCH);
-			} catch (CoreException e) {
-				if (e instanceof JavaModelException) {
-					throw (JavaModelException) e;
-				} else {
-					throw new JavaModelException(e);
-				}
-			}					
+		IJavaElement focus = ((InternalSearchPattern) searchPattern).focus;
+		if (focus != null) {
+			SearchDocument document = participant.getDocument(focus.getPath().toString());
+			this.currentPossibleMatch = new PossibleMatch(this, focus.getResource(), null, document);
+			if (encloses(focus)) {
+				SearchMatch match = newDeclarationMatch(focus, SearchMatch.A_ACCURATE, -1, -1);
+				report(match);
+			}
 			return;
 		}
 		PackageDeclarationPattern pkgPattern = (PackageDeclarationPattern) searchPattern;
@@ -808,7 +934,10 @@ protected void locatePackageDeclarations(SearchPattern searchPattern, SearchPart
 						SearchDocument document = participant.getDocument(resource.getFullPath().toString());
 						this.currentPossibleMatch = new PossibleMatch(this, resource, null, document);
 						try {
-							report(-1, -2, pkg, IJavaSearchResultCollector.EXACT_MATCH);
+							if (encloses(pkg)) {
+								SearchMatch match = newDeclarationMatch(pkg, SearchMatch.A_ACCURATE, -1, -1);
+								report(match);
+							}
 						} catch (JavaModelException e) {
 							throw e;
 						} catch (CoreException e) {
@@ -857,6 +986,107 @@ protected IType lookupType(ReferenceBinding typeBinding) {
 	if (type.exists()) return type;
 	return null;
 }
+public SearchMatch newDeclarationMatch(
+		IJavaElement element,
+		int accuracy,
+		int offset,  
+		int length) {
+	SearchParticipant participant = getParticipant(); 
+	IResource resource = this.currentPossibleMatch.resource;
+	return newDeclarationMatch(element, accuracy, offset, length, participant, resource);
+}
+
+public SearchMatch newDeclarationMatch(
+		IJavaElement element,
+		int accuracy,
+		int offset,  
+		int length,
+		SearchParticipant participant, 
+		IResource resource) {
+	switch (element.getElementType()) {
+		case IJavaElement.PACKAGE_FRAGMENT:
+			return new PackageDeclarationMatch(element, accuracy, offset, length, participant, resource);
+		case IJavaElement.TYPE:
+			return new TypeDeclarationMatch(element, accuracy, offset, length, participant, resource);
+		case IJavaElement.FIELD:
+			return new FieldDeclarationMatch(element, accuracy, offset, length, participant, resource);
+		case IJavaElement.METHOD:
+			return new MethodDeclarationMatch(element, accuracy, offset, length, participant, resource);
+		case IJavaElement.LOCAL_VARIABLE:
+			return new LocalVariableDeclarationMatch(element, accuracy, offset, length, participant, resource);
+		default:
+			return null;
+	}
+}
+
+public SearchMatch newFieldReferenceMatch(
+		IJavaElement enclosingElement,
+		int accuracy,
+		int offset,  
+		int length,
+		ASTNode reference) {
+	int bits = reference.bits;
+	boolean isCoupoundAssigned = (bits & ASTNode.IsCompoundAssignedMASK) != 0;
+	boolean isReadAccess = isCoupoundAssigned || (bits & ASTNode.IsStrictlyAssignedMASK) == 0;
+	boolean isWriteAccess = isCoupoundAssigned || (bits & ASTNode.IsStrictlyAssignedMASK) != 0;
+	boolean insideDocComment = (bits & ASTNode.InsideJavadoc) != 0;
+	SearchParticipant participant = getParticipant(); 
+	IResource resource = this.currentPossibleMatch.resource;
+	return new FieldReferenceMatch(enclosingElement, accuracy, offset, length, isReadAccess, isWriteAccess, insideDocComment, participant, resource);
+}
+
+public SearchMatch newLocalVariableReferenceMatch(
+		IJavaElement enclosingElement,
+		int accuracy,
+		int offset,  
+		int length,
+		ASTNode reference) {
+	int bits = reference.bits;
+	boolean isCoupoundAssigned = (bits & ASTNode.IsCompoundAssignedMASK) != 0;
+	boolean isReadAccess = isCoupoundAssigned || (bits & ASTNode.IsStrictlyAssignedMASK) == 0;
+	boolean isWriteAccess = isCoupoundAssigned || (bits & ASTNode.IsStrictlyAssignedMASK) != 0;
+	boolean insideDocComment = (bits & ASTNode.InsideJavadoc) != 0;
+	SearchParticipant participant = getParticipant(); 
+	IResource resource = this.currentPossibleMatch.resource;
+	return new LocalVariableReferenceMatch(enclosingElement, accuracy, offset, length, isReadAccess, isWriteAccess, insideDocComment, participant, resource);
+}
+
+public SearchMatch newMethodReferenceMatch(
+		IJavaElement enclosingElement,
+		int accuracy,
+		int offset,  
+		int length,
+		ASTNode reference) {
+	SearchParticipant participant = getParticipant(); 
+	IResource resource = this.currentPossibleMatch.resource;
+	boolean insideDocComment = (reference.bits & ASTNode.InsideJavadoc) != 0;
+	return new MethodReferenceMatch(enclosingElement, accuracy, offset, length, insideDocComment, participant, resource);
+}
+
+public SearchMatch newPackageReferenceMatch(
+		IJavaElement enclosingElement,
+		int accuracy,
+		int offset,  
+		int length,
+		ASTNode reference) {
+	SearchParticipant participant = getParticipant(); 
+	IResource resource = this.currentPossibleMatch.resource;
+	boolean insideDocComment = (reference.bits & ASTNode.InsideJavadoc) != 0;
+	return new PackageReferenceMatch(enclosingElement, accuracy, offset, length, insideDocComment, participant, resource);
+}
+
+public SearchMatch newTypeReferenceMatch(
+		IJavaElement enclosingElement,
+		int accuracy,
+		int offset,  
+		int length,
+		ASTNode reference) {
+	SearchParticipant participant = getParticipant(); 
+	IResource resource = this.currentPossibleMatch.resource;
+	boolean insideDocComment = (reference.bits & ASTNode.InsideJavadoc) != 0;
+	return new TypeReferenceMatch(enclosingElement, accuracy, offset, length, insideDocComment, participant, resource);
+}
+
 /*
  * Process a compilation unit already parsed and build.
  */
@@ -877,7 +1107,7 @@ protected void process(PossibleMatch possibleMatch, boolean bindingsWereCreated)
 
 		getMethodBodies(unit);
 
-		if (bindingsWereCreated && this.pattern.mustResolve && unit.types != null) {
+		if (bindingsWereCreated && ((InternalSearchPattern)this.pattern).mustResolve && unit.types != null) {
 			if (SearchEngine.VERBOSE)
 				System.out.println("Resolving " + this.currentPossibleMatch.openable.toStringWithAncestors()); //$NON-NLS-1$
 
@@ -889,7 +1119,7 @@ protected void process(PossibleMatch possibleMatch, boolean bindingsWereCreated)
 
 			reportMatching(unit, true);
 		} else {
-			reportMatching(unit, this.pattern.mustResolve);
+			reportMatching(unit, ((InternalSearchPattern)this.pattern).mustResolve);
 		}
 	} catch (AbortCompilation e) {
 		// could not resolve: report innacurate matches
@@ -899,7 +1129,6 @@ protected void process(PossibleMatch possibleMatch, boolean bindingsWereCreated)
 			throw e;
 		}
 	} finally {
-		this.currentPossibleMatch.cleanUp();
 		this.currentPossibleMatch = null;
 	}
 }
@@ -938,52 +1167,38 @@ protected void reduceParseTree(CompilationUnitDeclaration unit) {
 	for (int i = 0, l = types.length; i < l; i++)
 		purgeMethodStatements(types[i], true); 
 }
-protected void report(int sourceStart, int sourceEnd, IJavaElement element, int accuracy) throws CoreException {
-	if (element != null && this.scope.encloses(element)) {
-		if (SearchEngine.VERBOSE) {
-			IResource res = this.currentPossibleMatch.resource;
-			System.out.println("Reporting match"); //$NON-NLS-1$
-			System.out.println("\tResource: " + (res == null ? " <unknown> " : res.getFullPath().toString())); //$NON-NLS-2$//$NON-NLS-1$
-			System.out.println("\tPositions: [" + sourceStart + ", " + sourceEnd + "]"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-			System.out.println("\tJava element: " + ((JavaElement)element).toStringWithAncestors()); //$NON-NLS-1$
-			System.out.println(accuracy == IJavaSearchResultCollector.EXACT_MATCH
-				? "\tAccuracy: EXACT_MATCH" //$NON-NLS-1$
-				: "\tAccuracy: POTENTIAL_MATCH"); //$NON-NLS-1$
-		}
-		report(
-			this.currentPossibleMatch.resource, 
-			sourceStart, 
-			sourceEnd, 
-			element, 
-			accuracy, 
-			getParticipant());
-	}
-}
 public SearchParticipant getParticipant() {
 	return this.currentPossibleMatch.document.getParticipant();
 }
 
-protected void report(IResource resource, int sourceStart, int sourceEnd, IJavaElement element, int accuracy, SearchParticipant participant) throws CoreException {
+protected void report(SearchMatch match) throws CoreException {
 	long start = -1;
-	if (SearchEngine.VERBOSE)
+	if (SearchEngine.VERBOSE) {
 		start = System.currentTimeMillis();
-	String documentPath = element.getPath().toString();
-	SearchMatch match = new JavaSearchMatch(resource, element, documentPath, accuracy, participant, sourceStart, sourceEnd+1, -1);
+		System.out.println("Reporting match"); //$NON-NLS-1$
+		System.out.println("\tResource: " + match.getResource()); //$NON-NLS-2$//$NON-NLS-1$
+		System.out.println("\tPositions: [offset=" + match.getOffset() + ", length=" + match.getLength() + "]"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+		System.out.println("\tJava element: " + ((JavaElement)match.getElement()).toStringWithAncestors()); //$NON-NLS-1$
+		System.out.println(match.getAccuracy() == SearchMatch.A_ACCURATE
+			? "\tAccuracy: EXACT_MATCH" //$NON-NLS-1$
+			: "\tAccuracy: POTENTIAL_MATCH"); //$NON-NLS-1$
+	}
 	this.requestor.acceptSearchMatch(match);
 	if (SearchEngine.VERBOSE)
 		this.resultCollectorTime += System.currentTimeMillis()-start;
-}
-protected void report(long start, long end, IJavaElement element, int accuracy) throws CoreException {
-	report((int) (start >>> 32), (int) end, element, accuracy); // extract the start and end from the encoded long positions
 }
 /**
  * Finds the accurate positions of the sequence of tokens given by qualifiedName
  * in the source and reports a reference to this this qualified name
  * to the search requestor.
  */
-protected void reportAccurateReference(int sourceStart, int sourceEnd, char[] name, IJavaElement element, int accuracy) throws CoreException {
+protected void reportAccurateTypeReference(ASTNode typeRef, char[] name, IJavaElement element, int accuracy) throws CoreException {
 	if (accuracy == -1) return;
+	if (!encloses(element)) return;
 
+	int sourceStart = typeRef.sourceStart;
+	int sourceEnd = typeRef.sourceEnd;
+	
 	// compute source positions of the qualified reference 
 	Scanner scanner = this.parser.scanner;
 	scanner.setSource(this.currentPossibleMatch.getContents());
@@ -999,18 +1214,27 @@ protected void reportAccurateReference(int sourceStart, int sourceEnd, char[] na
 			// ignore
 		}
 		if (token == TerminalTokens.TokenNameIdentifier && this.pattern.matchesName(name, scanner.getCurrentTokenSource())) {
-			report(currentPosition, scanner.currentPosition - 1, element, accuracy);
+			int length = scanner.currentPosition-currentPosition;
+			SearchMatch match = newTypeReferenceMatch(element, accuracy, currentPosition, length, typeRef);
+			report(match);
 			return;
 		}
 	} while (token != TerminalTokens.TokenNameEOF);
-	report(sourceStart, sourceEnd, element, accuracy);
+	SearchMatch match = newTypeReferenceMatch(element, accuracy, sourceStart, sourceEnd-sourceStart+1, typeRef);
+	report(match);
 }
 /**
  * Finds the accurate positions of each valid token in the source and
  * reports a reference to this token to the search requestor.
  * A token is valid if it has an accuracy which is not -1.
  */
-protected void reportAccurateReference(int sourceStart, int sourceEnd, char[][] tokens, IJavaElement element, int[] accuracies) throws CoreException {
+protected void reportAccurateFieldReference(QualifiedNameReference qNameRef, IJavaElement element, int[] accuracies) throws CoreException {
+	if (!encloses(element)) return;
+	
+	int sourceStart = qNameRef.sourceStart;
+	int sourceEnd = qNameRef.sourceEnd;
+	char[][] tokens = qNameRef.tokens;
+	
 	// compute source positions of the qualified reference 
 	Scanner scanner = this.parser.scanner;
 	scanner.setSource(this.currentPossibleMatch.getContents());
@@ -1033,7 +1257,7 @@ protected void reportAccurateReference(int sourceStart, int sourceEnd, char[][] 
 		if (token != TerminalTokens.TokenNameEOF) {
 			char[] currentTokenSource = scanner.getCurrentTokenSource();
 			boolean equals = false;
-			while (i < length && !(equals = this.pattern.matchesName(tokens[i++], currentTokenSource)));
+			while (i < length && !(equals = this.pattern.matchesName(tokens[i++], currentTokenSource))){/*empty*/}
 			if (equals && (previousValid == -1 || previousValid == i - 2)) {
 				previousValid = i - 1;
 				if (refSourceStart == -1)
@@ -1054,9 +1278,11 @@ protected void reportAccurateReference(int sourceStart, int sourceEnd, char[][] 
 		if (accuracies[accuracyIndex] != -1) {
 			// accept reference
 			if (refSourceStart != -1) {
-				report(refSourceStart, refSourceEnd, element, accuracies[accuracyIndex]);
+				SearchMatch match = newFieldReferenceMatch(element, accuracies[accuracyIndex], refSourceStart, refSourceEnd-refSourceStart+1, qNameRef);
+				report(match);
 			} else {
-				report(sourceStart, sourceEnd, element, accuracies[accuracyIndex]);
+				SearchMatch match = newFieldReferenceMatch(element, accuracies[accuracyIndex], sourceStart, sourceEnd-sourceStart+1, qNameRef);
+				report(match);
 			}
 			i = 0;
 		}
@@ -1067,10 +1293,10 @@ protected void reportAccurateReference(int sourceStart, int sourceEnd, char[][] 
 	} while (token != TerminalTokens.TokenNameEOF);
 
 }
-protected void reportBinaryMatch(IResource resource, IMember binaryMember, IBinaryType info, int accuracy) throws CoreException {
-	ISourceRange range = binaryMember.getNameRange();
+protected void reportBinaryMemberDeclaration(IResource resource, IMember binaryMember, IBinaryType info, int accuracy) throws CoreException {
+	ClassFile classFile = (ClassFile) binaryMember.getClassFile();
+	ISourceRange range = classFile.isOpen() ? binaryMember.getNameRange() : SourceMapper.fgUnknownRange;
 	if (range.getOffset() == -1) {
-		ClassFile classFile = (ClassFile) binaryMember.getClassFile();
 		SourceMapper mapper = classFile.getSourceMapper();
 		if (mapper != null) {
 			IType type = classFile.getType();
@@ -1082,12 +1308,9 @@ protected void reportBinaryMatch(IResource resource, IMember binaryMember, IBina
 			}
 		}
 	}
-	int startIndex = range.getOffset();
-	int endIndex = startIndex + range.getLength() - 1;
-	if (resource == null)
-		report(startIndex, endIndex, binaryMember, accuracy);
-	else
-		report(resource, startIndex, endIndex, binaryMember, accuracy, getParticipant());
+	if (resource == null) resource =  this.currentPossibleMatch.resource;
+	SearchMatch match = newDeclarationMatch(binaryMember, accuracy, range.getOffset(), range.getLength(), getParticipant(), resource);
+	report(match);
 }
 /**
  * Visit the given method declaration and report the nodes that match exactly the
@@ -1109,9 +1332,11 @@ protected void reportMatching(AbstractMethodDeclaration method, IJavaElement par
 			} catch (InvalidInputException e) {
 				// ignore
 			}
-			int nameSourceEnd = scanner.currentPosition - 1;
-
-			report(nameSourceStart, nameSourceEnd, enclosingElement, accuracy);
+			if (encloses(enclosingElement)) {
+				int length = scanner.currentPosition - nameSourceStart;
+				SearchMatch match = newDeclarationMatch(enclosingElement, accuracy, nameSourceStart, length);
+				report(match);
+			}
 		}
 	}
 
@@ -1134,7 +1359,7 @@ protected void reportMatching(AbstractMethodDeclaration method, IJavaElement par
 			if ((this.matchContainer & PatternLocator.METHOD_CONTAINER) != 0) {
 				if (enclosingElement == null)
 					enclosingElement = createHandle(method, parent);
-				if (enclosingElement != null) { // skip if unable to find method
+				if (encloses(enclosingElement)) {
 					for (int i = 0, l = nodes.length; i < l; i++) {
 						ASTNode node = nodes[i];
 						Integer level = (Integer) nodeSet.matchingNodes.removeKey(node);
@@ -1170,10 +1395,35 @@ protected void reportMatching(CompilationUnitDeclaration unit, boolean mustResol
 					: unit.scope.getTypeOrPackage(importRef.tokens);
 				this.patternLocator.matchLevelAndReportImportRef(importRef, binding, this);
 			} else {
-				nodeSet.addMatch(node, this.patternLocator.resolveLevel(node));
+				if (node instanceof JavadocSingleTypeReference) {
+					// special case for javadoc single type reference
+					JavadocSingleTypeReference singleRef = (JavadocSingleTypeReference) node;
+					if (singleRef.packageBinding != null) {
+						char[][] tokens = new char[][] { singleRef.token };
+						long[] positions = new long[] { (((long) singleRef.sourceStart) << 32) + singleRef.sourceEnd };
+						int tagStart = singleRef.tagSourceStart;
+						int tagEnd = singleRef.tagSourceEnd;
+						JavadocImportReference importRef = new JavadocImportReference(tokens, positions, tagStart, tagEnd);
+						this.patternLocator.matchLevelAndReportImportRef(importRef, singleRef.packageBinding, this);
+						continue;
+					}
+				} else if (node instanceof JavadocQualifiedTypeReference) {
+					// special case for javadoc qualified type reference
+					JavadocQualifiedTypeReference qualifRef = (JavadocQualifiedTypeReference) node;
+					if (qualifRef.packageBinding != null) {
+						char[][] tokens = qualifRef.tokens;
+						long[] positions = qualifRef.sourcePositions;
+						int tagStart = qualifRef.tagSourceStart;
+						int tagEnd = qualifRef.tagSourceEnd;
+						JavadocImportReference importRef = new JavadocImportReference(tokens, positions, tagStart, tagEnd);
+						this.patternLocator.matchLevelAndReportImportRef(importRef, qualifRef.packageBinding, this);
+						continue;
+					}
+				}
 			}
+			nodeSet.addMatch(node, this.patternLocator.resolveLevel(node));
 		}
-		nodeSet.possibleMatchingNodesSet = new SimpleSet();
+		nodeSet.possibleMatchingNodesSet = new SimpleSet(3);
 	}
 
 	if (nodeSet.matchingNodes.elementSize == 0) return; // no matching nodes were found
@@ -1215,7 +1465,11 @@ protected void reportMatching(FieldDeclaration field, TypeDeclaration type, IJav
 	IJavaElement enclosingElement = null;
 	if (accuracy > -1) {
 		enclosingElement = createHandle(field, type, parent);
-		report(field.sourceStart, field.sourceEnd, enclosingElement, accuracy);
+		if (encloses(enclosingElement)) {
+			int offset = field.sourceStart;
+			SearchMatch match = newDeclarationMatch(enclosingElement, accuracy, offset, field.sourceEnd-offset+1);
+			report(match);
+		}
 	}
 
 	// handle the nodes for the local type first
@@ -1239,11 +1493,12 @@ protected void reportMatching(FieldDeclaration field, TypeDeclaration type, IJav
 			} else {
 				if (enclosingElement == null)
 					enclosingElement = createHandle(field, type, parent);
-				for (int i = 0, l = nodes.length; i < l; i++) {
-					ASTNode node = nodes[i];
-					Integer level = (Integer) nodeSet.matchingNodes.removeKey(node);
-					this.patternLocator.matchReportReference(node, enclosingElement, level.intValue(), this);
-				}
+				if (encloses(enclosingElement))
+					for (int i = 0, l = nodes.length; i < l; i++) {
+						ASTNode node = nodes[i];
+						Integer level = (Integer) nodeSet.matchingNodes.removeKey(node);
+						this.patternLocator.matchReportReference(node, enclosingElement, level.intValue(), this);
+					}
 			}
 		}
 	}
@@ -1269,8 +1524,11 @@ protected void reportMatching(TypeDeclaration type, IJavaElement parent, int acc
 	if (enclosingElement == null) return;
 
 	// report the type declaration
-	if (accuracy > -1)
-		report(type.sourceStart, type.sourceEnd, enclosingElement, accuracy);
+	if (accuracy > -1 && encloses(enclosingElement)) {
+		int offset = type.sourceStart;
+		SearchMatch match = newDeclarationMatch(enclosingElement, accuracy, offset, type.sourceEnd-offset+1);
+		report(match);
+	}
 
 	boolean matchedClassContainer = (this.matchContainer & PatternLocator.CLASS_CONTAINER) != 0;
 
@@ -1285,7 +1543,8 @@ protected void reportMatching(TypeDeclaration type, IJavaElement parent, int acc
 				for (int i = 0, l = nodes.length; i < l; i++) {
 					ASTNode node = nodes[i];
 					Integer level = (Integer) nodeSet.matchingNodes.removeKey(node);
-					this.patternLocator.matchReportReference(node, enclosingElement, level.intValue(), this);
+					if (encloses(enclosingElement))
+						this.patternLocator.matchReportReference(node, enclosingElement, level.intValue(), this);
 				}
 			}
 		}
@@ -1366,4 +1625,5 @@ protected boolean typeInHierarchy(ReferenceBinding binding) {
 	}
 	return false;
 }
+
 }

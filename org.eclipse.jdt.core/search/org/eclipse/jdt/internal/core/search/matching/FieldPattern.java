@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,15 +11,10 @@
 package org.eclipse.jdt.internal.core.search.matching;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.core.search.*;
+import org.eclipse.jdt.core.search.SearchPattern;
+import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
-public class FieldPattern extends VariablePattern {
-
-private static ThreadLocal indexRecord = new ThreadLocal() {
-	protected Object initialValue() {
-		return new FieldPattern(false, false, false, null, null, null, null, null, R_EXACT_MATCH | R_CASE_SENSITIVE);
-	}
-};
+public class FieldPattern extends VariablePattern implements IIndexConstants {
 
 // declaring type
 protected char[] declaringQualification;
@@ -29,17 +24,12 @@ protected char[] declaringSimpleName;
 protected char[] typeQualification;
 protected char[] typeSimpleName;
 
-protected static char[][] REF_CATEGORIES = { FIELD_REF, REF };
-protected static char[][] REF_AND_DECL_CATEGORIES = { FIELD_REF, REF, FIELD_DECL };
+protected static char[][] REF_CATEGORIES = { REF };
+protected static char[][] REF_AND_DECL_CATEGORIES = { REF, FIELD_DECL };
 protected static char[][] DECL_CATEGORIES = { FIELD_DECL };
 
 public static char[] createIndexKey(char[] fieldName) {
-	FieldPattern record = getFieldRecord();
-	record.name = fieldName;
-	return record.encodeIndexKey();
-}
-public static FieldPattern getFieldRecord() {
-	return (FieldPattern)indexRecord.get();
+	return fieldName;
 }
 
 public FieldPattern(
@@ -55,35 +45,32 @@ public FieldPattern(
 
 	super(FIELD_PATTERN, findDeclarations, readAccess, writeAccess, name, matchRule);
 
-	boolean isCaseSensitive = isCaseSensitive();
-	this.declaringQualification = isCaseSensitive ? declaringQualification : CharOperation.toLowerCase(declaringQualification);
-	this.declaringSimpleName = isCaseSensitive ? declaringSimpleName : CharOperation.toLowerCase(declaringSimpleName);
-	this.typeQualification = isCaseSensitive ? typeQualification : CharOperation.toLowerCase(typeQualification);
-	this.typeSimpleName = isCaseSensitive ? typeSimpleName : CharOperation.toLowerCase(typeSimpleName);
+	this.declaringQualification = isCaseSensitive() ? declaringQualification : CharOperation.toLowerCase(declaringQualification);
+	this.declaringSimpleName = isCaseSensitive() ? declaringSimpleName : CharOperation.toLowerCase(declaringSimpleName);
+	this.typeQualification = isCaseSensitive() ? typeQualification : CharOperation.toLowerCase(typeQualification);
+	this.typeSimpleName = isCaseSensitive() ? typeSimpleName : CharOperation.toLowerCase(typeSimpleName);
 
-	this.mustResolve = mustResolve();
+	((InternalSearchPattern)this).mustResolve = mustResolve();
 }
 public void decodeIndexKey(char[] key) {
 	this.name = key;
 }
-public char[] encodeIndexKey() {
-	return encodeIndexKey(this.name);
+public SearchPattern getBlankPattern() {
+	return new FieldPattern(false, false, false, null, null, null, null, null, R_EXACT_MATCH | R_CASE_SENSITIVE);
 }
-public SearchPattern getIndexRecord() {
-	return getFieldRecord();
+public char[] getIndexKey() {
+	return this.name;
 }
-public char[][] getMatchCategories() {
-	return this.findReferences
-			? (this.findDeclarations || this.writeAccess ? REF_AND_DECL_CATEGORIES : REF_CATEGORIES)
-			: DECL_CATEGORIES;
+public char[][] getIndexCategories() {
+	if (this.findReferences)
+		return this.findDeclarations || this.writeAccess ? REF_AND_DECL_CATEGORIES : REF_CATEGORIES;
+	if (this.findDeclarations)
+		return DECL_CATEGORIES;
+	return CharOperation.NO_CHAR_CHAR;
 }
-public boolean isMatchingIndexRecord() {
-	return matchesName(this.name, getFieldRecord().name);
+public boolean matchesDecodedKey(SearchPattern decodedPattern) {
+	return true; // index key is not encoded so query results all match
 }
-/**
- * Returns whether a method declaration or message send will need to be resolved to 
- * find out if this method pattern matches it.
- */
 protected boolean mustResolve() {
 	if (this.declaringSimpleName != null || this.declaringQualification != null) return true;
 	if (this.typeSimpleName != null || this.typeQualification != null) return true;
@@ -115,14 +102,14 @@ public String toString() {
 		buffer.append(typeSimpleName);
 	else if (typeQualification != null) buffer.append("*"); //$NON-NLS-1$
 	buffer.append(", "); //$NON-NLS-1$
-	switch(matchMode()){
-		case EXACT_MATCH : 
+	switch(getMatchMode()) {
+		case R_EXACT_MATCH : 
 			buffer.append("exact match, "); //$NON-NLS-1$
 			break;
-		case PREFIX_MATCH :
+		case R_PREFIX_MATCH :
 			buffer.append("prefix match, "); //$NON-NLS-1$
 			break;
-		case PATTERN_MATCH :
+		case R_PATTERN_MATCH :
 			buffer.append("pattern match, "); //$NON-NLS-1$
 			break;
 	}

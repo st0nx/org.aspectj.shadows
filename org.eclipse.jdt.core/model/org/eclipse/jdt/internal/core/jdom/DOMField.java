@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,9 +15,7 @@ import java.util.Enumeration;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.core.jdom.DOMException;
-import org.eclipse.jdt.core.jdom.IDOMField;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
 /**
@@ -25,6 +23,9 @@ import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
  *
  * @see IDOMField
  * @see DOMNode
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the 
+ * org.eclipse.jdt.core.dom package.
  */
 class DOMField extends DOMMember implements IDOMField {
 	
@@ -545,7 +546,7 @@ protected void setHasInitializer(boolean hasInitializer) {
 	setMask(MASK_FIELD_HAS_INITIALIZER, hasInitializer);
 }
 /**
- * @see IDOMField#setInitializer(char[])
+ * @see IDOMField#setInitializer(String)
  */
 public void setInitializer(String initializer) {
 	becomeDetailed();
@@ -569,7 +570,7 @@ protected void setIsVariableDeclarator(boolean isVariableDeclarator) {
 	setMask(MASK_FIELD_IS_VARIABLE_DECLARATOR, isVariableDeclarator);
 }
 /**
- * @see IDOMField#setName(char[])
+ * @see IDOMField#setName(String)
  */
 public void setName(String name) throws IllegalArgumentException {
 	if (name == null) {
@@ -580,7 +581,7 @@ public void setName(String name) throws IllegalArgumentException {
 	}
 }
 /**
- * @see IDOMField#setType(char[])
+ * @see IDOMField#setType(String)
  */
 public void setType(String typeName) throws IllegalArgumentException {
 	if (typeName == null) {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,44 +10,25 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
-import java.io.IOException;
-
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IPackageFragmentRoot;
-import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
-import org.eclipse.jdt.core.search.IJavaSearchScope;
-import org.eclipse.jdt.core.search.SearchParticipant;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.LocalVariable;
-import org.eclipse.jdt.internal.core.index.IIndex;
+import org.eclipse.jdt.internal.core.index.Index;
 import org.eclipse.jdt.internal.core.search.IndexQueryRequestor;
+import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
-public class LocalVariablePattern extends VariablePattern {
+public class LocalVariablePattern extends VariablePattern implements IIndexConstants {
 	
 LocalVariable localVariable;
 
-public LocalVariablePattern(
-	boolean findDeclarations,
-	boolean readAccess,
-	boolean writeAccess,
-	LocalVariable localVariable,
-	int matchRule) {
-
+public LocalVariablePattern(boolean findDeclarations, boolean readAccess, boolean writeAccess, LocalVariable localVariable, int matchRule) {
 	super(LOCAL_VAR_PATTERN, findDeclarations, readAccess, writeAccess, localVariable.getElementName().toCharArray(), matchRule);
 	this.localVariable = localVariable;
 }
-public void decodeIndexKey(char[] key) {
-	// local variables are not indexed
-}
-public char[] encodeIndexKey() {
-	// local variables are not indexed
-	return null;
-}
-public void findIndexMatches(IIndex index, IndexQueryRequestor requestor, SearchParticipant participant, IJavaSearchScope scope, IProgressMonitor progressMonitor) throws IOException {
+public void findIndexMatches(Index index, IndexQueryRequestor requestor, SearchParticipant participant, IJavaSearchScope scope, IProgressMonitor progressMonitor) {
     IPackageFragmentRoot root = (IPackageFragmentRoot)this.localVariable.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
 	String path;
     if (root.isArchive()) {
@@ -57,22 +38,9 @@ public void findIndexMatches(IIndex index, IndexQueryRequestor requestor, Search
     } else {
         path = this.localVariable.getPath().toString();
     }
-	if (scope.encloses(path)) {
+	if (scope.encloses(path))
 		if (!requestor.acceptIndexMatch(path, this, participant)) 
 			throw new OperationCanceledException();
-	}
-}
-public SearchPattern getIndexRecord() {
-	// local variables are not indexed
-	return null;
-}
-public char[][] getMatchCategories() {
-	// local variables are not indexed
-	return CharOperation.NO_CHAR_CHAR;
-}
-public boolean isMatchingIndexRecord() {
-	// local variables are not indexed
-	return false;
 }
 public String toString() {
 	StringBuffer buffer = new StringBuffer(20);
@@ -85,14 +53,14 @@ public String toString() {
 	}
 	buffer.append(this.localVariable.toStringWithAncestors());
 	buffer.append(", "); //$NON-NLS-1$
-	switch(matchMode()){
-		case EXACT_MATCH : 
+	switch(getMatchMode()) {
+		case R_EXACT_MATCH : 
 			buffer.append("exact match, "); //$NON-NLS-1$
 			break;
-		case PREFIX_MATCH :
+		case R_PREFIX_MATCH :
 			buffer.append("prefix match, "); //$NON-NLS-1$
 			break;
-		case PATTERN_MATCH :
+		case R_PATTERN_MATCH :
 			buffer.append("pattern match, "); //$NON-NLS-1$
 			break;
 	}

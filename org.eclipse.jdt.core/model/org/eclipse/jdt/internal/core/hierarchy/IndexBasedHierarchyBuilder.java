@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,13 +14,14 @@ import java.util.*;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.SubProgressMonitor;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
+import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
@@ -30,6 +31,7 @@ import org.eclipse.jdt.internal.core.search.JavaSearchParticipant;
 import org.eclipse.jdt.internal.core.search.SubTypeSearchJob;
 import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 import org.eclipse.jdt.internal.core.search.indexing.IndexManager;
+import org.eclipse.jdt.internal.core.search.matching.MatchLocator;
 import org.eclipse.jdt.internal.core.search.matching.SuperTypeReferencePattern;
 import org.eclipse.jdt.internal.core.util.HandleFactory;
 
@@ -85,7 +87,7 @@ public class IndexBasedHierarchyBuilder extends HierarchyBuilder implements Suff
 		public String toString(){
 			StringBuffer buffer = new StringBuffer("Queue:\n"); //$NON-NLS-1$
 			for (int i = this.start; i <= this.end; i++){
-				buffer.append(names[i]).append('\n');		
+				buffer.append(this.names[i]).append('\n');		
 			}
 			return buffer.toString();
 		}
@@ -144,13 +146,11 @@ private void buildForProject(JavaProject project, ArrayList potentialSubtypes, o
 
 	// resolve
 	if (openablesLength > 0) {
-		this.searchableEnvironment = (SearchableEnvironment)project.getSearchableNameEnvironment();
 		IType focusType = this.getType();
-		this.nameLookup = project.getNameLookup();
 		boolean inProjectOfFocusType = focusType != null && focusType.getJavaProject().equals(project);
+		org.eclipse.jdt.core.ICompilationUnit[] unitsToLookInside = null;
 		if (inProjectOfFocusType) {
 			org.eclipse.jdt.core.ICompilationUnit unitToLookInside = focusType.getCompilationUnit();
-			org.eclipse.jdt.core.ICompilationUnit[] unitsToLookInside;
 			if (unitToLookInside != null) {
 				int wcLength = workingCopies == null ? 0 : workingCopies.length;
 				if (wcLength == 0) {
@@ -163,40 +163,36 @@ private void buildForProject(JavaProject project, ArrayList potentialSubtypes, o
 			} else {
 				unitsToLookInside = workingCopies;
 			}
-			this.nameLookup.setUnitsToLookInside(unitsToLookInside); // NB: this uses a PerThreadObject, so it is thread safe
 		}
-		try {
-			this.hierarchyResolver = 
-				new HierarchyResolver(this.searchableEnvironment, project.getOptions(true), this, new DefaultProblemFactory());
-			if (focusType != null) {
-				Member declaringMember = ((Member)focusType).getOuterMostLocalContext();
-				if (declaringMember == null) {
-					// top level or member type
-					char[] fullyQualifiedName = focusType.getFullyQualifiedName().toCharArray();
-					if (!inProjectOfFocusType && project.getSearchableNameEnvironment().findType(CharOperation.splitOn('.', fullyQualifiedName)) == null) {
-						// focus type is not visible in this project: no need to go further
-						return;
-					}
-				} else {
-					// local or anonymous type
-					Openable openable;
-					if (declaringMember.isBinary()) {
-						openable = (Openable)declaringMember.getClassFile();
-					} else {
-						openable = (Openable)declaringMember.getCompilationUnit();
-					}
-					localTypes = new HashSet();
-					localTypes.add(openable.getPath().toString());
-					this.hierarchyResolver.resolve(new Openable[] {openable}, localTypes, monitor);
+
+		SearchableEnvironment searchableEnvironment = (SearchableEnvironment)project.newSearchableNameEnvironment(unitsToLookInside);
+		this.nameLookup = searchableEnvironment.nameLookup;
+		this.hierarchyResolver = 
+			new HierarchyResolver(searchableEnvironment, project.getOptions(true), this, new DefaultProblemFactory());
+		if (focusType != null) {
+			Member declaringMember = ((Member)focusType).getOuterMostLocalContext();
+			if (declaringMember == null) {
+				// top level or member type
+				char[] fullyQualifiedName = focusType.getFullyQualifiedName().toCharArray();
+				if (!inProjectOfFocusType && searchableEnvironment.findType(CharOperation.splitOn('.', fullyQualifiedName)) == null) {
+					// focus type is not visible in this project: no need to go further
 					return;
 				}
-			}
-			this.hierarchyResolver.resolve(openables, localTypes, monitor);
-		} finally {
-			if (inProjectOfFocusType) {
-				this.nameLookup.setUnitsToLookInside(null);
+			} else {
+				// local or anonymous type
+				Openable openable;
+				if (declaringMember.isBinary()) {
+					openable = (Openable)declaringMember.getClassFile();
+				} else {
+					openable = (Openable)declaringMember.getCompilationUnit();
+				}
+				localTypes = new HashSet();
+				localTypes.add(openable.getPath().toString());
+				this.hierarchyResolver.resolve(new Openable[] {openable}, localTypes, monitor);
+				return;
 			}
 		}
+		this.hierarchyResolver.resolve(openables, localTypes, monitor);
 	}
 }
 /**
@@ -337,6 +333,29 @@ protected ICompilationUnit createCompilationUnitFromPath(Openable handle,String 
 	this.cuToHandle.put(unit, handle);
 	return unit;
 }
+protected IBinaryType createInfoFromClassFile(Openable classFile, String osPath) {
+	String documentPath = classFile.getPath().toString();
+	IBinaryType binaryType = (IBinaryType)this.binariesFromIndexMatches.get(documentPath);
+	if (binaryType != null) {
+		this.infoToHandle.put(binaryType, classFile);
+		return binaryType;
+	} else {
+		return super.createInfoFromClassFile(classFile, osPath);
+	}
+}
+protected IBinaryType createInfoFromClassFileInJar(Openable classFile) {
+	String filePath = (((ClassFile)classFile).getType().getFullyQualifiedName('$')).replace('.', '/') + SuffixConstants.SUFFIX_STRING_class;
+	IPackageFragmentRoot root = classFile.getPackageFragmentRoot();
+	String rootPath = root.isExternal() ? root.getPath().toOSString() : root.getPath().toString();
+	String documentPath = rootPath + IJavaSearchScope.JAR_FILE_ENTRY_SEPARATOR + filePath;
+	IBinaryType binaryType = (IBinaryType)this.binariesFromIndexMatches.get(documentPath);
+	if (binaryType != null) {
+		this.infoToHandle.put(binaryType, classFile);
+		return binaryType;
+	} else {
+		return super.createInfoFromClassFileInJar(classFile);
+	}
+}
 /**
  * Returns all of the possible subtypes of this type hierarchy.
  * Returns null if they could not be determine.
@@ -346,7 +365,7 @@ private String[] determinePossibleSubTypes(final HashSet localTypes, IProgressMo
 	class PathCollector implements IPathRequestor {
 		HashSet paths = new HashSet(10);
 		public void acceptPath(String path, boolean containsLocalTypes) {
-			paths.add(path);
+			this.paths.add(path);
 			if (containsLocalTypes) {
 				localTypes.add(path);
 			}
@@ -376,20 +395,7 @@ private String[] determinePossibleSubTypes(final HashSet localTypes, IProgressMo
 	} 
 	return result;
 }
-/**
- * Returns a handle for the given generic type or null if not found.
- */
-protected IType getHandle(IGenericType genericType) {
-	if (genericType instanceof HierarchyType) {
-		IType type = (IType)this.infoToHandle.get(genericType);
-		if (type == null) {
-			type = ((HierarchyType)genericType).typeHandle;
-			this.infoToHandle.put(genericType, type);
-		}
-		return type;
-	} else
-		return super.getHandle(genericType);
-}
+
 /**
  * Find the set of candidate subtypes of a given type.
  *
@@ -398,8 +404,13 @@ protected IType getHandle(IGenericType genericType) {
  * hierarchy.
  * The match locator is not used here to narrow down the results, the type hierarchy
  * resolver is rather used to compute the whole hierarchy at once.
+ * @param type
+ * @param scope
+ * @param binariesFromIndexMatches
+ * @param pathRequestor
+ * @param waitingPolicy
+ * @param progressMonitor
  */
-
 public static void searchAllPossibleSubTypes(
 	IType type,
 	IJavaSearchScope scope,
@@ -409,7 +420,7 @@ public static void searchAllPossibleSubTypes(
 	IProgressMonitor progressMonitor) {
 
 	/* embed constructs inside arrays so as to pass them to (inner) collector */
-	final Queue awaitings = new Queue();
+	final Queue queue = new Queue();
 	final HashtableOfObject foundSuperNames = new HashtableOfObject(5);
 
 	IndexManager indexManager = JavaModelManager.getJavaModelManager().getIndexManager();
@@ -427,11 +438,16 @@ public static void searchAllPossibleSubTypes(
 					char[] enclosingTypeName = record.enclosingTypeName;
 					if (enclosingTypeName == IIndexConstants.ONE_ZERO) { // local or anonymous type
 						int lastSlash = documentPath.lastIndexOf('/');
-						if (lastSlash == -1) return true;
 						int lastDollar = documentPath.lastIndexOf('$');
-						if (lastDollar == -1) return true;
-						enclosingTypeName = documentPath.substring(lastSlash+1, lastDollar).toCharArray();
-						typeName = documentPath.substring(lastDollar+1, suffix).toCharArray();
+						if (lastDollar == -1) {
+							// malformed local or anonymous type: it doesn't contain a $ in its name
+							// treat it as a top level type
+							enclosingTypeName = null;
+							typeName = documentPath.substring(lastSlash+1, suffix).toCharArray();
+						} else {
+							enclosingTypeName = documentPath.substring(lastSlash+1, lastDollar).toCharArray();
+							typeName = documentPath.substring(lastDollar+1, suffix).toCharArray();
+						}
 					}
 					binaryType = new HierarchyBinaryType(record.modifiers, record.pkgName, typeName, enclosingTypeName, record.classOrInterface);
 					binariesFromIndexMatches.put(documentPath, binaryType);
@@ -440,49 +456,43 @@ public static void searchAllPossibleSubTypes(
 			}
 			if (!foundSuperNames.containsKey(typeName)){
 				foundSuperNames.put(typeName, typeName);
-				awaitings.add(typeName);
+				queue.add(typeName);
 			}
 			return true;
 		}		
 	};
-	
-	SuperTypeReferencePattern pattern = new SuperTypeReferencePattern(null, null, SearchPattern.R_EXACT_MATCH | SearchPattern.R_CASE_SENSITIVE);
-	pattern.focus = type;
+
+	SuperTypeReferencePattern pattern =
+		new SuperTypeReferencePattern(null, null, false, SearchPattern.R_EXACT_MATCH | SearchPattern.R_CASE_SENSITIVE);
+	MatchLocator.setFocus(pattern, type);
 	SubTypeSearchJob job = new SubTypeSearchJob(
 		pattern, 
-		new JavaSearchParticipant(null), // java search only
+		new JavaSearchParticipant(), // java search only
 		scope, 
 		searchRequestor);
-	
-	/* initialize entry result cache */
-	pattern.entryResults = new HashMap();
-	/* iterate all queued names */
+
 	int ticks = 0;
-	awaitings.add(type.getElementName().toCharArray());
-	while (awaitings.start <= awaitings.end){
-		if (progressMonitor != null && progressMonitor.isCanceled()) return;
+	queue.add(type.getElementName().toCharArray());
+	try {
+		while (queue.start <= queue.end) {
+			if (progressMonitor != null && progressMonitor.isCanceled()) return;
 
-		char[] currentTypeName = awaitings.retrieve();
+			// all subclasses of OBJECT are actually all types
+			char[] currentTypeName = queue.retrieve();
+			if (CharOperation.equals(currentTypeName, IIndexConstants.OBJECT))
+				currentTypeName = null;
 
-		/* all subclasses of OBJECT are actually all types */
-		if (CharOperation.equals(currentTypeName, IIndexConstants.OBJECT)){
-			currentTypeName = null;
-		}			
-		/* search all index references to a given supertype */
-		pattern.superSimpleName = currentTypeName;
-		indexManager.performConcurrentJob(
-			job, 
-			waitingPolicy, 
-			null); // don't pass a sub progress monitor as this is too costly for deep hierarchies
-		if (progressMonitor != null && ++ticks <= MAXTICKS) {
-			progressMonitor.worked(1);
+			// search all index references to a given supertype
+			pattern.superSimpleName = currentTypeName;
+			indexManager.performConcurrentJob(job, waitingPolicy, null); // no sub progress monitor since its too costly for deep hierarchies
+			if (progressMonitor != null && ++ticks <= MAXTICKS)
+				progressMonitor.worked(1);
+
+			// in case, we search all subtypes, no need to search further
+			if (currentTypeName == null) break;
 		}
-		/* in case, we search all subtypes, no need to search further */
-		if (currentTypeName == null) break;
+	} finally {
+		job.finished();
 	}
-	/* close all cached index inputs */
-	job.closeAll();
-	/* flush entry result cache */
-	pattern.entryResults = null;
 }
 }

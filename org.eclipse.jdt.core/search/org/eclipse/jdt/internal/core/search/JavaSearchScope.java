@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -17,6 +17,7 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaElementDelta;
@@ -28,6 +29,8 @@ import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.JavaElement;
+import org.eclipse.jdt.internal.core.JavaModelManager;
+import org.eclipse.jdt.internal.core.JavaProject;
 
 /**
  * A Java-specific scope for searching relative to one or more java elements.
@@ -66,29 +69,54 @@ private void addEnclosingProjectOrJar(IPath path) {
 	this.enclosingProjectsAndJars[length] = path;
 }
 
-public void add(IJavaProject javaProject, boolean includesPrereqProjects, HashSet visitedProjects) throws JavaModelException {
+public void add(JavaProject javaProject, int includeMask, HashSet visitedProjects) throws JavaModelException {
 	IProject project = javaProject.getProject();
 	if (!project.isAccessible() || !visitedProjects.add(project)) return;
 
 	this.addEnclosingProjectOrJar(project.getFullPath());
 
-	IClasspathEntry[] entries = javaProject.getResolvedClasspath(true);
+	IClasspathEntry[] entries = javaProject.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
 	IJavaModel model = javaProject.getJavaModel();
 	for (int i = 0, length = entries.length; i < length; i++) {
 		IClasspathEntry entry = entries[i];
 		switch (entry.getEntryKind()) {
 			case IClasspathEntry.CPE_LIBRARY:
-				IPath path = entry.getPath();
-				this.add(path, true);
-				this.addEnclosingProjectOrJar(path);
+				IClasspathEntry rawEntry = null;
+				JavaModelManager.PerProjectInfo perProjectInfo = javaProject.getPerProjectInfo();
+				if (perProjectInfo != null && perProjectInfo.resolvedPathToRawEntries != null) {
+					rawEntry = (IClasspathEntry) perProjectInfo.resolvedPathToRawEntries.get(entry.getPath());
+				}
+				if (rawEntry == null) break;
+				switch (rawEntry.getEntryKind()) {
+					case IClasspathEntry.CPE_LIBRARY:
+					case IClasspathEntry.CPE_VARIABLE:
+						if ((includeMask & APPLICATION_LIBRARIES) != 0) {
+							IPath path = entry.getPath();
+							add(path, true);
+							addEnclosingProjectOrJar(path);
+						}
+						break;
+					case IClasspathEntry.CPE_CONTAINER:
+						IClasspathContainer container = JavaCore.getClasspathContainer(rawEntry.getPath(), javaProject);
+						if (container == null) break;
+						if ((container.getKind() == IClasspathContainer.K_APPLICATION && (includeMask & APPLICATION_LIBRARIES) != 0)
+								|| (includeMask & SYSTEM_LIBRARIES) != 0) {
+							IPath path = entry.getPath();
+							add(path, true);
+							addEnclosingProjectOrJar(path);
+						}
+						break;
+				}
 				break;
 			case IClasspathEntry.CPE_PROJECT:
-				if (includesPrereqProjects) {
-					this.add(model.getJavaProject(entry.getPath().lastSegment()), true, visitedProjects);
+				if ((includeMask & REFERENCED_PROJECTS) != 0) {
+					add((JavaProject) model.getJavaProject(entry.getPath().lastSegment()), includeMask, visitedProjects);
 				}
 				break;
 			case IClasspathEntry.CPE_SOURCE:
-				this.add(entry.getPath(), true);
+				if ((includeMask & SOURCES) != 0) {
+					add(entry.getPath(), true);
+				}
 				break;
 		}
 	}
@@ -100,7 +128,8 @@ public void add(IJavaElement element) throws JavaModelException {
 			// a workspace sope should be used
 			break; 
 		case IJavaElement.JAVA_PROJECT:
-			this.add((IJavaProject)element, true, new HashSet(2));
+			int includeMask = SOURCES | APPLICATION_LIBRARIES | SYSTEM_LIBRARIES;
+			this.add((JavaProject)element, includeMask, new HashSet(2));
 			break;
 		case IJavaElement.PACKAGE_FRAGMENT_ROOT:
 			root = (IPackageFragmentRoot)element;
@@ -217,17 +246,14 @@ public boolean encloses(IJavaElement element) {
 			IJavaElement scopeElement = (IJavaElement)this.elements.get(i);
 			IJavaElement searchedElement = element;
 			while (searchedElement != null) {
-				if (searchedElement.equals(scopeElement)) {
+				if (searchedElement.equals(scopeElement))
 					return true;
-				} else {
-					searchedElement = searchedElement.getParent();
-				}
+				searchedElement = searchedElement.getParent();
 			}
 		}
 		return false;
-	} else {
-		return this.encloses(this.fullPath(element));
 	}
+	return this.encloses(this.fullPath(element));
 }
 
 /* (non-Javadoc)
@@ -239,19 +265,18 @@ public IPath[] enclosingProjectsAndJars() {
 private IPath fullPath(IJavaElement element) {
 	if (element instanceof IPackageFragmentRoot) {
 		return ((IPackageFragmentRoot)element).getPath();
-	} else 	{
-		IJavaElement parent = element.getParent();
-		IPath parentPath = parent == null ? null : this.fullPath(parent);
-		IPath childPath;
-		if (element instanceof IPackageFragment) {
-			childPath = new Path(element.getElementName().replace('.', '/'));
-		} else if (element instanceof IOpenable) {
-			childPath = new Path(element.getElementName());
-		} else {
-			return parentPath;
-		}
-		return parentPath == null ? childPath : parentPath.append(childPath);
 	}
+	IJavaElement parent = element.getParent();
+	IPath parentPath = parent == null ? null : this.fullPath(parent);
+	IPath childPath;
+	if (element instanceof IPackageFragment) {
+		childPath = new Path(element.getElementName().replace('.', '/'));
+	} else if (element instanceof IOpenable) {
+		childPath = new Path(element.getElementName());
+	} else {
+		return parentPath;
+	}
+	return parentPath == null ? childPath : parentPath.append(childPath);
 }
 
 protected void initialize() {

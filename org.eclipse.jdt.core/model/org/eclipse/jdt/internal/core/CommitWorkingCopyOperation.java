@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,8 +15,10 @@ import java.io.UnsupportedEncodingException;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IResource;
+import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.runtime.CoreException;
-import org.eclipse.jdt.core.*;
+import org.eclipse.core.runtime.jobs.ISchedulingRule;
+//import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IBuffer;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
@@ -71,9 +73,9 @@ public class CommitWorkingCopyOperation extends JavaModelOperation {
 			boolean isPrimary = workingCopy.isPrimary();
 
 			JavaElementDeltaBuilder deltaBuilder = null;
-			
 			PackageFragmentRoot root = (PackageFragmentRoot)workingCopy.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
-			if (isPrimary || (root.isOnClasspath() && resource.isAccessible() && Util.isValidCompilationUnitName(workingCopy.getElementName()))) {
+			boolean isIncluded = !Util.isExcluded(workingCopy);
+			if (isPrimary || (root.isOnClasspath() && isIncluded && resource.isAccessible() && Util.isValidCompilationUnitName(workingCopy.getElementName()))) {
 				
 				// force opening so that the delta builder can get the old info
 				if (!isPrimary && !primary.isOpen()) {
@@ -83,7 +85,7 @@ public class CommitWorkingCopyOperation extends JavaModelOperation {
 				// creates the delta builder (this remembers the content of the cu) if:
 				// - it is not excluded
 				// - and it is not a primary or it is a non-consistent primary
-				if (!Util.isExcluded(workingCopy) && (!isPrimary || !workingCopy.isConsistent())) {
+				if (isIncluded && (!isPrimary || !workingCopy.isConsistent())) {
 					deltaBuilder = new JavaElementDeltaBuilder(primary);
 				}
 			
@@ -113,7 +115,13 @@ public class CommitWorkingCopyOperation extends JavaModelOperation {
 				}
 			} else {
 				// working copy on cu outside classpath OR resource doesn't exist yet
-				String encoding = workingCopy.getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
+				String encoding = null;
+				try {
+					encoding = resource.getCharset();
+				}
+				catch (CoreException ce) {
+					// use no encoding
+				}
 				String contents = workingCopy.getSource();
 				if (contents == null) return;
 				try {
@@ -166,6 +174,15 @@ public class CommitWorkingCopyOperation extends JavaModelOperation {
 	 */
 	protected CompilationUnit getCompilationUnit() {
 		return (CompilationUnit)getElementToProcess();
+	}
+	protected ISchedulingRule getSchedulingRule() {
+		IResource resource = getElementToProcess().getResource();
+		IWorkspace workspace = resource.getWorkspace();
+		if (resource.exists()) {
+			return workspace.getRuleFactory().modifyRule(resource);
+		} else {
+			return workspace.getRuleFactory().createRule(resource);
+		}
 	}
 	/**
 	 * Possible failures: <ul>

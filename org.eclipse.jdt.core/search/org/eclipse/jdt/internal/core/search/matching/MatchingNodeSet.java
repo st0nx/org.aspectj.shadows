@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,7 +12,7 @@ package org.eclipse.jdt.internal.core.search.matching;
 
 import java.util.ArrayList;
 
-import org.eclipse.jdt.core.search.IJavaSearchResultCollector;
+import org.eclipse.jdt.core.search.SearchMatch;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfLong;
 import org.eclipse.jdt.internal.core.util.SimpleLookupTable;
@@ -28,10 +28,10 @@ public class MatchingNodeSet {
  * Map of matching ast nodes that don't need to be resolved to their accuracy level.
  * Each node is removed as it is reported.
  */
-SimpleLookupTable matchingNodes = new SimpleLookupTable(3);
-private HashtableOfLong matchingNodesKeys = new HashtableOfLong(3);
-static Integer EXACT_MATCH = new Integer(IJavaSearchResultCollector.EXACT_MATCH);
-static Integer POTENTIAL_MATCH = new Integer(IJavaSearchResultCollector.POTENTIAL_MATCH);
+SimpleLookupTable matchingNodes = new SimpleLookupTable(3); // node -> accuracy
+private HashtableOfLong matchingNodesKeys = new HashtableOfLong(3); // sourceRange -> node
+static Integer EXACT_MATCH = new Integer(SearchMatch.A_ACCURATE);
+static Integer POTENTIAL_MATCH = new Integer(SearchMatch.A_INACCURATE);
 
 /**
  * Set of possible matching ast nodes. They need to be resolved
@@ -86,6 +86,12 @@ protected boolean hasPossibleNodes(int start, int end) {
 		if (node != null && start <= node.sourceStart && node.sourceEnd <= end)
 			return true;
 	}
+	nodes = this.matchingNodes.keyTable;
+	for (int i = 0, l = nodes.length; i < l; i++) {
+		ASTNode node = (ASTNode) nodes[i];
+		if (node != null && start <= node.sourceStart && node.sourceEnd <= end)
+			return true;
+	}
 	return false;
 }
 /**
@@ -132,6 +138,7 @@ public Object removeTrustedMatch(ASTNode node) {
 	return this.matchingNodes.removeKey(node);
 }
 public String toString() {
+	// TODO (jerome) should show both tables
 	StringBuffer result = new StringBuffer();
 	result.append("Exact matches:"); //$NON-NLS-1$
 	Object[] keyTable = this.matchingNodes.keyTable;

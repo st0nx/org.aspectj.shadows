@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,72 +13,84 @@ package org.eclipse.jdt.core.search;
 import org.eclipse.core.runtime.CoreException;
 
 /**
- * TODO add spec
- */
-/**
- * A <code>SearchRequestor</code> collects search results from a <code>search</code>
- * query to a <code>SearchEngine</code>. Clients must implement this interface and pass
- * an instance to the <code>search(...)</code> methods. When a search starts, the <code>aboutToStart()</code>
- * method is called, then 0 or more call to <code>accept(...)</code> are done, finally the
- * <code>done()</code> method is called.
+ * Collects the results from a search engine query. 
+ * Clients implement a subclass to pass to <code>SearchEngine.search</code>
+ * and implement the {@link #acceptSearchMatch(SearchMatch)} method, and
+ * possibly override other life cycle methods.
  * <p>
- * Results provided to this collector may be accurate - in this case they have an <code>EXACT_MATCH</code> accuracy -
- * or they might be potential matches only - they have a <code>POTENTIAL_MATCH</code> accuracy. This last
- * case can occur when a problem prevented the <code>SearchEngine</code> from resolving the match.
- * </p>
- * <p>
- * The order of the results is unspecified. Clients must not rely on this order to display results, 
- * but they should sort these results (for example, in syntactical order).
- * <p>
- * The <code>SearchRequestor</code> is also used to provide a progress monitor to the 
- * <code>SearchEngine</code>.
- * </p>
- * <p>
- * Clients may implement this interface.
+ * The search engine calls <code>beginReporting()</code> when a search starts,
+ * then calls <code>acceptSearchMatch(...)</code> for each search result, and
+ * finally calls <code>endReporting()</code>. The order of the search results
+ * is unspecified and may vary from request to request; when displaying results,
+ * clients should not rely on the order but should instead arrange the results
+ * in an order that would be more meaningful to the user.
  * </p>
  *
- * @see SearchEngine#search
+ * @see SearchEngine
  * @since 3.0
  */
 public abstract class SearchRequestor {
 
-	/**expected detail level */
-	public static final int D_LOCATION = 8;
-	public static final int D_NAME = 1;
-	public static final int D_PATH = 2;
-	public static final int D_POSITION = 4;
-
-	// answer false if requesting to cancel
-	public abstract boolean acceptSearchMatch(SearchMatch match) throws CoreException;
+	/**
+	 * Accepts the given search match.
+	 *
+	 * @param match the found match
+	 * @throws CoreException
+	 */
+	// TODO (jerome) - remove throws CoreException
+	public abstract void acceptSearchMatch(SearchMatch match) throws CoreException;
 
 	/**
 	 * Notification sent before starting the search action.
-	 * Typically, this would tell a search requestor to clear previously recorded search results.
+	 * Typically, this would tell a search requestor to clear previously
+	 * recorded search results.
+	 * <p>
+	 * The default implementation of this method does nothing. Subclasses
+	 * may override.
+	 * </p>
 	 */
-	public abstract void beginReporting();
+	public void beginReporting() {
+		// do nothing
+	}
 
 	/**
 	 * Notification sent after having completed the search action.
-	 * Typically, this would tell a search requestor collector that no more results  should be expected in this
-	 * iteration.
+	 * Typically, this would tell a search requestor collector that no more
+	 * results will be forthcomping in this search.
+	 * <p>
+	 * The default implementation of this method does nothing. Subclasses
+	 * may override.
+	 * </p>
 	 */
-	public abstract void endReporting();
+	public void endReporting() {
+		// do nothing
+	}
 
 	/**
-	 * Intermediate notification sent when a given participant is starting to contribute.
+	 * Intermediate notification sent when the given participant starts to
+	 * contribute.
+	 * <p>
+	 * The default implementation of this method does nothing. Subclasses
+	 * may override.
+	 * </p>
+	 * 
+	 * @param participant the participant that is starting to contribute
 	 */
-	public abstract void enterParticipant(SearchParticipant participant);
+	public void enterParticipant(SearchParticipant participant) {
+		// do nothing
+	}
 
 	/**
-	 * Intermediate notification sent when a given participant is finished contributing.
+	 * Intermediate notification sent when the given participant is finished
+	 * contributing.
+	 * <p>
+	 * The default implementation of this method does nothing. Subclasses
+	 * may override.
+	 * </p>
+	 * 
+	 * @param participant the participant that finished contributing
 	 */
-	public abstract void exitParticipant(SearchParticipant participant);
-
-//	/**
-//	 * Client can indicate how much detail is expected
-//	 */
-//	public int getRequestedDetailLevel() {
-//		// by default, request all details
-//		return D_NAME | D_PATH | D_POSITION | D_LOCATION;
-//	}
+	public void exitParticipant(SearchParticipant participant) {
+		// do nothing
+	}
 }

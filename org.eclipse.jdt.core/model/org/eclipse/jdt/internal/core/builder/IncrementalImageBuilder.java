@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -157,12 +157,14 @@ protected void addAffectedSourceFiles() {
 					for (int j = 0, m = sourceLocations.length; j < m; j++) {
 						if (sourceLocations[j].sourceFolder.getFullPath().isPrefixOf(sourceFileFullPath)) {
 							md = sourceLocations[j];
-							if (md.exclusionPatterns == null || !Util.isExcluded(file, md.exclusionPatterns))
+							if (md.exclusionPatterns == null && md.inclusionPatterns == null)
+								break;
+							if (!Util.isExcluded(file, md.inclusionPatterns, md.exclusionPatterns))
 								break;
 						}
 					}
 				}
-				SourceFile sourceFile = new SourceFile(file, md, encoding);
+				SourceFile sourceFile = new SourceFile(file, md);
 				if (sourceFiles.contains(sourceFile)) continue next;
 				if (compiledAllAtOnce && previousSourceFiles != null && previousSourceFiles.contains(sourceFile))
 					continue next; // can skip previously compiled files since already saw hierarchy related problems
@@ -345,17 +347,24 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 	// When a package becomes a type or vice versa, expect 2 deltas,
 	// one on the folder & one on the source file
 	IResource resource = sourceDelta.getResource();
-	if (md.exclusionPatterns != null && Util.isExcluded(resource, md.exclusionPatterns)) return;
+	// remember that if inclusion & exclusion patterns change then a full build is done
+	boolean isExcluded = (md.exclusionPatterns != null || md.inclusionPatterns != null)
+		&& Util.isExcluded(resource, md.inclusionPatterns, md.exclusionPatterns);
 	switch(resource.getType()) {
 		case IResource.FOLDER :
+			if (isExcluded && md.inclusionPatterns == null)
+		        return; // no need to go further with this delta since its children cannot be included
+
 			switch (sourceDelta.getKind()) {
 				case IResourceDelta.ADDED :
-					IPath addedPackagePath = resource.getFullPath().removeFirstSegments(segmentCount);
-					createFolder(addedPackagePath, md.binaryFolder); // ensure package exists in the output folder
-					// add dependents even when the package thinks it exists to be on the safe side
-					if (JavaBuilder.DEBUG)
-						System.out.println("Found added package " + addedPackagePath); //$NON-NLS-1$
-					addDependentsOf(addedPackagePath, true);
+				    if (!isExcluded) {
+						IPath addedPackagePath = resource.getFullPath().removeFirstSegments(segmentCount);
+						createFolder(addedPackagePath, md.binaryFolder); // ensure package exists in the output folder
+						// add dependents even when the package thinks it exists to be on the safe side
+						if (JavaBuilder.DEBUG)
+							System.out.println("Found added package " + addedPackagePath); //$NON-NLS-1$
+						addDependentsOf(addedPackagePath, true);
+				    }
 					// fall thru & collect all the source files
 				case IResourceDelta.CHANGED :
 					IResourceDelta[] children = sourceDelta.getAffectedChildren();
@@ -363,6 +372,13 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 						findSourceFiles(children[i], md, segmentCount);
 					return;
 				case IResourceDelta.REMOVED :
+				    if (isExcluded) {
+				    	// since this folder is excluded then there is nothing to delete (from this md), but must walk any included subfolders
+						children = sourceDelta.getAffectedChildren();
+						for (int i = 0, l = children.length; i < l; i++)
+							findSourceFiles(children[i], md, segmentCount);
+						return;
+				    }
 					IPath removedPackagePath = resource.getFullPath().removeFirstSegments(segmentCount);
 					if (sourceLocations.length > 1) {
 						for (int i = 0, l = sourceLocations.length; i < l; i++) {
@@ -387,6 +403,8 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 			}
 			return;
 		case IResource.FILE :
+			if (isExcluded) return;
+
 			String resourceName = resource.getName();
 			if (org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(resourceName)) {
 				IPath typePath = resource.getFullPath().removeFirstSegments(segmentCount).removeFileExtension();
@@ -395,7 +413,7 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 					case IResourceDelta.ADDED :
 						if (JavaBuilder.DEBUG)
 							System.out.println("Compile this added source file " + typeLocator); //$NON-NLS-1$
-						sourceFiles.add(new SourceFile((IFile) resource, md, encoding, true));
+						sourceFiles.add(new SourceFile((IFile) resource, md, true));
 						String typeName = typePath.toString();
 						if (!newState.isDuplicateLocator(typeName, typeLocator)) { // adding dependents results in 2 duplicate errors
 							if (JavaBuilder.DEBUG)
@@ -432,7 +450,7 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 							return; // skip it since it really isn't changed
 						if (JavaBuilder.DEBUG)
 							System.out.println("Compile this changed source file " + typeLocator); //$NON-NLS-1$
-						sourceFiles.add(new SourceFile((IFile) resource, md, encoding, true));
+						sourceFiles.add(new SourceFile((IFile) resource, md, true));
 				}
 				return;
 			} else if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(resourceName)) {
@@ -455,6 +473,7 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 						createFolder(resourcePath.removeLastSegments(1), md.binaryFolder); // ensure package exists in the output folder
 						resource.copy(outputFile.getFullPath(), IResource.FORCE, null);
 						outputFile.setDerived(true);
+						outputFile.setReadOnly(false); // just in case the original was read only
 						return;
 					case IResourceDelta.REMOVED :
 						if (outputFile.exists()) {
@@ -476,6 +495,7 @@ protected void findSourceFiles(IResourceDelta sourceDelta, ClasspathMultiDirecto
 						createFolder(resourcePath.removeLastSegments(1), md.binaryFolder); // ensure package exists in the output folder
 						resource.copy(outputFile.getFullPath(), IResource.FORCE, null);
 						outputFile.setDerived(true);
+						outputFile.setReadOnly(false); // just in case the original was read only
 				}
 				return;
 			}

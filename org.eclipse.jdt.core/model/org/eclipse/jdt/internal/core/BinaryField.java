@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -70,15 +70,15 @@ public String getTypeSignature() throws JavaModelException {
 protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 	buffer.append(this.tabString(tab));
 	if (info == null) {
-		buffer.append(getElementName());
+		toStringName(buffer);
 		buffer.append(" (not open)"); //$NON-NLS-1$
 	} else if (info == NO_INFO) {
-		buffer.append(getElementName());
+		toStringName(buffer);
 	} else {
 		try {
 			buffer.append(Signature.toString(this.getTypeSignature()));
 			buffer.append(" "); //$NON-NLS-1$
-			buffer.append(this.getElementName());
+			toStringName(buffer);
 		} catch (JavaModelException e) {
 			buffer.append("<JavaModelException in toString of " + getElementName()); //$NON-NLS-1$
 		}

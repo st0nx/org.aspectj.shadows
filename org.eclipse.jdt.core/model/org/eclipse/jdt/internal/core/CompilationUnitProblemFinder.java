@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -30,6 +30,7 @@ import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
+import org.eclipse.jdt.internal.core.util.CommentRecorderParser;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -56,7 +57,7 @@ public class CompilationUnitProblemFinder extends Compiler {
 	 *      specify the rules for handling problems (stop on first error or accumulate
 	 *      them all) and at the same time perform some actions such as opening a dialog
 	 *      in UI when compiling interactively.
-	 *      @see org.eclipse.jdt.internal.compiler.api.problem.DefaultErrorHandlingPolicies
+	 *      @see org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies
 	 * 
 	 *	@param settings The settings to use for the resolution.
 	 *      
@@ -64,7 +65,7 @@ public class CompilationUnitProblemFinder extends Compiler {
 	 *      Component which will receive and persist all compilation results and is intended
 	 *      to consume them as they are produced. Typically, in a batch compiler, it is 
 	 *      responsible for writing out the actual .class files to the file system.
-	 *      @see org.eclipse.jdt.internal.compiler.api.CompilationResult
+	 *      @see org.eclipse.jdt.internal.compiler.CompilationResult
 	 *
 	 *  @param problemFactory org.eclipse.jdt.internal.compiler.api.problem.IProblemFactory
 	 *      Factory used inside the compiler to create problem descriptors. It allows the
@@ -117,12 +118,6 @@ public class CompilationUnitProblemFinder extends Compiler {
 		return DefaultErrorHandlingPolicies.proceedWithAllProblems();
 	}
 
-	protected static INameEnvironment getNameEnvironment(ICompilationUnit sourceUnit)
-		throws JavaModelException {
-		return (SearchableEnvironment) ((JavaProject) sourceUnit.getJavaProject())
-			.getSearchableNameEnvironment();
-	}
-
 	/*
 	 * Answer the component to which will be handed back compilation results from the compiler
 	 */
@@ -137,18 +132,21 @@ public class CompilationUnitProblemFinder extends Compiler {
 	public static CompilationUnitDeclaration process(
 		CompilationUnitDeclaration unit,
 		ICompilationUnit unitElement, 
+		char[] contents,
 		Parser parser,
+		WorkingCopyOwner workingCopyOwner,
 		IProblemRequestor problemRequestor,
 		IProblemFactory problemFactory,
+		boolean cleanupCU,
 		IProgressMonitor monitor)
 		throws JavaModelException {
 
 		char[] fileName = unitElement.getElementName().toCharArray();
 		
-		IJavaProject project = unitElement.getJavaProject();
+		JavaProject project = (JavaProject) unitElement.getJavaProject();
 		CompilationUnitProblemFinder problemFinder =
 			new CompilationUnitProblemFinder(
-				getNameEnvironment(unitElement),
+				project.newSearchableNameEnvironment(workingCopyOwner),
 				getHandlingPolicy(),
 				project.getOptions(true),
 				getRequestor(),
@@ -158,7 +156,6 @@ public class CompilationUnitProblemFinder extends Compiler {
 		}
 
 		try {
-			String encoding = project.getOption(JavaCore.CORE_ENCODING, true);
 			
 			IPackageFragment packageFragment = (IPackageFragment)unitElement.getAncestor(IJavaElement.PACKAGE_FRAGMENT);
 			char[][] expectedPackageName = null;
@@ -168,10 +165,10 @@ public class CompilationUnitProblemFinder extends Compiler {
 			if (unit == null) {
 				unit = problemFinder.resolve(
 					new BasicCompilationUnit(
-						unitElement.getSource().toCharArray(),
+						contents,
 						expectedPackageName,
 						new String(fileName),
-						encoding),
+						unitElement),
 					true, // verify methods
 					true, // analyze code
 					true); // generate code
@@ -190,7 +187,7 @@ public class CompilationUnitProblemFinder extends Compiler {
 			Util.log(e, "Exception occurred during problem detection: "); //$NON-NLS-1$ 
 			throw new JavaModelException(e, IJavaModelStatusConstants.COMPILER_FAILURE);
 		} finally {
-			if (unit != null) {
+			if (cleanupCU && unit != null) {
 				unit.cleanUp();
 			}
 			problemFinder.lookupEnvironment.reset();			
@@ -199,11 +196,14 @@ public class CompilationUnitProblemFinder extends Compiler {
 
 	public static CompilationUnitDeclaration process(
 		ICompilationUnit unitElement, 
+		char[] contents,
+		WorkingCopyOwner workingCopyOwner,
 		IProblemRequestor problemRequestor,
+		boolean cleanupCU,
 		IProgressMonitor monitor)
 		throws JavaModelException {
 			
-		return process(null/*no CompilationUnitDeclaration*/, unitElement, null/*use default Parser*/,problemRequestor, new DefaultProblemFactory(), monitor);
+		return process(null/*no CompilationUnitDeclaration*/, unitElement, contents, null/*use default Parser*/, workingCopyOwner, problemRequestor, new DefaultProblemFactory(), cleanupCU, monitor);
 	}
 
 	
@@ -219,5 +219,12 @@ public class CompilationUnitProblemFinder extends Compiler {
 		}
 	}
 
+	/* (non-Javadoc)
+	 * Fix for bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=60689.
+	 * @see org.eclipse.jdt.internal.compiler.Compiler#initializeParser()
+	 */
+	public void initializeParser() {
+		this.parser = new CommentRecorderParser(this.problemReporter, this.options.parseLiteralExpressionsAsConstants);
+	}
 }	
 

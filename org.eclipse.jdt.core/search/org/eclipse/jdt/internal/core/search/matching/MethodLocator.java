@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,7 +14,8 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.*;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.core.search.IJavaSearchResultCollector;
+import org.eclipse.jdt.core.search.*;
+import org.eclipse.jdt.core.search.SearchMatch;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -74,7 +75,7 @@ public int match(MethodDeclaration node, MatchingNodeSet nodeSet) {
 	}
 	if (!matchesTypeReference(this.pattern.returnSimpleName, node.returnType)) return IMPOSSIBLE_MATCH;
 
-	return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+	return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 }
 public int match(MessageSend node, MatchingNodeSet nodeSet) {
 	if (!this.pattern.findReferences) return IMPOSSIBLE_MATCH;
@@ -87,7 +88,7 @@ public int match(MessageSend node, MatchingNodeSet nodeSet) {
 		if (length != argsLength) return IMPOSSIBLE_MATCH;
 	}
 
-	return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+	return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 }
 //public int match(Reference node, MatchingNodeSet nodeSet) - SKIP IT
 //public int match(TypeDeclaration node, MatchingNodeSet nodeSet) - SKIP IT
@@ -129,12 +130,12 @@ protected int matchMethod(MethodBinding method) {
 	return level;
 }
 /**
- * @see SearchPattern#matchReportReference
+ * @see org.eclipse.jdt.internal.core.search.matching.PatternLocator#matchReportReference(org.eclipse.jdt.internal.compiler.ast.ASTNode, org.eclipse.jdt.core.IJavaElement, int, org.eclipse.jdt.internal.core.search.matching.MatchLocator)
  */
 protected void matchReportReference(ASTNode reference, IJavaElement element, int accuracy, MatchLocator locator) throws CoreException {
 	if (this.isDeclarationOfReferencedMethodsPattern) {
 		// need exact match to be able to open on type ref
-		if (accuracy != IJavaSearchResultCollector.EXACT_MATCH) return;
+		if (accuracy != SearchMatch.A_ACCURATE) return;
 
 		// element that references the method must be included in the enclosing element
 		DeclarationOfReferencedMethodsPattern declPattern = (DeclarationOfReferencedMethodsPattern) this.pattern; 
@@ -143,15 +144,17 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, int
 		if (element != null)
 			reportDeclaration(((MessageSend) reference).binding, locator, declPattern.knownMethods);
 	} else if (this.pattern.findReferences && reference instanceof MessageSend) {
-		// message ref are starting at the selector start
-		locator.report(
-			(int) (((MessageSend) reference).nameSourcePosition >>> 32),
-			reference.sourceEnd,
-			element,
-			accuracy);
+		int offset = (int) (((MessageSend) reference).nameSourcePosition >>> 32);
+		SearchMatch match = locator.newMethodReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, reference);
+		locator.report(match);
 	} else {
-		super.matchReportReference(reference, element, accuracy, locator);
+		int offset = reference.sourceStart;
+		SearchMatch match = locator.newMethodReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, reference);
+		locator.report(match);
 	}
+}
+protected int referenceType() {
+	return IJavaElement.METHOD;
 }
 protected void reportDeclaration(MethodBinding methodBinding, MatchLocator locator, SimpleSet knownMethods) throws CoreException {
 	ReferenceBinding declaringClass = methodBinding.declaringClass;
@@ -175,7 +178,7 @@ protected void reportDeclaration(MethodBinding methodBinding, MatchLocator locat
 		if (resource == null)
 			resource = type.getJavaProject().getProject();
 		info = locator.getBinaryInfo((org.eclipse.jdt.internal.core.ClassFile)type.getClassFile(), resource);
-		locator.reportBinaryMatch(resource, method, info, IJavaSearchResultCollector.EXACT_MATCH);
+		locator.reportBinaryMemberDeclaration(resource, method, info, SearchMatch.A_ACCURATE);
 	} else {
 		ClassScope scope = ((SourceTypeBinding) declaringClass).scope;
 		if (scope != null) {
@@ -188,14 +191,11 @@ protected void reportDeclaration(MethodBinding methodBinding, MatchLocator locat
 					break;
 				}
 			} 
-			if (methodDecl != null)
-				locator.report(
-					resource, 
-					methodDecl.sourceStart, 
-					methodDecl.sourceEnd, 
-					method, 
-					IJavaSearchResultCollector.EXACT_MATCH, 
-					locator.getParticipant());
+			if (methodDecl != null) {
+				int offset = methodDecl.sourceStart;
+				SearchMatch match = new MethodDeclarationMatch(method, SearchMatch.A_ACCURATE, offset, methodDecl.sourceEnd-offset+1, locator.getParticipant(), resource);
+				locator.report(match);
+			}
 		}
 	}
 }

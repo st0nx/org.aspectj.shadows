@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -57,18 +57,26 @@ public class JavaModelManager implements ISaveParticipant {
 	/**
 	 * Classpath variables pool
 	 */
-	public static HashMap Variables = new HashMap(5);
-	public static HashMap PreviousSessionVariables = new HashMap(5);
-	public static HashSet OptionNames = new HashSet(20);
-	public final static String CP_VARIABLE_PREFERENCES_PREFIX = JavaCore.PLUGIN_ID+".classpathVariable."; //$NON-NLS-1$
-	public final static String CP_CONTAINER_PREFERENCES_PREFIX = JavaCore.PLUGIN_ID+".classpathContainer."; //$NON-NLS-1$
-	public final static String CP_ENTRY_IGNORE = "##<cp entry ignore>##"; //$NON-NLS-1$
+	public HashMap variables = new HashMap(5);
+	public HashMap previousSessionVariables = new HashMap(5);
+	private ThreadLocal variableInitializationInProgress = new ThreadLocal();
 		
 	/**
 	 * Classpath containers pool
 	 */
-	public static HashMap Containers = new HashMap(5);
-	public static HashMap PreviousSessionContainers = new HashMap(5);
+	public HashMap containers = new HashMap(5);
+	public HashMap previousSessionContainers = new HashMap(5);
+	private ThreadLocal containerInitializationInProgress = new ThreadLocal();
+	public boolean batchContainerInitializations = true;
+	
+	/*
+	 * A HashSet that contains the IJavaProject whose classpath is being resolved.
+	 */
+	private ThreadLocal classpathsBeingResolved = new ThreadLocal();
+
+	public final static String CP_VARIABLE_PREFERENCES_PREFIX = JavaCore.PLUGIN_ID+".classpathVariable."; //$NON-NLS-1$
+	public final static String CP_CONTAINER_PREFERENCES_PREFIX = JavaCore.PLUGIN_ID+".classpathContainer."; //$NON-NLS-1$
+	public final static String CP_ENTRY_IGNORE = "##<cp entry ignore>##"; //$NON-NLS-1$
 
 	/**
 	 * Name of the extension point for contributing classpath variable initializers
@@ -86,15 +94,10 @@ public class JavaModelManager implements ISaveParticipant {
 	public static final String FORMATTER_EXTPOINT_ID = "codeFormatter" ; //$NON-NLS-1$
 	
 	/**
-	 * Name of the extension point for contributing a search participant
-	 * TODO search participant
-	 */
-	public static final String SEARCH_PARTICIPANT_EXTPOINT_ID = "searchParticipant" ; //$NON-NLS-1$
-	/**
 	 * Special value used for recognizing ongoing initialization and breaking initialization cycles
 	 */
-	public final static IPath VariableInitializationInProgress = new Path("Variable Initialization In Progress"); //$NON-NLS-1$
-	public final static IClasspathContainer ContainerInitializationInProgress = new IClasspathContainer() {
+	public final static IPath VARIABLE_INITIALIZATION_IN_PROGRESS = new Path("Variable Initialization In Progress"); //$NON-NLS-1$
+	public final static IClasspathContainer CONTAINER_INITIALIZATION_IN_PROGRESS = new IClasspathContainer() {
 		public IClasspathEntry[] getClasspathEntries() { return null; }
 		public String getDescription() { return "Container Initialization In Progress"; } //$NON-NLS-1$
 		public int getKind() { return 0; }
@@ -109,6 +112,7 @@ public class JavaModelManager implements ISaveParticipant {
 	private static final String CP_RESOLVE_DEBUG = JavaCore.PLUGIN_ID + "/debug/cpresolution" ; //$NON-NLS-1$
 	private static final String ZIP_ACCESS_DEBUG = JavaCore.PLUGIN_ID + "/debug/zipaccess" ; //$NON-NLS-1$
 	private static final String DELTA_DEBUG =JavaCore.PLUGIN_ID + "/debug/javadelta" ; //$NON-NLS-1$
+	private static final String DELTA_DEBUG_VERBOSE =JavaCore.PLUGIN_ID + "/debug/javadelta/verbose" ; //$NON-NLS-1$
 	private static final String HIERARCHY_DEBUG = JavaCore.PLUGIN_ID + "/debug/hierarchy" ; //$NON-NLS-1$
 	private static final String POST_ACTION_DEBUG = JavaCore.PLUGIN_ID + "/debug/postaction" ; //$NON-NLS-1$
 	private static final String BUILDER_DEBUG = JavaCore.PLUGIN_ID + "/debug/builder" ; //$NON-NLS-1$
@@ -116,8 +120,10 @@ public class JavaModelManager implements ISaveParticipant {
 	private static final String SELECTION_DEBUG = JavaCore.PLUGIN_ID + "/debug/selection" ; //$NON-NLS-1$
 	private static final String SEARCH_DEBUG = JavaCore.PLUGIN_ID + "/debug/search" ; //$NON-NLS-1$
 
-	public final static ICompilationUnit[] NoWorkingCopy = new ICompilationUnit[0];
+	public final static ICompilationUnit[] NO_WORKING_COPY = new ICompilationUnit[0];
 	
+	public HashSet optionNames = new HashSet(20);
+
 	/**
 	 * Returns whether the given full path (for a package) conflicts with the output location
 	 * of the given project.
@@ -132,7 +138,7 @@ public class JavaModelManager implements ISaveParticipant {
 			if (outputLocation.isPrefixOf(folderPath)) {
 				// only allow nesting in project's output if there is a corresponding source folder
 				// or if the project's output is not used (in other words, if all source folders have their custom output)
-				IClasspathEntry[] classpath = project.getResolvedClasspath(true);
+				IClasspathEntry[] classpath = project.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
 				boolean isOutputUsed = false;
 				for (int i = 0, length = classpath.length; i < length; i++) {
 					IClasspathEntry entry = classpath[i];
@@ -154,50 +160,100 @@ public class JavaModelManager implements ISaveParticipant {
 		}
 	}
 
-	public static IClasspathContainer containerGet(IJavaProject project, IPath containerPath) {	
-		Map projectContainers = (Map)Containers.get(project);
+	public synchronized IClasspathContainer containerGet(IJavaProject project, IPath containerPath) {	
+		// check initialization in progress first
+		HashSet projectInitializations = containerInitializationInProgress(project);
+		if (projectInitializations.contains(containerPath)) {
+			return CONTAINER_INITIALIZATION_IN_PROGRESS;
+		}
+		
+		Map projectContainers = (Map)this.containers.get(project);
 		if (projectContainers == null){
 			return null;
 		}
 		IClasspathContainer container = (IClasspathContainer)projectContainers.get(containerPath);
 		return container;
 	}
-
-	public static void containerPut(IJavaProject project, IPath containerPath, IClasspathContainer container){
-
-		Map projectContainers = (Map)Containers.get(project);
-		if (projectContainers == null){
-			projectContainers = new HashMap(1);
-			Containers.put(project, projectContainers);
+	
+	private synchronized Map containerClone(IJavaProject project) {
+		Map originalProjectContainers = (Map)this.containers.get(project);
+		if (originalProjectContainers == null) return null;
+		Map projectContainers = new HashMap(originalProjectContainers.size());
+		projectContainers.putAll(originalProjectContainers);
+		return projectContainers;
+	}
+	
+	/*
+	 * Returns the set of container paths for the given project that are being initialized in the current thread.
+	 */
+	private HashSet containerInitializationInProgress(IJavaProject project) {
+		Map initializations = (Map)this.containerInitializationInProgress.get();
+		if (initializations == null) {
+			initializations = new HashMap();
+			this.containerInitializationInProgress.set(initializations);
 		}
+		HashSet projectInitializations = (HashSet)initializations.get(project);
+		if (projectInitializations == null) {
+			projectInitializations = new HashSet();
+			initializations.put(project, projectInitializations);
+		}
+		return projectInitializations;
+	}
 
-		if (container == null) {
-			projectContainers.remove(containerPath);
-			Map previousContainers = (Map)PreviousSessionContainers.get(project);
+	public synchronized void containerPut(IJavaProject project, IPath containerPath, IClasspathContainer container){
+
+		// set/unset the initialization in progress
+		HashSet projectInitializations = containerInitializationInProgress(project);
+		if (container == CONTAINER_INITIALIZATION_IN_PROGRESS) {
+			projectInitializations.add(containerPath);
+			
+			// do not write out intermediate initialization value
+			return;
+		} else {
+			projectInitializations.remove(containerPath);
+			if (projectInitializations.size() == 0) {
+				Map initializations = (Map)this.containerInitializationInProgress.get();
+				initializations.remove(project);
+			}
+
+			Map projectContainers = (Map)this.containers.get(project);
+			if (projectContainers == null){
+				projectContainers = new HashMap(1);
+				this.containers.put(project, projectContainers);
+			}
+	
+			if (container == null) {
+				projectContainers.remove(containerPath);
+			} else {
+   				projectContainers.put(containerPath, container);
+			}
+			// discard obsoleted information about previous session
+			Map previousContainers = (Map)this.previousSessionContainers.get(project);
 			if (previousContainers != null){
 				previousContainers.remove(containerPath);
 			}
-		} else {
-			projectContainers.put(containerPath, container);
 		}
-
-		// do not write out intermediate initialization value
-		if (container == JavaModelManager.ContainerInitializationInProgress) {
-			return;
-		}
-		Preferences preferences = JavaCore.getPlugin().getPluginPreferences();
-		String containerKey = CP_CONTAINER_PREFERENCES_PREFIX+project.getElementName() +"|"+containerPath;//$NON-NLS-1$
-		String containerString = CP_ENTRY_IGNORE;
-		try {
-			if (container != null) {
-				containerString = ((JavaProject)project).encodeClasspath(container.getClasspathEntries(), null, false);
+		// container values are persisted in preferences during save operations, see #saving(ISaveContext)
+	}
+	
+	private synchronized void containersReset(String[] containerIDs) {
+		for (int i = 0; i < containerIDs.length; i++) {
+			String containerID = containerIDs[i];
+			Iterator projectIterator = this.containers.keySet().iterator();
+			while (projectIterator.hasNext()){
+				IJavaProject project = (IJavaProject)projectIterator.next();
+				Map projectContainers = (Map)this.containers.get(project);
+				if (projectContainers != null){
+					Iterator containerIterator = projectContainers.keySet().iterator();
+					while (containerIterator.hasNext()){
+						IPath containerPath = (IPath)containerIterator.next();
+						if (containerPath.segment(0).equals(containerID)) { // registered container
+							projectContainers.put(containerPath, null); // reset container value, but leave entry in Map
+						}
+					}
+				}
 			}
-		} catch(JavaModelException e){
-			// could not encode entry: leave it as CP_ENTRY_IGNORE
 		}
-		preferences.setDefault(containerKey, CP_ENTRY_IGNORE); // use this default to get rid of removed ones
-		preferences.setValue(containerKey, containerString);
-		JavaCore.getPlugin().savePluginPreferences();
 	}
 
 	/**
@@ -364,7 +420,7 @@ public class JavaModelManager implements ISaveParticipant {
 		// Create a jar package fragment root only if on the classpath
 		IPath resourcePath = file.getFullPath();
 		try {
-			IClasspathEntry[] entries = ((JavaProject)project).getResolvedClasspath(true);
+			IClasspathEntry[] entries = ((JavaProject)project).getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
 			for (int i = 0, length = entries.length; i < length; i++) {
 				IClasspathEntry entry = entries[i];
 				IPath rootPath = entry.getPath();
@@ -392,7 +448,7 @@ public class JavaModelManager implements ISaveParticipant {
 			IClasspathEntry[] entries = 
 				org.eclipse.jdt.internal.compiler.util.Util.isJavaFileName(resourcePath.lastSegment())
 					? project.getRawClasspath() // JAVA file can only live inside SRC folder (on the raw path)
-					: ((JavaProject)project).getResolvedClasspath(true);
+					: ((JavaProject)project).getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
 				
 			for (int i = 0; i < entries.length; i++) {
 				IClasspathEntry entry = entries[i];
@@ -400,22 +456,25 @@ public class JavaModelManager implements ISaveParticipant {
 				IPath rootPath = entry.getPath();
 				if (rootPath.equals(resourcePath)) {
 					return project.getPackageFragmentRoot(resource);
-				} else if (rootPath.isPrefixOf(resourcePath) && !Util.isExcluded(resource, ((ClasspathEntry)entry).fullExclusionPatternChars())) {
-					// given we have a resource child of the root, it cannot be a JAR pkg root
-					IPackageFragmentRoot root = ((JavaProject) project).getFolderPackageFragmentRoot(rootPath);
-					if (root == null) return null;
-					IPath pkgPath = resourcePath.removeFirstSegments(rootPath.segmentCount());
-
-					if (resource.getType() == IResource.FILE) {
-						// if the resource is a file, then remove the last segment which
-						// is the file name in the package
-						pkgPath = pkgPath.removeLastSegments(1);
+				} else if (rootPath.isPrefixOf(resourcePath)) {
+					// allow creation of package fragment if it contains a .java file that is included
+					if (!Util.isExcluded(resource, ((ClasspathEntry)entry).fullInclusionPatternChars(), ((ClasspathEntry)entry).fullExclusionPatternChars())) {
+						// given we have a resource child of the root, it cannot be a JAR pkg root
+						IPackageFragmentRoot root = ((JavaProject) project).getFolderPackageFragmentRoot(rootPath);
+						if (root == null) return null;
+						IPath pkgPath = resourcePath.removeFirstSegments(rootPath.segmentCount());
+	
+						if (resource.getType() == IResource.FILE) {
+							// if the resource is a file, then remove the last segment which
+							// is the file name in the package
+							pkgPath = pkgPath.removeLastSegments(1);
+						}
+						String pkgName = Util.packageName(pkgPath);
+						if (pkgName == null || JavaConventions.validatePackageName(pkgName).getSeverity() == IStatus.ERROR) {
+							return null;
+						}
+						return root.getPackageFragment(pkgName);
 					}
-					String pkgName = Util.packageName(pkgPath);
-					if (pkgName == null || JavaConventions.validatePackageName(pkgName).getSeverity() == IStatus.ERROR) {
-						return null;
-					}
-					return root.getPackageFragment(pkgName);
 				}
 			}
 		} catch (JavaModelException npe) {
@@ -427,7 +486,7 @@ public class JavaModelManager implements ISaveParticipant {
 	/**
 	 * The singleton manager
 	 */
-	private final static JavaModelManager Manager= new JavaModelManager();
+	private final static JavaModelManager MANAGER= new JavaModelManager();
 
 	/**
 	 * Infos cache.
@@ -458,7 +517,7 @@ public class JavaModelManager implements ISaveParticipant {
 	protected Map perProjectInfos = new HashMap(5);
 	
 	/**
-	 * Table from WorkingCopyOwner to a table of IPath (working copy's path) to PerWorkingCopyInfo.
+	 * Table from WorkingCopyOwner to a table of ICompilationUnit (working copy handle) to PerWorkingCopyInfo.
 	 * NOTE: this object itself is used as a lock to synchronize creation/removal of per working copy infos
 	 */
 	protected Map perWorkingCopyInfos = new HashMap(5);
@@ -493,6 +552,39 @@ public class JavaModelManager implements ISaveParticipant {
 			this.resolvedClasspath = null;
 			this.resolvedPathToRawEntries = null;
 		}
+		public String toString() {
+			StringBuffer buffer = new StringBuffer();
+			buffer.append("Info for "); //$NON-NLS-1$
+			buffer.append(this.project.getFullPath());
+			buffer.append("\nRaw classpath:\n"); //$NON-NLS-1$
+			if (this.rawClasspath == null) {
+				buffer.append("  <null>\n"); //$NON-NLS-1$
+			} else {
+				for (int i = 0, length = this.rawClasspath.length; i < length; i++) {
+					buffer.append("  "); //$NON-NLS-1$
+					buffer.append(this.rawClasspath[i]);
+					buffer.append('\n');
+				}
+			}
+			buffer.append("Resolved classpath:\n"); //$NON-NLS-1$
+			IClasspathEntry[] resolvedCP = this.resolvedClasspath;
+			if (resolvedCP == null) {
+				buffer.append("  <null>\n"); //$NON-NLS-1$
+			} else {
+				for (int i = 0, length = resolvedCP.length; i < length; i++) {
+					buffer.append("  "); //$NON-NLS-1$
+					buffer.append(resolvedCP[i]);
+					buffer.append('\n');
+				}
+			}
+			buffer.append("Output location:\n  "); //$NON-NLS-1$
+			if (this.outputLocation == null) {
+				buffer.append("<null>"); //$NON-NLS-1$
+			} else {
+				buffer.append(this.outputLocation);
+			}
+			return buffer.toString();
+		}
 	}
 	
 	public static class PerWorkingCopyInfo implements IProblemRequestor {
@@ -521,6 +613,16 @@ public class JavaModelManager implements ISaveParticipant {
 		public boolean isActive() {
 			return this.problemRequestor != null && this.problemRequestor.isActive();
 		}
+		public String toString() {
+			StringBuffer buffer = new StringBuffer();
+			buffer.append("Info for "); //$NON-NLS-1$
+			buffer.append(((JavaElement)workingCopy).toStringWithAncestors());
+			buffer.append("\nUse count = "); //$NON-NLS-1$
+			buffer.append(this.useCount);
+			buffer.append("\nProblem requestor:\n  "); //$NON-NLS-1$
+			buffer.append(this.problemRequestor);
+			return buffer.toString();
+		}
 	}
 	
 	public static boolean VERBOSE = false;
@@ -539,7 +641,7 @@ public class JavaModelManager implements ISaveParticipant {
 	 */
 	public static class PluginPreferencesListener implements Preferences.IPropertyChangeListener {
 		/**
-		 * @see org.eclipse.core.runtime.Preferences.IPropertyChangeListener#propertyChange(PropertyChangeEvent)
+		 * @see org.eclipse.core.runtime.Preferences.IPropertyChangeListener#propertyChange(Preferences.PropertyChangeEvent)
 		 */
 		public void propertyChange(Preferences.PropertyChangeEvent event) {
 
@@ -548,9 +650,9 @@ public class JavaModelManager implements ISaveParticipant {
 				String varName = propertyName.substring(CP_VARIABLE_PREFERENCES_PREFIX.length());
 				String newValue = (String)event.getNewValue();
 				if (newValue != null && !(newValue = newValue.trim()).equals(CP_ENTRY_IGNORE)) {
-					Variables.put(varName, new Path(newValue));
+					getJavaModelManager().variables.put(varName, new Path(newValue));
 				} else {
-					Variables.remove(varName);
+					getJavaModelManager().variables.remove(varName);
 				}
 			}
 			if (propertyName.startsWith(CP_CONTAINER_PREFERENCES_PREFIX)) {
@@ -610,6 +712,9 @@ public class JavaModelManager implements ISaveParticipant {
 			if(option != null) JavaModelManager.CP_RESOLVE_VERBOSE = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
 
 			option = Platform.getDebugOption(DELTA_DEBUG);
+			if(option != null) DeltaProcessor.DEBUG = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
+
+			option = Platform.getDebugOption(DELTA_DEBUG_VERBOSE);
 			if(option != null) DeltaProcessor.VERBOSE = option.equalsIgnoreCase("true") ; //$NON-NLS-1$
 
 			option = Platform.getDebugOption(HIERARCHY_DEBUG);
@@ -642,46 +747,49 @@ public class JavaModelManager implements ISaveParticipant {
 	 * and register it.
 	 * Close the working copy, its buffer and remove it from the shared working copy table.
 	 * Ignore if no per-working copy info existed.
+	 * NOTE: it must NOT be synchronized as it may interact with the element info cache (if useCount is decremented to 0), see bug 50667.
 	 * Returns the new use count (or -1 if it didn't exist).
 	 */
 	public int discardPerWorkingCopyInfo(CompilationUnit workingCopy) throws JavaModelException {
+		
+		// create the delta builder (this remembers the current content of the working copy)
+		// outside the perWorkingCopyInfos lock (see bug 50667)
+		JavaElementDeltaBuilder deltaBuilder = null;
+		if (workingCopy.isPrimary()) {
+			deltaBuilder = new JavaElementDeltaBuilder(workingCopy);
+		}
+		PerWorkingCopyInfo info = null;
 		synchronized(perWorkingCopyInfos) {
 			WorkingCopyOwner owner = workingCopy.owner;
-			Map pathToPerWorkingCopyInfos = (Map)this.perWorkingCopyInfos.get(owner);
-			if (pathToPerWorkingCopyInfos == null) return -1;
+			Map workingCopyToInfos = (Map)this.perWorkingCopyInfos.get(owner);
+			if (workingCopyToInfos == null) return -1;
 			
-			IPath path = workingCopy.getPath();
-			PerWorkingCopyInfo info = (PerWorkingCopyInfo)pathToPerWorkingCopyInfos.get(path);
+			info = (PerWorkingCopyInfo)workingCopyToInfos.get(workingCopy);
 			if (info == null) return -1;
 			
 			if (--info.useCount == 0) {
-				// create the delta builder (this remembers the current content of the working copy)
-				JavaElementDeltaBuilder deltaBuilder = null;
-				if (workingCopy.isPrimary()) {
-					deltaBuilder = new JavaElementDeltaBuilder(workingCopy);
-				}
-
 				// remove per working copy info
-				pathToPerWorkingCopyInfos.remove(path);
-				if (pathToPerWorkingCopyInfos.isEmpty()) {
+				workingCopyToInfos.remove(workingCopy);
+				if (workingCopyToInfos.isEmpty()) {
 					this.perWorkingCopyInfos.remove(owner);
 				}
-
-				// remove infos + close buffer (since no longer working copy)
-				removeInfoAndChildren(workingCopy);
-				workingCopy.closeBuffer();
-
-				// compute the delta if needed and register it if there are changes
-				if (deltaBuilder != null) {
-					deltaBuilder.buildDeltas();
-					if ((deltaBuilder.delta != null) && (deltaBuilder.delta.getAffectedChildren().length > 0)) {
-						getDeltaProcessor().registerJavaModelDelta(deltaBuilder.delta);
-					}
-				}
-				
 			}
-			return info.useCount;
 		}
+		if (info.useCount == 0) { // info cannot be null here (check was done above)
+			// remove infos + close buffer (since no longer working copy)
+			// outside the perWorkingCopyInfos lock (see bug 50667)
+			removeInfoAndChildren(workingCopy);
+			workingCopy.closeBuffer();
+
+			// compute the delta if needed and register it if there are changes
+			if (deltaBuilder != null) {
+				deltaBuilder.buildDeltas();
+				if ((deltaBuilder.delta != null) && (deltaBuilder.delta.getAffectedChildren().length > 0)) {
+					getDeltaProcessor().registerJavaModelDelta(deltaBuilder.delta);
+				}
+			}
+		}
+		return info.useCount;
 	}
 	
 	/**
@@ -713,6 +821,22 @@ public class JavaModelManager implements ISaveParticipant {
 		}
 	}
 	
+	public IClasspathContainer getClasspathContainer(IPath containerPath, IJavaProject project) throws JavaModelException {
+
+		IClasspathContainer container = containerGet(project, containerPath);
+
+		if (container == null) {
+			if (this.batchContainerInitializations) {
+				// avoid deep recursion while initializaing container on workspace restart
+				// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=60437)
+				this.batchContainerInitializations = false;
+				return initializeAllContainers(project, containerPath);
+			}
+			return initializeContainer(project, containerPath);
+		}
+		return container;			
+	}
+
 	public DeltaProcessor getDeltaProcessor() {
 		return this.deltaState.getDeltaProcessor();
 	}
@@ -753,7 +877,7 @@ public class JavaModelManager implements ISaveParticipant {
 	 * Returns the singleton JavaModelManager
 	 */
 	public final static JavaModelManager getJavaModelManager() {
-		return Manager;
+		return MANAGER;
 	}
 
 	/**
@@ -814,26 +938,80 @@ public class JavaModelManager implements ISaveParticipant {
 	 * If recordUsage, increment the per-working copy info's use count.
 	 * Returns null if it doesn't exist and not create.
 	 */
-	public PerWorkingCopyInfo getPerWorkingCopyInfo(CompilationUnit workingCopy, IPath path, boolean create, boolean recordUsage, IProblemRequestor problemRequestor) {
+	public PerWorkingCopyInfo getPerWorkingCopyInfo(CompilationUnit workingCopy,boolean create, boolean recordUsage, IProblemRequestor problemRequestor) {
 		synchronized(perWorkingCopyInfos) { // use the perWorkingCopyInfo collection as its own lock
 			WorkingCopyOwner owner = workingCopy.owner;
-			Map pathToPerWorkingCopyInfos = (Map)this.perWorkingCopyInfos.get(owner);
-			if (pathToPerWorkingCopyInfos == null && create) {
-				pathToPerWorkingCopyInfos = new HashMap();
-				this.perWorkingCopyInfos.put(owner, pathToPerWorkingCopyInfos);
+			Map workingCopyToInfos = (Map)this.perWorkingCopyInfos.get(owner);
+			if (workingCopyToInfos == null && create) {
+				workingCopyToInfos = new HashMap();
+				this.perWorkingCopyInfos.put(owner, workingCopyToInfos);
 			}
 
-			PerWorkingCopyInfo info = pathToPerWorkingCopyInfos == null ? null : (PerWorkingCopyInfo) pathToPerWorkingCopyInfos.get(path);
+			PerWorkingCopyInfo info = workingCopyToInfos == null ? null : (PerWorkingCopyInfo) workingCopyToInfos.get(workingCopy);
 			if (info == null && create) {
 				info= new PerWorkingCopyInfo(workingCopy, problemRequestor);
-				pathToPerWorkingCopyInfos.put(path, info);
+				workingCopyToInfos.put(workingCopy, info);
 			}
 			if (info != null && recordUsage) info.useCount++;
 			return info;
 		}
 	}	
+
+	/**
+	 * Returns a persisted container from previous session if any. Note that it is not the original container from previous
+	 * session (i.e. it did not get serialized) but rather a summary of its entries recreated for CP initialization purpose.
+	 * As such it should not be stored into container caches.
+	 */
+	public IClasspathContainer getPreviousSessionContainer(IPath containerPath, IJavaProject project) {
+			Map previousContainerValues = (Map)this.previousSessionContainers.get(project);
+			if (previousContainerValues != null){
+			    IClasspathContainer previousContainer = (IClasspathContainer)previousContainerValues.get(containerPath);
+			    if (previousContainer != null) {
+					if (JavaModelManager.CP_RESOLVE_VERBOSE){
+						StringBuffer buffer = new StringBuffer();
+						buffer.append("CPContainer INIT - reentering access to project container during its initialization, will see previous value\n"); //$NON-NLS-1$ 
+						buffer.append("	project: " + project.getElementName() + '\n'); //$NON-NLS-1$
+						buffer.append("	container path: " + containerPath + '\n'); //$NON-NLS-1$
+						buffer.append("	previous value: "); //$NON-NLS-1$
+						buffer.append(previousContainer.getDescription());
+						buffer.append(" {\n"); //$NON-NLS-1$
+						IClasspathEntry[] entries = previousContainer.getClasspathEntries();
+						if (entries != null){
+							for (int j = 0; j < entries.length; j++){
+								buffer.append(" 		"); //$NON-NLS-1$
+								buffer.append(entries[j]); 
+								buffer.append('\n'); 
+							}
+						}
+						buffer.append(" 	}"); //$NON-NLS-1$
+						Util.verbose(buffer.toString());
+						new Exception("<Fake exception>").printStackTrace(System.out); //$NON-NLS-1$
+					}			    
+					return previousContainer;
+			    }
+			}
+		    return null; // break cycle if none found
+	}
 	
-	/*
+	/**
+	 * Returns a persisted container from previous session if any
+	 */
+	public IPath getPreviousSessionVariable(String variableName) {
+		IPath previousPath = (IPath)this.previousSessionVariables.get(variableName);
+		if (previousPath != null){
+			if (CP_RESOLVE_VERBOSE){
+				Util.verbose(
+					"CPVariable INIT - reentering access to variable during its initialization, will see previous value\n" + //$NON-NLS-1$
+					"	variable: "+ variableName + '\n' + //$NON-NLS-1$
+					"	previous value: " + previousPath); //$NON-NLS-1$
+				new Exception("<Fake exception>").printStackTrace(System.out); //$NON-NLS-1$
+			}
+			return previousPath;
+		}
+	    return null; // break cycle
+	}
+	
+	/**
 	 * Returns the temporary cache for newly opened elements for the current thread.
 	 * Creates it if not already created.
 	 */
@@ -855,7 +1033,7 @@ public class JavaModelManager implements ISaveParticipant {
 		if (jdtCorePlugin == null) return null;
 
 		ArrayList variableList = new ArrayList(5);
-		IExtensionPoint extension = jdtCorePlugin.getDescriptor().getExtensionPoint(JavaModelManager.CPVARIABLE_INITIALIZER_EXTPOINT_ID);
+		IExtensionPoint extension = Platform.getExtensionRegistry().getExtensionPoint(JavaCore.PLUGIN_ID, JavaModelManager.CPVARIABLE_INITIALIZER_EXTPOINT_ID);
 		if (extension != null) {
 			IExtension[] extensions =  extension.getExtensions();
 			for(int i = 0; i < extensions.length; i++){
@@ -880,7 +1058,7 @@ public class JavaModelManager implements ISaveParticipant {
 		if (jdtCorePlugin == null) return null;
 
 		ArrayList containerIDList = new ArrayList(5);
-		IExtensionPoint extension = jdtCorePlugin.getDescriptor().getExtensionPoint(JavaModelManager.CPCONTAINER_INITIALIZER_EXTPOINT_ID);
+		IExtensionPoint extension = Platform.getExtensionRegistry().getExtensionPoint(JavaCore.PLUGIN_ID, JavaModelManager.CPCONTAINER_INITIALIZER_EXTPOINT_ID);
 		if (extension != null) {
 			IExtension[] extensions =  extension.getExtensions();
 			for(int i = 0; i < extensions.length; i++){
@@ -901,8 +1079,7 @@ public class JavaModelManager implements ISaveParticipant {
 	 */
 	private File getSerializationFile(IProject project) {
 		if (!project.exists()) return null;
-		IPluginDescriptor descr= JavaCore.getJavaCore().getDescriptor();
-		IPath workingLocation= project.getPluginWorkingLocation(descr);
+		IPath workingLocation = project.getWorkingLocation(JavaCore.PLUGIN_ID);
 		return workingLocation.append("state.dat").toFile(); //$NON-NLS-1$
 	}
 	
@@ -916,15 +1093,15 @@ public class JavaModelManager implements ISaveParticipant {
 			ICompilationUnit[] primaryWCs = addPrimary && owner != DefaultWorkingCopyOwner.PRIMARY 
 				? getWorkingCopies(DefaultWorkingCopyOwner.PRIMARY, false) 
 				: null;
-			Map pathToPerWorkingCopyInfos = (Map)perWorkingCopyInfos.get(owner);
-			if (pathToPerWorkingCopyInfos == null) return primaryWCs;
+			Map workingCopyToInfos = (Map)perWorkingCopyInfos.get(owner);
+			if (workingCopyToInfos == null) return primaryWCs;
 			int primaryLength = primaryWCs == null ? 0 : primaryWCs.length;
-			int size = pathToPerWorkingCopyInfos.size(); // note size is > 0 otherwise pathToPerWorkingCopyInfos would be null
+			int size = workingCopyToInfos.size(); // note size is > 0 otherwise pathToPerWorkingCopyInfos would be null
 			ICompilationUnit[] result = new ICompilationUnit[primaryLength + size];
 			if (primaryWCs != null) {
 				System.arraycopy(primaryWCs, 0, result, 0, primaryLength);
 			}
-			Iterator iterator = pathToPerWorkingCopyInfos.values().iterator();
+			Iterator iterator = workingCopyToInfos.values().iterator();
 			int index = primaryLength;
 			while(iterator.hasNext()) {
 				result[index++] = ((JavaModelManager.PerWorkingCopyInfo)iterator.next()).getWorkingCopy();
@@ -983,6 +1160,196 @@ public class JavaModelManager implements ISaveParticipant {
 	 */
 	public boolean hasTemporaryCache() {
 		return this.temporaryCache.get() != null;
+	}
+	
+	/*
+	 * Initialize all container at the same time as the given container.
+	 * Return the container for the given path and project.
+	 */
+	private IClasspathContainer initializeAllContainers(IJavaProject javaProjectToInit, IPath containerToInit) throws JavaModelException {
+		if (CP_RESOLVE_VERBOSE) {
+			Util.verbose(
+				"CPContainer INIT - batching containers initialization\n" + //$NON-NLS-1$
+				"	project to init: " + javaProjectToInit.getElementName() + '\n' + //$NON-NLS-1$
+				"	container path to init: " + containerToInit); //$NON-NLS-1$
+		}
+
+		// collect all container paths
+		HashMap allContainerPaths = new HashMap();
+		IProject[] projects = ResourcesPlugin.getWorkspace().getRoot().getProjects();
+		for (int i = 0, length = projects.length; i < length; i++) {
+			IProject project = projects[i];
+			if (!JavaProject.hasJavaNature(project)) continue;
+			IJavaProject javaProject = new JavaProject(project, getJavaModel());
+			HashSet paths = null;
+			IClasspathEntry[] rawClasspath = javaProject.getRawClasspath();
+			for (int j = 0, length2 = rawClasspath.length; j < length2; j++) {
+				IClasspathEntry entry = rawClasspath[j];
+				IPath path = entry.getPath();
+				if (entry.getEntryKind() == IClasspathEntry.CPE_CONTAINER
+						&& containerGet(javaProject, path) == null) {
+					if (paths == null) {
+						paths = new HashSet();
+						allContainerPaths.put(javaProject, paths);
+					}
+					paths.add(path);
+				}
+			}
+			if (javaProject.equals(javaProjectToInit)) {
+				if (paths == null) {
+					paths = new HashSet();
+					allContainerPaths.put(javaProject, paths);
+				}
+				paths.add(containerToInit);
+			}
+		}
+		
+		// mark all containers as being initialized
+		this.containerInitializationInProgress.set(allContainerPaths);
+		
+		// initialize all containers
+		boolean ok = false;
+		try {
+			Set keys = allContainerPaths.keySet();
+			int length = keys.size();
+			IJavaProject[] javaProjects = new IJavaProject[length]; // clone as the following will have a side effect
+			keys.toArray(javaProjects);
+			for (int i = 0; i < length; i++) {
+				IJavaProject javaProject = javaProjects[i];
+				HashSet pathSet = (HashSet) allContainerPaths.get(javaProject);
+				if (pathSet == null) continue;
+				int length2 = pathSet.size();
+				IPath[] paths = new IPath[length2];
+				pathSet.toArray(paths); // clone as the following will have a side effect
+				for (int j = 0; j < length2; j++) {
+					IPath path = paths[j];
+					initializeContainer(javaProject, path);
+				}
+			}
+			ok = true;
+		} finally {
+			if (!ok) { 
+				// if we're being traversed by an exception, ensure that that containers are 
+				// no longer marked as initialization in progress
+				// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=66437)
+				this.containerInitializationInProgress.set(null);
+			}
+		}
+		
+		return containerGet(javaProjectToInit, containerToInit);
+	}
+
+	private IClasspathContainer initializeContainer(IJavaProject project, IPath containerPath) throws JavaModelException {
+
+		IClasspathContainer container = null;
+		final ClasspathContainerInitializer initializer = JavaCore.getClasspathContainerInitializer(containerPath.segment(0));
+		if (initializer != null){
+			if (CP_RESOLVE_VERBOSE){
+				Util.verbose(
+					"CPContainer INIT - triggering initialization\n" + //$NON-NLS-1$
+					"	project: " + project.getElementName() + '\n' + //$NON-NLS-1$
+					"	container path: " + containerPath + '\n' + //$NON-NLS-1$
+					"	initializer: " + initializer + '\n' + //$NON-NLS-1$
+					"	invocation stack trace:"); //$NON-NLS-1$
+				new Exception("<Fake exception>").printStackTrace(System.out); //$NON-NLS-1$
+			}
+			containerPut(project, containerPath, CONTAINER_INITIALIZATION_IN_PROGRESS); // avoid initialization cycles
+			boolean ok = false;
+			try {
+				// let OperationCanceledException go through
+				// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=59363)
+				initializer.initialize(containerPath, project);
+				
+				// retrieve value (if initialization was successful)
+				container = containerGet(project, containerPath);
+				if (container == CONTAINER_INITIALIZATION_IN_PROGRESS) return null; // break cycle
+				ok = true;
+			} catch (CoreException e) {
+				if (e instanceof JavaModelException) {
+					throw (JavaModelException) e;
+				} else {
+					throw new JavaModelException(e);
+				}
+			} catch (RuntimeException e) {
+				if (JavaModelManager.CP_RESOLVE_VERBOSE) {
+					e.printStackTrace();
+				}
+				throw e;
+			} catch (Error e) {
+				if (JavaModelManager.CP_RESOLVE_VERBOSE) {
+					e.printStackTrace();
+				}
+				throw e;
+			} finally {
+				if (!ok) {
+					containerPut(project, containerPath, null); // flush cache
+					if (CP_RESOLVE_VERBOSE) {
+						if (container == CONTAINER_INITIALIZATION_IN_PROGRESS) {
+							Util.verbose(
+								"CPContainer INIT - FAILED (initializer did not initialize container)\n" + //$NON-NLS-1$
+								"	project: " + project.getElementName() + '\n' + //$NON-NLS-1$
+								"	container path: " + containerPath + '\n' + //$NON-NLS-1$
+								"	initializer: " + initializer); //$NON-NLS-1$
+							
+						} else {
+							Util.verbose(
+								"CPContainer INIT - FAILED (see exception above)\n" + //$NON-NLS-1$
+								"	project: " + project.getElementName() + '\n' + //$NON-NLS-1$
+								"	container path: " + containerPath + '\n' + //$NON-NLS-1$
+								"	initializer: " + initializer); //$NON-NLS-1$
+						}
+					}
+				}
+			}
+			if (CP_RESOLVE_VERBOSE){
+				StringBuffer buffer = new StringBuffer();
+				buffer.append("CPContainer INIT - after resolution\n"); //$NON-NLS-1$
+				buffer.append("	project: " + project.getElementName() + '\n'); //$NON-NLS-1$
+				buffer.append("	container path: " + containerPath + '\n'); //$NON-NLS-1$
+				if (container != null){
+					buffer.append("	container: "+container.getDescription()+" {\n"); //$NON-NLS-2$//$NON-NLS-1$
+					IClasspathEntry[] entries = container.getClasspathEntries();
+					if (entries != null){
+						for (int i = 0; i < entries.length; i++){
+							buffer.append("		" + entries[i] + '\n'); //$NON-NLS-1$
+						}
+					}
+					buffer.append("	}");//$NON-NLS-1$
+				} else {
+					buffer.append("	container: {unbound}");//$NON-NLS-1$
+				}
+				Util.verbose(buffer.toString());
+			}
+		} else {
+			if (CP_RESOLVE_VERBOSE){
+				Util.verbose(
+					"CPContainer INIT - no initializer found\n" + //$NON-NLS-1$
+					"	project: " + project.getElementName() + '\n' + //$NON-NLS-1$
+					"	container path: " + containerPath); //$NON-NLS-1$
+			}
+		}
+		return container;
+	}
+	
+	private HashSet getClasspathBeingResolved() {
+	    HashSet result = (HashSet) this.classpathsBeingResolved.get();
+	    if (result == null) {
+	        result = new HashSet();
+	        this.classpathsBeingResolved.set(result);
+	    }
+	    return result;
+	}
+	
+	public boolean isClasspathBeingResolved(IJavaProject project) {
+	    return getClasspathBeingResolved().contains(project);
+	}
+	
+	public void setClasspathBeingResolved(IJavaProject project, boolean classpathIsResolved) {
+	    if (classpathIsResolved) {
+	        getClasspathBeingResolved().add(project);
+	    } else {
+	        getClasspathBeingResolved().remove(project);
+	    }
 	}
 
 	public void loadVariablesAndContainers() throws CoreException {
@@ -1046,8 +1413,8 @@ public class JavaModelManager implements ISaveParticipant {
 				String varName = propertyName.substring(variablePrefixLength);
 				IPath varPath = new Path(preferences.getString(propertyName).trim());
 				
-				Variables.put(varName, varPath); 
-				PreviousSessionVariables.put(varName, varPath);
+				this.variables.put(varName, varPath); 
+				this.previousSessionVariables.put(varName, varPath);
 			}
 			if (propertyName.startsWith(CP_CONTAINER_PREFERENCES_PREFIX)){
 				recreatePersistedContainer(propertyName, preferences.getString(propertyName), true/*add to container values*/);
@@ -1057,27 +1424,10 @@ public class JavaModelManager implements ISaveParticipant {
 		String[] registeredVariables = getRegisteredVariableNames();
 		for (int i = 0; i < registeredVariables.length; i++) {
 			String varName = registeredVariables[i];
-			Variables.put(varName, null); // reset variable, but leave its entry in the Map, so it will be part of variable names.
+			this.variables.put(varName, null); // reset variable, but leave its entry in the Map, so it will be part of variable names.
 		}
 		// override persisted values for containers which have a registered initializer
-		String[] registeredContainerIDs = getRegisteredContainerIDs();
-		for (int i = 0; i < registeredContainerIDs.length; i++) {
-			String containerID = registeredContainerIDs[i];
-			Iterator projectIterator = Containers.keySet().iterator();
-			while (projectIterator.hasNext()){
-				IJavaProject project = (IJavaProject)projectIterator.next();
-				Map projectContainers = (Map)Containers.get(project);
-				if (projectContainers != null){
-					Iterator containerIterator = projectContainers.keySet().iterator();
-					while (containerIterator.hasNext()){
-						IPath containerPath = (IPath)containerIterator.next();
-						if (containerPath.segment(0).equals(containerID)) { // registered container
-							projectContainers.put(containerPath, null); // reset container value, but leave entry in Map
-						}
-					}
-				}
-			}
-		}
+		containersReset(getRegisteredContainerIDs());
 	}
 
 	/**
@@ -1109,16 +1459,20 @@ public class JavaModelManager implements ISaveParticipant {
 	 * its ancestors). So returns without updating the cache.
 	 */
 	protected synchronized void putInfos(IJavaElement openedElement, Map newElements) {
-		while (openedElement != null) {
-			if (!newElements.containsKey(openedElement)) {
-				break;
+		// remove children
+		Object existingInfo = this.cache.peekAtInfo(openedElement);
+		if (openedElement instanceof IParent && existingInfo instanceof JavaElementInfo) {
+			IJavaElement[] children = ((JavaElementInfo)existingInfo).getChildren();
+			for (int i = 0, size = children.length; i < size; ++i) {
+				JavaElement child = (JavaElement) children[i];
+				try {
+					child.close();
+				} catch (JavaModelException e) {
+					// ignore
+				}
 			}
-			if (this.cache.peekAtInfo(openedElement) != null) {
-				return;
-			}
-			openedElement = openedElement.getParent();
 		}
-		
+	
 		Iterator iterator = newElements.keySet().iterator();
 		while (iterator.hasNext()) {
 			IJavaElement element = (IJavaElement)iterator.next();
@@ -1167,7 +1521,7 @@ public class JavaModelManager implements ISaveParticipant {
 			final IPath containerPath = new Path(propertyName.substring(index+1).trim());
 			
 			if (containerString == null || containerString.equals(CP_ENTRY_IGNORE)) {
-				containerPut(project, containerPath, null);
+				getJavaModelManager().containerPut(project, containerPath, null);
 			} else {
 				final IClasspathEntry[] containerEntries = project.decodeClasspath(containerString, false, false);
 				if (containerEntries != null && containerEntries != JavaProject.INVALID_CLASSPATH) {
@@ -1190,12 +1544,12 @@ public class JavaModelManager implements ISaveParticipant {
 
 					};
 					if (addToContainerValues) {
-						containerPut(project, containerPath, container);
+						getJavaModelManager().containerPut(project, containerPath, container);
 					}
-					Map projectContainers = (Map)PreviousSessionContainers.get(project);
+					Map projectContainers = (Map)getJavaModelManager().previousSessionContainers.get(project);
 					if (projectContainers == null){
 						projectContainers = new HashMap(1);
-						PreviousSessionContainers.put(project, projectContainers);
+						getJavaModelManager().previousSessionContainers.put(project, projectContainers);
 					}
 					projectContainers.put(containerPath, container);
 				}
@@ -1218,7 +1572,7 @@ public class JavaModelManager implements ISaveParticipant {
 	 * Returns the info for the given element, or null if it was closed.
 	 */
 	public synchronized Object removeInfoAndChildren(JavaElement element) throws JavaModelException {
-		Object info = peekAtInfo(element);
+		Object info = this.cache.peekAtInfo(element);
 		if (info != null) {
 			boolean wasVerbose = false;
 			try {
@@ -1333,6 +1687,44 @@ public class JavaModelManager implements ISaveParticipant {
 	 * @see ISaveParticipant
 	 */
 	public void saving(ISaveContext context) throws CoreException {
+		
+	    // save container values on snapshot/full save
+		Preferences preferences = JavaCore.getPlugin().getPluginPreferences();
+		IJavaProject[] projects = getJavaModel().getJavaProjects();
+		for (int i = 0, length = projects.length; i < length; i++) {
+		    IJavaProject project = projects[i];
+			// clone while iterating (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=59638)
+			Map projectContainers = containerClone(project);
+			if (projectContainers == null) continue;
+			for (Iterator keys = projectContainers.keySet().iterator(); keys.hasNext();) {
+			    IPath containerPath = (IPath) keys.next();
+			    IClasspathContainer container = (IClasspathContainer) projectContainers.get(containerPath);
+				String containerKey = CP_CONTAINER_PREFERENCES_PREFIX+project.getElementName() +"|"+containerPath;//$NON-NLS-1$
+				String containerString = CP_ENTRY_IGNORE;
+				try {
+					if (container != null) {
+						containerString = ((JavaProject)project).encodeClasspath(container.getClasspathEntries(), null, false);
+					}
+				} catch(JavaModelException e){
+					// could not encode entry: leave it as CP_ENTRY_IGNORE
+				}
+				preferences.setDefault(containerKey, CP_ENTRY_IGNORE); // use this default to get rid of removed ones
+				preferences.setValue(containerKey, containerString);
+			}
+		}
+		JavaCore.getPlugin().savePluginPreferences();
+		
+		if (context.getKind() == ISaveContext.FULL_SAVE) {
+			// will need delta since this save (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=38658)
+			context.needDelta();
+			
+			// clean up indexes on workspace full save
+			// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=52347)
+			IndexManager manager = this.indexManager;
+			if (manager != null) {
+				manager.cleanUpIndexes();
+			}
+		}
 	
 		IProject savedProject = context.getProject();
 		if (savedProject != null) {
@@ -1443,14 +1835,186 @@ public class JavaModelManager implements ISaveParticipant {
 		// Note: no need to close the Java model as this just removes Java element infos from the Java model cache
 	}
 		
-	public static IPath variableGet(String variableName){
-		return (IPath)Variables.get(variableName);
+	public synchronized IPath variableGet(String variableName){
+		// check initialization in progress first
+		HashSet initializations = variableInitializationInProgress();
+		if (initializations.contains(variableName)) {
+			return VARIABLE_INITIALIZATION_IN_PROGRESS;
+		}
+		return (IPath)this.variables.get(variableName);
 	}
 
-	public static String[] variableNames(){
-		int length = Variables.size();
+	/*
+	 * Internal updating of a variable values (null path meaning removal), allowing to change multiple variable values at once.
+	 */
+	public void updateVariableValues(
+		String[] variableNames,
+		IPath[] variablePaths,
+		IProgressMonitor monitor) throws JavaModelException {
+	
+		if (monitor != null && monitor.isCanceled()) return;
+		
+		if (CP_RESOLVE_VERBOSE){
+			Util.verbose(
+				"CPVariable SET  - setting variables\n" + //$NON-NLS-1$
+				"	variables: " + org.eclipse.jdt.internal.compiler.util.Util.toString(variableNames) + '\n' +//$NON-NLS-1$
+				"	values: " + org.eclipse.jdt.internal.compiler.util.Util.toString(variablePaths)); //$NON-NLS-1$
+		}
+
+		int varLength = variableNames.length;
+		
+		// gather classpath information for updating
+		final HashMap affectedProjectClasspaths = new HashMap(5);
+		IJavaModel model = getJavaModel();
+	
+		// filter out unmodified variables
+		int discardCount = 0;
+		for (int i = 0; i < varLength; i++){
+			String variableName = variableNames[i];
+			IPath oldPath = this.variableGet(variableName); // if reentering will provide previous session value 
+			if (oldPath == VARIABLE_INITIALIZATION_IN_PROGRESS){
+//				IPath previousPath = (IPath)this.previousSessionVariables.get(variableName);
+//				if (previousPath != null){
+//					if (CP_RESOLVE_VERBOSE){
+//						Util.verbose(
+//							"CPVariable INIT - reentering access to variable during its initialization, will see previous value\n" + //$NON-NLS-1$
+//							"	variable: "+ variableName + '\n' + //$NON-NLS-1$
+//							"	previous value: " + previousPath); //$NON-NLS-1$
+//					}
+//					this.variablePut(variableName, previousPath); // replace value so reentering calls are seeing old value
+//				}
+				oldPath = null;  //33695 - cannot filter out restored variable, must update affected project to reset cached CP
+			}
+			if (oldPath != null && oldPath.equals(variablePaths[i])){
+				variableNames[i] = null;
+				discardCount++;
+			}
+		}
+		if (discardCount > 0){
+			if (discardCount == varLength) return;
+			int changedLength = varLength - discardCount;
+			String[] changedVariableNames = new String[changedLength];
+			IPath[] changedVariablePaths = new IPath[changedLength];
+			for (int i = 0, index = 0; i < varLength; i++){
+				if (variableNames[i] != null){
+					changedVariableNames[index] = variableNames[i];
+					changedVariablePaths[index] = variablePaths[i];
+					index++;
+				}
+			}
+			variableNames = changedVariableNames;
+			variablePaths = changedVariablePaths;
+			varLength = changedLength;
+		}
+		
+		if (monitor != null && monitor.isCanceled()) return;
+
+		if (model != null) {
+			IJavaProject[] projects = model.getJavaProjects();
+			nextProject : for (int i = 0, projectLength = projects.length; i < projectLength; i++){
+				JavaProject project = (JavaProject) projects[i];
+						
+				// check to see if any of the modified variables is present on the classpath
+				IClasspathEntry[] classpath = project.getRawClasspath();
+				for (int j = 0, cpLength = classpath.length; j < cpLength; j++){
+					
+					IClasspathEntry entry = classpath[j];
+					for (int k = 0; k < varLength; k++){
+	
+						String variableName = variableNames[k];						
+						if (entry.getEntryKind() ==  IClasspathEntry.CPE_VARIABLE){
+	
+							if (variableName.equals(entry.getPath().segment(0))){
+								affectedProjectClasspaths.put(project, project.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/));
+								continue nextProject;
+							}
+							IPath sourcePath, sourceRootPath;
+							if (((sourcePath = entry.getSourceAttachmentPath()) != null	&& variableName.equals(sourcePath.segment(0)))
+								|| ((sourceRootPath = entry.getSourceAttachmentRootPath()) != null	&& variableName.equals(sourceRootPath.segment(0)))) {
+	
+								affectedProjectClasspaths.put(project, project.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/));
+								continue nextProject;
+							}
+						}												
+					}
+				}
+			}
+		}
+		// update variables
+		for (int i = 0; i < varLength; i++){
+			this.variablePut(variableNames[i], variablePaths[i]);
+		}
+		final String[] dbgVariableNames = variableNames;
+				
+		// update affected project classpaths
+		if (!affectedProjectClasspaths.isEmpty()) {
+			try {
+				final boolean canChangeResources = !ResourcesPlugin.getWorkspace().isTreeLocked();
+				JavaCore.run(
+					new IWorkspaceRunnable() {
+						public void run(IProgressMonitor progressMonitor) throws CoreException {
+							// propagate classpath change
+							Iterator projectsToUpdate = affectedProjectClasspaths.keySet().iterator();
+							while (projectsToUpdate.hasNext()) {
+			
+								if (progressMonitor != null && progressMonitor.isCanceled()) return;
+			
+								JavaProject affectedProject = (JavaProject) projectsToUpdate.next();
+
+								if (CP_RESOLVE_VERBOSE){
+									Util.verbose(
+										"CPVariable SET  - updating affected project due to setting variables\n" + //$NON-NLS-1$
+										"	project: " + affectedProject.getElementName() + '\n' + //$NON-NLS-1$
+										"	variables: " + org.eclipse.jdt.internal.compiler.util.Util.toString(dbgVariableNames)); //$NON-NLS-1$
+								}
+
+								affectedProject
+									.setRawClasspath(
+										affectedProject.getRawClasspath(),
+										SetClasspathOperation.ReuseOutputLocation,
+										null, // don't call beginTask on the monitor (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=3717)
+										canChangeResources, 
+										(IClasspathEntry[]) affectedProjectClasspaths.get(affectedProject),
+										false, // updating - no need for early validation
+										false); // updating - no need to save
+							}
+						}
+					},
+					null/*no need to lock anything*/,
+					monitor);
+			} catch (CoreException e) {
+				if (CP_RESOLVE_VERBOSE){
+					Util.verbose(
+						"CPVariable SET  - FAILED DUE TO EXCEPTION\n" + //$NON-NLS-1$
+						"	variables: " + org.eclipse.jdt.internal.compiler.util.Util.toString(dbgVariableNames), //$NON-NLS-1$
+						System.err); 
+					e.printStackTrace();
+				}
+				if (e instanceof JavaModelException) {
+					throw (JavaModelException)e;
+				} else {
+					throw new JavaModelException(e);
+				}
+			}
+		}
+	}
+	
+	/*
+	 * Returns the set of variable names that are being initialized in the current thread.
+	 */
+	private HashSet variableInitializationInProgress() {
+		HashSet initializations = (HashSet)this.variableInitializationInProgress.get();
+		if (initializations == null) {
+			initializations = new HashSet();
+			this.variableInitializationInProgress.set(initializations);
+		}
+		return initializations;
+	}
+
+	public synchronized String[] variableNames(){
+		int length = this.variables.size();
 		String[] result = new String[length];
-		Iterator vars = Variables.keySet().iterator();
+		Iterator vars = this.variables.keySet().iterator();
 		int index = 0;
 		while (vars.hasNext()) {
 			result[index++] = (String) vars.next();
@@ -1458,20 +2022,28 @@ public class JavaModelManager implements ISaveParticipant {
 		return result;
 	}
 	
-	public static void variablePut(String variableName, IPath variablePath){		
+	public synchronized void variablePut(String variableName, IPath variablePath){		
 
-		// update cache - do not only rely on listener refresh		
-		if (variablePath == null) {
-			Variables.remove(variableName);
-			PreviousSessionVariables.remove(variableName);
+		// set/unset the initialization in progress
+		HashSet initializations = variableInitializationInProgress();
+		if (variablePath == VARIABLE_INITIALIZATION_IN_PROGRESS) {
+			initializations.add(variableName);
+			
+			// do not write out intermediate initialization value
+			return;
 		} else {
-			Variables.put(variableName, variablePath);
+			initializations.remove(variableName);
+
+			// update cache - do not only rely on listener refresh		
+			if (variablePath == null) {
+				this.variables.remove(variableName);
+			} else {
+				this.variables.put(variableName, variablePath);
+			}
+			// discard obsoleted information about previous session
+			this.previousSessionVariables.remove(variableName);
 		}
 
-		// do not write out intermediate initialization value
-		if (variablePath == JavaModelManager.VariableInitializationInProgress){
-			return;
-		} 
 		Preferences preferences = JavaCore.getPlugin().getPluginPreferences();
 		String variableKey = CP_VARIABLE_PREFERENCES_PREFIX+variableName;
 		String variableString = variablePath == null ? CP_ENTRY_IGNORE : variablePath.toString();

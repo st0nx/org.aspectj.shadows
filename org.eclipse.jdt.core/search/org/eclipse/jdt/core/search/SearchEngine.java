@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,37 +10,28 @@
  *******************************************************************************/
 package org.eclipse.jdt.core.search;
 
+import java.util.*;
+
 import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.internal.compiler.ASTVisitor;
-import org.eclipse.jdt.internal.compiler.CompilationResult;
-import org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies;
+import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.ast.*;
-import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
-import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
-import org.eclipse.jdt.internal.compiler.lookup.ClassScope;
-import org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope;
+import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.search.*;
-import org.eclipse.jdt.internal.core.search.HierarchyScope;
-import org.eclipse.jdt.internal.core.search.JavaSearchScope;
-import org.eclipse.jdt.internal.core.search.JavaWorkspaceScope;
-import org.eclipse.jdt.internal.core.search.PatternSearchJob;
 import org.eclipse.jdt.internal.core.search.indexing.*;
 import org.eclipse.jdt.internal.core.search.matching.*;
 import org.eclipse.jdt.internal.core.util.Util;
 
-import java.util.*;
-
 /**
- * A <code>SearchEngine</code> searches for java elements following a search pattern.
+ * A <code>SearchEngine</code> searches for Java elements following a search pattern.
  * The search can be limited to a search scope.
  * <p>
  * Various search patterns can be created using the factory methods 
@@ -53,37 +44,51 @@ import java.util.*;
  * <p>
  * This class may be instantiated; it is not intended to be subclassed.
  * </p>
- * TODO remove IWorkspace argument on the search methods before 3.0
  */
 public class SearchEngine {
 
+	/**
+	 * Internal adapter class.
+	 * @deprecated marking deprecated as it uses deprecated ISearchPattern
+	 */
+	static class SearchPatternAdapter implements ISearchPattern {
+		SearchPattern pattern;
+		SearchPatternAdapter(SearchPattern pattern) {
+			this.pattern = pattern;
+		}
+	}
+	/**
+	 * Internal adapter class.
+	 * @deprecated marking deprecated as it uses deprecated IJavaSearchResultCollector
+	 */
 	class ResultCollectorAdapter extends SearchRequestor {
 		IJavaSearchResultCollector resultCollector;
 		ResultCollectorAdapter(IJavaSearchResultCollector resultCollector) {
 			this.resultCollector = resultCollector;
 		}
-		public boolean acceptSearchMatch(SearchMatch match) throws CoreException {
-			JavaSearchMatch javaSearchMatch = (JavaSearchMatch) match;
+		/**
+		 * @see org.eclipse.jdt.core.search.SearchRequestor#acceptSearchMatch(org.eclipse.jdt.core.search.SearchMatch)
+		 */
+		public void acceptSearchMatch(SearchMatch match) throws CoreException {
 			this.resultCollector.accept(
-				javaSearchMatch.resource,
-				javaSearchMatch.getSourceStart(),
-				javaSearchMatch.getSourceEnd(),
-				javaSearchMatch.element,
-				javaSearchMatch.getAccuracy()
+				match.getResource(),
+				match.getOffset(),
+				match.getOffset() + match.getLength(),
+				(IJavaElement) match.getElement(),
+				match.getAccuracy()
 			);
-			return true;
 		}
+		/**
+		 * @see org.eclipse.jdt.core.search.SearchRequestor#beginReporting()
+		 */
 		public void beginReporting() {
 			this.resultCollector.aboutToStart();
 		}
+		/**
+		 * @see org.eclipse.jdt.core.search.SearchRequestor#endReporting()
+		 */
 		public void endReporting() {
 			this.resultCollector.done();
-		}
-		public void enterParticipant(SearchParticipant participant) {
-			// Nothing to do since only one Java search participant
-		}
-		public void exitParticipant(SearchParticipant participant) {
-			// Nothing to do since only one Java search participant
 		}
 	}
 		
@@ -143,7 +148,7 @@ public class SearchEngine {
 	 * 
 	 * @param workingCopies the working copies that take precedence over their original compilation units
 	 * @since 2.0
-	 * @deprecated use #SearchEngine(ICompilationUnit[]) instead
+	 * @deprecated Use {@link #SearchEngine(ICompilationUnit[])} instead.
 	 */
 	public SearchEngine(IWorkingCopy[] workingCopies) {
 		int length = workingCopies.length;
@@ -163,8 +168,8 @@ public class SearchEngine {
 	}
 	
 	/**
-	 * Returns a java search scope limited to the hierarchy of the given type.
-	 * The java elements resulting from a search with this scope will
+	 * Returns a Java search scope limited to the hierarchy of the given type.
+	 * The Java elements resulting from a search with this scope will
 	 * be types in this hierarchy, or members of the types in this hierarchy.
 	 *
 	 * @param type the focus of the hierarchy scope
@@ -176,10 +181,10 @@ public class SearchEngine {
 	}
 	
 	/**
-	 * Returns a java search scope limited to the hierarchy of the given type.
+	 * Returns a Java search scope limited to the hierarchy of the given type.
 	 * When the hierarchy is computed, the types defined in the working copies owned
 	 * by the given owner take precedence over the original compilation units.
-	 * The java elements resulting from a search with this scope will
+	 * The Java elements resulting from a search with this scope will
 	 * be types in this hierarchy, or members of the types in this hierarchy.
 	 *
 	 * @param type the focus of the hierarchy scope
@@ -193,8 +198,8 @@ public class SearchEngine {
 	}
 
 	/**
-	 * Returns a java search scope limited to the given resources.
-	 * The java elements resulting from a search with this scope will
+	 * Returns a Java search scope limited to the given resources.
+	 * The Java elements resulting from a search with this scope will
 	 * have their underlying resource included in or equals to one of the given
 	 * resources.
 	 * <p>
@@ -202,8 +207,8 @@ public class SearchEngine {
 	 * </p>
 	 *
 	 * @param resources the resources the scope is limited to
-	 * @return a new java search scope
-	 * @deprecated Use createJavaSearchScope(IJavaElement[]) instead
+	 * @return a new Java search scope
+	 * @deprecated Use {@link #createJavaSearchScope(IJavaElement[])} instead.
 	 */
 	public static IJavaSearchScope createJavaSearchScope(IResource[] resources) {
 		int length = resources.length;
@@ -215,8 +220,8 @@ public class SearchEngine {
 	}
 
 	/**
-	 * Returns a java search scope limited to the given java elements.
-	 * The java elements resulting from a search with this scope will
+	 * Returns a Java search scope limited to the given Java elements.
+	 * The Java elements resulting from a search with this scope will
 	 * be children of the given elements.
 	 * <p>
 	 * If an element is an IJavaProject, then the project's source folders, 
@@ -230,8 +235,8 @@ public class SearchEngine {
 	 * <p>
 	 * In other words, this is equivalent to using SearchEngine.createJavaSearchScope(elements, true).</p>
 	 *
-	 * @param elements the java elements the scope is limited to
-	 * @return a new java search scope
+	 * @param elements the Java elements the scope is limited to
+	 * @return a new Java search scope
 	 * @since 2.0
 	 */
 	public static IJavaSearchScope createJavaSearchScope(IJavaElement[] elements) {
@@ -239,8 +244,8 @@ public class SearchEngine {
 	}
 
 	/**
-	 * Returns a java search scope limited to the given java elements.
-	 * The java elements resulting from a search with this scope will
+	 * Returns a Java search scope limited to the given Java elements.
+	 * The Java elements resulting from a search with this scope will
 	 * be children of the given elements.
 	 * 
 	 * If an element is an IJavaProject, then the project's source folders, 
@@ -252,21 +257,60 @@ public class SearchEngine {
 	 * files of this package fragment will be included. Subpackages will NOT be 
 	 * included.
 	 *
-	 * @param elements the java elements the scope is limited to
+	 * @param elements the Java elements the scope is limited to
 	 * @param includeReferencedProjects a flag indicating if referenced projects must be 
 	 * 									 recursively included
-	 * @return a new java search scope
+	 * @return a new Java search scope
 	 * @since 2.0
 	 */
 	public static IJavaSearchScope createJavaSearchScope(IJavaElement[] elements, boolean includeReferencedProjects) {
+		int includeMask = IJavaSearchScope.SOURCES | IJavaSearchScope.APPLICATION_LIBRARIES | IJavaSearchScope.SYSTEM_LIBRARIES;
+		if (includeReferencedProjects) {
+			includeMask |= IJavaSearchScope.REFERENCED_PROJECTS;
+		}
+		return createJavaSearchScope(elements, includeMask);
+	}
+
+	/**
+	 * Returns a Java search scope limited to the given Java elements.
+	 * The Java elements resulting from a search with this scope will
+	 * be children of the given elements.
+	 * 
+	 * If an element is an IJavaProject, then it includes:
+	 * - its source folders if IJavaSearchScope.SOURCES is specified, 
+	 * - its application libraries (internal and external jars, class folders that are on the raw classpath, 
+	 *   or the ones that are coming from a classpath path variable,
+	 *   or the ones that are coming from a classpath container with the K_APPLICATION kind)
+	 *   if IJavaSearchScope.APPLICATION_LIBRARIES is specified
+	 * - its system libraries (internal and external jars, class folders that are coming from an 
+	 *   IClasspathContainer with the K_SYSTEM kind) 
+	 *   if IJavaSearchScope.APPLICATION_LIBRARIES is specified
+	 * - its referenced projects (with their source folders and jars, recursively) 
+	 *   if IJavaSearchScope.REFERENCED_PROJECTS is specified.
+	 * If an element is an IPackageFragmentRoot, then only the package fragments of 
+	 * this package fragment root will be included.
+	 * If an element is an IPackageFragment, then only the compilation unit and class 
+	 * files of this package fragment will be included. Subpackages will NOT be 
+	 * included.
+	 *
+	 * @param elements the Java elements the scope is limited to
+	 * @param includeMask the bit-wise OR of all include types of interest
+	 * @return a new Java search scope
+	 * @see IJavaSearchScope#SOURCES
+	 * @see IJavaSearchScope#APPLICATION_LIBRARIES
+	 * @see IJavaSearchScope#SYSTEM_LIBRARIES
+	 * @see IJavaSearchScope#REFERENCED_PROJECTS
+	 * @since 3.0
+	 */
+	public static IJavaSearchScope createJavaSearchScope(IJavaElement[] elements, int includeMask) {
 		JavaSearchScope scope = new JavaSearchScope();
 		HashSet visitedProjects = new HashSet(2);
 		for (int i = 0, length = elements.length; i < length; i++) {
 			IJavaElement element = elements[i];
 			if (element != null) {
 				try {
-					if (element instanceof IJavaProject) {
-						scope.add((IJavaProject)element, includeReferencedProjects, visitedProjects);
+					if (element instanceof JavaProject) {
+						scope.add((JavaProject)element, includeMask, visitedProjects);
 					} else {
 						scope.add(element);
 					}
@@ -277,50 +321,6 @@ public class SearchEngine {
 		}
 		return scope;
 	}
-
-	/**
-	 * Returns a search pattern that combines the given two patterns into a "and" pattern.
-	 * The search result will match both the left pattern and the right pattern.
-	 *
-	 * @param leftPattern the left pattern
-	 * @param rightPattern the right pattern
-	 * @return a "and" pattern
-     * @since 3.0
-	 */
-	public static SearchPattern createAndSearchPattern(final SearchPattern leftPattern, final SearchPattern rightPattern) {
-		return new AndPattern(0/*no kind*/, 0/*no rule*/){
-			SearchPattern current = leftPattern;
-			public void decodeIndexKey(char[] key) {
-				current.decodeIndexKey(key);
-
-			}
-			public char[] encodeIndexKey() {
-				return current.encodeIndexKey();
-			}
-			public SearchPattern getIndexRecord() {
-				return current.getIndexRecord();
-			}
-			public char[][] getMatchCategories() {
-				return current.getMatchCategories();
-			}
-			public int getMatchRule() {
-				return current.getMatchRule();
-			}
-			protected boolean hasNextQuery() {
-				if (current == leftPattern) {
-					current = rightPattern;
-					return true;
-				}
-				return false; 
-			}
-			public boolean isMatchingIndexRecord() {
-				return current.isMatchingIndexRecord();
-			}
-			protected void resetQuery() {
-				current = leftPattern;
-			}
-		};
-	}
 	
 	/**
 	 * Returns a search pattern that combines the given two patterns into a "or" pattern.
@@ -329,9 +329,13 @@ public class SearchEngine {
 	 * @param leftPattern the left pattern
 	 * @param rightPattern the right pattern
 	 * @return a "or" pattern
+	 * @deprecated Use {@link SearchPattern#createOrPattern(SearchPattern, SearchPattern)} instead.
 	 */
 	public static ISearchPattern createOrSearchPattern(ISearchPattern leftPattern, ISearchPattern rightPattern) {
-		return new OrPattern((SearchPattern)leftPattern, (SearchPattern)rightPattern);
+		SearchPattern left = ((SearchPatternAdapter) leftPattern).pattern;
+		SearchPattern right = ((SearchPatternAdapter) rightPattern).pattern;
+		SearchPattern pattern = SearchPattern.createOrPattern(left, right);
+		return new SearchPatternAdapter(pattern);
 	}
 	
 	/**
@@ -375,22 +379,21 @@ public class SearchEngine {
 	 *
 	 * @param isCaseSensitive indicates whether the search is case sensitive or not.
 	 * @return a search pattern on the given string pattern, or <code>null</code> if the string pattern is ill-formed.
+	 * @deprecated Use {@link SearchPattern#createPattern(String, int, int, int)} instead.
 	 */
 	public static ISearchPattern createSearchPattern(String stringPattern, int searchFor, int limitTo, boolean isCaseSensitive) {
-		int matchMode;
-		if (stringPattern.indexOf('*') != -1 || stringPattern.indexOf('?') != -1) {
-			matchMode = IJavaSearchConstants.PATTERN_MATCH;
-		} else {
-			matchMode = IJavaSearchConstants.EXACT_MATCH;
-		}
-		return SearchPattern.createPattern(stringPattern, searchFor, limitTo, matchMode, isCaseSensitive);
+		int matchMode = stringPattern.indexOf('*') != -1 || stringPattern.indexOf('?') != -1
+			? SearchPattern.R_PATTERN_MATCH
+			: SearchPattern.R_EXACT_MATCH;
+		int matchRule = isCaseSensitive ? matchMode | SearchPattern.R_CASE_SENSITIVE : matchMode;
+		return  new SearchPatternAdapter(SearchPattern.createPattern(stringPattern, searchFor, limitTo, matchRule));
 	}
 	
 	/**
 	 * Returns a search pattern based on a given Java element. 
 	 * The pattern is used to trigger the appropriate search, and can be parameterized as follows:
 	 *
-	 * @param element the java element the search pattern is based on
+	 * @param element the Java element the search pattern is based on
 	 * @param limitTo determines the nature of the expected matches
 	 * 	<ul>
 	 * 		<li><code>IJavaSearchConstants.DECLARATIONS</code>: will search declarations matching with the corresponding
@@ -404,15 +407,15 @@ public class SearchEngine {
 	 *
 	 *		 <li><code>IJavaSearchConstants.IMPLEMENTORS</code>: for interface, will find all types which implements a given interface.</li>
 	 *	</ul>
-	 * @return a search pattern for a java element or <code>null</code> if the given element is ill-formed
+	 * @return a search pattern for a Java element or <code>null</code> if the given element is ill-formed
+	 * @deprecated Use {@link SearchPattern#createPattern(IJavaElement, int)} instead.
 	 */
 	public static ISearchPattern createSearchPattern(IJavaElement element, int limitTo) {
-	
-		return SearchPattern.createPattern(element, limitTo);
+		return new SearchPatternAdapter(SearchPattern.createPattern(element, limitTo));
 	}
 	
 	/**
-	 * Returns a java search scope with the workspace as the only limit.
+	 * Returns a Java search scope with the workspace as the only limit.
 	 *
 	 * @return a new workspace scope
 	 */
@@ -421,58 +424,67 @@ public class SearchEngine {
 	}
 	
 	/**
-	 * Returns default Java search participant
-	 * TODO add spec
+	 * Searches for matches to a given query. Search queries can be created using helper
+	 * methods (from a String pattern or a Java element) and encapsulate the description of what is
+	 * being searched (for example, search method declarations in a case sensitive way).
+	 *
+	 * @param scope the search result has to be limited to the given scope
+	 * @param requestor a callback object to which each match is reported
+	 */
+	private void findMatches(SearchPattern pattern, SearchParticipant[] participants, IJavaSearchScope scope, SearchRequestor requestor, IProgressMonitor monitor) throws CoreException {
+		if (monitor != null && monitor.isCanceled()) throw new OperationCanceledException();
+	
+		/* initialize progress monitor */
+		if (monitor != null)
+			monitor.beginTask(Util.bind("engine.searching"), 100); //$NON-NLS-1$
+		if (SearchEngine.VERBOSE)
+			System.out.println("Searching for " + this + " in " + scope); //$NON-NLS-1$//$NON-NLS-2$
+	
+		IndexManager indexManager = JavaModelManager.getJavaModelManager().getIndexManager();
+		try {
+			requestor.beginReporting();
+			for (int i = 0, l = participants == null ? 0 : participants.length; i < l; i++) {
+				if (monitor != null && monitor.isCanceled()) throw new OperationCanceledException();
+	
+				SearchParticipant participant = participants[i];
+				try {
+					participant.beginSearching();
+					requestor.enterParticipant(participant);
+					PathCollector pathCollector = new PathCollector();
+					indexManager.performConcurrentJob(
+						new PatternSearchJob(pattern, participant, scope, pathCollector),
+						IJavaSearchConstants.WAIT_UNTIL_READY_TO_SEARCH,
+						monitor);
+					if (monitor != null && monitor.isCanceled()) throw new OperationCanceledException();
+	
+					// locate index matches if any (note that all search matches could have been issued during index querying)
+					String[] indexMatchPaths = pathCollector.getPaths();
+					pathCollector = null; // release
+					int indexMatchLength = indexMatchPaths == null ? 0 : indexMatchPaths.length;
+					SearchDocument[] indexMatches = new SearchDocument[indexMatchLength];
+					for (int j = 0; j < indexMatchLength; j++)
+						indexMatches[j] = participant.getDocument(indexMatchPaths[j]);
+					SearchDocument[] matches = MatchLocator.addWorkingCopies(pattern, indexMatches, getWorkingCopies(), participant);
+					participant.locateMatches(matches, pattern, scope, requestor, monitor);
+				} finally {		
+					requestor.exitParticipant(participant);
+					participant.doneSearching();
+				}
+			}
+		} finally {
+			requestor.endReporting();
+			if (monitor != null)
+				monitor.done();
+		}
+	}
+	/**
+	 * Returns a new default Java search participant.
+	 * 
+	 * @return a new default Java search participant
 	 * @since 3.0
 	 */
 	public static SearchParticipant getDefaultSearchParticipant() {
-		
-		return new JavaSearchParticipant(null);
-	}
-
-	/**
-	 * Returns all registered search participants
-	 * TODO add spec
-	 * @since 3.0
-	 */
-	public static SearchParticipant[] getSearchParticipants() {
-		
-		Plugin plugin = JavaCore.getPlugin();
-		if (plugin == null) return SearchParticipant.NO_PARTICIPANT;
-	
-		IExtensionPoint extension = plugin.getDescriptor().getExtensionPoint(JavaModelManager.SEARCH_PARTICIPANT_EXTPOINT_ID);
-		if (extension != null) {
-			IExtension[] extensions =  extension.getExtensions();
-			int length = extensions.length;
-			SearchParticipant[] participants = new SearchParticipant[length+1];
-			// insert first the default Java participant (implicitly registered)
-			participants[0] = getDefaultSearchParticipant();
-			int found = 1;
-			for(int i = 0; i < extensions.length; i++){
-				IConfigurationElement [] configElements = extensions[i].getConfigurationElements();
-				for(int j = 0, configLength = configElements.length; j < configLength; j++){
-					try {
-						Object execExt = configElements[j].createExecutableExtension("class"); //$NON-NLS-1$
-						if (execExt != null && execExt instanceof SearchParticipant){
-							participants[found++] = (SearchParticipant)execExt;
-						}
-					} catch(CoreException e) {
-						// executable extension could not be created: ignore this participant
-						if (SearchEngine.VERBOSE) {
-							System.out.println("Search - failed to instanciate participant: "+ configElements[j].getAttribute("class"));//$NON-NLS-2$//$NON-NLS-1$
-							e.printStackTrace();
-						}						
-					}
-				}
-			}	
-			if (found == 0) return SearchParticipant.NO_PARTICIPANT;
-			if (found < length) {
-				System.arraycopy(participants, 0, participants = new SearchParticipant[found], 0, found);
-			}
-			return participants;
-		}
-		// return default participant (implicitely registered)
-		return new SearchParticipant[] {getDefaultSearchParticipant()};
+		return new JavaSearchParticipant();
 	}
 
 	private Parser getParser() {
@@ -564,7 +576,7 @@ public class SearchEngine {
 	}
 	
 	/**
-	 * Returns the list of working copies used to do the search on the given java element.
+	 * Returns the list of working copies used to do the search on the given Java element.
 	 * @param element an IJavaElement
 	 * @return an array of ICompilationUnit
 	 */
@@ -579,15 +591,14 @@ public class SearchEngine {
 					System.arraycopy(copies, 0, newWorkingCopies, 0, length);
 					newWorkingCopies[length] = cu;
 					return newWorkingCopies;
-				} else {
-					return new ICompilationUnit[] {cu};
-				}
+				} 
+				return new ICompilationUnit[] {cu};
 			}
 		}
 		return getWorkingCopies();
 	}
 
-	boolean match(char classOrInterface, char[] patternPkg, char[] patternTypeName, int matchMode, boolean isCaseSensitive, boolean isClass, char[] pkg, char[] typeName) {
+	boolean match(char classOrInterface, char[] patternPkg, char[] patternTypeName, int matchRule, boolean isClass, char[] pkg, char[] typeName) {
 		switch(classOrInterface) {
 			case IIndexConstants.CLASS_SUFFIX :
 				if (!isClass) return false;
@@ -596,16 +607,18 @@ public class SearchEngine {
 			case IIndexConstants.TYPE_SUFFIX : // nothing
 		}
 	
+		boolean isCaseSensitive = (matchRule & SearchPattern.R_CASE_SENSITIVE) != 0;
 		if (patternPkg != null && !CharOperation.equals(patternPkg, pkg, isCaseSensitive))
-			return false;
-	
+				return false;
+		
 		if (patternTypeName != null) {
+			int matchMode = matchRule - (isCaseSensitive ? SearchPattern.R_CASE_SENSITIVE : 0);
 			switch(matchMode) {
-				case IJavaSearchConstants.EXACT_MATCH :
+				case SearchPattern.R_EXACT_MATCH :
 					return CharOperation.equals(patternTypeName, typeName, isCaseSensitive);
-				case IJavaSearchConstants.PREFIX_MATCH :
+				case SearchPattern.R_PREFIX_MATCH :
 					return CharOperation.prefixEquals(patternTypeName, typeName, isCaseSensitive);
-				case IJavaSearchConstants.PATTERN_MATCH :
+				case SearchPattern.R_PATTERN_MATCH :
 					return CharOperation.match(patternTypeName, typeName, isCaseSensitive);
 			}
 		}
@@ -644,9 +657,24 @@ public class SearchEngine {
 	 *	<ul>
 	 *		<li>the classpath is incorrectly set</li>
 	 *	</ul>
+	 * @deprecated Use {@link  #search(SearchPattern, SearchParticipant[], IJavaSearchScope, SearchRequestor, IProgressMonitor)} instead.
 	 */
 	public void search(IWorkspace workspace, String patternString, int searchFor, int limitTo, IJavaSearchScope scope, IJavaSearchResultCollector resultCollector) throws JavaModelException {
-		search(workspace, createSearchPattern(patternString, searchFor, limitTo, true), scope, resultCollector);
+		try {
+			int matchMode = patternString.indexOf('*') != -1 || patternString.indexOf('?') != -1
+				? SearchPattern.R_PATTERN_MATCH
+				: SearchPattern.R_EXACT_MATCH;
+			search(
+				SearchPattern.createPattern(patternString, searchFor, limitTo, matchMode | SearchPattern.R_CASE_SENSITIVE), 
+				new SearchParticipant[] {getDefaultSearchParticipant()}, 
+				scope, 
+				new ResultCollectorAdapter(resultCollector), 
+				resultCollector.getProgressMonitor());
+		} catch (CoreException e) {
+			if (e instanceof JavaModelException)
+				throw (JavaModelException) e;
+			throw new JavaModelException(e);
+		}
 	}
 
 	/**
@@ -673,6 +701,7 @@ public class SearchEngine {
 	 *		<li>the element doesn't exist</li>
 	 *		<li>the classpath is incorrectly set</li>
 	 *	</ul>
+	 * @deprecated Use {@link #search(SearchPattern, SearchParticipant[], IJavaSearchScope, SearchRequestor, IProgressMonitor)} instead.
 	 */
 	public void search(IWorkspace workspace, IJavaElement element, int limitTo, IJavaSearchScope scope, IJavaSearchResultCollector resultCollector) throws JavaModelException {
 		search(workspace, createSearchPattern(element, limitTo), scope, resultCollector);
@@ -691,21 +720,20 @@ public class SearchEngine {
 	 *	<ul>
 	 *		<li>the classpath is incorrectly set</li>
 	 *	</ul>
+	 * @deprecated Use {@link  #search(SearchPattern, SearchParticipant[], IJavaSearchScope, SearchRequestor, IProgressMonitor)} instead.
 	 */
 	public void search(IWorkspace workspace, ISearchPattern searchPattern, IJavaSearchScope scope, IJavaSearchResultCollector resultCollector) throws JavaModelException {
 		try {
 			search(
-				(SearchPattern)searchPattern, 
-				new SearchParticipant[] {new JavaSearchParticipant(getWorkingCopies())}, 
+				((SearchPatternAdapter)searchPattern).pattern, 
+				new SearchParticipant[] {getDefaultSearchParticipant()}, 
 				scope, 
 				new ResultCollectorAdapter(resultCollector), 
 				resultCollector.getProgressMonitor());
 		} catch (CoreException e) {
-			if (e instanceof JavaModelException) {
+			if (e instanceof JavaModelException)
 				throw (JavaModelException) e;
-			} else {
-				throw new JavaModelException(e);
-			}
+			throw new JavaModelException(e);
 		}
 	}
 	
@@ -714,21 +742,233 @@ public class SearchEngine {
 	 * methods (from a String pattern or a Java element) and encapsulate the description of what is
 	 * being searched (for example, search method declarations in a case sensitive way).
 	 *
-	 * @param workspace the workspace
-	 * @param searchPattern the pattern to be searched for
-	 * @param scope the search result has to be limited to the given scope
-	 * @param resultCollector a callback object to which each match is reported
-	 * @exception JavaModelException if the search failed. Reasons include:
+	 * @param pattern the pattern to search
+	 * @param participants the particpants in the search
+	 * @param scope the search scope
+	 * @param requestor the requestor to report the matches to
+	 * @param monitor the progress monitor used to report progress
+	 * @exception CoreException if the search failed. Reasons include:
 	 *	<ul>
 	 *		<li>the classpath is incorrectly set</li>
 	 *	</ul>
 	 *@since 3.0
-	 *TODO add spec
 	 */
 	public void search(SearchPattern pattern, SearchParticipant[] participants, IJavaSearchScope scope, SearchRequestor requestor, IProgressMonitor monitor) throws CoreException {
-		pattern.findMatches(participants, scope, requestor, monitor);
+		findMatches(pattern, participants, scope, requestor, monitor);
 	}
 
+	/**
+	 * Searches for all top-level types and member types in the given scope.
+	 * The search can be selecting specific types (given a package or a type name
+	 * prefix and match modes). 
+	 * 
+	 * @param packageName the full name of the package of the searched types, or a prefix for this
+	 *						package, or a wild-carded string for this package.
+	 * @param typeName the dot-separated qualified name of the searched type (the qualification include
+	 *					the enclosing types if the searched type is a member type), or a prefix
+	 *					for this type, or a wild-carded string for this type.
+	 * @param matchRule one of
+	 * <ul>
+	 *		<li><code>SearchPattern.R_EXACT_MATCH</code> if the package name and type name are the full names
+	 *			of the searched types.</li>
+	 *		<li><code>SearchPattern.R_PREFIX_MATCH</code> if the package name and type name are prefixes of the names
+	 *			of the searched types.</li>
+	 *		<li><code>SearchPattern.R_PATTERN_MATCH</code> if the package name and type name contain wild-cards.</li>
+	 * </ul>
+	 * combined with <code>SearchPattern.R_CASE_SENSITIVE</code>,
+	 *   e.g. <code>R_EXACT_MATCH | R_CASE_SENSITIVE</code> if an exact and case sensitive match is requested, 
+	 *   or <code>R_PREFIX_MATCH</code> if a prefix non case sensitive match is requested.
+	 * @param searchFor one of
+	 * <ul>
+	 * 		<li><code>IJavaSearchConstants.CLASS</code> if searching for classes only</li>
+	 * 		<li><code>IJavaSearchConstants.INTERFACE</code> if searching for interfaces only</li>
+	 * 		<li><code>IJavaSearchConstants.TYPE</code> if searching for both classes and interfaces</li>
+	 * </ul>
+	 * @param scope the scope to search in
+	 * @param nameRequestor the requestor that collects the results of the search
+	 * @param waitingPolicy one of
+	 * <ul>
+	 *		<li><code>IJavaSearchConstants.FORCE_IMMEDIATE_SEARCH</code> if the search should start immediately</li>
+	 *		<li><code>IJavaSearchConstants.CANCEL_IF_NOT_READY_TO_SEARCH</code> if the search should be cancelled if the
+	 *			underlying indexer has not finished indexing the workspace</li>
+	 *		<li><code>IJavaSearchConstants.WAIT_UNTIL_READY_TO_SEARCH</code> if the search should wait for the
+	 *			underlying indexer to finish indexing the workspace</li>
+	 * </ul>
+	 * @param progressMonitor the progress monitor to report progress to, or <code>null</code> if no progress
+	 *							monitor is provided
+	 * @exception JavaModelException if the search failed. Reasons include:
+	 *	<ul>
+	 *		<li>the classpath is incorrectly set</li>
+	 *	</ul>
+	 * @since 3.0
+	 */
+	public void searchAllTypeNames(
+		final char[] packageName, 
+		final char[] typeName,
+		final int matchRule, 
+		int searchFor, 
+		IJavaSearchScope scope, 
+		final ITypeNameRequestor nameRequestor,
+		int waitingPolicy,
+		IProgressMonitor progressMonitor)  throws JavaModelException {
+	
+		IndexManager indexManager = JavaModelManager.getJavaModelManager().getIndexManager();
+			
+		final char classOrInterface;
+		switch(searchFor){
+			case IJavaSearchConstants.CLASS :
+				classOrInterface = IIndexConstants.CLASS_SUFFIX;
+				break;
+			case IJavaSearchConstants.INTERFACE :
+				classOrInterface = IIndexConstants.INTERFACE_SUFFIX;
+				break;
+			default : 
+				classOrInterface = IIndexConstants.TYPE_SUFFIX;
+				break;
+		}
+		final TypeDeclarationPattern pattern = new TypeDeclarationPattern(
+			packageName,
+			null, // do find member types
+			typeName,
+			classOrInterface,
+			matchRule);
+		
+		final HashSet workingCopyPaths = new HashSet();
+		ICompilationUnit[] copies = getWorkingCopies();
+		if (copies != null) {
+			for (int i = 0, length = copies.length; i < length; i++) {
+				ICompilationUnit workingCopy = copies[i];
+				workingCopyPaths.add(workingCopy.getPath().toString());
+			}
+		}
+	
+		IndexQueryRequestor searchRequestor = new IndexQueryRequestor(){
+			public boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant) {
+				TypeDeclarationPattern record = (TypeDeclarationPattern)indexRecord;
+				if (record.enclosingTypeNames != IIndexConstants.ONE_ZERO_CHAR  // filter out local and anonymous classes
+						&& !workingCopyPaths.contains(documentPath)) { // filter out working copies
+					boolean isClass = record.classOrInterface != IIndexConstants.INTERFACE_SUFFIX;
+					if (isClass) {
+						nameRequestor.acceptClass(record.pkg, record.simpleName, record.enclosingTypeNames, documentPath);
+					} else {
+						nameRequestor.acceptInterface(record.pkg, record.simpleName, record.enclosingTypeNames, documentPath);
+					}
+				}
+				return true;
+			}
+		};
+	
+		try {
+			if (progressMonitor != null) {
+				progressMonitor.beginTask(Util.bind("engine.searching"), 100); //$NON-NLS-1$
+			}
+			// add type names from indexes
+			indexManager.performConcurrentJob(
+				new PatternSearchJob(
+					pattern, 
+					getDefaultSearchParticipant(), // Java search only
+					scope, 
+					searchRequestor),
+				waitingPolicy,
+				progressMonitor == null ? null : new SubProgressMonitor(progressMonitor, 100));	
+				
+			// add type names from working copies
+			if (copies != null) {
+				for (int i = 0, length = copies.length; i < length; i++) {
+					ICompilationUnit workingCopy = copies[i];
+					final String path = workingCopy.getPath().toString();
+					if (workingCopy.isConsistent()) {
+						IPackageDeclaration[] packageDeclarations = workingCopy.getPackageDeclarations();
+						char[] packageDeclaration = packageDeclarations.length == 0 ? CharOperation.NO_CHAR : packageDeclarations[0].getElementName().toCharArray();
+						IType[] allTypes = workingCopy.getAllTypes();
+						for (int j = 0, allTypesLength = allTypes.length; j < allTypesLength; j++) {
+							IType type = allTypes[j];
+							IJavaElement parent = type.getParent();
+							char[][] enclosingTypeNames;
+							if (parent instanceof IType) {
+								char[] parentQualifiedName = ((IType)parent).getTypeQualifiedName('.').toCharArray();
+								enclosingTypeNames = CharOperation.splitOn('.', parentQualifiedName);
+							} else {
+								enclosingTypeNames = CharOperation.NO_CHAR_CHAR;
+							}
+							char[] simpleName = type.getElementName().toCharArray();
+							if (match(classOrInterface, packageName, typeName, matchRule, type.isClass(), packageDeclaration, simpleName)) {
+								if (type.isClass()) {
+									nameRequestor.acceptClass(packageDeclaration, simpleName, enclosingTypeNames, path);
+								} else {
+									nameRequestor.acceptInterface(packageDeclaration, simpleName, enclosingTypeNames, path);
+								}
+							}
+						}
+					} else {
+						Parser basicParser = getParser();
+						final char[] contents = workingCopy.getBuffer().getCharacters();
+						org.eclipse.jdt.internal.compiler.env.ICompilationUnit unit = new org.eclipse.jdt.internal.compiler.env.ICompilationUnit() {
+							public char[] getContents() {
+								return contents;
+							}
+							public char[] getMainTypeName() {
+								return null;
+							}
+							public char[][] getPackageName() {
+								return null;
+							}
+							public char[] getFileName() {
+								return null;
+							}
+						};
+						CompilationResult compilationUnitResult = new CompilationResult(unit, 0, 0, this.compilerOptions.maxProblemsPerUnit);
+						CompilationUnitDeclaration parsedUnit = basicParser.dietParse(unit, compilationUnitResult);
+						if (parsedUnit != null) {
+							final char[] packageDeclaration = parsedUnit.currentPackage == null ? CharOperation.NO_CHAR : CharOperation.concatWith(parsedUnit.currentPackage.getImportName(), '.');
+							class AllTypeDeclarationsVisitor extends ASTVisitor {
+								public boolean visit(TypeDeclaration typeDeclaration, BlockScope blockScope) {
+									return false; // no local/anonymous type
+								}
+								public boolean visit(TypeDeclaration typeDeclaration, CompilationUnitScope compilationUnitScope) {
+									if (match(classOrInterface, packageName, typeName, matchRule, !typeDeclaration.isInterface(), packageDeclaration, typeDeclaration.name)) {
+										if (!typeDeclaration.isInterface()) {
+											nameRequestor.acceptClass(packageDeclaration, typeDeclaration.name, CharOperation.NO_CHAR_CHAR, path);
+										} else {
+											nameRequestor.acceptInterface(packageDeclaration, typeDeclaration.name, CharOperation.NO_CHAR_CHAR, path);
+										}
+									}
+									return true;
+								}
+								public boolean visit(TypeDeclaration memberTypeDeclaration, ClassScope classScope) {
+									if (match(classOrInterface, packageName, typeName, matchRule, !memberTypeDeclaration.isInterface(), packageDeclaration, memberTypeDeclaration.name)) {
+										// compute encloising type names
+										TypeDeclaration enclosing = memberTypeDeclaration.enclosingType;
+										char[][] enclosingTypeNames = CharOperation.NO_CHAR_CHAR;
+										while (enclosing != null) {
+											enclosingTypeNames = CharOperation.arrayConcat(new char[][] {enclosing.name}, enclosingTypeNames);
+											if ((enclosing.bits & ASTNode.IsMemberTypeMASK) != 0) {
+												enclosing = enclosing.enclosingType;
+											} else {
+												enclosing = null;
+											}
+										}
+										// report
+										if (!memberTypeDeclaration.isInterface()) {
+											nameRequestor.acceptClass(packageDeclaration, memberTypeDeclaration.name, enclosingTypeNames, path);
+										} else {
+											nameRequestor.acceptInterface(packageDeclaration, memberTypeDeclaration.name, enclosingTypeNames, path);
+										}
+									}
+									return true;
+								}
+							}
+							parsedUnit.traverse(new AllTypeDeclarationsVisitor(), parsedUnit.scope);
+						}
+					}
+				}
+			}	
+		} finally {
+			if (progressMonitor != null) {
+				progressMonitor.done();
+			}
+		}
+	}
 	/**
 	 * Searches for all top-level types and member types in the given scope.
 	 * The search can be selecting specific types (given a package or a type name
@@ -771,6 +1011,7 @@ public class SearchEngine {
 	 *	<ul>
 	 *		<li>the classpath is incorrectly set</li>
 	 *	</ul>
+	 *@deprecated Use {@link #searchAllTypeNames(char[], char[], int, int, IJavaSearchScope, ITypeNameRequestor, int, IProgressMonitor)} instead
 	 */
 	public void searchAllTypeNames(
 		IWorkspace workspace,
@@ -783,192 +1024,102 @@ public class SearchEngine {
 		final ITypeNameRequestor nameRequestor,
 		int waitingPolicy,
 		IProgressMonitor progressMonitor)  throws JavaModelException {
-	
-		IndexManager indexManager = JavaModelManager.getJavaModelManager().getIndexManager();
-			
-		final char classOrInterface;
-		switch(searchFor){
-			case IJavaSearchConstants.CLASS :
-				classOrInterface = IIndexConstants.CLASS_SUFFIX;
-				break;
-			case IJavaSearchConstants.INTERFACE :
-				classOrInterface = IIndexConstants.INTERFACE_SUFFIX;
-				break;
-			default : 
-				classOrInterface = IIndexConstants.TYPE_SUFFIX;
-				break;
-		}
-		final TypeDeclarationPattern pattern = new TypeDeclarationPattern(
-			packageName,
-			null, // do find member types
-			typeName,
-			classOrInterface,
-			isCaseSensitive ? matchMode | SearchPattern.R_CASE_SENSITIVE : matchMode);
 		
-		final HashSet workingCopyPaths = new HashSet();
-		ICompilationUnit[] copies = getWorkingCopies();
-		if (copies != null) {
-			for (int i = 0, length = copies.length; i < length; i++) {
-				ICompilationUnit workingCopy = copies[i];
-				workingCopyPaths.add(workingCopy.getPath().toString());
-			}
-		}
-	
-		IndexQueryRequestor searchRequestor = new IndexQueryRequestor(){
-			public boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant) {
-				TypeDeclarationPattern record = (TypeDeclarationPattern)indexRecord;
-				if (record.enclosingTypeNames != IIndexConstants.ONE_ZERO_CHAR  // filter out local and anonymous classes
-						&& !workingCopyPaths.contains(documentPath)) { // filter out working copies
-					boolean isClass = record.classOrInterface != IIndexConstants.INTERFACE_SUFFIX;
-					if (isClass) {
-						nameRequestor.acceptClass(record.pkg, record.simpleName, record.enclosingTypeNames, documentPath);
-					} else {
-						nameRequestor.acceptInterface(record.pkg, record.simpleName, record.enclosingTypeNames, documentPath);
-					}
-				}
-				return true;
-			}
-		};
-	
-		try {
-			if (progressMonitor != null) {
-				progressMonitor.beginTask(Util.bind("engine.searching"), 100); //$NON-NLS-1$
-			}
-			// add type names from indexes
-			indexManager.performConcurrentJob(
-				new PatternSearchJob(
-					pattern, 
-					new JavaSearchParticipant(getWorkingCopies()), // java search only
-					scope, 
-					searchRequestor),
-				waitingPolicy,
-				progressMonitor == null ? null : new SubProgressMonitor(progressMonitor, 100));	
-				
-			// add type names from working copies
-			if (copies != null) {
-				for (int i = 0, length = copies.length; i < length; i++) {
-					ICompilationUnit workingCopy = copies[i];
-					final String path = workingCopy.getPath().toString();
-					if (workingCopy.isConsistent()) {
-						IPackageDeclaration[] packageDeclarations = workingCopy.getPackageDeclarations();
-						char[] packageDeclaration = packageDeclarations.length == 0 ? CharOperation.NO_CHAR : packageDeclarations[0].getElementName().toCharArray();
-						IType[] allTypes = workingCopy.getAllTypes();
-						for (int j = 0, allTypesLength = allTypes.length; j < allTypesLength; j++) {
-							IType type = allTypes[j];
-							IJavaElement parent = type.getParent();
-							char[][] enclosingTypeNames;
-							if (parent instanceof IType) {
-								char[] parentQualifiedName = ((IType)parent).getTypeQualifiedName('.').toCharArray();
-								enclosingTypeNames = CharOperation.splitOn('.', parentQualifiedName);
-							} else {
-								enclosingTypeNames = CharOperation.NO_CHAR_CHAR;
-							}
-							char[] simpleName = type.getElementName().toCharArray();
-							if (match(classOrInterface, packageName, typeName, matchMode, isCaseSensitive, type.isClass(), packageDeclaration, simpleName)) {
-								if (type.isClass()) {
-									nameRequestor.acceptClass(packageDeclaration, simpleName, enclosingTypeNames, path);
-								} else {
-									nameRequestor.acceptInterface(packageDeclaration, simpleName, enclosingTypeNames, path);
-								}
-							}
-						}
-					} else {
-						Parser basicParser = getParser();
-						final char[] contents = workingCopy.getBuffer().getCharacters();
-						org.eclipse.jdt.internal.compiler.env.ICompilationUnit unit = new org.eclipse.jdt.internal.compiler.env.ICompilationUnit() {
-							public char[] getContents() {
-								return contents;
-							}
-							public char[] getMainTypeName() {
-								return null;
-							}
-							public char[][] getPackageName() {
-								return null;
-							}
-							public char[] getFileName() {
-								return null;
-							}
-						};
-						CompilationResult compilationUnitResult = new CompilationResult(unit, 0, 0, this.compilerOptions.maxProblemsPerUnit);
-						CompilationUnitDeclaration parsedUnit = basicParser.dietParse(unit, compilationUnitResult);
-						if (parsedUnit != null) {
-							final char[] packageDeclaration = parsedUnit.currentPackage == null ? CharOperation.NO_CHAR : CharOperation.concatWith(parsedUnit.currentPackage.getImportName(), '.');
-							class AllTypeDeclarationsVisitor extends ASTVisitor {
-								public boolean visit(TypeDeclaration typeDeclaration, BlockScope blockScope) {
-									return false; // no local/anonymous type
-								}
-								public boolean visit(TypeDeclaration typeDeclaration, CompilationUnitScope compilationUnitScope) {
-									if (match(classOrInterface, packageName, typeName, matchMode, isCaseSensitive, !typeDeclaration.isInterface(), packageDeclaration, typeDeclaration.name)) {
-										if (!typeDeclaration.isInterface()) {
-											nameRequestor.acceptClass(packageDeclaration, typeDeclaration.name, CharOperation.NO_CHAR_CHAR, path);
-										} else {
-											nameRequestor.acceptInterface(packageDeclaration, typeDeclaration.name, CharOperation.NO_CHAR_CHAR, path);
-										}
-									}
-									return true;
-								}
-								public boolean visit(TypeDeclaration memberTypeDeclaration, ClassScope classScope) {
-									if (match(classOrInterface, packageName, typeName, matchMode, isCaseSensitive, !memberTypeDeclaration.isInterface(), packageDeclaration, memberTypeDeclaration.name)) {
-										// compute encloising type names
-										TypeDeclaration enclosing = memberTypeDeclaration.enclosingType;
-										char[][] enclosingTypeNames = CharOperation.NO_CHAR_CHAR;
-										while (enclosing != null) {
-											enclosingTypeNames = CharOperation.arrayConcat(new char[][] {enclosing.name}, enclosingTypeNames);
-											if ((enclosing.bits & ASTNode.IsMemberTypeMASK) != 0) {
-												enclosing = enclosing.enclosingType;
-											} else {
-												enclosing = null;
-											}
-										}
-										// report
-										if (!memberTypeDeclaration.isInterface()) {
-											nameRequestor.acceptClass(packageDeclaration, memberTypeDeclaration.name, enclosingTypeNames, path);
-										} else {
-											nameRequestor.acceptInterface(packageDeclaration, memberTypeDeclaration.name, enclosingTypeNames, path);
-										}
-									}
-									return true;
-								}
-							}
-							parsedUnit.traverse(new AllTypeDeclarationsVisitor(), parsedUnit.scope);
-						}
-					}
-				}
-			}	
-		} finally {
-			if (progressMonitor != null) {
-				progressMonitor.done();
-			}
-		}
+		searchAllTypeNames(
+			packageName, 
+			typeName, 
+			isCaseSensitive ? matchMode | SearchPattern.R_CASE_SENSITIVE : matchMode, 
+			searchFor, 
+			scope, 
+			nameRequestor, 
+			waitingPolicy, 
+			progressMonitor);
 	}	
 	
-	private void searchDeclarations(IWorkspace workspace, IJavaElement enclosingElement, IJavaSearchResultCollector resultCollector, SearchPattern pattern) throws JavaModelException {
+	/**
+	 * @deprecated mark deprecated as it uses deprecated code
+	 */
+	private void searchDeclarations(IJavaElement enclosingElement, IJavaSearchResultCollector resultCollector, SearchPattern pattern) throws JavaModelException {
+		searchDeclarations(enclosingElement, new ResultCollectorAdapter(resultCollector), pattern, resultCollector.getProgressMonitor());
+	}
+	
+	private void searchDeclarations(IJavaElement enclosingElement, SearchRequestor requestor, SearchPattern pattern, IProgressMonitor monitor) throws JavaModelException {
 		IJavaSearchScope scope = createJavaSearchScope(new IJavaElement[] {enclosingElement});
 		IResource resource = this.getResource(enclosingElement);
-		if (resource instanceof IFile) {
-			if (VERBOSE) {
-				System.out.println("Searching for " + pattern + " in " + resource.getFullPath()); //$NON-NLS-1$//$NON-NLS-2$
-			}
-			try {
-				SearchParticipant participant = new JavaSearchParticipant(getWorkingCopies(enclosingElement));
+		try {
+			if (resource instanceof IFile) {
+				if (VERBOSE) {
+					System.out.println("Searching for " + pattern + " in " + resource.getFullPath()); //$NON-NLS-1$//$NON-NLS-2$
+				}
+				SearchParticipant participant = getDefaultSearchParticipant();
+				SearchDocument[] documents = MatchLocator.addWorkingCopies(
+					pattern,
+					new SearchDocument[] {new JavaSearchDocument(enclosingElement.getPath().toString(), participant)},
+					getWorkingCopies(enclosingElement),
+					participant);
 				participant.locateMatches(
-					new SearchDocument[] {new JavaSearchDocument(enclosingElement.getPath().toString(), participant)}, 
+					documents, 
 					pattern, 
 					scope, 
-					new ResultCollectorAdapter(resultCollector), 
-					resultCollector.getProgressMonitor());
-			} catch (CoreException e) {
-				if (e instanceof JavaModelException) {
-					throw (JavaModelException) e;
-				} else {
-					throw new JavaModelException(e);
-				}
+					requestor, 
+					monitor);
+			} else {
+				search(
+					pattern, 
+					new SearchParticipant[] {getDefaultSearchParticipant()}, 
+					scope, 
+					requestor, 
+					monitor);
 			}
-		} else {
-			search(workspace, pattern, scope, resultCollector);
+		} catch (CoreException e) {
+			if (e instanceof JavaModelException)
+				throw (JavaModelException) e;
+			throw new JavaModelException(e);
 		}
 	}
 
+	/**
+	 * Searches for all declarations of the fields accessed in the given element.
+	 * The element can be a compilation unit, a source type, or a source method.
+	 * Reports the field declarations using the given requestor.
+	 * <p>
+	 * Consider the following code:
+	 * <code>
+	 * <pre>
+	 *		class A {
+	 *			int field1;
+	 *		}
+	 *		class B extends A {
+	 *			String value;
+	 *		}
+	 *		class X {
+	 *			void test() {
+	 *				B b = new B();
+	 *				System.out.println(b.value + b.field1);
+	 *			};
+	 *		}
+	 * </pre>
+	 * </code>
+	 * then searching for declarations of accessed fields in method 
+	 * <code>X.test()</code> would collect the fields
+	 * <code>B.value</code> and <code>A.field1</code>.
+	 * </p>
+	 *
+	 * @param enclosingElement the method, type, or compilation unit to be searched in
+	 * @param requestor a callback object to which each match is reported
+	 * @param monitor the progress monitor used to report progress
+	 * @exception JavaModelException if the search failed. Reasons include:
+	 *	<ul>
+	 *		<li>the element doesn't exist</li>
+	 *		<li>the classpath is incorrectly set</li>
+	 *	</ul>
+	 * @since 3.0
+	 */	
+	public void searchDeclarationsOfAccessedFields(IJavaElement enclosingElement, SearchRequestor requestor, IProgressMonitor monitor) throws JavaModelException {
+		SearchPattern pattern = new DeclarationOfAccessedFieldsPattern(enclosingElement);
+		searchDeclarations(enclosingElement, requestor, pattern, monitor);
+	}
+	
 	/**
 	 * Searches for all declarations of the fields accessed in the given element.
 	 * The element can be a compilation unit, a source type, or a source method.
@@ -1004,10 +1155,53 @@ public class SearchEngine {
 	 *		<li>the element doesn't exist</li>
 	 *		<li>the classpath is incorrectly set</li>
 	 *	</ul>
+	 * @deprecated Use {@link  #searchDeclarationsOfAccessedFields(IJavaElement, SearchRequestor, IProgressMonitor)} instead.
 	 */	
 	public void searchDeclarationsOfAccessedFields(IWorkspace workspace, IJavaElement enclosingElement, IJavaSearchResultCollector resultCollector) throws JavaModelException {
 		SearchPattern pattern = new DeclarationOfAccessedFieldsPattern(enclosingElement);
-		searchDeclarations(workspace, enclosingElement, resultCollector, pattern);
+		searchDeclarations(enclosingElement, resultCollector, pattern);
+	}
+	
+	/**
+	 * Searches for all declarations of the types referenced in the given element.
+	 * The element can be a compilation unit, a source type, or a source method.
+	 * Reports the type declarations using the given requestor.
+	 * <p>
+	 * Consider the following code:
+	 * <code>
+	 * <pre>
+	 *		class A {
+	 *		}
+	 *		class B extends A {
+	 *		}
+	 *		interface I {
+	 *		  int VALUE = 0;
+	 *		}
+	 *		class X {
+	 *			void test() {
+	 *				B b = new B();
+	 *				this.foo(b, I.VALUE);
+	 *			};
+	 *		}
+	 * </pre>
+	 * </code>
+	 * then searching for declarations of referenced types in method <code>X.test()</code>
+	 * would collect the class <code>B</code> and the interface <code>I</code>.
+	 * </p>
+	 *
+	 * @param enclosingElement the method, type, or compilation unit to be searched in
+	 * @param requestor a callback object to which each match is reported
+	 * @param monitor the progress monitor used to report progress
+	 * @exception JavaModelException if the search failed. Reasons include:
+	 *	<ul>
+	 *		<li>the element doesn't exist</li>
+	 *		<li>the classpath is incorrectly set</li>
+	 *	</ul>
+	 * @since 3.0
+	 */	
+	public void searchDeclarationsOfReferencedTypes(IJavaElement enclosingElement, SearchRequestor requestor, IProgressMonitor monitor) throws JavaModelException {
+		SearchPattern pattern = new DeclarationOfReferencedTypesPattern(enclosingElement);
+		searchDeclarations(enclosingElement, requestor, pattern, monitor);
 	}
 	
 	/**
@@ -1045,12 +1239,58 @@ public class SearchEngine {
 	 *		<li>the element doesn't exist</li>
 	 *		<li>the classpath is incorrectly set</li>
 	 *	</ul>
+	 * @deprecated Use {@link #searchDeclarationsOfReferencedTypes(IJavaElement, SearchRequestor, IProgressMonitor)} instead.
 	 */	
 	public void searchDeclarationsOfReferencedTypes(IWorkspace workspace, IJavaElement enclosingElement, IJavaSearchResultCollector resultCollector) throws JavaModelException {
 		SearchPattern pattern = new DeclarationOfReferencedTypesPattern(enclosingElement);
-		searchDeclarations(workspace, enclosingElement, resultCollector, pattern);
+		searchDeclarations(enclosingElement, resultCollector, pattern);
 	}
 	
+	/**
+	 * Searches for all declarations of the methods invoked in the given element.
+	 * The element can be a compilation unit, a source type, or a source method.
+	 * Reports the method declarations using the given requestor.
+	 * <p>
+	 * Consider the following code:
+	 * <code>
+	 * <pre>
+	 *		class A {
+	 *			void foo() {};
+	 *			void bar() {};
+	 *		}
+	 *		class B extends A {
+	 *			void foo() {};
+	 *		}
+	 *		class X {
+	 *			void test() {
+	 *				A a = new B();
+	 *				a.foo();
+	 *				B b = (B)a;
+	 *				b.bar();
+	 *			};
+	 *		}
+	 * </pre>
+	 * </code>
+	 * then searching for declarations of sent messages in method 
+	 * <code>X.test()</code> would collect the methods
+	 * <code>A.foo()</code>, <code>B.foo()</code>, and <code>A.bar()</code>.
+	 * </p>
+	 *
+	 * @param enclosingElement the method, type, or compilation unit to be searched in
+	 * @param requestor a callback object to which each match is reported
+	 * @param monitor the progress monitor used to report progress
+	 * @exception JavaModelException if the search failed. Reasons include:
+	 *	<ul>
+	 *		<li>the element doesn't exist</li>
+	 *		<li>the classpath is incorrectly set</li>
+	 *	</ul>
+	 * @since 3.0
+	 */	
+	public void searchDeclarationsOfSentMessages(IJavaElement enclosingElement, SearchRequestor requestor, IProgressMonitor monitor) throws JavaModelException {
+		SearchPattern pattern = new DeclarationOfReferencedMethodsPattern(enclosingElement);
+		searchDeclarations(enclosingElement, requestor, pattern, monitor);
+	}
+
 	/**
 	 * Searches for all declarations of the methods invoked in the given element.
 	 * The element can be a compilation unit, a source type, or a source method.
@@ -1089,9 +1329,10 @@ public class SearchEngine {
 	 *		<li>the element doesn't exist</li>
 	 *		<li>the classpath is incorrectly set</li>
 	 *	</ul>
+	 * @deprecated Use {@link #searchDeclarationsOfSentMessages(IJavaElement, SearchRequestor, IProgressMonitor)} instead.
 	 */	
 	public void searchDeclarationsOfSentMessages(IWorkspace workspace, IJavaElement enclosingElement, IJavaSearchResultCollector resultCollector) throws JavaModelException {
 		SearchPattern pattern = new DeclarationOfReferencedMethodsPattern(enclosingElement);
-		searchDeclarations(workspace, enclosingElement, resultCollector, pattern);
+		searchDeclarations(enclosingElement, resultCollector, pattern);
 	}
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -90,9 +90,9 @@ public class ModelUpdater {
 				this.projectsToUpdate.add(element.getJavaProject());
 				break;
 			case IJavaElement.PACKAGE_FRAGMENT :
-				// get rid of namelookup since it holds onto obsolete cached info 
+				// get rid of package fragment cache
 				JavaProject project = (JavaProject) element.getJavaProject();
-				project.resetNameLookup();
+				project.resetCaches();
 				break;
 		}
 	}
@@ -135,9 +135,9 @@ public class ModelUpdater {
 				this.projectsToUpdate.add(element.getJavaProject());
 				break;
 			case IJavaElement.PACKAGE_FRAGMENT :
-				//1G1TW2T - get rid of namelookup since it holds onto obsolete cached info 
+				// get rid of package fragment cache
 				JavaProject project = (JavaProject) element.getJavaProject();
-				project.resetNameLookup();
+				project.resetCaches();
 				break;
 		}
 	}

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,7 +11,6 @@
 package org.eclipse.jdt.internal.core;
 
 import java.util.HashMap;
-import java.util.StringTokenizer;
 
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IPath;
@@ -20,6 +19,7 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.WorkingCopyOwner;
+import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Util;
 
 
@@ -74,7 +74,7 @@ public class LocalVariable extends JavaElement implements ILocalVariable {
 		// a local variable has no info
 	}
 
-	public IJavaElement getHandleFromMemento(String token, StringTokenizer memento, WorkingCopyOwner owner) {
+	public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento, WorkingCopyOwner owner) {
 		switch (token.charAt(0)) {
 			case JEM_COUNT:
 				return getHandleUpdatingCountFromMemento(memento, owner);
@@ -181,6 +181,6 @@ public class LocalVariable extends JavaElement implements ILocalVariable {
 			buffer.append(Signature.toString(this.getTypeSignature()));
 			buffer.append(" "); //$NON-NLS-1$
 		}
-		buffer.append(this.getElementName());
+		toStringName(buffer);
 	}
 }

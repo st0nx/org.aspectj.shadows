@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -33,7 +33,8 @@ public class InternalNamingConventions {
 				false /*nls*/, 
 				compilerOptions.sourceLevel /*sourceLevel*/, 
 				null /*taskTags*/, 
-				null/*taskPriorities*/);
+				null/*taskPriorities*/,
+				true/*taskCaseSensitive*/);
 	}
 	public static void suggestArgumentNames(IJavaProject javaProject, char[] packageName, char[] qualifiedTypeName, int dim, char[][] excludedNames, INamingRequestor requestor) {
 		Map options = javaProject.getOptions(true);
@@ -150,9 +151,11 @@ public class InternalNamingConventions {
 			if(dim > 0) {
 				int length = tempName.length;
 				if (tempName[length-1] == 's'){
-					System.arraycopy(tempName, 0, tempName = new char[length + 2], 0, length);
-					tempName[length] = 'e';
-					tempName[length+1] = 's';
+					if(tempName.length > 1 && tempName[length-2] == 's') {
+						System.arraycopy(tempName, 0, tempName = new char[length + 2], 0, length);
+						tempName[length] = 'e';
+						tempName[length+1] = 's';
+					}
 				} else if(tempName[length-1] == 'y') {
 					System.arraycopy(tempName, 0, tempName = new char[length + 2], 0, length);
 					tempName[length-1] = 'i';

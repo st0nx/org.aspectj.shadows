@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -40,11 +40,11 @@ public class JavaElementDelta extends SimpleDelta implements IJavaElementDelta {
 	 */
 	protected int resourceDeltasCounter;
 	/**
-	 * @see #getMovedFromHandle()
+	 * @see #getMovedFromElement()
 	 */
 	protected IJavaElement fMovedFromHandle = null;
 	/**
-	 * @see #getMovedToHandle()
+	 * @see #getMovedToElement()
 	 */
 	protected IJavaElement fMovedToHandle = null;
 	/**
@@ -224,10 +224,11 @@ protected void addResourceDelta(IResourceDelta child) {
  * The constructor should be used to create the root delta 
  * and then a change operation should call this method.
  */
-public void changed(IJavaElement element, int changeFlag) {
+public JavaElementDelta changed(IJavaElement element, int changeFlag) {
 	JavaElementDelta changedDelta = new JavaElementDelta(element);
 	changedDelta.changed(changeFlag);
 	insertDeltaTree(element, changedDelta);
+	return changedDelta;
 }
 /**
  * Mark this delta as a content changed delta.
@@ -660,6 +661,30 @@ protected boolean toDebugString(StringBuffer buffer, int flags) {
 		if (prev)
 			buffer.append(" | "); //$NON-NLS-1$
 		buffer.append("PRIMARY WORKING COPY"); //$NON-NLS-1$
+		prev = true;
+	}
+	if ((flags & IJavaElementDelta.F_CLASSPATH_CHANGED) != 0) {
+		if (prev)
+			buffer.append(" | "); //$NON-NLS-1$
+		buffer.append("CLASSPATH CHANGED"); //$NON-NLS-1$
+		prev = true;
+	}
+	if ((flags & IJavaElementDelta.F_PRIMARY_RESOURCE) != 0) {
+		if (prev)
+			buffer.append(" | "); //$NON-NLS-1$
+		buffer.append("PRIMARY RESOURCE"); //$NON-NLS-1$
+		prev = true;
+	}
+	if ((flags & IJavaElementDelta.F_OPENED) != 0) {
+		if (prev)
+			buffer.append(" | "); //$NON-NLS-1$
+		buffer.append("OPENED"); //$NON-NLS-1$
+		prev = true;
+	}
+	if ((flags & IJavaElementDelta.F_CLOSED) != 0) {
+		if (prev)
+			buffer.append(" | "); //$NON-NLS-1$
+		buffer.append("CLOSED"); //$NON-NLS-1$
 		prev = true;
 	}
 	return prev;

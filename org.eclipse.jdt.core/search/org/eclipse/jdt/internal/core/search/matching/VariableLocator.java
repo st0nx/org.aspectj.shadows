@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -49,7 +49,7 @@ public int match(Reference node, MatchingNodeSet nodeSet) { // interested in Nam
 protected int matchReference(Reference node, MatchingNodeSet nodeSet, boolean writeOnlyAccess) {
 	if (node instanceof NameReference) {
 		if (this.pattern.name == null) {
-			return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+			return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 		} else if (node instanceof SingleNameReference) {
 			if (matchesName(this.pattern.name, ((SingleNameReference) node).token))
 				return nodeSet.addMatch(node, POSSIBLE_MATCH);

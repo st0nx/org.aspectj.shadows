@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -17,6 +17,7 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaElementDelta;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.JavaModelManager;
+import org.eclipse.jdt.internal.core.JavaProject;
 import org.eclipse.jdt.core.IJavaProject;
 
 /**
@@ -74,8 +75,10 @@ public void initialize() {
 	super.initialize();
 	try {
 		IJavaProject[] projects = JavaModelManager.getJavaModelManager().getJavaModel().getJavaProjects();
-		for (int i = 0, length = projects.length; i < length; i++)
-			this.add(projects[i], false, new HashSet(2));
+		for (int i = 0, length = projects.length; i < length; i++) {
+			int includeMask = SOURCES | APPLICATION_LIBRARIES | SYSTEM_LIBRARIES;
+			this.add((JavaProject) projects[i], includeMask, new HashSet(2));
+		}
 	} catch (JavaModelException ignored) {
 		// ignore
 	}

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -85,7 +85,7 @@ public class ClassAndMethodDeclarationVisitor extends ClassButNoMethodDeclaratio
 
 protected MatchLocatorParser(ProblemReporter problemReporter, MatchLocator locator) {
 	super(problemReporter, true);
-
+	this.reportOnlyOneSyntaxError = true;
 	this.patternLocator = locator.patternLocator;
 	if ((locator.matchContainer & PatternLocator.CLASS_CONTAINER) != 0) {
 		this.localDeclarationVisitor = (locator.matchContainer & PatternLocator.METHOD_CONTAINER) != 0
@@ -96,48 +96,45 @@ protected MatchLocatorParser(ProblemReporter problemReporter, MatchLocator locat
 			? new MethodButNoClassDeclarationVisitor()
 			: new NoClassNoMethodDeclarationVisitor();
 	}
-
-	// Always check javadoc while matching indexes
-	this.javadocParser.checkJavadoc = true;
 }
 public void checkComment() {
 	super.checkComment();
-	if (this.javadocParser.checkJavadoc && this.javadoc != null) {
+	if (this.javadocParser.checkDocComment && this.javadoc != null) {
 		// Search for pattern locator matches in javadoc comment @throws/@exception tags
 		TypeReference[] thrownExceptions = this.javadoc.thrownExceptions;
-		int throwsTagsNbre = thrownExceptions == null ? 0 : thrownExceptions.length;
-		for (int i = 0; i < throwsTagsNbre; i++) {
+		int throwsTagsLength = thrownExceptions == null ? 0 : thrownExceptions.length;
+		for (int i = 0; i < throwsTagsLength; i++) {
 			TypeReference typeRef = thrownExceptions[i];
-			patternLocator.match(typeRef, nodeSet);
+			this.patternLocator.match(typeRef, this.nodeSet);
 		}
 
 		// Search for pattern locator matches in javadoc comment @see tags
 		Expression[] references = this.javadoc.references;
-		int seeTagsNbre = references == null ? 0 : references.length;
-		for (int i = 0; i < seeTagsNbre; i++) {
+		int seeTagsLength = references == null ? 0 : references.length;
+		for (int i = 0; i < seeTagsLength; i++) {
 			Expression reference = references[i];
 			if (reference instanceof TypeReference) {
 				TypeReference typeRef = (TypeReference) reference;
-				patternLocator.match(typeRef, nodeSet);
+				this.patternLocator.match(typeRef, this.nodeSet);
 			} else if (reference instanceof JavadocFieldReference) {
 				JavadocFieldReference fieldRef = (JavadocFieldReference) reference;
-				patternLocator.match(fieldRef, nodeSet);
-				if (fieldRef.receiver instanceof TypeReference) {
+				this.patternLocator.match(fieldRef, this.nodeSet);
+				if (fieldRef.receiver instanceof TypeReference && !fieldRef.receiver.isThis()) {
 					TypeReference typeRef = (TypeReference) fieldRef.receiver;
-					patternLocator.match(typeRef, nodeSet);
+					this.patternLocator.match(typeRef, this.nodeSet);
 				}
 			} else if (reference instanceof JavadocMessageSend) {
 				JavadocMessageSend messageSend = (JavadocMessageSend) reference;
-				patternLocator.match(messageSend, nodeSet);
-				if (messageSend.receiver instanceof TypeReference) {
+				this.patternLocator.match(messageSend, this.nodeSet);
+				if (messageSend.receiver instanceof TypeReference && !messageSend.receiver.isThis()) {
 					TypeReference typeRef = (TypeReference) messageSend.receiver;
-					patternLocator.match(typeRef, nodeSet);
+					this.patternLocator.match(typeRef, this.nodeSet);
 				}
 			} else if (reference instanceof JavadocAllocationExpression) {
 				JavadocAllocationExpression constructor = (JavadocAllocationExpression) reference;
-				patternLocator.match(constructor, nodeSet);
-				if (constructor.type != null) {
-					patternLocator.match(constructor.type, nodeSet);
+				this.patternLocator.match(constructor, this.nodeSet);
+				if (constructor.type != null && !constructor.type.isThis()) {
+					this.patternLocator.match(constructor.type, this.nodeSet);
 				}
 			}
 		}

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -33,7 +33,7 @@ public TypeDeclarationLocator(TypeDeclarationPattern pattern) {
 //public int match(Reference node, MatchingNodeSet nodeSet) - SKIP IT
 public int match(TypeDeclaration node, MatchingNodeSet nodeSet) {
 	if (this.pattern.simpleName == null || matchesName(this.pattern.simpleName, node.name))
-		return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+		return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 
 	return IMPOSSIBLE_MATCH;
 }

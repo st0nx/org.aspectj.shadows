@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2003 IBM Corporation and others.
+ * Copyright (c) 2000, 2004 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials 
  * are made available under the terms of the Common Public License v1.0
  * which accompanies this distribution, and is available at
@@ -333,7 +333,13 @@ public void save(IProgressMonitor progress, boolean force) throws JavaModelExcep
 		
 	// use a platform operation to update the resource contents
 	try {
-		String encoding = ((IJavaElement)this.owner).getJavaProject().getOption(JavaCore.CORE_ENCODING, true);
+		String encoding = null;
+		try {
+			encoding = this.file.getCharset();
+		}
+		catch (CoreException ce) {
+			// use no encoding
+		}
 		String stringContents = this.getContents();
 		if (stringContents == null) return;
 		byte[] bytes = encoding == null 
