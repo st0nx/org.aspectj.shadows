@@ -5122,6 +5122,8 @@ protected void markInitializersWithLocalType(TypeDeclaration type) {
  */
 protected boolean moveRecoveryCheckpoint() {
 
+	if (!shouldTryToRecover()) return false;
+
 	int pos = lastCheckPoint;
 	/* reset scanner, and move checkpoint by one token */
 	scanner.startPosition = pos;
@@ -6176,4 +6178,7 @@ protected void updateSourcePosition(Expression exp) {
 	exp.sourceEnd = intStack[intPtr--];
 	exp.sourceStart = intStack[intPtr--];
 }
+
+// To be overriden by AspectJ
+protected boolean shouldTryToRecover() { return true; }
 }
