@@ -20,6 +20,10 @@
     <import plugin="org.eclipse.text"/>
     <import plugin="org.eclipse.ant.core" optional="true"/>
     <import plugin="org.eclipse.team.core" optional="true"/>
+    <!-- AspectJ Extension -->
+    <import plugin="org.eclipse.contribution.xref.core"/>
+	<import plugin="org.aspectj.aspectjrt"/>
+    <!-- End AspectJ Extension -->
 </requires>
 	
 <!-- =================================================================================== -->
@@ -29,8 +33,20 @@
 <runtime>
   <library name="jdtcore.jar">  
      <export name="*"/>
-     <packages prefixes="org.eclipse.jdt.core,org.eclipse.jdt.internal"/>
-  </library> 
+     <!-- AspectJ Extension -->
+       <!--
+       <packages prefixes="org.eclipse.jdt.core,org.eclipse.jdt.internal"/>
+       -->
+       <packages prefixes="org.eclipse.jdt.core,org.eclipse.jdt.internal,org.aspectj"/>
+     <!-- End AspectJ Extension -->
+  </library>
+  
+  <!-- AspectJ Extension -->
+  <library name="bcel.jar">
+     <packages prefixes="org.apache.bcel"/>
+  </library>
+  <!-- End AspectJ Extension -->
+   
 </runtime>
 
 <!-- =================================================================================== -->
