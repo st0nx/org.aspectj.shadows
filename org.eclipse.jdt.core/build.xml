@@ -1,5 +1,5 @@
 <project name="ShadowJdtCore" basedir="." default="make.jdtcore.jar">
-    <property name="eclipse.home" value="c:/ColyerRoot/Programs/Eclipse30/eclipse"/>
+    <property name="eclipse.home" value="j:/eclipse"/>
     <property name="plugins.dir" value="${eclipse.home}/plugins"/>
     <property name="eclipse.version" value="3.0.0"/>
     <property name="plugins.src.dir" value="${plugins.dir}/org.eclipse.platform.source_${eclipse.version}/src"/>
@@ -42,7 +42,7 @@
             <fileset dir="bin"/>
         </jar> 
         <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj.jar" update="true">
-            <zipfileset src="lib/jdtDepends.jar" excludes="org/apache/**,org/w3c/**,org/xml/**"/>
+            <zipfileset src="lib/jdtDepends.jar" excludes="org/apache/**,org/w3c/**,org/xml/**,org/xml/**,org/eclipse/jface/**,org/eclipse/text/**,org/eclipse/osgi/**"/>
         </jar> 
         <delete file="../org.eclipse.jdt.core/jdtcore-for-aspectj-src.zip"/>
         <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj-src.zip">
@@ -58,7 +58,7 @@
             <fileset dir="search"/>
         </jar> 
         <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj-src.zip" update="true">
-            <zipfileset src="lib/jdtDepends-src.zip" excludes="org/apache/**,org/w3c/**,org/xml/**"/>
+            <zipfileset src="lib/jdtDepends-src.zip" excludes="org/apache/**,org/w3c/**,org/xml/**,org/eclipse/jface/**,org/eclipse/text/**,org/eclipse/osgi/**"/>
       	</jar>
     </target>
     
