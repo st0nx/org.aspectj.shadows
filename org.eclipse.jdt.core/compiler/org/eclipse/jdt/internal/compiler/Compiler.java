@@ -544,6 +544,10 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 
 		// type checking
 		unit.resolve();
+		
+		// AspectJ Extension
+		compilerAdapter.beforeAnalysing(unit);
+		// End AspectJ Extension
 
 		// flow analysis
 		unit.analyseCode();

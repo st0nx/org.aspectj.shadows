@@ -27,6 +27,8 @@ public interface ICompilerAdapter {
 	void beforeProcessing(CompilationUnitDeclaration unit);
 	void afterProcessing(CompilationUnitDeclaration unit, int unitIndex);
 	
+	void beforeAnalysing(CompilationUnitDeclaration unit);
+	
 	void beforeResolving(CompilationUnitDeclaration unit,
 						 ICompilationUnit sourceUnit,
 						 boolean verifyMethods,

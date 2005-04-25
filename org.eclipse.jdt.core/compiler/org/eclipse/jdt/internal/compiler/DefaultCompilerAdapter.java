@@ -49,12 +49,17 @@ public class DefaultCompilerAdapter implements ICompilerAdapter {
 		compiler.unitsToProcess[unitIndex] = null;
 	}
 	
+	public void beforeAnalysing(CompilationUnitDeclaration unit) {
+		// no-op
+	}
+	
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.ICompilerAdapter#beforeResolving(org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration, org.eclipse.jdt.internal.compiler.env.ICompilationUnit, boolean, boolean, boolean)
 	 */
 	public void beforeResolving(CompilationUnitDeclaration unit,
 			ICompilationUnit sourceUnit, boolean verifyMethods,
 			boolean analyzeCode, boolean generateCode){
+		// no-op
 	}
 	
 	/* (non-Javadoc)
