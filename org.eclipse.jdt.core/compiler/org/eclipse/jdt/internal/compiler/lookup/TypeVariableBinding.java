@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import java.util.Map;
@@ -26,7 +26,7 @@ public class TypeVariableBinding extends ReferenceBinding {
 	 * Denote the first explicit (binding) bound amongst the supertypes (from declaration in source)
 	 * If no superclass was specified, then it denotes the first superinterface, or null if none was specified.
 	 */
-	public ReferenceBinding firstBound; 
+	public TypeBinding firstBound; 
 
 	// actual resolved variable supertypes (if no superclass bound, then associated to Object)
 	public ReferenceBinding superclass;
@@ -48,36 +48,59 @@ public class TypeVariableBinding extends ReferenceBinding {
 	/**
 	 * Returns true if the argument type satisfies all bounds of the type parameter
 	 */
-	public boolean boundCheck(Substitution substitution, TypeBinding argumentType) {
-		if (argumentType == NullBinding || this == argumentType) 
-			return true;
+	public int boundCheck(Substitution substitution, TypeBinding argumentType) {
+
+		if (argumentType == NullBinding || argumentType == this)
+			return TypeConstants.OK;
+		boolean hasSubstitution = substitution != null;
 		if (!(argumentType instanceof ReferenceBinding || argumentType.isArrayType()))
-			return false;	
+			return TypeConstants.MISMATCH;	
 		
 	    if (argumentType.isWildcard()) {
 	        WildcardBinding wildcard = (WildcardBinding) argumentType;
-	        switch (wildcard.kind) {
+	        switch (wildcard.boundKind) {
 	        	case Wildcard.SUPER :
-		            if (!boundCheck(substitution, wildcard.bound)) return false;
-		            break;
+//		            if (boundCheck(substitution, wildcard.bound) != TypeConstants.OK) return TypeConstants.MISMATCH;
+//		            break;
+		            return boundCheck(substitution, wildcard.bound); // only check the lower bound
 				case Wildcard.UNBOUND :
 					if (this == wildcard.typeVariable()) 
-						return true;
+						return TypeConstants.OK;
 					break;	        		
 	        }
 	    }
-//		if (this == argumentType) 
-//			return true;
-		boolean hasSubstitution = substitution != null;
-		if (this.superclass.id != T_JavaLangObject && !argumentType.isCompatibleWith(hasSubstitution ? substitution.substitute(this.superclass) : this.superclass)) {
-		    return false;
+		boolean unchecked = false;
+		if (this.superclass.id != T_JavaLangObject) {
+			TypeBinding substitutedSuperType = hasSubstitution ? Scope.substitute(substitution, this.superclass) : this.superclass;
+			if (!argumentType.isCompatibleWith(substitutedSuperType)) {
+			    return TypeConstants.MISMATCH;
+			}
+			if (argumentType instanceof ReferenceBinding) {
+				ReferenceBinding referenceArgument = (ReferenceBinding) argumentType;
+				TypeBinding match = referenceArgument.findSuperTypeErasingTo((ReferenceBinding)substitutedSuperType.erasure());
+				if (match != null){
+					// Enum#RAW is not a substitute for <E extends Enum<E>> (86838)
+					if (match.isRawType() && (substitutedSuperType.isGenericType()||substitutedSuperType.isBoundParameterizedType()))
+						unchecked = true;
+				}
+			}
 		}
 	    for (int i = 0, length = this.superInterfaces.length; i < length; i++) {
-	        if (!argumentType.isCompatibleWith(hasSubstitution ? substitution.substitute(this.superInterfaces[i]) : this.superInterfaces[i])) {
-				return false;
-	        }
+			TypeBinding substitutedSuperType = hasSubstitution ? Scope.substitute(substitution, this.superInterfaces[i]) : this.superInterfaces[i];
+			if (!argumentType.isCompatibleWith(substitutedSuperType)) {
+			    return TypeConstants.MISMATCH;
+			}
+			if (argumentType instanceof ReferenceBinding) {
+				ReferenceBinding referenceArgument = (ReferenceBinding) argumentType;
+				TypeBinding match = referenceArgument.findSuperTypeErasingTo((ReferenceBinding)substitutedSuperType.erasure());
+				if (match != null){
+					// Enum#RAW is not a substitute for <E extends Enum<E>> (86838)
+					if (match.isRawType() && (substitutedSuperType.isGenericType()||substitutedSuperType.isBoundParameterizedType()))
+						unchecked = true;
+				}
+			}
 	    }
-	    return true;
+	    return unchecked ? TypeConstants.UNCHECKED : TypeConstants.OK;
 	}
 	
 	/**
@@ -88,27 +111,57 @@ public class TypeVariableBinding extends ReferenceBinding {
 	}
 	/**
 	 * Collect the substitutes into a map for certain type variables inside the receiver type
-	 * e.g.   Collection<T>.findSubstitute(T, Collection<List<X>>):   T --> List<X>
+	 * e.g.   Collection<T>.collectSubstitutes(Collection<List<X>>, Map), will populate Map with: T --> List<X>
 	 */
-	public void collectSubstitutes(TypeBinding otherType, Map substitutes) {
+	public void collectSubstitutes(Scope scope, TypeBinding otherType, Map substitutes, int constraint) {
+		
 		// cannot infer anything from a null type
 		if (otherType == NullBinding) return;
+	
+		if (otherType.isBaseType()) {
+			TypeBinding boxedType = scope.environment().computeBoxingType(otherType);
+			if (boxedType == otherType) return;
+			otherType = boxedType;
+		}
 		
-	    TypeBinding[] variableSubstitutes = (TypeBinding[])substitutes.get(this);
+		// reverse constraint, to reflect variable on rhs:   A << T --> T >: A
+		int variableConstraint;
+		switch(constraint) {
+			case CONSTRAINT_EQUAL :
+				variableConstraint = CONSTRAINT_EQUAL;
+				break;
+			case CONSTRAINT_EXTENDS :
+				variableConstraint = CONSTRAINT_SUPER;
+				break;
+			default:
+			//case CONSTRAINT_SUPER :
+				variableConstraint = CONSTRAINT_EXTENDS;
+				break;
+		}
+	    TypeBinding[][] variableSubstitutes = (TypeBinding[][])substitutes.get(this);
 	    if (variableSubstitutes != null) {
-	        int length = variableSubstitutes.length;
-	        for (int i = 0; i < length; i++) {
-	        	TypeBinding substitute = variableSubstitutes[i];
-	            if (substitute == otherType) return; // already there
-	            if (substitute == null) {
-	                variableSubstitutes[i] = otherType;
-	                return;
-	            }
-	        }
-	        // no free spot found, need to grow
-	        System.arraycopy(variableSubstitutes, 0, variableSubstitutes = new TypeBinding[2*length], 0, length);
-	        variableSubstitutes[length] = otherType;
-	        substitutes.put(this, variableSubstitutes);
+		    insertLoop: {
+		    	TypeBinding[] constraintSubstitutes = variableSubstitutes[variableConstraint];
+		    	int length;
+		    	if (constraintSubstitutes == null) {
+		    		length = 0;
+		    		constraintSubstitutes = new TypeBinding[1];
+		    	} else {
+		    		length = constraintSubstitutes.length;
+			        for (int i = 0; i < length; i++) {
+			        	TypeBinding substitute = constraintSubstitutes[i];
+			            if (substitute == otherType) return; // already there
+			            if (substitute == null) {
+			                constraintSubstitutes[i] = otherType;
+			                break insertLoop;
+			            }
+			        }
+			        // no free spot found, need to grow
+			        System.arraycopy(constraintSubstitutes, 0, constraintSubstitutes = new TypeBinding[2*length], 0, length);
+		    	}
+		        constraintSubstitutes[length] = otherType;
+		        variableSubstitutes[variableConstraint] = constraintSubstitutes;
+		    }
 	    }
 	}
 	
@@ -122,8 +175,8 @@ public class TypeVariableBinding extends ReferenceBinding {
 	 * declaringUniqueKey : genericTypeSignature
 	 * p.X<T> { ... } --> Lp/X<TT;>;:TT;
 	 */
-	public char[] computeUniqueKey() {
-		char[] declaringKey = this.declaringElement.computeUniqueKey();
+	public char[] computeUniqueKey(boolean withAccessFlags) {
+		char[] declaringKey = this.declaringElement.computeUniqueKey(false/*without access flags*/);
 		int declaringLength = declaringKey.length;
 		char[] sig = genericTypeSignature();
 		int sigLength = sig.length;
@@ -199,7 +252,7 @@ public ReferenceBinding findSuperTypeErasingTo(ReferenceBinding erasure) {
 
     if (this == erasure) return this;
     ReferenceBinding currentType = this;
-    if (erasure.isClass()) {
+    if (!erasure.isInterface()) {
 		while ((currentType = currentType.superclass()) != null) {
 			if (currentType == erasure || currentType.erasure() == erasure) return currentType;
 		}
@@ -279,6 +332,28 @@ public ReferenceBinding findSuperTypeErasingTo(ReferenceBinding erasure) {
 	public boolean isTypeVariable() {
 	    return true;
 	}
+	
+	/** 
+	 * Returns the original type variable for a given variable.
+	 * Only different from receiver for type variables of generic methods of parameterized types
+	 * e.g. X<U> {   <V1 extends U> U foo(V1)   } --> X<String> { <V2 extends String> String foo(V2)  }  
+	 *         and V2.original() --> V1
+	 */
+	public TypeVariableBinding original() {
+		if (this.declaringElement.kind() == Binding.METHOD) {
+			MethodBinding originalMethod = ((MethodBinding)this.declaringElement).original();
+			if (originalMethod != this.declaringElement) {
+				return originalMethod.typeVariables[this.rank];
+			}
+		} else {
+			ReferenceBinding originalType = (ReferenceBinding)((ReferenceBinding)this.declaringElement).erasure();
+			if (originalType != this.declaringElement) {
+				return originalType.typeVariables()[this.rank];
+			}
+		}
+		return this;
+	}
+	
 	/**
      * @see org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding#readableName()
      */
@@ -289,23 +364,34 @@ public ReferenceBinding findSuperTypeErasingTo(ReferenceBinding erasure) {
 	ReferenceBinding resolve(LookupEnvironment environment) {
 		if ((this.modifiers & AccUnresolved) == 0)
 			return this;
-	
+
+		TypeBinding oldSuperclass = this.superclass, oldFirstInterface = null;
 		if (this.superclass != null)
 			this.superclass = BinaryTypeBinding.resolveUnresolvedType(this.superclass, environment, true);
-		if (this.firstBound != null)
-			this.firstBound = BinaryTypeBinding.resolveUnresolvedType(this.firstBound, environment, true);
 		ReferenceBinding[] interfaces = this.superInterfaces;
-		for (int i = interfaces.length; --i >= 0;)
-			interfaces[i] = BinaryTypeBinding.resolveUnresolvedType(interfaces[i], environment, true);
+		int length;
+		if ((length = interfaces.length) != 0) {
+			oldFirstInterface = interfaces[0];
+			for (int i = length; --i >= 0;) {
+				interfaces[i] = BinaryTypeBinding.resolveUnresolvedType(interfaces[i], environment, true);
+			}
+		}
 		this.modifiers &= ~AccUnresolved;
 	
 		// finish resolving the types
 		if (this.superclass != null)
 			this.superclass = BinaryTypeBinding.resolveType(this.superclass, environment, true);
-		if (this.firstBound != null)
-			this.firstBound = BinaryTypeBinding.resolveType(this.firstBound, environment, true);
 		for (int i = interfaces.length; --i >= 0;)
 			interfaces[i] = BinaryTypeBinding.resolveType(interfaces[i], environment, true);
+
+		// refresh the firstBound in case it changed
+		if (this.firstBound != null) {
+			if (this.firstBound == oldSuperclass) {
+				this.firstBound = this.superclass;
+			} else if (this.firstBound == oldFirstInterface) {
+				this.firstBound = interfaces[0];
+			}
+		}
 		return this;
 	}
 	

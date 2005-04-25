@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -15,6 +15,7 @@ import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.core.runtime.SubProgressMonitor;
 import org.eclipse.core.runtime.jobs.Job;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 
 public abstract class JobManager implements Runnable {
@@ -233,7 +234,7 @@ public abstract class JobManager implements Runnable {
 									Util.verbose("-> NOT READY - waiting until ready - " + searchJob);//$NON-NLS-1$
 								if (subProgress != null) {
 									subProgress.subTask(
-										Util.bind("manager.filesToIndex", Integer.toString(awaitingWork))); //$NON-NLS-1$
+										Messages.bind(Messages.manager_filesToIndex, Integer.toString(awaitingWork))); 
 									subProgress.worked(1);
 								}
 								previousJob = currentJob;
@@ -317,7 +318,7 @@ public abstract class JobManager implements Runnable {
 				protected IStatus run(IProgressMonitor monitor) {
 					int awaitingJobsCount;
 					while ((awaitingJobsCount = awaitingJobsCount()) > 0) {
-						monitor.subTask(Util.bind("manager.filesToIndex", Integer.toString(awaitingJobsCount))); //$NON-NLS-1$
+						monitor.subTask(Messages.bind(Messages.manager_filesToIndex, Integer.toString(awaitingJobsCount))); 
 						try {
 							Thread.sleep(500);
 						} catch (InterruptedException e) {
@@ -360,7 +361,7 @@ public abstract class JobManager implements Runnable {
 					try {
 						this.executing = true;
 						if (progressJob == null) {
-							progressJob = new ProgressJob(Util.bind("manager.indexingInProgress")); //$NON-NLS-1$
+							progressJob = new ProgressJob(Messages.manager_indexingInProgress); 
 							progressJob.setPriority(Job.LONG);
 							progressJob.setSystem(true);
 							progressJob.schedule();

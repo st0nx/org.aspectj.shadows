@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -40,14 +40,15 @@ public interface IIndexConstants {
 	char[] ONE_ZERO = new char[] {'0'}; 
 	char[][] ONE_ZERO_CHAR = new char[][] {ONE_ZERO};
 
-	int PKG_REF_PATTERN = 1;
-	int PKG_DECL_PATTERN = 2;
-	int TYPE_REF_PATTERN = 4;
-	int TYPE_DECL_PATTERN = 8;
-	int SUPER_REF_PATTERN = 16;
-	int CONSTRUCTOR_PATTERN = 32;
-	int FIELD_PATTERN = 64;
-	int METHOD_PATTERN = 128;
-	int OR_PATTERN = 256;
-	int LOCAL_VAR_PATTERN = 512;
+	int PKG_REF_PATTERN = 0x0001;
+	int PKG_DECL_PATTERN = 0x0002;
+	int TYPE_REF_PATTERN = 0x0004;
+	int TYPE_DECL_PATTERN = 0x0008;
+	int SUPER_REF_PATTERN = 0x0010;
+	int CONSTRUCTOR_PATTERN = 0x0020;
+	int FIELD_PATTERN = 0x0040;
+	int METHOD_PATTERN = 0x0080;
+	int OR_PATTERN = 0x0100;
+	int LOCAL_VAR_PATTERN = 0x0200;
+	int TYPE_PARAM_PATTERN = 0x0400;
 }

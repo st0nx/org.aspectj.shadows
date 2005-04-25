@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -19,9 +19,7 @@ import org.eclipse.jdt.internal.compiler.problem.*;
 public class CompilationUnitDeclaration
 	extends ASTNode
 	implements ProblemSeverities, ReferenceContext {
-	
-	private static final char[] PACKAGE_INFO_FILE_NAME = "package-info.java".toCharArray(); //$NON-NLS-1$
-		
+
 	public ImportReference currentPackage;
 	public ImportReference[] imports;
 	public TypeDeclaration[] types;
@@ -101,6 +99,7 @@ public class CompilationUnitDeclaration
 			    LocalTypeBinding localType = localTypes[i];
 				// null out the type's scope backpointers
 				localType.scope = null; // local members are already in the list
+				localType.enclosingCase = null;
 			}
 		}
 		ClassFile[] classFiles = compilationResult.getClassFiles();
@@ -174,6 +173,9 @@ public class CompilationUnitDeclaration
 			}
 			return;
 		}
+		if (this.isPackageInfo() && this.types != null) {
+			types[0].annotations = this.currentPackage.annotations;
+		}
 		try {
 			if (types != null) {
 				for (int i = 0, count = types.length; i < count; i++)
@@ -213,6 +215,12 @@ public class CompilationUnitDeclaration
 		return (currentPackage == null) && (imports == null) && (types == null);
 	}
 
+	public boolean isPackageInfo() {
+		return CharOperation.equals(this.getMainTypeName(), TypeConstants.PACKAGE_INFO_NAME)
+			&& this.currentPackage != null
+			&& this.currentPackage.annotations != null;
+	}
+	
 	public boolean hasErrors() {
 		return this.ignoreFurtherInvestigation;
 	}
@@ -268,15 +276,27 @@ public class CompilationUnitDeclaration
 	}
 
 	public void resolve() {
+		int startingTypeIndex = 0;
 		if (this.currentPackage != null) {
-			if (this.currentPackage.annotations != null
-					&& !CharOperation.endsWith(getFileName(), PACKAGE_INFO_FILE_NAME)) {
-				scope.problemReporter().invalidFileNameForPackageAnnotations(this.currentPackage.annotations[0]);
+			if (this.currentPackage.annotations != null) {
+				if (CharOperation.equals(this.getMainTypeName(), TypeConstants.PACKAGE_INFO_NAME)) {
+                    if (this.types != null) {
+                        // resolve annotations
+    					final TypeDeclaration syntheticTypeDeclaration = types[0];
+    					syntheticTypeDeclaration.resolve(this.scope);
+    					resolveAnnotations(syntheticTypeDeclaration.staticInitializerScope, this.currentPackage.annotations, this.scope.fPackage);
+    					// set the synthetic bit
+    					syntheticTypeDeclaration.binding.modifiers |= AccSynthetic;
+    					startingTypeIndex = 1;
+                    }
+				} else {
+					scope.problemReporter().invalidFileNameForPackageAnnotations(this.currentPackage.annotations[0]);
+				}
 			}
 		}
 		try {
 			if (types != null) {
-				for (int i = 0, count = types.length; i < count; i++) {
+				for (int i = startingTypeIndex, count = types.length; i < count; i++) {
 					types[i].resolve(scope);
 				}
 			}

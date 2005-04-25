@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -113,28 +113,21 @@ public class AnnotationMethodDeclaration extends MethodDeclaration {
 			// annotation methods can only return base types, String, Class, enum type, annotation types and arrays of these
 			checkAnnotationMethodType: {
 				TypeBinding leafReturnType = returnTypeBinding.leafComponentType();
-					
-				switch (leafReturnType.erasure().id) {
-					case T_byte :
-					case T_short :
-					case T_char :
-					case T_int :
-					case T_long :
-					case T_float :
-					case T_double :
-					case T_boolean :
-					case T_JavaLangString :
-					case T_JavaLangClass :
-						if (returnTypeBinding.dimensions() <= 1) // only 1-dimensional array permitted
+				if (returnTypeBinding.dimensions() <= 1) { // only 1-dimensional array permitted
+					switch (leafReturnType.erasure().id) {
+						case T_byte :
+						case T_short :
+						case T_char :
+						case T_int :
+						case T_long :
+						case T_float :
+						case T_double :
+						case T_boolean :
+						case T_JavaLangString :
+						case T_JavaLangClass :
 							break checkAnnotationMethodType;
-				}
-				if (leafReturnType.isEnum()) {
-					if (returnTypeBinding.dimensions() <= 1) // only 1-dimensional array permitted
-						break checkAnnotationMethodType;
-				}
-				if (leafReturnType.isAnnotationType()) {
-					scope.classScope().detectAnnotationCycle(scope.enclosingSourceType(), leafReturnType, this.returnType);
-					if (returnTypeBinding.dimensions() <= 1) // only 1-dimensional array permitted
+					}
+					if (leafReturnType.isEnum() || leafReturnType.isAnnotationType())
 						break checkAnnotationMethodType;
 				}
 				scope.problemReporter().invalidAnnotationMemberType(this);

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -14,6 +14,7 @@ import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.impl.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.flow.*;
@@ -372,7 +373,11 @@ public class TypeDeclaration
 		cd.selector = new char[] { 'x' }; //no maining
 		cd.sourceStart = sourceStart;
 		cd.sourceEnd = sourceEnd;
-		cd.modifiers = modifiers & AccVisibilityMASK;
+		int newModifiers = modifiers & AccVisibilityMASK;
+		if (inheritedConstructorBinding.isVarargs()) {
+			newModifiers |= AccVarargs;
+		}
+		cd.modifiers = newModifiers;
 		cd.isDefaultConstructor = true;
 
 		if (argumentsLength > 0) {
@@ -444,7 +449,7 @@ public class TypeDeclaration
 	 */
 	public FieldDeclaration declarationOf(FieldBinding fieldBinding) {
 
-		if (fieldBinding != null) {
+		if (fieldBinding != null && this.fields != null) {
 			for (int i = 0, max = this.fields.length; i < max; i++) {
 				FieldDeclaration fieldDecl;
 				if ((fieldDecl = this.fields[i]).binding == fieldBinding)
@@ -459,7 +464,7 @@ public class TypeDeclaration
 	 */
 	public TypeDeclaration declarationOf(MemberTypeBinding memberTypeBinding) {
 
-		if (memberTypeBinding != null) {
+		if (memberTypeBinding != null && this.memberTypes != null) {
 			for (int i = 0, max = this.memberTypes.length; i < max; i++) {
 				TypeDeclaration memberTypeDecl;
 				if ((memberTypeDecl = this.memberTypes[i]).binding == memberTypeBinding)
@@ -474,7 +479,7 @@ public class TypeDeclaration
 	 */
 	public AbstractMethodDeclaration declarationOf(MethodBinding methodBinding) {
 
-		if (methodBinding != null) {
+		if (methodBinding != null && this.methods != null) {
 			for (int i = 0, max = this.methods.length; i < max; i++) {
 				AbstractMethodDeclaration methodDecl;
 
@@ -635,6 +640,9 @@ public class TypeDeclaration
 			for (int i = 0, count = fields.length; i < count; i++) {
 				FieldDeclaration field = fields[i];
 				if (field.isStatic()) {
+					if (!staticFieldInfo.isReachable())
+						field.bits &= ~ASTNode.IsReachableMASK;
+					
 					/*if (field.isField()){
 						staticInitializerContext.handledExceptions = NoExceptions; // no exception is allowed jls8.3.2
 					} else {*/
@@ -652,6 +660,9 @@ public class TypeDeclaration
 						staticFieldInfo = FlowInfo.initial(maxFieldCount).setReachMode(FlowInfo.UNREACHABLE);
 					}
 				} else {
+					if (!nonStaticFieldInfo.isReachable())
+						field.bits &= ~ASTNode.IsReachableMASK;
+					
 					/*if (field.isField()){
 						initializerContext.handledExceptions = NoExceptions; // no exception is allowed jls8.3.2
 					} else {*/
@@ -705,13 +716,16 @@ public class TypeDeclaration
 	}
 
 	public int kind() {
-		if ((modifiers & AccInterface) != 0) {
-			if ((modifiers & AccAnnotation) != 0) 
+		switch (modifiers & (AccInterface|AccAnnotation|AccEnum)) {
+			case AccInterface :
+				return IGenericType.INTERFACE_DECL;
+			case AccInterface|AccAnnotation :
 				return IGenericType.ANNOTATION_TYPE_DECL;
-			return IGenericType.INTERFACE_DECL;
-		} else if ((modifiers & AccEnum) != 0) 
-			return IGenericType.ENUM_DECL;
-		return IGenericType.CLASS_DECL;
+			case AccEnum :
+				return IGenericType.ENUM_DECL;
+			default : 
+				return IGenericType.CLASS_DECL;
+		}
 	}
 	
 	/* 
@@ -724,23 +738,43 @@ public class TypeDeclaration
 	 */
 	public void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 
-		if (!flowInfo.isReachable()) return;
+ 		if (!flowInfo.isReachable()) return;
 		NestedTypeBinding nestedType = (NestedTypeBinding) binding;
 		
 		MethodScope methodScope = currentScope.methodScope();
 		if (!methodScope.isStatic && !methodScope.isConstructorCall){
-
-			nestedType.addSyntheticArgumentAndField(binding.enclosingType());	
+			nestedType.addSyntheticArgumentAndField(nestedType.enclosingType());	
 		}
 		// add superclass enclosing instance arg for anonymous types (if necessary)
-		if (binding.isAnonymousType()) { 
-			ReferenceBinding superclassBinding = (ReferenceBinding)binding.superclass.erasure();
+		if (nestedType.isAnonymousType()) {
+			ReferenceBinding superclassBinding = (ReferenceBinding)nestedType.superclass.erasure();
 			if (superclassBinding.enclosingType() != null && !superclassBinding.isStatic()) {
 				if (!superclassBinding.isLocalType()
 						|| ((NestedTypeBinding)superclassBinding).getSyntheticField(superclassBinding.enclosingType(), true) != null){
 
 					nestedType.addSyntheticArgument(superclassBinding.enclosingType());	
 				}
+			}
+			// From 1.5 on, provide access to enclosing instance synthetic constructor argument when declared inside constructor call
+			// only for direct anonymous type
+			//public class X {
+			//	void foo() {}
+			//	class M {
+			//		M(Object o) {}
+			//		M() { this(new Object() { void baz() { foo(); }}); } // access to #foo() indirects through constructor synthetic arg: val$this$0
+			//	}
+			//}
+			if (!methodScope.isStatic && methodScope.isConstructorCall && currentScope.environment().options.complianceLevel >= ClassFileConstants.JDK1_5) {
+				ReferenceBinding enclosing = nestedType.enclosingType();
+				if (enclosing.isNestedType()) {
+					NestedTypeBinding nestedEnclosing = (NestedTypeBinding)enclosing;
+//					if (nestedEnclosing.findSuperTypeErasingTo(nestedEnclosing.enclosingType()) == null) { // only if not inheriting
+						SyntheticArgumentBinding syntheticEnclosingInstanceArgument = nestedEnclosing.getSyntheticArgument(nestedEnclosing.enclosingType(), true);
+						if (syntheticEnclosingInstanceArgument != null) {
+							nestedType.addSyntheticArgumentAndField(syntheticEnclosingInstanceArgument);	
+						}
+					}
+//				}
 			}
 		}
 	}
@@ -823,6 +857,9 @@ public class TypeDeclaration
 
 	public StringBuffer print(int indent, StringBuffer output) {
 
+		if (this.javadoc != null) {
+			this.javadoc.print(indent, output);
+		}
 		if ((this.bits & IsAnonymousTypeMASK) == 0) {
 			printIndent(indent, output);
 			printHeader(0, output);
@@ -925,7 +962,13 @@ public class TypeDeclaration
 			return;
 		}
 		try {
-			resolveAnnotations(this.staticInitializerScope, this.annotations, sourceType);
+			boolean old = this.staticInitializerScope.insideTypeAnnotation;
+			try {
+				this.staticInitializerScope.insideTypeAnnotation = true;
+				resolveAnnotations(this.staticInitializerScope, this.annotations, sourceType);
+			} finally {
+				this.staticInitializerScope.insideTypeAnnotation = old;
+			}
 			
 			if ((this.bits & UndocumentedEmptyBlockMASK) != 0) {
 				this.scope.problemReporter().undocumentedEmptyBlock(this.bodyStart-1, this.bodyEnd);
@@ -943,6 +986,12 @@ public class TypeDeclaration
 			int lastVisibleFieldID = -1;
 			boolean hasEnumConstants = false;
 			boolean hasEnumConstantsWithoutBody = false;
+			
+			if (this.typeParameters != null) {
+				for (int i = 0, count = this.typeParameters.length; i < count; i++) {
+					this.typeParameters[i].resolve(this.scope);
+				}
+			}
 			if (this.memberTypes != null) {
 				for (int i = 0, count = this.memberTypes.length; i < count; i++) {
 					this.memberTypes[i].resolve(this.scope);
@@ -997,8 +1046,9 @@ public class TypeDeclaration
 			if (kind() == IGenericType.ENUM_DECL && this.binding.isAbstract()) {
 				if (!hasEnumConstants || hasEnumConstantsWithoutBody) {
 					for (int i = 0, count = this.methods.length; i < count; i++) {
-						if (this.methods[i].isAbstract()) {
-							this.scope.problemReporter().enumAbstractMethodMustBeImplemented(this.methods[i]);
+						final AbstractMethodDeclaration methodDeclaration = this.methods[i];
+						if (methodDeclaration.isAbstract() && methodDeclaration.binding != null) {
+							this.scope.problemReporter().enumAbstractMethodMustBeImplemented(methodDeclaration);
 						}
 					}
 				}

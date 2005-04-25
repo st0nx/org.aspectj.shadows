@@ -21,16 +21,11 @@
     <import plugin="org.apache.ant" optional="true"/>
     <import plugin="org.eclipse.team.core" optional="true"/>
 </requires>
-	
+
 <!-- =================================================================================== -->
 <!-- Runtime Libraries                                                                   -->
 <!-- =================================================================================== -->
 
-<runtime>
-  <library name="jdtcore.jar">  
-     <export name="*"/>
-  </library> 
-</runtime>
 
 <!-- =================================================================================== -->
 <!-- Extension Point: Initializers of Classpath Variables                                -->
@@ -55,7 +50,6 @@
 <extension-point name="%codeFormattersName" 
 	id="codeFormatter"
 	schema="schema/codeFormatter.exsd"/>
-
 
 <!-- =================================================================================== -->
 <!-- Extension: Java Nature                                                              -->

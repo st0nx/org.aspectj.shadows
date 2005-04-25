@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -20,7 +20,7 @@ import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
-import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
+import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
@@ -169,8 +169,11 @@ private void buildForProject(JavaProject project, ArrayList potentialSubtypes, o
 
 		SearchableEnvironment searchableEnvironment = project.newSearchableNameEnvironment(unitsToLookInside);
 		this.nameLookup = searchableEnvironment.nameLookup;
+		Map options = project.getOptions(true);
+		// disable task tags to speed up parsing
+		options.put(JavaCore.COMPILER_TASK_TAGS, ""); //$NON-NLS-1$
 		this.hierarchyResolver = 
-			new HierarchyResolver(searchableEnvironment, project.getOptions(true), this, new DefaultProblemFactory());
+			new HierarchyResolver(searchableEnvironment, options, this, new DefaultProblemFactory());
 		if (focusType != null) {
 			Member declaringMember = ((Member)focusType).getOuterMostLocalContext();
 			if (declaringMember == null) {
@@ -330,7 +333,7 @@ private void buildFromPotentialSubtypes(String[] allPotentialSubTypes, HashSet l
 		if (monitor != null) monitor.done();
 	}
 }
-protected ICompilationUnit createCompilationUnitFromPath(Openable handle,String osPath) {
+protected ICompilationUnit createCompilationUnitFromPath(Openable handle, String osPath) {
 	ICompilationUnit unit = super.createCompilationUnitFromPath(handle, osPath);
 	this.cuToHandle.put(unit, handle);
 	return unit;
@@ -429,7 +432,7 @@ public static void searchAllPossibleSubTypes(
 
 	/* use a special collector to collect paths and queue new subtype names */
 	IndexQueryRequestor searchRequestor = new IndexQueryRequestor() {
-		public boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant, AccessRestriction access) {
+		public boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant, AccessRuleSet access) {
 			SuperTypeReferencePattern record = (SuperTypeReferencePattern)indexRecord;
 			pathRequestor.acceptPath(documentPath, record.enclosingTypeName == IIndexConstants.ONE_ZERO);
 			char[] typeName = record.simpleName;

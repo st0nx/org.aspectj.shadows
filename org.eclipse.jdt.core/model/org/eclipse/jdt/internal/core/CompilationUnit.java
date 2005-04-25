@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -18,7 +18,6 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.dom.AST;
-import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.SourceElementParser;
@@ -27,12 +26,19 @@ import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * @see ICompilationUnit
  */
 public class CompilationUnit extends Openable implements ICompilationUnit, org.eclipse.jdt.internal.compiler.env.ICompilationUnit, SuffixConstants {
+	/**
+	 * Internal synonynm for deprecated constant AST.JSL2
+	 * to alleviate deprecation warnings.
+	 * @deprecated
+	 */
+	/*package*/ static final int JLS2_INTERNAL = AST.JLS2;
 	
 	protected String name;
 	public WorkingCopyOwner owner;
@@ -106,12 +112,20 @@ protected boolean buildStructure(OpenableElementInfo info, final IProgressMonito
 	boolean computeProblems = JavaProject.hasJavaNature(project.getProject()) && perWorkingCopyInfo != null && perWorkingCopyInfo.isActive();
 	IProblemFactory problemFactory = new DefaultProblemFactory();
 	Map options = project.getOptions(true);
+	if (!computeProblems) {
+		// disable task tags checking to speed up parsing
+		options.put(JavaCore.COMPILER_TASK_TAGS, ""); //$NON-NLS-1$
+	}
+	boolean createAST = info instanceof ASTHolderCUInfo;
 	SourceElementParser parser = new SourceElementParser(
 		requestor, 
 		problemFactory, 
 		new CompilerOptions(options),
-		true/*report local declarations*/);
+		true/*report local declarations*/,
+		!createAST /*optimize string literals only if not creating a DOM AST*/);
 	parser.reportOnlyOneSyntaxError = !computeProblems;
+	if (!computeProblems && !createAST) // disable javadoc parsing if not computing problems and not creating ast
+		parser.javadocParser.checkDocComment = false;
 	requestor.parser = parser;
 	CompilationUnitDeclaration unit = parser.parseCompilationUnit(new org.eclipse.jdt.internal.compiler.env.ICompilationUnit() {
 			public char[] getContents() {
@@ -139,13 +153,13 @@ protected boolean buildStructure(OpenableElementInfo info, final IProgressMonito
 	try {
 		if (computeProblems){
 			perWorkingCopyInfo.beginReporting();
-			compilationUnitDeclaration = CompilationUnitProblemFinder.process(unit, this, contents, parser, this.owner, perWorkingCopyInfo, false/*don't cleanup cu*/, pm);
+			compilationUnitDeclaration = CompilationUnitProblemFinder.process(unit, this, contents, parser, this.owner, perWorkingCopyInfo, !createAST/*reset env if not creating AST*/, pm);
 			perWorkingCopyInfo.endReporting();
 		}
 		
-		if (info instanceof ASTHolderCUInfo) {
+		if (createAST) {
 			int astLevel = ((ASTHolderCUInfo) info).astLevel;
-			org.eclipse.jdt.core.dom.CompilationUnit cu = AST.convertCompilationUnit(astLevel, unit, contents, options, computeProblems, this.owner, pm);
+			org.eclipse.jdt.core.dom.CompilationUnit cu = AST.convertCompilationUnit(astLevel, unit, contents, options, computeProblems, this, pm);
 			((ASTHolderCUInfo) info).ast = cu;
 		}
 	} finally {
@@ -318,7 +332,7 @@ public void commitWorkingCopy(boolean force, IProgressMonitor monitor) throws Ja
  */
 public void copy(IJavaElement container, IJavaElement sibling, String rename, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	if (container == null) {
-		throw new IllegalArgumentException(Util.bind("operation.nullContainer")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.operation_nullContainer); 
 	}
 	IJavaElement[] elements = new IJavaElement[] {this};
 	IJavaElement[] containers = new IJavaElement[] {container};
@@ -423,35 +437,6 @@ public boolean equals(Object obj) {
 	if (!(obj instanceof CompilationUnit)) return false;
 	CompilationUnit other = (CompilationUnit)obj;
 	return this.owner.equals(other.owner) && super.equals(obj);
-}
-/**
- * @see JavaElement#equalsDOMNode(IDOMNode)
- * @deprecated JDOM is obsolete
- */
-// TODO - JDOM - remove once model ported off of JDOM
-protected boolean equalsDOMNode(IDOMNode node) {
-	String elementName = getElementName();
-	if (node.getNodeType() == IDOMNode.COMPILATION_UNIT && elementName != null ) {
-		String nodeName = node.getName();
-		if (nodeName == null) return false;		
-		if (elementName.equals(nodeName)) {
-			return true;
-		} else {
-			try {
-				// iterate through all the types inside the receiver and see if one of them can fit
-				IType[] types = getTypes();
-				String typeNodeName = nodeName.substring(0, nodeName.lastIndexOf('.'));
-				for (int i = 0, max = types.length; i < max; i++) {
-					if (types[i].getElementName().equals(typeNodeName)) {
-						return true;
-					}
-				}
-			} catch (JavaModelException e) {
-				return false;
-			}
-		}
-	}
-	return false;
 }
 public boolean exists() {
 	// working copy always exists in the model until it is gotten rid of (even if not on classpath)
@@ -672,7 +657,7 @@ protected char getHandleMementoDelimiter() {
  * @see ICompilationUnit#getImport(String)
  */
 public IImportDeclaration getImport(String importName) {
-	return new ImportDeclaration((ImportContainer)getImportContainer(), importName);
+	return getImportContainer().getImport(importName);
 }
 /**
  * @see ICompilationUnit#getImportContainer()
@@ -703,10 +688,7 @@ public IImportDeclaration[] getImports() throws JavaModelException {
  * @see org.eclipse.jdt.internal.compiler.env.ICompilationUnit#getMainTypeName()
  */
 public char[] getMainTypeName(){
-	String elementName = getElementName();
-	//remove the .java
-	elementName = elementName.substring(0, elementName.length() - 5);
-	return elementName.toCharArray();
+	return Util.getNameWithoutJavaLikeExtension(getElementName()).toCharArray();
 }
 /**
  * @see IWorkingCopy#getOriginal(IJavaElement)
@@ -921,14 +903,6 @@ public boolean isBasedOn(IResource resource) {
 public boolean isConsistent() {
 	return JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().get(this) == null;
 }
-/**
- * 
- * @see IOpenable
- */
-public boolean isOpen() {
-	Object info = JavaModelManager.getJavaModelManager().getInfo(this);
-	return info != null && ((CompilationUnitElementInfo)info).isOpen();
-}
 public boolean isPrimary() {
 	return this.owner == DefaultWorkingCopyOwner.PRIMARY;
 }
@@ -992,7 +966,7 @@ public org.eclipse.jdt.core.dom.CompilationUnit makeConsistent(boolean createAST
  */
 public void move(IJavaElement container, IJavaElement sibling, String rename, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	if (container == null) {
-		throw new IllegalArgumentException(Util.bind("operation.nullContainer")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.operation_nullContainer); 
 	}
 	IJavaElement[] elements= new IJavaElement[] {this};
 	IJavaElement[] containers= new IJavaElement[] {container};
@@ -1049,18 +1023,11 @@ protected IBuffer openBuffer(IProgressMonitor pm, Object info) throws JavaModelE
 	
 	return buffer;
 }
-/*
- * @see Openable#openParent
- */
 protected void openParent(Object childInfo, HashMap newElements, IProgressMonitor pm) throws JavaModelException {
-	try {
+	if (!isWorkingCopy())
 		super.openParent(childInfo, newElements, pm);
-	} catch(JavaModelException e){
-		// allow parent to not exist for working copies defined outside classpath
-		if (!isWorkingCopy() && !e.isDoesNotExist()){ 
-			throw e;
-		}
-	}
+	// don't open parent for a working copy to speed up the first becomeWorkingCopy
+	// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=89411)
 }
 /**
  * @see ICompilationUnit#reconcile()
@@ -1091,20 +1058,29 @@ public org.eclipse.jdt.core.dom.CompilationUnit reconcile(
 	if (!isWorkingCopy()) return null; // Reconciling is not supported on non working copies
 	if (workingCopyOwner == null) workingCopyOwner = DefaultWorkingCopyOwner.PRIMARY;
 	
+	
 	boolean createAST = false;
-	if (astLevel == AST.JLS2) {
-		// client asking for level 2 AST; these are supported
-		createAST = true;
-	} else if (astLevel == AST.JLS3) {
-		// client asking for level 3 ASTs; these are supported
-		createAST = true;
-	} else {
-		// client asking for no AST (0) or unknown ast level
-		// either way, request denied
-		createAST = false;
+	switch(astLevel) {
+		case JLS2_INTERNAL :
+		case AST.JLS3 :
+			// client asking for level 2 or level 3 ASTs; these are supported
+			createAST = true;
+			break;
+		default:
+			// client asking for no AST (0) or unknown ast level
+			// either way, request denied
+			createAST = false;
+	}
+	PerformanceStats stats = null;
+	if(ReconcileWorkingCopyOperation.PERF) {
+		stats = PerformanceStats.getStats(JavaModelManager.RECONCILE_PERF, this);
+		stats.startRun(new String(this.getFileName()));
 	}
 	ReconcileWorkingCopyOperation op = new ReconcileWorkingCopyOperation(this, createAST, astLevel, forceProblemDetection, workingCopyOwner);
 	op.runOperation(monitor);
+	if(ReconcileWorkingCopyOperation.PERF) {
+		stats.endRun();
+	}
 	return op.ast;
 }
 
@@ -1113,7 +1089,7 @@ public org.eclipse.jdt.core.dom.CompilationUnit reconcile(
  */
 public void rename(String newName, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	if (newName == null) {
-		throw new IllegalArgumentException(Util.bind("operation.nullName")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.operation_nullName); 
 	}
 	IJavaElement[] elements= new IJavaElement[] {this};
 	IJavaElement[] dests= new IJavaElement[] {this.getParent()};

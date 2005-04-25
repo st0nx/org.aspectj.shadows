@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -140,7 +140,7 @@ private void computeClasspathLocations(
 								ClasspathLocation.forBinaryFolder(
 										binaryFolder, 
 										true, 
-										entry.getImportRestriction());
+										entry.getAccessRuleSet());
 							bLocations.add(bLocation);
 							if (binaryLocationsPerProject != null) { // normal builder mode
 								ClasspathLocation[] existingLocations = (ClasspathLocation[]) binaryLocationsPerProject.get(prereqProject);
@@ -165,15 +165,19 @@ private void computeClasspathLocations(
 					if (resource instanceof IFile) {
 						if (!(org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(path.lastSegment())))
 							continue nextEntry;
-						AccessRestriction restriction = JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
-																			? null
-																			: entry.getImportRestriction();
-						bLocation = ClasspathLocation.forLibrary((IFile) resource, restriction);
+						AccessRuleSet accessRuleSet = 
+							(JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
+							&& JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_DISCOURAGED_REFERENCE, true)))
+								? null
+								: entry.getAccessRuleSet();
+						bLocation = ClasspathLocation.forLibrary((IFile) resource, accessRuleSet);
 					} else if (resource instanceof IContainer) {
-						AccessRestriction restriction = JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
-																			? null
-																			: entry.getImportRestriction();
-						bLocation = ClasspathLocation.forBinaryFolder((IContainer) target, false, restriction);	 // is library folder not output folder
+						AccessRuleSet accessRuleSet = 
+							(JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
+							&& JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_DISCOURAGED_REFERENCE, true)))
+								? null
+								: entry.getAccessRuleSet();
+						bLocation = ClasspathLocation.forBinaryFolder((IContainer) target, false, accessRuleSet);	 // is library folder not output folder
 					}
 					bLocations.add(bLocation);
 					if (binaryLocationsPerProject != null) { // normal builder mode
@@ -191,10 +195,12 @@ private void computeClasspathLocations(
 				} else if (target instanceof File) {
 					if (!(org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(path.lastSegment())))
 						continue nextEntry;
-					AccessRestriction restriction = JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
-																		? null
-																		: entry.getImportRestriction();
-					bLocations.add(ClasspathLocation.forLibrary(path.toString(), restriction));
+					AccessRuleSet accessRuleSet = 
+						(JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
+							&& JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_DISCOURAGED_REFERENCE, true)))
+								? null
+								: entry.getAccessRuleSet();
+					bLocations.add(ClasspathLocation.forLibrary(path.toString(), accessRuleSet));
 				}
 				continue nextEntry;
 		}
@@ -253,6 +259,7 @@ private void createFolder(IContainer folder) throws CoreException {
 
 private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeName) {
 	if (initialTypeNames != null) {
+		// TODO (kent) should use a hash set to avoid linear search once massive source set is being processed
 		for (int i = 0, l = initialTypeNames.length; i < l; i++) {
 			if (qualifiedTypeName.equals(initialTypeNames[i])) {
 				if (isIncrementalBuild)

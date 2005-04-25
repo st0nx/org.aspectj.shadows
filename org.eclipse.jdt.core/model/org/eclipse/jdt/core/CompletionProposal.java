@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -65,9 +65,15 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * <li>{@link #getDeclarationSignature()} -
 	 * the type signature of the type being implemented or subclassed
 	 * </li>
+	 * <li>{@link #getDeclarationKey()} -
+	 * the type unique key of the type being implemented or subclassed
 	 * </li>
 	 * <li>{@link #getSignature()} -
 	 * the method signature of the constructor that is referenced
+	 * </li>
+	 * <li>{@link #getKey()} -
+	 * the method unique key of the constructor that is referenced
+	 * if the declaring type is not an interface
 	 * </li>
 	 * <li>{@link #getFlags()} -
 	 * the modifiers flags of the constructor that is referenced
@@ -216,12 +222,20 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * the type signature of the type that declares the
 	 * method that is being overridden or implemented
 	 * </li>
+	 * <li>{@link #getDeclarationKey()} -
+	 * the unique of the type that declares the
+	 * method that is being overridden or implemented
+	 * </li>
 	 * <li>{@link #getName()} -
 	 * the simple name of the method that is being overridden
 	 * or implemented
 	 * </li>
 	 * <li>{@link #getSignature()} -
 	 * the method signature of the method that is being
+	 * overridden or implemented
+	 * </li>
+	 * <li>{@link #getKey()} -
+	 * the method unique key of the method that is being
 	 * overridden or implemented
 	 * </li>
 	 * <li>{@link #getFlags()} -
@@ -334,6 +348,7 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * </p>
 	 * 
 	 * @see #getKind()
+     * @since 3.1
 	 */
 	public static final int POTENTIAL_METHOD_DECLARATION = 11;
 	
@@ -362,8 +377,54 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * </p>
 	 * 
 	 * @see #getKind()
+     * @since 3.1
 	 */
 	public static final int METHOD_NAME_REFERENCE = 12;
+	
+	/**
+	 * Completion is a reference to annotation's attribute.
+	 * This kind of completion might occur in a context like
+	 * <code>"@Annot(attr^=value)"</code> and complete it to
+	 * <code>"@Annot(attribute^=value)"</code>.
+	 * <p>
+	 * The following additional context information is available
+	 * for this kind of completion proposal at little extra cost:
+	 * <ul>
+	 * <li>{@link #getDeclarationSignature()} -
+	 * the type signature of the annotation that declares the attribute that is referenced
+	 * </li>
+	 * <li>{@link #getFlags()} -
+	 * the modifiers flags of the attribute that is referenced
+	 * </li>
+	 * <li>{@link #getName()} -
+	 * the simple name of the attribute that is referenced
+	 * </li>
+	 * <li>{@link #getSignature()} -
+	 * the type signature of the attribute's type (as opposed to the
+	 * signature of the type in which the referenced attribute
+	 * is declared)
+	 * </li>
+	 * </ul>
+	 * </p>
+	 * 
+	 * @see #getKind()
+	 * @since 3.1
+	 */
+	public static final int ANNOTATION_ATTRIBUTE_REF = 13;
+	
+	/**
+	 * First valid completion kind.
+	 * 
+	 * @since 3.1
+	 */
+	protected static final int FIRST_KIND = ANONYMOUS_CLASS_DECLARATION;
+	
+	/**
+	 * Last valid completion kind.
+	 * 
+	 * @since 3.1
+	 */
+	protected static final int LAST_KIND = ANNOTATION_ATTRIBUTE_REF;
 	
 	/**
 	 * Kind of completion request.
@@ -423,6 +484,13 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	private char[] declarationSignature = null;
 	
 	/**
+	 * Unique key of the relevant package or type declaration
+	 * in the context, or <code>null</code> if none.
+	 * Defaults to null.
+	 */
+	private char[] declarationKey = null;
+	
+	/**
 	 * Simple name of the method, field,
 	 * member, or variable relevant in the context, or
 	 * <code>null</code> if none.
@@ -436,6 +504,13 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * Defaults to null.
 	 */
 	private char[] signature = null;
+	
+	/**
+	 * Unique of the method, field type, member type,
+	 * relevant in the context, or <code>null</code> if none.
+	 * Defaults to null.
+	 */
+	private char[] key = null;
 	
 	/**
 	 * Modifier flags relevant in the context, or
@@ -486,8 +561,8 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * @param completionLocation original offset of code completion request
 	 */
 	CompletionProposal(int kind, int completionLocation) {
-		if ((kind < CompletionProposal.ANONYMOUS_CLASS_DECLARATION)
-				|| (kind > CompletionProposal.METHOD_NAME_REFERENCE)) {
+		if ((kind < CompletionProposal.FIRST_KIND)
+				|| (kind > CompletionProposal.LAST_KIND)) {
 			throw new IllegalArgumentException();
 		}
 		if (this.completion == null || completionLocation < 0) {
@@ -606,16 +681,16 @@ public final class CompletionProposal extends InternalCompletionProposal {
 					int start = 0;
 					int end = CharOperation.indexOf('%', this.completion);
 	
-					completionBuffer.append(CharOperation.subarray(this.completion, start, end));
+					completionBuffer.append(this.completion, start, end - start);
 					
 					for(int i = 0 ; i < length ; i++){
 						completionBuffer.append(this.parameterNames[i]);
 						start = end + 1;
 						end = CharOperation.indexOf('%', this.completion, start);
 						if(end > -1){
-							completionBuffer.append(CharOperation.subarray(this.completion, start, end));
+							completionBuffer.append(this.completion, start, end - start);
 						} else {
-							completionBuffer.append(CharOperation.subarray(this.completion, start, this.completion.length));
+							completionBuffer.append(this.completion, start, this.completion.length - start);
 						}
 					}
 					int nameLength = completionBuffer.length();
@@ -746,6 +821,8 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * This field is available for the following kinds of
 	 * completion proposals:
 	 * <ul>
+	 *  <li><code>ANNOTATION_ATTRIBUT_REF</code> - type signature
+	 * of the annotation that declares the attribute that is referenced</li>
 	 * <li><code>ANONYMOUS_CLASS_DECLARATION</code> - type signature
 	 * of the type that is being subclassed or implemented</li>
 	 * 	<li><code>FIELD_REF</code> - type signature
@@ -776,6 +853,32 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	}
 	
 	/**
+	 * Returns the key of the relevant
+	 * declaration in the context, or <code>null</code> if none.
+	 * <p>
+	 * This field is available for the following kinds of
+	 * completion proposals:
+	 * <ul>
+	 * <li><code>ANONYMOUS_CLASS_DECLARATION</code> - key
+	 * of the type that is being subclassed or implemented</li>
+	 * 	<li><code>METHOD_DECLARATION</code> - key
+	 * of the type that declares the method that is being
+	 * implemented or overridden</li>
+	 * </ul>
+	 * For kinds of completion proposals, this method returns
+	 * <code>null</code>. Clients must not modify the array
+	 * returned.
+	 * </p>
+	 * 
+	 * @return a key, or <code>null</code> if none
+	 * @see org.eclipse.jdt.core.dom.ASTParser#createASTs(ICompilationUnit[], String[], org.eclipse.jdt.core.dom.ASTRequestor, IProgressMonitor)
+     * @since 3.1
+	 */
+	public char[] getDeclarationKey() {
+		return this.declarationKey;
+	}
+	
+	/**
 	 * Sets the type or package signature of the relevant
 	 * declaration in the context, or <code>null</code> if none.
 	 * <p>
@@ -794,6 +897,25 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	}
 	
 	/**
+	 * Sets the type or package key of the relevant
+	 * declaration in the context, or <code>null</code> if none.
+	 * <p>
+	 * If not set, defaults to none.
+	 * </p>
+	 * <p>
+	 * The completion engine creates instances of this class and sets
+	 * its properties; this method is not intended to be used by other clients.
+	 * </p>
+	 * 
+	 * @param key the type or package key, or
+	 * <code>null</code> if none
+     * @since 3.1
+	 */
+	public void setDeclarationKey(char[] key) {
+		this.declarationKey = key;
+	}
+	
+	/**
 	 * Returns the simple name of the method, field,
 	 * member, or variable relevant in the context, or
 	 * <code>null</code> if none.
@@ -801,6 +923,7 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * This field is available for the following kinds of
 	 * completion proposals:
 	 * <ul>
+	 *  <li><code>ANNOTATION_ATTRIBUT_REF</code> - the name of the attribute</li>
 	 * 	<li><code>FIELD_REF</code> - the name of the field</li>
 	 * 	<li><code>KEYWORD</code> - the keyword</li>
 	 * 	<li><code>LABEL_REF</code> - the name of the label</li>
@@ -849,6 +972,8 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * This field is available for the following kinds of
 	 * completion proposals:
 	 * <ul>
+	 * <li><code>ANNOTATION_ATTRIBUT_REF</code> - the type signature
+	 * of the referenced attribute's type</li>
 	 * <li><code>ANONYMOUS_CLASS_DECLARATION</code> - method signature
 	 * of the constructor that is being invoked</li>
 	 * 	<li><code>FIELD_REF</code> - the type signature
@@ -876,6 +1001,32 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 */
 	public char[] getSignature() {
 		return this.signature;
+	}
+	
+	/**
+	 * Returns the key relevant in the context,
+	 * or <code>null</code> if none.
+	 * <p>
+	 * This field is available for the following kinds of
+	 * completion proposals:
+	 * <ul>
+	 * <li><code>ANONYMOUS_CLASS_DECLARATION</code> - method key
+	 * of the constructor that is being invoked, or <code>null</code> if
+	 * the declaring type is an interface</li>
+	 * 	<li><code>METHOD_DECLARATION</code> - method key
+	 * of the method that is being implemented or overridden</li>
+	 * </ul>
+	 * For kinds of completion proposals, this method returns
+	 * <code>null</code>. Clients must not modify the array
+	 * returned.
+	 * </p>
+	 * 
+	 * @return the key, or <code>null</code> if none
+	 * @see org.eclipse.jdt.core.dom.ASTParser#createASTs(ICompilationUnit[], String[], org.eclipse.jdt.core.dom.ASTRequestor, IProgressMonitor)
+     * @since 3.1
+	 */
+	public char[] getKey() {
+		return this.key;
 	}
 	
 //	/**
@@ -1101,12 +1252,32 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	}
 	
 	/**
+	 * Sets the key of the method, field type, member type,
+	 * relevant in the context, or <code>null</code> if none.
+	 * <p>
+	 * If not set, defaults to none.
+	 * </p>
+	 * <p>
+	 * The completion engine creates instances of this class and sets
+	 * its properties; this method is not intended to be used by other clients.
+	 * </p>
+	 * 
+	 * @param key the key, or <code>null</code> if none
+     * @since 3.1
+	 */
+	public void setKey(char[] key) {
+		this.key = key;
+	}
+	
+	/**
 	 * Returns the modifier flags relevant in the context, or
 	 * <code>Flags.AccDefault</code> if none.
 	 * <p>
 	 * This field is available for the following kinds of
 	 * completion proposals:
 	 * <ul>
+	 * <li><code>ANNOTATION_ATTRIBUT_REF</code> - modifier flags
+	 * of the attribute that is referenced; 
 	 * <li><code>ANONYMOUS_CLASS_DECLARATION</code> - modifier flags
 	 * of the constructor that is referenced</li>
 	 * 	<li><code>FIELD_REF</code> - modifier flags
@@ -1242,5 +1413,29 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	public void setParameterNames(char[][] parameterNames) {
 		this.parameterNames = parameterNames;
 		this.parameterNamesComputed = true;
+	}
+	
+	/**
+	 * Returns the accessibility of the proposal.
+	 * <p>
+	 * This field is available for the following kinds of
+	 * completion proposals:
+	 * <ul>
+	 * 	<li><code>TYPE_REF</code> - accessibility of the type</li>
+	 * </ul>
+	 * For these kinds of completion proposals, this method returns
+	 * {@link IAccessRule#K_ACCESSIBLE} or {@link IAccessRule#K_DISCOURAGED}
+	 * or {@link IAccessRule#K_NON_ACCESSIBLE}.
+	 * By default this method return {@link IAccessRule#K_ACCESSIBLE}.
+	 * </p>
+	 * 
+	 * @see IAccessRule
+	 * 
+	 * @return the accessibility of the proposal
+	 * 
+	 * @since 3.1
+	 */
+	public int getAccessibility() {
+		return this.accessibility;
 	}
 }

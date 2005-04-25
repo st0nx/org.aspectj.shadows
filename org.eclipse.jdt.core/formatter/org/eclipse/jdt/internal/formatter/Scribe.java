@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2002, 2004 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0 
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.formatter;
 
 import java.util.Arrays;
@@ -39,6 +39,7 @@ public class Scribe {
 	private static final int INITIAL_SIZE = 100;
 	
 	private boolean checkLineWrapping;
+	/** one-based column */
 	public int column;
 	private int[][] commentPositions;
 		
@@ -50,8 +51,6 @@ public class Scribe {
 	private OptimizedReplaceEdit[] edits;
 	public int editsIndex;
 	
-	// TODO (olivier) to remove when the testing is done
-	private char fillingSpace;
 	public CodeFormatterVisitor formatter;
 	public int indentationLevel;	
 	public int lastNumberOfNewLines;
@@ -68,10 +67,13 @@ public class Scribe {
 
 	public Scanner scanner;
 	public int scannerEndPosition;
-	public int tabSize;	
+	public int tabLength;	
+	public int indentationSize;	
 	private int textRegionEnd;
 	private int textRegionStart;
-	public boolean useTab;
+	public int tabChar;
+	public int numberOfIndentations;
+	private boolean useTabsOnlyForLeadingIndents;
 
 	Scribe(CodeFormatterVisitor formatter, Map settings, int offset, int length, CodeSnippetParsingUtil codeSnippetParsingUtil) {
 		if (settings != null) {
@@ -88,10 +90,18 @@ public class Scribe {
 		}
 		this.formatter = formatter;
 		this.pageWidth = formatter.preferences.page_width;
-		this.tabSize = formatter.preferences.tab_size;
-		this.useTab = formatter.preferences.use_tab;
-		this.fillingSpace = formatter.preferences.filling_space;
-		setLineSeparatorAndIdentationLevel(formatter.preferences);
+		this.tabLength = formatter.preferences.tab_size;
+		this.indentationLevel= 0; // initialize properly
+		this.numberOfIndentations = 0;
+		this.useTabsOnlyForLeadingIndents = formatter.preferences.use_tabs_only_for_leading_indentations;
+		this.tabChar = formatter.preferences.tab_char;
+		if (this.tabChar == DefaultCodeFormatterOptions.MIXED) {
+			this.indentationSize = formatter.preferences.indentation_size;
+		} else {
+			this.indentationSize = this.tabLength;
+		}
+		this.lineSeparator = formatter.preferences.line_separator;
+		this.indentationLevel = formatter.preferences.initial_indentation_level * this.indentationSize;
 		this.textRegionStart = offset;
 		this.textRegionEnd = offset + length - 1;
 		if (codeSnippetParsingUtil != null) {
@@ -112,7 +122,7 @@ public class Scribe {
 		addOptimizedReplaceEdit(start, end - start + 1, EMPTY_STRING); //$NON-NLS-1$
 	}
 
-	private final void addInsertEdit(int insertPosition, String insertedString) {
+	public final void addInsertEdit(int insertPosition, String insertedString) {
 		if (this.edits.length == this.editsIndex) {
 			// resize
 			resize();
@@ -181,7 +191,7 @@ public class Scribe {
 		}
 	}
 	
-	private final void addReplaceEdit(int start, int end, String replacement) {
+	public final void addReplaceEdit(int start, int end, String replacement) {
 		if (this.edits.length == this.editsIndex) {
 			// resize
 			resize();
@@ -234,7 +244,7 @@ public class Scribe {
 				current = current.enclosing;
 			}
 			if ((current.mode & Alignment.M_MULTICOLUMN) != 0) {
-				final int indentSize = this.useTab ? 1 : this.tabSize;
+				final int indentSize = this.indentationSize;
 				switch(current.chunkKind) {
 					case Alignment.CHUNK_METHOD :
 					case Alignment.CHUNK_TYPE :
@@ -261,7 +271,7 @@ public class Scribe {
 					case Alignment.M_NEXT_PER_LINE_SPLIT :
 					case Alignment.M_NEXT_SHIFTED_SPLIT :
 					case Alignment.M_ONE_PER_LINE_SPLIT :
-						final int indentSize = this.useTab ? 1 : this.tabSize;
+						final int indentSize = this.indentationSize;
 						switch(current.chunkKind) {
 							case Alignment.CHUNK_METHOD :
 							case Alignment.CHUNK_TYPE :
@@ -316,6 +326,7 @@ public class Scribe {
 			throw new AbortFormatting("could not find matching alignment: "+alignment); //$NON-NLS-1$
 		}
 		this.indentationLevel = alignment.location.outputIndentationLevel;
+		this.numberOfIndentations = alignment.location.numberOfIndentations;
 		this.formatter.lastLocalDeclarationSourceStart = alignment.location.lastLocalDeclarationSourceStart;	
 		if (discardAlignment){ 
 			this.currentAlignment = alignment.enclosing;
@@ -332,6 +343,7 @@ public class Scribe {
 			throw new AbortFormatting("could not find matching alignment: "+alignment); //$NON-NLS-1$
 		}
 		this.indentationLevel = current.location.outputIndentationLevel;
+		this.numberOfIndentations = current.location.numberOfIndentations;
 		this.formatter.lastLocalDeclarationSourceStart = alignment.location.lastLocalDeclarationSourceStart;	
 		this.memberAlignment = current.enclosing;
 	}
@@ -348,11 +360,7 @@ public class Scribe {
 	 * @return int
 	 */
 	public int getColumnIndentationLevel() {
-		if (this.useTab) {
-			return (this.column - 1)/ this.tabSize; 
-		} else {
-			return this.column - 1;
-		}
+		return this.column - 1;
 	}	
 	
 	public final int getCommentIndex(int position) {
@@ -395,6 +403,7 @@ public class Scribe {
 			line += linesNumber;
 			column = 1;
 			needSpace = false;
+			this.pendingSpace = false;
 		} else if (lastNumberOfNewLines == 1) {
 			for (int i = 0; i < linesNumber; i++) {
 				buffer.append(this.lineSeparator);
@@ -403,6 +412,7 @@ public class Scribe {
 			line += linesNumber;
 			column = 1;
 			needSpace = false;
+			this.pendingSpace = false;
 		} else {
 			if ((lastNumberOfNewLines - 1) >= linesNumber) {
 				// there is no need to add new lines
@@ -416,21 +426,10 @@ public class Scribe {
 			line += realNewLineNumber;
 			column = 1;
 			needSpace = false;
+			this.pendingSpace = false;
 		}
 		return String.valueOf(buffer);
 	}
-	/** 
-	 * Answer indentation level based on column estimated position
-	 * (if column is not indented, then use indentationLevel)
-	 */
-	public int getIndentationLevel(int someColumn) {
-		if (someColumn == 1) return this.indentationLevel;
-		if (this.useTab) {
-			return (someColumn - 1) / this.tabSize;
-		} else {
-			return someColumn - 1;
-		}
-	}	
 
 	public OptimizedReplaceEdit getLastEdit() {
 		if (this.editsIndex > 0) {
@@ -465,6 +464,7 @@ public class Scribe {
 		lastNumberOfNewLines = 1;
 		column = 1;
 		needSpace = false;
+		this.pendingSpace = false;
 		return this.lineSeparator;
 	}
 
@@ -473,14 +473,20 @@ public class Scribe {
 	 * (if column is not indented, then use indentationLevel)
 	 */
 	public int getNextIndentationLevel(int someColumn) {
-		if (someColumn == 1) return this.indentationLevel;
-		if (this.useTab) {
-			int rem = (someColumn - 1)% this.tabSize; // round to superior
-			return rem == 0 ? (someColumn - 1)/ this.tabSize : ((someColumn - 1)/ this.tabSize)+1;
+		int indent = someColumn - 1;
+		if (indent == 0)
+			return this.indentationLevel;
+		if (this.tabChar == DefaultCodeFormatterOptions.TAB) {
+			if (this.useTabsOnlyForLeadingIndents) {
+				return indent;
+			}
+			int rem = indent % this.indentationSize;
+			int addition = rem == 0 ? 0 : this.indentationSize - rem; // round to superior
+			return indent + addition;
 		} else {
-			return someColumn - 1;
+			return indent;
 		}
-	}	
+	}
 
 	private String getPreserveEmptyLines(int count) {
 		if (count > 0) {
@@ -549,6 +555,7 @@ public class Scribe {
 	 */
 	private boolean hasNLSTag(int sourceStart) {
 		// search the last comment where commentEnd < current lineEnd
+		if (this.lineEnds == null) return false;
 		int index = Arrays.binarySearch(this.lineEnds, sourceStart);
 		int currentLineEnd = this.getLineEnd(-index);
 		if (currentLineEnd != -1) {
@@ -572,11 +579,8 @@ public class Scribe {
 	}
 	
 	public void indent() {
-		if (this.useTab) {
-			this.indentationLevel++; 
-		} else {
-			this.indentationLevel += tabSize; 
-		}
+		this.indentationLevel += this.indentationSize;
+		this.numberOfIndentations++;
 	}	
 
 	private int indexOf(char[] toBeFound, char[] source, int start, int end) {
@@ -682,8 +686,8 @@ public class Scribe {
 		this.needSpace = false;		
 		column += s.length;
 		needSpace = true;
-			
 	}
+
 	private void printBlockComment(char[] s, boolean isJavadoc) {
 		int currentTokenStartPosition = this.scanner.getCurrentTokenStartPosition();
 		int currentTokenEndPosition = this.scanner.getCurrentTokenEndPosition() + 1;
@@ -737,7 +741,7 @@ public class Scribe {
 						StringBuffer buffer = new StringBuffer();
 						buffer.append(this.lineSeparator);
 						printIndentationIfNecessary(buffer);
-						buffer.append(this.fillingSpace);
+						buffer.append(' ');
 				
 						addReplaceEdit(start, previousStart - 1, String.valueOf(buffer));
 					} else {
@@ -1017,6 +1021,7 @@ public class Scribe {
 		line++; 
 		column = 1;
 		needSpace = false;
+		this.pendingSpace = false;
 		lastNumberOfNewLines = 1;
 		// realign to the proper value
 		if (this.currentAlignment != null) {
@@ -1051,6 +1056,7 @@ public class Scribe {
 			line += linesNumber;
 			column = 1;
 			needSpace = false;
+			this.pendingSpace = false;
 		} else if (lastNumberOfNewLines == 1) {
 			for (int i = 0; i < linesNumber; i++) {
 				buffer.append(this.lineSeparator);
@@ -1059,6 +1065,7 @@ public class Scribe {
 			line += linesNumber;
 			column = 1;
 			needSpace = false;
+			this.pendingSpace = false;
 		} else {
 			if ((lastNumberOfNewLines - 1) >= linesNumber) {
 				// there is no need to add new lines
@@ -1072,41 +1079,106 @@ public class Scribe {
 			line += realNewLineNumber;
 			column = 1;
 			needSpace = false;
+			this.pendingSpace = false;
 		}
 		addInsertEdit(insertPosition, buffer.toString());
 	}
 
 	private void printIndentationIfNecessary() {
-		int indentationColumn = (this.useTab ? this.indentationLevel * this.tabSize : this.indentationLevel)+1;
-		if (this.column < indentationColumn) {
-			StringBuffer buffer = new StringBuffer();
-			for (int i = getColumnIndentationLevel(), max = this.indentationLevel; i < max; i++) { 
-				if (this.useTab) {
-					this.tab(buffer);
-				} else {
-					this.column++;
-					buffer.append(this.fillingSpace);
-					this.needSpace = false;
-				}
-			}
+		StringBuffer buffer = new StringBuffer();
+		printIndentationIfNecessary(buffer);
+		if (buffer.length() > 0) {
 			addInsertEdit(this.scanner.getCurrentTokenStartPosition(), buffer.toString());
 			this.pendingSpace = false;
 		}
 	}
 
-
 	private void printIndentationIfNecessary(StringBuffer buffer) {
-		int indentationColumn = (this.useTab ? this.indentationLevel * this.tabSize : this.indentationLevel)+1;
-		if (this.column < indentationColumn) {
-			for (int i = getColumnIndentationLevel(), max = this.indentationLevel; i < max; i++) { 
-				if (this.useTab) {
-					this.tab(buffer);
+		switch(this.tabChar) {
+			case DefaultCodeFormatterOptions.TAB :
+				boolean useTabsForLeadingIndents = this.useTabsOnlyForLeadingIndents;
+				int numberOfLeadingIndents = this.numberOfIndentations;
+				int indentationsAsTab = 0;
+				if (useTabsForLeadingIndents) {
+					while (this.column <= this.indentationLevel) {
+						if (indentationsAsTab < numberOfLeadingIndents) {
+							buffer.append('\t');
+							indentationsAsTab++;
+							this.lastNumberOfNewLines = 0;
+							int complement = this.tabLength - ((this.column - 1) % this.tabLength); // amount of space
+							this.column += complement;
+							this.needSpace = false;
+						} else {
+							buffer.append(' ');
+							this.column++;
+							this.needSpace = false;
+						}
+					}
 				} else {
+					while (this.column <= this.indentationLevel) {
+						buffer.append('\t');
+						this.lastNumberOfNewLines = 0;
+						int complement = this.tabLength - ((this.column - 1) % this.tabLength); // amount of space
+						this.column += complement;
+						this.needSpace = false;
+					}
+				}
+				break;
+			case DefaultCodeFormatterOptions.SPACE :
+				while (this.column <= this.indentationLevel) {
+					buffer.append(' ');
 					this.column++;
-					buffer.append(this.fillingSpace);
 					this.needSpace = false;
 				}
-			}
+				break;
+			case DefaultCodeFormatterOptions.MIXED :
+				useTabsForLeadingIndents = this.useTabsOnlyForLeadingIndents;
+				numberOfLeadingIndents = this.numberOfIndentations;
+				indentationsAsTab = 0;
+				if (useTabsForLeadingIndents) {
+					final int columnForLeadingIndents = numberOfLeadingIndents * this.indentationSize;
+					while (this.column <= this.indentationLevel) {
+						if (this.column <= columnForLeadingIndents) {
+							if ((this.column - 1 + this.tabLength) <= this.indentationLevel) {
+								buffer.append('\t');
+								this.column += this.tabLength;
+							} else if ((this.column - 1 + this.indentationSize) <= this.indentationLevel) {
+								// print one indentation
+								for (int i = 0, max = this.indentationSize; i < max; i++) {
+									buffer.append(' ');
+									this.column++;
+								}
+							} else {
+								buffer.append(' ');
+								this.column++;
+							}
+						} else {
+							for (int i = this.column, max = this.indentationLevel; i <= max; i++) {
+								buffer.append(' ');
+								this.column++;
+							}
+						}
+						this.needSpace = false;
+					}
+				} else {
+					while (this.column <= this.indentationLevel) {
+						if ((this.column - 1 + this.tabLength) <= this.indentationLevel) {
+							buffer.append('\t');
+							this.column += this.tabLength;
+						} else if ((this.column - 1 + this.indentationSize) <= this.indentationLevel) {
+							// print one indentation
+							for (int i = 0, max = this.indentationSize; i < max; i++) {
+								buffer.append(' ');
+								this.column++;
+							}
+						} else {
+							buffer.append(' ');
+							this.column++;
+						}
+						this.needSpace = false;
+					}
+				}
+				break;
 		}
 	}
 
@@ -1117,6 +1189,7 @@ public class Scribe {
 			boolean isFirstModifier = true;
 			int currentTokenStartPosition = this.scanner.currentPosition;
 			boolean hasComment = false;
+			boolean hasModifiers = false;
 			while ((this.currentToken = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(this.currentToken) {
 					case TerminalTokens.TokenNamepublic :
@@ -1130,17 +1203,22 @@ public class Scribe {
 					case TerminalTokens.TokenNametransient :
 					case TerminalTokens.TokenNamevolatile :
 					case TerminalTokens.TokenNamestrictfp :
+						hasModifiers = true;
 						this.print(this.scanner.getRawTokenSource(), !isFirstModifier);
 						isFirstModifier = false;
 						currentTokenStartPosition = this.scanner.getCurrentTokenStartPosition();
 						break;
 					case TerminalTokens.TokenNameAT :
+						hasModifiers = true;
 						if (!isFirstModifier) {
 							this.space();
 						}
 						this.scanner.resetTo(this.scanner.getCurrentTokenStartPosition(), this.scannerEndPosition - 1);
 						if (annotationsIndex < annotationsLength) {
 							annotations[annotationsIndex++].traverse(visitor, (BlockScope) null);
+							if (this.formatter.preferences.insert_new_line_after_annotation) {
+								this.printNewLine();
+							}
 						} else {
 							return;
 						}
@@ -1186,6 +1264,9 @@ public class Scribe {
 						hasComment = false;
 						break;
 					default:
+						if (hasModifiers) {
+							this.space();
+						}
 						// step back one token
 						this.scanner.resetTo(currentTokenStartPosition, this.scannerEndPosition - 1);
 						return;					
@@ -1209,6 +1290,7 @@ public class Scribe {
 		lastNumberOfNewLines = 1;
 		column = 1;
 		needSpace = false;
+		this.pendingSpace = false;
 	}
 
 	public void printNewLine(int insertPosition) {
@@ -1224,6 +1306,7 @@ public class Scribe {
 		lastNumberOfNewLines = 1;
 		column = 1;
 		needSpace = false;
+		this.pendingSpace = false;
 	}
 
 	public void printNextToken(int expectedTokenType){
@@ -1307,7 +1390,7 @@ public class Scribe {
 
 	private void printRule(StringBuffer stringBuffer) {
 		for (int i = 0; i < this.pageWidth; i++){
-			if ((i % this.tabSize) == 0) { 
+			if ((i % this.tabLength) == 0) { 
 				stringBuffer.append('+');
 			} else {
 				stringBuffer.append('-');
@@ -1315,7 +1398,7 @@ public class Scribe {
 		}
 		stringBuffer.append(this.lineSeparator);
 		
-		for (int i = 0; i < (pageWidth / tabSize); i++) {
+		for (int i = 0; i < (pageWidth / tabLength); i++) {
 			stringBuffer.append(i);
 			stringBuffer.append('\t');
 		}			
@@ -1430,6 +1513,7 @@ public class Scribe {
 		this.line = location.outputLine;
 		this.column = location.outputColumn;
 		this.indentationLevel = location.outputIndentationLevel;
+		this.numberOfIndentations = location.numberOfIndentations;
 		this.lastNumberOfNewLines = location.lastNumberOfNewLines;
 		this.needSpace = location.needSpace;
 		this.pendingSpace = location.pendingSpace;
@@ -1445,15 +1529,6 @@ public class Scribe {
 		System.arraycopy(this.edits, 0, (this.edits = new OptimizedReplaceEdit[this.editsIndex * 2]), 0, this.editsIndex);
 	}
 
-	public void setLineSeparatorAndIdentationLevel(DefaultCodeFormatterOptions preferences) {
-		this.lineSeparator = preferences.line_separator;
-		if (this.useTab) {
-			this.indentationLevel = preferences.initial_indentation_level;
-		} else {
-			this.indentationLevel = preferences.initial_indentation_level * this.tabSize;
-		}
-	}
-	
 	public void space() {
 		if (!this.needSpace) return;
 		this.lastNumberOfNewLines = 0;
@@ -1462,24 +1537,22 @@ public class Scribe {
 		this.needSpace = false;		
 	}
 
-	private void tab(StringBuffer buffer) {
-		this.lastNumberOfNewLines = 0;
-		int complement = this.tabSize - ((this.column - 1)% this.tabSize); // amount of space
-		if (this.useTab) {
-			buffer.append('\t');
-		} else {
-			for (int i = 0; i < complement; i++) {
-				buffer.append(this.fillingSpace);
-			}
-		}
-		this.column += complement;
-		this.needSpace = false;
-	}
-	
 	public String toString() {
 		StringBuffer stringBuffer = new StringBuffer();
 		stringBuffer
-			.append("(page witdh = " + this.pageWidth + ") - (useTab = " + this.useTab + ") - (tabSize = " + this.tabSize + ")")	//$NON-NLS-1$	//$NON-NLS-2$	//$NON-NLS-3$	//$NON-NLS-4$
+			.append("(page width = " + this.pageWidth + ") - (tabChar = ");//$NON-NLS-1$//$NON-NLS-2$
+		switch(this.tabChar) {
+			case DefaultCodeFormatterOptions.TAB :
+				 stringBuffer.append("TAB");//$NON-NLS-1$
+				 break;
+			case DefaultCodeFormatterOptions.SPACE :
+				 stringBuffer.append("SPACE");//$NON-NLS-1$
+				 break;
+			default :
+				 stringBuffer.append("MIXED");//$NON-NLS-1$
+		}
+		stringBuffer
+			.append(") - (tabSize = " + this.tabLength + ")")//$NON-NLS-1$//$NON-NLS-2$
 			.append(this.lineSeparator)
 			.append("(line = " + this.line + ") - (column = " + this.column + ") - (identationLevel = " + this.indentationLevel + ")")	//$NON-NLS-1$	//$NON-NLS-2$	//$NON-NLS-3$	//$NON-NLS-4$
 			.append(this.lineSeparator)
@@ -1492,10 +1565,7 @@ public class Scribe {
 	}
 	
 	public void unIndent() {
-		if (this.useTab) {
-			this.indentationLevel--;
-		} else {
-			this.indentationLevel -= tabSize;
-		}
+		this.indentationLevel -= this.indentationSize;
+		this.numberOfIndentations--;
 	}
 }

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -27,9 +27,9 @@ public interface ISelectionRequestor {
 	 * @param isDeclaration boolean
 	 *  	Answer if the selected type is a declaration
 	 *  
-	 * @param uniqueKey
-	 *  	unique key of the selected type if it is a
-	 *  	parameterized type ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
+	 * @param genericTypeSignature
+	 *  	genric type signature of the selected type if it is a
+	 *  	parameterized type
 	 * 
 	 * @param start
 	 *  	Start of the selection
@@ -42,78 +42,12 @@ public interface ISelectionRequestor {
 	 *    Nested type names are in the qualified form "A.M".
 	 *    The default package is represented by an empty array.
 	 */
-	void acceptAnnotation(
+	void acceptType(
 		char[] packageName,
 		char[] annotationName,
+		int modifiers,
 		boolean isDeclaration,
-		char[] uniqueKey,
-		int start,
-		int end);
-	/**
-	 * Code assist notification of a class selection.
-	 * @param packageName char[]
-	 * 		Declaring package name of the class.
-	 * 
-	 * @param className char[]
-	 * 		Name of the class.
-	 * 
-	 * @param isDeclaration boolean
-	 *  	Answer if the selected method is a declaration
-	 *  
-	 * @param uniqueKey
-	 *  	unique key of the selected type if it is a
-	 *  	parameterized type ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
-	 * 
-	 * @param start
-	 *  	Start of the selection
-	 * 
-	 * @param end
-	 *  	End of the selection
-	 *
-	 * NOTE - All package and type names are presented in their readable form:
-	 *    Package names are in the form "a.b.c".
-	 *    Nested type names are in the qualified form "A.M".
-	 *    The default package is represented by an empty array.
-	 */
-	void acceptClass(
-		char[] packageName,
-		char[] className,
-		boolean isDeclaration,
-		char[] uniqueKey,
-		int start,
-		int end);
-	
-	/**
-	 * Code assist notification of a enum selection.
-	 * @param packageName char[]
-	 * 		Declaring package name of the type.
-	 * 
-	 * @param enumName char[]
-	 * 		Name of the class.
-	 * 
-	 * @param isDeclaration boolean
-	 *  	Answer if the selected type is a declaration
-	 *  
-	 * @param uniqueKey
-	 *  	unique key of the selected type if it is a
-	 *  	parameterized type ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
-	 * 
-	 * @param start
-	 *  	Start of the selection
-	 * 
-	 * @param end
-	 *  	End of the selection
-	 *
-	 * NOTE - All package and type names are presented in their readable form:
-	 *    Package names are in the form "a.b.c".
-	 *    Nested type names are in the qualified form "A.M".
-	 *    The default package is represented by an empty array.
-	 */
-	void acceptEnum(
-		char[] packageName,
-		char[] enumName,
-		boolean isDeclaration,
-		char[] uniqueKey,
+		char[] genericTypeSignature,
 		int start,
 		int end);
 
@@ -146,8 +80,7 @@ public interface ISelectionRequestor {
 	 *  	Answer if the selected field is a declaration
 	 * 
 	 * @param uniqueKey
-	 *  	unique key of the selected field if the field's type is a
-	 *  	parameterized type ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
+	 *  	unique key of this field
 	 *  
 	 * @param start
 	 *  	Start of the selection
@@ -164,40 +97,6 @@ public interface ISelectionRequestor {
 		char[] declaringTypePackageName,
 		char[] declaringTypeName,
 		char[] name,
-		boolean isDeclaration,
-		char[] uniqueKey,
-		int start,
-		int end);
-
-	/**
-	 * Code assist notification of an interface selection.
-	 * @param packageName char[]
-	 * 		Declaring package name of the interface.
-	 * 
-	 * @param interfaceName char[]
-	 * 		Name of the interface.
-	 * 
-	 * @param isDeclaration boolean
-	 *  	Answer if the selected method is a declaration
-	 *  
-	 * @param uniqueKey
-	 *  	unique key of the selected type if it is a
-	 *  	parameterized type ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
-	 * 
-	 * @param start
-	 *  	Start of the selection
-	 * 
-	 * @param end
-	 *  	End of the selection
-	 *
-	 * NOTE - All package and type names are presented in their readable form:
-	 *    Package names are in the form "a.b.c".
-	 *    Nested type names are in the qualified form "A.I".
-	 *    The default package is represented by an empty array.
-	 */
-	void acceptInterface(
-		char[] packageName,
-		char[] interfaceName,
 		boolean isDeclaration,
 		char[] uniqueKey,
 		int start,
@@ -237,9 +136,8 @@ public interface ISelectionRequestor {
 	 *  	Answer if the selected method is a declaration
 	 * 
 	 * @param uniqueKey
-	 *  	unique key of the selected method if it is a
-	 *  	parameterized method ({@link org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()})
-	 *  
+	 *  	unique key of the method
+	 *
 	 * @param start
 	 *  	Start of the selection
 	 * 

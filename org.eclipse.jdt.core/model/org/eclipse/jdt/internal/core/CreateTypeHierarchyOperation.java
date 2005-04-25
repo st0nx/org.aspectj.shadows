@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -46,9 +46,9 @@ public class CreateTypeHierarchyOperation extends JavaModelOperation {
  * given type within the specified region, in the context of
  * the given project.
  */
-public CreateTypeHierarchyOperation(IRegion region, IJavaProject project, ICompilationUnit[] workingCopies, IType element, boolean computeSubtypes) {
+public CreateTypeHierarchyOperation(IRegion region, ICompilationUnit[] workingCopies, IType element, boolean computeSubtypes) {
 	super(element);
-	this.typeHierarchy = new RegionBasedTypeHierarchy(region, project, workingCopies, element, computeSubtypes);
+	this.typeHierarchy = new RegionBasedTypeHierarchy(region, workingCopies, element, computeSubtypes);
 }
 /**
  * Constructs an operation to create a type hierarchy for the

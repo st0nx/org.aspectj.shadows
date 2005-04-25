@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -84,7 +84,7 @@ public class CaseStatement extends Statement {
 		TypeBinding switchExpressionType,
 		SwitchStatement switchStatement) {
 
-	    scope.switchCase = this; // record entering in a switch case block
+	    scope.enclosingCase = this; // record entering in a switch case block
 	    
 		if (constantExpression == null) {
 			// remember the default case into the associated switch statement
@@ -109,10 +109,14 @@ public class CaseStatement extends Statement {
 				this.isEnumConstant = true;
 				if (constantExpression instanceof NameReference
 						&& (constantExpression.bits & RestrictiveFlagMASK) == Binding.FIELD) {
-					if (constantExpression instanceof QualifiedNameReference) {
-						 scope.problemReporter().cannotUseQualifiedEnumConstantInCaseLabel((QualifiedNameReference)constantExpression);
+					NameReference reference = (NameReference) constantExpression;
+					FieldBinding field = reference.fieldBinding();
+					if ((field.modifiers & AccEnum) == 0) {
+						 scope.problemReporter().enumSwitchCannotTargetField(reference, field);
+					} else 	if (reference instanceof QualifiedNameReference) {
+						 scope.problemReporter().cannotUseQualifiedEnumConstantInCaseLabel(reference, field);
 					}
-					return Constant.fromValue(((NameReference)constantExpression).fieldBinding().id); // ordinal value
+					return Constant.fromValue(field.original().id); // ordinal value
 				}
 			} else {
 				return constantExpression.constant;

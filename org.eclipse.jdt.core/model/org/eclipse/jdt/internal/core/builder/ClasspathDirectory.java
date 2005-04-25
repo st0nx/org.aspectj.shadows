@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -14,7 +14,7 @@ import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
-import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
+import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 
@@ -25,15 +25,15 @@ boolean isOutputFolder;
 String binaryLocation;
 SimpleLookupTable directoryCache;
 String[] missingPackageHolder = new String[1];
-AccessRestriction accessRestriction;
+AccessRuleSet accessRuleSet;
 
-ClasspathDirectory(IContainer binaryFolder, boolean isOutputFolder, AccessRestriction accessRule) {
+ClasspathDirectory(IContainer binaryFolder, boolean isOutputFolder, AccessRuleSet accessRuleSet) {
 	this.binaryFolder = binaryFolder;
 	this.isOutputFolder = isOutputFolder;
 	IPath location = binaryFolder.getLocation();
 	this.binaryLocation = location != null ? location.addTrailingSeparator().toString() : ""; //$NON-NLS-1$
 	this.directoryCache = new SimpleLookupTable(5);
-	this.accessRestriction = accessRule;
+	this.accessRuleSet = accessRuleSet;
 }
 
 public void cleanup() {
@@ -84,8 +84,8 @@ public boolean equals(Object o) {
 	if (!(o instanceof ClasspathDirectory)) return false;
 
 	ClasspathDirectory dir = (ClasspathDirectory) o;
-	if (this.accessRestriction != dir.accessRestriction)
-		if (this.accessRestriction == null || !this.accessRestriction.equals(dir.accessRestriction))
+	if (this.accessRuleSet != dir.accessRuleSet)
+		if (this.accessRuleSet == null || !this.accessRuleSet.equals(dir.accessRuleSet))
 			return false;
 	return this.binaryFolder.equals(dir.binaryFolder);
 } 
@@ -96,9 +96,9 @@ public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPa
 	try {
 		ClassFileReader reader = ClassFileReader.read(binaryLocation + qualifiedBinaryFileName);
 		if (reader != null) {
-			if (this.accessRestriction == null)
+			if (this.accessRuleSet == null)
 				return new NameEnvironmentAnswer(reader, null);
-			return new NameEnvironmentAnswer(reader, this.accessRestriction.getViolatedRestriction(qualifiedBinaryFileName.toCharArray(), null));
+			return new NameEnvironmentAnswer(reader, this.accessRuleSet.getViolatedRestriction(qualifiedBinaryFileName.toCharArray()));
 		}
 	} catch (Exception e) {
 		// handle the case when the project is the output folder and the top-level package is a linked folder
@@ -110,9 +110,9 @@ public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPa
 					try {
 						ClassFileReader reader = ClassFileReader.read(location.toString());
 						if (reader != null) {
-							if (this.accessRestriction == null)
+							if (this.accessRuleSet == null)
 								return new NameEnvironmentAnswer(reader, null);
-							return new NameEnvironmentAnswer(reader, this.accessRestriction.getViolatedRestriction(qualifiedBinaryFileName.toCharArray(), null));
+							return new NameEnvironmentAnswer(reader, this.accessRuleSet.getViolatedRestriction(qualifiedBinaryFileName.toCharArray()));
 						}
 					} catch (Exception ignored) { // treat as if class file is missing
 					}
@@ -144,6 +144,9 @@ public void reset() {
 }
 
 public String toString() {
-	return "Binary classpath directory " + binaryFolder.getFullPath().toString(); //$NON-NLS-1$
+	String start = "Binary classpath directory " + this.binaryFolder.getFullPath().toString(); //$NON-NLS-1$
+	if (this.accessRuleSet == null)
+		return start;
+	return start + " with " + this.accessRuleSet; //$NON-NLS-1$
 }
 }

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -25,7 +25,6 @@ import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.Block;
 import org.eclipse.jdt.core.dom.ChildListPropertyDescriptor;
-import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.StructuralPropertyDescriptor;
 
 import org.eclipse.jdt.internal.core.dom.rewrite.ASTRewriteAnalyzer;
@@ -52,7 +51,7 @@ import org.eclipse.jdt.internal.core.dom.rewrite.RewriteEventStore.CopySourceInf
  * </p>
  * <pre>
  * Document doc = new Document("import java.util.List;\nclass X {}\n");
- * ASTParser parser = ASTParser.newParser(AST.JLS2);
+ * ASTParser parser = ASTParser.newParser(AST.JLS3);
  * parser.setSource(doc.get().toCharArray());
  * CompilationUnit cu = (CompilationUnit) parser.createAST(null);
  * AST ast = cu.getAST();
@@ -83,6 +82,13 @@ public class ASTRewrite {
 
 	private final RewriteEventStore eventStore;
 	private final NodeInfoStore nodeStore;
+	
+	/**
+	 * Target source range computer; null means uninitialized;
+	 * lazy initialized to <code>new TargetSourceRangeComputer()</code>.
+	 * @since 3.1
+	 */
+	private TargetSourceRangeComputer targetSourceRangeComputer = null;
 	
 	/**
 	 * Creates a new instance for describing manipulations of
@@ -140,6 +146,11 @@ public class ASTRewrite {
 	 * edits to the given document containing the original source
 	 * code. The document itself is not modified.
 	 * <p>
+	 * For nodes in the original that are being replaced or deleted,
+	 * this rewriter computes the adjusted source ranges
+	 * by calling <code>getTargetSourceRangeComputer().computeSourceRange(node)</code>.
+	 * </p>
+	 * <p>
 	 * Calling this methods does not discard the modifications
 	 * on record. Subsequence modifications are added to the ones
 	 * already on record. If this method is called again later,
@@ -169,8 +180,7 @@ public class ASTRewrite {
 			
 			getRewriteEventStore().markMovedNodesRemoved();
 
-			CompilationUnit astRoot= (CompilationUnit) rootNode.getRoot();
-			ASTRewriteAnalyzer visitor= new ASTRewriteAnalyzer(document, astRoot, result, this.eventStore, this.nodeStore, options);
+			ASTRewriteAnalyzer visitor= new ASTRewriteAnalyzer(document, result, this.eventStore, this.nodeStore, options, getExtendedSourceRangeComputer());
 			rootNode.accept(visitor); // throws IllegalArgumentException
 		}
 		return result;
@@ -499,6 +509,35 @@ public class ASTRewrite {
 	public final ASTNode createMoveTarget(ASTNode node) {
 		return createTargetNode(node, true);
 	}	
+
+	/**
+	 * Returns the extended source range computer for this AST rewriter.
+	 * The default value is a <code>new ExtendedSourceRangeComputer()</code>.
+	 * 
+	 * @return an extended source range computer
+	 * @since 3.1
+	 */
+	public final TargetSourceRangeComputer getExtendedSourceRangeComputer() {
+		if (this.targetSourceRangeComputer == null) {
+			// lazy initialize
+			this.targetSourceRangeComputer = new TargetSourceRangeComputer(); 
+		}
+		return this.targetSourceRangeComputer;
+	}
+	
+	/**
+	 * Sets a custom target source range computer for this AST rewriter. This is advanced feature to modify how
+	 * comments are assotiated with nodes, which should be done only in special cases.
+	 * 
+	 * @param computer a target source range computer,
+	 * or <code>null</code> to restore the default value of
+	 * <code>new TargetSourceRangeComputer()</code>
+	 * @since 3.1
+	 */
+	public final void setTargetSourceRangeComputer(TargetSourceRangeComputer computer) {
+		// if computer==null, rely on lazy init code in getTargetSourceRangeComputer()
+		this.targetSourceRangeComputer = computer;
+	}
 	
 	/**
 	 * Returns a string suitable for debugging purposes (only).

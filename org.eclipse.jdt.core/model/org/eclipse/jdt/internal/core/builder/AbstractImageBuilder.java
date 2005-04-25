@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -19,8 +19,10 @@ import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.ClassFile;
 import org.eclipse.jdt.internal.compiler.Compiler;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.problem.*;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 
 import java.io.*;
@@ -49,6 +51,19 @@ protected boolean compiledAllAtOnce;
 private boolean inCompiler;
 
 public static int MAX_AT_ONCE = 1000;
+public final static String[] JAVA_PROBLEM_MARKER_ATTRIBUTE_NAMES = {
+					IMarker.MESSAGE, 
+					IMarker.SEVERITY, 
+					IJavaModelMarker.ID, 
+					IMarker.CHAR_START, 
+					IMarker.CHAR_END, 
+					IMarker.LINE_NUMBER, 
+					IJavaModelMarker.ARGUMENTS};
+public final static Integer S_ERROR = new Integer(IMarker.SEVERITY_ERROR);
+public final static Integer S_WARNING = new Integer(IMarker.SEVERITY_WARNING);
+public final static Integer P_HIGH = new Integer(IMarker.PRIORITY_HIGH);
+public final static Integer P_NORMAL = new Integer(IMarker.PRIORITY_NORMAL);
+public final static Integer P_LOW = new Integer(IMarker.PRIORITY_LOW);
 
 protected AbstractImageBuilder(JavaBuilder javaBuilder) {
 	this.javaBuilder = javaBuilder;
@@ -89,6 +104,8 @@ public void acceptResult(CompilationResult result) {
 			if (!problemSourceFiles.contains(compilationUnit))
 				problemSourceFiles.add(compilationUnit);
 
+		IType mainType = null;
+		String mainTypeName = null;
 		String typeLocator = compilationUnit.typeLocator();
 		ClassFile[] classFiles = result.getClassFiles();
 		int length = classFiles.length;
@@ -112,13 +129,21 @@ public void acceptResult(CompilationResult result) {
 					if (duplicateTypeNames == null)
 						duplicateTypeNames = new ArrayList();
 					duplicateTypeNames.add(compoundName);
-					IType type = null;
-					try {
-						type = javaBuilder.javaProject.findType(qualifiedTypeName.replace('/', '.'));
-					} catch (JavaModelException e) {
-						// ignore
+					if (mainType == null)
+						try {
+							mainTypeName = compilationUnit.initialTypeName; // slash separated qualified name "p1/p1/A"
+							mainType = javaBuilder.javaProject.findType(mainTypeName.replace('/', '.'));
+						} catch (JavaModelException e) {
+							// ignore
+						}
+					IType type;
+					if (qualifiedTypeName.equals(mainTypeName))
+						type = mainType;
+					else {
+						String simpleName = qualifiedTypeName.substring(qualifiedTypeName.lastIndexOf('/')+1);
+						type = mainType == null ? null : mainType.getCompilationUnit().getType(simpleName);
 					}
-					createProblemFor(compilationUnit.resource, type, Util.bind("build.duplicateClassFile", new String(typeName)), JavaCore.ERROR); //$NON-NLS-1$
+					createProblemFor(compilationUnit.resource, type, Messages.bind(Messages.build_duplicateClassFile, new String(typeName)), JavaCore.ERROR); 
 					continue;
 				}
 				newState.recordLocatorForType(qualifiedTypeName, typeLocator);
@@ -128,9 +153,9 @@ public void acceptResult(CompilationResult result) {
 			} catch (CoreException e) {
 				Util.log(e, "JavaBuilder handling CoreException"); //$NON-NLS-1$
 				if (e.getStatus().getCode() == IResourceStatus.CASE_VARIANT_EXISTS)
-					createProblemFor(compilationUnit.resource, null, Util.bind("build.classFileCollision", e.getMessage()), JavaCore.ERROR); //$NON-NLS-1$
+					createProblemFor(compilationUnit.resource, null, Messages.bind(Messages.build_classFileCollision, e.getMessage()), JavaCore.ERROR); 
 				else
-					createProblemFor(compilationUnit.resource, null, Util.bind("build.inconsistentClassFile"), JavaCore.ERROR); //$NON-NLS-1$
+					createProblemFor(compilationUnit.resource, null, Messages.build_inconsistentClassFile, JavaCore.ERROR); 
 			}
 		}
 		finishedWith(typeLocator, result, compilationUnit.getMainTypeName(), definedTypeNames, duplicateTypeNames);
@@ -281,16 +306,30 @@ protected RuntimeException internalException(CoreException t) {
 }
 
 protected Compiler newCompiler() {
+	// disable entire javadoc support if not interested in diagnostics
+	Map projectOptions = javaBuilder.javaProject.getOptions(true);
+	String option = (String) projectOptions.get(JavaCore.COMPILER_PB_INVALID_JAVADOC);
+	if (option == null || option.equals(JavaCore.IGNORE)) { // TODO (frederic) see why option is null sometimes while running model tests!?
+		option = (String) projectOptions.get(JavaCore.COMPILER_PB_MISSING_JAVADOC_TAGS);
+		if (option == null || option.equals(JavaCore.IGNORE)) {
+			option = (String) projectOptions.get(JavaCore.COMPILER_PB_MISSING_JAVADOC_COMMENTS);
+			if (option == null || option.equals(JavaCore.IGNORE))
+				projectOptions.put(JavaCore.COMPILER_DOC_COMMENT_SUPPORT, JavaCore.DISABLED);
+		}
+	}
+	
 	// called once when the builder is initialized... can override if needed
 	Compiler newCompiler = new Compiler(
 		nameEnvironment,
 		DefaultErrorHandlingPolicies.proceedWithAllProblems(),
-		javaBuilder.javaProject.getOptions(true),
+		projectOptions,
 		this,
 		ProblemFactory.getProblemFactory(Locale.getDefault()));
-	// enable the compiler reference info support
-	newCompiler.options.produceReferenceInfo = true;
+	CompilerOptions options = newCompiler.options;
 
+	// enable the compiler reference info support
+	options.produceReferenceInfo = true;
+	
 	org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment env = newCompiler.lookupEnvironment;
 	synchronized (env) {
 		// enable shared byte[]'s used by ClassFile to avoid allocating MBs during a build
@@ -341,17 +380,10 @@ protected void storeProblemsFor(SourceFile sourceFile, IProblem[] problems) thro
 		if (id != IProblem.Task) {
 			IMarker marker = resource.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
 			marker.setAttributes(
-				new String[] {
-					IMarker.MESSAGE, 
-					IMarker.SEVERITY, 
-					IJavaModelMarker.ID, 
-					IMarker.CHAR_START, 
-					IMarker.CHAR_END, 
-					IMarker.LINE_NUMBER, 
-					IJavaModelMarker.ARGUMENTS},
+				JAVA_PROBLEM_MARKER_ATTRIBUTE_NAMES,
 				new Object[] { 
 					problem.getMessage(),
-					new Integer(problem.isError() ? IMarker.SEVERITY_ERROR : IMarker.SEVERITY_WARNING), 
+					problem.isError() ? S_ERROR : S_WARNING, 
 					new Integer(id),
 					new Integer(problem.getSourceStart()),
 					new Integer(problem.getSourceEnd() + 1),
@@ -391,30 +423,22 @@ protected void storeTasksFor(SourceFile sourceFile, IProblem[] tasks) throws Cor
 		IProblem task = tasks[i];
 		if (task.getID() == IProblem.Task) {
 			IMarker marker = resource.createMarker(IJavaModelMarker.TASK_MARKER);
-			int priority = IMarker.PRIORITY_NORMAL;
+			Integer priority = P_NORMAL;
 			String compilerPriority = task.getArguments()[2];
 			if (JavaCore.COMPILER_TASK_PRIORITY_HIGH.equals(compilerPriority))
-				priority = IMarker.PRIORITY_HIGH;
+				priority = P_HIGH;
 			else if (JavaCore.COMPILER_TASK_PRIORITY_LOW.equals(compilerPriority))
-				priority = IMarker.PRIORITY_LOW;
+				priority = P_LOW;
 			marker.setAttributes(
-				new String[] {
-					IMarker.MESSAGE, 
-					IMarker.PRIORITY, 
-					IMarker.DONE, 
-					IMarker.CHAR_START, 
-					IMarker.CHAR_END, 
-					IMarker.LINE_NUMBER,
-					IMarker.USER_EDITABLE, 
-				}, 
+				JAVA_PROBLEM_MARKER_ATTRIBUTE_NAMES,
 				new Object[] { 
 					task.getMessage(),
-					new Integer(priority),
+					priority,
 					org.eclipse.jdt.internal.compiler.util.Util.toBoolean(false),
 					new Integer(task.getSourceStart()),
 					new Integer(task.getSourceEnd() + 1),
 					new Integer(task.getSourceLineNumber()),
-					new Boolean(false),
+					Boolean.FALSE,
 				});
 		}
 	}

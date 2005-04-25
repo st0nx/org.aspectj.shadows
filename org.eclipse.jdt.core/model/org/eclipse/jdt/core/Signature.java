@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     IBM Corporation - added J2SE 1.5 support
@@ -14,6 +14,7 @@ package org.eclipse.jdt.core;
 import java.util.ArrayList;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.core.util.Util;
 
 
 /**
@@ -35,6 +36,10 @@ import org.eclipse.jdt.core.compiler.CharOperation;
  * with J2SE 1.4 or earlier, involved only <it>simple</it> signatures.
  * </p>
  * <p>
+ * Note that the "Q" and "!" formats are specific to Eclipse; the remainder
+ * are specified in the JVM spec.
+ * </p>
+ * <p>
  * The syntax for a type signature is:
  * <pre>
  * TypeSignature ::=
@@ -49,6 +54,7 @@ import org.eclipse.jdt.core.compiler.CharOperation;
  *   | "Z"  // boolean
  *   | "T" + Identifier + ";" // type variable
  *   | "[" + TypeSignature  // array X[]
+ *   | "!" + TypeSignature  // capture-of ?
  *   | ResolvedClassTypeSignature
  *   | UnresolvedClassTypeSignature
  * 
@@ -208,13 +214,20 @@ public final class Signature {
 	public static final char C_STAR	= '*';
 	
 	/**
+	 * Character constant indicating an exception in a signature.
+	 * Value is <code>'^'</code>.
+	 * @since 3.1
+	 */
+	public static final char C_EXCEPTION_START	= '^';
+	
+	/**
 	 * Character constant indicating a bound wildcard type argument 
 	 * in a signature with extends clause.
 	 * Value is <code>'+'</code>.
 	 * @since 3.1
 	 */
 	public static final char C_EXTENDS	= '+';
-	
+
 	/**
 	 * Character constant indicating a bound wildcard type argument 
 	 * in a signature with super clause.
@@ -280,11 +293,18 @@ public final class Signature {
 
 	/**
 	 * Character constant indicating the end of a generic type list in a 
-	 * signature. Value is <code>'%gt;'</code>.
+	 * signature. Value is <code>'&gt;'</code>.
 	 * @since 3.0
 	 */
 	public static final char C_GENERIC_END	= '>';
 
+	/**
+	 * Character constant indicating a capture of a wildcard type in a 
+	 * signature.Value is <code>'!'</code>.
+	 * @since 3.1
+	 */
+	public static final char C_CAPTURE	= '!';
+	
 	/**
 	 * String constant for the signature of the primitive type boolean.
 	 * Value is <code>"Z"</code>.
@@ -344,28 +364,42 @@ public final class Signature {
 	 * @see #getTypeSignatureKind(String)
 	 * @since 3.0
 	 */
-	public static int CLASS_TYPE_SIGNATURE = 1;
+	public static final int CLASS_TYPE_SIGNATURE = 1;
 
 	/**
 	 * Kind constant for a base (primitive or void) type signature.
 	 * @see #getTypeSignatureKind(String)
 	 * @since 3.0
 	 */
-	public static int BASE_TYPE_SIGNATURE = 2;
+	public static final int BASE_TYPE_SIGNATURE = 2;
 
 	/**
 	 * Kind constant for a type variable signature.
 	 * @see #getTypeSignatureKind(String)
 	 * @since 3.0
 	 */
-	public static int TYPE_VARIABLE_SIGNATURE = 3;
+	public static final int TYPE_VARIABLE_SIGNATURE = 3;
 
 	/**
 	 * Kind constant for an array type signature.
 	 * @see #getTypeSignatureKind(String)
 	 * @since 3.0
 	 */
-	public static int ARRAY_TYPE_SIGNATURE = 4;
+	public static final int ARRAY_TYPE_SIGNATURE = 4;
+	
+	/**
+	 * Kind constant for a wildcard type signature.
+	 * @see #getTypeSignatureKind(String)
+	 * @since 3.1
+	 */
+	public static final int WILDCARD_TYPE_SIGNATURE = 5;
+
+	/**
+	 * Kind constant for the capture of a wildcard type signature.
+	 * @see #getTypeSignatureKind(String)
+	 * @since 3.1
+	 */
+	public static final int CAPTURE_TYPE_SIGNATURE = 6;
 
 	private static final char[] BOOLEAN = "boolean".toCharArray(); //$NON-NLS-1$
 	private static final char[] BYTE = "byte".toCharArray(); //$NON-NLS-1$
@@ -378,6 +412,7 @@ public final class Signature {
 	private static final char[] VOID = "void".toCharArray(); //$NON-NLS-1$
 	private static final char[] EXTENDS = "extends".toCharArray(); //$NON-NLS-1$
 	private static final char[] SUPER = "super".toCharArray(); //$NON-NLS-1$
+	private static final char[] CAPTURE = "capture-of".toCharArray(); //$NON-NLS-1$
 	
 	private static final String EMPTY = new String(CharOperation.NO_CHAR);
 		
@@ -705,14 +740,6 @@ private static int encodeTypeSignature(char[] typeName, int start, boolean isRes
 			    return pos;
 			}
 		    break;
-		case 'c':
-		    checkPos = checkName(CHAR, typeName, pos, length);
-		    if (checkPos > 0) {
-		        pos = encodeArrayDimension(typeName, checkPos, length, buffer);
-			    buffer.append(C_CHAR);
-			    return pos;
-			} 
-		    break;
 		case 'd':
 		    checkPos = checkName(DOUBLE, typeName, pos, length);
 		    if (checkPos > 0) {
@@ -761,6 +788,25 @@ private static int encodeTypeSignature(char[] typeName, int start, boolean isRes
 			    return pos;
 			}
 		    break;
+		case 'c':
+		    checkPos = checkName(CHAR, typeName, pos, length);
+		    if (checkPos > 0) {
+		        pos = encodeArrayDimension(typeName, checkPos, length, buffer);
+			    buffer.append(C_CHAR);
+			    return pos;
+			} else {
+				checkPos = checkName(CAPTURE, typeName, pos, length);
+				if (checkPos > 0) {
+					pos = consumeWhitespace(typeName, checkPos, length);
+					if (typeName[pos] != '?') {
+						break;
+					}
+				} else {
+					break;
+				}
+			}
+			buffer.append(C_CAPTURE);
+			// fall-thru for wildcard part of capture typecheckPos
 		case '?':
 			// wildcard
 			pos = consumeWhitespace(typeName, pos+1, length);
@@ -940,7 +986,7 @@ public static int getParameterCount(char[] methodSignature) throws IllegalArgume
 			if (methodSignature[i] == C_PARAM_END) {
 				return count;
 			}
-			int e= scanTypeSignature(methodSignature, i);
+			int e= Util.scanTypeSignature(methodSignature, i);
 			if (e < 0) {
 				throw new IllegalArgumentException();
 			} else {
@@ -959,7 +1005,8 @@ public static int getParameterCount(char[] methodSignature) throws IllegalArgume
  * @param typeSignature the type signature string
  * @return the kind of type signature; one of the kind constants:
  * {@link #ARRAY_TYPE_SIGNATURE}, {@link #CLASS_TYPE_SIGNATURE},
- * {@link #BASE_TYPE_SIGNATURE}, or {@link #TYPE_VARIABLE_SIGNATURE}
+ * {@link #BASE_TYPE_SIGNATURE}, {@link #TYPE_VARIABLE_SIGNATURE}
+ * or {@link #WILDCARD_TYPE_SIGNATURE}
  * @exception IllegalArgumentException if this is not a type signature
  * @since 3.0
  */
@@ -987,6 +1034,12 @@ public static int getTypeSignatureKind(char[] typeSignature) {
 		case C_SHORT :
 		case C_VOID :
 			return BASE_TYPE_SIGNATURE;
+		case C_STAR :
+		case C_SUPER :
+		case C_EXTENDS :
+			return WILDCARD_TYPE_SIGNATURE;
+		case C_CAPTURE :
+			return CAPTURE_TYPE_SIGNATURE;
 		default :
 			throw new IllegalArgumentException();
 	}
@@ -1026,295 +1079,14 @@ public static int getTypeSignatureKind(String typeSignature) {
 		case C_SHORT :
 		case C_VOID :
 			return BASE_TYPE_SIGNATURE;
+		case C_STAR :
+		case C_SUPER :
+		case C_EXTENDS :
+			return WILDCARD_TYPE_SIGNATURE;
+		case C_CAPTURE :
+			return CAPTURE_TYPE_SIGNATURE;			
 		default :
 			throw new IllegalArgumentException();
-	}
-}
-
-/**
- * Scans the given string for a type signature starting at the given index
- * and returns the index of the last character.
- * <pre>
- * TypeSignature:
- *  |  BaseTypeSignature
- *  |  ArrayTypeSignature
- *  |  ClassTypeSignature
- *  |  TypeVariableSignature
- * </pre>
- * 
- * @param string the signature string
- * @param start the 0-based character index of the first character
- * @return the 0-based character index of the last character
- * @exception IllegalArgumentException if this is not a type signature
- * @see #appendTypeSignature(char[], int, boolean, StringBuffer)
- */
-private static int scanTypeSignature(char[] string, int start) {
-	// need a minimum 1 char
-	if (start >= string.length) {
-		throw new IllegalArgumentException();
-	}
-	char c = string[start];
-	switch (c) {
-		case C_ARRAY :
-			return scanArrayTypeSignature(string, start);
-		case C_RESOLVED :
-		case C_UNRESOLVED :
-			return scanClassTypeSignature(string, start);
-		case C_TYPE_VARIABLE :
-			return scanTypeVariableSignature(string, start);
-		case C_BOOLEAN :
-		case C_BYTE :
-		case C_CHAR :
-		case C_DOUBLE :
-		case C_FLOAT :
-		case C_INT :
-		case C_LONG :
-		case C_SHORT :
-		case C_VOID :
-			return scanBaseTypeSignature(string, start);
-		default :
-			throw new IllegalArgumentException();
-	}
-}
-
-/**
- * Scans the given string for a base type signature starting at the given index
- * and returns the index of the last character.
- * <pre>
- * BaseTypeSignature:
- *     <b>B</b> | <b>C</b> | <b>D</b> | <b>F</b> | <b>I</b>
- *   | <b>J</b> | <b>S</b> | <b>V</b> | <b>Z</b>
- * </pre>
- * Note that although the base type "V" is only allowed in method return types,
- * there is no syntactic ambiguity. This method will accept them anywhere
- * without complaint.
- * 
- * @param string the signature string
- * @param start the 0-based character index of the first character
- * @return the 0-based character index of the last character
- * @exception IllegalArgumentException if this is not a base type signature
- */
-private static int scanBaseTypeSignature(char[] string, int start) {
-	// need a minimum 1 char
-	if (start >= string.length) {
-		throw new IllegalArgumentException();
-	}
-	char c = string[start];
-	if ("BCDFIJSVZ".indexOf(c) >= 0) { //$NON-NLS-1$
-		return start;
-	} else {
-		throw new IllegalArgumentException();
-	}
-}
-
-/**
- * Scans the given string for an array type signature starting at the given
- * index and returns the index of the last character.
- * <pre>
- * ArrayTypeSignature:
- *     <b>[</b> TypeSignature
- * </pre>
- * 
- * @param string the signature string
- * @param start the 0-based character index of the first character
- * @return the 0-based character index of the last character
- * @exception IllegalArgumentException if this is not an array type signature
- * @see #appendArrayTypeSignature(char[], int, boolean, StringBuffer)
- */
-private static int scanArrayTypeSignature(char[] string, int start) {
-	// need a minimum 2 char
-	if (start >= string.length - 1) {
-		throw new IllegalArgumentException();
-	}
-	char c = string[start];
-	if (c != C_ARRAY) { //$NON-NLS-1$
-		throw new IllegalArgumentException();
-	}
-	return scanTypeSignature(string, start + 1);
-}
-
-/**
- * Scans the given string for a type variable signature starting at the given
- * index and returns the index of the last character.
- * <pre>
- * TypeVariableSignature:
- *     <b>T</b> Identifier <b>;</b>
- * </pre>
- * 
- * @param string the signature string
- * @param start the 0-based character index of the first character
- * @return the 0-based character index of the last character
- * @exception IllegalArgumentException if this is not a type variable signature
- */
-private static int scanTypeVariableSignature(char[] string, int start) {
-	// need a minimum 3 chars "Tx;"
-	if (start >= string.length - 2) { 
-		throw new IllegalArgumentException();
-	}
-	// must start in "T"
-	char c = string[start];
-	if (c != C_TYPE_VARIABLE) {
-		throw new IllegalArgumentException();
-	}
-	int id = scanIdentifier(string, start + 1);
-	c = string[id + 1];
-	if (c == C_SEMICOLON) {
-		return id + 1;
-	} else {
-		throw new IllegalArgumentException();
-	}
-}
-
-/**
- * Scans the given string for an identifier starting at the given
- * index and returns the index of the last character. 
- * Stop characters are: ";", ":", "&lt;", "&gt;", "/", ".".
- * 
- * @param string the signature string
- * @param start the 0-based character index of the first character
- * @return the 0-based character index of the last character
- * @exception IllegalArgumentException if this is not an identifier
- */
-private static int scanIdentifier(char[] string, int start) {
-	// need a minimum 1 char
-	if (start >= string.length) { 
-		throw new IllegalArgumentException();
-	}
-	int p = start;
-	while (true) {
-		char c = string[p];
-		if (c == '<' || c == '>' || c == ':' || c == ';' || c == '.' || c == '/') {
-			return p - 1;
-		}
-		p++;
-		if (p == string.length) {
-			return p - 1;
-		}
-	}
-}
-
-/**
- * Scans the given string for a class type signature starting at the given
- * index and returns the index of the last character.
- * <pre>
- * ClassTypeSignature:
- *     { <b>L</b> | <b>Q</b> } Identifier
- *           { { <b>/</b> | <b>.</b> Identifier [ <b>&lt;</b> TypeArgumentSignature* <b>&gt;</b> ] }
- *           <b>;</b>
- * </pre>
- * Note that although all "/"-identifiers most come before "."-identifiers,
- * there is no syntactic ambiguity. This method will accept them without
- * complaint.
- * 
- * @param string the signature string
- * @param start the 0-based character index of the first character
- * @return the 0-based character index of the last character
- * @exception IllegalArgumentException if this is not a class type signature
- * @see #appendClassTypeSignature(char[], int, boolean, StringBuffer)
- */
-private static int scanClassTypeSignature(char[] string, int start) {
-	// need a minimum 3 chars "Lx;"
-	if (start >= string.length - 2) { 
-		throw new IllegalArgumentException();
-	}
-	// must start in "L" or "Q"
-	char c = string[start];
-	if (c != C_RESOLVED && c != C_UNRESOLVED) {
-		return -1;
-	}
-	int p = start + 1;
-	while (true) {
-		if (p >= string.length) {
-			throw new IllegalArgumentException();
-		}
-		c = string[p];
-		if (c == C_SEMICOLON) {
-			// all done
-			return p;
-		} else if (c == C_GENERIC_START) {
-			int e = scanTypeArgumentSignatures(string, p);
-			p = e;
-		} else if (c == C_DOT || c == '/') {
-			int id = scanIdentifier(string, p + 1);
-			p = id;
-		}
-		p++;
-	}
-}
-
-/**
- * Scans the given string for a list of type argument signatures starting at
- * the given index and returns the index of the last character.
- * <pre>
- * TypeArgumentSignatures:
- *     <b>&lt;</b> TypeArgumentSignature* <b>&gt;</b>
- * </pre>
- * Note that although there is supposed to be at least one type argument, there
- * is no syntactic ambiguity if there are none. This method will accept zero
- * type argument signatures without complaint.
- * 
- * @param string the signature string
- * @param start the 0-based character index of the first character
- * @return the 0-based character index of the last character
- * @exception IllegalArgumentException if this is not a list of type arguments
- * signatures
- * @see #appendTypeArgumentSignatures(char[], int, boolean, StringBuffer)
- */
-private static int scanTypeArgumentSignatures(char[] string, int start) {
-	// need a minimum 2 char "<>"
-	if (start >= string.length - 1) {
-		throw new IllegalArgumentException();
-	}
-	char c = string[start];
-	if (c != C_GENERIC_START) {
-		throw new IllegalArgumentException();
-	}
-	int p = start + 1;
-	while (true) {
-		if (p >= string.length) {
-			throw new IllegalArgumentException();
-		}
-		c = string[p];
-		if (c == C_GENERIC_END) {
-			return p;
-		}
-		int e = scanTypeArgumentSignature(string, p);
-		p = e + 1;
-	}
-}
-
-/**
- * Scans the given string for a type argument signature starting at the given
- * index and returns the index of the last character.
- * <pre>
- * TypeArgumentSignature:
- *     <b>&#42;</b>
- *  |  <b>+</b> TypeSignature
- *  |  <b>-</b> TypeSignature
- *  |  TypeSignature
- * </pre>
- * Note that although base types are not allowed in type arguments, there is
- * no syntactic ambiguity. This method will accept them without complaint.
- * 
- * @param string the signature string
- * @param start the 0-based character index of the first character
- * @return the 0-based character index of the last character
- * @exception IllegalArgumentException if this is not a type argument signature
- * @see #appendTypeArgumentSignature(char[], int, boolean, StringBuffer)
- */
-private static int scanTypeArgumentSignature(char[] string, int start) {
-	// need a minimum 1 char
-	if (start >= string.length) {
-		throw new IllegalArgumentException();
-	}
-	char c = string[start];
-	if (c == C_STAR) {
-		return start;
-	}
-	if (c == '+' || c == '-') {
-		return scanTypeSignature(string, start + 1);
-	} else {
-		return scanTypeSignature(string, start);
 	}
 }
 
@@ -1359,7 +1131,7 @@ public static char[][] getParameterTypes(char[] methodSignature) throws IllegalA
 			if (methodSignature[i] == C_PARAM_END) {
 				return result;
 			}
-			int e = scanTypeSignature(methodSignature, i);
+			int e = Util.scanTypeSignature(methodSignature, i);
 			if (e < 0) {
 				throw new IllegalArgumentException();
 			}
@@ -1411,19 +1183,29 @@ public static String[] getThrownExceptionTypes(String methodSignature) throws Il
  */
 public static char[][] getThrownExceptionTypes(char[] methodSignature) throws IllegalArgumentException {
 	// skip type parameters
-	int paren = CharOperation.lastIndexOf(C_PARAM_END, methodSignature);
-	if (paren == -1) {
+	int exceptionStart = CharOperation.indexOf(C_EXCEPTION_START, methodSignature);
+	if (exceptionStart == -1) {
+		int paren = CharOperation.lastIndexOf(C_PARAM_END, methodSignature);
+		if (paren == -1) {
+			throw new IllegalArgumentException();
+		}
+		// ignore return type
+		exceptionStart = Util.scanTypeSignature(methodSignature, paren+1) + 1;
+		int length = methodSignature.length;
+		if (exceptionStart == length) return CharOperation.NO_CHAR_CHAR;
 		throw new IllegalArgumentException();
 	}
-	// ignore return type
-	int exceptionStart = scanTypeSignature(methodSignature, paren+1) + 1;
 	int length = methodSignature.length;
-	if (exceptionStart == length) return CharOperation.NO_CHAR_CHAR;
-	
-	ArrayList exceptionList = new ArrayList(1);
 	int i = exceptionStart;
+	ArrayList exceptionList = new ArrayList(1);
 	while (i < length) {
-		i = scanTypeSignature(methodSignature, i) + 1;
+		if (methodSignature[i] == C_EXCEPTION_START) {
+			exceptionStart++;
+			i++;
+		} else {
+			throw new IllegalArgumentException();			
+		}
+		i = Util.scanTypeSignature(methodSignature, i) + 1;
 		exceptionList.add(CharOperation.subarray(methodSignature, exceptionStart,i));	
 		exceptionStart = i;
 	}
@@ -1474,7 +1256,7 @@ public static char[][] getTypeArguments(char[] parameterizedTypeSignature) throw
 			args.toArray(result);
 			return result;
 		}
-		int e = scanTypeArgumentSignature(parameterizedTypeSignature, p);
+		int e = Util.scanTypeArgumentSignature(parameterizedTypeSignature, p);
 		args.add(CharOperation.subarray(parameterizedTypeSignature, p, e+1));
 		p = e + 1;
 	}
@@ -1590,7 +1372,7 @@ public static char[][] getTypeParameters(char[] methodOrTypeSignature) throws Il
 				if (methodOrTypeSignature[i] == ':') {
 					continue nextBound; // empty bound
 				}
-				i = scanTypeSignature(methodOrTypeSignature, i);
+				i = Util.scanTypeSignature(methodOrTypeSignature, i);
 				i++; // position at start of next param if any
 			}
 			paramList.add(CharOperation.subarray(methodOrTypeSignature, paramStart, i));
@@ -1781,7 +1563,7 @@ public static char[] getReturnType(char[] methodSignature) throws IllegalArgumen
 		throw new IllegalArgumentException();
 	}
 	// there could be thrown exceptions behind, thus scan one type exactly
-	int last = scanTypeSignature(methodSignature, paren+1);
+	int last = Util.scanTypeSignature(methodSignature, paren+1);
 	return CharOperation.subarray(methodSignature, paren + 1, last+1);
 }
 /**
@@ -2042,20 +1824,20 @@ private static void appendSimpleName(char[] name, int start, int end, StringBuff
 	int lastDot = -1, lastGenericStart = -1, lastGenericEnd = -1;
 	int depth = 0;
 	if (name[start] == '?') { // wildcard
-		buffer.append("? "); //$NON-NLS-1$
+		buffer.append("?"); //$NON-NLS-1$
 		int index = consumeWhitespace(name, start+1, end+1);
 		switch (name[index]) {
 			case 'e' :
 				int checkPos = checkName(EXTENDS, name, index, end);
 			    if (checkPos > 0) {
-			        buffer.append(EXTENDS).append(' ');
+			        buffer.append(' ').append(EXTENDS).append(' ');
 			        index = consumeWhitespace(name, checkPos, end+1);
 				}
 				break;
 			case 's' :
 				checkPos = checkName(SUPER, name, index, end+1);
 			    if (checkPos > 0) {
-			        buffer.append(SUPER).append(' ');
+			        buffer.append(' ').append(SUPER).append(' ');
 			        index = consumeWhitespace(name, checkPos, end+1);
 				}
 				break;
@@ -2197,6 +1979,77 @@ public static char[][] getSimpleNames(char[] name) {
 public static String[] getSimpleNames(String name) {
 	return CharOperation.toStrings(getSimpleNames(name.toCharArray()));
 }
+
+	
+/**
+ * Returns a method signature with any capture information removed. 
+ * Returns the method signature itself if no capture information is
+ * present.
+ * <p>
+ * For example (using equivalent string-based method):
+ * <pre>
+ * <code>
+ * removeCaptureFromMethod("LTest<!+Ljava.lang.Throwable;>;")
+ * will return: "LTest<+Ljava.lang.Throwable;>;"
+ * </code>
+ * </pre>
+ * </p>
+ *
+ * @param captureSignature the signature which may have been captured
+ * @return new signature without capture information or siganture itself
+ * 	if no specific capture information was there
+ * @exception NullPointerException if <code>captureSignature</code> is null
+ * @since 3.1
+ * TODO (frederic) Create remove(char[], char) method on CharOperation and call it from here
+ */
+public static char[] removeCaptureFromMethod(char[] captureSignature) {
+		
+	char[] result = null;
+	int count = 0;
+	for (int i = 0, length = captureSignature.length; i < length; i++) {
+		char c = captureSignature[i];
+		if (c == C_CAPTURE) {
+			if (result == null) {
+				result = new char[length];
+				System.arraycopy(captureSignature, 0, result, 0, i);
+				count = i;
+			}
+		} else if (result != null) {
+			result[count++] = c;
+		}
+	}
+	if (result == null) return captureSignature;
+	System.arraycopy(result, 0, result = new char[count], 0, count);
+	return result;
+}
+	
+/**
+ * Returns a method signature with any capture information removed. 
+ * Returns the method signature itself if no capture information is
+ * present.
+ * <p>
+ * For example:
+ * <pre>
+ * <code>
+ * removeCaptureFromMethod("LTest<!+Ljava.lang.Throwable;>;")
+ * will return: "LTest<+Ljava.lang.Throwable;>;"
+ * </code>
+ * </pre>
+ * </p>
+ *
+ * @param captureSignature the signature which may have been captured
+ * @return new signature without capture information or siganture itself
+ * 	if no specific capture information was there
+ * @exception NullPointerException if <code>captureSignature</code> is null
+ * @since 3.1
+ */
+public static String removeCaptureFromMethod(String captureSignature) {
+		char[] array = captureSignature.toCharArray();
+		char[] result = removeCaptureFromMethod(array);
+		if (array == result) return captureSignature;
+		return new String(result);
+}
+
 /**
  * Converts the given method signature to a readable form. The method signature is expected to
  * be dot-based.
@@ -2351,7 +2204,7 @@ public static char[] toCharArray(char[] signature) throws IllegalArgumentExcepti
  * @param buffer the string buffer to append to
  * @return the 0-based character index of the last character
  * @exception IllegalArgumentException if this is not a type signature
- * @see #scanTypeSignature(char[], int)
+ * @see Util#scanTypeSignature(char[], int)
  */
 private static int appendTypeSignature(char[] string, int start, boolean fullyQualifyTypeNames, StringBuffer buffer) {
 	return appendTypeSignature(string, start, fullyQualifyTypeNames, buffer, false);
@@ -2371,7 +2224,7 @@ private static int appendTypeSignature(char[] string, int start, boolean fullyQu
  * @return the 0-based character index of the last character
  * @exception IllegalArgumentException if this is not a type signature, or if isVarArgs is <code>true</code>,
  * and the type is not an array type signature.
- * @see #scanTypeSignature(char[], int)
+ * @see Util#scanTypeSignature(char[], int)
  */
 private static int appendTypeSignature(char[] string, int start, boolean fullyQualifyTypeNames, StringBuffer buffer, boolean isVarArgs) {
 	// need a minimum 1 char
@@ -2398,6 +2251,7 @@ private static int appendTypeSignature(char[] string, int start, boolean fullyQu
 			case C_STAR:
 			case C_EXTENDS:
 			case C_SUPER:
+			case C_CAPTURE:
 			default:
 				throw new IllegalArgumentException(); // a var args is an array type
 		}
@@ -2409,8 +2263,8 @@ private static int appendTypeSignature(char[] string, int start, boolean fullyQu
 			case C_UNRESOLVED :
 				return appendClassTypeSignature(string, start, fullyQualifyTypeNames, buffer);
 			case C_TYPE_VARIABLE :
-				int e = scanTypeVariableSignature(string, start);
-				buffer.append(CharOperation.subarray(string, start + 1, e));
+				int e = Util.scanTypeVariableSignature(string, start);
+				buffer.append(string, start + 1, e - start - 1);
 				return e;
 			case C_BOOLEAN :
 				buffer.append(BOOLEAN);
@@ -2439,6 +2293,8 @@ private static int appendTypeSignature(char[] string, int start, boolean fullyQu
 			case C_VOID :
 				buffer.append(VOID);
 				return start;
+			case C_CAPTURE :
+				return appendCaptureTypeSignature(string, start, fullyQualifyTypeNames, buffer);
 			case C_STAR:
 			case C_EXTENDS:
 			case C_SUPER:
@@ -2459,7 +2315,7 @@ private static int appendTypeSignature(char[] string, int start, boolean fullyQu
  *   qualified, and <code>false</code> to use only simple names
  * @return the 0-based character index of the last character
  * @exception IllegalArgumentException if this is not an array type signature
- * @see #scanArrayTypeSignature(char[], int)
+ * @see Util#scanArrayTypeSignature(char[], int)
  */
 private static int appendArrayTypeSignature(char[] string, int start, boolean fullyQualifyTypeNames, StringBuffer buffer) {
 	return appendArrayTypeSignature(string, start, fullyQualifyTypeNames, buffer, false);
@@ -2473,11 +2329,37 @@ private static int appendArrayTypeSignature(char[] string, int start, boolean fu
  * @param start the 0-based character index of the first character
  * @param fullyQualifyTypeNames <code>true</code> if type names should be fully
  *   qualified, and <code>false</code> to use only simple names
+ * @return the 0-based character index of the last character
+ * @exception IllegalArgumentException if this is not an array type signature
+ * @see Util#scanArrayTypeSignature(char[], int)
+ */
+private static int appendCaptureTypeSignature(char[] string, int start, boolean fullyQualifyTypeNames, StringBuffer buffer) {
+	// need a minimum 2 char
+	if (start >= string.length - 1) {
+		throw new IllegalArgumentException();
+	}
+	char c = string[start];
+	if (c != C_CAPTURE) { //$NON-NLS-1$
+		throw new IllegalArgumentException();
+	}
+	buffer.append(CAPTURE).append(' ');
+	return appendTypeArgumentSignature(string, start + 1, fullyQualifyTypeNames, buffer);
+}
+
+/**
+ * Scans the given string for an array type signature starting at the given
+ * index and appends it to the given buffer, and returns the index of the last
+ * character.
+ * 
+ * @param string the signature string
+ * @param start the 0-based character index of the first character
+ * @param fullyQualifyTypeNames <code>true</code> if type names should be fully
+ *   qualified, and <code>false</code> to use only simple names
  * @param isVarArgs <code>true</code> if the array type must be displayed as a
  * variable argument, <code>false</code> otherwise
  * @return the 0-based character index of the last character
  * @exception IllegalArgumentException if this is not an array type signature
- * @see #scanArrayTypeSignature(char[], int)
+ * @see Util#scanArrayTypeSignature(char[], int)
  */
 private static int appendArrayTypeSignature(char[] string, int start, boolean fullyQualifyTypeNames, StringBuffer buffer, boolean isVarArgs) {
 	// need a minimum 2 char
@@ -2508,7 +2390,7 @@ private static int appendArrayTypeSignature(char[] string, int start, boolean fu
  * @param buffer the string buffer to append to
  * @return the 0-based character index of the last character
  * @exception IllegalArgumentException if this is not a class type signature
- * @see #scanClassTypeSignature(char[], int)
+ * @see Util#scanClassTypeSignature(char[], int)
  */
 private static int appendClassTypeSignature(char[] string, int start, boolean fullyQualifyTypeNames, StringBuffer buffer) {
 	// need a minimum 3 chars "Lx;"
@@ -2592,7 +2474,7 @@ private static int appendClassTypeSignature(char[] string, int start, boolean fu
  * @return the 0-based character index of the last character
  * @exception IllegalArgumentException if this is not a list of type argument
  * signatures
- * @see #scanTypeArgumentSignatures(char[], int)
+ * @see Util#scanTypeArgumentSignatures(char[], int)
  */
 private static int appendTypeArgumentSignatures(char[] string, int start, boolean fullyQualifyTypeNames, StringBuffer buffer) {
 	// need a minimum 2 char "<>"
@@ -2636,7 +2518,7 @@ private static int appendTypeArgumentSignatures(char[] string, int start, boolea
  * @param buffer the string buffer to append to
  * @return the 0-based character index of the last character
  * @exception IllegalArgumentException if this is not a type argument signature
- * @see #scanTypeArgumentSignature(char[], int)
+ * @see Util#scanTypeArgumentSignature(char[], int)
  */
 private static int appendTypeArgumentSignature(char[] string, int start, boolean fullyQualifyTypeNames, StringBuffer buffer) {
 	// need a minimum 1 char

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -18,13 +18,14 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
-import org.eclipse.jdt.internal.core.util.Util;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * Reconcile a working copy and signal the changes through a delta.
  */
 public class ReconcileWorkingCopyOperation extends JavaModelOperation {
-		
+	public static boolean PERF = false;
+	
 	boolean createAST;
 	int astLevel;
 	boolean forceProblemDetection;
@@ -46,7 +47,7 @@ public class ReconcileWorkingCopyOperation extends JavaModelOperation {
 		if (this.progressMonitor != null){
 			if (this.progressMonitor.isCanceled()) 
 				throw new OperationCanceledException();
-			this.progressMonitor.beginTask(Util.bind("element.reconciling"), 2); //$NON-NLS-1$
+			this.progressMonitor.beginTask(Messages.element_reconciling, 2); 
 		}
 	
 		CompilationUnit workingCopy = getWorkingCopy();
@@ -75,12 +76,12 @@ public class ReconcileWorkingCopyOperation extends JavaModelOperation {
 					    try {
 							problemRequestor.beginReporting();
 							char[] contents = workingCopy.getContents();
-							unit = CompilationUnitProblemFinder.process(workingCopy, contents, this.workingCopyOwner, problemRequestor, false/*don't cleanup cu*/, this.progressMonitor);
+							unit = CompilationUnitProblemFinder.process(workingCopy, contents, this.workingCopyOwner, problemRequestor, !this.createAST/*reset env if not creating AST*/, this.progressMonitor);
 							problemRequestor.endReporting();
 							if (progressMonitor != null) progressMonitor.worked(1);
 							if (this.createAST && unit != null) {
 								Map options = workingCopy.getJavaProject().getOptions(true);
-								this.ast = AST.convertCompilationUnit(this.astLevel, unit, contents, options, true/*isResolved*/, workingCopy.owner, this.progressMonitor);
+								this.ast = AST.convertCompilationUnit(this.astLevel, unit, contents, options, true/*isResolved*/, workingCopy, this.progressMonitor);
 								if (progressMonitor != null) progressMonitor.worked(1);
 							}
 					    } finally {

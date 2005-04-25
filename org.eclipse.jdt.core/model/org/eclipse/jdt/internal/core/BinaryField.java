@@ -1,19 +1,21 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.IField;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.internal.compiler.env.IBinaryField;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
 
 /**
  * @see IField
@@ -57,12 +59,31 @@ public int getElementType() {
 protected char getHandleMementoDelimiter() {
 	return JavaElement.JEM_FIELD;
 }
+public String getKey(boolean forceOpen) throws JavaModelException {
+	return getKey(this, org.eclipse.jdt.internal.compiler.lookup.Binding.USE_ACCESS_FLAGS_IN_BINDING_KEY/*with access flags*/, forceOpen);
+}
 /*
  * @see IField
  */
 public String getTypeSignature() throws JavaModelException {
 	IBinaryField info = (IBinaryField) getElementInfo();
 	return new String(ClassFile.translatedName(info.getTypeName()));
+}
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.IField#isEnumConstant()
+ */public boolean isEnumConstant() throws JavaModelException {
+	return Flags.isEnum(getFlags());
+}
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.IField#isResolved()
+ */
+public boolean isResolved() {
+	return false;
+}
+public JavaElement resolved(Binding binding) {
+	SourceRefElement resolvedHandle = new ResolvedBinaryField(this.parent, this.name, new String(binding.computeUniqueKey()));
+	resolvedHandle.occurrenceCount = this.occurrenceCount;
+	return resolvedHandle;
 }
 /*
  * @private Debugging purposes

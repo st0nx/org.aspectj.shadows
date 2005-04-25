@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -18,7 +18,8 @@ import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 import org.eclipse.core.runtime.jobs.ISchedulingRule;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.internal.core.util.Util;
+import org.eclipse.jdt.internal.core.util.Messages;
+import org.eclipse.jface.text.IDocument;
 
 /**
  * Defines behavior common to all Java Model operations
@@ -198,6 +199,12 @@ public abstract class JavaModelOperation implements IWorkspaceRunnable, IProgres
 			progressMonitor.beginTask(name, totalWork);
 		}
 	}
+	/*
+	 * Returns whether this operation can modify the package fragment roots.
+	 */
+	protected boolean canModifyRoots() {
+		return false;
+	}
 	/**
 	 * Checks with the progress monitor to see whether this operation
 	 * should be canceled. An operation should regularly call this method
@@ -208,7 +215,7 @@ public abstract class JavaModelOperation implements IWorkspaceRunnable, IProgres
 	 */
 	protected void checkCanceled() {
 		if (isCanceled()) {
-			throw new OperationCanceledException(Util.bind("operation.cancelled")); //$NON-NLS-1$
+			throw new OperationCanceledException(Messages.operation_cancelled); 
 		}
 	}
 	/**
@@ -265,7 +272,7 @@ public abstract class JavaModelOperation implements IWorkspaceRunnable, IProgres
 				forceFlag ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY,
 				true, // local
 				getSubProgressMonitor(1));
-				this.setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
+			this.setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
 		} catch (CoreException e) {
 			throw new JavaModelException(e);
 		}
@@ -414,6 +421,15 @@ public abstract class JavaModelOperation implements IWorkspaceRunnable, IProgres
 			operationStacks.set(stack);
 		}
 		return stack;
+	}
+	/*
+	 * Returns the existing document for the given cu, or a DocumentAdapter if none.
+	 */
+	protected IDocument getDocument(ICompilationUnit cu) throws JavaModelException {
+		IBuffer buffer = cu.getBuffer();
+		if (buffer instanceof IDocument)
+			return (IDocument) buffer;
+		return new DocumentAdapter(buffer);
 	}
 	/**
 	 * Returns the elements to which this operation applies,
@@ -693,9 +709,11 @@ public abstract class JavaModelOperation implements IWorkspaceRunnable, IProgres
 			progressMonitor = monitor;
 			pushOperation(this);
 			try {
-				// computes the root infos before executing the operation
-				// noop if aready initialized
-				JavaModelManager.getJavaModelManager().deltaState.initializeRoots();
+				if (canModifyRoots()) {
+					// computes the root infos before executing the operation
+					// noop if aready initialized
+					JavaModelManager.getJavaModelManager().deltaState.initializeRoots();
+				}
 				
 				executeOperation();
 			} finally {
@@ -705,9 +723,29 @@ public abstract class JavaModelOperation implements IWorkspaceRunnable, IProgres
 			}
 		} finally {
 			try {
+				// reacquire delta processor as it can have been reset during executeOperation()
+				deltaProcessor = manager.getDeltaProcessor();
+				
 				// update JavaModel using deltas that were recorded during this operation
 				for (int i = previousDeltaCount, size = deltaProcessor.javaModelDeltas.size(); i < size; i++) {
 					deltaProcessor.updateJavaModel((IJavaElementDelta)deltaProcessor.javaModelDeltas.get(i));
+				}
+				
+				// close the parents of the created elements and reset their project's cache (in case we are in an 
+				// IWorkspaceRunnable and the clients wants to use the created element's parent)
+				// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=83646
+				for (int i = 0, length = this.resultElements.length; i < length; i++) {
+					IJavaElement element = this.resultElements[i];
+					Openable openable = (Openable) element.getOpenable();
+					if (!(openable instanceof CompilationUnit) || !((CompilationUnit) openable).isWorkingCopy()) { // a working copy must remain a child of its parent even after a move
+						((JavaElement) openable.getParent()).close();
+					}
+					switch (element.getElementType()) {
+						case IJavaElement.PACKAGE_FRAGMENT_ROOT:
+						case IJavaElement.PACKAGE_FRAGMENT:
+							((JavaProject) element.getJavaProject()).resetCaches();
+							break;
+					}
 				}
 				
 				// fire only iff:

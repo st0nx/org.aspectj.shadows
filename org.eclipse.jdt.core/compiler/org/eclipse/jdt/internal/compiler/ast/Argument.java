@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -30,8 +30,6 @@ public class Argument extends LocalDeclaration {
 
 	public void bind(MethodScope scope, TypeBinding typeBinding, boolean used) {
 
-		if (this.type != null)
-			this.type.resolvedType = typeBinding; // TODO (philippe) no longer necessary as when binding got resolved, it was recorded already (SourceTypeBinding#resolveTypesFor(MethodBinding))
 		// record the resolved type into the type reference
 		int modifierFlag = this.modifiers;
 
@@ -72,7 +70,7 @@ public class Argument extends LocalDeclaration {
 	}
 
 	public boolean isVarArgs() {
-		return (this.type.bits & IsVarArgs) != 0;
+		return this.type != null &&  (this.type.bits & IsVarArgs) != 0;
 	}
 		
 	public StringBuffer print(int indent, StringBuffer output) {

@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -23,7 +23,7 @@ import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.internal.core.util.Util;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
@@ -129,15 +129,15 @@ public class UserLibrary {
 			DocumentBuilder parser = DocumentBuilderFactory.newInstance().newDocumentBuilder();
 			cpElement = parser.parse(new InputSource(reader)).getDocumentElement();
 		} catch (SAXException e) {
-			throw new IOException(Util.bind("file.badFormat")); //$NON-NLS-1$
+			throw new IOException(Messages.file_badFormat); 
 		} catch (ParserConfigurationException e) {
-			throw new IOException(Util.bind("file.badFormat")); //$NON-NLS-1$
+			throw new IOException(Messages.file_badFormat); 
 		} finally {
 			reader.close();
 		}
 		
 		if (!cpElement.getNodeName().equalsIgnoreCase(TAG_USERLIBRARY)) { //$NON-NLS-1$
-			throw new IOException(Util.bind("file.badFormat")); //$NON-NLS-1$
+			throw new IOException(Messages.file_badFormat); 
 		}
 		// String version= cpElement.getAttribute(TAG_VERSION);
 		// in case we update the format: add code to read older versions

@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -76,8 +76,8 @@ public Object get(Object key) {
 
 public Object keyForValue(Object valueToMatch) {
 	if (valueToMatch != null)
-		for (int i = 0, l = valueTable.length; i < l; i++)
-			if (valueToMatch.equals(valueTable[i]))
+		for (int i = 0, l = keyTable.length; i < l; i++)
+			if (keyTable[i] != null && valueToMatch.equals(valueTable[i]))
 				return keyTable[i];
 	return null;
 }

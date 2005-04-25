@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -17,6 +17,7 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.core.*;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 
 import java.io.*;
@@ -166,27 +167,27 @@ protected IProject[] build(int kind, Map ignored, IProgressMonitor monitor) thro
 	} catch (CoreException e) {
 		Util.log(e, "JavaBuilder handling CoreException while building: " + currentProject.getName()); //$NON-NLS-1$
 		IMarker marker = currentProject.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
-		marker.setAttribute(IMarker.MESSAGE, Util.bind("build.inconsistentProject", e.getLocalizedMessage())); //$NON-NLS-1$
+		marker.setAttribute(IMarker.MESSAGE, Messages.bind(Messages.build_inconsistentProject, e.getLocalizedMessage())); 
 		marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
 	} catch (ImageBuilderInternalException e) {
 		Util.log(e.getThrowable(), "JavaBuilder handling ImageBuilderInternalException while building: " + currentProject.getName()); //$NON-NLS-1$
 		IMarker marker = currentProject.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
-		marker.setAttribute(IMarker.MESSAGE, Util.bind("build.inconsistentProject", e.getLocalizedMessage())); //$NON-NLS-1$
+		marker.setAttribute(IMarker.MESSAGE, Messages.bind(Messages.build_inconsistentProject, e.getLocalizedMessage())); 
 		marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
 	} catch (MissingClassFileException e) {
 		// do not log this exception since its thrown to handle aborted compiles because of missing class files
 		if (DEBUG)
-			System.out.println(Util.bind("build.incompleteClassPath", e.missingClassFile)); //$NON-NLS-1$
+			System.out.println(Messages.bind(Messages.build_incompleteClassPath, (new String[] {e.missingClassFile}))); 
 		IMarker marker = currentProject.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
-		marker.setAttribute(IMarker.MESSAGE, Util.bind("build.incompleteClassPath", e.missingClassFile)); //$NON-NLS-1$
+		marker.setAttribute(IMarker.MESSAGE, Messages.bind(Messages.build_incompleteClassPath, e.missingClassFile)); 
 		marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
 	} catch (MissingSourceFileException e) {
 		// do not log this exception since its thrown to handle aborted compiles because of missing source files
 		if (DEBUG)
-			System.out.println(Util.bind("build.missingSourceFile", e.missingSourceFile)); //$NON-NLS-1$
+			System.out.println(Messages.bind(Messages.build_missingSourceFile, e.missingSourceFile)); 
 		removeProblemsAndTasksFor(currentProject); // make this the only problem for this project
 		IMarker marker = currentProject.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
-		marker.setAttribute(IMarker.MESSAGE, Util.bind("build.missingSourceFile", e.missingSourceFile)); //$NON-NLS-1$
+		marker.setAttribute(IMarker.MESSAGE, Messages.bind(Messages.build_missingSourceFile, e.missingSourceFile)); 
 		marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
 	} finally {
 		if (!ok)
@@ -204,7 +205,7 @@ protected IProject[] build(int kind, Map ignored, IProgressMonitor monitor) thro
 
 private void buildAll() {
 	notifier.checkCancel();
-	notifier.subTask(Util.bind("build.preparingBuild")); //$NON-NLS-1$
+	notifier.subTask(Messages.build_preparingBuild); 
 	if (DEBUG && lastState != null)
 		System.out.println("Clearing last state : " + lastState); //$NON-NLS-1$
 	clearLastState();
@@ -215,7 +216,7 @@ private void buildAll() {
 
 private void buildDeltas(SimpleLookupTable deltas) {
 	notifier.checkCancel();
-	notifier.subTask(Util.bind("build.preparingBuild")); //$NON-NLS-1$
+	notifier.subTask(Messages.build_preparingBuild); 
 	if (DEBUG && lastState != null)
 		System.out.println("Clearing last state : " + lastState); //$NON-NLS-1$
 	clearLastState(); // clear the previously built state so if the build fails, a full build will occur next time
@@ -247,7 +248,7 @@ protected void clean(IProgressMonitor monitor) throws CoreException {
 	} catch (CoreException e) {
 		Util.log(e, "JavaBuilder handling CoreException while cleaning: " + currentProject.getName()); //$NON-NLS-1$
 		IMarker marker = currentProject.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
-		marker.setAttribute(IMarker.MESSAGE, Util.bind("build.inconsistentProject", e.getLocalizedMessage())); //$NON-NLS-1$
+		marker.setAttribute(IMarker.MESSAGE, Messages.bind(Messages.build_inconsistentProject, e.getLocalizedMessage())); 
 		marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
 	} finally {
 		notifier.done();
@@ -293,7 +294,7 @@ boolean filterExtraResource(IResource resource) {
 }
 
 private SimpleLookupTable findDeltas() {
-	notifier.subTask(Util.bind("build.readingDelta", currentProject.getName())); //$NON-NLS-1$
+	notifier.subTask(Messages.bind(Messages.build_readingDelta, currentProject.getName())); 
 	IResourceDelta delta = getDelta(currentProject);
 	SimpleLookupTable deltas = new SimpleLookupTable(3);
 	if (delta != null) {
@@ -329,7 +330,7 @@ private SimpleLookupTable findDeltas() {
 				if (canSkip) continue nextProject; // project has no structural changes in its output folders
 			}
 
-			notifier.subTask(Util.bind("build.readingDelta", p.getName())); //$NON-NLS-1$
+			notifier.subTask(Messages.bind(Messages.build_readingDelta, p.getName())); 
 			delta = getDelta(p);
 			if (delta != null) {
 				if (delta.getKind() != IResourceDelta.NO_CHANGE) {
@@ -440,8 +441,14 @@ private boolean hasClasspathChanged() {
 		return true;
 	}
 	if (n < newLength || o < oldLength) {
-		if (DEBUG)
-			System.out.println("Number of binary folders/jar files has changed"); //$NON-NLS-1$
+		if (DEBUG) {
+			System.out.println("Number of binary folders/jar files has changed:"); //$NON-NLS-1$
+			for (int i = 0; i < newLength; i++)
+				System.out.println(newBinaryLocations[i]);
+			System.out.println("was:"); //$NON-NLS-1$
+			for (int i = 0; i < oldLength; i++)
+				System.out.println(oldBinaryLocations[i]);
+		}
 		return true;
 	}
 	return false;
@@ -504,7 +511,7 @@ private void initializeBuilder() throws CoreException {
 			char[] f = filters[i];
 			if (f.length == 0) continue;
 			if (f[f.length - 1] == '/')
-				extraResourceFolderFilters[--folderCount] = new String(CharOperation.subarray(f, 0, f.length - 1));
+				extraResourceFolderFilters[--folderCount] = new String(f, 0, f.length - 1);
 			else
 				extraResourceFileFilters[--fileCount] = f;
 		}
@@ -535,7 +542,7 @@ private boolean isWorthBuilding() throws CoreException {
 		removeProblemsAndTasksFor(currentProject); // remove all compilation problems
 
 		IMarker marker = currentProject.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
-		marker.setAttribute(IMarker.MESSAGE, Util.bind("build.abortDueToClasspathProblems")); //$NON-NLS-1$
+		marker.setAttribute(IMarker.MESSAGE, Messages.build_abortDueToClasspathProblems); 
 		marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
 		return false;
 	}
@@ -558,8 +565,8 @@ private boolean isWorthBuilding() throws CoreException {
 			IMarker marker = currentProject.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
 			marker.setAttribute(IMarker.MESSAGE,
 				isClasspathBroken(prereq.getRawClasspath(), p)
-					? Util.bind("build.prereqProjectHasClasspathProblems", p.getName()) //$NON-NLS-1$
-					: Util.bind("build.prereqProjectMustBeRebuilt", p.getName())); //$NON-NLS-1$
+					? Messages.bind(Messages.build_prereqProjectHasClasspathProblems, p.getName()) 
+					: Messages.bind(Messages.build_prereqProjectMustBeRebuilt, p.getName())); 
 			marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
 			return false;
 		}

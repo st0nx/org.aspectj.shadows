@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -15,7 +15,6 @@ import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-import org.eclipse.core.resources.*;
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IMarker;
@@ -61,7 +60,9 @@ public class ClassFile extends Openable implements IClassFile, SuffixConstants {
  */
 protected ClassFile(PackageFragment parent, String name) {
 	super(parent);
-	this.name = name;
+	// don't hold on the .class file extension to save memory
+	// also make sure to copy the string (so that it doesn't hold on the underlying char[] that might be much bigger than necessary)
+	this.name = new String(name.substring(0, name.length() - 6)); // don't hold on the .class file extension to save memory
 	this.checkAutomaticSourceMapping = false;
 }
 
@@ -223,7 +224,7 @@ public IBinaryType getBinaryTypeInfo(IFile file) throws JavaModelException {
 				if (ze != null) {
 					byte contents[] = org.eclipse.jdt.internal.compiler.util.Util.getZipEntryByteContent(ze, zip);
 					String fileName = root.getHandleIdentifier() + IDependent.JAR_FILE_ENTRY_SEPARATOR + entryName;
-					info = new ClassFileReader(contents, fileName.toCharArray());
+					info = new ClassFileReader(contents, fileName.toCharArray(), true/*fully initialize so as to not keep a reference to the byte array*/);
 				}
 			} finally {
 				JavaModelManager.getJavaModelManager().closeZipFile(zip);
@@ -250,7 +251,7 @@ public IBinaryType getBinaryTypeInfo(IFile file) throws JavaModelException {
 	} else {
 		byte[] contents = Util.getResourceContentsAsByteArray(file);
 		try {
-			return new ClassFileReader(contents, file.getFullPath().toString().toCharArray());
+			return new ClassFileReader(contents, file.getFullPath().toString().toCharArray(), true/*fully initialize so as to not keep a reference to the byte array*/);
 		} catch (ClassFormatException cfe) {
 			//the structure remains unknown
 			return null;
@@ -313,11 +314,11 @@ public IJavaElement getElementAtConsideringSibling(int position) throws JavaMode
 		return null;
 	} else {		
 		String prefix = null;
-		int index = name.indexOf('$');
+		int index = this.name.indexOf('$');
 		if (index > -1) {
-			prefix = name.substring(0, index);
+			prefix = this.name.substring(0, index);
 		} else {
-			prefix = name.substring(0, name.indexOf('.'));
+			prefix = this.name;
 		}
 		
 		
@@ -361,7 +362,7 @@ public IJavaElement getElementAtConsideringSibling(int position) throws JavaMode
 	}
 }
 public String getElementName() {
-	return this.name;
+	return this.name + SuffixConstants.SUFFIX_STRING_class;
 }
 /**
  * @see IJavaElement
@@ -451,17 +452,14 @@ public String getTopLevelTypeName() {
  */
 public IType getType() {
 	if (this.binaryType == null) {
-		// Remove the ".class" from the name of the ClassFile - always works
-		// since constructor fails if name does not end with ".class"
-		String typeName = this.name.substring(0, this.name.lastIndexOf('.'));
-		typeName = typeName.substring(typeName.lastIndexOf('.') + 1);
-		int index = typeName.lastIndexOf('$');
-		if (index > -1) {
-			typeName = Util.localTypeName(typeName, index, typeName.length());
-		}
-		this.binaryType = new BinaryType(this, typeName);
+		this.binaryType = new BinaryType(this, getTypeName());
 	}
 	return this.binaryType;
+}
+public String getTypeName() {
+	// Internal class file name doesn't contain ".class" file extension
+	int lastDollar = this.name.lastIndexOf('$');
+	return lastDollar > -1 ? Util.localTypeName(this.name, lastDollar, this.name.length()) : this.name;
 }
 /*
  * @see IClassFile
@@ -556,14 +554,15 @@ protected IBuffer openBuffer(IProgressMonitor pm, Object info) throws JavaModelE
 			try {
 				jar = jarPackageFragmentRoot.getJar();
 				String[] pkgName = ((PackageFragment) getParent()).names;
-				for (int i = 0, length = Util.JAVA_LIKE_EXTENSIONS.length; i < length; i++) {
+				char[][] javaLikeExtensions = Util.getJavaLikeExtensions();
+				for (int i = 0, length = javaLikeExtensions.length; i < length; i++) {
 					StringBuffer entryName = new StringBuffer();
 					for (int j = 0, pkgNameLength = pkgName.length; j < pkgNameLength; j++) {
 						entryName.append(pkgName[j]);
 						entryName.append('/');
 					}
 					entryName.append(sourceFileWithoutExtension);
-					entryName.append(Util.JAVA_LIKE_EXTENSIONS[i]);
+					entryName.append(javaLikeExtensions[i]);
 					ZipEntry zipEntry = jar.getEntry(entryName.toString());
 					if (zipEntry != null) {
 						// found a source file
@@ -591,7 +590,7 @@ protected IBuffer openBuffer(IProgressMonitor pm, Object info) throws JavaModelE
 			} else	{
 				// root is a class folder
 				
-				IFolder pkgFolder = (IFolder) getParent().getResource();
+				IContainer pkgFolder = (IContainer) getParent().getResource();
 				IResource[] files = null;
 				try {
 					files = pkgFolder.members();

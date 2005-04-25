@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0 
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.formatter;
 
 import java.util.ArrayList;
@@ -25,6 +25,7 @@ import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.BinaryExpression;
 import org.eclipse.jdt.internal.compiler.ast.CastExpression;
 import org.eclipse.jdt.internal.compiler.ast.CharLiteral;
+import org.eclipse.jdt.internal.compiler.ast.ClassLiteralAccess;
 import org.eclipse.jdt.internal.compiler.ast.CompoundAssignment;
 import org.eclipse.jdt.internal.compiler.ast.ConditionalExpression;
 import org.eclipse.jdt.internal.compiler.ast.DoubleLiteral;
@@ -259,6 +260,13 @@ class BinaryExpressionFragmentBuilder
 	}
 
 	public boolean visit(
+		ClassLiteralAccess classLiteralAccess,
+		BlockScope scope) {
+			this.addRealFragment(classLiteralAccess);
+			return false;
+	}
+	
+	public boolean visit(
 		CompoundAssignment compoundAssignment,
 		BlockScope scope) {
 			this.addRealFragment(compoundAssignment);
@@ -327,13 +335,18 @@ class BinaryExpressionFragmentBuilder
 	}
 
 	public boolean visit(StringLiteralConcatenation stringLiteral, BlockScope scope) {
-		for (int i = 0, max = stringLiteral.counter; i < max; i++) {
-			this.addRealFragment(stringLiteral.literals[i]);
-			if (i < max - 1) {
-				this.operatorsList.add(new Integer(TerminalTokens.TokenNamePLUS));
+		if (((stringLiteral.bits & ASTNode.ParenthesizedMASK) >> ASTNode.ParenthesizedSHIFT) != 0) {
+			addRealFragment(stringLiteral);
+			return false;
+		} else {
+			for (int i = 0, max = stringLiteral.counter; i < max; i++) {
+				this.addRealFragment(stringLiteral.literals[i]);
+				if (i < max - 1) {
+					this.operatorsList.add(new Integer(TerminalTokens.TokenNamePLUS));
+				}
 			}
+			return false;
 		}
-		return false;
 	}
 	
 	public boolean visit(NullLiteral nullLiteral, BlockScope scope) {

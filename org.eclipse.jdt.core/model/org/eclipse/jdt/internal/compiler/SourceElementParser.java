@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -86,9 +86,11 @@ public class LocalDeclarationVisitor extends ASTVisitor {
 }
 
 public SourceElementParser(
-	final ISourceElementRequestor requestor, 
-	IProblemFactory problemFactory,
-	CompilerOptions options) {
+		final ISourceElementRequestor requestor, 
+		IProblemFactory problemFactory,
+		CompilerOptions options,
+		boolean reportLocalDeclarations,
+		boolean optimizeStringLiterals) {
 	// we want to notify all syntax error with the acceptProblem API
 	// To do so, we define the record method of the ProblemReporter
 	super(new ProblemReporter(
@@ -100,23 +102,15 @@ public SourceElementParser(
 			requestor.acceptProblem(problem);
 		}
 	},
-	true);
+	optimizeStringLiterals);
 	this.requestor = requestor;
 	typeNames = new char[4][];
 	superTypeNames = new char[4][];
 	nestedTypeIndex = 0;
 	this.options = options;
-}
-
-public SourceElementParser(
-	final ISourceElementRequestor requestor, 
-	IProblemFactory problemFactory,
-	CompilerOptions options,
-	boolean reportLocalDeclarations) {
-		this(requestor, problemFactory, options);
-		if (reportLocalDeclarations) {
-			this.localDeclarationVisitor = new LocalDeclarationVisitor();
-		}
+	if (reportLocalDeclarations) {
+		this.localDeclarationVisitor = new LocalDeclarationVisitor();
+	}
 }
 
 public void checkComment() {
@@ -141,7 +135,7 @@ public void checkComment() {
 			int commentEnd = this.scanner.commentStops[lastComment] - 1; //stop is one over,
 			// do not report problem before last parsed comment while recovering code...
 			this.javadocParser.reportProblems = this.currentElement == null || commentEnd > this.lastJavadocEnd;
-			if (this.javadocParser.checkDeprecation(this.scanner.commentStarts[lastComment], commentEnd)) {
+			if (this.javadocParser.checkDeprecation(lastComment)) {
 				checkAndSetModifiers(AccDeprecated);
 			}
 			this.javadoc = this.javadocParser.docComment;	// null if check javadoc is not activated
@@ -180,6 +174,7 @@ public void checkComment() {
 				JavadocMessageSend messageSend = (JavadocMessageSend) reference;
 				int argCount = messageSend.arguments == null ? 0 : messageSend.arguments.length;
 				this.requestor.acceptMethodReference(messageSend.selector, argCount, messageSend.sourceStart);
+				this.requestor.acceptConstructorReference(messageSend.selector, argCount, messageSend.sourceStart);
 				if (messageSend.receiver != null && !messageSend.receiver.isThis()) {
 					acceptJavadocTypeReference(messageSend.receiver);
 				}
@@ -238,6 +233,38 @@ protected void consumeAnnotationAsModifier() {
 	Annotation annotation = (Annotation)expressionStack[expressionPtr];
 	if (reportReferenceInfo) { // accept annotation type reference
 		this.requestor.acceptTypeReference(annotation.type.getTypeName(), annotation.sourceStart, annotation.sourceEnd);
+	}
+}
+protected void consumeClassInstanceCreationExpressionQualifiedWithTypeArguments() {
+	boolean previousFlag = reportReferenceInfo;
+	reportReferenceInfo = false; // not to see the type reference reported in super call to getTypeReference(...)
+	super.consumeClassInstanceCreationExpressionQualifiedWithTypeArguments();
+	reportReferenceInfo = previousFlag;
+	if (reportReferenceInfo){
+		AllocationExpression alloc = (AllocationExpression)expressionStack[expressionPtr];
+		TypeReference typeRef = alloc.type;
+		requestor.acceptConstructorReference(
+			typeRef instanceof SingleTypeReference 
+				? ((SingleTypeReference) typeRef).token
+				: CharOperation.concatWith(alloc.type.getParameterizedTypeName(), '.'),
+			alloc.arguments == null ? 0 : alloc.arguments.length, 
+			alloc.sourceStart);
+	}
+}
+protected void consumeClassInstanceCreationExpressionWithTypeArguments() {
+	boolean previousFlag = reportReferenceInfo;
+	reportReferenceInfo = false; // not to see the type reference reported in super call to getTypeReference(...)
+	super.consumeClassInstanceCreationExpressionWithTypeArguments();
+	reportReferenceInfo = previousFlag;
+	if (reportReferenceInfo){
+		AllocationExpression alloc = (AllocationExpression)expressionStack[expressionPtr];
+		TypeReference typeRef = alloc.type;
+		requestor.acceptConstructorReference(
+			typeRef instanceof SingleTypeReference 
+				? ((SingleTypeReference) typeRef).token
+				: CharOperation.concatWith(alloc.type.getParameterizedTypeName(), '.'),
+			alloc.arguments == null ? 0 : alloc.arguments.length, 
+			alloc.sourceStart);
 	}
 }
 protected void consumeConstructorHeaderName() {
@@ -417,7 +444,12 @@ protected void consumeSingleStaticImportDeclarationName() {
 		// => accept unknown ref on identifier
 		int length = impt.tokens.length-1;
 		int start = (int) (impt.sourcePositions[length] >>> 32);
-		requestor.acceptUnknownReference(impt.tokens[length], start);
+		char[] last = impt.tokens[length];
+		// accept all possible kind for last name, index users will have to select the right one...
+		// see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=86901
+		requestor.acceptFieldReference(last, start);
+		requestor.acceptMethodReference(last, 0,start);
+		requestor.acceptTypeReference(last, start);
 		// accept type name
 		if (length > 0) {
 			char[][] compoundName = new char[length][];

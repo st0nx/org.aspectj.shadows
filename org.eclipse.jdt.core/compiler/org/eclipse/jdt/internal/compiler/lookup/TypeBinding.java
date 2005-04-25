@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -68,18 +68,20 @@ public int kind() {
 public boolean canBeInstantiated() {
 	return !isBaseType();
 }
+
+/**
+ * Perform capture conversion on a given type (only effective on parameterized type with wildcards)
+ */
+public TypeBinding capture() {
+	return this;
+}
+
 /**
  * Collect the substitutes into a map for certain type variables inside the receiver type
  * e.g.   Collection<T>.findSubstitute(T, Collection<List<X>>):   T --> List<X>
  */
-public void collectSubstitutes(TypeBinding otherType, Map substitutes) {
+public void collectSubstitutes(Scope scope, TypeBinding otherType, Map substitutes, int constraint) {
     // no substitute by default
-}
-/*
- * genericTypeSignature
- */
-public char[] computeUniqueKey() {
-	return genericTypeSignature();
 }
 /**
  *  Answer the receiver's constant pool name.
@@ -111,7 +113,6 @@ public TypeBinding erasure() {
  */
 public TypeBinding genericCast(TypeBinding otherType) {
     if (this == otherType) return null;
-	if (otherType.isWildcard() && ((WildcardBinding)otherType).kind != Wildcard.EXTENDS) return null;
 	TypeBinding otherErasure = otherType.erasure();
 	if (otherErasure == this.erasure()) return null;
 	return otherErasure;
@@ -147,6 +148,14 @@ public final boolean isBaseType() {
 public boolean isBoundParameterizedType() {
 	return (this.tagBits & TagBits.IsBoundParameterizedType) != 0;
 }
+
+/**
+ * Returns true if the type is the capture of some wildcard
+ */
+public boolean isCapture() {
+    return false;
+}
+
 public boolean isClass() {
 	return false;
 }
@@ -213,19 +222,10 @@ public final boolean isNumericType() {
 public boolean isParameterizedType() {
     return false;
 }
-	
-public boolean isPartOfRawType() {
-	TypeBinding current = this;
-	do {
-		if (current.isRawType())
-			return true;
-	} while ((current = current.enclosingType()) != null);
-    return false;
-}
 
 /**
  * Returns true if the two types are statically known to be different at compile-time,
- * e.g. a type variable is not probably known to be distinct from another type
+ * e.g. a type variable is not provably known to be distinct from another type
  */
 public boolean isProvablyDistinctFrom(TypeBinding otherType, int depth) {
 	if (this == otherType) return false;
@@ -314,7 +314,7 @@ public boolean isTypeArgumentContainedBy(TypeBinding otherArgument) {
 	TypeBinding upperBound = this;
 	if (isWildcard()) {
 		WildcardBinding wildcard = (WildcardBinding) this;
-		switch(wildcard.kind) {
+		switch(wildcard.boundKind) {
 			case Wildcard.EXTENDS :
 				upperBound = wildcard.bound;
 				lowerBound = null;
@@ -330,7 +330,8 @@ public boolean isTypeArgumentContainedBy(TypeBinding otherArgument) {
 	}
 	if (otherArgument.isWildcard()) {
 		WildcardBinding otherWildcard = (WildcardBinding) otherArgument;
-		switch(otherWildcard.kind) {
+		if (otherWildcard.otherBounds != null) return false; // not a true wildcard (intersection type)
+		switch(otherWildcard.boundKind) {
 			case Wildcard.EXTENDS:
 				return upperBound != null && upperBound.isCompatibleWith(otherWildcard.bound);
 
@@ -368,6 +369,25 @@ public boolean isWildcard() {
  * Meant to be invoked on compatible types, to figure if unchecked conversion is necessary
  */
 public boolean needsUncheckedConversion(TypeBinding targetType) {
+
+	if (this == targetType) return false;
+	targetType = targetType.leafComponentType();
+	if (!(targetType instanceof ReferenceBinding)) 
+		return false;
+
+	TypeBinding currentType = this.leafComponentType();
+	if (!(currentType instanceof ReferenceBinding))
+		return false;
+	
+	ReferenceBinding compatible = ((ReferenceBinding)currentType).findSuperTypeErasingTo((ReferenceBinding)targetType.erasure());
+	if (compatible == null) 
+		return false;
+	if (!compatible.isPartOfRawType()) return false;
+	do {
+		if (compatible.isRawType() && (targetType.isBoundParameterizedType() || targetType.isGenericType())) {
+			return true;
+		}
+	} while ((compatible = compatible.enclosingType()) != null && (targetType = targetType.enclosingType()) != null);
 	return false;
 }
 

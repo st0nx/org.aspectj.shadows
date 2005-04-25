@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -18,7 +18,6 @@ import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -37,22 +36,6 @@ protected Initializer(JavaElement parent, int count) {
 public boolean equals(Object o) {
 	if (!(o instanceof Initializer)) return false;
 	return super.equals(o);
-}
-/**
- * @see JavaElement#equalsDOMNode
- * @deprecated JDOM is obsolete
- */
-// TODO - JDOM - remove once model ported off of JDOM
-protected boolean equalsDOMNode(IDOMNode node) {
-	if (node.getNodeType() == IDOMNode.INITIALIZER) {
-		try {
-			return node.getContents().trim().equals(getSource());
-		} catch (JavaModelException e) {
-			return false;
-		}
-	} else {
-		return false;
-	}
 }
 /**
  * @see IJavaElement

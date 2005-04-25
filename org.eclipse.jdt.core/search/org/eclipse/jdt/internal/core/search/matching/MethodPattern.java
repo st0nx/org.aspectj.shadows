@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -17,6 +17,7 @@ import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.internal.core.index.*;
 import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class MethodPattern extends JavaSearchPattern implements IIndexConstants {
 
@@ -34,10 +35,18 @@ public char[] returnSimpleName;
 public char[][] parameterQualifications;
 public char[][] parameterSimpleNames;
 public int parameterCount;
-public boolean varargs;
+public int flags = 0;
 
 // extra reference info
 protected IType declaringType;
+
+// Signatures and arguments for generic search
+char[][] returnTypeSignatures;
+char[][][] returnTypeArguments;
+char[][][] parametersTypeSignatures;
+char[][][][] parametersTypeArguments;
+boolean methodParameters = false;
+char[][] methodArguments;
 
 protected static char[][] REF_CATEGORIES = { METHOD_REF };
 protected static char[][] REF_AND_DECL_CATEGORIES = { METHOD_REF, METHOD_DECL };
@@ -54,6 +63,9 @@ public static char[] createIndexKey(char[] selector, int argCount) {
 	return CharOperation.concat(selector, countChars);
 }
 
+MethodPattern(int matchRule) {
+	super(METHOD_PATTERN, matchRule);
+}
 public MethodPattern(
 	boolean findDeclarations,
 	boolean findReferences,
@@ -64,7 +76,6 @@ public MethodPattern(
 	char[] returnSimpleName,
 	char[][] parameterQualifications, 
 	char[][] parameterSimpleNames,
-	boolean varargs,
 	IType declaringType,
 	int matchRule) {
 
@@ -89,12 +100,146 @@ public MethodPattern(
 	} else {
 		this.parameterCount = -1;
 	}
-	this.varargs = varargs;
 	this.declaringType = declaringType;
 	((InternalSearchPattern)this).mustResolve = mustResolve();
 }
-MethodPattern(int matchRule) {
-	super(METHOD_PATTERN, matchRule);
+/*
+ * Instanciate a method pattern with signatures for generics search
+ */
+public MethodPattern(
+	boolean findDeclarations,
+	boolean findReferences,
+	char[] selector, 
+	char[] declaringQualification,
+	char[] declaringSimpleName,	
+	char[] returnQualification, 
+	char[] returnSimpleName,
+	String returnSignature,
+	char[][] parameterQualifications, 
+	char[][] parameterSimpleNames,
+	String[] parameterSignatures,
+	IMethod method,
+	int matchRule) {
+
+	this(findDeclarations,
+		findReferences,
+		selector, 
+		declaringQualification,
+		declaringSimpleName,	
+		returnQualification, 
+		returnSimpleName,
+		parameterQualifications, 
+		parameterSimpleNames,
+		method.getDeclaringType(),
+		matchRule);
+	
+	// Set flags
+	try {
+		this.flags = method.getFlags();
+	} catch (JavaModelException e) {
+		// do nothing
+	}
+
+	// Get unique key for parameterized constructors
+	String genericDeclaringTypeSignature = null;
+//	String genericSignature = null;
+	BindingKey key;
+	if (method.isResolved() && (key = new BindingKey(method.getKey())).isParameterizedType()) {
+		genericDeclaringTypeSignature = key.getDeclaringTypeSignature();
+	} else {
+		methodParameters = true;
+	}
+
+	// Store type signature and arguments for declaring type
+	if (genericDeclaringTypeSignature != null) {
+		this.typeSignatures = Util.splitTypeLevelsSignature(genericDeclaringTypeSignature);
+		setTypeArguments(Util.getAllTypeArguments(this.typeSignatures));
+	} else {
+		storeTypeSignaturesAndArguments(declaringType);
+	}
+
+	// Store type signatures and arguments for return type
+	if (returnSignature != null) {
+		returnTypeSignatures = Util.splitTypeLevelsSignature(returnSignature);
+		returnTypeArguments = Util.getAllTypeArguments(returnTypeSignatures);
+	}
+
+	// Store type signatures and arguments for method parameters type
+	if (parameterSignatures != null) {
+		int length = parameterSignatures.length;
+		if (length > 0) {
+			parametersTypeSignatures = new char[length][][];
+			parametersTypeArguments = new char[length][][][];
+			for (int i=0; i<length; i++) {
+				parametersTypeSignatures[i] = Util.splitTypeLevelsSignature(parameterSignatures[i]);
+				parametersTypeArguments[i] = Util.getAllTypeArguments(parametersTypeSignatures[i]);
+			}
+		}
+	}
+
+	// Store type signatures and arguments for method
+	methodArguments = extractMethodArguments(method);
+	if (hasMethodArguments())  ((InternalSearchPattern)this).mustResolve = true;
+}
+/*
+ * Instanciate a method pattern with signatures for generics search
+ */
+public MethodPattern(
+	boolean findDeclarations,
+	boolean findReferences,
+	char[] selector, 
+	char[] declaringQualification,
+	char[] declaringSimpleName,	
+	String declaringSignature,
+	char[] returnQualification, 
+	char[] returnSimpleName,
+	String returnSignature,
+	char[][] parameterQualifications, 
+	char[][] parameterSimpleNames,
+	String[] parameterSignatures,
+	char[][] arguments,
+	int matchRule) {
+
+	this(findDeclarations,
+		findReferences,
+		selector, 
+		declaringQualification,
+		declaringSimpleName,	
+		returnQualification, 
+		returnSimpleName,
+		parameterQualifications, 
+		parameterSimpleNames,
+		null,
+		matchRule);
+
+	// Store type signature and arguments for declaring type
+	if (declaringSignature != null) {
+		typeSignatures = Util.splitTypeLevelsSignature(declaringSignature);
+		setTypeArguments(Util.getAllTypeArguments(typeSignatures));
+	}
+
+	// Store type signatures and arguments for return type
+	if (returnSignature != null) {
+		returnTypeSignatures = Util.splitTypeLevelsSignature(returnSignature);
+		returnTypeArguments = Util.getAllTypeArguments(returnTypeSignatures);
+	}
+
+	// Store type signatures and arguments for method parameters type
+	if (parameterSignatures != null) {
+		int length = parameterSignatures.length;
+		if (length > 0) {
+			parametersTypeSignatures = new char[length][][];
+			parametersTypeArguments = new char[length][][][];
+			for (int i=0; i<length; i++) {
+				parametersTypeSignatures[i] = Util.splitTypeLevelsSignature(parameterSignatures[i]);
+				parametersTypeArguments[i] = Util.getAllTypeArguments(parametersTypeSignatures[i]);
+			}
+		}
+	}
+
+	// Store type signatures and arguments for method
+	methodArguments = arguments;
+	if (hasMethodArguments())  ((InternalSearchPattern)this).mustResolve = true;
 }
 public void decodeIndexKey(char[] key) {
 	int size = key.length;
@@ -113,13 +258,19 @@ public char[][] getIndexCategories() {
 		return DECL_CATEGORIES;
 	return CharOperation.NO_CHAR_CHAR;
 }
+boolean hasMethodArguments() {
+	return methodArguments != null && methodArguments.length > 0;
+}
+boolean hasMethodParameters() {
+	return methodParameters;
+}
 boolean isPolymorphicSearch() {
 	return this.findReferences;
 }
 public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 	MethodPattern pattern = (MethodPattern) decodedPattern;
 
-	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1 || this.varargs)
+	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1 || !shouldCountParameter())
 		&& matchesName(this.selector, pattern.selector);
 }
 /**
@@ -147,7 +298,7 @@ EntryResult[] queryIn(Index index) throws IOException {
 
 	switch(getMatchMode()) {
 		case R_EXACT_MATCH :
-			if (!this.varargs && this.selector != null && this.parameterCount >= 0)
+			if (shouldCountParameter() && this.selector != null && this.parameterCount >= 0)
 				key = createIndexKey(this.selector, this.parameterCount);
 			else // do a prefix query with the selector
 				matchRule = matchRule - R_EXACT_MATCH + R_PREFIX_MATCH;
@@ -156,7 +307,7 @@ EntryResult[] queryIn(Index index) throws IOException {
 			// do a prefix query with the selector
 			break;
 		case R_PATTERN_MATCH :
-			if (!this.varargs && this.parameterCount >= 0)
+			if (shouldCountParameter() && this.parameterCount >= 0)
 				key = createIndexKey(this.selector == null ? ONE_STAR : this.selector, this.parameterCount);
 			else if (this.selector != null && this.selector[this.selector.length - 1] != '*')
 				key = CharOperation.concat(this.selector, ONE_STAR, SEPARATOR);
@@ -205,5 +356,8 @@ protected StringBuffer print(StringBuffer output) {
 	else if (returnQualification != null)
 		output.append("*"); //$NON-NLS-1$
 	return super.print(output);
+}
+boolean shouldCountParameter() {
+	return (this.flags & Flags.AccStatic) == 0 && (this.flags & Flags.AccVarargs) == 0;
 }
 }

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -64,7 +64,12 @@ protected char getHandleMementoDelimiter() {
  * @see IImportContainer
  */
 public IImportDeclaration getImport(String importName) {
-	return new ImportDeclaration(this, importName);
+	int index = importName.indexOf(".*"); ///$NON-NLS-1$
+	boolean isOnDemand = index != -1;
+	if (isOnDemand)
+		// make sure to copy the string (so that it doesn't hold on the underlying char[] that might be much bigger than necessary)
+		importName = new String(importName.substring(0, index));
+	return new ImportDeclaration(this, importName, isOnDemand);
 }
 /*
  * @see JavaElement#getPrimaryElement(boolean)
@@ -83,13 +88,6 @@ public ISourceRange getSourceRange() throws JavaModelException {
 	ISourceRange lastRange= ((ISourceReference)imports[imports.length - 1]).getSourceRange();
 	SourceRange range= new SourceRange(firstRange.getOffset(), lastRange.getOffset() + lastRange.getLength() - firstRange.getOffset());
 	return range;
-}
-/**
- * Import containers only exist if they have children.
- * @see IParent
- */
-public boolean hasChildren() {
-	return true;
 }
 /**
  */

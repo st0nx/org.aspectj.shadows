@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -23,8 +23,11 @@ import org.eclipse.jdt.core.IOpenable;
 import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.ISourceReference;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.internal.core.util.DOMFinder;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
-import org.eclipse.jdt.internal.core.util.Util;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * Abstract class for Java elements which implement ISourceReference.
@@ -60,7 +63,7 @@ protected Object createElementInfo() {
  */
 public void copy(IJavaElement container, IJavaElement sibling, String rename, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	if (container == null) {
-		throw new IllegalArgumentException(Util.bind("operation.nullContainer")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.operation_nullContainer); 
 	}
 	IJavaElement[] elements= new IJavaElement[] {this};
 	IJavaElement[] containers= new IJavaElement[] {container};
@@ -85,6 +88,19 @@ public boolean equals(Object o) {
 	if (!(o instanceof SourceRefElement)) return false;
 	return this.occurrenceCount == ((SourceRefElement)o).occurrenceCount &&
 			super.equals(o);
+}
+/**
+ * Returns the <code>ASTNode</code> that corresponds to this <code>JavaElement</code>
+ * or <code>null</code> if there is no corresponding node.
+ */
+public ASTNode findNode(CompilationUnit ast) {
+	DOMFinder finder = new DOMFinder(ast, this, false);
+	try {
+		return finder.search();
+	} catch (JavaModelException e) {
+		// receiver doesn't exist
+		return null;
+	}
 }
 /*
  * @see JavaElement#generateInfos
@@ -221,7 +237,7 @@ public boolean isStructureKnown() throws JavaModelException {
  */
 public void move(IJavaElement container, IJavaElement sibling, String rename, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	if (container == null) {
-		throw new IllegalArgumentException(Util.bind("operation.nullContainer")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.operation_nullContainer); 
 	}
 	IJavaElement[] elements= new IJavaElement[] {this};
 	IJavaElement[] containers= new IJavaElement[] {container};
@@ -240,7 +256,7 @@ public void move(IJavaElement container, IJavaElement sibling, String rename, bo
  */
 public void rename(String newName, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	if (newName == null) {
-		throw new IllegalArgumentException(Util.bind("element.nullName")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.element_nullName); 
 	}
 	IJavaElement[] elements= new IJavaElement[] {this};
 	IJavaElement[] dests= new IJavaElement[] {this.getParent()};

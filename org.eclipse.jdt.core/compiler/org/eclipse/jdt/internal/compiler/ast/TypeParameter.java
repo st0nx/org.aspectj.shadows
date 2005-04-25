@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -12,6 +12,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.ClassScope;
 import org.eclipse.jdt.internal.compiler.lookup.Scope;
@@ -42,7 +43,14 @@ public class TypeParameter extends AbstractVariableDeclaration {
 	}
 	
 	public void resolve(ClassScope scope) {
-	    // TODO (philippe) add warning for detecting variable name collisions
+	    // detect variable/type name collisions
+		if (this.binding != null) {
+			Scope outerScope = scope.parent;
+			Binding existingType = outerScope.getBinding(this.name, Binding.TYPE, this, false);
+			if (existingType != null && this.binding != existingType && existingType.isValidBinding()) {
+				scope.problemReporter().typeHiding(this, existingType);
+			}
+		}
 	}
 
 	/* (non-Javadoc)

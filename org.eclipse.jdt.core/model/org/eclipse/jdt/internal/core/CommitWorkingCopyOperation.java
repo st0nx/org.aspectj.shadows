@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -25,6 +25,7 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -66,7 +67,7 @@ public class CommitWorkingCopyOperation extends JavaModelOperation {
 	 */
 	protected void executeOperation() throws JavaModelException {
 		try {
-			beginTask(Util.bind("workingCopy.commit"), 2); //$NON-NLS-1$
+			beginTask(Messages.workingCopy_commit, 2); 
 			CompilationUnit workingCopy = getCompilationUnit();
 			IFile resource = (IFile)workingCopy.getResource();
 			ICompilationUnit primary = workingCopy.getPrimary();

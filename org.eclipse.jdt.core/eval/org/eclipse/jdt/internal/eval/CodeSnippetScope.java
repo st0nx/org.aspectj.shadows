@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -243,7 +243,7 @@ public final boolean canBeSeenByForCodeSnippet(ReferenceBinding referenceBinding
 }
 // Internal use only
 public MethodBinding findExactMethod(ReferenceBinding receiverType, char[] selector, TypeBinding[] argumentTypes, InvocationSite invocationSite) {
-	MethodBinding exactMethod = receiverType.getExactMethod(selector, argumentTypes);
+	MethodBinding exactMethod = receiverType.getExactMethod(selector, argumentTypes, null);
 	if (exactMethod != null){
 		if (receiverType.isInterface() || canBeSeenByForCodeSnippet(exactMethod, receiverType, invocationSite, this))
 			return exactMethod;
@@ -475,7 +475,7 @@ public MethodBinding findMethod(
 				candidates[0].declaringClass,
 				NotVisible);
 		}	
-		if (candidates[0].declaringClass.isClass()) {
+		if (!candidates[0].declaringClass.isInterface()) {
 			return mostSpecificClassMethodBinding(candidates, visiblesCount, invocationSite);
 		} else {
 			return mostSpecificInterfaceMethodBinding(candidates, visiblesCount, invocationSite);
@@ -485,7 +485,7 @@ public MethodBinding findMethod(
 // Internal use only
 public MethodBinding findMethodForArray(ArrayBinding receiverType, char[] selector, TypeBinding[] argumentTypes, InvocationSite invocationSite) {
 	ReferenceBinding object = getJavaLangObject();
-	MethodBinding methodBinding = object.getExactMethod(selector, argumentTypes);
+	MethodBinding methodBinding = object.getExactMethod(selector, argumentTypes, null);
 	if (methodBinding != null) {
 		// handle the method clone() specially... cannot be protected or throw exceptions
 		if (argumentTypes == NoParameters && CharOperation.equals(selector, CLONE))

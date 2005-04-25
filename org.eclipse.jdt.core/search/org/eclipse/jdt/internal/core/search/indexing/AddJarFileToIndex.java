@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -130,10 +130,9 @@ class AddJarFileToIndex extends IndexRequest {
 					for (Enumeration e = zip.entries(); e.hasMoreElements();) {
 						// iterate each entry to index it
 						ZipEntry ze = (ZipEntry) e.nextElement();
-						if (Util.isClassFileName(ze.getName())) {
-							JavaSearchDocument entryDocument = new JavaSearchDocument(ze, zipFilePath, null, null);
-							indexedFileNames.put(entryDocument.getPath(), EXISTS);
-						}
+						String zipEntryName = ze.getName();
+						if (Util.isClassFileName(zipEntryName))
+							indexedFileNames.put(zipEntryName, EXISTS);
 					}
 					boolean needToReindex = indexedFileNames.elementSize != max; // a new file was added
 					if (!needToReindex) {
@@ -149,6 +148,7 @@ class AddJarFileToIndex extends IndexRequest {
 								org.eclipse.jdt.internal.core.util.Util.verbose("-> no indexing required (index is consistent with library) for " //$NON-NLS-1$
 								+ zip.getName() + " (" //$NON-NLS-1$
 								+ (System.currentTimeMillis() - initialTime) + "ms)"); //$NON-NLS-1$
+							this.manager.saveIndex(index); // to ensure its placed into the saved state
 							return true;
 						}
 					}

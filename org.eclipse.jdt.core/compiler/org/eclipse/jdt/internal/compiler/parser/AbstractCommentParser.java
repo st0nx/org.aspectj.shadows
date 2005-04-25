@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -58,6 +58,7 @@ public abstract class AbstractCommentParser {
 	// Kind of comment parser
 	public final static int COMPIL_PARSER = 0x00000001;
 	public final static int DOM_PARSER = 0x00000002;
+	public final static int SELECTION_PARSER = 0x00000003;
 	
 	// Parse infos
 	public Scanner scanner;
@@ -71,11 +72,14 @@ public abstract class AbstractCommentParser {
 	protected boolean jdk15;
 	
 	// Results
-	protected boolean inherited, deprecated;
+	protected long inheritedPositions;
+	protected boolean deprecated;
 	protected Object returnStatement;
 	
 	// Positions
-	protected int index, endComment, lineEnd;
+	protected int javadocStart, javadocEnd;
+	protected int firstTagPosition;
+	protected int index, lineEnd;
 	protected int tokenPreviousPosition, lastIdentifierEndPosition, starPosition;
 	protected int textStart, memberStart;
 	protected int tagSourceStart, tagSourceEnd;
@@ -83,7 +87,9 @@ public abstract class AbstractCommentParser {
 	protected int[] lineEnds;
 	
 	// Flags
-	protected boolean lineStarted = false, inlineTagStarted = false;
+	protected boolean lineStarted = false;
+	protected boolean inlineTagStarted = false;
+	protected boolean abort = false;
 	protected int kind;
 	
 	// Line pointers
@@ -95,6 +101,7 @@ public abstract class AbstractCommentParser {
 	protected int identifierLengthPtr;
 	protected int[] identifierLengthStack;
 	protected long[] identifierPositionStack;
+
 	// Ast stack
 	protected static int AstStackIncrement = 10;
 	protected int astPtr;
@@ -119,19 +126,24 @@ public abstract class AbstractCommentParser {
 	 * If javadoc checking is enabled, will also construct an Javadoc node, which will be stored into Parser.javadoc
 	 * slot for being consumed later on.
 	 */
-	protected boolean commentParse(int javadocStart, int javadocEnd) {
-
+	protected boolean commentParse() {
+		
 		boolean validComment = true;
 		try {
 			// Init scanner position
-			this.scanner.resetTo(javadocStart, javadocEnd);
-			this.endComment = javadocEnd;
-			this.index = javadocStart;
-			readChar(); // starting '/'
+			this.linePtr = getLineNumber(this.firstTagPosition);
+			int realStart = this.linePtr==1 ? javadocStart : this.scanner.getLineEnd(this.linePtr-1)+1;
+			if (realStart < javadocStart) realStart = javadocStart;
+			this.scanner.resetTo(realStart, javadocEnd);
+			this.index = realStart;
+			if (realStart == javadocStart) {
+				readChar(); // starting '/'
+				readChar(); // first '*'
+			}
 			int previousPosition = this.index;
-			readChar(); // first '*'
-			char nextCharacter= readChar(); // second '*'
-			
+			char nextCharacter = 0;
+			if (realStart == javadocStart) nextCharacter = readChar(); // second '*'
+
 			// Init local variables
 			this.astLengthPtr = -1;
 			this.astPtr = -1;
@@ -140,18 +152,17 @@ public abstract class AbstractCommentParser {
 			this.inlineTagStart = -1;
 			this.lineStarted = false;
 			this.returnStatement = null;
-			this.inherited = false;
+			this.inheritedPositions = -1;
 			this.deprecated = false;
-			this.linePtr = getLineNumber(javadocStart);
 			this.lastLinePtr = getLineNumber(javadocEnd);
-			this.lineEnd = (this.linePtr == this.lastLinePtr) ? this.endComment : this.scanner.getLineEnd(this.linePtr);
+			this.lineEnd = (this.linePtr == this.lastLinePtr) ? this.javadocEnd: this.scanner.getLineEnd(this.linePtr) - 1;
 			this.textStart = -1;
 			char previousChar = 0;
 			int invalidTagLineEnd = -1;
 			int invalidInlineTagLineEnd = -1;
 			
 			// Loop on each comment character
-			while (this.index < this.endComment) {
+			characterLoop: while (!abort && this.index < this.javadocEnd) {
 				previousPosition = this.index;
 				previousChar = nextCharacter;
 				
@@ -178,7 +189,7 @@ public abstract class AbstractCommentParser {
 					consumeToken();
 				}
 			
-				if (this.index >= this.endComment) {
+				if (this.index >= this.javadocEnd) {
 					break;
 				}
 				
@@ -197,20 +208,20 @@ public abstract class AbstractCommentParser {
 								}
 								validComment = false;
 								if (this.lineStarted && this.textStart != -1 && this.textStart < previousPosition) {
-									pushText(this.textStart, previousPosition);
+									if (this.kind == DOM_PARSER) pushText(this.textStart, previousPosition);
 								}
 								if (this.kind == DOM_PARSER) refreshInlineTagPosition(previousPosition);
 							}
 							if (previousChar == '{') {
 								if (this.textStart != -1 && this.textStart < this.inlineTagStart) {
-									pushText(this.textStart, this.inlineTagStart);
+									if (this.kind == DOM_PARSER) pushText(this.textStart, this.inlineTagStart);
 								}
 								this.inlineTagStarted = true;
 								invalidInlineTagLineEnd = this.lineEnd;
 							} else if (this.textStart != -1 && this.textStart < invalidTagLineEnd) {
-								pushText(this.textStart, invalidTagLineEnd);
+								if (this.kind == DOM_PARSER) pushText(this.textStart, invalidTagLineEnd);
 							}
-							this.scanner.resetTo(this.index, this.endComment);
+							this.scanner.resetTo(this.index, this.javadocEnd);
 							this.currentTokenType = -1; // flush token cache at line begin
 							try {
 								if (!parseTag(previousPosition)) {
@@ -228,23 +239,32 @@ public abstract class AbstractCommentParser {
 							} catch (InvalidInputException e) {
 								consumeToken();
 							}
+						} else {
+							if (this.kind == COMPIL_PARSER && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
+								refreshReturnStatement();
+							}
 						}
 						break;
 					case '\r':
 					case '\n':
 						if (this.lineStarted && this.textStart < previousPosition) {
-							pushText(this.textStart, previousPosition);
+							if (this.kind == DOM_PARSER) pushText(this.textStart, previousPosition);
 						}
 						this.lineStarted = false;
 						// Fix bug 51650
 						this.textStart = -1;
 						break;
 					case '}' :
+						if (this.kind == COMPIL_PARSER && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
+							refreshReturnStatement();
+						}
 						if (this.inlineTagStarted) {
-							if (this.lineStarted && this.textStart != -1 && this.textStart < previousPosition) {
+							if (this.kind == DOM_PARSER) {
+								if (this.lineStarted && this.textStart != -1 && this.textStart < previousPosition) {
 								pushText(this.textStart, previousPosition);
+								}
+								refreshInlineTagPosition(previousPosition);
 							}
-							if (this.kind == DOM_PARSER) refreshInlineTagPosition(previousPosition);
 							this.textStart = this.index;
 							this.inlineTagStarted = false;
 						} else {
@@ -255,6 +275,9 @@ public abstract class AbstractCommentParser {
 						this.lineStarted = true;
 						break;
 					case '{' :
+						if (this.kind == COMPIL_PARSER && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
+							refreshReturnStatement();
+						}
 						if (this.inlineTagStarted) {
 							this.inlineTagStarted = false;
 							// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=53279
@@ -263,10 +286,12 @@ public abstract class AbstractCommentParser {
 								int end = previousPosition<invalidInlineTagLineEnd ? previousPosition : invalidInlineTagLineEnd;
 								this.sourceParser.problemReporter().javadocUnterminatedInlineTag(this.inlineTagStart, end);
 							}
-							if (this.lineStarted && this.textStart != -1 && this.textStart < previousPosition) {
-								pushText(this.textStart, previousPosition);
+							if (this.kind == DOM_PARSER) {
+								if (this.lineStarted && this.textStart != -1 && this.textStart < previousPosition) {
+									pushText(this.textStart, previousPosition);
+								}
+								refreshInlineTagPosition(previousPosition);
 							}
-							if (this.kind == DOM_PARSER) refreshInlineTagPosition(previousPosition);
 						}
 						if (!this.lineStarted) {
 							this.textStart = previousPosition;
@@ -281,6 +306,9 @@ public abstract class AbstractCommentParser {
 						// do nothing for space or '*' characters
 						break;
 					default :
+						if (this.kind == COMPIL_PARSER && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
+							refreshReturnStatement();
+						}
 						if (!this.lineStarted) {
 							this.textStart = previousPosition;
 						}
@@ -294,16 +322,16 @@ public abstract class AbstractCommentParser {
 				this.inlineTagStarted = false;
 				if (this.reportProblems) {
 					int end = previousPosition<invalidInlineTagLineEnd ? previousPosition : invalidInlineTagLineEnd;
-					if (this.index >= this.endComment) end = invalidInlineTagLineEnd;
+					if (this.index >= this.javadocEnd) end = invalidInlineTagLineEnd;
 					this.sourceParser.problemReporter().javadocUnterminatedInlineTag(this.inlineTagStart, end);
 				}
-				if (this.lineStarted && this.textStart != -1 && this.textStart < previousPosition) {
-					pushText(this.textStart, previousPosition);
-				}
 				if (this.kind == DOM_PARSER) {
+					if (this.lineStarted && this.textStart != -1 && this.textStart < previousPosition) {
+						pushText(this.textStart, previousPosition);
+					}
 					refreshInlineTagPosition(previousPosition);
 				}
-			} else if (this.lineStarted && this.textStart < previousPosition) {
+			} else if (this.kind == DOM_PARSER && this.lineStarted && this.textStart < previousPosition) {
 				pushText(this.textStart, previousPosition);
 			}
 			updateDocComment();
@@ -318,7 +346,7 @@ public abstract class AbstractCommentParser {
 		updateLineEnd();
 	}
 
-	protected abstract Object createArgumentReference(char[] name, int dim, Object typeRef, long[] dimPos, long argNamePos) throws InvalidInputException;
+	protected abstract Object createArgumentReference(char[] name, int dim, boolean isVarargs, Object typeRef, long[] dimPos, long argNamePos) throws InvalidInputException;
 	protected abstract Object createFieldReference(Object receiver) throws InvalidInputException;
 	protected abstract Object createMethodReference(Object receiver, List arguments) throws InvalidInputException;
 	protected Object createReturnStatement() { return null; }
@@ -394,6 +422,7 @@ public abstract class AbstractCommentParser {
 			Object typeRef;
 			try {
 				typeRef = parseQualifiedName(false);
+				if (this.abort) return null; // May be aborted by specialized parser
 			} catch (InvalidInputException e) {
 				break nextArg;
 			}
@@ -420,10 +449,12 @@ public abstract class AbstractCommentParser {
 			}
 			iToken++;
 
-			// Read possible array declaration
+			// Read possible additional type info
 			int dim = 0;
+			boolean isVarargs = false;
 			long[] dimPositions = new long[20]; // assume that there won't be more than 20 dimensions...
 			if (readToken() == TerminalTokens.TokenNameLBRACKET) {
+				// array declaration
 				int dimStart = this.scanner.getCurrentTokenStartPosition();
 				while (readToken() == TerminalTokens.TokenNameLBRACKET) {
 					consumeToken();
@@ -433,6 +464,12 @@ public abstract class AbstractCommentParser {
 					consumeToken();
 					dimPositions[dim++] = (((long) dimStart) << 32) + this.scanner.getCurrentTokenEndPosition();
 				}
+			} else if (readToken() == TerminalTokens.TokenNameELLIPSIS) {
+				// ellipsis declaration
+				int dimStart = this.scanner.getCurrentTokenStartPosition();
+				dimPositions[dim++] = (((long) dimStart) << 32) + this.scanner.getCurrentTokenEndPosition();
+				consumeToken();
+				isVarargs = true;
 			}
 
 			// Read argument name
@@ -471,7 +508,8 @@ public abstract class AbstractCommentParser {
 			char[] name = argName == null ? new char[0] : argName;
 			if (token == TerminalTokens.TokenNameCOMMA) {
 				// Create new argument
-				Object argument = createArgumentReference(name, dim, typeRef, dimPositions, argNamePos);
+				Object argument = createArgumentReference(name, dim, isVarargs, typeRef, dimPositions, argNamePos);
+				if (this.abort) return null; // May be aborted by specialized parser
 				arguments.add(argument);
 				consumeToken();
 				iToken++;
@@ -484,7 +522,8 @@ public abstract class AbstractCommentParser {
 					return null;
 				}
 				// Create new argument
-				Object argument = createArgumentReference(name, dim, typeRef, dimPositions, argNamePos);
+				Object argument = createArgumentReference(name, dim, isVarargs, typeRef, dimPositions, argNamePos);
+				if (this.abort) return null; // May be aborted by specialized parser
 				arguments.add(argument);
 				consumeToken();
 				return createMethodReference(receiver, arguments);
@@ -980,6 +1019,7 @@ public abstract class AbstractCommentParser {
 						if (typeRef == null) {
 							typeRefStartPosition = this.scanner.getCurrentTokenStartPosition();
 							typeRef = parseQualifiedName(true);
+							if (this.abort) return false; // May be aborted by specialized parser
 							break;
 						}
 					default :
@@ -1058,6 +1098,7 @@ public abstract class AbstractCommentParser {
 		int start = this.scanner.currentPosition;
 		try {
 			Object typeRef = parseQualifiedName(true);
+			if (this.abort) return false; // May be aborted by specialized parser
 			if (typeRef == null) {
 				if (this.reportProblems)
 					this.sourceParser.problemReporter().javadocMissingThrowsClassName(this.tagSourceStart, this.tagSourceEnd, this.sourceParser.modifiers);
@@ -1171,7 +1212,9 @@ public abstract class AbstractCommentParser {
 	/*
 	 * Push a text element in ast node stack
 	 */
-	protected abstract void pushText(int start, int end);
+	protected void pushText(int start, int end) {
+		// do not store text by default
+	}
 
 	/*
 	 * Push a throws type ref in ast node stack.
@@ -1206,7 +1249,7 @@ public abstract class AbstractCommentParser {
 	/*
 	 * Read token only if previous was consumed
 	 */
-	private int readToken() throws InvalidInputException {
+	protected int readToken() throws InvalidInputException {
 		if (this.currentTokenType < 0) {
 			this.tokenPreviousPosition = this.scanner.currentPosition;
 			this.currentTokenType = this.scanner.getNextToken();
@@ -1232,6 +1275,13 @@ public abstract class AbstractCommentParser {
 	 * Refresh start position and length of an inline tag.
 	 */
 	protected void refreshInlineTagPosition(int previousPosition) {
+		// do nothing by default
+	}
+
+	/*
+	 * Refresh return statement
+	 */
+	protected void refreshReturnStatement() {
 		// do nothing by default
 	}
 
@@ -1299,7 +1349,7 @@ public abstract class AbstractCommentParser {
 			if (this.linePtr < this.lastLinePtr) {
 				this.lineEnd = this.scanner.getLineEnd(++this.linePtr) - 1;
 			} else {
-				this.lineEnd = this.endComment;
+				this.lineEnd = this.javadocEnd;
 				return;
 			}
 		}

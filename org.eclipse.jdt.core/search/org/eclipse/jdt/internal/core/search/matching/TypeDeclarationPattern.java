@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -14,6 +14,7 @@ import java.io.IOException;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
+import org.eclipse.jdt.internal.compiler.env.IConstants;
 import org.eclipse.jdt.internal.core.index.*;
 import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
@@ -29,10 +30,15 @@ public char[][] enclosingTypeNames;
 // set to ANNOTATION_TYPE_SUFFIX for only matching annotation types
 // set to TYPE_SUFFIX for matching both classes and interfaces
 public char typeSuffix; 
+public int modifiers;
 
 protected static char[][] CATEGORIES = { TYPE_DECL };
 
-public static char[] createIndexKey(char[] typeName, char[] packageName, char[][] enclosingTypeNames, char typeSuffix) {
+/*
+ * Create index key for type declaration pattern:
+ *		key = typeName / packageName / enclosingTypeName / typeSuffix modifiers
+ */
+public static char[] createIndexKey(int modifiers, char[] typeName, char[] packageName, char[][] enclosingTypeNames) { //, char typeSuffix) {
 	int typeNameLength = typeName == null ? 0 : typeName.length;
 	int packageLength = packageName == null ? 0 : packageName.length;
 	int enclosingNamesLength = 0;
@@ -67,7 +73,7 @@ public static char[] createIndexKey(char[] typeName, char[] packageName, char[][
 		}
 	}
 	result[pos++] = SEPARATOR;
-	result[pos] = typeSuffix;
+	result[pos] = (char) modifiers;
 	return result;
 }
 
@@ -98,10 +104,10 @@ TypeDeclarationPattern(int matchRule) {
 	super(TYPE_DECL_PATTERN, matchRule);
 }
 /*
- * Type entries are encoded as simpleTypeName / packageName / enclosingTypeName / 'C' or 'I'
- * e.g. Object/java.lang//C
- * e.g. Cloneable/java.lang//I
- * e.g. LazyValue/javax.swing/UIDefaults/C
+ * Type entries are encoded as simpleTypeName / packageName / enclosingTypeName / modifiers
+ * e.g. Object/java.lang//0
+ * e.g. Cloneable/java.lang//512
+ * e.g. LazyValue/javax.swing/UIDefaults/0
  */
 public void decodeIndexKey(char[] key) {
 	int slash = CharOperation.indexOf(SEPARATOR, key, 0);
@@ -119,7 +125,28 @@ public void decodeIndexKey(char[] key) {
 		this.enclosingTypeNames = CharOperation.equals(ONE_ZERO, names) ? ONE_ZERO_CHAR : CharOperation.splitOn('.', names);
 	}
 
-	this.typeSuffix = key[key.length - 1];
+	decodeModifiers(key[key.length - 1]);
+}
+protected void decodeModifiers(char value) {
+	this.modifiers = value; // implicit cast to int type
+
+	// Extract suffix from modifiers instead of index key
+	int kind = this.modifiers & (IConstants.AccInterface+IConstants.AccEnum+IConstants.AccAnnotation);
+	switch (kind) {
+		case IConstants.AccAnnotation:
+		case IConstants.AccAnnotation+IConstants.AccInterface:
+			this.typeSuffix = ANNOTATION_TYPE_SUFFIX;
+			break;
+		case IConstants.AccEnum:
+			this.typeSuffix = ENUM_SUFFIX;
+			break;
+		case IConstants.AccInterface:
+			this.typeSuffix = INTERFACE_SUFFIX;
+			break;
+		default:
+			this.typeSuffix = CLASS_SUFFIX;
+			break;
+	}
 }
 public SearchPattern getBlankPattern() {
 	return new TypeDeclarationPattern(R_EXACT_MATCH | R_CASE_SENSITIVE);

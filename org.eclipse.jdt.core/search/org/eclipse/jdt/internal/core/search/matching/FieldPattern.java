@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -13,6 +13,7 @@ package org.eclipse.jdt.internal.core.search.matching;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class FieldPattern extends VariablePattern implements IIndexConstants {
 
@@ -64,12 +65,16 @@ public FieldPattern(
 	char[] declaringSimpleName,	
 	char[] typeQualification, 
 	char[] typeSimpleName,
-	String signature,
+	String typeSignature,
 	int matchRule) {
 
 	this(findDeclarations, readAccess, writeAccess, name, declaringQualification, declaringSimpleName, typeQualification, typeSimpleName, matchRule);
 
-	if (signature != null) computeSignature(signature);
+	// store type signatures and arguments
+	if (typeSignature != null) {
+		this.typeSignatures = Util.splitTypeLevelsSignature(typeSignature);
+		setTypeArguments(Util.getAllTypeArguments(this.typeSignatures));
+	}
 }
 public void decodeIndexKey(char[] key) {
 	this.name = key;

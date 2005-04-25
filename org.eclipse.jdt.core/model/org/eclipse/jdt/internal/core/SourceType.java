@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -17,16 +17,16 @@ import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.compiler.IProblem;
-import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
 import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
 import org.eclipse.jdt.internal.codeassist.SelectionEngine;
 import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
-import org.eclipse.jdt.internal.core.util.Util;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * Handle for a source type. Info object is a SourceTypeElementInfo.
@@ -40,7 +40,7 @@ public class SourceType extends NamedMember implements IType {
 	
 protected SourceType(JavaElement parent, String name) {
 	super(parent, name);
-	Assert.isTrue(name.indexOf('.') == -1, Util.bind("sourcetype.invalidName", name)); //$NON-NLS-1$
+	Assert.isTrue(name.indexOf('.') == -1, Messages.bind(Messages.sourcetype_invalidName, name)); 
 }
 protected void closing(Object info) throws JavaModelException {
 	super.closing(info);
@@ -104,8 +104,10 @@ public void codeComplete(char[] snippet,int insertion,int position,char[][] loca
 	} else {
 		engine.complete(this, snippet, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic);
 	}
-	if (NameLookup.VERBOSE)
+	if (NameLookup.VERBOSE) {
 		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+	}
 }
 /**
  * @see IType
@@ -154,14 +156,6 @@ public IType createType(String contents, IJavaElement sibling, boolean force, IP
 public boolean equals(Object o) {
 	if (!(o instanceof SourceType)) return false;
 	return super.equals(o);
-}
-/**
- * @see JavaElement#equalsDOMNode
- * @deprecated JDOM is obsolete
- */
-// TODO - JDOM - remove once model ported off of JDOM
-protected boolean equalsDOMNode(IDOMNode node) {
-	return (node.getNodeType() == IDOMNode.TYPE) && super.equalsDOMNode(node);
 }
 /*
  * @see IType
@@ -337,6 +331,17 @@ public IInitializer[] getInitializers() throws JavaModelException {
 	list.toArray(array);
 	return array;
 }
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.IType#getKey()
+ */
+public String getKey() {
+	try {
+		return getKey(this, org.eclipse.jdt.internal.compiler.lookup.Binding.USE_ACCESS_FLAGS_IN_BINDING_KEY/*with access flags*/, false/*don't open*/);
+	} catch (JavaModelException e) {
+		// happen only if force open is true
+		return null;
+	}
+}
 /**
  * @see IType#getMethod
  */
@@ -430,7 +435,14 @@ public String[] getSuperInterfaceNames() throws JavaModelException {
 public String[] getSuperInterfaceTypeSignatures() throws JavaModelException {
 	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
 	char[][] names= info.getInterfaceNames();
-	return CharOperation.toStrings(names);
+	if (names == null) {
+		return CharOperation.NO_STRINGS;
+	}
+	String[] strings= new String[names.length];
+	for (int i= 0; i < names.length; i++) {
+		strings[i]= new String(Signature.createTypeSignature(names[i], false));
+	}
+	return strings;
 }
 
 public ITypeParameter[] getTypeParameters() throws JavaModelException {
@@ -438,17 +450,9 @@ public ITypeParameter[] getTypeParameters() throws JavaModelException {
 	return info.typeParameters;
 }
 
-// Get type parameter names
-// TODO (frederic) see if this method needs to be added to API
-public char[][] getTypeParameterNames() throws JavaModelException {
-	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
-	return info.getTypeParameterNames();
-}
-
 /**
  * @see IType#getTypeParameterSignatures()
  * @since 3.0
- * @deprecated
  */
 public String[] getTypeParameterSignatures() throws JavaModelException {
 	ITypeParameter[] typeParameters = getTypeParameters();
@@ -519,8 +523,8 @@ public boolean isAnonymous() {
  * @see IType
  */
 public boolean isClass() throws JavaModelException {
-	// TODO (jerome) - isClass should only return true for classes other than enum classes
-	return !isInterface();
+	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
+	return info.getKind() == IGenericType.CLASS_DECL;
 }
 
 /**
@@ -537,7 +541,12 @@ public boolean isEnum() throws JavaModelException {
  */
 public boolean isInterface() throws JavaModelException {
 	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
-	return info.getKind() == IGenericType.INTERFACE_DECL;
+	switch (info.getKind()) {
+		case IGenericType.INTERFACE_DECL:
+		case IGenericType.ANNOTATION_TYPE_DECL: // annotation is interface too
+			return true;
+	}
+	return false;
 }
 
 /**
@@ -560,6 +569,12 @@ public boolean isLocal() {
  */
 public boolean isMember() {
 	return getDeclaringType() != null;
+}
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.IType#isResolved()
+ */
+public boolean isResolved() {
+	return false;
 }
 /**
  * @see IType
@@ -667,7 +682,7 @@ public ITypeHierarchy newTypeHierarchy(IJavaProject project, IProgressMonitor mo
  */
 public ITypeHierarchy newTypeHierarchy(IJavaProject project, WorkingCopyOwner owner, IProgressMonitor monitor) throws JavaModelException {
 	if (project == null) {
-		throw new IllegalArgumentException(Util.bind("hierarchy.nullProject")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.hierarchy_nullProject); 
 	}
 	ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary working copies*/);
 	ICompilationUnit[] projectWCs = null;
@@ -744,6 +759,11 @@ public ITypeHierarchy newTypeHierarchy(
 	op.runOperation(monitor);
 	return op.getResult();	
 }
+public JavaElement resolved(Binding binding) {
+	SourceRefElement resolvedHandle = new ResolvedSourceType(this.parent, this.name, new String(binding.computeUniqueKey()));
+	resolvedHandle.occurrenceCount = this.occurrenceCount;
+	return resolvedHandle;
+}
 /**
  * @see IType#resolveType(String)
  */
@@ -760,7 +780,8 @@ public String[][] resolveType(String typeName, WorkingCopyOwner owner) throws Ja
 
 	class TypeResolveRequestor implements ISelectionRequestor {
 		String[][] answers = null;
-		void acceptType(String[] answer){
+		public void acceptType(char[] packageName, char[] tName, int modifiers, boolean isDeclaration, char[] uniqueKey, int start, int end) {
+			String[] answer = new String[]  {new String(packageName), new String(tName) };
 			if (this.answers == null) {
 				this.answers = new String[][]{ answer };
 			} else {
@@ -770,19 +791,6 @@ public String[][] resolveType(String typeName, WorkingCopyOwner owner) throws Ja
 				this.answers[length] = answer;
 			}
 		}
-		public void acceptAnnotation(char[] packageName, char[] annotationName, boolean isDeclaration, char[] genericTypeSignature, int start, int end) {
-			acceptType(new String[]  { new String(packageName), new String(annotationName) });
-		}
-		public void acceptClass(char[] packageName, char[] className, boolean isDeclaration, char[] genericTypeSignature, int start, int end) {
-			acceptType(new String[]  { new String(packageName), new String(className) });
-		}
-		public void acceptEnum(char[] packageName, char[] enumName, boolean isDeclaration, char[] genericTypeSignature, int start, int end) {
-			acceptType(new String[]  { new String(packageName), new String(enumName) });
-		}
-		public void acceptInterface(char[] packageName, char[] interfaceName, boolean isDeclaration, char[] genericTypeSignature, int start, int end) {
-			acceptType(new String[]  { new String(packageName), new String(interfaceName) });
-		}
-
 		public void acceptError(IProblem error) {
 			// ignore
 		}
@@ -815,8 +823,10 @@ public String[][] resolveType(String typeName, WorkingCopyOwner owner) throws Ja
 	}
 		
 	engine.selectType(info, typeName.toCharArray(), topLevelInfos, false);
-	if (NameLookup.VERBOSE)
+	if (NameLookup.VERBOSE) {
 		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+	}
 	return requestor.answers;
 }
 /**
@@ -845,7 +855,11 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 		}
 	} else {
 		try {
-			if (this.isInterface()) {
+			if (this.isEnum()) {
+				buffer.append("enum "); //$NON-NLS-1$
+			} else if (this.isAnnotation()) {
+				buffer.append("@interface "); //$NON-NLS-1$
+			} else if (this.isInterface()) {
 				buffer.append("interface "); //$NON-NLS-1$
 			} else {
 				buffer.append("class "); //$NON-NLS-1$

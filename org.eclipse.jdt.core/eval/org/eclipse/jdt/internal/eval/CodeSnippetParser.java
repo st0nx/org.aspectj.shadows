@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -221,6 +221,24 @@ protected void consumeInterfaceHeaderName1() {
 	// javadoc
 	typeDecl.javadoc = this.javadoc;
 	this.javadoc = null;
+}
+protected void consumeInternalCompilationUnit() {
+	// InternalCompilationUnit ::= PackageDeclaration
+	// InternalCompilationUnit ::= PackageDeclaration ImportDeclarations ReduceImports
+	// InternalCompilationUnit ::= ImportDeclarations ReduceImports
+}
+protected void consumeInternalCompilationUnitWithTypes() {
+	// InternalCompilationUnit ::= PackageDeclaration ImportDeclarations ReduceImports TypeDeclarations
+	// InternalCompilationUnit ::= PackageDeclaration TypeDeclarations
+	// InternalCompilationUnit ::= TypeDeclarations
+	// InternalCompilationUnit ::= ImportDeclarations ReduceImports TypeDeclarations
+	// consume type declarations
+	int length;
+	if ((length = this.astLengthStack[this.astLengthPtr--]) != 0) {
+		this.compilationUnit.types = new TypeDeclaration[length];
+		this.astPtr -= length;
+		System.arraycopy(this.astStack, this.astPtr + 1, this.compilationUnit.types, 0, length);
+	}
 }
 protected void consumeLocalVariableDeclarationStatement() {
 	super.consumeLocalVariableDeclarationStatement();

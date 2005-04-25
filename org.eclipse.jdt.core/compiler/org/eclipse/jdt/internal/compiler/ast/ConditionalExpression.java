@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -159,7 +159,7 @@ public class ConditionalExpression extends OperatorExpression {
 				// Jump over the else part
 				int position = codeStream.position;
 				codeStream.goto_(endifLabel);
-				codeStream.updateLastRecordedEndPC(position);
+				codeStream.updateLastRecordedEndPC(currentScope, position);
 				// Tune codestream stack size
 				if (valueRequired) {
 					codeStream.decrStackSize(this.resolvedType == LongBinding || this.resolvedType == DoubleBinding ? 2 : 1);
@@ -239,7 +239,7 @@ public class ConditionalExpression extends OperatorExpression {
 				// Jump over the else part
 				int position = codeStream.position;
 				codeStream.goto_(endifLabel);
-				codeStream.updateLastRecordedEndPC(position);
+				codeStream.updateLastRecordedEndPC(currentScope, position);
 				// No need to decrement codestream stack size
 				// since valueIfTrue was already consumed by branch bytecode
 			}
@@ -260,7 +260,7 @@ public class ConditionalExpression extends OperatorExpression {
 			codeStream.removeNotDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);
 		}
 		// no implicit conversion for boolean values
-		codeStream.updateLastRecordedEndPC(codeStream.position);
+		codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 	}
 
 	public Constant optimizedBooleanConstant() {
@@ -294,12 +294,21 @@ public class ConditionalExpression extends OperatorExpression {
 		TypeBinding valueIfTrueType = originalValueIfTrueType;
 		TypeBinding valueIfFalseType = originalValueIfFalseType;
 		if (use15specifics) {
-			if (valueIfTrueType != NullBinding && valueIfTrueType.isBaseType()) {
-				if (!valueIfFalseType.isBaseType()) {
-					valueIfFalseType = env.computeBoxingType(valueIfFalseType);
+			if (valueIfTrueType != valueIfFalseType) {
+				TypeBinding unboxedIfTrueType = valueIfTrueType.isBaseType() ? valueIfTrueType : env.computeBoxingType(valueIfTrueType);
+				TypeBinding unboxedIfFalseType = valueIfFalseType.isBaseType() ? valueIfFalseType : env.computeBoxingType(valueIfFalseType);
+				if (unboxedIfTrueType.isNumericType() && unboxedIfFalseType.isNumericType()) {
+					valueIfTrueType = unboxedIfTrueType;
+					valueIfFalseType = unboxedIfFalseType;
+				} else if (valueIfTrueType.isBaseType()) {
+					if ((valueIfTrueType == NullBinding) == valueIfFalseType.isBaseType()) {  // bool ? null : 12 --> Integer
+						valueIfFalseType = env.computeBoxingType(valueIfFalseType);
+					}
+				} else if (valueIfFalseType.isBaseType()) {
+					if ((valueIfFalseType == NullBinding) == valueIfTrueType.isBaseType()) {  // bool ? 12 : null --> Integer
+						valueIfTrueType = env.computeBoxingType(valueIfTrueType);
+					}
 				}
-			} else if (valueIfFalseType != NullBinding && valueIfFalseType.isBaseType()) {
-				valueIfTrueType = env.computeBoxingType(valueIfTrueType);
 			}
 		}
 		// Propagate the constant value from the valueIfTrue and valueIFFalse expression if it is possible
@@ -308,7 +317,7 @@ public class ConditionalExpression extends OperatorExpression {
 			&& (trueConstant = valueIfTrue.constant) != NotAConstant
 			&& (falseConstant = valueIfFalse.constant) != NotAConstant) {
 			// all terms are constant expression so we can propagate the constant
-			// from valueIFTrue or valueIfFalse to teh receiver constant
+			// from valueIFTrue or valueIfFalse to the receiver constant
 			constant = condConstant.booleanValue() ? trueConstant : falseConstant;
 		}
 		if (valueIfTrueType == valueIfFalseType) { // harmed the implicit conversion 
@@ -409,7 +418,7 @@ public class ConditionalExpression extends OperatorExpression {
 			if (commonType != null) {
 				valueIfTrue.computeConversion(scope, commonType, valueIfTrueType);
 				valueIfFalse.computeConversion(scope, commonType, valueIfFalseType);
-				return this.resolvedType = commonType;
+				return this.resolvedType = commonType.capture();
 			}
 		}
 		scope.problemReporter().conditionalArgumentsIncompatibleTypes(

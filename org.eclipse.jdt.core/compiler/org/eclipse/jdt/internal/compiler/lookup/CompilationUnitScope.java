@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -113,7 +113,7 @@ void buildTypeBindings(AccessRestriction accessRestriction) {
 			if ((mainTypeName = referenceContext.getMainTypeName()) != null // mainTypeName == null means that implementor of ICompilationUnit decided to return null
 					&& !CharOperation.equals(mainTypeName, typeDecl.name)) {
 				problemReporter().publicClassMustMatchFileName(referenceContext, typeDecl);
-				continue nextType;
+				// tolerate faulty main type name (91091), allow to proceed into type construction
 			}
 		}
 
@@ -336,6 +336,17 @@ void faultInImports() {
 					continue nextImport;
 				}
 				typesBySimpleNames.put(compoundName[compoundName.length - 1], referenceBinding);
+			} else if (importBinding instanceof FieldBinding) {
+				for (int j = 0; j < index; j++) {
+					ImportBinding resolved = resolvedImports[j];
+					// find other static fields with the same name
+					if (resolved.isStatic() && resolved.resolvedImport instanceof FieldBinding && importBinding != resolved.resolvedImport) {
+						if (CharOperation.equals(compoundName[compoundName.length - 1], resolved.compoundName[resolved.compoundName.length - 1])) {
+							problemReporter().duplicateImport(importReference);
+							continue nextImport;
+						}
+					}
+				}
 			}
 			resolvedImports[index++] = new ImportBinding(compoundName, false, importBinding, importReference);
 		}
@@ -438,8 +449,12 @@ private Binding findSingleStaticImport(char[][] compoundName) {
 	// look to see if its a static field first
 	ReferenceBinding type = (ReferenceBinding) binding;
 	FieldBinding field = findField(type, name, null, true);
-	if (field != null && field.isStatic() && field.canBeSeenBy(fPackage))
+	if (field != null && field.isValidBinding() && field.isStatic() && field.canBeSeenBy(fPackage))
 		return field;
+
+	// look to see if there is a static method with the same selector
+	MethodBinding method = findStaticMethod(type, name);
+	if (method != null) return method;
 
 	type = findMemberType(name, type);
 	if (type == null || !type.isStatic())
@@ -447,6 +462,24 @@ private Binding findSingleStaticImport(char[][] compoundName) {
 	if (!type.canBeSeenBy(fPackage))
 		return new ProblemReferenceBinding(compoundName, type, NotVisible);
 	return type;
+}
+MethodBinding findStaticMethod(ReferenceBinding currentType, char[] selector) {
+	if (!currentType.canBeSeenBy(this))
+		return null;
+
+	do {
+		MethodBinding[] methods = currentType.getMethods(selector);
+		if (methods != NoMethods) {
+			for (int i = methods.length; --i >= 0;) {
+				MethodBinding method = methods[i];
+				if (method.isStatic() && method.canBeSeenBy(fPackage))
+					return method;
+			}
+		}
+		if (currentType.superInterfaces() == null) // needed for statically imported types which don't know their hierarchy yet
+			((SourceTypeBinding) currentType).scope.connectTypeHierarchy();
+	} while ((currentType = currentType.superclass()) != null);
+	return null;
 }
 ImportBinding[] getDefaultImports() {
 	// initialize the default imports if necessary... share the default java.lang.* import
@@ -647,6 +680,7 @@ private ReferenceBinding typeToRecord(TypeBinding type) {
 		type = ((ArrayBinding) type).leafComponentType;
 
 	switch (type.kind()) {
+		case Binding.BASE_TYPE :
 		case Binding.TYPE_PARAMETER :
 		case Binding.WILDCARD_TYPE :
 			return null;
@@ -654,12 +688,9 @@ private ReferenceBinding typeToRecord(TypeBinding type) {
 		case Binding.RAW_TYPE :
 			type = type.erasure();
 	}
-
-	if (type instanceof ReferenceBinding) {
-		ReferenceBinding refType = (ReferenceBinding) type;
-		if (!refType.isLocalType()) return refType;
-	}
-	return null;
+	ReferenceBinding refType = (ReferenceBinding) type;
+	if (refType.isLocalType()) return null;
+	return refType;
 }
 public void verifyMethods(MethodVerifier verifier) {
 	for (int i = 0, length = topLevelTypes.length; i < length; i++)

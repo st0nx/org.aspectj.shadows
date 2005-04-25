@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -32,7 +32,15 @@ import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
 
 public class SelectionParser extends AssistParser {
+	// OWNER
+	protected static final int SELECTION_PARSER = 1024;
+	protected static final int SELECTION_OR_ASSIST_PARSER = ASSIST_PARSER + SELECTION_PARSER;
+	
+	// KIND : all values known by SelectionParser are between 1025 and 1549
+	protected static final int K_BETWEEN_CASE_AND_COLON = SELECTION_PARSER + 1; // whether we are inside a block
 
+	public ASTNode assistNodeParent; // the parent node of assist node
+	
 	/* public fields */
 
 	public int selectionStart, selectionEnd;
@@ -42,6 +50,8 @@ public class SelectionParser extends AssistParser {
 	
 public SelectionParser(ProblemReporter problemReporter) {
 	super(problemReporter);
+	this.javadocParser = new SelectionJavadocParser(this);
+	this.javadocParser.checkDocComment = true;
 }
 public char[] assistIdentifier(){
 	return ((SelectionScanner)scanner).selectionIdentifier;
@@ -65,12 +75,58 @@ protected void attachOrphanCompletionNode(){
 			}
 		}
 		
-		Statement statement = (Statement)wrapWithExplicitConstructorCallIfNeeded(orphan);
-		currentElement = currentElement.add(statement, 0);
+		if (orphan instanceof Expression) {
+			buildMoreCompletionContext((Expression)orphan);
+		} else {
+			Statement statement = (Statement) orphan;
+			currentElement = currentElement.add(statement, 0);
+		}
 		currentToken = 0; // given we are not on an eof, we do not want side effects caused by looked-ahead token
 	}
 }
-
+private void buildMoreCompletionContext(Expression expression) {
+	ASTNode parentNode = null;
+	
+	int kind = topKnownElementKind(SELECTION_OR_ASSIST_PARSER);
+	if(kind != 0) {
+//		int info = topKnownElementInfo(SELECTION_OR_ASSIST_PARSER);
+		nextElement : switch (kind) {
+			case K_BETWEEN_CASE_AND_COLON :
+				if(this.expressionPtr > 0) {
+					SwitchStatement switchStatement = new SwitchStatement();
+					switchStatement.expression = this.expressionStack[this.expressionPtr - 1];
+					if(this.astLengthPtr > -1 && this.astPtr > -1) {
+						int length = this.astLengthStack[this.astLengthPtr];
+						int newAstPtr = this.astPtr - length;
+						ASTNode firstNode = this.astStack[newAstPtr + 1];
+						if(length != 0 && firstNode.sourceStart > switchStatement.expression.sourceEnd) {
+							switchStatement.statements = new Statement[length + 1];
+							System.arraycopy(
+								this.astStack, 
+								newAstPtr + 1, 
+								switchStatement.statements, 
+								0, 
+								length); 
+						}
+					}
+					CaseStatement caseStatement = new CaseStatement(expression, expression.sourceStart, expression.sourceEnd);
+					if(switchStatement.statements == null) {
+						switchStatement.statements = new Statement[]{caseStatement};
+					} else {
+						switchStatement.statements[switchStatement.statements.length - 1] = caseStatement;
+					}
+					parentNode = switchStatement;
+					this.assistNodeParent = parentNode;
+				}
+				break;
+		}
+	}
+	if(parentNode != null) {
+		currentElement = currentElement.add((Statement)parentNode, 0);
+	} else {
+		currentElement = currentElement.add((Statement)wrapWithExplicitConstructorCallIfNeeded(expression), 0);
+	}
+}
 private boolean checkRecoveredType() {
 	if (currentElement instanceof RecoveredType){
 		/* check if current awaiting identifier is the completion identifier */
@@ -353,66 +409,6 @@ protected void consumeEnterAnonymousClassBody() {
 		lastIgnoredToken = -1;		
 	}
 }
-protected void consumeEnterAnonymousClassBodySimpleName() {
-	// EnterAnonymousClassBody ::= $empty
-
-	if (this.indexOfAssistIdentifier() < 0) {
-		super.consumeEnterAnonymousClassBodySimpleName();
-		return;
-	}
-	pushOnGenericsLengthStack(0);
-	pushOnGenericsIdentifiersLengthStack(identifierLengthStack[identifierLengthPtr]);
-	// trick to avoid creating a selection on type reference
-	char [] oldIdent = this.assistIdentifier();
-	this.setAssistIdentifier(null);		
-	TypeReference typeReference = getTypeReference(0);
-	this.setAssistIdentifier(oldIdent);	
-
-	TypeDeclaration anonymousType = new TypeDeclaration(this.compilationUnit.compilationResult); 
-	anonymousType.name = TypeDeclaration.ANONYMOUS_EMPTY_NAME;
-	anonymousType.bits |= ASTNode.AnonymousAndLocalMask;
-	QualifiedAllocationExpression alloc = new SelectionOnQualifiedAllocationExpression(anonymousType); 
-	markEnclosingMemberWithLocalType();
-	pushOnAstStack(anonymousType);
-
-	alloc.sourceEnd = rParenPos; //the position has been stored explicitly
-	int argumentLength;
-	if ((argumentLength = expressionLengthStack[expressionLengthPtr--]) != 0) {
-		expressionPtr -= argumentLength;
-		System.arraycopy(
-			expressionStack, 
-			expressionPtr + 1, 
-			alloc.arguments = new Expression[argumentLength], 
-			0, 
-			argumentLength); 
-	}
-	alloc.type = typeReference;
-
-	anonymousType.sourceEnd = alloc.sourceEnd;
-	//position at the type while it impacts the anonymous declaration
-	anonymousType.sourceStart = anonymousType.declarationSourceStart = alloc.type.sourceStart;
-	alloc.sourceStart = intStack[intPtr--];
-	pushOnExpressionStack(alloc);
-
-	assistNode = alloc;
-	this.lastCheckPoint = alloc.sourceEnd + 1;
-	if (!diet){
-		this.restartRecovery	= true;	// force to restart in recovery mode
-		this.lastIgnoredToken = -1;
-		currentToken = 0; // opening brace already taken into account
-		hasReportedError = true;
-	}
-
-	anonymousType.bodyStart = scanner.currentPosition;
-	listLength = 0; // will be updated when reading super-interfaces
-	// recovery
-	if (currentElement != null){
-		lastCheckPoint = anonymousType.bodyStart;
-		currentElement = currentElement.add(anonymousType, 0);
-		currentToken = 0; // opening brace already taken into account
-		lastIgnoredToken = -1;		
-	}
-}
 protected void consumeEnterVariable() {
 	// EnterVariable ::= $empty
 	// do nothing by default
@@ -498,7 +494,7 @@ protected void consumeFormalParameter(boolean isVarArgs) {
 		final int typeDimensions = firstDimensions + extendedDimensions;
 		TypeReference type = getTypeReference(typeDimensions);
 		if (isVarArgs) {
-			type = type.copyDims(typeDimensions + 1);
+			type = copyDims(type, typeDimensions + 1);
 			if (extendedDimensions == 0) {
 				type.sourceEnd = endOfEllipsis;
 			}
@@ -606,12 +602,6 @@ protected void consumeMarkerAnnotation() {
 	this.lastCheckPoint = typeReference.sourceEnd + 1;
 
 	markerAnnotation = new MarkerAnnotation(typeReference, this.intStack[this.intPtr--]);
-	int sourceStart = markerAnnotation.sourceStart;
-	if (this.modifiersSourceStart < 0) {
-		this.modifiersSourceStart = sourceStart;
-	} else if (this.modifiersSourceStart > sourceStart) {
-		this.modifiersSourceStart = sourceStart;
-	}
 	markerAnnotation.declarationSourceEnd = markerAnnotation.sourceEnd;
 	pushOnExpressionStack(markerAnnotation);
 }
@@ -787,12 +777,6 @@ protected void consumeNormalAnnotation() {
 			0, 
 			length); 
 	}
-	int sourceStart = normalAnnotation.sourceStart;
-	if (this.modifiersSourceStart < 0) {
-		this.modifiersSourceStart = sourceStart;
-	} else if (this.modifiersSourceStart > sourceStart) {
-		this.modifiersSourceStart = sourceStart;
-	}
 	normalAnnotation.declarationSourceEnd = this.rParenPos;
 	pushOnExpressionStack(normalAnnotation);
 }
@@ -842,12 +826,6 @@ protected void consumeSingleMemberAnnotation() {
 	singleMemberAnnotation = new SingleMemberAnnotation(typeReference, this.intStack[this.intPtr--]);
 	singleMemberAnnotation.memberValue = this.expressionStack[this.expressionPtr--];
 	this.expressionLengthPtr--;
-	int sourceStart = singleMemberAnnotation.sourceStart;
-	if (this.modifiersSourceStart < 0) {
-		this.modifiersSourceStart = sourceStart;
-	} else if (this.modifiersSourceStart > sourceStart) {
-		this.modifiersSourceStart = sourceStart;
-	}
 	singleMemberAnnotation.declarationSourceEnd = this.rParenPos;
 	pushOnExpressionStack(singleMemberAnnotation);
 }
@@ -901,6 +879,23 @@ protected void consumeStaticImportOnDemandDeclarationName() {
 		currentElement = currentElement.add(reference, 0);
 		lastIgnoredToken = -1;
 		restartRecovery = true; // used to avoid branching back into the regular automaton		
+	}
+}
+protected void consumeToken(int token) {
+	super.consumeToken(token);
+	
+	// if in a method or if in a field initializer 
+	if (isInsideMethod() || isInsideFieldInitialization()) {
+		switch (token) {
+			case TokenNamecase :
+				pushOnElementStack(K_BETWEEN_CASE_AND_COLON);
+				break;
+			case TokenNameCOLON:
+				if(topKnownElementKind(SELECTION_OR_ASSIST_PARSER) == K_BETWEEN_CASE_AND_COLON) { 
+					popElement(K_BETWEEN_CASE_AND_COLON);
+				}
+				break;
+		}
 	}
 }
 protected void consumeTypeImportOnDemandDeclarationName() {

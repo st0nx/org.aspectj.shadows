@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -146,7 +146,24 @@ public interface IClasspathEntry {
 	 * @since 2.0
 	 */
 	int CPE_CONTAINER = 5;
+	
+	/**
+	 * Returns whether the access rules of the project's exported entries should be combined with this entry's access rules.
+	 * Returns true for container entries.
+	 * Returns false otherwise.
+	 * 
+	 * @return whether the access rules of the project's exported entries should be combined with this entry's access rules
+	 * @since 3.1
+	 */
+	boolean combineAccessRules();
 
+	/**
+	 * Returns the possibly empty list of access rules for this entry.
+	 * 
+	 * @return the possibly empty list of access rules for this entry
+	 * @since 3.1
+	 */
+	IAccessRule[] getAccessRules();
 	/**
 	 * Returns the kind of files found in the package fragments identified by this
 	 * classpath entry.
@@ -198,15 +215,6 @@ public interface IClasspathEntry {
 	 * <p>
 	 * Note that there is no need to supply a pattern to exclude ".class" files
 	 * because a source entry filters these out automatically.
-	 * </p>
-	 * <p>
-	 * Exclusion patterns on library, project, container,
-	 * and variable classpath entries (added in 3.1) are used in a similar
-	 * fashion to express access restrictions. Each path
-	 * specified is relative path encoding a package-qualified class name
-	 * (e.g., <code>java/lang/String</code>). Class names that match
-	 * the exclusion pattern should not be referred to by source code in the
-	 * project (compiler will generate a warning or error).
 	 * </p>
 	 * <p>
 	 * The pattern mechanism is similar to Ant's. Each pattern is represented as
@@ -272,6 +280,15 @@ public interface IClasspathEntry {
 	IPath[] getExclusionPatterns();
 	
 	/**
+	 * Returns the extra classpath attributes for this classpath entry. Returns an empty array if this entry
+	 * has no extra attributes.
+	 * 
+	 * @return the possibly empty list of extra classpath attributes for this classpath entry
+	 * @since 3.1
+	 */
+	IClasspathAttribute[] getExtraAttributes();
+	
+	/**
 	 * Returns the set of patterns used to explicitly define resources or classes
 	 * to be included with this classpath entry.
 	 * <p>
@@ -287,15 +304,6 @@ public interface IClasspathEntry {
 	 * patterns. Exclusion patterns have higher precedence than inclusion
 	 * patterns; in other words, exclusion patterns can remove files for the
 	 * ones that are to be included, not the other way around.
-	 * </p>
-	 * <p>
-	 * Inclusion patterns on library, project, container,
-	 * and variable classpath entries (added in 3.1) are used in a similar
-	 * fashion to express access restrictions. Each path
-	 * specified is relative path encoding a package-qualified class name
-	 * (e.g., <code>java/lang/String</code>). Class names that match
-	 * the inclusion pattern can be legally referred to by source code in the
-	 * project.
 	 * </p>
 	 * <p>
 	 * See {@link #getExclusionPatterns()} for a discussion of the syntax and
@@ -326,7 +334,7 @@ public interface IClasspathEntry {
 	 * 
 	 * @return the possibly empty list of resource inclusion patterns 
 	 *   associated with this classpath entry, or <code>null</code> if this kind
-	 *   of classpath entry does not support exclusion patterns
+	 *   of classpath entry does not support inclusion patterns
 	 * @since 3.0
 	 */
 	IPath[] getInclusionPatterns();

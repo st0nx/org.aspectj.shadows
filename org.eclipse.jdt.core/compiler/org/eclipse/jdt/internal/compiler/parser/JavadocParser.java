@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -16,8 +16,6 @@ import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
-import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
-import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
 /**
  * Parser specialized for decoding javadoc comments
@@ -32,9 +30,6 @@ public class JavadocParser extends AbstractCommentParser {
 	private int invalidParamReferencesPtr = -1;
 	private ASTNode[] invalidParamReferencesStack;
 
-	// Store current tag stack pointer
-	private int currentAstPtr= -2;
-
 	public JavadocParser(Parser sourceParser) {
 		super(sourceParser);
 		this.checkDocComment = this.sourceParser.options.docCommentSupport;
@@ -48,30 +43,40 @@ public class JavadocParser extends AbstractCommentParser {
 	 * If javadoc checking is enabled, will also construct an Javadoc node, which will be stored into Parser.javadoc
 	 * slot for being consumed later on.
 	 */
-	public boolean checkDeprecation(int javadocStart, int javadocEnd) {
+	public boolean checkDeprecation(int commentPtr) {
 
+		// Store javadoc positions
+		this.javadocStart = this.sourceParser.scanner.commentStarts[commentPtr];
+		this.javadocEnd = this.sourceParser.scanner.commentStops[commentPtr]-1;
+		this.firstTagPosition = this.sourceParser.scanner.commentTagStarts[commentPtr];
+
+		// Init javadoc if necessary
+		if (this.checkDocComment) {
+			this.docComment = new Javadoc(javadocStart, javadocEnd);
+		} else {
+			this.docComment = null;
+		}
+		
+		// If there's no tag in javadoc, return without parsing it
+		if (this.firstTagPosition == 0) {
+			return false;
+		}
+
+		// Parse
 		try {
 			this.source = this.sourceParser.scanner.source;
-			this.index = javadocStart +3;
-			this.endComment = javadocEnd - 2;
 			if (this.checkDocComment) {
 				// Initialization
 				this.scanner.lineEnds = this.sourceParser.scanner.lineEnds;
 				this.scanner.linePtr = this.sourceParser.scanner.linePtr;
 				this.lineEnds = this.scanner.lineEnds;
-				this.docComment = new Javadoc(javadocStart, javadocEnd);
-				commentParse(javadocStart, javadocEnd);
+				commentParse();
 			} else {
-				// Init javadoc if necessary
-				if (this.sourceParser.options.getSeverity(CompilerOptions.MissingJavadocComments) != ProblemSeverities.Ignore) {
-					this.docComment = new Javadoc(javadocStart, javadocEnd);
-				} else {
-					this.docComment = null;
-				}
 				
 				// Parse comment
 				int firstLineNumber = this.sourceParser.scanner.getLineNumber(javadocStart);
 				int lastLineNumber = this.sourceParser.scanner.getLineNumber(javadocEnd);
+				this.index = javadocStart +3;
 	
 				// scan line per line, since tags must be at beginning of lines only
 				nextLine : for (int line = firstLineNumber; line <= lastLineNumber; line++) {
@@ -128,7 +133,7 @@ public class JavadocParser extends AbstractCommentParser {
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#createArgumentReference(char[], java.lang.Object, int)
 	 */
-	protected Object createArgumentReference(char[] name, int dim, Object typeRef, long[] dimPositions, long argNamePos) throws InvalidInputException {
+	protected Object createArgumentReference(char[] name, int dim, boolean isVarargs, Object typeRef, long[] dimPositions, long argNamePos) throws InvalidInputException {
 		try {
 			TypeReference argTypeRef = (TypeReference) typeRef;
 			if (dim > 0) {
@@ -142,7 +147,12 @@ public class JavadocParser extends AbstractCommentParser {
 				}
 			}
 			int argEnd = argTypeRef.sourceEnd;
-			if (dim > 0) argEnd = (int) dimPositions[dim-1];
+			if (dim > 0) {
+				argEnd = (int) dimPositions[dim-1];
+				if (isVarargs) {
+					argTypeRef.bits |= ASTNode.IsVarArgs; // set isVarArgs
+				}
+			}
 			if (argNamePos >= 0) argEnd = (int) argNamePos;
 			return new JavadocArgumentExpression(name, argTypeRef.sourceStart, argEnd, argTypeRef);
 		}
@@ -159,7 +169,7 @@ public class JavadocParser extends AbstractCommentParser {
 			TypeReference typeRef = (TypeReference) receiver;
 			if (typeRef == null) {
 				char[] name = this.sourceParser.compilationUnit.getMainTypeName();
-				typeRef = new ImplicitDocTypeReference(name, this.memberStart);
+				typeRef = new JavadocImplicitTypeReference(name, this.memberStart);
 			}
 			// Create field
 			JavadocFieldReference field = new JavadocFieldReference(this.identifierStack[0], this.identifierPositionStack[0]);
@@ -184,8 +194,20 @@ public class JavadocParser extends AbstractCommentParser {
 			boolean isConstructor = false;
 			if (typeRef == null) {
 				char[] name = this.sourceParser.compilationUnit.getMainTypeName();
+				int ptr = this.sourceParser.astPtr;
+				while (ptr >= 0) {
+					Object node = this.sourceParser.astStack[ptr];
+					if (node instanceof TypeDeclaration) {
+						TypeDeclaration typeDecl = (TypeDeclaration) node;
+						if (typeDecl.bodyEnd == 0) { // type declaration currenly parsed
+							name = typeDecl.name;
+							break;
+						}
+					}
+					ptr--;
+				}
 				isConstructor = CharOperation.equals(this.identifierStack[0], name);
-				typeRef = new ImplicitDocTypeReference(name, this.memberStart);
+				typeRef = new JavadocImplicitTypeReference(name, this.memberStart);
 			} else {
 				char[] name = null;
 				if (typeRef instanceof JavadocSingleTypeReference) {
@@ -204,11 +226,13 @@ public class JavadocParser extends AbstractCommentParser {
 					JavadocAllocationExpression alloc = new JavadocAllocationExpression(this.identifierPositionStack[0]);
 					alloc.type = typeRef;
 					alloc.tagValue = this.tagValue;
+					alloc.sourceEnd = this.scanner.getCurrentTokenEndPosition();
 					return alloc;
 				} else {
 					JavadocMessageSend msg = new JavadocMessageSend(this.identifierStack[0], this.identifierPositionStack[0]);
 					msg.receiver = typeRef;
 					msg.tagValue = this.tagValue;
+					msg.sourceEnd = this.scanner.getCurrentTokenEndPosition();
 					return msg;
 				}
 			} else {
@@ -219,17 +243,19 @@ public class JavadocParser extends AbstractCommentParser {
 					alloc.arguments = expressions;
 					alloc.type = typeRef;
 					alloc.tagValue = this.tagValue;
+					alloc.sourceEnd = this.scanner.getCurrentTokenEndPosition();
 					return alloc;
 				} else {
 					JavadocMessageSend msg = new JavadocMessageSend(this.identifierStack[0], this.identifierPositionStack[0], expressions);
 					msg.receiver = typeRef;
 					msg.tagValue = this.tagValue;
+					msg.sourceEnd = this.scanner.getCurrentTokenEndPosition();
 					return msg;
 				}
 			}
 		}
 		catch (ClassCastException ex) {
-				throw new InvalidInputException();
+			throw new InvalidInputException();
 		}
 	}
 	/* (non-Javadoc)
@@ -237,8 +263,7 @@ public class JavadocParser extends AbstractCommentParser {
 	 */
 	protected Object createReturnStatement() {
 		return new JavadocReturnStatement(this.scanner.getCurrentTokenStartPosition(),
-					this.scanner.getCurrentTokenEndPosition(),
-					this.scanner.getRawTokenSourceEnd());
+					this.scanner.getCurrentTokenEndPosition());
 	}
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#createTypeReference()
@@ -269,7 +294,6 @@ public class JavadocParser extends AbstractCommentParser {
 	protected boolean parseReturn() {
 		if (this.returnStatement == null) {
 			this.returnStatement = createReturnStatement();
-			this.currentAstPtr = this.astPtr;
 			return true;
 		}
 		if (this.sourceParser != null) this.sourceParser.problemReporter().javadocDuplicatedReturnTag(
@@ -278,24 +302,61 @@ public class JavadocParser extends AbstractCommentParser {
 		return false;
 	}
 
-	/* (non-Javadoc)
-	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#parseTag(int)
-	 */
 	protected boolean parseTag(int previousPosition) throws InvalidInputException {
 		boolean valid = false;
-
-		// In case of previous return tag, set it to not empty if parsing an inline tag
-		if (this.currentAstPtr != -2 && this.returnStatement != null) {
-			this.currentAstPtr = -2;
-			JavadocReturnStatement javadocReturn = (JavadocReturnStatement) this.returnStatement;
-			javadocReturn.empty = javadocReturn.empty && !this.inlineTagStarted;
-		}
-
+	
 		// Read tag name
 		int token = readTokenAndConsume();
 		this.tagSourceStart = this.scanner.getCurrentTokenStartPosition();
 		this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
-		char[] tag = this.scanner.getCurrentIdentifierSource(); // first token is either an identifier or a keyword
+	
+		// Try to get tag name other than java identifier
+		// (see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=51660)
+		char pc = peekChar();
+		boolean validTag = false;
+		switch (token) {
+			case TerminalTokens.TokenNameIdentifier:
+			case TerminalTokens.TokenNamereturn:
+			case TerminalTokens.TokenNamethrows:
+				validTag= true;
+		}
+		tagNameToken: while (token != TerminalTokens.TokenNameEOF && this.index < this.scanner.eofPosition) {
+			// !, ", #, %, &, ', -, :, <, >, * chars and spaces are not allowed in tag names
+			switch (pc) {
+				case '}':
+				case '*': // break for '*' as this is perhaps the end of comment (bug 65288)
+					break tagNameToken;
+				case '!':
+				case '#':
+				case '%':
+				case '&':
+				case '\'':
+				case '"':
+				case ':':
+				// case '-': allowed in tag names as this character is often used in doclets (bug 68087)
+				case '<':
+				case '>':
+					readChar();
+					this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
+					validTag = false;
+					break;
+				default:
+					if (pc == ' ' || Character.isWhitespace(pc)) break tagNameToken;
+					this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
+					token = readTokenAndConsume();
+			}
+			pc = peekChar();
+		}
+		if (!validTag) {
+			this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
+			if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidTag(this.tagSourceStart, this.tagSourceEnd);
+			return false;
+		}
+		int length = this.tagSourceEnd-this.tagSourceStart+1;
+		char[] tag = new char[length];
+		System.arraycopy(this.source, this.tagSourceStart, tag, 0, length);
+		this.index = this.tagSourceEnd+1;
+		this.scanner.currentPosition = this.tagSourceEnd+1;
 
 		// Decide which parse to perform depending on tag name
 		this.tagValue = NO_TAG_VALUE;
@@ -316,7 +377,9 @@ public class JavadocParser extends AbstractCommentParser {
 							// Note that for DOM_PARSER, nodes stack may be not empty even no '@' tag
 							// was encountered in comment. But it cannot be the case for COMPILER_PARSER
 							// and so is enough as it is only this parser which signals the missing tag warnings...
-							this.inherited = this.astPtr==-1;
+							if (this.astPtr==-1) {
+								this.inheritedPositions = (((long) this.tagSourceStart) << 32) + this.tagSourceEnd;
+							}
 							valid = true;
 							this.tagValue = TAG_INHERITDOC_VALUE;
 						}
@@ -505,40 +568,6 @@ public class JavadocParser extends AbstractCommentParser {
 		return true;
 	}
 
-	/* (non-Javadoc)
-	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#pushText(int, int)
-	 */
-	protected void pushText(int start, int end) {
-		// In case of previous return tag, verify that text make it not empty
-		if (this.currentAstPtr != -2 && this.returnStatement != null) {
-			int position = this.index;
-			this.index = start;
-			boolean empty = true;
-			boolean star = false;
-			char ch = readChar();
-			// Look for first character other than white or '*'
-			if (Character.isWhitespace(ch) || start>(this.tagSourceEnd+1)) {
-				while (this.index <= end && empty) {
-					if (!star) {
-						empty = Character.isWhitespace(ch) || ch == '*';
-						star = ch == '*';
-					} else if (ch != '*') {
-						empty = false;
-						break;
-					}
-					ch = readChar();
-				}
-			}
-			// Store result in previous return tag
-			((JavadocReturnStatement)this.returnStatement).empty = empty;
-			// Reset position and current ast ptr if we are on a different tag than previous return one
-			this.index = position;
-			if (this.currentAstPtr != this.astPtr) {
-				this.currentAstPtr = -2;
-			}
-		}
-	}
-
 	/*
 	 * Push a throws type ref in ast node stack.
 	 */
@@ -569,12 +598,19 @@ public class JavadocParser extends AbstractCommentParser {
 	}
 
 	/*
+	 * Refresh return statement
+	 */
+	protected void refreshReturnStatement() {
+		((JavadocReturnStatement) this.returnStatement).empty = false;
+	}
+
+	/*
 	 * Fill associated comment fields with ast nodes information stored in stack.
 	 */
 	protected void updateDocComment() {
 		
-		// Set inherited flag
-		this.docComment.inherited = this.inherited;
+		// Set inherited positions
+		this.docComment.inheritedPositions = this.inheritedPositions;
 
 		// Set return node if present
 		if (this.returnStatement != null) {

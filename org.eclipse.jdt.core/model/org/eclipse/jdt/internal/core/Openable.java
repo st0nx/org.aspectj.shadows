@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -21,6 +21,7 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
+import org.eclipse.core.runtime.PerformanceStats;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
 import org.eclipse.jdt.internal.codeassist.SelectionEngine;
@@ -101,6 +102,14 @@ protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUn
 	if (requestor == null) {
 		throw new IllegalArgumentException("Completion requestor cannot be null"); //$NON-NLS-1$
 	}
+	PerformanceStats stats = null;
+	if(CompletionEngine.PERF) {
+		stats = PerformanceStats.getStats(JavaModelManager.COMPLETION_PERF, this);
+		stats.startRun(
+				new String(cu.getFileName()) +
+				" at " + //$NON-NLS-1$
+				position);
+	}
 	IBuffer buffer = getBuffer();
 	if (buffer == null) {
 		return;
@@ -117,11 +126,27 @@ protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUn
 	// code complete
 	CompletionEngine engine = new CompletionEngine(environment, requestor, project.getOptions(true), project);
 	engine.complete(cu, position, 0);
-	if (NameLookup.VERBOSE)
+	if(CompletionEngine.PERF) {
+		stats.endRun();
+	}
+	if (NameLookup.VERBOSE) {
 		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+	}
 }
 protected IJavaElement[] codeSelect(org.eclipse.jdt.internal.compiler.env.ICompilationUnit cu, int offset, int length, WorkingCopyOwner owner) throws JavaModelException {
-
+	PerformanceStats stats = null;
+	if(SelectionEngine.PERF) {
+		stats = PerformanceStats.getStats(JavaModelManager.SELECTION_PERF, this);
+		stats.startRun(
+				new String(cu.getFileName()) +
+				" at [" + //$NON-NLS-1$
+				offset +
+				"," + //$NON-NLS-1$
+				length +
+				"]"); //$NON-NLS-1$
+	}
+	
 	JavaProject project = (JavaProject)getJavaProject();
 	SearchableEnvironment environment = project.newSearchableNameEnvironment(owner);
 	
@@ -138,8 +163,13 @@ protected IJavaElement[] codeSelect(org.eclipse.jdt.internal.compiler.env.ICompi
 	// fix for 1FVXGDK
 	SelectionEngine engine = new SelectionEngine(environment, requestor, project.getOptions(true));
 	engine.select(cu, offset, offset + length - 1);
-	if (NameLookup.VERBOSE)
+	if(SelectionEngine.PERF) {
+		stats.endRun();
+	}
+	if (NameLookup.VERBOSE) {
 		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+	}
 	return requestor.getElements();
 }
 /*

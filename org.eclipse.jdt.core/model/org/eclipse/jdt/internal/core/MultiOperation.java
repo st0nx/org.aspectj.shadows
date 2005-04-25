@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -103,11 +103,13 @@ public abstract class MultiOperation extends JavaModelOperation {
 	 * Returns the new name for <code>element</code>, or <code>null</code>
 	 * if there are no renamings specified.
 	 */
-	protected String getNewNameFor(IJavaElement element) {
+	protected String getNewNameFor(IJavaElement element) throws JavaModelException {
+		String newName = null;
 		if (this.renamings != null)
-			return (String) this.renamings.get(element);
-		else
-			return null;
+			newName = (String) this.renamings.get(element);
+		if (newName == null && element instanceof IMethod && ((IMethod) element).isConstructor())
+			newName = getDestinationParent(element).getElementName();
+		return newName;
 	}
 	/**
 	 * Sets up the renamings hashtable - keys are the elements and

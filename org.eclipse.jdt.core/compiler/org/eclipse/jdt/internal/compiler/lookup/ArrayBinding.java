@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -42,28 +42,38 @@ public int kind() {
 
 /**
  * Collect the substitutes into a map for certain type variables inside the receiver type
- * e.g.   Collection<T>.findSubstitute(T, Collection<List<X>>):   T --> List<X>
+ * e.g.   Collection<T>.collectSubstitutes(Collection<List<X>>, Map), will populate Map with: T --> List<X>
  */
-public void collectSubstitutes(TypeBinding otherType, Map substitutes) {
-    if (otherType.isArrayType()) {
-        int otherDim = otherType.dimensions();
-        if (otherDim == this.dimensions) {
-		    this.leafComponentType.collectSubstitutes(otherType.leafComponentType(), substitutes);
-        } else if (otherDim > this.dimensions) {
-            ArrayBinding otherReducedType = this.environment.createArrayType(otherType.leafComponentType(), otherDim - this.dimensions);
-            this.leafComponentType.collectSubstitutes(otherReducedType, substitutes);
-        }
-    } 
+public void collectSubstitutes(Scope scope, TypeBinding otherType, Map substitutes, int constraint) {
+	
+	if ((this.tagBits & TagBits.HasTypeVariable) == 0) return;
+	if (otherType == NullBinding) return;
+	
+	switch(otherType.kind()) {
+		case Binding.ARRAY_TYPE :
+	        int otherDim = otherType.dimensions();
+	        if (otherDim == this.dimensions) {
+			    this.leafComponentType.collectSubstitutes(scope, otherType.leafComponentType(), substitutes, constraint);
+	        } else if (otherDim > this.dimensions) {
+	            ArrayBinding otherReducedType = this.environment.createArrayType(otherType.leafComponentType(), otherDim - this.dimensions);
+	            this.leafComponentType.collectSubstitutes(scope, otherReducedType, substitutes, constraint);
+	        }
+			break;
+		case Binding.TYPE_PARAMETER :
+			//TypeVariableBinding variable = (TypeVariableBinding) otherType;
+			// TODO (philippe) should consider array bounds, and recurse
+			break;
+	}
 }
 
 /*
  * brakets leafUniqueKey
  * p.X[][] --> [[Lp/X;
  */
-public char[] computeUniqueKey() {
+public char[] computeUniqueKey(boolean withAccessFlags) {
 	char[] brackets = new char[dimensions];
 	for (int i = dimensions - 1; i >= 0; i--) brackets[i] = '[';
-	return CharOperation.concat(brackets, this.leafComponentType.computeUniqueKey());
+	return CharOperation.concat(brackets, this.leafComponentType.computeUniqueKey(false/*without access flags*/));
  }
 	
 /**
@@ -133,20 +143,20 @@ public boolean isCompatibleWith(TypeBinding right) {
 	if (this == right)
 		return true;
 
-	if (right.isArrayType()) {
-		ArrayBinding rightArray = (ArrayBinding) right;
-		if (rightArray.leafComponentType.isBaseType())
-			return false; // relying on the fact that all equal arrays are identical
-		if (dimensions == rightArray.dimensions)
-			return leafComponentType.isCompatibleWith(rightArray.leafComponentType);
-		if (dimensions < rightArray.dimensions)
-			return false; // cannot assign 'String[]' into 'Object[][]' but can assign 'byte[][]' into 'Object[]'
-	} else {
-		if (right.isBaseType())
+	switch (right.kind()) {
+		case Binding.ARRAY_TYPE :
+			ArrayBinding rightArray = (ArrayBinding) right;
+			if (rightArray.leafComponentType.isBaseType())
+				return false; // relying on the fact that all equal arrays are identical
+			if (dimensions == rightArray.dimensions)
+				return leafComponentType.isCompatibleWith(rightArray.leafComponentType);
+			if (dimensions < rightArray.dimensions)
+				return false; // cannot assign 'String[]' into 'Object[][]' but can assign 'byte[][]' into 'Object[]'
+			break;
+		case Binding.BASE_TYPE :
 			return false;
-		if (right.isWildcard()) {
+		case Binding.WILDCARD_TYPE :
 		    return ((WildcardBinding) right).boundCheck(this);
-		}
 	}
 	//Check dimensions - Java does not support explicitly sized dimensions for types.
 	//However, if it did, the type checking support would go here.

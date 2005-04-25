@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -16,7 +16,6 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.search.SearchMatch;
 import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.*;
@@ -130,6 +129,10 @@ protected void matchLevelAndReportImportRef(ImportReference importRef, Binding b
 			FieldBinding fieldBinding = (FieldBinding) binding;
 			if (!fieldBinding.isStatic()) return;
 			refBinding = fieldBinding.declaringClass;
+		} else if (binding instanceof MethodBinding) {
+			MethodBinding methodBinding = (MethodBinding) binding;
+			if (!methodBinding.isStatic()) return;
+			refBinding = methodBinding.declaringClass;
 		} else if (binding instanceof MemberTypeBinding) {
 			MemberTypeBinding memberBinding = (MemberTypeBinding) binding;
 			if (!memberBinding.isStatic()) return;
@@ -139,7 +142,7 @@ protected void matchLevelAndReportImportRef(ImportReference importRef, Binding b
 }
 protected void matchReportImportRef(ImportReference importRef, Binding binding, IJavaElement element, int accuracy, MatchLocator locator) throws CoreException {
 	if (binding == null) {
-		this.matchReportReference(importRef, element, accuracy, locator);
+		this.matchReportReference(importRef, element, null/*no binding*/, accuracy, locator);
 	} else {
 		if (locator.encloses(element)) {
 			long[] positions = importRef.sourcePositions;
@@ -155,12 +158,12 @@ protected void matchReportImportRef(ImportReference importRef, Binding binding, 
 				last = ((PackageBinding) binding).compoundName.length;
 			int start = (int) (positions[0] >>> 32);
 			int end = (int) positions[last - 1];
-			SearchMatch match = locator.newPackageReferenceMatch(element, accuracy, start, end-start+1, importRef);
+			match = locator.newPackageReferenceMatch(element, accuracy, start, end-start+1, importRef);
 			locator.report(match);
 		}
 	}
 }
-protected void matchReportReference(ASTNode reference, IJavaElement element, int accuracy, MatchLocator locator) throws CoreException {
+protected void matchReportReference(ASTNode reference, IJavaElement element, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
 	long[] positions = null;
 	int last = -1;
 	if (reference instanceof ImportReference) {
@@ -222,7 +225,7 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, int
 	if (last > positions.length) last = positions.length;
 	int sourceStart = (int) (positions[0] >>> 32);
 	int sourceEnd = ((int) positions[last - 1]);
-	SearchMatch match = locator.newPackageReferenceMatch(element, accuracy, sourceStart, sourceEnd-sourceStart+1, reference);
+	match = locator.newPackageReferenceMatch(element, accuracy, sourceStart, sourceEnd-sourceStart+1, reference);
 	locator.report(match);
 }
 protected int referenceType() {

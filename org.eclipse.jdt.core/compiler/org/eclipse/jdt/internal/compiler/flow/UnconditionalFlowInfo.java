@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -73,6 +73,8 @@ public class UnconditionalFlowInfo extends FlowInfo {
 					// current storage is shorter -> grow current (could maybe reuse otherInits extra storage?)
 					System.arraycopy(extraDefiniteInits, 0, (extraDefiniteInits = new long[otherLength]), 0, length);
 					System.arraycopy(extraPotentialInits, 0, (extraPotentialInits = new long[otherLength]), 0, length);
+					System.arraycopy(extraDefiniteNulls, 0, (extraDefiniteNulls = new long[otherLength]), 0, length);
+					System.arraycopy(extraDefiniteNonNulls, 0, (extraDefiniteNonNulls = new long[otherLength]), 0, length);					
 					for (; i < length; i++) {
 						extraDefiniteInits[i] |= otherInits.extraDefiniteInits[i];
 						extraPotentialInits[i] |= otherInits.extraPotentialInits[i];

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -12,7 +12,6 @@
 package org.eclipse.jdt.core.dom;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -36,14 +35,8 @@ import java.util.List;
  * arguments and no class body declarations, the source range extends through
  * the last character of the identifier.
  * </p>
- * <p>
- * Note: This API element is only needed for dealing with Java code that uses
- * new language features of J2SE 1.5. It is included in anticipation of J2SE
- * 1.5 support, which is planned for the next release of Eclipse after 3.0, and
- * may change slightly before reaching its final form.
- * </p>
  * 
- * @since 3.0
+ * @since 3.1
  */
 public class EnumConstantDeclaration extends BodyDeclaration {
 	
@@ -72,16 +65,7 @@ public class EnumConstantDeclaration extends BodyDeclaration {
 		new ChildListPropertyDescriptor(EnumConstantDeclaration.class, "arguments", Expression.class, NO_CYCLE_RISK); //$NON-NLS-1$
 	
 	/**
-	 * The "bodyDeclarations" structural property of this node type.
-	 * @deprecated This property has been replaced by ANONYMOUS_CLASS_DECLARATION_PROPERTY.
-	 */
-	// TODO (jeem) - remove this after 3.1 M4
-	public static final ChildListPropertyDescriptor BODY_DECLARATIONS_PROPERTY = 
-		new ChildListPropertyDescriptor(EnumConstantDeclaration.class, "bodyDeclarations", BodyDeclaration.class, CYCLE_RISK); //$NON-NLS-1$
-	
-	/**
 	 * The "anonymousClassDeclaration" structural property of this node type.
-	 * @since 3.1
 	 */
 	public static final ChildPropertyDescriptor ANONYMOUS_CLASS_DECLARATION_PROPERTY = 
 		new ChildPropertyDescriptor(EnumConstantDeclaration.class, "anonymousClassDeclaration", AnonymousClassDeclaration.class, OPTIONAL, CYCLE_RISK); //$NON-NLS-1$
@@ -100,7 +84,6 @@ public class EnumConstantDeclaration extends BodyDeclaration {
 		addProperty(MODIFIERS2_PROPERTY, properyList);
 		addProperty(NAME_PROPERTY, properyList);
 		addProperty(ARGUMENTS_PROPERTY, properyList);
-		addProperty(BODY_DECLARATIONS_PROPERTY, properyList);
 		addProperty(ANONYMOUS_CLASS_DECLARATION_PROPERTY, properyList);
 		PROPERTY_DESCRIPTORS = reapPropertyList(properyList);
 	}
@@ -133,18 +116,8 @@ public class EnumConstantDeclaration extends BodyDeclaration {
 		new ASTNode.NodeList(ARGUMENTS_PROPERTY);
 			
 	/**
-	 * The body declarations (element type: <code>BodyDeclaration</code>).
-	 * Defaults to an empty list.
-	 * @deprecated
-	 */
-	// TODO (jeem) - remove this after 3.1 M4
-	private ASTNode.NodeList bodyDeclarations = 
-		new ASTNode.NodeList(BODY_DECLARATIONS_PROPERTY);
-
-	/**
 	 * The optional anonymous class declaration; <code>null</code> for none; 
 	 * defaults to none.
-	 * @since 3.1
 	 */
 	private AnonymousClassDeclaration optionalAnonymousClassDeclaration = null;
 	
@@ -215,9 +188,6 @@ public class EnumConstantDeclaration extends BodyDeclaration {
 		if (property == ARGUMENTS_PROPERTY) {
 			return arguments();
 		}
-		if (property == BODY_DECLARATIONS_PROPERTY) {
-			return bodyDeclarations();
-		}
 		// allow default implementation to flag the error
 		return super.internalGetChildListProperty(property);
 	}
@@ -262,8 +232,6 @@ public class EnumConstantDeclaration extends BodyDeclaration {
 		result.modifiers().addAll(ASTNode.copySubtrees(target, modifiers()));
 		result.setName((SimpleName) getName().clone(target));
 		result.arguments().addAll(ASTNode.copySubtrees(target, arguments()));
-		result.bodyDeclarations().addAll(
-			ASTNode.copySubtrees(target, bodyDeclarations()));
 		result.setAnonymousClassDeclaration(
 				(AnonymousClassDeclaration) ASTNode.copySubtree(target, getAnonymousClassDeclaration()));
 		return result;
@@ -288,7 +256,6 @@ public class EnumConstantDeclaration extends BodyDeclaration {
 			acceptChildren(visitor, this.modifiers);
 			acceptChild(visitor, getName());
 			acceptChildren(visitor, this.arguments);
-			acceptChildren(visitor, this.bodyDeclarations);
 			acceptChild(visitor, getAnonymousClassDeclaration());
 		}
 		visitor.endVisit(this);
@@ -347,34 +314,10 @@ public class EnumConstantDeclaration extends BodyDeclaration {
 	}
 
 	/**
-	 * Returns the live ordered list of body declarations of this enumeration
-	 * constant declaration. Note that an empty list is equivalent to not
-	 * explicitly specifying any body declarations.
-	 * 
-	 * @return the live list of body declarations
-	 *    (element type: <code>BodyDeclaration</code>)
-	 * @deprecated Use get/setAnonymousClassDeclaration instead.
-	 */
-	// TODO (jeem) - remove this after 3.1 M4
-	public List bodyDeclarations() {
-		return this.bodyDeclarations;
-	}
-
-	/**
-	 * Internal method used to reduce deprecations warnings
-	 * for obsolete bodyDeclarations().
-	 */
-	// TODO (jeem) - remove this after 3.1 M4
-	List obsoleteBodyDeclarations() {
-		return this.bodyDeclarations;
-	}
-	
-	/**
 	 * Returns the anonymous class declaration introduced by this
 	 * enum constant declaration, if it has one.
 	 * 
 	 * @return the anonymous class declaration, or <code>null</code> if none
-	 * @since 3.1
 	 */ 
 	public AnonymousClassDeclaration getAnonymousClassDeclaration() {
 		return this.optionalAnonymousClassDeclaration;
@@ -386,13 +329,27 @@ public class EnumConstantDeclaration extends BodyDeclaration {
 	 * 
 	 * @param decl the anonymous class declaration, or <code>null</code> 
 	 *    if none
-	 * @since 3.1
 	 */ 
 	public void setAnonymousClassDeclaration(AnonymousClassDeclaration decl) {
 		ASTNode oldChild = this.optionalAnonymousClassDeclaration;
 		preReplaceChild(oldChild, decl, ANONYMOUS_CLASS_DECLARATION_PROPERTY);
 		this.optionalAnonymousClassDeclaration = decl;
 		postReplaceChild(oldChild, decl, ANONYMOUS_CLASS_DECLARATION_PROPERTY);
+	}
+	
+	/**
+	 * Resolves and returns the binding for the constructor invoked by this
+	 * enum constant.
+	 * <p>
+	 * Note that bindings are generally unavailable unless requested when the
+	 * AST is being built.
+	 * </p>
+	 * 
+	 * @return the constructor binding, or <code>null</code> if the binding
+	 *    cannot be resolved
+	 */	
+	public IMethodBinding resolveConstructorBinding() {
+		return this.ast.getBindingResolver().resolveConstructor(this);
 	}
 
 	/**
@@ -408,44 +365,12 @@ public class EnumConstantDeclaration extends BodyDeclaration {
 	public IVariableBinding resolveVariable() {
 		return this.ast.getBindingResolver().resolveVariable(this);
 	}
-	
-	/* (omit javadoc for this method)
-	 * Method declared on ASTNode.
-	 */
-	void appendDebugString(StringBuffer buffer) {
-		buffer.append("EnumConstantDeclaration[");//$NON-NLS-1$
-		buffer.append(getName().getIdentifier());
-		buffer.append(" ");//$NON-NLS-1$
-		if (!arguments().isEmpty()) {
-			buffer.append("(");//$NON-NLS-1$
-			for (Iterator it = arguments().iterator(); it.hasNext(); ) {
-				Expression e = (Expression) it.next();
-				e.appendDebugString(buffer);
-				if (it.hasNext()) {
-					buffer.append(",");//$NON-NLS-1$
-				}
-			}
-			buffer.append(")");//$NON-NLS-1$
-		}
-		if (getAnonymousClassDeclaration() != null) {
-			buffer.append(" {");//$NON-NLS-1$
-			for (Iterator it = getAnonymousClassDeclaration().bodyDeclarations().iterator(); it.hasNext(); ) {
-				BodyDeclaration d = (BodyDeclaration) it.next();
-				d.appendDebugString(buffer);
-				if (it.hasNext()) {
-					buffer.append(";");//$NON-NLS-1$
-				}
-			}
-			buffer.append("}");//$NON-NLS-1$
-		}
-		buffer.append("]");//$NON-NLS-1$
-	}
 		
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
 	int memSize() {
-		return super.memSize() + 3 * 6;
+		return super.memSize() + 3 * 4;
 	}
 	
 	/* (omit javadoc for this method)
@@ -458,7 +383,6 @@ public class EnumConstantDeclaration extends BodyDeclaration {
 			+ this.modifiers.listSize()
 			+ (this.constantName == null ? 0 : getName().treeSize())
 			+ this.arguments.listSize()
-			+ this.bodyDeclarations.listSize()
 			+ (this.optionalAnonymousClassDeclaration == null ? 0 : getAnonymousClassDeclaration().treeSize());
 	}
 }

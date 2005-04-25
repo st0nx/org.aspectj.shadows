@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -49,6 +49,18 @@ protected void generateInfos(Object info, HashMap newElements, IProgressMonitor 
 	if (openableParentInfo == null) return;
 	openableParentInfo.getBinaryChildren(newElements); // forces the initialization
 }
+public String getKey() {
+	try {
+		return getKey(false/*don't open*/);
+	} catch (JavaModelException e) {
+		// happen only if force open is true
+		return null;
+	}
+}
+/**
+ * @see org.eclipse.jdt.internal.compiler.lookup.Binding#computeUniqueKey()
+ */
+public abstract String getKey(boolean forceOpen) throws JavaModelException;
 /*
  * @see ISourceReference
  */

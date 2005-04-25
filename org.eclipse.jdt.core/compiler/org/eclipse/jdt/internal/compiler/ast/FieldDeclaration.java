@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -67,7 +67,7 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 				&& this.binding.isStatic()
 				&& !this.binding.isConstantValue()
 				&& this.binding.declaringClass.isNestedType()
-				&& this.binding.declaringClass.isClass()
+				&& this.binding.declaringClass.isClass() // no need to check for enum, since implicitly static
 				&& !this.binding.declaringClass.isStatic()) {
 			initializationScope.problemReporter().unexpectedStaticModifierForField(
 				(SourceTypeBinding) this.binding.declaringClass,
@@ -141,7 +141,14 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 			return this.binding.isStatic();
 		return (this.modifiers & AccStatic) != 0;
 	}
-	
+
+	public StringBuffer printStatement(int indent, StringBuffer output) {
+		if (this.javadoc != null) {
+			this.javadoc.print(indent, output);
+		}
+		return super.printStatement(indent, output);
+	}
+
 	public void resolve(MethodScope initializationScope) {
 
 		// the two <constant = Constant.NotAConstant> could be regrouped into
@@ -220,7 +227,7 @@ public class FieldDeclaration extends AbstractVariableDeclaration {
 								|| initializationType.isCompatibleWith(fieldType)) {
 							this.initialization.computeConversion(initializationScope, fieldType, initializationType);
 							if (initializationType.needsUncheckedConversion(fieldType)) {
-								    initializationScope.problemReporter().unsafeRawConversion(this.initialization, initializationType, fieldType);
+								    initializationScope.problemReporter().unsafeTypeConversion(this.initialization, initializationType, fieldType);
 							}									
 						} else if (initializationScope.environment().options.sourceLevel >= JDK1_5 // autoboxing
 										&& (initializationScope.isBoxingCompatibleWith(initializationType, fieldType) 

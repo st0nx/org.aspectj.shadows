@@ -1,17 +1,16 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
@@ -47,21 +46,6 @@ public class SourceTypeElementInfo extends MemberElementInfo implements ISourceT
 	 * case of a source type
 	 */
 	protected char[][] superInterfaceNames;
-	
-	/**
-	 * The name of the source file this type is declared in.
-	 */
-	protected char[] sourceFileName;
-
-	/**
-	 * The name of the package this type is contained in.
-	 */
-	protected char[] packageName;
-
-	/**
-	 * The infos of the imports in this type's compilation unit
-	 */
-	private ISourceImport[] imports;
 	
 	/**
 	 * Backpointer to my type handle - useful for translation
@@ -126,36 +110,13 @@ public SourceField[] getFieldHandles() {
  * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
  */
 public char[] getFileName() {
-	return this.sourceFileName;
+	return this.handle.getPath().toString().toCharArray();
 }
 /**
  * Returns the handle for this type info
  */
 public IType getHandle() {
 	return this.handle;
-}
-/**
- * @see ISourceType
- */
-public ISourceImport[] getImports() {
-	if (this.imports == null) {
-		try {
-			IImportDeclaration[] importDeclarations = this.handle.getCompilationUnit().getImports();
-			int length = importDeclarations.length;
-			if (length == 0) {
-				this.imports = NO_IMPORTS;
-			} else {
-				ISourceImport[] sourceImports = new ISourceImport[length];
-				for (int i = 0; i < length; i++) {
-					sourceImports[i] = (ImportDeclarationElementInfo)((ImportDeclaration)importDeclarations[i]).getElementInfo();
-				}
-				this.imports = sourceImports; // only commit at the end, once completed (bug 36854)
-			}
-		} catch (JavaModelException e) {
-			this.imports = NO_IMPORTS;
-		}
-	}
-	return this.imports;
 }
 /*
  * Returns the InitializerElementInfos for this type.
@@ -276,12 +237,6 @@ public char[] getName() {
 /**
  * @see ISourceType
  */
-public char[] getPackageName() {
-	return this.packageName;
-}
-/**
- * @see ISourceType
- */
 public char[] getSuperclassName() {
 	if (this.handle.getElementName().length() == 0) { // if anonymous type
 		char[][] interfaceNames = this.superInterfaceNames;	
@@ -324,18 +279,6 @@ public boolean isBinaryType() {
  */
 protected void setHandle(IType handle) {
 	this.handle = handle;
-}
-/**
- * Sets the name of the package this type is declared in.
- */
-protected void setPackageName(char[] name) {
-	this.packageName= name;
-}
-/**
- * Sets the name of the source file this type is declared in.
- */
-protected void setSourceFileName(char[] name) {
-	this.sourceFileName= name;
 }
 /**
  * Sets the (unqualified) name of this type's superclass

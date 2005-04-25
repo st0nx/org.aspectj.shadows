@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -30,15 +30,19 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.Wildcard;
+import org.eclipse.jdt.internal.compiler.env.IConstants;
 import org.eclipse.jdt.internal.compiler.env.IDependent;
 import org.eclipse.jdt.internal.compiler.lookup.ArrayBinding;
 import org.eclipse.jdt.internal.compiler.lookup.BaseTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.BaseTypes;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
+import org.eclipse.jdt.internal.compiler.lookup.CaptureBinding;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
+import org.eclipse.jdt.internal.compiler.lookup.LocalTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.RawTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.Scope;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
@@ -105,8 +109,8 @@ class TypeBinding implements ITypeBinding {
 			return null;
 		IPackageFragment pkg = getPackageFragment(fileName, lastSlash);
 		if (pkg == null) return null;
-		char[] simpleName = CharOperation.subarray(fileName, lastSlash+1, fileName.length);
-		return pkg.getClassFile(new String(simpleName));
+		int start;
+		return pkg.getClassFile(new String(fileName, start = lastSlash+1, fileName.length - start));
 	}
 	
 	/*
@@ -119,8 +123,8 @@ class TypeBinding implements ITypeBinding {
 		if (lastSlash == -1) return null;
 		IPackageFragment pkg = getPackageFragment(slashSeparatedFileName, lastSlash);
 		if (pkg == null) return null;
-		char[] simpleName = CharOperation.subarray(slashSeparatedFileName, lastSlash+1, slashSeparatedFileName.length);
-		ICompilationUnit cu = pkg.getCompilationUnit(new String(simpleName));
+		int start;
+		ICompilationUnit cu = pkg.getCompilationUnit(new String(slashSeparatedFileName, start =  lastSlash+1, slashSeparatedFileName.length - start));
 		if (this.resolver instanceof DefaultBindingResolver) {
 			ICompilationUnit workingCopy = cu.findWorkingCopy(((DefaultBindingResolver) this.resolver).workingCopyOwner);
 			if (workingCopy != null) 
@@ -219,22 +223,71 @@ class TypeBinding implements ITypeBinding {
 	}
 
 	/*
+	 * @see ITypeBinding#getDeclaringMethod()
+	 */
+	public IMethodBinding getDeclaringMethod() {
+		if (this.binding instanceof LocalTypeBinding) {
+			LocalTypeBinding localTypeBinding = (LocalTypeBinding) this.binding;
+			MethodBinding methodBinding = localTypeBinding.enclosingMethod;
+			if (methodBinding != null) {
+				try {
+					return this.resolver.getMethodBinding(localTypeBinding.enclosingMethod);
+				} catch (RuntimeException e) {
+					/* in case a method cannot be resolvable due to missing jars on the classpath
+					 * see https://bugs.eclipse.org/bugs/show_bug.cgi?id=57871
+					 * https://bugs.eclipse.org/bugs/show_bug.cgi?id=63550
+					 * https://bugs.eclipse.org/bugs/show_bug.cgi?id=64299
+					 */
+				}
+			}
+		} else if (this.binding.isTypeVariable()) {
+			TypeVariableBinding typeVariableBinding = (TypeVariableBinding) this.binding;
+			Binding declaringElement = typeVariableBinding.declaringElement;
+			if (declaringElement instanceof MethodBinding) {
+				try {
+					return this.resolver.getMethodBinding((MethodBinding)declaringElement);
+				} catch (RuntimeException e) {
+					/* in case a method cannot be resolvable due to missing jars on the classpath
+					 * see https://bugs.eclipse.org/bugs/show_bug.cgi?id=57871
+					 * https://bugs.eclipse.org/bugs/show_bug.cgi?id=63550
+					 * https://bugs.eclipse.org/bugs/show_bug.cgi?id=64299
+					 */
+				}				
+			}
+		}
+		return null;
+	}
+
+	/*
 	 * @see ITypeBinding#getDeclaringClass()
 	 */
 	public ITypeBinding getDeclaringClass() {
-		if (this.binding.isArrayType() || this.binding.isBaseType()) {
-			return null;
-		}
-		ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
-		if (referenceBinding.isNestedType()) {
-			try {
-				return this.resolver.getTypeBinding(referenceBinding.enclosingType());
-			} catch (RuntimeException e) {
-				/* in case a method cannot be resolvable due to missing jars on the classpath
-				 * see https://bugs.eclipse.org/bugs/show_bug.cgi?id=57871
-				 * https://bugs.eclipse.org/bugs/show_bug.cgi?id=63550
-				 * https://bugs.eclipse.org/bugs/show_bug.cgi?id=64299
-				 */
+		if (isClass() || isInterface() || isEnum()) {
+			ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
+			if (referenceBinding.isNestedType()) {
+				try {
+					return this.resolver.getTypeBinding(referenceBinding.enclosingType());
+				} catch (RuntimeException e) {
+					/* in case a method cannot be resolvable due to missing jars on the classpath
+					 * see https://bugs.eclipse.org/bugs/show_bug.cgi?id=57871
+					 * https://bugs.eclipse.org/bugs/show_bug.cgi?id=63550
+					 * https://bugs.eclipse.org/bugs/show_bug.cgi?id=64299
+					 */
+				}
+			}
+		} else if (this.binding.isTypeVariable()) {
+			TypeVariableBinding typeVariableBinding = (TypeVariableBinding) this.binding;
+			Binding declaringElement = typeVariableBinding.declaringElement;
+			if (declaringElement instanceof ReferenceBinding) {
+				try {
+					return this.resolver.getTypeBinding((ReferenceBinding)declaringElement);
+				} catch (RuntimeException e) {
+					/* in case a method cannot be resolvable due to missing jars on the classpath
+					 * see https://bugs.eclipse.org/bugs/show_bug.cgi?id=57871
+					 * https://bugs.eclipse.org/bugs/show_bug.cgi?id=63550
+					 * https://bugs.eclipse.org/bugs/show_bug.cgi?id=64299
+					 */
+				}				
 			}
 		}
 		return null;
@@ -262,27 +315,29 @@ class TypeBinding implements ITypeBinding {
 		return resolver.getTypeBinding(arrayBinding.leafComponentType);
 	}
 
-	/**
-	 * @deprecated Use {@link #getGenericType()} instead.
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getTypeDeclaration()
 	 */
-	// TODO (jeem) - remove before 3.1M5 (bug 80800)
-	public ITypeBinding getErasure() {
-		return getGenericType();
+	public ITypeBinding getTypeDeclaration() {
+		if (this.binding instanceof ParameterizedTypeBinding)
+			return this.resolver.getTypeBinding(((ParameterizedTypeBinding)this.binding).type);
+		return this;
 	}
 
 	/* (non-Javadoc)
-	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getGenericType()
+	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getErasure()
 	 */
-	public ITypeBinding getGenericType() {
+	public ITypeBinding getErasure() {
 		return this.resolver.getTypeBinding(this.binding.erasure());
 	}
 
-	/*
-	 * @see ITypeBinding#getInterfaces()
-	 */
 	public ITypeBinding[] getInterfaces() {
-		if (this.binding == null || this.binding.isArrayType() || this.binding.isBaseType()) {
+		if (this.binding == null) 
 			return NO_TYPE_BINDINGS;
+		switch (this.binding.kind()) {
+			case Binding.ARRAY_TYPE :
+			case Binding.BASE_TYPE :
+				return NO_TYPE_BINDINGS;
 		}
 		ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
 		ReferenceBinding[] interfaces = null;
@@ -310,11 +365,14 @@ class TypeBinding implements ITypeBinding {
 		}
 	}
 	
-	/*
-	 * @see IBinding#getJavaElement()
-	 */
 	public IJavaElement getJavaElement() {
-		if (this.binding == null || this.binding.isArrayType() || this.binding.isBaseType()) return null;
+		if (this.binding == null) 
+			return null;
+		switch (this.binding.kind()) {
+			case Binding.ARRAY_TYPE :
+			case Binding.BASE_TYPE :
+				return null;
+		}
 		ReferenceBinding referenceBinding;
 		if (this.binding.isParameterizedType() || this.binding.isRawType())
 			referenceBinding = (ReferenceBinding) this.binding.erasure();
@@ -400,94 +458,114 @@ class TypeBinding implements ITypeBinding {
 				return accessFlags & ~Modifier.FINAL;
 			}
 			return accessFlags;
+		} else if (isAnnotation()) {
+			ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
+			final int accessFlags = referenceBinding.getAccessFlags() & VALID_MODIFIERS;
+			// clear the AccAbstract, AccAnnotation and the AccInterface bits
+			return accessFlags & ~(IConstants.AccAbstract | IConstants.AccInterface | IConstants.AccAnnotation);			
 		} else if (isInterface()) {
 			ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
 			final int accessFlags = referenceBinding.getAccessFlags() & VALID_MODIFIERS;
 			// clear the AccAbstract and the AccInterface bits
-			return accessFlags & ~(Modifier.ABSTRACT | 0x200);
+			return accessFlags & ~(IConstants.AccAbstract | IConstants.AccInterface);
 		} else if (isEnum()) {
 			ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
 			final int accessFlags = referenceBinding.getAccessFlags() & VALID_MODIFIERS;
 			// clear the AccEnum bits
-			return accessFlags & ~0x4000;
+			return accessFlags & ~IConstants.AccEnum;
 		} else {
 			return 0;
 		}
 	}
 
 	public String getName() {
-		if (isWildcardType()) {
-			WildcardBinding wildcardBinding = (WildcardBinding) this.binding;
-			StringBuffer buffer = new StringBuffer();
-			buffer.append(TypeConstants.WILDCARD_NAME);
-			if (wildcardBinding.bound != null) {
-				switch(wildcardBinding.kind) {
-			        case Wildcard.SUPER :
-			        	buffer.append(TypeConstants.WILDCARD_SUPER);
-			            break;
-			        case Wildcard.EXTENDS :
-			        	buffer.append(TypeConstants.WILDCARD_EXTENDS);
-				}
-				buffer.append(getBound().getName());
-			}
-			return String.valueOf(buffer);
-		}
-		if (isParameterizedType()) {
-			ParameterizedTypeBinding parameterizedTypeBinding = (ParameterizedTypeBinding) this.binding;
-			StringBuffer buffer = new StringBuffer();
-			buffer.append(parameterizedTypeBinding.sourceName());
-			ITypeBinding[] typeArguments = getTypeArguments();
-			final int typeArgumentsLength = typeArguments.length;
-			if (typeArgumentsLength != 0) {
-				buffer.append('<');
-				for (int i = 0, max = typeArguments.length; i < max; i++) {
-					if (i > 0) {
-						buffer.append(',');
+		StringBuffer buffer;
+		switch (this.binding.kind()) {
+
+			case Binding.WILDCARD_TYPE :
+				WildcardBinding wildcardBinding = (WildcardBinding) this.binding;
+				buffer = new StringBuffer();
+				buffer.append(TypeConstants.WILDCARD_NAME);
+				if (wildcardBinding.bound != null) {
+					switch(wildcardBinding.boundKind) {
+				        case Wildcard.SUPER :
+				        	buffer.append(TypeConstants.WILDCARD_SUPER);
+				            break;
+				        case Wildcard.EXTENDS :
+				        	buffer.append(TypeConstants.WILDCARD_EXTENDS);
 					}
-					buffer.append(typeArguments[i].getName());
+					buffer.append(getBound().getName());
 				}
-				buffer.append('>');	
-			}
-			return String.valueOf(buffer);
+				return String.valueOf(buffer);
+				
+			case Binding.TYPE_PARAMETER :
+				if (isCapture()) {
+					return NO_NAME;
+				}
+				TypeVariableBinding typeVariableBinding = (TypeVariableBinding) this.binding;
+				return new String(typeVariableBinding.sourceName);
+				
+			case Binding.PARAMETERIZED_TYPE :
+				ParameterizedTypeBinding parameterizedTypeBinding = (ParameterizedTypeBinding) this.binding;
+				buffer = new StringBuffer();
+				buffer.append(parameterizedTypeBinding.sourceName());
+				ITypeBinding[] typeArguments = getTypeArguments();
+				final int typeArgumentsLength = typeArguments.length;
+				if (typeArgumentsLength != 0) {
+					buffer.append('<');
+					for (int i = 0, max = typeArguments.length; i < max; i++) {
+						if (i > 0) {
+							buffer.append(',');
+						}
+						buffer.append(typeArguments[i].getName());
+					}
+					buffer.append('>');	
+				}
+				return String.valueOf(buffer);
+				
+			case Binding.RAW_TYPE :				
+				return getTypeDeclaration().getName();
+
+			case Binding.ARRAY_TYPE :
+				ITypeBinding elementType = getElementType();
+				if (elementType.isLocal() || elementType.isAnonymous() || elementType.isCapture()) {
+					return NO_NAME;
+				}				
+				int dimensions = getDimensions();
+				char[] brackets = new char[dimensions * 2];
+				for (int i = dimensions * 2 - 1; i >= 0; i -= 2) {
+					brackets[i] = ']';
+					brackets[i - 1] = '[';
+				}
+				buffer = new StringBuffer(elementType.getName());
+				buffer.append(brackets);
+				return String.valueOf(buffer);
+
+			default :
+				if (isPrimitive() || isNullType()) {
+					BaseTypeBinding baseTypeBinding = (BaseTypeBinding) this.binding;
+					return new String(baseTypeBinding.simpleName);
+				}
+				if (isAnonymous()) {
+					return NO_NAME;
+				}
+				return new String(this.binding.sourceName());
 		}
-		if (isRawType()) {
-			return getGenericType().getName();
-		}
-		if (isPrimitive() || isNullType()) {
-			BaseTypeBinding baseTypeBinding = (BaseTypeBinding) this.binding;
-			return new String(baseTypeBinding.simpleName);
-		}
-		if (isArray()) {
-			int dimensions = getDimensions();
-			char[] brackets = new char[dimensions * 2];
-			for (int i = dimensions * 2 - 1; i >= 0; i -= 2) {
-				brackets[i] = ']';
-				brackets[i - 1] = '[';
-			}
-			StringBuffer buffer = new StringBuffer(getElementType().getName());
-			buffer.append(brackets);
-			return String.valueOf(buffer);
-		}
-		if (isAnonymous()) {
-			return NO_NAME;
-		}
-		if (isTypeVariable()) {
-			TypeVariableBinding typeVariableBinding = (TypeVariableBinding) this.binding;
-			return new String(typeVariableBinding.sourceName);
-		}
-		return new String(this.binding.sourceName());
 	}
 	
 	/*
 	 * @see ITypeBinding#getPackage()
 	 */
 	public IPackageBinding getPackage() {
-		if (this.binding.isBaseType() || this.binding.isArrayType()) {
-			return null;
-		} else {
-			ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
-			return this.resolver.getPackageBinding(referenceBinding.getPackage());
+		switch (this.binding.kind()) {
+			case Binding.BASE_TYPE :
+			case Binding.ARRAY_TYPE :
+			case Binding.TYPE_PARAMETER : // includes capture scenario
+			case Binding.WILDCARD_TYPE :
+				return null;
 		}
+		ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
+		return this.resolver.getPackageBinding(referenceBinding.getPackage());
 	}
 	
 	/*
@@ -497,13 +575,13 @@ class TypeBinding implements ITypeBinding {
 	private IPackageFragment getPackageFragment(char[] fileName, int lastSlash) {
 		int jarSeparator = CharOperation.indexOf(IDependent.JAR_FILE_ENTRY_SEPARATOR, fileName);
 		if (jarSeparator != -1) {
-			String jarMemento = new String(CharOperation.subarray(fileName, 0, jarSeparator));
+			String jarMemento = new String(fileName, 0, jarSeparator);
 			IPackageFragmentRoot root = (IPackageFragmentRoot) JavaCore.create(jarMemento);
 			char[] pkgName = CharOperation.subarray(fileName, jarSeparator+1, lastSlash);
 			CharOperation.replace(pkgName, '/', '.');
 			return root.getPackageFragment(new String(pkgName));
 		} else {
-			Path path = new Path(new String(CharOperation.subarray(fileName, 0, lastSlash)));
+			Path path = new Path(new String(fileName, 0, lastSlash));
 			IWorkspaceRoot workspaceRoot = ResourcesPlugin.getWorkspace().getRoot();
 			IContainer folder = path.segmentCount() == 1 ? workspaceRoot.getProject(path.lastSegment()) : (IContainer) workspaceRoot.getFolder(path);
 			IJavaElement element = JavaCore.create(folder);
@@ -526,102 +604,132 @@ class TypeBinding implements ITypeBinding {
 	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getQualifiedName()
 	 */
 	public String getQualifiedName() {
-		if (isAnonymous() || isLocal()) {
-			return NO_NAME;
-		}
-		if (isPrimitive() || isNullType()) {
-			BaseTypeBinding baseTypeBinding = (BaseTypeBinding) this.binding;
-			return new String(baseTypeBinding.simpleName);
-		}
-		if (isWildcardType()) {
-			WildcardBinding wildcardBinding = (WildcardBinding) this.binding;
-			StringBuffer buffer = new StringBuffer();
-			buffer.append(TypeConstants.WILDCARD_NAME);
-			final ITypeBinding bound = getBound();
-			if (bound != null) {
-				switch(wildcardBinding.kind) {
-			        case Wildcard.SUPER :
-			        	buffer.append(TypeConstants.WILDCARD_SUPER);
-			            break;
-			        case Wildcard.EXTENDS :
-			        	buffer.append(TypeConstants.WILDCARD_EXTENDS);
-				}
-				buffer.append(bound.getQualifiedName());
-			}
-			return String.valueOf(buffer);
-		}
-		if (isRawType()) {
-			return getGenericType().getQualifiedName();
-		}
-		if (isArray()) {
-			ITypeBinding elementType = getElementType();
-			if (elementType.isLocal() || elementType.isAnonymous()) {
-				return NO_NAME;
-			}
-			final int dimensions = getDimensions();
-			char[] brackets = new char[dimensions * 2];
-			for (int i = dimensions * 2 - 1; i >= 0; i -= 2) {
-				brackets[i] = ']';
-				brackets[i - 1] = '[';
-			}
-			StringBuffer buffer = new StringBuffer(elementType.getQualifiedName());
-			buffer.append(brackets);
-			return String.valueOf(buffer);
-		}
-		if (isTypeVariable()) {
-			TypeVariableBinding typeVariableBinding = (TypeVariableBinding) this.binding;
-			return new String(typeVariableBinding.sourceName);
-		}
-		if (isMember()) {
-			StringBuffer buffer = new StringBuffer();
-			buffer
-				.append(getDeclaringClass().getQualifiedName())
-				.append('.')
-				.append(getName());
-			return String.valueOf(buffer);
-		}
-		if (isParameterizedType()) {
-			StringBuffer buffer = new StringBuffer();
-			buffer.append(getGenericType().getQualifiedName());
-			ITypeBinding[] typeArguments = getTypeArguments();
-			final int typeArgumentsLength = typeArguments.length;
-			if (typeArgumentsLength != 0) {
-				buffer.append('<');
-				for (int i = 0, max = typeArguments.length; i < max; i++) {
-					if (i > 0) {
-						buffer.append(',');
+		StringBuffer buffer;
+		switch (this.binding.kind()) {
+			
+			case Binding.WILDCARD_TYPE :
+				WildcardBinding wildcardBinding = (WildcardBinding) this.binding;
+				buffer = new StringBuffer();
+				buffer.append(TypeConstants.WILDCARD_NAME);
+				final ITypeBinding bound = getBound();
+				if (bound != null) {
+					switch(wildcardBinding.boundKind) {
+				        case Wildcard.SUPER :
+				        	buffer.append(TypeConstants.WILDCARD_SUPER);
+				            break;
+				        case Wildcard.EXTENDS :
+				        	buffer.append(TypeConstants.WILDCARD_EXTENDS);
 					}
-					buffer.append(typeArguments[i].getQualifiedName());
+					buffer.append(bound.getQualifiedName());
 				}
-				buffer.append('>');
-			}
-			return String.valueOf(buffer);
-		}
-		if (isRawType()) {
-			return getGenericType().getQualifiedName();
-		}
-		PackageBinding packageBinding = this.binding.getPackage();
+				return String.valueOf(buffer);
 		
-		StringBuffer buffer = new StringBuffer();
-		if (packageBinding != null && packageBinding.compoundName != CharOperation.NO_CHAR_CHAR) {
-			buffer.append(CharOperation.concatWith(packageBinding.compoundName, '.')).append('.');
+			case Binding.RAW_TYPE :
+				return getTypeDeclaration().getQualifiedName();
+				
+			case Binding.ARRAY_TYPE :
+				ITypeBinding elementType = getElementType();
+				if (elementType.isLocal() || elementType.isAnonymous() || elementType.isCapture()) {
+					return NO_NAME;
+				}
+				final int dimensions = getDimensions();
+				char[] brackets = new char[dimensions * 2];
+				for (int i = dimensions * 2 - 1; i >= 0; i -= 2) {
+					brackets[i] = ']';
+					brackets[i - 1] = '[';
+				}
+				buffer = new StringBuffer(elementType.getQualifiedName());
+				buffer.append(brackets);
+				return String.valueOf(buffer);
+				
+			case Binding.TYPE_PARAMETER :
+				if (isCapture()) {
+					return NO_NAME;
+				}				
+				TypeVariableBinding typeVariableBinding = (TypeVariableBinding) this.binding;
+				return new String(typeVariableBinding.sourceName);
+				
+			case Binding.PARAMETERIZED_TYPE :
+				buffer = new StringBuffer();
+				if (isMember()) {
+					buffer
+						.append(getDeclaringClass().getQualifiedName())
+						.append('.');
+					ParameterizedTypeBinding parameterizedTypeBinding = (ParameterizedTypeBinding) this.binding;
+					buffer.append(parameterizedTypeBinding.sourceName());
+					ITypeBinding[] typeArguments = getTypeArguments();
+					final int typeArgumentsLength = typeArguments.length;
+					if (typeArgumentsLength != 0) {
+						buffer.append('<');
+						for (int i = 0, max = typeArguments.length; i < max; i++) {
+							if (i > 0) {
+								buffer.append(',');
+							}
+							buffer.append(typeArguments[i].getQualifiedName());
+						}
+						buffer.append('>');	
+					}
+					return String.valueOf(buffer);
+				}				
+				buffer.append(getTypeDeclaration().getQualifiedName());
+				ITypeBinding[] typeArguments = getTypeArguments();
+				final int typeArgumentsLength = typeArguments.length;
+				if (typeArgumentsLength != 0) {
+					buffer.append('<');
+					for (int i = 0, max = typeArguments.length; i < max; i++) {
+						if (i > 0) {
+							buffer.append(',');
+						}
+						buffer.append(typeArguments[i].getQualifiedName());
+					}
+					buffer.append('>');
+				}
+				return String.valueOf(buffer);
+				
+			default :
+				if (isAnonymous() || isLocal()) {
+					return NO_NAME;
+				}
+				if (isPrimitive() || isNullType()) {
+					BaseTypeBinding baseTypeBinding = (BaseTypeBinding) this.binding;
+					return new String(baseTypeBinding.simpleName);
+				}
+				if (isMember()) {
+					buffer = new StringBuffer();
+					buffer
+						.append(getDeclaringClass().getQualifiedName())
+						.append('.');
+					buffer.append(getName());
+					return String.valueOf(buffer);
+				}
+				PackageBinding packageBinding = this.binding.getPackage();
+				buffer = new StringBuffer();
+				if (packageBinding != null && packageBinding.compoundName != CharOperation.NO_CHAR_CHAR) {
+					buffer.append(CharOperation.concatWith(packageBinding.compoundName, '.')).append('.');
+				}
+				buffer.append(getName());
+				return String.valueOf(buffer);
 		}
-		buffer.append(getName());
-
-		return String.valueOf(buffer);
 	}
 
 	/*
 	 * @see ITypeBinding#getSuperclass()
 	 */
 	public ITypeBinding getSuperclass() {
-		if (this.binding == null || this.binding.isArrayType() || this.binding.isBaseType() || this.binding.isInterface()) {
+		if (this.binding == null) 
 			return null;
+		switch (this.binding.kind()) {
+			case Binding.ARRAY_TYPE :
+			case Binding.BASE_TYPE :
+				return null;
+			default:
+				// no superclass for interface types (interface | annotation type)
+				if (this.binding.isInterface())
+					return null;
 		}
-		ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
 		ReferenceBinding superclass = null;
 		try {
-			superclass = referenceBinding.superclass();
+			superclass = ((ReferenceBinding)this.binding).superclass();
 		} catch (RuntimeException e) {
 			/* in case a method cannot be resolvable due to missing jars on the classpath
 			 * see https://bugs.eclipse.org/bugs/show_bug.cgi?id=57871
@@ -706,6 +814,18 @@ class TypeBinding implements ITypeBinding {
 		}
 		return NO_TYPE_BINDINGS;
 	}
+	
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getWildcard()
+	 * @since 3.1
+	 */
+	public ITypeBinding getWildcard() {
+		if (this.binding instanceof CaptureBinding) {
+			CaptureBinding captureBinding = (CaptureBinding) this.binding;
+			return this.resolver.getTypeBinding(captureBinding.wildcard);
+		}
+		return null;
+	}
 
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.core.dom.ITypeBinding#isGenericType()
@@ -713,6 +833,9 @@ class TypeBinding implements ITypeBinding {
 	 */
 	public boolean isGenericType() {
 		// equivalent to return getTypeParameters().length > 0;
+		if (isRawType()) {
+			return false;
+		}
 		TypeVariableBinding[] typeVariableBindings = this.binding.typeVariables();
 		return (typeVariableBindings != null && typeVariableBindings.length > 0);
 	}
@@ -728,7 +851,7 @@ class TypeBinding implements ITypeBinding {
 	 * @see ITypeBinding#isAnonymous()
 	 */
 	public boolean isAnonymous() {
-		if (isClass() || binding.isInterface() || isEnum()) {
+		if (isClass() || isInterface() || isEnum()) {
 			ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
 			return referenceBinding.isAnonymousType();
 		}
@@ -753,6 +876,13 @@ class TypeBinding implements ITypeBinding {
 		return this.binding.isCompatibleWith(other.binding) || scope.isBoxingCompatibleWith(this.binding, other.binding);
 	}
 	
+	/* (non-Javadoc)
+	 * @see ITypeBinding#isCapture()
+	 */
+	public boolean isCapture() {
+		return this.binding.isCapture();
+	}
+
 	/* (non-Javadoc)
 	 * @see ITypeBinding#isCastCompatible(ITypeBinding)
 	 */
@@ -819,7 +949,18 @@ class TypeBinding implements ITypeBinding {
 	public boolean isFromSource() {
 		if (isClass() || isInterface() || isEnum()) {
 			ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
-			return !referenceBinding.isBinaryBinding();
+			if (referenceBinding.isRawType()) {
+				return !((RawTypeBinding) referenceBinding).type.isBinaryBinding();
+			} else if (referenceBinding.isParameterizedType()) {
+				ParameterizedTypeBinding parameterizedTypeBinding = (ParameterizedTypeBinding) referenceBinding;
+				org.eclipse.jdt.internal.compiler.lookup.TypeBinding erasure = parameterizedTypeBinding.erasure();
+				if (erasure instanceof ReferenceBinding) {
+					return !((ReferenceBinding) erasure).isBinaryBinding();
+				}
+				return false;
+			} else {
+				return !referenceBinding.isBinaryBinding();
+			}
 		}
 		return false;
 	}
@@ -925,14 +1066,14 @@ class TypeBinding implements ITypeBinding {
 	 * @see ITypeBinding#isTypeVariable()
 	 */
 	public boolean isTypeVariable() {
-		return this.binding.isTypeVariable();
+		return this.binding.isTypeVariable() && !this.binding.isCapture();
 	}
 
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.core.dom.ITypeBinding#isUpperbound()
 	 */
 	public boolean isUpperbound() {
-		return this.binding.isWildcard() && ((WildcardBinding) this.binding).kind == Wildcard.EXTENDS;
+		return this.binding.isWildcard() && ((WildcardBinding) this.binding).boundKind == Wildcard.EXTENDS;
 	}
 
 	/* (non-Javadoc)

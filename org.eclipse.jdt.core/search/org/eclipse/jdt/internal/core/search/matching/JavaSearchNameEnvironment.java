@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -59,7 +59,7 @@ public JavaSearchNameEnvironment(IJavaProject javaProject, org.eclipse.jdt.core.
 			IPackageDeclaration[] pkgs = workingCopy.getPackageDeclarations();
 			String pkg = pkgs.length > 0 ? pkgs[0].getElementName() : ""; //$NON-NLS-1$
 			String cuName = workingCopy.getElementName();
-			String mainTypeName = cuName.substring(0, Util.indexOfJavaLikeExtension(cuName));
+			String mainTypeName = Util.getNameWithoutJavaLikeExtension(cuName);
 			String qualifiedMainTypeName = pkg.length() == 0 ? mainTypeName : pkg.replace('.', '/') + '/' + mainTypeName;
 			this.workingCopies.put(qualifiedMainTypeName, workingCopy);
 		}
@@ -94,7 +94,7 @@ private void computeClasspathLocations(IWorkspaceRoot workspaceRoot, JavaProject
 		try {
 			if (root.isArchive()) {
 				ZipFile zipFile = manager.getZipFile(path);
-				cpLocations[index++] = new ClasspathJar(zipFile, ((ClasspathEntry) root.getRawClasspathEntry()).getImportRestriction());
+				cpLocations[index++] = new ClasspathJar(zipFile, ((ClasspathEntry) root.getRawClasspathEntry()).getAccessRuleSet());
 			} else {
 				Object target = JavaModel.getTarget(workspaceRoot, path, false);
 				if (target == null) {
@@ -104,7 +104,7 @@ private void computeClasspathLocations(IWorkspaceRoot workspaceRoot, JavaProject
 				} else if (root.getKind() == IPackageFragmentRoot.K_SOURCE) {
 					cpLocations[index++] = new ClasspathSourceDirectory((IContainer)target, root.fullExclusionPatternChars(), root.fullInclusionPatternChars());
 				} else {
-					cpLocations[index++] = ClasspathLocation.forBinaryFolder((IContainer) target, false, ((ClasspathEntry) root.getRawClasspathEntry()).getImportRestriction());
+					cpLocations[index++] = ClasspathLocation.forBinaryFolder((IContainer) target, false, ((ClasspathEntry) root.getRawClasspathEntry()).getAccessRuleSet());
 				}
 			}
 		} catch (CoreException e1) {

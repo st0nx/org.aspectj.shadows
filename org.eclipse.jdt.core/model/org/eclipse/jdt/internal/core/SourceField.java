@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -15,7 +15,8 @@ import org.eclipse.jdt.core.IField;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
-import org.eclipse.jdt.core.jdom.*;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
 
 /**
  * @see IField
@@ -33,13 +34,12 @@ public boolean equals(Object o) {
 	if (!(o instanceof SourceField)) return false;
 	return super.equals(o);
 }
-/**
- * @see JavaElement#equalsDOMNode
- * @deprecated JDOM is obsolete
- */
-// TODO - JDOM - remove once model ported off of JDOM
-protected boolean equalsDOMNode(IDOMNode node) {
-	return (node.getNodeType() == IDOMNode.FIELD) && super.equalsDOMNode(node);
+public ASTNode findNode(org.eclipse.jdt.core.dom.CompilationUnit ast) {
+	// For field declarations, a variable declaration fragment is returned
+	// Return the FieldDeclaration instead
+	ASTNode node = super.findNode(ast);
+	if (node == null) return null;
+	return node.getParent();
 }
 /**
  * @see IField
@@ -47,11 +47,12 @@ protected boolean equalsDOMNode(IDOMNode node) {
 public Object getConstant() throws JavaModelException {
 	Object constant = null;	
 	SourceFieldElementInfo info = (SourceFieldElementInfo) getElementInfo();
-	if (info.initializationSource == null) {
+	final char[] constantSourceChars = info.initializationSource;
+	if (constantSourceChars == null) {
 		return null;
 	}
 			
-	String constantSource = new String(info.initializationSource);
+	String constantSource = new String(constantSourceChars);
 	String signature = info.getTypeSignature();
 	if (signature.equals(Signature.SIG_INT)) {
 		constant = new Integer(constantSource);
@@ -62,7 +63,10 @@ public Object getConstant() throws JavaModelException {
 	} else if (signature.equals(Signature.SIG_BOOLEAN)) {
 		constant = Boolean.valueOf(constantSource);
 	} else if (signature.equals(Signature.SIG_CHAR)) {
-		constant = new Character(constantSource.charAt(0));
+		if (constantSourceChars.length != 3) {
+			return null;
+		}
+		constant = new Character(constantSourceChars[1]);
 	} else if (signature.equals(Signature.SIG_DOUBLE)) {
 		constant = new Double(constantSource);
 	} else if (signature.equals(Signature.SIG_FLOAT)) {
@@ -89,6 +93,17 @@ public Object getConstant() throws JavaModelException {
 public int getElementType() {
 	return FIELD;
 }
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.IField#getKey()
+ */
+public String getKey() {
+	try {
+		return getKey(this, org.eclipse.jdt.internal.compiler.lookup.Binding.USE_ACCESS_FLAGS_IN_BINDING_KEY/*with access flags*/, false/*don't open*/);
+	} catch (JavaModelException e) {
+		// happen only if force open is true
+		return null;
+	}
+}
 /**
  * @see JavaElement#getHandleMemento()
  */
@@ -112,6 +127,22 @@ public IJavaElement getPrimaryElement(boolean checkOwner) {
 public String getTypeSignature() throws JavaModelException {
 	SourceFieldElementInfo info = (SourceFieldElementInfo) getElementInfo();
 	return info.getTypeSignature();
+}
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.IField#isEnumConstant()
+ */public boolean isEnumConstant() throws JavaModelException {
+	return Flags.isEnum(getFlags());
+}
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.IField#isResolved()
+ */
+public boolean isResolved() {
+	return false;
+}
+public JavaElement resolved(Binding binding) {
+	SourceRefElement resolvedHandle = new ResolvedSourceField(this.parent, this.name, new String(binding.computeUniqueKey()));
+	resolvedHandle.occurrenceCount = this.occurrenceCount;
+	return resolvedHandle;
 }
 /**
  * @private Debugging purposes

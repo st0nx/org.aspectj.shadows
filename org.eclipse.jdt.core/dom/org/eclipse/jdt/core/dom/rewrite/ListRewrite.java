@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -54,6 +54,28 @@ public final class ListRewrite {
 	
 	private ListRewriteEvent getEvent() {
 		return getRewriteStore().getListEvent(this.parent, this.childProperty, true);
+	}
+	
+	/**
+	 * Returns the parent of the list for which this list rewriter was created.
+
+	 * @return the node that contains the list for which this list rewriter was created
+	 * @see #getLocationInParent()
+	 * @since 3.1
+	 */
+	public ASTNode getParent() {
+		return this.parent;
+	}
+	
+	/**
+	 * Returns the property of the parent node for which this list rewriter was created. 
+	 * 
+	 * @return the property of the parent node for which this list rewriter was created
+	 * @see #getParent()
+	 * @since 3.1
+	 */
+	public StructuralPropertyDescriptor getLocationInParent() {
+		return this.childProperty;
 	}
 	
 	/**
@@ -304,6 +326,30 @@ public final class ListRewrite {
 			return this.rewriter.createCopyTarget(first);
 		} else {
 			return createTargetNode(first, last, false);
+		}
+	}
+	
+	/**
+	 * Creates and returns a placeholder node for a move of a range of nodes of the
+	 * current list.
+	 * The placeholder node can either be inserted as new or used to replace an
+	 * existing node. When the document is rewritten, a copy of the source code 
+	 * for the given node range is inserted into the output document at the position
+	 * corresponding to the placeholder (indentation is adjusted).
+	 * 
+	 * @param first the node that starts the range
+	 * @param last the node that ends the range
+	 * @return the new placeholder node
+	 * @throws IllegalArgumentException if the node is null, or if the node
+	 * is not part of this rewriter's AST
+	 * 
+	 * @since 3.1
+	 */
+	public final ASTNode createMoveTarget(ASTNode first, ASTNode last) {
+		if (first == last) {
+			return this.rewriter.createMoveTarget(first);
+		} else {
+			return createTargetNode(first, last, true);
 		}
 	}
 	

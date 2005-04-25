@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -100,18 +100,32 @@ protected MatchLocatorParser(ProblemReporter problemReporter, MatchLocator locat
 public void checkComment() {
 	super.checkComment();
 	if (this.javadocParser.checkDocComment && this.javadoc != null) {
+
+		// Search for pattern locator matches in javadoc comment parameters @param tags
+		JavadocSingleNameReference[] paramReferences = this.javadoc.paramReferences;
+		int length = paramReferences == null ? 0 : paramReferences.length;
+		for (int i = 0; i < length; i++) {
+			this.patternLocator.match(paramReferences[i], this.nodeSet);
+		}
+
+		// Search for pattern locator matches in javadoc comment type parameters @param tags
+		JavadocSingleTypeReference[] paramTypeParameters = this.javadoc.paramTypeParameters;
+		length = paramTypeParameters == null ? 0 : paramTypeParameters.length;
+		for (int i = 0; i < length; i++) {
+			this.patternLocator.match(paramTypeParameters[i], this.nodeSet);
+		}
+
 		// Search for pattern locator matches in javadoc comment @throws/@exception tags
 		TypeReference[] thrownExceptions = this.javadoc.exceptionReferences;
-		int throwsTagsLength = thrownExceptions == null ? 0 : thrownExceptions.length;
-		for (int i = 0; i < throwsTagsLength; i++) {
-			TypeReference typeRef = thrownExceptions[i];
-			this.patternLocator.match(typeRef, this.nodeSet);
+		length = thrownExceptions == null ? 0 : thrownExceptions.length;
+		for (int i = 0; i < length; i++) {
+			this.patternLocator.match(thrownExceptions[i], this.nodeSet);
 		}
 
 		// Search for pattern locator matches in javadoc comment @see tags
 		Expression[] references = this.javadoc.seeReferences;
-		int seeTagsLength = references == null ? 0 : references.length;
-		for (int i = 0; i < seeTagsLength; i++) {
+		length = references == null ? 0 : references.length;
+		for (int i = 0; i < length; i++) {
 			Expression reference = references[i];
 			if (reference instanceof TypeReference) {
 				TypeReference typeRef = (TypeReference) reference;
@@ -172,6 +186,14 @@ protected void consumeAssignment() {
 	super.consumeAssignment();
 	this.patternLocator.match(this.expressionStack[this.expressionPtr], this.nodeSet);
 }
+protected void consumeClassInstanceCreationExpressionQualifiedWithTypeArguments() {
+	super.consumeClassInstanceCreationExpressionWithTypeArguments();
+	this.patternLocator.match(this.expressionStack[this.expressionPtr], this.nodeSet);
+}
+protected void consumeClassInstanceCreationExpressionWithTypeArguments() {
+	super.consumeClassInstanceCreationExpressionWithTypeArguments();
+	this.patternLocator.match(this.expressionStack[this.expressionPtr], this.nodeSet);
+}
 protected void consumeExplicitConstructorInvocation(int flag, int recFlag) {
 	super.consumeExplicitConstructorInvocation(flag, recFlag);
 	this.patternLocator.match(this.astStack[this.astPtr], this.nodeSet);
@@ -185,6 +207,24 @@ protected void consumeFieldAccess(boolean isSuperAccess) {
 
 	// this is always a Reference
 	this.patternLocator.match((Reference) this.expressionStack[this.expressionPtr], this.nodeSet);
+}
+protected void consumeInternalCompilationUnit() {
+	// InternalCompilationUnit ::= PackageDeclaration
+	// InternalCompilationUnit ::= PackageDeclaration ImportDeclarations ReduceImports
+	// InternalCompilationUnit ::= ImportDeclarations ReduceImports
+}
+protected void consumeInternalCompilationUnitWithTypes() {
+	// InternalCompilationUnit ::= PackageDeclaration ImportDeclarations ReduceImports TypeDeclarations
+	// InternalCompilationUnit ::= PackageDeclaration TypeDeclarations
+	// InternalCompilationUnit ::= TypeDeclarations
+	// InternalCompilationUnit ::= ImportDeclarations ReduceImports TypeDeclarations
+	// consume type declarations
+	int length;
+	if ((length = this.astLengthStack[this.astLengthPtr--]) != 0) {
+		this.compilationUnit.types = new TypeDeclaration[length];
+		this.astPtr -= length;
+		System.arraycopy(this.astStack, this.astPtr + 1, this.compilationUnit.types, 0, length);
+	}
 }
 protected void consumeLocalVariableDeclaration() {
 	super.consumeLocalVariableDeclaration();
@@ -242,6 +282,14 @@ protected void consumePrimaryNoNewArrayWithName() {
 	// (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=23329)
 	intPtr--;
 	intPtr--;
+}
+protected void consumeTypeArgument() {
+	super.consumeTypeArgument();
+	patternLocator.match((TypeReference)genericsStack[genericsPtr], nodeSet);
+}
+protected void consumeTypeParameterHeader() {
+	super.consumeTypeParameterHeader();
+	patternLocator.match((TypeParameter)genericsStack[genericsPtr], nodeSet);
 }
 protected void consumeUnaryExpression(int op, boolean post) {
 	super.consumeUnaryExpression(op, post);

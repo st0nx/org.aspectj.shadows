@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -24,8 +24,12 @@ import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
 import org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment;
 import org.eclipse.jdt.internal.compiler.lookup.MethodVerifier;
 import org.eclipse.jdt.internal.compiler.lookup.ParameterizedGenericMethodBinding;
+import org.eclipse.jdt.internal.compiler.lookup.RawTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeVariableBinding;
 import org.eclipse.jdt.internal.core.Member;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * Internal implementation of method bindings.
@@ -64,7 +68,15 @@ class MethodBinding implements IMethodBinding {
 	 * @since 3.0
 	 */
 	public boolean isDefaultConstructor() {
-		if (this.binding.declaringClass.isBinaryBinding()) {
+		final ReferenceBinding declaringClassBinding = this.binding.declaringClass;
+		if (declaringClassBinding.isRawType()) {
+			RawTypeBinding rawTypeBinding = (RawTypeBinding) declaringClassBinding;
+			if (rawTypeBinding.type.isBinaryBinding()) {
+				return false;
+			}
+			return (this.binding.modifiers & CompilerModifiers.AccIsDefaultConstructor) != 0;
+		}
+		if (declaringClassBinding.isBinaryBinding()) {
 			return false;
 		}
 		return (this.binding.modifiers & CompilerModifiers.AccIsDefaultConstructor) != 0;
@@ -125,61 +137,6 @@ class MethodBinding implements IMethodBinding {
 	}
 	
 	/*
-	 * Returns the signature of the given type.
-	 */
-	private String getSignature(Type type) {
-		StringBuffer buffer = new StringBuffer();
-		getFullyQualifiedName(type, buffer);
-		return Signature.createTypeSignature(buffer.toString(), false/*not resolved in source*/);
-	}
-	
-	/*
-	 * Appends to the given buffer the fully qualified name (as it appears in the source) of the given type
-	 */
-	private void getFullyQualifiedName(Type type, StringBuffer buffer) {
-		if (type.isArrayType()) {
-			ArrayType arrayType = (ArrayType) type;
-			getFullyQualifiedName(arrayType.getElementType(), buffer);
-			for (int i = 0, length = arrayType.getDimensions(); i < length; i++) {
-				buffer.append('[');
-				buffer.append(']');
-			}
-		} else if (type.isParameterizedType()) {
-			ParameterizedType parameterizedType = (ParameterizedType) type;
-			getFullyQualifiedName(parameterizedType.getType(), buffer);
-			buffer.append('<');
-			Iterator iterator = parameterizedType.typeArguments().iterator();
-			boolean isFirst = true;
-			while (iterator.hasNext()) {
-				if (!isFirst)
-					buffer.append(',');
-				else
-					isFirst = false;
-				Type typeArgument = (Type) iterator.next();
-				getFullyQualifiedName(typeArgument, buffer);
-			}
-			buffer.append('>');
-		} else if (type.isPrimitiveType()) {
-			buffer.append(((PrimitiveType) type).getPrimitiveTypeCode().toString());
-		} else if (type.isQualifiedType()) {
-			buffer.append(((QualifiedType) type).getName().getFullyQualifiedName());
-		} else if (type.isSimpleType()) {
-			buffer.append(((SimpleType) type).getName().getFullyQualifiedName());
-		} else if (type.isWildcardType()) {
-			buffer.append('?');
-			WildcardType wildcardType = (WildcardType) type;
-			Type bound = wildcardType.getBound();
-			if (bound == null) return;
-			if (wildcardType.isUpperBound()) {
-				buffer.append(" extends "); //$NON-NLS-1$
-			} else {
-				buffer.append(" super "); //$NON-NLS-1$
-			}
-			getFullyQualifiedName(bound, buffer);
-		}
-	}
-
-	/*
 	 * @see IMethodBinding#getExceptionTypes()
 	 */
 	public ITypeBinding[] getExceptionTypes() {
@@ -203,29 +160,43 @@ class MethodBinding implements IMethodBinding {
 		IType declaringType = (IType) getDeclaringClass().getJavaElement();
 		if (declaringType == null) return null;
 		if (!(this.resolver instanceof DefaultBindingResolver)) return null;
-		MethodDeclaration methodDeclaration = (MethodDeclaration) ((DefaultBindingResolver) this.resolver).bindingsToAstNodes.get(this);
-		if (methodDeclaration != null) {
-			ArrayList parameterSignatures = new ArrayList();
-			Iterator iterator = methodDeclaration.parameters().iterator();
-			while (iterator.hasNext()) {
-				SingleVariableDeclaration parameter = (SingleVariableDeclaration) iterator.next();
-				Type type = parameter.getType();
-				parameterSignatures.add(getSignature(type));
+		ASTNode node = (ASTNode) ((DefaultBindingResolver) this.resolver).bindingsToAstNodes.get(this);
+		if (node != null && declaringType.getParent().getElementType() != IJavaElement.CLASS_FILE) {
+			if (node instanceof MethodDeclaration) {
+				MethodDeclaration methodDeclaration = (MethodDeclaration) node;
+				ArrayList parameterSignatures = new ArrayList();
+				Iterator iterator = methodDeclaration.parameters().iterator();
+				while (iterator.hasNext()) {
+					SingleVariableDeclaration parameter = (SingleVariableDeclaration) iterator.next();
+					Type type = parameter.getType();
+					String typeSig = Util.getSignature(type);
+					int arrayDim = parameter.getExtraDimensions();
+					if (parameter.isVarargs())
+						arrayDim++;
+					if (arrayDim > 0)
+						typeSig = Signature.createArraySignature(typeSig, arrayDim);
+					parameterSignatures.add(typeSig);
+				}
+				int parameterCount = parameterSignatures.size();
+				String[] parameters = new String[parameterCount];
+				parameterSignatures.toArray(parameters);
+				return declaringType.getMethod(getName(), parameters);
+			} else {
+				// annotation type member declaration
+				AnnotationTypeMemberDeclaration typeMemberDeclaration = (AnnotationTypeMemberDeclaration) node;
+				return declaringType.getMethod(typeMemberDeclaration.getName().getIdentifier(), new String[0]); // annotation type members don't have parameters
 			}
-			int parameterCount = parameterSignatures.size();
-			String[] parameters = new String[parameterCount];
-			parameterSignatures.toArray(parameters);
-			return declaringType.getMethod(getName(), parameters);
 		} else {
-			// case of method not in the created AST
-			String selector = getName();
-			char[] methodSignature = this.binding.genericSignature();
-			if (methodSignature == null)
-				methodSignature = this.binding.signature();
-			methodSignature = CharOperation.replaceOnCopy(methodSignature, '/', '.');
-			char[][] parameterSignatures = Signature.getParameterTypes(methodSignature);
-			String[] parameters = CharOperation.toStrings(parameterSignatures);
-			IMethod result = declaringType.getMethod(selector, parameters);
+			// case of method not in the created AST, or a binary method
+			org.eclipse.jdt.internal.compiler.lookup.MethodBinding original = this.binding.original();
+			String selector = original.isConstructor() ? declaringType.getElementName() : new String(original.selector);
+			TypeBinding[] parameters = original.parameters;
+			int length = parameters == null ? 0 : parameters.length;
+			String[] parameterSignatures = new String[length];
+			for (int i = 0;  i < length; i++) {
+				parameterSignatures[i] = new String(parameters[i].genericTypeSignature()).replace('/', '.');
+			}
+			IMethod result = declaringType.getMethod(selector, parameterSignatures);
 			if (declaringType.isBinary())
 				return result;
 			IMethod[] methods = null;
@@ -390,19 +361,18 @@ class MethodBinding implements IMethodBinding {
 		return (this.binding instanceof ParameterizedGenericMethodBinding)
 			&& ((ParameterizedGenericMethodBinding) this.binding).isRaw;
 	}
+	
+	public boolean isSubsignature(IMethodBinding otherMethod) {
+		org.eclipse.jdt.internal.compiler.lookup.MethodBinding other = ((MethodBinding) otherMethod).binding;
+		if (!CharOperation.equals(this.binding.selector, other.selector))
+			return false;
+		return this.binding.areParameterErasuresEqual(other);
+	}
 
 	/**
-	 * @deprecated Use {@link #getGenericMethod()} instead.
+	 * @see org.eclipse.jdt.core.dom.IMethodBinding#getMethodDeclaration()
 	 */
-	// TODO (jeem) - remove before 3.1M5 (bug 80800)
-	public IMethodBinding getErasure() {
-		return getGenericMethod();
-	}
-	
-	/* (non-Javadoc)
-	 * @see org.eclipse.jdt.core.dom.IMethodBinding#getGenericMethod()
-	 */
-	public IMethodBinding getGenericMethod() {
+	public IMethodBinding getMethodDeclaration() {
 		return this.resolver.getMethodBinding(this.binding.original());
 	}
 	

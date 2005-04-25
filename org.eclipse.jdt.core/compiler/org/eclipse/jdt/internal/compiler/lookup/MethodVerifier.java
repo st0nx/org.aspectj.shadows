@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -12,7 +12,6 @@ package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
-import org.eclipse.jdt.internal.compiler.env.IConstants;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
 
@@ -66,15 +65,6 @@ boolean areParametersEqual(MethodBinding one, MethodBinding two) {
 boolean areReturnTypesEqual(MethodBinding one, MethodBinding two) {
 	return areTypesEqual(one.returnType, two.returnType);
 }
-boolean canSkipInheritedMethods() {
-	if (this.type.superclass() != null && this.type.superclass().isAbstract())
-		return false;
-	return this.type.superInterfaces() == NoSuperInterfaces;
-}
-boolean canSkipInheritedMethods(MethodBinding one, MethodBinding two) {
-	return two == null // already know one is not null
-		|| one.declaringClass == two.declaringClass;
-}
 boolean areTypesEqual(TypeBinding one, TypeBinding two) {
 	if (one == two) return true;
 
@@ -88,6 +78,15 @@ boolean areTypesEqual(TypeBinding one, TypeBinding two) {
 		return ((UnresolvedReferenceBinding) two).resolvedType == one;
 	return false; // all other type bindings are identical
 }
+boolean canSkipInheritedMethods() {
+	if (this.type.superclass() != null && this.type.superclass().isAbstract())
+		return false;
+	return this.type.superInterfaces() == NoSuperInterfaces;
+}
+boolean canSkipInheritedMethods(MethodBinding one, MethodBinding two) {
+	return two == null // already know one is not null
+		|| one.declaringClass == two.declaringClass;
+}
 void checkAbstractMethod(MethodBinding abstractMethod) {
 	if (mustImplementAbstractMethod(abstractMethod.declaringClass)) {
 		TypeDeclaration typeDeclaration = this.type.scope.referenceContext;
@@ -99,12 +98,20 @@ void checkAbstractMethod(MethodBinding abstractMethod) {
 		}
 	}
 }
-void checkAgainstInheritedMethods(MethodBinding currentMethod, MethodBinding[] methods, int length) {
+void checkAgainstInheritedMethods(MethodBinding currentMethod, MethodBinding[] methods, int length, MethodBinding[] otherInheritedMethods) {
 	boolean isAnnotationMember = this.type.isAnnotationType();
 	nextMethod : for (int i = length; --i >= 0;) {
 		MethodBinding inheritedMethod = methods[i];
+		if (isAnnotationMember) { // annotation cannot override any method
+			problemReporter().annotationCannotOverrideMethod(currentMethod, inheritedMethod);
+			return; // do not repoort against subsequent inherited methods
+		}
 		if (currentMethod.isStatic() != inheritedMethod.isStatic()) {  // Cannot override a static method or hide an instance method
 			problemReporter(currentMethod).staticAndInstanceConflict(currentMethod, inheritedMethod);
+			continue nextMethod;
+		}
+		if (!areReturnTypesEqual(currentMethod, inheritedMethod)) {
+			problemReporter(currentMethod).incompatibleReturnType(currentMethod, inheritedMethod);
 			continue nextMethod;
 		}
 
@@ -122,35 +129,38 @@ void checkAgainstInheritedMethods(MethodBinding currentMethod, MethodBinding[] m
 			currentMethod.modifiers |= CompilerModifiers.AccOverriding;
 		}
 
-		if (isAnnotationMember) {
-			// annotation cannot override any method
-			problemReporter().annotationCannotOverrideMethod(currentMethod, inheritedMethod);
-			return; // do not repoort against subsequent inherited methods
-		}		
-		if (!areReturnTypesEqual(currentMethod, inheritedMethod)) {
-			problemReporter(currentMethod).incompatibleReturnType(currentMethod, inheritedMethod);
-		} else {
-			if (currentMethod.thrownExceptions != NoExceptions)
-				checkExceptions(currentMethod, inheritedMethod);
-			if (inheritedMethod.isFinal())
-				problemReporter(currentMethod).finalMethodCannotBeOverridden(currentMethod, inheritedMethod);
-			if (!isAsVisible(currentMethod, inheritedMethod))
-				problemReporter(currentMethod).visibilityConflict(currentMethod, inheritedMethod);
-			if (environment.options.reportDeprecationWhenOverridingDeprecatedMethod && inheritedMethod.isViewedAsDeprecated()) {
-				if (!currentMethod.isViewedAsDeprecated() || environment.options.reportDeprecationInsideDeprecatedCode) {
-					// check against the other inherited methods to see if they hide this inheritedMethod
-					ReferenceBinding declaringClass = inheritedMethod.declaringClass;
-					if (declaringClass.isInterface())
-						for (int j = length; --j >= 0;)
-							if (i != j && methods[j].declaringClass.implementsInterface(declaringClass, false))
-								continue nextMethod;
+		if (currentMethod.thrownExceptions != NoExceptions)
+			checkExceptions(currentMethod, inheritedMethod);
+		if (inheritedMethod.isFinal())
+			problemReporter(currentMethod).finalMethodCannotBeOverridden(currentMethod, inheritedMethod);
+		if (!isAsVisible(currentMethod, inheritedMethod))
+			problemReporter(currentMethod).visibilityConflict(currentMethod, inheritedMethod);
+		if (environment.options.reportDeprecationWhenOverridingDeprecatedMethod && inheritedMethod.isViewedAsDeprecated()) {
+			if (!currentMethod.isViewedAsDeprecated() || environment.options.reportDeprecationInsideDeprecatedCode) {
+				// check against the other inherited methods to see if they hide this inheritedMethod
+				ReferenceBinding declaringClass = inheritedMethod.declaringClass;
+				if (declaringClass.isInterface())
+					for (int j = length; --j >= 0;)
+						if (i != j && methods[j].declaringClass.implementsInterface(declaringClass, false))
+							continue nextMethod;
 
-					problemReporter(currentMethod).overridesDeprecatedMethod(currentMethod, inheritedMethod);
-				}
+				problemReporter(currentMethod).overridesDeprecatedMethod(currentMethod, inheritedMethod);
 			}
-			checkForBridgeMethod(currentMethod, inheritedMethod);
 		}
+		checkForBridgeMethod(currentMethod, inheritedMethod, otherInheritedMethods);
 	}
+}
+void checkConcreteInheritedMethod(MethodBinding concreteMethod, MethodBinding[] abstractMethods) {
+	// Remember that interfaces can only define public instance methods
+	if (concreteMethod.isStatic())
+		// Cannot inherit a static method which is specified as an instance method by an interface
+		problemReporter().staticInheritedMethodConflicts(type, concreteMethod, abstractMethods);	
+	if (!concreteMethod.isPublic())
+		// Cannot reduce visibility of a public method specified by an interface
+		problemReporter().inheritedMethodReducesVisibility(type, concreteMethod, abstractMethods);
+	if (concreteMethod.thrownExceptions != NoExceptions)
+		for (int i = abstractMethods.length; --i >= 0;)
+			checkExceptions(concreteMethod, abstractMethods[i]);
 }
 /*
 "8.4.4"
@@ -170,7 +180,13 @@ void checkExceptions(MethodBinding newMethod, MethodBinding inheritedMethod) {
 				problemReporter(newMethod).incompatibleExceptionInThrowsClause(this.type, newMethod, inheritedMethod, newException);
 	}
 }
-void checkForBridgeMethod(MethodBinding currentMethod, MethodBinding inheritedMethod) {
+void checkForBridgeMethod(MethodBinding currentMethod, MethodBinding inheritedMethod, MethodBinding[] otherInheritedMethods) {
+	// no op before 1.5
+}
+void checkForInheritedNameClash(MethodBinding inheritedMethod, MethodBinding otherInheritedMethod) {
+	// no op before 1.5
+}
+void checkForNameClash(MethodBinding currentMethod, MethodBinding inheritedMethod) {
 	// no op before 1.5
 }
 void checkInheritedMethods(MethodBinding[] methods, int length) {
@@ -192,7 +208,7 @@ void checkInheritedMethods(MethodBinding[] methods, int length) {
 		}
 	}
 	if (concreteMethod == null) {
-		if (this.type.isClass() && !this.type.isAbstract()) {
+		if (!this.type.isAbstract()) {
 			for (int i = length; --i >= 0;) {
 				if (mustImplementAbstractMethod(methods[i].declaringClass)) {
 					TypeDeclaration typeDeclaration = this.type.scope.referenceContext;
@@ -214,17 +230,7 @@ void checkInheritedMethods(MethodBinding[] methods, int length) {
 	for (int i = length; --i >= 0;)
 		if (methods[i] != concreteMethod)
 			abstractMethods[index++] = methods[i];
-
-	// Remember that interfaces can only define public instance methods
-	if (concreteMethod.isStatic())
-		// Cannot inherit a static method which is specified as an instance method by an interface
-		problemReporter().staticInheritedMethodConflicts(type, concreteMethod, abstractMethods);	
-	if (!concreteMethod.isPublic())
-		// Cannot reduce visibility of a public method specified by an interface
-		problemReporter().inheritedMethodReducesVisibility(type, concreteMethod, abstractMethods);
-	if (concreteMethod.thrownExceptions != NoExceptions)
-		for (int i = abstractMethods.length; --i >= 0;)
-			checkExceptions(concreteMethod, abstractMethods[i]);
+	checkConcreteInheritedMethod(concreteMethod, abstractMethods);
 }
 /*
 For each inherited method identifier (message pattern - vm signature minus the return type)
@@ -245,7 +251,7 @@ For each inherited method identifier (message pattern - vm signature minus the r
 					complain about missing implementation only if type is NOT an interface or abstract
 */
 void checkMethods() {
-	boolean mustImplementAbstractMethods = ((this.type.modifiers & IConstants.AccInterface) == 0) && !this.type.isAbstract();
+	boolean mustImplementAbstractMethods = mustImplementAbstractMethods();
 	boolean skipInheritedMethods = mustImplementAbstractMethods && canSkipInheritedMethods(); // have a single concrete superclass so only check overridden methods
 	char[][] methodSelectors = this.inheritedMethods.keyTable;
 	nextSelector : for (int s = methodSelectors.length; --s >= 0;) {
@@ -275,11 +281,13 @@ void checkMethods() {
 						if (areMethodsEqual(currentMethod, inheritedMethod)) {
 							matchingInherited[++index] = inheritedMethod;
 							inherited[j] = null; // do not want to find it again
+						} else {
+							checkForNameClash(currentMethod, inheritedMethod);
 						}
 					}
 				}
 				if (index >= 0)
-					checkAgainstInheritedMethods(currentMethod, matchingInherited, index + 1); // pass in the length of matching
+					checkAgainstInheritedMethods(currentMethod, matchingInherited, index + 1, inherited); // pass in the length of matching
 			}
 		}
 
@@ -296,6 +304,8 @@ void checkMethods() {
 					if (areMethodsEqual(inheritedMethod, otherInheritedMethod)) {
 						matchingInherited[++index] = otherInheritedMethod;
 						inherited[j] = null; // do not want to find it again
+					} else {
+						checkForInheritedNameClash(inheritedMethod, otherInheritedMethod);
 					}
 				}
 			}
@@ -332,6 +342,12 @@ void checkPackagePrivateAbstractMethod(MethodBinding abstractMethod) {
 	// non visible abstract methods cannot be overridden so the type must be defined abstract
 	problemReporter().abstractMethodCannotBeOverridden(this.type, abstractMethod);
 }
+void computeInheritedMethods() {
+	ReferenceBinding superclass = this.type.isInterface()
+		? this.type.scope.getJavaLangObject() // check interface methods against Object
+		: this.type.superclass(); // class or enum
+	computeInheritedMethods(superclass, type.superInterfaces());
+}
 /*
 Binding creation is responsible for reporting:
 	- all modifier problems (duplicates & multiple visibility modifiers + incompatible combinations)
@@ -344,20 +360,18 @@ Binding creation is responsible for reporting:
 	- check the type of any array is not void
 	- check that each exception type is Throwable or a subclass of it
 */
-void computeInheritedMethods() {
+void computeInheritedMethods(ReferenceBinding superclass, ReferenceBinding[] superInterfaces) {
 	// only want to remember inheritedMethods that can have an impact on the current type
 	// if an inheritedMethod has been 'replaced' by a supertype's method then skip it
 
 	this.inheritedMethods = new HashtableOfObject(51); // maps method selectors to an array of methods... must search to match paramaters & return type
 	ReferenceBinding[][] interfacesToVisit = new ReferenceBinding[3][];
 	int lastPosition = -1;
-	ReferenceBinding[] itsInterfaces = type.superInterfaces();
+	ReferenceBinding[] itsInterfaces = superInterfaces;
 	if (itsInterfaces != NoSuperInterfaces)
 		interfacesToVisit[++lastPosition] = itsInterfaces;
 
-	ReferenceBinding superType = (this.type.modifiers & IConstants.AccInterface) == 0
-		? this.type.superclass() // class or enum
-		: this.type.scope.getJavaLangObject(); // check interface methods against Object
+	ReferenceBinding superType = superclass;
 	HashtableOfObject nonVisibleDefaultMethods = new HashtableOfObject(3); // maps method selectors to an array of methods
 	boolean allSuperclassesAreAbstract = true;
 
@@ -496,7 +510,12 @@ MethodBinding computeSubstituteMethod(MethodBinding inheritedMethod, MethodBindi
 	return inheritedMethod;
 }
 public boolean doesMethodOverride(MethodBinding method, MethodBinding inheritedMethod) {
-	return areReturnTypesEqual(method, inheritedMethod) && areParametersEqual(method, inheritedMethod);
+	return areReturnTypesEqual(method, inheritedMethod) && areMethodsEqual(method, inheritedMethod);
+}
+public boolean doReturnTypesCollide(MethodBinding method, MethodBinding inheritedMethod) {
+	return method.returnType != inheritedMethod.returnType
+		&& org.eclipse.jdt.core.compiler.CharOperation.equals(method.selector, inheritedMethod.selector)
+		&& method.areParametersEqual(inheritedMethod);
 }
 ReferenceBinding errorException() {
 	if (errorException == null)
@@ -541,6 +560,9 @@ boolean mustImplementAbstractMethod(ReferenceBinding declaringClass) {
 			superclass = superclass.superclass(); // find the first concrete superclass or the superclass which implements the interface
 	}
 	return superclass.isAbstract();		// if it is a concrete class then we have already reported problem against it
+}
+boolean mustImplementAbstractMethods() {
+	return !this.type.isInterface() && !this.type.isAbstract();
 }
 ProblemReporter problemReporter() {
 	return this.type.scope.problemReporter();

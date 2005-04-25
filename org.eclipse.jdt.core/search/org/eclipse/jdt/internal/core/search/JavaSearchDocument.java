@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -31,10 +31,6 @@ public class JavaSearchDocument extends SearchDocument {
 	public JavaSearchDocument(String documentPath, SearchParticipant participant) {
 		super(documentPath, participant);
 	}
-	public JavaSearchDocument(IFile file, SearchParticipant participant) {
-		super(file.getFullPath().toString(), participant);
-		this.file = file;
-	}
 	public JavaSearchDocument(java.util.zip.ZipEntry zipEntry, IPath zipFilePath, byte[] contents, SearchParticipant participant) {
 		super(zipFilePath + IJavaSearchScope.JAR_FILE_ENTRY_SEPARATOR + zipEntry.getName(), participant);
 		this.byteContents = contents;
@@ -45,7 +41,7 @@ public class JavaSearchDocument extends SearchDocument {
 		try {
 			return org.eclipse.jdt.internal.compiler.util.Util.getFileByteContent(getLocation().toFile());
 		} catch (IOException e) {
-			if (SearchBasicEngine.VERBOSE || JobManager.VERBOSE) { // used during search and during indexing
+			if (BasicSearchEngine.VERBOSE || JobManager.VERBOSE) { // used during search and during indexing
 				e.printStackTrace();
 			}
 			return null;
@@ -56,7 +52,7 @@ public class JavaSearchDocument extends SearchDocument {
 		try {
 			return org.eclipse.jdt.internal.compiler.util.Util.getFileCharContent(getLocation().toFile(), getEncoding());
 		} catch (IOException e) {
-			if (SearchBasicEngine.VERBOSE || JobManager.VERBOSE) { // used during search and during indexing
+			if (BasicSearchEngine.VERBOSE || JobManager.VERBOSE) { // used during search and during indexing
 				e.printStackTrace();
 			}
 			return null;

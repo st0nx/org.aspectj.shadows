@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -19,11 +19,11 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
  */
 public abstract class Annotation extends Expression {
 	
-	public TypeReference type;
+	final static MemberValuePair[] NoValuePairs = new MemberValuePair[0];
 	public int declarationSourceEnd;
 	public Binding recipient;
 	
-	final static MemberValuePair[] NoValuePairs = new MemberValuePair[0];
+	public TypeReference type;
 	
 	public static long getRetentionPolicy(char[] policyName) {
 		if (policyName == null || policyName.length == 0)
@@ -153,13 +153,13 @@ public abstract class Annotation extends Expression {
 		return tagBits;
 	}
 	
+	public abstract MemberValuePair[] memberValuePairs();
+	
 	public StringBuffer printExpression(int indent, StringBuffer output) {
 		output.append('@');
 		this.type.printExpression(0, output);
 		return output;
 	}
-	
-	public abstract MemberValuePair[] memberValuePairs();
 	
 	public TypeBinding resolveType(BlockScope scope) {
 		
@@ -237,7 +237,7 @@ public abstract class Annotation extends Expression {
 				// tag bits onto recipient
 				switch (this.recipient.kind()) {
 					case Binding.PACKAGE :
-						// TODO (philippe) need support for package annotations
+						((PackageBinding)this.recipient).tagBits |= tagBits;
 						break;
 					case Binding.TYPE :
 					case Binding.GENERIC_TYPE :

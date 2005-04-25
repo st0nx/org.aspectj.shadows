@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -32,7 +32,8 @@ public interface IJavaSearchConstants {
 	/* Nature of searched element */
 	
 	/**
-	 * The searched element is a type.
+	 * The searched element is a type, which may include classes, interfaces,
+	 * enums, and annotation types.
 	 */
 	int TYPE= 0;
 
@@ -58,30 +59,46 @@ public interface IJavaSearchConstants {
 
 	/**
 	 * The searched element is a class. 
-	 * More selective than using TYPE
+	 * More selective than using {@link #TYPE}.
 	 */
 	int CLASS= 5;
 
 	/**
 	 * The searched element is an interface.
-	 * More selective than using TYPE
+	 * More selective than using {@link #TYPE}.
 	 */
 	int INTERFACE= 6;
 
 	/**
 	 * The searched element is an enum.
-	 * More selective than using TYPE
+	 * More selective than using {@link #TYPE}.
+	 * @since 3.1
 	 */
 	int ENUM= 7;
 
 	/**
 	 * The searched element is an annotation type.
-	 * More selective than using TYPE
+	 * More selective than using {@link #TYPE}.
+	 * @since 3.1
 	 */
 	int ANNOTATION_TYPE= 8;
 
+	/**
+	 * The searched element is a class or enum type.
+	 * More selective than using {@link #TYPE}.
+	 * @since 3.1
+	 */
+	int CLASS_AND_ENUM= 9;
+
+	/**
+	 * The searched element is a class or interface type.
+	 * More selective than using {@link #TYPE}.
+	 * @since 3.1
+	 */
+	int CLASS_AND_INTERFACE= 10;
+
 	/* Nature of match */
-	
+
 	/**
 	 * The search result is a declaration.
 	 * Can be used in conjunction with any of the nature of searched elements
@@ -132,6 +149,25 @@ public interface IJavaSearchConstants {
 	 * @since 2.0
 	 */
 	int WRITE_ACCESSES = 5;
+
+	/**
+	 * Ignore declaring type while searching result.
+	 * Can be used in conjunction with any of the nature of match.
+	 * @since 3.1
+	 */
+	int IGNORE_DECLARING_TYPE = 0x10;
+
+	/**
+	 * Ignore return type while searching result.
+	 * Can be used in conjunction with any of the nature of match.
+	 * Note that:
+	 * <ul>
+	 * 	<li>for fields search, pattern will ignore field type</li>
+	 * 	<li>this flag will have no effect for types search</li>
+	 *	</ul>
+	 * @since 3.1
+	 */
+	int IGNORE_RETURN_TYPE = 0x20;
 	
 	/* Syntactic match modes */
 	

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -19,8 +19,9 @@ import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.codeassist.ISearchRequestor;
-import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
+import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
+import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
 
 /**
  * Implements <code>IJavaElementRequestor</code>, wrappering and forwarding
@@ -65,7 +66,9 @@ public SearchableEnvironmentRequestor(ISearchRequestor requestor, ICompilationUn
 	this.unitToSkip= unitToSkip;
 	this.project= project;
 	this.nameLookup = nameLookup;
-	this.checkAccessRestrictions = !JavaCore.IGNORE.equals(project.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true));
+	this.checkAccessRestrictions = 
+		!JavaCore.IGNORE.equals(project.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
+		|| !JavaCore.IGNORE.equals(project.getOption(JavaCore.COMPILER_PB_DISCOURAGED_REFERENCE, true));
 }
 /**
  * Do nothing, a SearchRequestor does not accept initializers
@@ -90,8 +93,7 @@ public void acceptType(IType type) {
 		if (this.unitToSkip != null && this.unitToSkip.equals(type.getCompilationUnit())){
 			return;
 		}
-		String packageName = type.getPackageFragment().getElementName();
-		String typeName = type.getElementName();
+		char[] packageName = type.getPackageFragment().getElementName().toCharArray();
 		boolean isBinary = type instanceof BinaryType;
 		
 		// determine associated access restriction
@@ -101,20 +103,16 @@ public void acceptType(IType type) {
 			PackageFragmentRoot root = (PackageFragmentRoot)type.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
 			ClasspathEntry entry = (ClasspathEntry) this.nameLookup.rootToResolvedEntries.get(root);
 			if (entry != null) { // reverse map always contains resolved CP entry
-				accessRestriction = entry.getImportRestriction();
-				if (accessRestriction != null) {
+				AccessRuleSet accessRuleSet = entry.getAccessRuleSet();
+				if (accessRuleSet != null) {
 					// TODO (philippe) improve char[] <-> String conversions to avoid performing them on the fly
-					char[][] packageChars = CharOperation.splitOn('.', packageName.toCharArray());
-					char[] typeChars = typeName.toCharArray();
-					accessRestriction = accessRestriction.getViolatedRestriction(CharOperation.concatWith(packageChars, typeChars, '/'), null);
+					char[][] packageChars = CharOperation.splitOn('.', packageName);
+					char[] fileChars = type.getParent().getElementName().toCharArray();
+					accessRestriction = accessRuleSet.getViolatedRestriction(CharOperation.concatWith(packageChars, fileChars, '/'));
 				}
 			}
 		}
-		if (type.isClass()) {
-			this.requestor.acceptClass(type.getPackageFragment().getElementName().toCharArray(), type.getElementName().toCharArray(), type.getFlags(), accessRestriction);
-		} else {
-			this.requestor.acceptInterface(type.getPackageFragment().getElementName().toCharArray(), type.getElementName().toCharArray(), type.getFlags(), accessRestriction);
-		}
+		this.requestor.acceptType(packageName, type.getElementName().toCharArray(), type.getFlags(), accessRestriction);
 	} catch (JavaModelException jme) {
 		// ignore
 	}

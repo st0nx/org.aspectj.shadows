@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -14,7 +14,7 @@ import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.jdom.*;
-import org.eclipse.jdt.internal.compiler.util.Util;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
 
 /**
@@ -99,7 +99,7 @@ protected void appendFragmentedContents(CharArrayBuffer buffer) {
 			.append("import ") //$NON-NLS-1$
 			.append(fName)
 			.append(';')
-			.append(Util.LINE_SEPARATOR);
+			.append(org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR);
 	} else {
 		buffer.append(fDocument, fSourceRange[0], fNameRange[0] - fSourceRange[0]);
 		//buffer.append(fDocument, fNameRange[0], fNameRange[1] - fNameRange[0] + 1);
@@ -130,7 +130,7 @@ public IJavaElement getJavaElement(IJavaElement parent) throws IllegalArgumentEx
 	if (parent.getElementType() == IJavaElement.COMPILATION_UNIT) {
 		return ((ICompilationUnit)parent).getImport(getName());
 	} else {
-		throw new IllegalArgumentException(Util.bind("element.illegalParent")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.element_illegalParent); 
 	}
 }
 /**
@@ -156,7 +156,7 @@ protected DOMNode newDOMNode() {
  */
 public void setName(String name) {
 	if (name == null) {
-		throw new IllegalArgumentException(Util.bind("element.nullName")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.element_nullName); 
 	}
 	becomeDetailed();
 	super.setName(name);

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     IBM Corporation - added J2SE 1.5 support
@@ -450,6 +450,18 @@ public interface IType extends IMember {
 	IInitializer[] getInitializers() throws JavaModelException;
 	
 	/**
+	 * Returns the binding key for this type. A binding key is a key that uniquely
+	 * identifies this type. It allows access to generic info for parameterized
+	 * types.
+	 * 
+	 * @return the binding key for this type
+	 * @see org.eclipse.jdt.core.dom.IBinding#getKey()
+	 * @see BindingKey
+	 * @since 3.1
+	 */
+	String getKey();
+	
+	/**
 	 * Returns the method with the specified name and parameter types
 	 * in this type (for example, <code>"foo", {"I", "QString;"}</code>).
 	 * To get the handle for a constructor, the name specified must be the
@@ -592,7 +604,6 @@ public interface IType extends IMember {
 	 * in the order declared in the source, an empty array if none
 	 * @see Signature
 	 * @since 3.0
-	 * @deprecated Use #getTypeParameters() instead
 	 */
 	String[] getTypeParameterSignatures() throws JavaModelException;
 	
@@ -695,9 +706,7 @@ public interface IType extends IMember {
 	/**
 	 * Returns whether this type represents a class.
 	 * <p>
-	 * Note that <code>isClass</code>, <code>isInterface</code>,
-	 * <code>isEnum</code>, and <code>isAnnotation</code> are
-	 * mutually exclusive.
+	 * Note that a class can neither be an interface, an enumeration class, nor an annotation type.
 	 * </p>
 	 *
 	 * @exception JavaModelException if this element does not exist or if an
@@ -709,9 +718,7 @@ public interface IType extends IMember {
 	/**
 	 * Returns whether this type represents an enumeration class.
 	 * <p>
-	 * Note that <code>isClass</code>, <code>isInterface</code>,
-	 * <code>isEnum</code>, and <code>isAnnotation</code> are
-	 * mutually exclusive.
+	 * Note that an enumeration class can neither be a class, an interface, nor an annotation type.
 	 * </p>
 	 * 
 	 * @exception JavaModelException if this element does not exist or if an
@@ -725,9 +732,7 @@ public interface IType extends IMember {
 	/**
 	 * Returns whether this type represents an interface.
 	 * <p>
-	 * Note that <code>isClass</code>, <code>isInterface</code>,
-	 * <code>isEnum</code>, and <code>isAnnotation</code> are
-	 * mutually exclusive.
+	 * Note that an interface can also be an annotation type, but it can neither be a class nor an enumeration class.
 	 * </p>
 	 *
 	 * @exception JavaModelException if this element does not exist or if an
@@ -739,9 +744,7 @@ public interface IType extends IMember {
 	/**
 	 * Returns whether this type represents an annotation type.
 	 * <p>
-	 * Note that <code>isClass</code>, <code>isInterface</code>,
-	 * <code>isEnum</code>, and <code>isAnnotation</code> are
-	 * mutually exclusive.
+	 * Note that an annotation type is also an interface, but it can neither be a class nor an enumeration class. 
 	 * </p>
 	 *
 	 * @exception JavaModelException if this element does not exist or if an
@@ -771,6 +774,14 @@ public interface IType extends IMember {
 	 * @since 2.0
 	 */
 	boolean isMember() throws JavaModelException;
+	/**
+	 * Returns whether this type represents a resolved type.
+	 * If a type is resoved, its key contains resolved information.
+	 * 
+	 * @return whether this type represents a resolved type.
+	 * @since 3.1
+	 */
+	boolean isResolved();
 	/**
 	 * Loads a previously saved ITypeHierarchy from an input stream. A type hierarchy can
 	 * be stored using ITypeHierachy#store(OutputStream).

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -56,12 +56,12 @@ class XMLWriter extends PrintWriter {
 	private int tab;
 	public XMLWriter(Writer writer) {
 		super(writer);
-		tab= 0;
+		this.tab= 0;
 		println(XML_VERSION);
 	}
 	public void endTag(String name, boolean insertTab) {
-		tab--;
-		printTag('/' + name, null, insertTab, true, false);
+		this.tab --;
+		printTag('/' + name, null/*no parameters*/, insertTab, true/*insert new line*/, false/*don't close tag*/);
 	}
 	private void printTabulation() {
 		for (int i= 0; i < tab; i++)
@@ -94,9 +94,12 @@ class XMLWriter extends PrintWriter {
 		} else {
 			print(sb.toString());
 		}
+		if (parameters != null && !closeTag)
+			this.tab++;
+
 	}
 	public void startTag(String name, boolean insertTab) {
-		printTag(name, null, insertTab, true, false);
-		tab++;
+		printTag(name, null/*no parameters*/, insertTab, true/*insert new line*/, false/*don't close tag*/);
+		this.tab++;
 	}
 }

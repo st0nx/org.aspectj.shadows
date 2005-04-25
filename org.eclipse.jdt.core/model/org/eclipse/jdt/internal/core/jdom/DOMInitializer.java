@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -12,9 +12,8 @@ package org.eclipse.jdt.internal.core.jdom;
 
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.jdom.*;
-import org.eclipse.jdt.internal.compiler.util.Util;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
 /**
  * DOMInitializer provides an implementation of IDOMInitializer.
@@ -108,7 +107,7 @@ protected void appendMemberBodyContents(CharArrayBuffer buffer) {
 			.append(getBody())
 			.append(fDocument, fBodyRange[1] + 1, fSourceRange[1] - fBodyRange[1]);
 	} else {
-		buffer.append("{}").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
+		buffer.append("{}").append(org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR); //$NON-NLS-1$
 	}
 }
 /**
@@ -137,7 +136,7 @@ public String getBody() {
 		if (fBody != null) {
 			return fBody;
 		} else {
-			return new String(CharOperation.subarray(fDocument, fBodyRange[0], fBodyRange[1] + 1));
+			return new String(fDocument, fBodyRange[0], fBodyRange[1] + 1 - fBodyRange[0]);
 		}
 	} else {
 		return null;
@@ -164,7 +163,7 @@ public IJavaElement getJavaElement(IJavaElement parent) throws IllegalArgumentEx
 		}
 		return ((IType) parent).getInitializer(count);
 	} else {
-		throw new IllegalArgumentException(Util.bind("element.illegalParent")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.element_illegalParent); 
 	}
 }
 /**

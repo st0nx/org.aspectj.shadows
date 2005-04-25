@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -22,9 +22,9 @@ import org.eclipse.jdt.core.IMember;
 import org.eclipse.jdt.core.IParent;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.compiler.util.Util;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * This operation copies/moves a collection of elements from their current
@@ -84,7 +84,7 @@ public CopyElementsOperation(IJavaElement[] elementsToCopy, IJavaElement destCon
  * for progress monitoring.
  */
 protected String getMainTaskName() {
-	return Util.bind("operation.copyElementProgress"); //$NON-NLS-1$
+	return Messages.operation_copyElementProgress; 
 }
 /**
  * Returns the nested operation to use for processing this element
@@ -124,34 +124,19 @@ protected JavaModelOperation getNestedOperation(IJavaElement element) {
 private String getSourceFor(IJavaElement element) throws JavaModelException {
 	String source = (String) this.sources.get(element);
 	if (source == null && element instanceof IMember) {
-		IMember member = (IMember)element;
-		ICompilationUnit cu = member.getCompilationUnit();
-		String cuSource = cu.getSource();
-		String cuName = cu.getElementName();
-		source = computeSourceForElement(element, cuSource, cuName);
+		source = ((IMember)element).getSource();
 		this.sources.put(element, source);
 	}
 	return source;
 }
 /**
- * @deprecated marked deprecated to suppress JDOM-related deprecation warnings
- */
-// TODO - JDOM - remove once model ported off of JDOM
-private String computeSourceForElement(IJavaElement element, String cuSource, String cuName) {
-	String source;
-	IDOMCompilationUnit domCU = new DOMFactory().createCompilationUnit(cuSource, cuName);
-	IDOMNode node = ((JavaElement)element).findNode(domCU);
-	source = new String(node.getCharacters());
-	return source;
-}
-/**
  * Returns <code>true</code> if this element is the main type of its compilation unit.
  */
-protected boolean isRenamingMainType(IJavaElement element, IJavaElement dest) {
+protected boolean isRenamingMainType(IJavaElement element, IJavaElement dest) throws JavaModelException {
 	if ((isRename() || getNewNameFor(element) != null)
 		&& dest.getElementType() == IJavaElement.COMPILATION_UNIT) {
 		String typeName = dest.getElementName();
-		typeName = typeName.substring(0, typeName.length() - 5);
+		typeName = org.eclipse.jdt.internal.core.util.Util.getNameWithoutJavaLikeExtension(typeName);
 		return element.getElementName().equals(typeName) && element.getParent().equals(dest);
 	}
 	return false;
@@ -261,12 +246,6 @@ protected void verify(IJavaElement element) throws JavaModelException {
 
 	if (element.getElementType() < IJavaElement.TYPE)
 		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
-
-	Member localContext;
-	if (element instanceof Member && (localContext = ((Member)element).getOuterMostLocalContext()) != null && localContext != element) {
-		// JDOM doesn't support source manipulation in local/anonymous types
-		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
-	}
 
 	if (element.isReadOnly())
 		error(IJavaModelStatusConstants.READ_ONLY, element);

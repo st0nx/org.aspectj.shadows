@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -18,22 +18,5 @@ import org.eclipse.jdt.internal.compiler.env.ISourceImport;
  */
 public class ImportDeclarationElementInfo extends MemberElementInfo implements ISourceImport{
 	
-	char[] name;
-	
-	// record if import is on demand, the import name doesn't have trailing start
-	boolean onDemand;
-	
-	public char[] getName() {
-		return this.name;
-	}
-	/* (non-Javadoc)
-	 * @see org.eclipse.jdt.internal.compiler.env.ISourceImport#onDemand()
-	 */
-	public boolean onDemand() {
-		return this.onDemand;
-	}
-
-	public void setOnDemand(boolean onDemand) {
-		this.onDemand = onDemand;
-	}
+	// empty element info
 }

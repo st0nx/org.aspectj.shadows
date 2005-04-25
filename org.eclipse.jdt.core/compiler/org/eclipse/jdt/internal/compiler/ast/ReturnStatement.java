@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -147,34 +147,9 @@ public class ReturnStatement extends Statement {
 	 */
 	public void generateReturnBytecode(CodeStream codeStream) {
 	
-		if (expression == null) {
-			codeStream.return_();
-		} else {
-			final int implicitConversion = expression.implicitConversion;
-			if ((implicitConversion & BOXING) != 0) {
-				codeStream.areturn();
-				return;
-			}
-			int runtimeType = (implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4;
-			switch (runtimeType) {
-				case T_boolean :
-				case T_int :
-					codeStream.ireturn();
-					break;
-				case T_float :
-					codeStream.freturn();
-					break;
-				case T_long :
-					codeStream.lreturn();
-					break;
-				case T_double :
-					codeStream.dreturn();
-					break;
-				default :
-					codeStream.areturn();
-			}
-		}
+		codeStream.generateReturnBytecode(this.expression);
 	}
+	
 	public void generateStoreSaveValueIfNecessary(CodeStream codeStream){
 		if (saveValueVariable != null) codeStream.store(saveValueVariable, false);
 	}
@@ -232,7 +207,7 @@ public class ReturnStatement extends Statement {
 
 			expression.computeConversion(scope, methodType, expressionType);
 			if (expressionType.needsUncheckedConversion(methodType)) {
-			    scope.problemReporter().unsafeRawConversion(this.expression, expressionType, methodType);
+			    scope.problemReporter().unsafeTypeConversion(this.expression, expressionType, methodType);
 			}
 			return;
 		} else if (scope.isBoxingCompatibleWith(expressionType, methodType)) {

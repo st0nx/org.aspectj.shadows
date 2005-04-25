@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -238,6 +238,24 @@ public class AllocationExpression extends Expression implements InvocationSite {
 			this.resolvedType = scope.enclosingSourceType();
 		} else {
 			this.resolvedType = this.type.resolveType(scope, true /* check bounds*/);
+			checkParameterizedAllocation: {
+				if (this.type instanceof ParameterizedQualifiedTypeReference) { // disallow new X<String>.Y<Integer>()
+					ReferenceBinding currentType = (ReferenceBinding)this.resolvedType;
+					if (currentType == null) return null;
+					do {
+						// isStatic() is answering true for toplevel types
+						if ((currentType.modifiers & AccStatic) != 0) break checkParameterizedAllocation;
+						if (currentType.isRawType()) break checkParameterizedAllocation;
+					} while ((currentType = currentType.enclosingType())!= null);
+					ParameterizedQualifiedTypeReference qRef = (ParameterizedQualifiedTypeReference) this.type;
+					for (int i = qRef.typeArguments.length - 2; i >= 0; i--) {
+						if (qRef.typeArguments[i] != null) {
+							scope.problemReporter().illegalQualifiedParameterizedTypeAllocation(this.type, this.resolvedType);
+							break;
+						}
+					}
+				}
+			}
 		}
 		// will check for null after args are resolved
 
@@ -294,8 +312,7 @@ public class AllocationExpression extends Expression implements InvocationSite {
 		}
 		if (isMethodUseDeprecated(binding, scope))
 			scope.problemReporter().deprecatedMethod(binding, this);
-		if (this.arguments != null)
-			checkInvocationArguments(scope, null, allocationType, this.binding, this.arguments, argumentTypes, argsContainCast, this);
+		checkInvocationArguments(scope, null, allocationType, this.binding, this.arguments, argumentTypes, argsContainCast, this);
 
 		return allocationType;
 	}

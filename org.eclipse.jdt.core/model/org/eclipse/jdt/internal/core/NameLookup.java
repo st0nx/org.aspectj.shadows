@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -35,13 +35,14 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
 import org.eclipse.jdt.core.search.IJavaSearchConstants;
-import org.eclipse.jdt.core.search.ITypeNameRequestor;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
+import org.eclipse.jdt.internal.compiler.env.IConstants;
 import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.util.HashtableOfArrayToObject;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -98,10 +99,12 @@ public class NameLookup implements SuffixConstants {
 
 	/**
 	 * Table that maps package names to lists of package fragment roots
-	 * that contain such a package known
-	 * by this name lookup facility. To allow > 1 package fragment
-	 * with the same name, values are arrays of package fragment roots
-	 * ordered as they appear on the classpath.
+	 * that contain such a package known by this name lookup facility. 
+	 * To allow > 1 package fragment with the same name, values are 
+	 * arrays of package fragment roots ordered as they appear on the 
+	 * classpath.
+	 * Note if the list is of size 1, then the IPackageFragmentRoot object
+	 * replaces the array.
 	 */
 	protected HashtableOfArrayToObject packageFragments;
 
@@ -118,6 +121,7 @@ public class NameLookup implements SuffixConstants {
 	protected HashMap unitsToLookInside;
 	
 	public long timeSpentInSeekTypesInSourcePackage = 0;
+	public long timeSpentInSeekTypesInBinaryPackage = 0;
 
 	public NameLookup(IPackageFragmentRoot[] packageFragmentRoots, HashtableOfArrayToObject packageFragments, ICompilationUnit[] workingCopies, Map rootToResolvedEntries) {
 		if (VERBOSE) {
@@ -169,14 +173,19 @@ public class NameLookup implements SuffixConstants {
 				IPackageFragmentRoot root = (IPackageFragmentRoot) pkg.getParent();
 				if (visited.contains(root)) continue;
 				String[] pkgName = pkg.names;
-				IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) packageFragments.get(pkgName);
-				if (roots == null) {
-					this.packageFragments.put(pkgName, new IPackageFragmentRoot[] {root});
+				Object existing = this.packageFragments.get(pkgName);
+				if (existing == null) {
+					this.packageFragments.put(pkgName, root);
 				} else {
-					int rootLength = roots.length;
-					System.arraycopy(roots, 0, roots = new IPackageFragmentRoot[rootLength+1], 0, rootLength);
-					roots[rootLength] = root;
-					this.packageFragments.put(pkgName, roots);
+					if (existing instanceof PackageFragmentRoot) {
+						this.packageFragments.put(pkgName, new IPackageFragmentRoot[] {(PackageFragmentRoot) existing, root});
+					} else {
+						IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) existing;
+						int rootLength = roots.length;
+						System.arraycopy(roots, 0, roots = new IPackageFragmentRoot[rootLength+1], 0, rootLength);
+						roots[rootLength] = root;
+						this.packageFragments.put(pkgName, roots);
+					}
 				}
 				visited.add(root);
 			}
@@ -270,28 +279,40 @@ public class NameLookup implements SuffixConstants {
 		if (index != -1) {
 			cuName= cuName.substring(0, index);
 		}
-		IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) this.packageFragments.get(pkgName);
-		if (roots != null) {
-			for (int i= 0; i < roots.length; i++) {
-				PackageFragmentRoot root= (PackageFragmentRoot) roots[i];
-				if (!root.isArchive()) {
-					IPackageFragment pkg = root.getPackageFragment(pkgName);
-					try {
-						ICompilationUnit[] cus = pkg.getCompilationUnits();
-						for (int j = 0, length = cus.length; j < length; j++) {
-							ICompilationUnit cu = cus[j];
-							if (Util.equalsIgnoreJavaLikeExtension(cu.getElementName(), cuName))
-								return cu;
-						}
-					} catch (JavaModelException e) {
-						// pkg does not exist
-						// -> try next package
-					}
+		Object value = this.packageFragments.get(pkgName);
+		if (value != null) {
+			if (value instanceof PackageFragmentRoot) {
+				return findCompilationUnit(pkgName, cuName, (PackageFragmentRoot) value);
+			} else {
+				IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) value;
+				for (int i= 0; i < roots.length; i++) {
+					PackageFragmentRoot root= (PackageFragmentRoot) roots[i];
+					ICompilationUnit cu = findCompilationUnit(pkgName, cuName, root);
+					if (cu != null)
+						return cu;
 				}
 			}
 		}
 		return null;
 	}
+	
+	private ICompilationUnit findCompilationUnit(String[] pkgName, String cuName, PackageFragmentRoot root) {
+		if (!root.isArchive()) {
+			IPackageFragment pkg = root.getPackageFragment(pkgName);
+			try {
+				ICompilationUnit[] cus = pkg.getCompilationUnits();
+				for (int j = 0, length = cus.length; j < length; j++) {
+					ICompilationUnit cu = cus[j];
+					if (Util.equalsIgnoreJavaLikeExtension(cu.getElementName(), cuName))
+						return cu;
+				}
+			} catch (JavaModelException e) {
+				// pkg does not exist
+				// -> try next package
+			}
+		}
+		return null;
+}
 	
 	/**
 	 * Returns the package fragment whose path matches the given
@@ -304,7 +325,7 @@ public class NameLookup implements SuffixConstants {
 	 */
 	public IPackageFragment findPackageFragment(IPath path) {
 		if (!path.isAbsolute()) {
-			throw new IllegalArgumentException(Util.bind("path.mustBeAbsolute")); //$NON-NLS-1$
+			throw new IllegalArgumentException(Messages.path_mustBeAbsolute); 
 		}
 /*
  * TODO (jerome) this code should rather use the package fragment map to find the candidate package, then
@@ -396,10 +417,9 @@ public class NameLookup implements SuffixConstants {
 			for (int i = 0, length = keys.length; i < length; i++) {
 				String[] pkgName = (String[]) keys[i];
 				if (pkgName != null && Util.startsWithIgnoreCase(pkgName, splittedName)) {
-					IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) this.packageFragments.valueTable[i];
-					for (int j = 0, length2 = roots.length; j < length2; j++) {
-						PackageFragmentRoot root = (PackageFragmentRoot) roots[j];
-						IPackageFragment pkg = root.getPackageFragment(pkgName);
+					Object value = this.packageFragments.valueTable[i];
+					if (value instanceof PackageFragmentRoot) {
+						IPackageFragment pkg = ((PackageFragmentRoot) value).getPackageFragment(pkgName);
 						if (oneFragment == null) {
 							oneFragment = new IPackageFragment[] {pkg};
 						} else {
@@ -408,6 +428,21 @@ public class NameLookup implements SuffixConstants {
 								pkgs.add(oneFragment[0]);
 							}
 							pkgs.add(pkg);
+						}
+					} else {
+						IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) value;
+						for (int j = 0, length2 = roots.length; j < length2; j++) {
+							PackageFragmentRoot root = (PackageFragmentRoot) roots[j];
+							IPackageFragment pkg = root.getPackageFragment(pkgName);
+							if (oneFragment == null) {
+								oneFragment = new IPackageFragment[] {pkg};
+							} else {
+								if (pkgs == null) {
+									pkgs = new ArrayList();
+									pkgs.add(oneFragment[0]);
+								}
+								pkgs.add(pkg);
+							}
 						}
 					}
 				}
@@ -419,13 +454,18 @@ public class NameLookup implements SuffixConstants {
 			return result;
 		} else {
 			String[] splittedName = Util.splitOn('.', name, 0, name.length());
-			IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) this.packageFragments.get(splittedName);
-			if (roots != null) {
-				IPackageFragment[] result = new IPackageFragment[roots.length];
-				for (int i= 0; i < roots.length; i++) {
-					result[i] = ((PackageFragmentRoot) roots[i]).getPackageFragment(splittedName);
+			Object value = this.packageFragments.get(splittedName);
+			if (value instanceof PackageFragmentRoot) {
+				return new IPackageFragment[] {((PackageFragmentRoot) value).getPackageFragment(splittedName)};
+			} else {
+				IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) value;
+				if (roots != null) {
+					IPackageFragment[] result = new IPackageFragment[roots.length];
+					for (int i= 0; i < roots.length; i++) {
+						result[i] = ((PackageFragmentRoot) roots[i]).getPackageFragment(splittedName);
+					}
+					return result;
 				}
-				return result;
 			}
 		}
 		return null;
@@ -498,16 +538,26 @@ public class NameLookup implements SuffixConstants {
 	IType findSecondaryType(String typeName, IPackageFragment pkg, boolean partialMatch, final int acceptFlags) {
 		try {
 			final ArrayList paths = new ArrayList();
-			ITypeNameRequestor nameRequestor = new ITypeNameRequestor() {
-				public void acceptClass(char[] packageName, char[] simpleTypeName, char[][] enclosingTypeNames, String path) {
-					if ((acceptFlags & ACCEPT_CLASSES) != 0)
-						if (enclosingTypeNames == null || enclosingTypeNames.length == 0) // accept only top level types
-							paths.add(path);
-				}
-				public void acceptInterface(char[] packageName, char[] simpleTypeName, char[][] enclosingTypeNames, String path) {
-					if ((acceptFlags & ACCEPT_INTERFACES) != 0)
-						if (enclosingTypeNames == null || enclosingTypeNames.length == 0) // accept only top level types
-							paths.add(path);
+			TypeNameRequestor nameRequestor = new TypeNameRequestor() {
+				public void acceptType(int modifiers, char[] packageName, char[] simpleTypeName, char[][] enclosingTypeNames, String path) {
+					if (enclosingTypeNames == null || enclosingTypeNames.length == 0) { // accept only top level types
+						int kind = modifiers & (IConstants.AccInterface+IConstants.AccEnum+IConstants.AccAnnotation);
+						switch (kind) {
+							case IConstants.AccAnnotation:
+							case IConstants.AccAnnotation+IConstants.AccInterface:
+								if ((acceptFlags & ACCEPT_ANNOTATIONS) != 0) paths.add(path);
+								break;
+							case IConstants.AccEnum:
+								if ((acceptFlags & ACCEPT_ENUMS) != 0) paths.add(path);
+								break;
+							case IConstants.AccInterface:
+								if ((acceptFlags & ACCEPT_INTERFACES) != 0) paths.add(path);
+								break;
+							default:
+								if ((acceptFlags & ACCEPT_CLASSES) != 0) paths.add(path);
+								break;
+						}
+					}
 				}
 			};
 
@@ -631,24 +681,35 @@ public class NameLookup implements SuffixConstants {
 					return;
 				String[] pkgName = (String[]) keys[i];
 				if (pkgName != null && Util.startsWithIgnoreCase(pkgName, splittedName)) {
-					IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) this.packageFragments.valueTable[i];
-					for (int j = 0, length2 = roots.length; j < length2; j++) {
-						if (requestor.isCanceled())
-							return;
-						PackageFragmentRoot root = (PackageFragmentRoot) roots[j];
-						requestor.acceptPackageFragment(root.getPackageFragment(pkgName));					
+					Object value = this.packageFragments.valueTable[i];
+					if (value instanceof PackageFragmentRoot) {
+						PackageFragmentRoot root = (PackageFragmentRoot) value;
+						requestor.acceptPackageFragment(root.getPackageFragment(pkgName));				
+					} else {
+						IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) value;
+						for (int j = 0, length2 = roots.length; j < length2; j++) {
+							if (requestor.isCanceled())
+								return;
+							PackageFragmentRoot root = (PackageFragmentRoot) roots[j];
+							requestor.acceptPackageFragment(root.getPackageFragment(pkgName));					
+						}
 					}
 				}
 			}
 		} else {
 			String[] splittedName = Util.splitOn('.', name, 0, name.length());
-			IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) this.packageFragments.get(splittedName);
-			if (roots != null) {
-				for (int i = 0, length = roots.length; i < length; i++) {
-					if (requestor.isCanceled())
-						return;
-					PackageFragmentRoot root = (PackageFragmentRoot) roots[i];
-					requestor.acceptPackageFragment(root.getPackageFragment(splittedName));
+			Object value = this.packageFragments.get(splittedName);
+			if (value instanceof PackageFragmentRoot) {
+				requestor.acceptPackageFragment(((PackageFragmentRoot) value).getPackageFragment(splittedName));
+			} else {
+				IPackageFragmentRoot[] roots = (IPackageFragmentRoot[]) value;
+				if (roots != null) {
+					for (int i = 0, length = roots.length; i < length; i++) {
+						if (requestor.isCanceled())
+							return;
+						PackageFragmentRoot root = (PackageFragmentRoot) roots[i];
+						requestor.acceptPackageFragment(root.getPackageFragment(splittedName));
+					}
 				}
 			}
 		}
@@ -710,46 +771,54 @@ public class NameLookup implements SuffixConstants {
 	 * Performs type search in a binary package.
 	 */
 	protected void seekTypesInBinaryPackage(String name, IPackageFragment pkg, boolean partialMatch, int acceptFlags, IJavaElementRequestor requestor) {
-		IClassFile[] classFiles= null;
+		long start = -1;
+		if (VERBOSE)
+			start = System.currentTimeMillis();
 		try {
-			classFiles= pkg.getClassFiles();
-		} catch (JavaModelException npe) {
-			return; // the package is not present
-		}
-		int length= classFiles.length;
-
-		String unqualifiedName= name;
-		int index= name.lastIndexOf('$');
-		if (index != -1) {
-			//the type name of the inner type
-			unqualifiedName= Util.localTypeName(name, index, name.length());
-			// unqualifiedName is empty if the name ends with a '$' sign.
-			// See http://dev.eclipse.org/bugs/show_bug.cgi?id=14642
-		}
-		String matchName= partialMatch ? name.toLowerCase() : name;
-		for (int i= 0; i < length; i++) {
-			if (requestor.isCanceled())
-				return;
-			IClassFile classFile= classFiles[i];
-			String elementName = classFile.getElementName();
-			if (partialMatch) elementName = elementName.toLowerCase();
-
-			/**
-			 * Must use startWith because matchName will never have the 
-			 * extension ".class" and the elementName always will.
-			 */
-			if (elementName.startsWith(matchName)) {
-				IType type= null;
-				try {
-					type= classFile.getType();
-				} catch (JavaModelException npe) {
-					continue; // the classFile is not present
-				}
-				if (!partialMatch || (type.getElementName().length() > 0 && !Character.isDigit(type.getElementName().charAt(0)))) { //not an anonymous type
-					if (nameMatches(unqualifiedName, type, partialMatch) && acceptType(type, acceptFlags, false/*not a source type*/))
-						requestor.acceptType(type);
+			IClassFile[] classFiles= null;
+			try {
+				classFiles= pkg.getClassFiles();
+			} catch (JavaModelException npe) {
+				return; // the package is not present
+			}
+			int length= classFiles.length;
+	
+			String unqualifiedName= name;
+			int index= name.lastIndexOf('$');
+			if (index != -1) {
+				//the type name of the inner type
+				unqualifiedName= Util.localTypeName(name, index, name.length());
+				// unqualifiedName is empty if the name ends with a '$' sign.
+				// See http://dev.eclipse.org/bugs/show_bug.cgi?id=14642
+			}
+			String matchName= partialMatch ? name.toLowerCase() : name;
+			for (int i= 0; i < length; i++) {
+				if (requestor.isCanceled())
+					return;
+				IClassFile classFile= classFiles[i];
+				String elementName = classFile.getElementName();
+				if (partialMatch) elementName = elementName.toLowerCase();
+	
+				/**
+				 * Must use startWith because matchName will never have the 
+				 * extension ".class" and the elementName always will.
+				 */
+				if (elementName.startsWith(matchName)) {
+					IType type= null;
+					try {
+						type= classFile.getType();
+					} catch (JavaModelException npe) {
+						continue; // the classFile is not present
+					}
+					if (!partialMatch || (type.getElementName().length() > 0 && !Character.isDigit(type.getElementName().charAt(0)))) { //not an anonymous type
+						if (nameMatches(unqualifiedName, type, partialMatch) && acceptType(type, acceptFlags, false/*not a source type*/))
+							requestor.acceptType(type);
+					}
 				}
 			}
+		} finally {
+			if (VERBOSE)
+				this.timeSpentInSeekTypesInBinaryPackage += System.currentTimeMillis()-start;
 		}
 	}
 

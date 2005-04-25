@@ -1,15 +1,16 @@
 /*******************************************************************************
  * Copyright (c) 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.codeassist;
 
+import org.eclipse.jdt.core.IAccessRule;
 import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
@@ -44,6 +45,8 @@ public class InternalCompletionProposal {
 	protected char[] typeName;
 	protected char[][] parameterPackageNames;
 	protected char[][] parameterTypeNames;
+	
+	protected int accessibility = IAccessRule.K_ACCESSIBLE;
 	
 	protected char[][] findMethodParameterNames(char[] signatureType, char[] selector, char[][] paramTypeNames){
 		if(signatureType == null) return null;
@@ -245,5 +248,9 @@ public class InternalCompletionProposal {
 	
 	protected void setParameterTypeNames(char[][] parameterTypeNames) {
 		this.parameterTypeNames = parameterTypeNames;
+	}
+	
+	protected void setAccessibility(int kind) {
+		this.accessibility = kind;
 	}
 }

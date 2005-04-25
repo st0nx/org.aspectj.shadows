@@ -1,16 +1,17 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.indexing;
 
 import java.util.Locale;
+import java.util.Map;
 
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.ResourcesPlugin;
@@ -51,11 +52,15 @@ public class SourceIndexer extends AbstractIndexer implements SuffixConstants {
 		String documentPath = this.document.getPath();
 		IPath path = new Path(documentPath);
 		IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject(path.segment(0));
+		Map options = JavaCore.create(project).getOptions(true);
+		// disable task tags to speed up parsing
+		options.put(JavaCore.COMPILER_TASK_TAGS, ""); //$NON-NLS-1$
 		SourceElementParser parser = new SourceElementParser(
 			requestor, 
 			this.problemFactory, 
-			new CompilerOptions(JavaCore.create(project).getOptions(true)), 
-			true); // index local declarations
+			new CompilerOptions(options), 
+			true/*index local declarations*/,
+			true/*optimize string literals*/);
 		parser.reportOnlyOneSyntaxError = true;
 	
 		// Always check javadoc while indexing

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -19,6 +19,7 @@ import org.eclipse.jdt.core.search.SearchMatch;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.core.JavaElement;
 import org.eclipse.jdt.internal.core.util.SimpleSet;
 
 public class MethodLocator extends PatternLocator {
@@ -56,32 +57,58 @@ public void initializePolymorphicSearch(MatchLocator locator) {
 protected boolean isVirtualInvoke(MethodBinding method, MessageSend messageSend) {
 	return !method.isStatic() && !method.isPrivate() && !messageSend.isSuperAccess();
 }
-//public int match(ASTNode node, MatchingNodeSet nodeSet) - SKIP IT
+public int match(ASTNode node, MatchingNodeSet nodeSet) {
+	int declarationsLevel = IMPOSSIBLE_MATCH;
+	if (this.pattern.findReferences) {
+		if (node instanceof ImportReference) {
+			// With static import, we can have static method reference in import reference
+			ImportReference importRef = (ImportReference) node;
+			int length = importRef.tokens.length-1;
+			if (importRef.isStatic() && !importRef.onDemand && matchesName(this.pattern.selector, importRef.tokens[length])) {
+				char[][] compoundName = new char[length][];
+				System.arraycopy(importRef.tokens, 0, compoundName, 0, length);
+				char[] declaringType = CharOperation.concat(pattern.declaringQualification, pattern.declaringSimpleName, '.');
+				if (matchesName(declaringType, CharOperation.concatWith(compoundName, '.'))) {
+					declarationsLevel = ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
+				}
+			}
+		}
+	}
+	return nodeSet.addMatch(node, declarationsLevel);
+}
 //public int match(ConstructorDeclaration node, MatchingNodeSet nodeSet) - SKIP IT
 //public int match(Expression node, MatchingNodeSet nodeSet) - SKIP IT
 //public int match(FieldDeclaration node, MatchingNodeSet nodeSet) - SKIP IT
 public int match(MethodDeclaration node, MatchingNodeSet nodeSet) {
 	if (!this.pattern.findDeclarations) return IMPOSSIBLE_MATCH;
 
+	// Verify method name
 	if (!matchesName(this.pattern.selector, node.selector)) return IMPOSSIBLE_MATCH;
+	
+	// Verify parameters types
 	if (this.pattern.parameterSimpleNames != null) {
 		int length = this.pattern.parameterSimpleNames.length;
 		ASTNode[] args = node.arguments;
 		int argsLength = args == null ? 0 : args.length;
 		if (length != argsLength) return IMPOSSIBLE_MATCH;
-
-		for (int i = 0; i < argsLength; i++)
+		for (int i = 0; i < argsLength; i++) {
 			if (!matchesTypeReference(this.pattern.parameterSimpleNames[i], ((Argument) args[i]).type)) return IMPOSSIBLE_MATCH;
+		}
 	}
-	if (!matchesTypeReference(this.pattern.returnSimpleName, node.returnType)) return IMPOSSIBLE_MATCH;
 
+	// Verify type arguments (do not reject if pattern has no argument as it can be an erasure match)
+	if (this.pattern.hasMethodArguments()) {
+		if (node.typeParameters == null || node.typeParameters.length != this.pattern.methodArguments.length) return IMPOSSIBLE_MATCH;
+	}
+
+	// Method declaration may match pattern
 	return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 }
 public int match(MessageSend node, MatchingNodeSet nodeSet) {
 	if (!this.pattern.findReferences) return IMPOSSIBLE_MATCH;
 
 	if (!matchesName(this.pattern.selector, node.selector)) return IMPOSSIBLE_MATCH;
-	if (this.pattern.parameterSimpleNames != null && !this.pattern.varargs) {
+	if (this.pattern.parameterSimpleNames != null && (this.pattern.shouldCountParameter() || ((node.bits & ASTNode.InsideJavadoc) != 0))) {
 		int length = this.pattern.parameterSimpleNames.length;
 		ASTNode[] args = node.arguments;
 		int argsLength = args == null ? 0 : args.length;
@@ -96,10 +123,19 @@ public int match(MessageSend node, MatchingNodeSet nodeSet) {
 
 protected int matchContainer() {
 	if (this.pattern.findReferences) {
-		// need to look almost everywhere to find in javadocs
-		return CLASS_CONTAINER | METHOD_CONTAINER | FIELD_CONTAINER;
+		// need to look almost everywhere to find in javadocs and static import
+		return ALL_CONTAINER;
 	}
 	return CLASS_CONTAINER;
+}
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.internal.core.search.matching.PatternLocator#matchLevelAndReportImportRef(org.eclipse.jdt.internal.compiler.ast.ImportReference, org.eclipse.jdt.internal.compiler.lookup.Binding, org.eclipse.jdt.internal.core.search.matching.MatchLocator)
+ * Accept to report match of static field on static import
+ */
+protected void matchLevelAndReportImportRef(ImportReference importRef, Binding binding, MatchLocator locator) throws CoreException {
+	if (importRef.isStatic() && binding instanceof MethodBinding) {
+		super.matchLevelAndReportImportRef(importRef, binding, locator);
+	}
 }
 protected int matchMethod(MethodBinding method) {
 	if (!matchesName(this.pattern.selector, method.selector)) return IMPOSSIBLE_MATCH;
@@ -107,6 +143,8 @@ protected int matchMethod(MethodBinding method) {
 	int level = ACCURATE_MATCH;
 	// look at return type only if declaring type is not specified
 	if (this.pattern.declaringSimpleName == null) {
+		// TODO (frederic) use this call to refine accuracy on return type
+		// int newLevel = resolveLevelForType(this.pattern.returnSimpleName, this.pattern.returnQualification, this.pattern.returnTypeArguments, 0, method.returnType);
 		int newLevel = resolveLevelForType(this.pattern.returnSimpleName, this.pattern.returnQualification, method.returnType);
 		if (level > newLevel) {
 			if (newLevel == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
@@ -117,11 +155,15 @@ protected int matchMethod(MethodBinding method) {
 	// parameter types
 	int parameterCount = this.pattern.parameterSimpleNames == null ? -1 : this.pattern.parameterSimpleNames.length;
 	if (parameterCount > -1) {
+		// global verification
 		if (method.parameters == null) return INACCURATE_MATCH;
 		if (parameterCount != method.parameters.length) return IMPOSSIBLE_MATCH;
-		if (!method.isValidBinding() && ((ProblemMethodBinding)method).problemId() == ProblemReasons.Ambiguous)
+		if (!method.isValidBinding() && ((ProblemMethodBinding)method).problemId() == ProblemReasons.Ambiguous) {
 			// return inaccurate match for ambiguous call (bug 80890)
 			return INACCURATE_MATCH;
+		}
+
+		// verify each parameter
 		for (int i = 0; i < parameterCount; i++) {
 			TypeBinding argType = method.parameters[i];
 			int newLevel = IMPOSSIBLE_MATCH;
@@ -131,10 +173,17 @@ protected int matchMethod(MethodBinding method) {
 					? ACCURATE_MATCH
 					: IMPOSSIBLE_MATCH;
 			} else {
-				newLevel = resolveLevelForType(this.pattern.parameterSimpleNames[i], this.pattern.parameterQualifications[i], method.parameters[i]);
+				// TODO (frederic) use this call to refine accuracy on parameter types
+//				 newLevel = resolveLevelForType(this.pattern.parameterSimpleNames[i], this.pattern.parameterQualifications[i], this.pattern.parametersTypeArguments[i], 0, argType);
+				newLevel = resolveLevelForType(this.pattern.parameterSimpleNames[i], this.pattern.parameterQualifications[i], argType);
 			}
 			if (level > newLevel) {
-				if (newLevel == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
+				if (newLevel == IMPOSSIBLE_MATCH) {
+//					if (isErasureMatch) {
+//						return ERASURE_MATCH;
+//					}
+					return IMPOSSIBLE_MATCH;
+				}
 				level = newLevel; // can only be downgraded
 			}
 		}
@@ -143,9 +192,9 @@ protected int matchMethod(MethodBinding method) {
 	return level;
 }
 /**
- * @see org.eclipse.jdt.internal.core.search.matching.PatternLocator#matchReportReference(org.eclipse.jdt.internal.compiler.ast.ASTNode, org.eclipse.jdt.core.IJavaElement, int, org.eclipse.jdt.internal.core.search.matching.MatchLocator)
+ * @see org.eclipse.jdt.internal.core.search.matching.PatternLocator#matchReportReference(org.eclipse.jdt.internal.compiler.ast.ASTNode, org.eclipse.jdt.core.IJavaElement, Binding, int, org.eclipse.jdt.internal.core.search.matching.MatchLocator)
  */
-protected void matchReportReference(ASTNode reference, IJavaElement element, int accuracy, MatchLocator locator) throws CoreException {
+protected void matchReportReference(ASTNode reference, IJavaElement element, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
 	if (this.isDeclarationOfReferencedMethodsPattern) {
 		// need exact match to be able to open on type ref
 		if (accuracy != SearchMatch.A_ACCURATE) return;
@@ -154,29 +203,102 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, int
 		DeclarationOfReferencedMethodsPattern declPattern = (DeclarationOfReferencedMethodsPattern) this.pattern; 
 		while (element != null && !declPattern.enclosingElement.equals(element))
 			element = element.getParent();
-		if (element != null)
+		if (element != null) {
 			reportDeclaration(((MessageSend) reference).binding, locator, declPattern.knownMethods);
-	} else if (this.pattern.findReferences && reference instanceof MessageSend) {
-		IJavaElement focus = ((InternalSearchPattern) this.pattern).focus;
-		// verify closest match if pattern was bound
-		// (see bug 70827)
-		if (focus != null && focus.getElementType() == IJavaElement.METHOD) {
-			MethodBinding patternMethodBinding = locator.getMethodBinding((IMethod) focus);
-			if (patternMethodBinding != null && patternMethodBinding.isValidBinding()) {
+		}
+	} else {
+		match = locator.newMethodReferenceMatch(element, elementBinding, accuracy, -1, -1, false /*not constructor*/, false/*not synthetic*/, reference);
+		if (this.pattern.findReferences && reference instanceof MessageSend) {
+			IJavaElement focus = ((InternalSearchPattern) this.pattern).focus;
+			// verify closest match if pattern was bound
+			// (see bug 70827)
+			if (focus != null && focus.getElementType() == IJavaElement.METHOD) {
 				MethodBinding method = ((MessageSend)reference).binding;
-				if (method != null) {
-					method = method.original();
-					if (method != null && patternMethodBinding.isPrivate() && patternMethodBinding.declaringClass != method.declaringClass)
-						return; // finally the match was not possible
+				boolean isPrivate = Flags.isPrivate(((IMethod) focus).getFlags());
+				if (isPrivate && !CharOperation.equals(method.declaringClass.sourceName, focus.getParent().getElementName().toCharArray())) {
+					return; // finally the match was not possible
 				}
 			}
+			matchReportReference((MessageSend)reference, locator, ((MessageSend)reference).binding);
+		} else {
+			int offset = reference.sourceStart;
+			match.setOffset(offset);
+			match.setLength(reference.sourceEnd-offset+1);
+			locator.report(match);
 		}
-		int offset = (int) (((MessageSend) reference).nameSourcePosition >>> 32);
-		SearchMatch match = locator.newMethodReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, false /*not constructor*/, false/*not synthetic*/, reference);
-		locator.report(match);
+	}
+}
+void matchReportReference(MessageSend messageSend, MatchLocator locator, MethodBinding methodBinding) throws CoreException {
+
+	// Look if there's a need to special report for parameterized type
+	boolean isParameterized = false;
+	if (methodBinding instanceof ParameterizedGenericMethodBinding) { // parameterized generic method
+		isParameterized = true;
+
+		// Update match regarding method type arguments
+		ParameterizedGenericMethodBinding parameterizedMethodBinding = (ParameterizedGenericMethodBinding) methodBinding;
+		match.setRaw(parameterizedMethodBinding.isRaw);
+		TypeBinding[] typeArguments = /*parameterizedMethodBinding.isRaw ? null :*/ parameterizedMethodBinding.typeArguments;
+		updateMatch(typeArguments, locator, this.pattern.methodArguments, this.pattern.hasMethodParameters());
+
+		// Update match regarding declaring class type arguments
+		if (methodBinding.declaringClass.isParameterizedType() || methodBinding.declaringClass.isRawType()) {
+			ParameterizedTypeBinding parameterizedBinding = (ParameterizedTypeBinding)methodBinding.declaringClass;
+			if (!this.pattern.hasTypeArguments() && this.pattern.hasMethodArguments()) {
+				// special case for pattern which defines method arguments but not its declaring type
+				// in this case, we do not refine accuracy using declaring type arguments...!
+			} else {
+				updateMatch(parameterizedBinding, this.pattern.getTypeArguments(), this.pattern.hasTypeParameters(), 0, locator);
+			}
+		} else if (this.pattern.hasTypeArguments()) {
+			match.setRule(SearchPattern.R_ERASURE_MATCH);
+		}
+
+		// Update match regarding method parameters
+		// TODO ? (frederic)
+
+		// Update match regarding method return type
+		// TODO ? (frederic)
+
+		// Special case for errors
+		if (match.getRule() != 0 && messageSend.resolvedType == null) {
+			match.setRule(SearchPattern.R_ERASURE_MATCH);
+		}
+	} else if (methodBinding instanceof ParameterizedMethodBinding) {
+		isParameterized = true;
+		if (methodBinding.declaringClass.isParameterizedType() || methodBinding.declaringClass.isRawType()) {
+			ParameterizedTypeBinding parameterizedBinding = (ParameterizedTypeBinding)methodBinding.declaringClass;
+			updateMatch(parameterizedBinding, this.pattern.getTypeArguments(), this.pattern.hasTypeParameters(), 0, locator);
+		} else if (this.pattern.hasTypeArguments()) {
+			match.setRule(SearchPattern.R_ERASURE_MATCH);
+		}
+
+		// Update match regarding method parameters
+		// TODO ? (frederic)
+
+		// Update match regarding method return type
+		// TODO ? (frederic)
+
+		// Special case for errors
+		if (match.getRule() != 0 && messageSend.resolvedType == null) {
+			match.setRule(SearchPattern.R_ERASURE_MATCH);
+		}
+	} else if (this.pattern.hasMethodArguments()) { // binding has no type params, compatible erasure if pattern does
+		match.setRule(SearchPattern.R_ERASURE_MATCH);
+	}
+
+	// See whether it is necessary to report or not
+	if (match.getRule() == 0) return; // impossible match
+	boolean report = (this.isErasureMatch && match.isErasure()) || (this.isEquivalentMatch && match.isEquivalent()) || match.isExact();
+	if (!report) return;
+
+	// Report match
+	int offset = (int) (messageSend.nameSourcePosition >>> 32);
+	match.setOffset(offset);
+	match.setLength(messageSend.sourceEnd - offset + 1);
+	 if (isParameterized && this.pattern.hasMethodArguments())  {
+		locator.reportAccurateParameterizedMethodReference(match, messageSend, messageSend.typeArguments);
 	} else {
-		int offset = reference.sourceStart;
-		SearchMatch match = locator.newMethodReferenceMatch(element, accuracy, offset, reference.sourceEnd-offset+1, false /*not constructor*/, false/*not synthetic*/, reference);
 		locator.report(match);
 	}
 }
@@ -205,7 +327,7 @@ protected void reportDeclaration(MethodBinding methodBinding, MatchLocator locat
 		if (resource == null)
 			resource = type.getJavaProject().getProject();
 		info = locator.getBinaryInfo((org.eclipse.jdt.internal.core.ClassFile)type.getClassFile(), resource);
-		locator.reportBinaryMemberDeclaration(resource, method, info, SearchMatch.A_ACCURATE);
+		locator.reportBinaryMemberDeclaration(resource, method, methodBinding, info, SearchMatch.A_ACCURATE);
 	} else {
 		if (declaringClass instanceof ParameterizedTypeBinding)
 			declaringClass = ((ParameterizedTypeBinding) declaringClass).type;
@@ -222,7 +344,10 @@ protected void reportDeclaration(MethodBinding methodBinding, MatchLocator locat
 			} 
 			if (methodDecl != null) {
 				int offset = methodDecl.sourceStart;
-				SearchMatch match = new MethodDeclarationMatch(method, SearchMatch.A_ACCURATE, offset, methodDecl.sourceEnd-offset+1, locator.getParticipant(), resource);
+				Binding binding = methodDecl.binding;
+				if (binding != null)
+					method = (IMethod) ((JavaElement) method).resolved(binding);
+				match = new MethodDeclarationMatch(method, SearchMatch.A_ACCURATE, offset, methodDecl.sourceEnd-offset+1, locator.getParticipant(), resource);
 				locator.report(match);
 			}
 		}
@@ -239,9 +364,13 @@ public int resolveLevel(Binding binding) {
 	if (binding == null) return INACCURATE_MATCH;
 	if (!(binding instanceof MethodBinding)) return IMPOSSIBLE_MATCH;
 
-	MethodBinding method = ((MethodBinding) binding).original();
+	MethodBinding method = (MethodBinding) binding;
 	int methodLevel = matchMethod(method);
-	if (methodLevel == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
+	if (methodLevel == IMPOSSIBLE_MATCH) {
+		if (method != method.original()) methodLevel = matchMethod(method.original());
+		if (methodLevel == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
+		method = method.original();
+	}
 
 	// declaring type
 	char[] qualifiedPattern = qualifiedPattern(this.pattern.declaringSimpleName, this.pattern.declaringQualification);
@@ -258,11 +387,14 @@ public int resolveLevel(Binding binding) {
 }
 protected int resolveLevel(MessageSend messageSend) {
 	MethodBinding method = messageSend.binding;
-	if (method != null) method = method.original();
-	if (method == null) return INACCURATE_MATCH;
+	if (method == null || messageSend.resolvedType == null) return INACCURATE_MATCH;
 	
 	int methodLevel = matchMethod(method);
-	if (methodLevel == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
+	if (methodLevel == IMPOSSIBLE_MATCH) {
+		if (method != method.original()) methodLevel = matchMethod(method.original());
+		if (methodLevel == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
+		method = method.original();
+	}
 
 	// receiver type
 	char[] qualifiedPattern = qualifiedPattern(this.pattern.declaringSimpleName, this.pattern.declaringQualification);

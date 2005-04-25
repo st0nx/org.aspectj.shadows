@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -17,7 +17,9 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.*;
 import org.eclipse.core.runtime.jobs.ISchedulingRule;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.jdom.*;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Util;
 
@@ -103,15 +105,6 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 		return getElementName().equals(other.getElementName()) &&
 				this.parent.equals(other.parent);
 	}
-	/**
-	 * Returns true if this <code>JavaElement</code> is equivalent to the given
-	 * <code>IDOMNode</code>.
-	 * @deprecated JDOM is obsolete
-	 */
-    // TODO - JDOM - remove once model ported off of JDOM
-	protected boolean equalsDOMNode(IDOMNode node) {
-		return false;
-	}
 	protected void escapeMementoName(StringBuffer buffer, String mementoName) {
 		for (int i = 0, length = mementoName.length(); i < length; i++) {
 			char character = mementoName.charAt(i);
@@ -150,63 +143,11 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	}
 	
 	/**
-	 * Returns the <code>IDOMNode</code> that corresponds to this <code>JavaElement</code>
+	 * Returns the <code>ASTNode</code> that corresponds to this <code>JavaElement</code>
 	 * or <code>null</code> if there is no corresponding node.
-	 * @deprecated JDOM is obsolete
 	 */
-    // TODO - JDOM - remove once model ported off of JDOM
-	public IDOMNode findNode(IDOMCompilationUnit dom) {
-		int type = getElementType();
-		if (type == IJavaElement.COMPILATION_UNIT || 
-			type == IJavaElement.FIELD || 
-			type == IJavaElement.IMPORT_DECLARATION || 
-			type == IJavaElement.INITIALIZER || 
-			type == IJavaElement.METHOD || 
-			type == IJavaElement.PACKAGE_DECLARATION || 
-			type == IJavaElement.TYPE) {
-			ArrayList path = new ArrayList();
-			IJavaElement element = this;
-			while (element != null && element.getElementType() != IJavaElement.COMPILATION_UNIT) {
-				if (element.getElementType() != IJavaElement.IMPORT_CONTAINER) {
-					// the DOM does not have import containers, so skip them
-					path.add(0, element);
-				}
-				element = element.getParent();
-			}
-			if (path.size() == 0) {
-				if (equalsDOMNode(dom)) {
-					return dom;
-				} else {
-					return null;
-				}
-			}
-			return ((JavaElement) path.get(0)).followPath(path, 0, dom.getFirstChild());
-		} else {
-			return null;
-		}
-	}
-	/**
-	 * @deprecated JDOM is obsolete
-	 */
-    // TODO - JDOM - remove once model ported off of JDOM
-	protected IDOMNode followPath(ArrayList path, int position, IDOMNode node) {
-	
-		if (equalsDOMNode(node)) {
-			if (position == (path.size() - 1)) {
-				return node;
-			} else {
-				if (node.getFirstChild() != null) {
-					position++;
-					return ((JavaElement)path.get(position)).followPath(path, position, node.getFirstChild());
-				} else {
-					return null;
-				}
-			}
-		} else if (node.getNextNode() != null) {
-			return followPath(path, position, node.getNextNode());
-		} else {
-			return null;
-		}
+	public ASTNode findNode(CompilationUnit ast) {
+		return null; // works only inside a compilation unit
 	}
 	/**
 	 * Generates the element infos for this element, its ancestors (if they are not opened) and its children (if it is an Openable).
@@ -571,6 +512,9 @@ public abstract class JavaElement extends PlatformObject implements IJavaElement
 	 */
 	public String readableName() {
 		return this.getElementName();
+	}
+	public JavaElement resolved(Binding binding) {
+		return this;
 	}
 	protected String tabString(int tab) {
 		StringBuffer buffer = new StringBuffer();

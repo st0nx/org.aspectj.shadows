@@ -1,16 +1,17 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.CaseStatement;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 
@@ -19,7 +20,9 @@ public final class LocalTypeBinding extends NestedTypeBinding {
 
 	private InnerEmulationDependency[] dependents;
 	public ArrayBinding[] localArrayBindings; // used to cache array bindings of various dimensions for this local type
-	public CaseStatement switchCase; // from 1.4 on, local types should not be accessed across switch case blocks (52221)
+	public CaseStatement enclosingCase; // from 1.4 on, local types should not be accessed across switch case blocks (52221)
+	int sourceStart; // used by computeUniqueKey to uniquely identify this binding
+	public MethodBinding enclosingMethod;
 	
 public LocalTypeBinding(ClassScope scope, SourceTypeBinding enclosingType, CaseStatement switchCase) {
 	super(
@@ -31,7 +34,13 @@ public LocalTypeBinding(ClassScope scope, SourceTypeBinding enclosingType, CaseS
 		this.tagBits |= AnonymousTypeMask;
 	else
 		this.tagBits |= LocalTypeMask;
-	this.switchCase = switchCase;
+	this.enclosingCase = switchCase;
+	this.sourceStart = scope.referenceContext.sourceStart;
+	MethodScope methodScope = scope.enclosingMethodScope();
+	AbstractMethodDeclaration declaration = methodScope.referenceMethod();
+	if (declaration != null) {
+		this.enclosingMethod = declaration.binding;
+	}
 }
 /* Record a dependency onto a source target type which may be altered
 * by the end of the innerclass emulation. Later on, we will revisit
@@ -53,10 +62,22 @@ public void addInnerEmulationDependent(BlockScope dependentScope, boolean wasEnc
 	dependents[index] = new InnerEmulationDependency(dependentScope, wasEnclosingInstanceSupplied);
 	//  System.out.println("Adding dependency: "+ new String(scope.enclosingType().readableName()) + " --> " + new String(this.readableName()));
 }
-/* Answer the receiver's constant pool name.
-*
-* NOTE: This method should only be used during/after code gen.
-*/
+public char[] computeUniqueKey(boolean withAccessFlags) {
+	ReferenceBinding enclosing = enclosingType();
+	ReferenceBinding temp;
+	while ((temp = enclosing.enclosingType()) != null)
+		enclosing = temp;
+	StringBuffer buffer = new StringBuffer();
+	buffer.append(enclosing.computeUniqueKey(withAccessFlags));
+	int semicolon = buffer.lastIndexOf(";"); //$NON-NLS-1$
+	buffer.insert(semicolon, '$');
+	semicolon = buffer.lastIndexOf(";"); //$NON-NLS-1$
+	buffer.insert(semicolon, this.sourceStart);
+	int length = buffer.length();
+	char[] uniqueKey = new char[length];
+	buffer.getChars(0, length, uniqueKey, 0);
+	return uniqueKey;
+}
 
 public char[] constantPoolName() /* java/lang/Object */ {
 	return constantPoolName;

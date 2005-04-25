@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -25,7 +25,7 @@ public class Javadoc extends ASTNode {
 	public TypeReference[] exceptionReferences; // @throws, @exception
 	public JavadocReturnStatement returnStatement; // @return
 	public Expression[] seeReferences; // @see
-	public boolean inherited = false;
+	public long inheritedPositions = -1;
 	// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=51600
 	// Store param references for tag with invalid syntax
 	public JavadocSingleNameReference[] invalidParameters; // @param
@@ -124,7 +124,7 @@ public class Javadoc extends ASTNode {
 		
 		// get method declaration
 		AbstractMethodDeclaration methDecl = methScope.referenceMethod();
-		boolean overriding = methDecl == null ? false : (methDecl.binding.modifiers & (AccImplementing | AccOverriding)) != 0;
+		boolean overriding = methDecl == null || methDecl.binding == null ? false : !methDecl.binding.isStatic() && ((methDecl.binding.modifiers & (AccImplementing | AccOverriding)) != 0);
 
 		// @see tags
 		int seeTagsLength = this.seeReferences == null ? 0 : this.seeReferences.length;
@@ -175,7 +175,12 @@ public class Javadoc extends ASTNode {
 		}
 		
 		// Store if a reference exists to an overriden method/constructor or the method is in a local type,
-		boolean reportMissing = methDecl == null || !((overriding && this.inherited) || superRef || (methDecl.binding.declaringClass != null && methDecl.binding.declaringClass.isLocalType()));
+		boolean reportMissing = methDecl == null || !((overriding && this.inheritedPositions != -1) || superRef || (methDecl.binding.declaringClass != null && methDecl.binding.declaringClass.isLocalType()));
+		if (!overriding && this.inheritedPositions != -1) {
+			int start = (int) (this.inheritedPositions >>> 32);
+			int end = (int) this.inheritedPositions;
+			methScope.problemReporter().javadocUnexpectedTag(start, end);
+		}
 
 		// @param tags
 		resolveParamTags(methScope, reportMissing);
@@ -482,6 +487,7 @@ public class Javadoc extends ASTNode {
 				TypeBinding typeBinding = typeRef.resolvedType;
 
 				if (typeBinding != null && typeBinding.isValidBinding() && typeBinding.isClass()) {
+					// accept only valid class binding
 					typeReferences[maxRef++] = typeRef;
 				}
 			}

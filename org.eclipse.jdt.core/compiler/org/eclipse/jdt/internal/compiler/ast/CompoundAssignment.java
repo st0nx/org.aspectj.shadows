@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -160,10 +160,10 @@ public class CompoundAssignment extends Assignment implements OperatorIds {
 			}
 		}
 		this.lhs.implicitConversion = (unboxedLhs ? UNBOXING : 0) | (result >>> 12);
-		scope.problemReporter().autoboxing(this.lhs, originalLhsType, lhsType);
+		if (unboxedLhs) scope.problemReporter().autoboxing(this.lhs, originalLhsType, lhsType);
 		this.expression.computeConversion(scope, TypeBinding.wellKnownType(scope, (result >>> 8) & 0x0000F), originalExpressionType);
 		this.assignmentImplicitConversion =  (unboxedLhs ? BOXING : 0) | (lhsID << 4) | (result & 0x0000F);
-		scope.problemReporter().autoboxing(this, lhsType, originalLhsType);
+		if (unboxedLhs) scope.problemReporter().autoboxing(this, lhsType, originalLhsType);
 		return this.resolvedType = originalLhsType;
 	}
 	

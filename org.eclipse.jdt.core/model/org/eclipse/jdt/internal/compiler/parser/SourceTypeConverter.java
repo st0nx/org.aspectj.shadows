@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -27,8 +27,10 @@ import java.util.ArrayList;
 import java.util.HashMap;
 
 import org.eclipse.jdt.core.Flags;
+import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.*;
@@ -122,7 +124,8 @@ public class SourceTypeConverter implements CompilerModifiers {
 
 		if (sourceTypes.length == 0) return this.unit;
 		SourceTypeElementInfo topLevelTypeInfo = (SourceTypeElementInfo) sourceTypes[0];
-		this.cu = (ICompilationUnit) topLevelTypeInfo.getHandle().getCompilationUnit();
+		org.eclipse.jdt.core.ICompilationUnit cuHandle = topLevelTypeInfo.getHandle().getCompilationUnit();
+		this.cu = (ICompilationUnit) cuHandle;
 		this.annotationPositions = ((CompilationUnitElementInfo) ((JavaElement) this.cu).getElementInfo()).annotationPositions;
 
 		if (this.annotationPositions != null && this.annotationPositions.size() > 10) { // experimental value
@@ -135,21 +138,22 @@ public class SourceTypeConverter implements CompilerModifiers {
 		int end = topLevelTypeInfo.getNameSourceEnd();
 
 		/* convert package and imports */
-		if (topLevelTypeInfo.getPackageName() != null
-			&& topLevelTypeInfo.getPackageName().length > 0)
+		char[] packageName = cuHandle.getParent().getElementName().toCharArray();
+		if (packageName.length > 0)
 			// if its null then it is defined in the default package
 			this.unit.currentPackage =
-				createImportReference(topLevelTypeInfo.getPackageName(), start, end, false, AccDefault);
-		ISourceImport[]  sourceImports = topLevelTypeInfo.getImports();
-		int importCount = sourceImports.length;
+				createImportReference(packageName, start, end, false, AccDefault);
+		IImportDeclaration[] importDeclarations = topLevelTypeInfo.getHandle().getCompilationUnit().getImports();
+		int importCount = importDeclarations.length;
 		this.unit.imports = new ImportReference[importCount];
 		for (int i = 0; i < importCount; i++) {
-			ISourceImport sourceImport = sourceImports[i];
+			ImportDeclaration importDeclaration = (ImportDeclaration) importDeclarations[i];
+			ISourceImport sourceImport = (ISourceImport) importDeclaration.getElementInfo();
 			this.unit.imports[i] = createImportReference(
-				sourceImport.getName(), 
+				importDeclaration.getNameWithoutStar().toCharArray(), 
 				sourceImport.getDeclarationSourceStart(),
 				sourceImport.getDeclarationSourceEnd(),
-				sourceImport.onDemand(),
+				importDeclaration.isOnDemand(),
 				sourceImport.getModifiers());
 		}
 		/* convert type(s) */
@@ -214,7 +218,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 		int start = fieldInfo.getNameSourceStart();
 		int end = fieldInfo.getNameSourceEnd();
 
-		field.name = fieldInfo.getName();
+		field.name = fieldHandle.getElementName().toCharArray();
 		field.sourceStart = start;
 		field.sourceEnd = end;
 		field.declarationSourceStart = fieldInfo.getDeclarationSourceStart();
@@ -328,7 +332,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 			
 			method = decl;
 		}
-		method.selector = methodInfo.getSelector();
+		method.selector = methodHandle.getElementName().toCharArray();
 		boolean isVarargs = (modifiers & AccVarargs) != 0;
 		method.modifiers = modifiers & ~AccVarargs;
 		method.sourceStart = start;
@@ -340,13 +344,14 @@ public class SourceTypeConverter implements CompilerModifiers {
 		method.annotations = convertAnnotations(methodHandle);
 
 		/* convert arguments */
-		char[][] argumentTypeNames = methodInfo.getArgumentTypeNames();
+		String[] argumentTypeSignatures = methodHandle.getParameterTypes();
 		char[][] argumentNames = methodInfo.getArgumentNames();
-		int argumentCount = argumentTypeNames == null ? 0 : argumentTypeNames.length;
+		int argumentCount = argumentTypeSignatures == null ? 0 : argumentTypeSignatures.length;
 		long position = ((long) start << 32) + end;
 		method.arguments = new Argument[argumentCount];
 		for (int i = 0; i < argumentCount; i++) {
-			TypeReference typeReference = createTypeReference(argumentTypeNames[i], start, end);
+			char[] typeName = Signature.toCharArray(argumentTypeSignatures[i].toCharArray());
+			TypeReference typeReference = createTypeReference(typeName, start, end);
 			if (isVarargs && i == argumentCount-1) {
 				typeReference.bits |= ASTNode.IsVarArgs;
 			}

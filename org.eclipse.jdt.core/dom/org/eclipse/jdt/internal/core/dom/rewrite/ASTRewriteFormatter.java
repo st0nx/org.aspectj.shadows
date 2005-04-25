@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -38,7 +38,7 @@ import org.eclipse.jdt.core.dom.BodyDeclaration;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.Statement;
 
-/* package */ class ASTRewriteFormatter {
+/* package */ final class ASTRewriteFormatter {
 
 	public static class NodeMarker extends Position {
 		public Object data;
@@ -118,12 +118,13 @@ import org.eclipse.jdt.core.dom.Statement;
 	
 	final String lineDelimiter;
 	final int tabWidth;
-	final String singleIndentString;
+	final int indentWidth;
 	
 	final NodeInfoStore placeholders;
 	final RewriteEventStore eventStore;
 
 	final Map options;
+
 	
 	public ASTRewriteFormatter(NodeInfoStore placeholders, RewriteEventStore eventStore, Map options, String lineDelimiter) {
 		this.placeholders= placeholders;
@@ -137,29 +138,11 @@ import org.eclipse.jdt.core.dom.Statement;
 		this.options= options;
 		this.lineDelimiter= lineDelimiter;
 		
-		int tabWidthVal;
-		try {
-			tabWidthVal= Integer.parseInt((String) options.get(DefaultCodeFormatterConstants.FORMATTER_TAB_SIZE));
-		} catch (NumberFormatException e) {
-			tabWidthVal= 4;
-		}
-		this.tabWidth= tabWidthVal;
-		
-		String indent;
-		String code= "x"; //$NON-NLS-1$
-    	TextEdit edit= formatString(CodeFormatter.K_EXPRESSION, code, 1, "", options); //$NON-NLS-1$
-    	if (edit != null) {
-    		String str= evaluateFormatterEdit(code, edit, null);
-    		indent= str.substring(0, str.indexOf(code));
-    	} else {
-    	   indent= String.valueOf('\t');
-    	}
-		this.singleIndentString= indent;
+		this.tabWidth= Indents.getTabWidth(options);
+		this.indentWidth= Indents.getIndentWidth(options, this.tabWidth);
 	}
 	
-	public int getTabWidth() {
-		return this.tabWidth;
-	}
+
 	
 	public NodeInfoStore getPlaceholders() {
 		return this.placeholders;
@@ -198,7 +181,7 @@ import org.eclipse.jdt.core.dom.Statement;
 		    if (initialIndentationLevel > 0) {
 		        // at least correct the indent
 		        String indentString = createIndentString(initialIndentationLevel);
-				ReplaceEdit[] edits = Indents.getChangeIndentEdits(unformatted, 0, this.tabWidth, indentString);
+				ReplaceEdit[] edits = Indents.getChangeIndentEdits(unformatted, 0, this.tabWidth, this.indentWidth, indentString);
 				edit= new MultiTextEdit();
 				edit.addChild(new InsertEdit(0, indentString));
 				edit.addChildren(edits);
@@ -211,16 +194,55 @@ import org.eclipse.jdt.core.dom.Statement;
 	
     /**
      * Creates a string that represents the given number of indents (can be spaces or tabs..)
-     * @param indent
+     * @param indentationUnits the indent to represent
      * @return Returns the created indent
      */
-    public String createIndentString(int indent) {
-        StringBuffer buf= new StringBuffer(indent * this.singleIndentString.length());
-        for (int i = 0; i < indent; i++) {
-            buf.append(this.singleIndentString);
-        }
-        return buf.toString();
+    public String createIndentString(int indentationUnits) {
+		final String tabChar= (String) options.get(DefaultCodeFormatterConstants.FORMATTER_TAB_CHAR);
+		final int tabs, spaces;
+		if (JavaCore.SPACE.equals(tabChar)) {
+			tabs= 0;
+			spaces= indentationUnits * this.indentWidth;
+		} else if (JavaCore.TAB.equals(tabChar)) {
+			// indentWidth == tabWidth
+			tabs= indentationUnits;
+			spaces= 0;
+		} else if (DefaultCodeFormatterConstants.MIXED.equals(tabChar)){
+			int spaceEquivalents= indentationUnits * this.indentWidth;
+			if (this.tabWidth > 0) {
+				tabs= spaceEquivalents / this.tabWidth;
+				spaces= spaceEquivalents % this.tabWidth;
+			} else {
+				tabs= 0;
+				spaces= spaceEquivalents;
+			}
+		} else {
+			// new indent type not yet handled
+			//Assert.isTrue(false); bug 90580
+			tabs= 0;
+			spaces= indentationUnits * this.indentWidth;
+		}
+		
+		StringBuffer buffer= new StringBuffer(tabs + spaces);
+		for(int i= 0; i < tabs; i++)
+			buffer.append('\t');
+		for(int i= 0; i < spaces; i++)
+			buffer.append(' ');
+		return buffer.toString();
+
     }
+	
+	public String getIndentString(String currentLine) {
+		return Indents.getIndentString(currentLine, this.tabWidth, this.indentWidth);
+	}
+	
+	public String changeIndent(String code, int codeIndentLevel, String newIndent) {
+		return Indents.changeIndent(code, codeIndentLevel, this.tabWidth, this.indentWidth, newIndent, this.lineDelimiter);
+	}
+	
+	public int computeIndentUnits(String line) {
+		return Indents.computeIndentUnits(line, this.tabWidth, this.indentWidth);
+	}
 	
 	/**
 	 * Evaluates the edit on the given string.
@@ -420,11 +442,11 @@ import org.eclipse.jdt.core.dom.Statement;
     
 
     public static interface Prefix {
-		String getPrefix(int indent, String lineDelim);
+		String getPrefix(int indent);
 	}
 	
 	public static interface BlockContext {
-		String[] getPrefixAndSuffix(int indent, String lineDelim, ASTNode node, RewriteEventStore events);
+		String[] getPrefixAndSuffix(int indent, ASTNode node, RewriteEventStore events);
 	}	
 	
 	public static class ConstPrefix implements Prefix {
@@ -434,7 +456,7 @@ import org.eclipse.jdt.core.dom.Statement;
 			this.prefix= prefix;
 		}
 		
-		public String getPrefix(int indent, String lineDelim) {
+		public String getPrefix(int indent) {
 			return this.prefix;
 		}
 	}
@@ -452,10 +474,10 @@ import org.eclipse.jdt.core.dom.Statement;
 			this.kind= kind;
 		}
 		
-		public String getPrefix(int indent, String lineDelim) {
+		public String getPrefix(int indent) {
 			Position pos= new Position(this.start, this.length);
 			String str= this.string;
-			TextEdit res= formatString(this.kind, str, indent, lineDelim, getOptions());
+			TextEdit res= formatString(this.kind, str, indent, lineDelimiter, getOptions());
 			if (res != null) {
 				str= evaluateFormatterEdit(str, res, new Position[] { pos });
 			}
@@ -472,12 +494,12 @@ import org.eclipse.jdt.core.dom.Statement;
 			this.prefix= prefix;
 		}
 		
-		public String[] getPrefixAndSuffix(int indent, String lineDelim, ASTNode node, RewriteEventStore events) {
+		public String[] getPrefixAndSuffix(int indent, ASTNode node, RewriteEventStore events) {
 			String nodeString= ASTRewriteFlattener.asString(node, events);
 			String str= this.prefix + nodeString;
 			Position pos= new Position(this.start, this.prefix.length() + 1 - this.start);
 
-			TextEdit res= formatString(CodeFormatter.K_STATEMENTS, str, indent, lineDelim, getOptions());
+			TextEdit res= formatString(CodeFormatter.K_STATEMENTS, str, indent, lineDelimiter, getOptions());
 			if (res != null) {
 				str= evaluateFormatterEdit(str, res, new Position[] { pos });
 			}
@@ -496,7 +518,7 @@ import org.eclipse.jdt.core.dom.Statement;
 			this.prefix= prefix;
 		}
 		
-		public String[] getPrefixAndSuffix(int indent, String lineDelim, ASTNode node, RewriteEventStore events) {
+		public String[] getPrefixAndSuffix(int indent, ASTNode node, RewriteEventStore events) {
 			String nodeString= ASTRewriteFlattener.asString(node, events);
 			int nodeStart= this.prefix.length();
 			int nodeEnd= nodeStart + nodeString.length() - 1;
@@ -506,7 +528,7 @@ import org.eclipse.jdt.core.dom.Statement;
 			Position pos1= new Position(this.start, nodeStart + 1 - this.start);
 			Position pos2= new Position(nodeEnd, 2);
 
-			TextEdit res= formatString(CodeFormatter.K_STATEMENTS, str, indent, lineDelim, getOptions());
+			TextEdit res= formatString(CodeFormatter.K_STATEMENTS, str, indent, lineDelimiter, getOptions());
 			if (res != null) {
 				str= evaluateFormatterEdit(str, res, new Position[] { pos1, pos2 });
 			}
@@ -530,6 +552,8 @@ import org.eclipse.jdt.core.dom.Statement;
 	public final Prefix ENUM_BODY_END= new FormattingPrefix("enum E { A(){void foo(){ }}, B}", "}}," , CodeFormatter.K_COMPILATION_UNIT); //$NON-NLS-1$ //$NON-NLS-2$
 	public final Prefix WILDCARD_EXTENDS= new FormattingPrefix("A<? extends B> a;", "? extends B" , CodeFormatter.K_CLASS_BODY_DECLARATIONS); //$NON-NLS-1$ //$NON-NLS-2$
 	public final Prefix WILDCARD_SUPER= new FormattingPrefix("A<? super B> a;", "? super B" , CodeFormatter.K_CLASS_BODY_DECLARATIONS); //$NON-NLS-1$ //$NON-NLS-2$
+
+	public final Prefix FIRST_ENUM_CONST= new FormattingPrefix("enum E { X;}", "{ X" , CodeFormatter.K_COMPILATION_UNIT); //$NON-NLS-1$ //$NON-NLS-2$
 	
 	public final BlockContext IF_BLOCK_WITH_ELSE= new BlockFormattingPrefixSuffix("if (true)", "else{}", 8); //$NON-NLS-1$ //$NON-NLS-2$
 	public final BlockContext IF_BLOCK_NO_ELSE= new BlockFormattingPrefix("if (true)", 8); //$NON-NLS-1$ //$NON-NLS-2$

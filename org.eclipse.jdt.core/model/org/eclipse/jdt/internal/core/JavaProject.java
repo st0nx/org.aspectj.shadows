@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -71,6 +71,7 @@ import org.eclipse.jdt.internal.compiler.util.ObjectVector;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.eval.EvaluationContextWrapper;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 import org.eclipse.jdt.internal.eval.EvaluationContext;
 import org.osgi.service.prefs.BackingStoreException;
@@ -383,10 +384,11 @@ public class JavaProject
 	 */
 	public void computeChildren(JavaProjectElementInfo info) throws JavaModelException {
 		IClasspathEntry[] classpath = getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
-		IPackageFragmentRoot[] oldRoots = info.allPkgFragmentRootsCache;
-		if (oldRoots != null) {
+		JavaProjectElementInfo.ProjectCache projectCache = info.projectCache;
+		if (projectCache != null) {
 			IPackageFragmentRoot[] newRoots = computePackageFragmentRoots(classpath, true, null /*no reverse map*/);
 			checkIdentical: { // compare all pkg fragment root lists
+				IPackageFragmentRoot[] oldRoots = projectCache.allPkgFragmentRootsCache;
 				if (oldRoots.length == newRoots.length){
 					for (int i = 0, length = oldRoots.length; i < length; i++){
 						if (!oldRoots[i].equals(newRoots[i])){
@@ -397,7 +399,6 @@ public class JavaProject
 				}	
 			}
 		}
-		info.resetCaches(); // discard caches (hold onto roots and pkg fragments)
 		info.setNonJavaResources(null);
 		info.setChildren(
 			computePackageFragmentRoots(classpath, false, null /*no reverse map*/));		
@@ -574,7 +575,7 @@ public class JavaProject
 							requiredProject.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/), 
 							accumulatedRoots, 
 							rootIDs, 
-							rootToResolvedEntries == null ? resolvedEntry : ((ClasspathEntry)resolvedEntry).combineWith(referringEntry), // only combine if need to build the reverse map 
+							rootToResolvedEntries == null ? resolvedEntry : ((ClasspathEntry)resolvedEntry).combineWith((ClasspathEntry) referringEntry), // only combine if need to build the reverse map 
 							checkExistency, 
 							retrieveExportedRoots,
 							rootToResolvedEntries);
@@ -585,7 +586,7 @@ public class JavaProject
 		if (root != null) {
 			accumulatedRoots.add(root);
 			rootIDs.add(rootID);
-			if (rootToResolvedEntries != null) rootToResolvedEntries.put(root, ((ClasspathEntry)resolvedEntry).combineWith(referringEntry));
+			if (rootToResolvedEntries != null) rootToResolvedEntries.put(root, ((ClasspathEntry)resolvedEntry).combineWith((ClasspathEntry) referringEntry));
 		}
 	}
 	
@@ -792,7 +793,7 @@ public class JavaProject
 				new Object[] {
 					status.getMessage(),
 					new Integer(severity), 
-					Util.bind("classpath.buildPath"),//$NON-NLS-1$
+					Messages.classpath_buildPath,
 					isCycleProblem ? "true" : "false",//$NON-NLS-1$ //$NON-NLS-2$
 					isClasspathFileFormatProblem ? "true" : "false",//$NON-NLS-1$ //$NON-NLS-2$
 					new Integer(status.getCode()),
@@ -831,15 +832,15 @@ public class JavaProject
 					DocumentBuilderFactory.newInstance().newDocumentBuilder();
 				cpElement = parser.parse(new InputSource(reader)).getDocumentElement();
 			} catch (SAXException e) {
-				throw new IOException(Util.bind("file.badFormat")); //$NON-NLS-1$
+				throw new IOException(Messages.file_badFormat); 
 			} catch (ParserConfigurationException e) {
-				throw new IOException(Util.bind("file.badFormat")); //$NON-NLS-1$
+				throw new IOException(Messages.file_badFormat); 
 			} finally {
 				reader.close();
 			}
 	
 			if (!cpElement.getNodeName().equalsIgnoreCase("classpath")) { //$NON-NLS-1$
-				throw new IOException(Util.bind("file.badFormat")); //$NON-NLS-1$
+				throw new IOException(Messages.file_badFormat); 
 			}
 			NodeList list = cpElement.getElementsByTagName("classpathentry"); //$NON-NLS-1$
 			int length = list.getLength();
@@ -862,7 +863,7 @@ public class JavaProject
 			if (createMarker && this.project.isAccessible()) {
 					this.createClasspathProblemMarker(new JavaModelStatus(
 							IJavaModelStatusConstants.INVALID_CLASSPATH_FILE_FORMAT,
-							Util.bind("classpath.xmlFormatError", this.getElementName(), e.getMessage()))); //$NON-NLS-1$
+							Messages.bind(Messages.classpath_xmlFormatError, (new String[] {this.getElementName(), e.getMessage()})))); 
 			}
 			if (logProblems) {
 				Util.log(e, 
@@ -875,7 +876,7 @@ public class JavaProject
 			if (createMarker && this.project.isAccessible()) {
 				this.createClasspathProblemMarker(new JavaModelStatus(
 						IJavaModelStatusConstants.INVALID_CLASSPATH_FILE_FORMAT,
-						Util.bind("classpath.illegalEntryInClasspathFile", this.getElementName(), e.getMessage()))); //$NON-NLS-1$
+						Messages.bind(Messages.classpath_illegalEntryInClasspathFile, (new String[] {this.getElementName(), e.getMessage()})))); 
 			}
 			if (logProblems) {
 				Util.log(e, 
@@ -884,15 +885,12 @@ public class JavaProject
 			}
 			return INVALID_CLASSPATH;
 		}
+		// return an empty classpath is it size is 0, to differenciate from a null classpath
 		int pathSize = paths.size();
-		if (pathSize > 0 || defaultOutput != null) {
-			IClasspathEntry[] entries = new IClasspathEntry[pathSize + (defaultOutput == null ? 0 : 1)];
-			paths.toArray(entries);
-			if (defaultOutput != null) entries[pathSize] = defaultOutput; // ensure output is last item
-			return entries;
-		} else {
-			return null;
-		}
+		IClasspathEntry[] entries = new IClasspathEntry[pathSize + (defaultOutput == null ? 0 : 1)];
+		paths.toArray(entries);
+		if (defaultOutput != null) entries[pathSize] = defaultOutput; // ensure output is last item
+		return entries;
 	}
 
 	/**
@@ -1093,7 +1091,7 @@ public class JavaProject
 
 		IPackageFragmentRoot[] allRoots = this.getAllPackageFragmentRoots();
 		if (!path.isAbsolute()) {
-			throw new IllegalArgumentException(Util.bind("path.mustBeAbsolute")); //$NON-NLS-1$
+			throw new IllegalArgumentException(Messages.path_mustBeAbsolute); 
 		}
 		for (int i= 0; i < allRoots.length; i++) {
 			IPackageFragmentRoot classpathRoot= allRoots[i];
@@ -1249,7 +1247,7 @@ public class JavaProject
 
 			// will force an update of the classpath/output location based on the file information
 			// extract out the output location
-			IPath outputLocation = SetClasspathOperation.REUSE_PATH; 
+			IPath outputLocation = SetClasspathOperation.DO_NOT_SET_OUTPUT; 
 			if (fileEntries != null && fileEntries.length > 0) {
 				IClasspathEntry entry = fileEntries[fileEntries.length - 1];
 				if (entry.getContentKind() == ClasspathEntry.K_OUTPUT) {
@@ -1284,11 +1282,11 @@ public class JavaProject
 						// happens if the .classpath could not be written to disk
 						createClasspathProblemMarker(new JavaModelStatus(
 								IJavaModelStatusConstants.INVALID_CLASSPATH_FILE_FORMAT,
-								Util.bind("classpath.couldNotWriteClasspathFile", getElementName(), e.getMessage()))); //$NON-NLS-1$
+								Messages.bind(Messages.classpath_couldNotWriteClasspathFile, new String[] {getElementName(), e.getMessage()}))); 
 					} else {
 						createClasspathProblemMarker(new JavaModelStatus(
 								IJavaModelStatusConstants.INVALID_CLASSPATH_FILE_FORMAT,
-								Util.bind("classpath.invalidClasspathInClasspathFile", getElementName(), e.getMessage()))); //$NON-NLS-1$
+								Messages.bind(Messages.classpath_invalidClasspathInClasspathFile, new String[] {getElementName(), e.getMessage()}))); 
 					}			
 				}
 			}
@@ -1382,7 +1380,7 @@ public class JavaProject
 	 * Returns the project custom preference pool.
 	 * Project preferences may include custom encoding.
 	 * @return IEclipsePreferences
-	 */	
+	 */
 	public IEclipsePreferences getEclipsePreferences(){
 		if (!JavaProject.hasJavaNature(this.project)) return null;
 		// Get cached preferences if exist
@@ -1393,8 +1391,9 @@ public class JavaProject
 		final IEclipsePreferences eclipsePreferences = context.getNode(JavaCore.PLUGIN_ID);
 		updatePreferences(eclipsePreferences);
 		perProjectInfo.preferences = eclipsePreferences;
+
 		// Listen to node removal from parent in order to reset cache (see bug 68993)
-		IEclipsePreferences.INodeChangeListener listener = new IEclipsePreferences.INodeChangeListener() {
+		IEclipsePreferences.INodeChangeListener nodeListener = new IEclipsePreferences.INodeChangeListener() {
 			public void added(IEclipsePreferences.NodeChangeEvent event) {
 				// do nothing
 			}
@@ -1404,7 +1403,15 @@ public class JavaProject
 				}
 			}
 		};
-		((IEclipsePreferences) eclipsePreferences.parent()).addNodeChangeListener(listener);
+		((IEclipsePreferences) eclipsePreferences.parent()).addNodeChangeListener(nodeListener);
+
+		// Listen to preference changes
+		IEclipsePreferences.IPreferenceChangeListener preferenceListener = new IEclipsePreferences.IPreferenceChangeListener() {
+			public void preferenceChange(IEclipsePreferences.PreferenceChangeEvent event) {
+				JavaModelManager.getJavaModelManager().resetProjectOptions(JavaProject.this);
+			}
+		};
+		eclipsePreferences.addPreferenceChangeListener(preferenceListener);
 		return eclipsePreferences;
 	}
 
@@ -1544,10 +1551,10 @@ public class JavaProject
 		
 		String propertyName = optionName;
 		if (JavaModelManager.getJavaModelManager().optionNames.contains(propertyName)){
-			IEclipsePreferences preferences = getEclipsePreferences();
+			IEclipsePreferences projectPreferences = getEclipsePreferences();
 			String javaCoreDefault = inheritJavaCoreOptions ? JavaCore.getOption(propertyName) : null;
-			if (preferences == null) return javaCoreDefault;
-			String value = preferences.get(propertyName, javaCoreDefault);
+			if (projectPreferences == null) return javaCoreDefault;
+			String value = projectPreferences.get(propertyName, javaCoreDefault);
 			return value == null ? null : value.trim();
 		}
 		return null;
@@ -1557,31 +1564,53 @@ public class JavaProject
 	 * @see org.eclipse.jdt.core.IJavaProject#getOptions(boolean)
 	 */
 	public Map getOptions(boolean inheritJavaCoreOptions) {
-		
+
 		// initialize to the defaults from JavaCore options pool
 		Map options = inheritJavaCoreOptions ? JavaCore.getOptions() : new Hashtable(5);
 
-		IEclipsePreferences preferences = getEclipsePreferences();
-		if (preferences == null) return options; // cannot do better (non-Java project)
+		// Get project specific options
+		JavaModelManager.PerProjectInfo perProjectInfo = null;
+		Hashtable projectOptions = null;
 		HashSet optionNames = JavaModelManager.getJavaModelManager().optionNames;
-		
-		// project cannot hold custom preferences set to their default, as it uses CUSTOM_DEFAULT_OPTION_VALUE
-
-		// get custom preferences not set to their default
 		try {
-			String[] propertyNames = preferences.keys();
-			for (int i = 0; i < propertyNames.length; i++){
-				String propertyName = propertyNames[i];
-				String value = preferences.get(propertyName, null);
-				if (value != null && optionNames.contains(propertyName)){
-					options.put(propertyName, value.trim());
-				}
-			}		
+			perProjectInfo = getPerProjectInfo();
+			projectOptions = perProjectInfo.options;
+			if (projectOptions == null) {
+				// get eclipse preferences
+				IEclipsePreferences projectPreferences= getEclipsePreferences();
+				if (projectPreferences == null) return options; // cannot do better (non-Java project)
+				// create project options
+				String[] propertyNames = projectPreferences.keys();
+				projectOptions = new Hashtable(propertyNames.length);
+				for (int i = 0; i < propertyNames.length; i++){
+					String propertyName = propertyNames[i];
+					String value = projectPreferences.get(propertyName, null);
+					if (value != null && optionNames.contains(propertyName)){
+						projectOptions.put(propertyName, value.trim());
+					}
+				}		
+				// cache project options
+				perProjectInfo.options = projectOptions;
+			}
+		} catch (JavaModelException jme) {
+			projectOptions = new Hashtable();
 		} catch (BackingStoreException e) {
-			// nothing to do
+			projectOptions = new Hashtable();
 		}
 
-		return options;
+		// Inherit from JavaCore options if specified
+		if (inheritJavaCoreOptions) {
+			Iterator propertyNames = projectOptions.keySet().iterator();
+			while (propertyNames.hasNext()) {
+				String propertyName = (String) propertyNames.next();
+				String propertyValue = (String) perProjectInfo.options.get(propertyName);
+				if (propertyValue != null && optionNames.contains(propertyName)){
+					options.put(propertyName, propertyValue.trim());
+				}
+			}
+			return options;
+		}
+		return projectOptions;
 	}
 
 	/**
@@ -1956,7 +1985,7 @@ public class JavaProject
 					this.flushClasspathProblemMarkers(false, true);
 					this.createClasspathProblemMarker(new JavaModelStatus(
 						IJavaModelStatusConstants.INVALID_CLASSPATH_FILE_FORMAT,
-						Util.bind("classpath.cannotReadClasspathFile", this.getElementName()))); //$NON-NLS-1$
+						Messages.bind(Messages.classpath_cannotReadClasspathFile, this.getElementName()))); 
 			}
 
 			perProjectInfo.resolvedClasspath = resolvedPath;
@@ -2041,13 +2070,13 @@ public class JavaProject
 
 					// container was bound
 					for (int j = 0, containerLength = containerEntries.length; j < containerLength; j++){
-						ClasspathEntry cEntry = (ClasspathEntry)containerEntries[j];
+						ClasspathEntry cEntry = (ClasspathEntry) containerEntries[j];
 						if (generateMarkerOnError) {
 							IJavaModelStatus containerStatus = ClasspathEntry.validateClasspathEntry(this, cEntry, false, true /*recurse*/);
 							if (!containerStatus.isOK()) createClasspathProblemMarker(containerStatus);
 						}
 						// if container is exported or restricted, then its nested entries must in turn be exported  (21749) and/or propagate restrictions
-						cEntry = cEntry.combineWith(rawEntry);
+						cEntry = cEntry.combineWith((ClasspathEntry) rawEntry);
 						if (rawReverseMap != null) {
 							if (rawReverseMap.get(resolvedPath = cEntry.getPath()) == null) rawReverseMap.put(resolvedPath , rawEntry);
 						}
@@ -2377,11 +2406,11 @@ public class JavaProject
 		throws JavaModelException {
 
 		if (region == null) {
-			throw new IllegalArgumentException(Util.bind("hierarchy.nullRegion"));//$NON-NLS-1$
+			throw new IllegalArgumentException(Messages.hierarchy_nullRegion);
 		}
 		ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary working copies*/);
 		CreateTypeHierarchyOperation op =
-			new CreateTypeHierarchyOperation(region, this, workingCopies, null, true);
+			new CreateTypeHierarchyOperation(region, workingCopies, null, true);
 		op.runOperation(monitor);
 		return op.getResult();
 	}
@@ -2409,14 +2438,14 @@ public class JavaProject
 		throws JavaModelException {
 
 		if (type == null) {
-			throw new IllegalArgumentException(Util.bind("hierarchy.nullFocusType"));//$NON-NLS-1$
+			throw new IllegalArgumentException(Messages.hierarchy_nullFocusType);
 		}
 		if (region == null) {
-			throw new IllegalArgumentException(Util.bind("hierarchy.nullRegion"));//$NON-NLS-1$
+			throw new IllegalArgumentException(Messages.hierarchy_nullRegion);
 		}
 		ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary working copies*/);
 		CreateTypeHierarchyOperation op =
-			new CreateTypeHierarchyOperation(region, this, workingCopies, type, true);
+			new CreateTypeHierarchyOperation(region, workingCopies, type, true/*compute subtypes*/);
 		op.runOperation(monitor);
 		return op.getResult();
 	}
@@ -2456,7 +2485,7 @@ public class JavaProject
 				if (createMarker && this.project.isAccessible()) {
 						this.createClasspathProblemMarker(new JavaModelStatus(
 							IJavaModelStatusConstants.INVALID_CLASSPATH_FILE_FORMAT,
-							Util.bind("classpath.cannotReadClasspathFile", this.getElementName()))); //$NON-NLS-1$
+							Messages.bind(Messages.classpath_cannotReadClasspathFile, this.getElementName()))); 
 				}
 				return null;
 			}
@@ -2466,7 +2495,7 @@ public class JavaProject
 			if (createMarker && this.project.isAccessible()) {
 					this.createClasspathProblemMarker(new JavaModelStatus(
 						IJavaModelStatusConstants.INVALID_CLASSPATH_FILE_FORMAT,
-						Util.bind("classpath.cannotReadClasspathFile", this.getElementName()))); //$NON-NLS-1$
+						Messages.bind(Messages.classpath_cannotReadClasspathFile, this.getElementName()))); 
 			}
 			if (logProblems) {
 				Util.log(e, 
@@ -2659,6 +2688,13 @@ public class JavaProject
 
 			// persist options
 			projectPreferences.flush();
+			
+			// flush cache immediately
+			try {
+				getPerProjectInfo().options = null;
+			} catch (JavaModelException e) {
+				// do nothing
+			}
 		} catch (BackingStoreException e) {
 			// problem with pref store - quietly ignore
 		}
@@ -2671,12 +2707,12 @@ public class JavaProject
 		throws JavaModelException {
 
 		if (path == null) {
-			throw new IllegalArgumentException(Util.bind("path.nullPath")); //$NON-NLS-1$
+			throw new IllegalArgumentException(Messages.path_nullPath); 
 		}
 		if (path.equals(getOutputLocation())) {
 			return;
 		}
-		this.setRawClasspath(SetClasspathOperation.REUSE_ENTRIES, path, monitor);
+		this.setRawClasspath(SetClasspathOperation.DO_NOT_SET_ENTRIES, path, monitor);
 	}
 
 	/**
@@ -2754,7 +2790,7 @@ public class JavaProject
 
 		setRawClasspath(
 			entries, 
-			SetClasspathOperation.REUSE_PATH, 
+			SetClasspathOperation.DO_NOT_SET_OUTPUT, 
 			monitor, 
 			true, // canChangeResource (as per API contract)
 			getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/),
@@ -2898,6 +2934,7 @@ public class JavaProject
 				try {
 					JavaProjectElementInfo info = getJavaProjectElementInfo();
 					computeChildren(info);
+					info.resetCaches(); // discard caches (hold onto roots and pkg fragments)
 				} catch(JavaModelException e){
 					try {
 						close(); // could not do better

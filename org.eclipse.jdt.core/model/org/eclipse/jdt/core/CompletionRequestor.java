@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -23,6 +23,7 @@ import org.eclipse.jdt.core.compiler.IProblem;
  * requestors in the following sequence:
  * <pre>
  * requestor.beginReporting();
+ * requestor.acceptContext(context);
  * requestor.accept(proposal_1);
  * requestor.accept(proposal_2);
  * ...
@@ -34,11 +35,13 @@ import org.eclipse.jdt.core.compiler.IProblem;
  * In this case, the sequence of calls is:
  * <pre>
  * requestor.beginReporting();
+ * requestor.acceptContext(context);
  * requestor.completionFailure(problem);
  * requestor.endReporting();
  * </pre>
  * In either case, the bracketing <code>beginReporting</code>
- * <code>endReporting</code> calls are always made.
+ * <code>endReporting</code> calls are always made as well as
+ * <code>acceptContext</code> call.
  * </p>
  * <p>
  * The class was introduced in 3.0 as a more evolvable replacement
@@ -78,8 +81,8 @@ public abstract class CompletionRequestor {
 	 * @see CompletionProposal#getKind()
 	 */
 	public final boolean isIgnored(int completionProposalKind) {
-		if (completionProposalKind < CompletionProposal.ANONYMOUS_CLASS_DECLARATION
-			|| completionProposalKind > CompletionProposal.METHOD_NAME_REFERENCE) {
+		if (completionProposalKind < CompletionProposal.FIRST_KIND
+			|| completionProposalKind > CompletionProposal.LAST_KIND) {
 				throw new IllegalArgumentException();
 		}
 		return 0 != (this.ignoreSet & (1 << completionProposalKind));
@@ -97,8 +100,8 @@ public abstract class CompletionRequestor {
 	 * @see CompletionProposal#getKind()
 	 */
 	public final void setIgnored(int completionProposalKind, boolean ignore) {
-		if (completionProposalKind < CompletionProposal.ANONYMOUS_CLASS_DECLARATION
-			|| completionProposalKind > CompletionProposal.METHOD_NAME_REFERENCE) {
+		if (completionProposalKind < CompletionProposal.FIRST_KIND
+			|| completionProposalKind > CompletionProposal.LAST_KIND) {
 				throw new IllegalArgumentException();
 		}
 		if (ignore) {
@@ -155,11 +158,27 @@ public abstract class CompletionRequestor {
 	 * Similarly, implementers should check 
 	 * {@link #isIgnored(int) isIgnored(proposal.getKind())} 
 	 * and ignore proposals that have been declared as uninteresting.
-	 * The proposal object passed in only valid for the duration of
-	 * this call; implementors must not hang on to these objects.
+	 * The proposal object passed is only valid for the duration of
+	 * completion operation.
 	 * 
 	 * @param proposal the completion proposal
 	 * @exception IllegalArgumentException if the proposal is null
 	 */
 	public abstract void accept(CompletionProposal proposal);
+	
+	/**
+	 * Propose the context in which the completion occurs.
+	 * <p>
+	 * This method is called one and only one time before any call to
+	 * {@link #accept(CompletionProposal)}.
+	 * The default implementation of this method does nothing.
+	 * Clients may override.
+	 * </p>
+	 * @param context the completion context
+	 * 
+	 * @since 3.1
+	 */
+	public void acceptContext(CompletionContext context) {
+		// do nothing
+	}
 }

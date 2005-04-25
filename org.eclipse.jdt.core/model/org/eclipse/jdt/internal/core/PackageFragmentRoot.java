@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -25,6 +25,7 @@ import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -68,7 +69,7 @@ public void attachSource(IPath sourcePath, IPath rootPath, IProgressMonitor moni
 	try {
 		verifyAttachSource(sourcePath);
 		if (monitor != null) {
-			monitor.beginTask(Util.bind("element.attachingSource"), 2); //$NON-NLS-1$
+			monitor.beginTask(Messages.element_attachingSource, 2); 
 		}
 		SourceMapper oldMapper= getSourceMapper();
 		IWorkspace workspace = ResourcesPlugin.getWorkspace();
@@ -318,7 +319,7 @@ public IPackageFragment createPackageFragment(String pkgName, boolean force, IPr
  * 		not exist.
  */
 protected int determineKind(IResource underlyingResource) throws JavaModelException {
-	IClasspathEntry[] entries= ((JavaProject)getJavaProject()).getExpandedClasspath(true);
+	IClasspathEntry[] entries= ((JavaProject)getJavaProject()).getResolvedClasspath(true);
 	for (int i= 0; i < entries.length; i++) {
 		IClasspathEntry entry= entries[i];
 		if (entry.getPath().equals(underlyingResource.getFullPath())) {

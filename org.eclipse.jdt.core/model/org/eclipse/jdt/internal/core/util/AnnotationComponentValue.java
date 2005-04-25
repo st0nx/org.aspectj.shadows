@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -42,6 +42,10 @@ public class AnnotationComponentValue extends ClassFileStruct implements IAnnota
 			byte[] classFileBytes,
 			IConstantPool constantPool,
 			int offset) throws ClassFormatException {
+		this.classFileInfoIndex = -1;
+		this.constantValueIndex = -1;
+		this.enumConstantTypeNameIndex = -1;
+		this.enumConstantNameIndex = -1;
 		final int t = u1At(classFileBytes, 0, offset);
 		this.tag = t;
 		this.readOffset = 1;
@@ -139,12 +143,6 @@ public class AnnotationComponentValue extends ClassFileStruct implements IAnnota
 	 * @see org.eclipse.jdt.core.util.IAnnotationComponentValue#getAnnotationValue()
 	 */
 	public IAnnotation getAnnotationValue() {
-		return this.annotationValue;
-	}
-	/* (non-Javadoc)
-	 * @see org.eclipse.jdt.core.util.IAnnotationComponentValue#getAnnotationValue()
-	 */
-	public IAnnotation getAttributeValue() {
 		return this.annotationValue;
 	}
 	/* (non-Javadoc)

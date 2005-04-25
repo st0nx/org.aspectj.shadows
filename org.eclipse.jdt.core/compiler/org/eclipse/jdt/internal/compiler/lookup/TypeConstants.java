@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -41,6 +41,8 @@ public interface TypeConstants {
     char[] WILDCARD_MINUS = { '-' };
     char[] WILDCARD_STAR = { '*' };
     char[] WILDCARD_PLUS = { '+' };
+    char[] WILDCARD_CAPTURE_NAME = "capture-of ".toCharArray(); //$NON-NLS-1$
+	char[] WILDCARD_CAPTURE = { '!' };
 	char[] BYTE = "byte".toCharArray(); //$NON-NLS-1$
 	char[] SHORT = "short".toCharArray(); //$NON-NLS-1$
 	char[] INT = "int".toCharArray(); //$NON-NLS-1$
@@ -117,8 +119,19 @@ public interface TypeConstants {
 	int EqualOrMoreSpecific = -1;
 	int NotRelated = 0;
 	int MoreGeneric = 1;
+	
+    // Constraints for generic type argument inference
+    int CONSTRAINT_EQUAL = 0;		// Actual = Formal
+    int CONSTRAINT_EXTENDS = 1;	// Actual << Formal
+    int CONSTRAINT_SUPER = 2;		// Actual >> Formal
+	
+	// Constants used to perform bound checks
+	int OK = 0;
+	int UNCHECKED = 1;
+	int MISMATCH = 2;
 
 	// Shared binding collections
+	TypeBinding[] NoTypes = new TypeBinding[0];
 	TypeBinding[] NoParameters = new TypeBinding[0];
 	ReferenceBinding[] NoExceptions = new ReferenceBinding[0];
 	ReferenceBinding[] AnyException = new ReferenceBinding[] { null }; // special handler for all exceptions
@@ -137,4 +150,7 @@ public interface TypeConstants {
 	char[] SYNTHETIC_OUTER_LOCAL_PREFIX = "val$".toCharArray(); //$NON-NLS-1$
 	char[] SYNTHETIC_ENCLOSING_INSTANCE_PREFIX = "this$".toCharArray(); //$NON-NLS-1$
 	char[] SYNTHETIC_ACCESS_METHOD_PREFIX =  "access$".toCharArray(); //$NON-NLS-1$
+	
+	// synthetic package-info name
+	public static final char[] PACKAGE_INFO_NAME = "package-info".toCharArray(); //$NON-NLS-1$	
 }

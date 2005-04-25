@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0 
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.formatter.align;
 
 import org.eclipse.jdt.internal.formatter.Location;
@@ -144,10 +144,10 @@ public class Alignment {
 		this.wasSplit = false;
 		
 		// initialize the break indentation level, using modes and continuationIndentationLevel preference
-		final int indentSize = this.scribe.useTab ? 1 : this.scribe.tabSize;
+		final int indentSize = this.scribe.indentationSize;
 		int currentColumn = this.location.outputColumn;
 		if (currentColumn == 1) {
-		    currentColumn = this.location.outputIndentationLevel * indentSize + 1;
+		    currentColumn = this.location.outputIndentationLevel + 1;
 		}
 		
 		if ((mode & M_INDENT_ON_COLUMN) != 0) {
@@ -160,7 +160,6 @@ public class Alignment {
 			// indent broken fragments exactly one level deeper than current indentation
 			this.breakIndentationLevel = this.location.outputIndentationLevel + indentSize;
 		} else {
-			// indent broken fragments by one continuation indentation deeper than current indentation
 			this.breakIndentationLevel = this.location.outputIndentationLevel + continuationIndent * indentSize;
 		}
 		this.shiftBreakIndentationLevel = this.breakIndentationLevel + indentSize;

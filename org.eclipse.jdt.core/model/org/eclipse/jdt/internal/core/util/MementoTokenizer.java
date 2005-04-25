@@ -1,16 +1,15 @@
 /*******************************************************************************
  * Copyright (c) 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
-import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.core.JavaElement;
 
 public class MementoTokenizer {
@@ -84,7 +83,7 @@ public class MementoTokenizer {
 			switch (this.memento[this.index]) {
 				case JavaElement.JEM_ESCAPE:
 					if (buffer == null) buffer = new StringBuffer();
-					buffer.append(CharOperation.subarray(this.memento, start, this.index));
+					buffer.append(this.memento, start, this.index - start);
 					start = ++this.index;
 					break;
 				case JavaElement.JEM_COUNT:
@@ -106,10 +105,10 @@ public class MementoTokenizer {
 			this.index++;
 		}
 		if (buffer != null) {
-			buffer.append(CharOperation.subarray(this.memento, start, this.index));
+			buffer.append(this.memento, start, this.index - start);
 			return buffer.toString();
 		} else {
-			return new String(CharOperation.subarray(this.memento, start, this.index));
+			return new String(this.memento, start, this.index - start);
 		}
 	}
 	

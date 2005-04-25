@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -16,6 +16,7 @@ import org.eclipse.core.runtime.IPath;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaElementDelta;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.JavaProject;
 import org.eclipse.jdt.core.IJavaProject;
@@ -26,9 +27,19 @@ import org.eclipse.jdt.core.IJavaProject;
  * are included.
  */
 public class JavaWorkspaceScope extends JavaSearchScope {
-	protected boolean needsInitialize;
+
+protected boolean needsInitialize;
+
+private static JavaWorkspaceScope TheWorkspaceScope = null;
 	
-public JavaWorkspaceScope() {
+public static JavaWorkspaceScope createScope() {
+	if (TheWorkspaceScope == null)
+		TheWorkspaceScope = new JavaWorkspaceScope();
+
+	return TheWorkspaceScope;
+}
+
+private JavaWorkspaceScope() {
 	JavaModelManager.getJavaModelManager().rememberScope(this);
 }
 public boolean encloses(IJavaElement element) {
@@ -61,18 +72,23 @@ public boolean encloses(String resourcePathString) {
 }
 public IPath[] enclosingProjectsAndJars() {
 	if (this.needsInitialize) {
-		this.initialize();
+		this.initialize(5);
 	}
 	return super.enclosingProjectsAndJars();
 }
 public boolean equals(Object o) {
   return o instanceof JavaWorkspaceScope;
 }
+public AccessRuleSet getAccessRuleSet(String relativePath, String containerPath) {
+	if (this.pathRestrictions == null) 
+		return null;
+	return super.getAccessRuleSet(relativePath, containerPath);
+}
 public int hashCode() {
 	return JavaWorkspaceScope.class.hashCode();
 }
-public void initialize() {
-	super.initialize();
+public void initialize(int size) {
+	super.initialize(size);
 	try {
 		IJavaProject[] projects = JavaModelManager.getJavaModelManager().getJavaModel().getJavaProjects();
 		for (int i = 0, length = projects.length; i < length; i++) {

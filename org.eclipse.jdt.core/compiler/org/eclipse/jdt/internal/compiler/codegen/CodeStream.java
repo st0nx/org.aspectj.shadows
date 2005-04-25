@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -898,20 +898,23 @@ final public void dup2_x2() {
 	position++;
 	bCodeStream[classFileOffset++] = OPC_dup2_x2;
 }
-public void exitUserScope(BlockScope blockScope) {
+public void exitUserScope(BlockScope currentScope) {
 	// mark all the scope's locals as loosing their definite assignment
 
 	if (!generateLocalVariableTableAttributes)
 		return;
-	for (int i = 0; i < visibleLocalsCount; i++) {
-		LocalVariableBinding visibleLocal = visibleLocals[i];
-		if ((visibleLocal != null) && (visibleLocal.declaringScope == blockScope)) { 
-			// there maybe some some preserved locals never initialized
-			if (visibleLocal.initializationCount > 0){
-				visibleLocals[i].recordInitializationEndPC(position);
-			}
-			visibleLocals[i] = null; // this variable is no longer visible afterwards
+	while (visibleLocalsCount > 0) {
+		LocalVariableBinding visibleLocal = visibleLocals[this.visibleLocalsCount - 1];
+		if (visibleLocal == null)
+			continue;
+		if (visibleLocal.declaringScope != currentScope) // left currentScope
+			break;
+
+		// there maybe some some preserved locals never initialized
+		if (visibleLocal.initializationCount > 0){
+			visibleLocal.recordInitializationEndPC(position);
 		}
+		visibleLocals[--this.visibleLocalsCount] = null; // this variable is no longer visible afterwards
 	}
 }
 final public void f2d() {
@@ -1723,7 +1726,36 @@ public void generateOuterAccess(Object[] mappingSequence, ASTNode invocationSite
 		}
 	}
 }
-
+public void generateReturnBytecode(Expression expression) {
+	
+	if (expression == null) {
+		this.return_();
+	} else {
+		final int implicitConversion = expression.implicitConversion;
+		if ((implicitConversion & BOXING) != 0) {
+			this.areturn();
+			return;
+		}
+		int runtimeType = (implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4;
+		switch (runtimeType) {
+			case T_boolean :
+			case T_int :
+				this.ireturn();
+				break;
+			case T_float :
+				this.freturn();
+				break;
+			case T_long :
+				this.lreturn();
+				break;
+			case T_double :
+				this.dreturn();
+				break;
+			default :
+				this.areturn();
+		}
+	}
+}
 /**
  * The equivalent code performs a string conversion:
  *
@@ -1777,11 +1809,24 @@ public void generateSyntheticEnclosingInstanceValues(
 	if ((syntheticArgumentTypes = targetType.syntheticEnclosingInstanceTypes()) != null) {
 
 		ReferenceBinding targetEnclosingType = checkedTargetType.enclosingType();
-		boolean complyTo14 = currentScope.environment().options.complianceLevel >= ClassFileConstants.JDK1_4;
+		long compliance = currentScope.environment().options.complianceLevel;
+
 		// deny access to enclosing instance argument for allocation and super constructor call (if 1.4)
-		boolean ignoreEnclosingArgInConstructorCall = invocationSite instanceof AllocationExpression
-					|| (complyTo14 && ((invocationSite instanceof ExplicitConstructorCall && ((ExplicitConstructorCall)invocationSite).isSuperAccess())));
-						
+		// always consider it if complying to 1.5
+		boolean denyEnclosingArgInConstructorCall;
+		if (compliance <= JDK1_3) {
+			denyEnclosingArgInConstructorCall = invocationSite instanceof AllocationExpression;
+		} else if (compliance == JDK1_4){
+			denyEnclosingArgInConstructorCall = invocationSite instanceof AllocationExpression
+				|| invocationSite instanceof ExplicitConstructorCall && ((ExplicitConstructorCall)invocationSite).isSuperAccess();
+		} else {
+			//compliance >= JDK1_5
+			denyEnclosingArgInConstructorCall = (invocationSite instanceof AllocationExpression
+					|| invocationSite instanceof ExplicitConstructorCall && ((ExplicitConstructorCall)invocationSite).isSuperAccess()) 
+				&& !targetType.isLocalType();
+		}
+		
+		boolean complyTo14 = compliance >= ClassFileConstants.JDK1_4;
 		for (int i = 0, max = syntheticArgumentTypes.length; i < max; i++) {
 			ReferenceBinding syntheticArgType = syntheticArgumentTypes[i];
 			if (hasExtraEnclosingInstance && syntheticArgType == targetEnclosingType) {
@@ -1796,7 +1841,7 @@ public void generateSyntheticEnclosingInstanceValues(
 				Object[] emulationPath = currentScope.getEmulationPath(
 						syntheticArgType, 
 						false /*not only exact match (that is, allow compatible)*/,
-						ignoreEnclosingArgInConstructorCall);
+						denyEnclosingArgInConstructorCall);
 				this.generateOuterAccess(emulationPath, invocationSite, syntheticArgType, currentScope);
 			}
 		}
@@ -1841,6 +1886,7 @@ public void generateSyntheticBodyForConstructorAccess(SyntheticMethodBinding acc
 	if (declaringClass.erasure().id == T_JavaLangEnum || declaringClass.isEnum()) {
 		this.aload_1(); // pass along name param as name arg
 		this.iload_2(); // pass along ordinal param as ordinal arg
+        resolvedPosition += 2;
 	}	
 	if (declaringClass.isNestedType()) {
 		NestedTypeBinding nestedType = (NestedTypeBinding) declaringClass;
@@ -2033,7 +2079,7 @@ public void generateSyntheticBodyForMethodAccess(SyntheticMethodBinding accessBi
 			|| accessBinding.kind == SyntheticMethodBinding.SuperMethodAccess){
 			this.invokespecial(methodBinding);
 		} else {
-			if ((methodBinding.declaringClass.modifiers & AccInterface) != 0) { // interface or annotation type
+			if (methodBinding.declaringClass.isInterface()) { // interface or annotation type
 				this.invokeinterface(methodBinding);
 			} else {
 				this.invokevirtual(methodBinding);
@@ -5937,7 +5983,15 @@ public String toString() {
 	buffer.append(")"); //$NON-NLS-1$
 	return buffer.toString();
 }
-public void updateLastRecordedEndPC(int pos) {
+/**
+ * Note: it will walk the locals table and extend the end range for all matching ones, no matter if
+ * visible or not.
+ * {  int i = 0;
+ *    {  int j = 1; }
+ * }   <== would process both 'i' and 'j'
+ * Processing non-visible ones is mandated in some cases (include goto instruction after if-then block)
+ */
+public void updateLastRecordedEndPC(Scope scope, int pos) {
 
 	/* Tune positions in the table, this is due to some 
 	 * extra bytecodes being
@@ -5954,21 +6008,18 @@ public void updateLastRecordedEndPC(int pos) {
 		return;
 	this.lastEntryPC = pos;
 	// need to update the initialization endPC in case of generation of local variable attributes.
-	updateLocalVariablesAttribute(pos);
-}
-public void updateLocalVariablesAttribute(int pos) {
-	// need to update the initialization endPC in case of generation of local variable attributes.
-	if (generateLocalVariableTableAttributes) {
-		for (int i = 0, max = locals.length; i < max; i++) {
-			LocalVariableBinding local = locals[i];
-			if ((local != null) && (local.initializationCount > 0)) {
+	if (this.generateLocalVariableTableAttributes) {
+		for (int i = 0, max = this.locals.length; i < max; i++) {
+			LocalVariableBinding local = this.locals[i];
+			if (local != null && local.declaringScope == scope && local.initializationCount > 0) {
 				if (local.initializationPCs[((local.initializationCount - 1) << 1) + 1] == pos) {
-					local.initializationPCs[((local.initializationCount - 1) << 1) + 1] = position;
+					local.initializationPCs[((local.initializationCount - 1) << 1) + 1] = this.position;
 				}
 			}
 		}
 	}
 }
+
 /**
  * Write a signed 16 bits value into the byte array
  * @param value the signed short

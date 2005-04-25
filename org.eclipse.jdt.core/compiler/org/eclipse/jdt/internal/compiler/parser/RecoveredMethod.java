@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -19,6 +19,7 @@ import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ExplicitConstructorCall;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.MemberValuePair;
 import org.eclipse.jdt.internal.compiler.ast.Statement;
 import org.eclipse.jdt.internal.compiler.ast.SuperReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
@@ -358,6 +359,19 @@ public void updateFromParserState(){
 				int argLength = parser.astLengthStack[parser.astLengthPtr];
 				int argStart = parser.astPtr - argLength + 1;
 				boolean needUpdateRParenPos = parser.rParenPos < parser.lParenPos; // 12387 : rParenPos will be used
+				
+				// remove unfinished annotation nodes
+				MemberValuePair[] memberValuePairs = null;
+				if (argLength > 0 && parser.astStack[parser.astPtr] instanceof MemberValuePair) {
+					System.arraycopy(parser.astStack, argStart, memberValuePairs = new MemberValuePair[argLength], 0, argLength);
+					parser.astLengthPtr--;
+					parser.astPtr -= argLength;
+					
+					argLength = parser.astLengthStack[parser.astLengthPtr];
+					argStart = parser.astPtr - argLength + 1;
+					needUpdateRParenPos = true;
+				}
+				
 				// to compute bodyStart, and thus used to set next checkpoint.
 				int count;
 				for (count = 0; count < argLength; count++){
@@ -400,6 +414,12 @@ public void updateFromParserState(){
 							parser.lastCheckPoint = methodDeclaration.bodyStart;
 						}
 					}
+				}
+				
+				if(memberValuePairs != null) {
+					System.arraycopy(memberValuePairs, 0, parser.astStack, parser.astPtr + 1, memberValuePairs.length);
+					parser.astPtr += memberValuePairs.length;
+					parser.astLengthStack[++parser.astLengthPtr] = memberValuePairs.length;
 				}
 			}
 		}

@@ -39,8 +39,8 @@ $Terminals
 	Identifier
 
 	abstract assert boolean break byte case catch char class 
-	continue default do double else enum extends false final finally float
-	for if implements import instanceof int
+	continue const default do double else enum extends false final finally float
+	for goto if implements import instanceof int
 	interface long native new null package private
 	protected public return short static strictfp super switch
 	synchronized this throw throws transient true try void
@@ -367,9 +367,13 @@ PackageDeclarationName ::= Modifiers 'package' PushRealModifiers Name
 /:$readableName PackageDeclarationName:/
 /:$compliance 1.5:/
 
-PackageDeclarationName ::= 'package' Name
+PackageDeclarationName ::= PackageComment 'package' Name
 /.$putCase  consumePackageDeclarationName(); $break ./
 /:$readableName PackageDeclarationName:/
+
+PackageComment ::= $empty
+/.$putCase  consumePackageComment(); $break ./
+/:$readableName PackageComment:/
 
 ImportDeclaration -> SingleTypeImportDeclaration
 ImportDeclaration -> TypeImportOnDemandDeclaration
@@ -753,10 +757,6 @@ InterfaceHeaderName1 ::= Modifiersopt interface Identifier
 /.$putCase consumeInterfaceHeaderName1(); $break ./
 /:$readableName InterfaceHeaderName:/
 
--- This rule will be used to accept inner local interface and then report a relevant error message
-InvalidInterfaceDeclaration -> InterfaceHeader InterfaceBody
-/:$readableName InvalidInterfaceDeclaration:/
-
 InterfaceHeaderExtends ::= 'extends' InterfaceTypeList
 /.$putCase consumeInterfaceHeaderExtends(); $break ./
 /:$readableName InterfaceHeaderExtends:/
@@ -774,20 +774,16 @@ InterfaceMemberDeclaration ::= ';'
 /.$putCase consumeEmptyInterfaceMemberDeclaration(); $break ./
 /:$readableName InterfaceMemberDeclaration:/
 
--- This rule is added to be able to parse non abstract method inside interface and then report a relevent error message
-InvalidMethodDeclaration -> MethodHeader MethodBody
-/:$readableName InvalidMethodDeclaration:/
-
 InterfaceMemberDeclaration -> ConstantDeclaration
-InterfaceMemberDeclaration ::= InvalidMethodDeclaration
-/.$putCase ignoreMethodBody(); $break ./
+InterfaceMemberDeclaration ::= MethodHeader MethodBody
+/.$putCase consumeInvalidMethodDeclaration(); $break ./
 /:$readableName InterfaceMemberDeclaration:/
 
 -- These rules are added to be able to parse constructors inside interface and then report a relevent error message
 InvalidConstructorDeclaration ::= ConstructorHeader MethodBody
-/.$putCase ignoreInvalidConstructorDeclaration(true);  $break ./
+/.$putCase consumeInvalidConstructorDeclaration(true);  $break ./
 InvalidConstructorDeclaration ::= ConstructorHeader ';'
-/.$putCase ignoreInvalidConstructorDeclaration(false);  $break ./
+/.$putCase consumeInvalidConstructorDeclaration(false);  $break ./
 /:$readableName InvalidConstructorDeclaration:/
 
 InterfaceMemberDeclaration -> AbstractMethodDeclaration
@@ -837,8 +833,14 @@ BlockStatement -> LocalVariableDeclarationStatement
 BlockStatement -> Statement
 --1.1 feature
 BlockStatement -> ClassDeclaration
-BlockStatement ::= InvalidInterfaceDeclaration
-/.$putCase ignoreInterfaceDeclaration(); $break ./
+BlockStatement ::= InterfaceDeclaration
+/.$putCase consumeInvalidInterfaceDeclaration(); $break ./
+/:$readableName BlockStatement:/
+BlockStatement ::= AnnotationTypeDeclaration
+/.$putCase consumeInvalidAnnotationTypeDeclaration(); $break ./
+/:$readableName BlockStatement:/
+BlockStatement ::= EnumDeclaration
+/.$putCase consumeInvalidEnumDeclaration(); $break ./
 /:$readableName BlockStatement:/
 
 LocalVariableDeclarationStatement ::= LocalVariableDeclaration ';'
@@ -1145,18 +1147,18 @@ ClassInstanceCreationExpression ::= 'new' ClassType '(' ArgumentListopt ')' Clas
 /.$putCase consumeClassInstanceCreationExpression(); $break ./
 --1.1 feature
 
-ClassInstanceCreationExpression ::= Primary '.' 'new' OnlyTypeArguments ClassType '(' ArgumentListopt ')' ClassBodySimpleNameopt
+ClassInstanceCreationExpression ::= Primary '.' 'new' OnlyTypeArguments ClassType '(' ArgumentListopt ')' ClassBodyopt
 /.$putCase consumeClassInstanceCreationExpressionQualifiedWithTypeArguments() ; $break ./
 
-ClassInstanceCreationExpression ::= Primary '.' 'new' ClassType '(' ArgumentListopt ')' ClassBodySimpleNameopt
+ClassInstanceCreationExpression ::= Primary '.' 'new' ClassType '(' ArgumentListopt ')' ClassBodyopt
 /.$putCase consumeClassInstanceCreationExpressionQualified() ; $break ./
 
 --1.1 feature
-ClassInstanceCreationExpression ::= ClassInstanceCreationExpressionName 'new' ClassType '(' ArgumentListopt ')' ClassBodySimpleNameopt
+ClassInstanceCreationExpression ::= ClassInstanceCreationExpressionName 'new' ClassType '(' ArgumentListopt ')' ClassBodyopt
 /.$putCase consumeClassInstanceCreationExpressionQualified() ; $break ./
 /:$readableName ClassInstanceCreationExpression:/
 
-ClassInstanceCreationExpression ::= ClassInstanceCreationExpressionName 'new' OnlyTypeArguments ClassType '(' ArgumentListopt ')' ClassBodySimpleNameopt
+ClassInstanceCreationExpression ::= ClassInstanceCreationExpressionName 'new' OnlyTypeArguments ClassType '(' ArgumentListopt ')' ClassBodyopt
 /.$putCase consumeClassInstanceCreationExpressionQualifiedWithTypeArguments() ; $break ./
 /:$readableName ClassInstanceCreationExpression:/
 
@@ -1168,15 +1170,6 @@ ClassBodyopt ::= $empty --test made using null as contents
 /.$putCase consumeClassBodyopt(); $break ./
 ClassBodyopt ::= EnterAnonymousClassBody ClassBody
 /:$readableName ClassBody:/
-
-ClassBodySimpleNameopt ::= $empty --test made using null as contents
-/.$putCase consumeClassBodyopt(); $break ./
-ClassBodySimpleNameopt ::= EnterAnonymousClassBodySimpleName ClassBody
-/:$readableName ClassBody:/
-
-EnterAnonymousClassBodySimpleName ::= $empty
-/.$putCase consumeEnterAnonymousClassBodySimpleName(); $break ./
-/:$readableName EnterAnonymousClassBodySimpleName:/
 
 EnterAnonymousClassBody ::= $empty
 /.$putCase consumeEnterAnonymousClassBody(); $break ./
@@ -2135,9 +2128,19 @@ MemberValuePairs ::= MemberValuePairs ',' MemberValuePair
 /:$readableName MemberValuePairs:/
 /:$compliance 1.5:/
 
-MemberValuePair ::= SimpleName '=' MemberValue
+MemberValuePair ::= SimpleName '=' EnterMemberValue MemberValue ExitMemberValue
 /.$putCase consumeMemberValuePair() ; $break ./
 /:$readableName MemberValuePair:/
+/:$compliance 1.5:/
+
+EnterMemberValue ::= $empty
+/.$putCase consumeEnterMemberValue() ; $break ./
+/:$readableName EnterMemberValue:/
+/:$compliance 1.5:/
+
+ExitMemberValue ::= $empty
+/.$putCase consumeExitMemberValue() ; $break ./
+/:$readableName ExitMemberValue:/
 /:$compliance 1.5:/
 
 MemberValue -> ConditionalExpression_NotName

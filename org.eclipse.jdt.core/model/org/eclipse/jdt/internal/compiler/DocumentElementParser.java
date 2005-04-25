@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -94,11 +94,8 @@ public void checkComment() {
 		if (scanner.commentStops[lastCommentIndex] < 0) {
 			continue nextComment;
 		}
-		int commentSourceEnd = scanner.commentStops[lastCommentIndex] - 1; //stop is one over
 		deprecated =
-			this.javadocParser.checkDeprecation(
-				commentSourceStart,
-				commentSourceEnd);
+			this.javadocParser.checkDeprecation(lastCommentIndex);
 		break nextComment;
 	}
 	if (deprecated) {
@@ -489,16 +486,7 @@ protected void consumeEnterVariable() {
 		declaration.type = type;
 	} else {
 		int dimension = typeDim + extendedTypeDimension;
-		//on the identifierLengthStack there is the information about the type....
-		int baseType;
-		if ((baseType = identifierLengthStack[identifierLengthPtr + 1]) < 0) {
-			//it was a baseType
-			declaration.type = TypeReference.baseTypeReference(-baseType, dimension);
-			declaration.type.sourceStart = type.sourceStart;
-			declaration.type.sourceEnd = type.sourceEnd;
-		} else {
-			declaration.type = this.copyDims(type, dimension);
-		}
+		declaration.type = this.copyDims(type, dimension);
 	}
 	variablesCounter[nestedType]++;
 	nestedMethod[nestedType]++;
@@ -586,7 +574,7 @@ protected void consumeFormalParameter(boolean isVarArgs) {
 	final int typeDimensions = firstDimensions + extendedDimensions;
 	TypeReference type = getTypeReference(typeDimensions);
 	if (isVarArgs) {
-		type = type.copyDims(typeDimensions + 1);
+		type = copyDims(type, typeDimensions + 1);
 		if (extendedDimensions == 0) {
 			type.sourceEnd = endOfEllipsis;
 		}
@@ -721,6 +709,24 @@ protected void consumeInterfaceHeaderName1() {
 	typeDecl.javadoc = this.javadoc;
 	this.javadoc = null;
 }
+protected void consumeInternalCompilationUnit() {
+	// InternalCompilationUnit ::= PackageDeclaration
+	// InternalCompilationUnit ::= PackageDeclaration ImportDeclarations ReduceImports
+	// InternalCompilationUnit ::= ImportDeclarations ReduceImports
+}
+protected void consumeInternalCompilationUnitWithTypes() {
+	// InternalCompilationUnit ::= PackageDeclaration ImportDeclarations ReduceImports TypeDeclarations
+	// InternalCompilationUnit ::= PackageDeclaration TypeDeclarations
+	// InternalCompilationUnit ::= TypeDeclarations
+	// InternalCompilationUnit ::= ImportDeclarations ReduceImports TypeDeclarations
+	// consume type declarations
+	int length;
+	if ((length = this.astLengthStack[this.astLengthPtr--]) != 0) {
+		this.compilationUnit.types = new TypeDeclaration[length];
+		this.astPtr -= length;
+		System.arraycopy(this.astStack, this.astPtr + 1, this.compilationUnit.types, 0, length);
+	}
+}
 /*
  *
  * INTERNAL USE-ONLY
@@ -842,18 +848,7 @@ protected void consumeMethodHeaderExtendedDims() {
 		TypeReference returnType = md.returnType;
 		md.sourceEnd = endPosition;
 		int dims = returnType.dimensions() + extendedDims;
-		int baseType;
-		if ((baseType = identifierLengthStack[identifierLengthPtr + 1]) < 0) {
-			//it was a baseType
-			int sourceStart = returnType.sourceStart;
-			int sourceEnd = returnType.sourceEnd;
-			returnType = TypeReference.baseTypeReference(-baseType, dims);
-			returnType.sourceStart = sourceStart;
-			returnType.sourceEnd = sourceEnd;
-			md.returnType = returnType;
-		} else {
-			md.returnType = this.copyDims(md.returnType, dims);
-		}
+		md.returnType = this.copyDims(returnType, dims);
 		if (currentToken == TokenNameLBRACE) {
 			md.bodyStart = endPosition + 1;
 		}

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -20,7 +20,7 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.internal.core.util.Util;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 public class CopyPackageFragmentRootOperation extends JavaModelOperation {
 	IPath destination;
@@ -189,21 +189,21 @@ public class CopyPackageFragmentRootOperation extends JavaModelOperation {
 	protected IClasspathEntry copy(IClasspathEntry entry) throws JavaModelException {
 		switch (entry.getEntryKind()) {
 			case IClasspathEntry.CPE_CONTAINER:
-				return JavaCore.newContainerEntry(entry.getPath(), entry.getInclusionPatterns(), entry.getExclusionPatterns(), entry.isExported());
+				return JavaCore.newContainerEntry(entry.getPath(), entry.getAccessRules(), entry.getExtraAttributes(), entry.isExported());
 			case IClasspathEntry.CPE_LIBRARY:
 				try {
-					return JavaCore.newLibraryEntry(this.destination, entry.getSourceAttachmentPath(), entry.getSourceAttachmentRootPath(), entry.getInclusionPatterns(), entry.getExclusionPatterns(), entry.isExported());
+					return JavaCore.newLibraryEntry(this.destination, entry.getSourceAttachmentPath(), entry.getSourceAttachmentRootPath(), entry.getAccessRules(), entry.getExtraAttributes(), entry.isExported());
 				} catch (Assert.AssertionFailedException e) {
 					IJavaModelStatus status = new JavaModelStatus(IJavaModelStatusConstants.INVALID_PATH, e.getMessage());
 					throw new JavaModelException(status);
 				}
 			case IClasspathEntry.CPE_PROJECT:
-				return JavaCore.newProjectEntry(entry.getPath(), entry.getInclusionPatterns(), entry.getExclusionPatterns(), entry.isExported());
+				return JavaCore.newProjectEntry(entry.getPath(), entry.getAccessRules(), entry.combineAccessRules(), entry.getExtraAttributes(), entry.isExported());
 			case IClasspathEntry.CPE_SOURCE:
-				return JavaCore.newSourceEntry(this.destination, entry.getInclusionPatterns(), entry.getExclusionPatterns(), entry.getOutputLocation());
+				return JavaCore.newSourceEntry(this.destination, entry.getInclusionPatterns(), entry.getExclusionPatterns(), entry.getOutputLocation(), entry.getExtraAttributes());
 			case IClasspathEntry.CPE_VARIABLE:
 				try {
-					return JavaCore.newVariableEntry(entry.getPath(), entry.getSourceAttachmentPath(), entry.getSourceAttachmentRootPath(), entry.getInclusionPatterns(), entry.getExclusionPatterns(), entry.isExported());
+					return JavaCore.newVariableEntry(entry.getPath(), entry.getSourceAttachmentPath(), entry.getSourceAttachmentRootPath(), entry.getAccessRules(), entry.getExtraAttributes(), entry.isExported());
 				} catch (Assert.AssertionFailedException e) {
 					IJavaModelStatus status = new JavaModelStatus(IJavaModelStatusConstants.INVALID_PATH, e.getMessage());
 					throw new JavaModelException(status);
@@ -254,7 +254,7 @@ public class CopyPackageFragmentRootOperation extends JavaModelOperation {
 					if (foundExistingEntry && (this.updateModelFlags & IPackageFragmentRoot.REPLACE) == 0) {
 						return new JavaModelStatus(
 							IJavaModelStatusConstants.NAME_COLLISION, 
-							Util.bind("status.nameCollision", this.destination.toString())); //$NON-NLS-1$
+							Messages.bind(Messages.status_nameCollision, new String[] {this.destination.toString()})); 
 					}
 				} catch (JavaModelException e) {
 					return e.getJavaModelStatus();

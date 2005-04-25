@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -20,11 +20,10 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
-import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
 import org.eclipse.jdt.internal.compiler.impl.StringConstant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
-import org.eclipse.jdt.internal.compiler.util.Util;
+import org.eclipse.jdt.internal.compiler.util.Messages;
 
 /**
  * Represents a class file wrapper on bytes, it is aware of its actual
@@ -80,14 +79,14 @@ public class ClassFile
 		f = new File(outputPath);
 		if (f.exists()) {
 			if (!f.isDirectory()) {
-				System.out.println(Util.bind("output.isFile" , f.getAbsolutePath())); //$NON-NLS-1$
-				throw new IOException(Util.bind("output.isFileNotDirectory" )); //$NON-NLS-1$
+				System.out.println(Messages.bind(Messages.output_isFile, f.getAbsolutePath()));
+				throw new IOException(Messages.output_isFileNotDirectory);
 			}
 		} else {
 			// we have to create that directory
 			if (!f.mkdirs()) {
-				System.out.println(Util.bind("output.dirName" , f.getAbsolutePath())); //$NON-NLS-1$
-				throw new IOException(Util.bind("output.notValidAll" )); //$NON-NLS-1$
+				System.out.println(Messages.bind(Messages.output_dirName, f.getAbsolutePath()));
+				throw new IOException(Messages.output_notValidAll);
 			}
 		}
 		StringBuffer outDir = new StringBuffer(outputPath);
@@ -103,8 +102,8 @@ public class ClassFile
 			} else {
 				// Need to add the outDir
 				if (!f.mkdir()) {
-					System.out.println(Util.bind("output.fileName" , f.getName())); //$NON-NLS-1$
-					throw new IOException(Util.bind("output.notValid" )); //$NON-NLS-1$
+					System.out.println(Messages.bind(Messages.output_fileName, f.getName()));
+					throw new IOException(Messages.output_notValid);
 				}
 			}
 			token = tokenizer.nextToken();
@@ -387,7 +386,7 @@ public class ClassFile
 					| AccNative);
 					
 		// set the AccSuper flag (has to be done after clearing AccSynchronized - since same value)
-		if (aType.isClass()) {
+		if (!aType.isInterface()) { // class or enum
 			accessFlags |= AccSuper;
 		}
 		
@@ -572,7 +571,7 @@ public class ClassFile
 					accessFlags |= AccPrivate;
 				} else if (innerClass.isLocalType() && !innerClass.isMemberType()) {
 					accessFlags |= AccPrivate;
-				} else if (innerClass.isMemberType() && (innerClass.isInterface() || innerClass.isAnnotationType())) {
+				} else if (innerClass.isMemberType() && innerClass.isInterface()) {
 					accessFlags |= AccStatic; // implicitely static
 				}
 				contents[contentsOffset++] = (byte) (accessFlags >> 8);
@@ -624,17 +623,12 @@ public class ClassFile
 			contents[contentsOffset++] = (byte) enclosingTypeIndex;
 			byte methodIndexByte1 = 0;
 			byte methodIndexByte2 = 0;
-			if (this.referenceBinding.scope != null) {
-				MethodScope methodScope = this.referenceBinding.scope.methodScope();
-				if (methodScope != null) {
-					ReferenceContext referenceContext = methodScope.referenceContext;
-					if (referenceContext instanceof AbstractMethodDeclaration) {
-						AbstractMethodDeclaration methodDeclaration = (AbstractMethodDeclaration) referenceContext;
-						MethodBinding methodBinding = methodDeclaration.binding;
-						int enclosingMethodIndex = constantPool.literalIndexForMethod(methodBinding.selector, methodBinding.signature());
-						methodIndexByte1 = (byte) (enclosingMethodIndex >> 8);
-						methodIndexByte2 = (byte) enclosingMethodIndex;
-					}
+			if (this.referenceBinding instanceof LocalTypeBinding) {
+				MethodBinding methodBinding = ((LocalTypeBinding) this.referenceBinding).enclosingMethod;
+				if (methodBinding != null) {
+					int enclosingMethodIndex = constantPool.literalIndexForMethod(methodBinding.selector, methodBinding.signature());
+					methodIndexByte1 = (byte) (enclosingMethodIndex >> 8);
+					methodIndexByte2 = (byte) enclosingMethodIndex;
 				}
 			}
 			contents[contentsOffset++] = methodIndexByte1;
@@ -939,7 +933,7 @@ public class ClassFile
 		generateCodeAttributeHeader();
 		StringBuffer buffer = new StringBuffer(25);
 		buffer.append("\t"  + problem.getMessage() + "\n" ); //$NON-NLS-1$ //$NON-NLS-2$
-		buffer.insert(0, Util.bind("compilation.unresolvedProblem" )); //$NON-NLS-1$
+		buffer.insert(0, Messages.compilation_unresolvedProblem);
 		String problemString = buffer.toString();
 		
 		codeStream.init(this);
@@ -993,9 +987,9 @@ public class ClassFile
 				}
 			} // insert the top line afterwards, once knowing how many problems we have to consider
 			if (count > 1) {
-				buffer.insert(0, Util.bind("compilation.unresolvedProblems" )); //$NON-NLS-1$
+				buffer.insert(0, Messages.compilation_unresolvedProblems);
 			} else {
-				buffer.insert(0, Util.bind("compilation.unresolvedProblem" )); //$NON-NLS-1$
+				buffer.insert(0, Messages.compilation_unresolvedProblem);
 			}
 			problemString = buffer.toString();
 		}
@@ -1055,9 +1049,9 @@ public class ClassFile
 				}
 			} // insert the top line afterwards, once knowing how many problems we have to consider
 			if (count > 1) {
-				buffer.insert(0, Util.bind("compilation.unresolvedProblems" )); //$NON-NLS-1$
+				buffer.insert(0, Messages.compilation_unresolvedProblems);
 			} else {
-				buffer.insert(0, Util.bind("compilation.unresolvedProblem" )); //$NON-NLS-1$
+				buffer.insert(0, Messages.compilation_unresolvedProblem);
 			}
 			problemString = buffer.toString();
 		}
@@ -1145,9 +1139,9 @@ public class ClassFile
 				}
 			} // insert the top line afterwards, once knowing how many problems we have to consider
 			if (count > 1) {
-				buffer.insert(0, Util.bind("compilation.unresolvedProblems" )); //$NON-NLS-1$
+				buffer.insert(0, Messages.compilation_unresolvedProblems);
 			} else {
-				buffer.insert(0, Util.bind("compilation.unresolvedProblem" )); //$NON-NLS-1$
+				buffer.insert(0, Messages.compilation_unresolvedProblem);
 			}
 			problemString = buffer.toString();
 		}
@@ -1664,8 +1658,8 @@ public class ClassFile
 					if (startPC != endPC) { // only entries for non zero length
 						if (endPC == -1) {
 							localVariable.declaringScope.problemReporter().abortDueToInternalError(
-								Util.bind("abort.invalidAttribute" , new String(localVariable.name)), //$NON-NLS-1$
-								(ASTNode) localVariable.declaringScope.methodScope().referenceContext);
+									Messages.bind(Messages.abort_invalidAttribute, new String(localVariable.name)), 
+									(ASTNode) localVariable.declaringScope.methodScope().referenceContext);
 						}
 						if (isParameterizedType) {
 							numberOfGenericEntries++;
@@ -1956,7 +1950,7 @@ public class ClassFile
 						if (startPC != endPC) { // only entries for non zero length
 							if (endPC == -1) {
 								localVariable.declaringScope.problemReporter().abortDueToInternalError(
-									Util.bind("abort.invalidAttribute" , new String(localVariable.name)), //$NON-NLS-1$
+									Messages.bind(Messages.abort_invalidAttribute, new String(localVariable.name)), 
 									(ASTNode) localVariable.declaringScope.methodScope().referenceContext);
 							}
 							if (localContentsOffset + 10 >= this.contents.length) {
@@ -2675,7 +2669,7 @@ public class ClassFile
 					if (startPC != endPC) { // only entries for non zero length
 						if (endPC == -1) {
 							localVariable.declaringScope.problemReporter().abortDueToInternalError(
-								Util.bind("abort.invalidAttribute" , new String(localVariable.name)), //$NON-NLS-1$
+								Messages.bind(Messages.abort_invalidAttribute, new String(localVariable.name)), 
 								(ASTNode) localVariable.declaringScope.methodScope().referenceContext);
 						}
 						if (localContentsOffset + 10 > this.contents.length) {
@@ -3612,7 +3606,7 @@ public class ClassFile
 		if (annotationBinding == null) {
 			return false;
 		}
-		long metaTagBits = annotationBinding.tagBits;
+		long metaTagBits = annotationBinding.getAnnotationTagBits();
 		if ((metaTagBits & TagBits.AnnotationRetentionMASK) == 0)
 			return false; // by default the retention is CLASS
 			

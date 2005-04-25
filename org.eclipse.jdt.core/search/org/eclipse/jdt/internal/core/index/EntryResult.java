@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -30,21 +30,30 @@ public void addDocumentName(String documentName) {
 	this.documentNames.add(documentName);
 }
 public void addDocumentTable(HashtableOfObject table) {
-	if (this.documentTables == null) {
+	if (this.documentTables != null) {
+		int length = this.documentTables.length;
+		System.arraycopy(this.documentTables, 0, this.documentTables = new HashtableOfObject[length + 1], 0, length);
+		this.documentTables[length] = table;
+	} else {
 		this.documentTables = new HashtableOfObject[] {table};
-		return;
 	}
-
-	int length = this.documentTables.length;
-	System.arraycopy(this.documentTables, 0, this.documentTables = new HashtableOfObject[length + 1], 0, length);
-	this.documentTables[length] = table;
 }
 public char[] getWord() {
 	return this.word;
 }
 public String[] getDocumentNames(Index index) throws java.io.IOException {
 	if (this.documentTables != null) {
-		for (int i = 0, l = this.documentTables.length; i < l; i++) {
+		int length = this.documentTables.length;
+		if (length == 1 && this.documentNames == null) { // have a single table
+			Object offset = this.documentTables[0].get(word);
+			int[] numbers = index.diskIndex.readDocumentNumbers(offset);
+			String[] names = new String[numbers.length];
+			for (int i = 0, l = numbers.length; i < l; i++)
+				names[i] = index.diskIndex.readDocumentName(numbers[i]);
+			return names;
+		}
+
+		for (int i = 0; i < length; i++) {
 			Object offset = this.documentTables[i].get(word);
 			int[] numbers = index.diskIndex.readDocumentNumbers(offset);
 			for (int j = 0, k = numbers.length; j < k; j++)

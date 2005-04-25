@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -15,6 +15,7 @@ import java.util.Map;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
@@ -37,7 +38,7 @@ import org.eclipse.jdt.internal.core.util.Util;
  * Example: Create basic AST from source string
  * <pre>
  * char[] source = ...;
- * ASTParser parser = ASTParser.newParser(AST.JLS2);  // handles JLS2 (J2SE 1.4)
+ * ASTParser parser = ASTParser.newParser(AST.JLS3);  // handles JDK 1.0, 1.1, 1.2, 1.3, 1.4, 1.5
  * parser.setSource(source);
  * CompilationUnit result = (CompilationUnit) parser.createAST(null);
  * </pre>
@@ -99,11 +100,6 @@ public class ASTParser {
 	/**
 	 * Creates a new object for creating a Java abstract syntax tree
      * (AST) following the specified set of API rules.
-     * <p>
-     * <b>NOTE:</b>In Eclipse 3.0, there is no parser support for
-     * AST.JLS3. This support is planned for the follow-on release of
-     * Eclipse which includes support for J2SE 1.5.
-     * </p>
      *  
  	 * @param level the API level; one of the LEVEL constants
      * declared on <code>AST</code>
@@ -200,7 +196,7 @@ public class ASTParser {
      * declared on <code>AST</code>
 	 */
 	ASTParser(int level) {
-		if ((level != AST.JLS2)
+		if ((level != AST.JLS2_INTERNAL)
 			&& (level != AST.JLS3)) {
 			throw new IllegalArgumentException();
 		}
@@ -344,16 +340,16 @@ public class ASTParser {
 	 * When the parse is successful the result returned includes the ASTs for the
 	 * requested source:
 	 * <ul>
-	 * <li>{@link #K_COMPILATION_UNIT}: The result node
+	 * <li>{@link #K_COMPILATION_UNIT K_COMPILATION_UNIT}: The result node
 	 * is a {@link CompilationUnit}.</li>
-	 * <li>{@link #K_CLASS_BODY_DECLARATIONS}: The result node
+	 * <li>{@link #K_CLASS_BODY_DECLARATIONS K_CLASS_BODY_DECLARATIONS}: The result node
 	 * is a {@link TypeDeclaration} whose
 	 * {@link TypeDeclaration#bodyDeclarations() bodyDeclarations}
 	 * are the new trees. Other aspects of the type declaration are unspecified.</li>
-	 * <li>{@link #K_STATEMENTS}: The result node is a
+	 * <li>{@link #K_STATEMENTS K_STATEMENTS}: The result node is a
 	 * {@link Block Block} whose {@link Block#statements() statements}
 	 * are the new trees. Other aspects of the block are unspecified.</li>
-	 * <li>{@link #K_EXPRESSION}: The result node is a subclass of
+	 * <li>{@link #K_EXPRESSION K_EXPRESSION}: The result node is a subclass of
 	 * {@link Expression Expression}. Other aspects of the expression are unspecified.</li>
 	 * </ul>
 	 * The resulting AST node is rooted under (possibly contrived)
@@ -620,9 +616,13 @@ public class ASTParser {
      * units being processed. When bindings are being resolved,
      * the keys and corresponding bindings (or <code>null</code> if none) are
      * passed to <code>ASTRequestor.acceptBinding</code>. Note that binding keys
-     * are looked up after all <code>ASTRequestor.acceptAST</code> callbacks
-     * have been made. No <code>ASTRequestor.acceptBinding</code> callbacks are
-     * made unless bindings are being resolved.
+     * for elements outside the set of compilation units being processed are looked up 
+     * after all <code>ASTRequestor.acceptAST</code> callbacks have been made. 
+     * Binding keys for elements inside the set of compilation units being processed
+     * are looked up and reported right after the corresponding 
+     * <code>ASTRequestor.acceptAST</code> callback has been made.
+     * No <code>ASTRequestor.acceptBinding</code> callbacks are made unless 
+     * bindings are being resolved.
      * </p>
      * <p>
      * A successful call to this method returns all settings to their
@@ -653,6 +653,56 @@ public class ASTParser {
 		}
 	}
 	
+	/**
+     * Creates bindings for a batch of Java elements. These elements are either 
+     * enclosed in {@link ICompilationUnit}s or in {@link IClassFile}s.
+     * <p>
+     * All enclosing compilation units and class files must
+     * come from the same Java project, which must be set beforehand
+     * with <code>setProject</code>.
+     * </p>
+     * <p>
+     * All elements must exist. If one doesn't exist, an <code>IllegalStateException</code>
+     * is thrown.
+     * </p>
+     * <p>
+     * The returned array has the same size as the given elements array. At a given position
+     * it contains the binding of the corresponding Java element, or <code>null</code> 
+     * if no binding could be created. 
+     * </p>
+	 * <p>
+	 * Note also the following parser parameters are used, regardless of what
+	 * may have been specified:
+	 * <ul>
+	 * <li>The {@linkplain #setResolveBindings(boolean) binding resolution flag} is <code>true</code<</li>
+	 * <li>The {@linkplain #setKind(int) parser kind} is <code>K_COMPILATION_UNIT</code></li>
+	 * <li>The {@linkplain #setSourceRange(int,int) source range} is <code>(0, -1)</code></li>
+	 * <li>The {@linkplain #setFocalPosition(int) focal position} is not set</li>
+	 * </ul>
+	 * </p>
+     * <p>
+     * A successful call to this method returns all settings to their
+     * default values so the object is ready to be reused.
+     * </p>
+     * 
+     * @param elements the Java elements to create bindings for
+     * @return the bindings for the given Java elements, possibly containing <code>null</code>s
+     *              if some bindings could not be created
+	 * @exception IllegalStateException if the settings provided
+	 * are insufficient, contradictory, or otherwise unsupported
+	 * @since 3.1
+     */
+	public IBinding[] createBindings(IJavaElement[] elements, IProgressMonitor monitor) {
+		try {
+			if (this.project == null)
+				throw new IllegalStateException("project not specified"); //$NON-NLS-1$
+			return CompilationUnitResolver.resolve(elements, this.apiLevel, this.compilerOptions, this.project, this.workingCopyOwner, monitor);
+		} finally {
+	   	   // re-init defaults to allow reuse (and avoid leaking)
+	   	   initializeDefaults();
+		}
+	}
+	
 	private ASTNode internalCreateAST(IProgressMonitor monitor) {
 		boolean needToResolveBindings = this.resolveBindings;
 		switch(this.astKind) {
@@ -671,12 +721,14 @@ public class ASTParser {
 				try {
 					NodeSearcher searcher = null;
 					org.eclipse.jdt.internal.compiler.env.ICompilationUnit sourceUnit = null;
+					IJavaElement element = null;
 					if (this.compilationUnitSource != null) {
 						sourceUnit = (org.eclipse.jdt.internal.compiler.env.ICompilationUnit) this.compilationUnitSource;
 						// use a BasicCompilation that caches the source instead of using the compilationUnitSource directly 
 						// (if it is a working copy, the source can change between the parse and the AST convertion)
 						// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=75632)
 						sourceUnit = new BasicCompilationUnit(sourceUnit.getContents(), sourceUnit.getPackageName(), new String(sourceUnit.getFileName()), this.project);
+						element = this.compilationUnitSource;
 					} else if (this.classFileSource != null) {
 						try {
 							String sourceString = this.classFileSource.getSource();
@@ -688,6 +740,7 @@ public class ASTParser {
 							IBinaryType binaryType = (IBinaryType) type.getElementInfo();
 							String fileName = new String(binaryType.getFileName()); // file name is used to recreate the Java element, so it has to be the .class file name
 							sourceUnit = new BasicCompilationUnit(sourceString.toCharArray(), Util.toCharArrays(packageFragment.names), fileName, this.project);
+							element = this.classFileSource;
 						} catch(JavaModelException e) {
 							// an error occured accessing the java element
 							throw new IllegalStateException();
@@ -726,7 +779,7 @@ public class ASTParser {
 								this.compilerOptions);
 						needToResolveBindings = false;
 					}
-					return CompilationUnitResolver.convert(
+					CompilationUnit result = CompilationUnitResolver.convert(
 						compilationUnitDeclaration, 
 						sourceUnit.getContents(),
 						this.apiLevel, 
@@ -735,6 +788,8 @@ public class ASTParser {
 						this.compilationUnitSource == null ? this.workingCopyOwner : this.compilationUnitSource.getOwner(),
 						needToResolveBindings ? new DefaultBindingResolver.BindingTables() : null, 
 						monitor);
+					result.setJavaElement(element);
+					return result;
 				} finally {
 					if (compilationUnitDeclaration != null && this.resolveBindings) {
 						compilationUnitDeclaration.cleanUp();

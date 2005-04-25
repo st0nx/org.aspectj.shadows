@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -12,8 +12,8 @@ package org.eclipse.jdt.internal.core.search.indexing;
 
 import java.io.IOException;
 
+import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IResourceProxy;
 import org.eclipse.core.resources.IResourceProxyVisitor;
@@ -26,9 +26,9 @@ import org.eclipse.jdt.internal.core.search.processing.JobManager;
 import org.eclipse.jdt.internal.core.util.Util;
 
 public class IndexBinaryFolder extends IndexRequest {
-	IFolder folder;
+	IContainer folder;
 
-	public IndexBinaryFolder(IFolder folder, IndexManager manager) {
+	public IndexBinaryFolder(IContainer folder, IndexManager manager) {
 		super(folder.getFullPath(), manager);
 		this.folder = folder;
 	}
@@ -67,8 +67,10 @@ public class IndexBinaryFolder extends IndexRequest {
 						if (proxy.getType() == IResource.FILE) {
 							if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(proxy.getName())) {
 								IFile file = (IFile) proxy.requestResource();
-								if (file.getLocation() != null)
-									indexedFileNames.put(file.getFullPath().toString(), file);
+								if (file.getLocation() != null) {
+									String containerRelativePath = Util.relativePath(file.getFullPath(), containerPath.segmentCount());
+									indexedFileNames.put(containerRelativePath, file);
+								}
 							}
 							return false;
 						}
@@ -89,9 +91,9 @@ public class IndexBinaryFolder extends IndexRequest {
 									IFile file = (IFile) proxy.requestResource();
 									IPath location = file.getLocation();
 									if (location != null) {
-										String path = file.getFullPath().toString();
-										indexedFileNames.put(path,
-											indexedFileNames.get(path) == null || indexLastModified < location.toFile().lastModified()
+										String containerRelativePath = Util.relativePath(file.getFullPath(), containerPath.segmentCount());
+										indexedFileNames.put(containerRelativePath,
+											indexedFileNames.get(containerRelativePath) == null || indexLastModified < location.toFile().lastModified()
 												? (Object) file
 												: (Object) OK);
 									}

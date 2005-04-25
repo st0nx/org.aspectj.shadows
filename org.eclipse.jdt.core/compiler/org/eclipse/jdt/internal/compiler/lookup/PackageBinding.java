@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -15,6 +15,8 @@ import org.eclipse.jdt.internal.compiler.util.HashtableOfPackage;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfType;
 
 public class PackageBinding extends Binding implements TypeConstants {
+	public long tagBits = 0; // See values in the interface TagBits below
+	
 	public char[][] compoundName;
 	PackageBinding parent;
 	public LookupEnvironment environment;
@@ -66,7 +68,7 @@ public final int kind() {
  * slash separated name
  * org.eclipse.jdt.core --> org/eclipse/jdt/core
  */
-public char[] computeUniqueKey() {
+public char[] computeUniqueKey(boolean withAccessFlags) {
 	return CharOperation.concatWith(compoundName, '/');
 }
 private PackageBinding findPackage(char[] name) {

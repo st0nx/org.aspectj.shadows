@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -15,12 +15,10 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 
 
 public class JavadocReturnStatement extends ReturnStatement {
-	public char[] description;
 	public boolean empty = true;
 
-	public JavadocReturnStatement(int s, int e, char[] descr) {
+	public JavadocReturnStatement(int s, int e) {
 		super(null, s, e);
-		this.description = descr;
 		this.bits |= InsideJavadoc;
 	}
 
@@ -48,8 +46,8 @@ public class JavadocReturnStatement extends ReturnStatement {
 	 */
 	public StringBuffer printStatement(int tab, StringBuffer output) {
 		printIndent(tab, output).append("return"); //$NON-NLS-1$
-		if (description != null )
-			output.append(' ').append(description);
+		if (!this.empty)
+			output.append(' ').append(" <not empty>"); //$NON-NLS-1$
 		return output;
 	}
 

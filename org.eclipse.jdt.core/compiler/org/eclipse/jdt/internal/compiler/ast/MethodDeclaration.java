@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -133,10 +133,19 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 		}
 		
 		// check @Override annotation
-		if (this.binding != null 
-				&& (this.binding.tagBits & TagBits.AnnotationOverride) != 0
-				&& (this.binding.modifiers & AccOverriding) == 0) {
-			scope.problemReporter().methodMustOverride(this);
+		if (this.binding != null) {
+			int bindingModifiers = this.binding.modifiers;
+			if ((this.binding.tagBits & TagBits.AnnotationOverride) != 0 
+					&& (bindingModifiers & AccOverriding) == 0) {
+				// claims to override, and doesn't actually do so
+				scope.problemReporter().methodMustOverride(this);
+			} else	if ((this.binding.tagBits & TagBits.AnnotationOverride) == 0 
+						&& (this.binding.declaringClass.modifiers & AccInterface) == 0
+						&& (bindingModifiers & (AccStatic|AccOverriding)) == AccOverriding
+						&& scope.environment().options.sourceLevel >= JDK1_5) {
+				// actually overrides, but did not claim to do so
+				scope.problemReporter().missingOverrideAnnotation(this);
+			}
 		}
 				
 		// by grammatical construction, interface methods are always abstract
@@ -147,13 +156,13 @@ public class MethodDeclaration extends AbstractMethodDeclaration {
 			case IGenericType.CLASS_DECL :
 				// if a method has an semicolon body and is not declared as abstract==>error
 				// native methods may have a semicolon body 
-				if ((modifiers & AccSemicolonBody) != 0) {
-					if ((modifiers & AccNative) == 0)
-						if ((modifiers & AccAbstract) == 0)
+				if ((this.modifiers & AccSemicolonBody) != 0) {
+					if ((this.modifiers & AccNative) == 0)
+						if ((this.modifiers & AccAbstract) == 0)
 							scope.problemReporter().methodNeedBody(this);
 				} else {
 					// the method HAS a body --> abstract native modifiers are forbiden
-					if (((modifiers & AccNative) != 0) || ((modifiers & AccAbstract) != 0))
+					if (((this.modifiers & AccNative) != 0) || ((this.modifiers & AccAbstract) != 0))
 						scope.problemReporter().methodNeedingNoBody(this);
 				}
 		}

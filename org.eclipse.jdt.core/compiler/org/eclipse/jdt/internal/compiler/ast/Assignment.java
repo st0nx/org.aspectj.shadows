@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     Genady Beriozkin - added support for reporting assignment with no effect
@@ -75,13 +75,12 @@ public class Assignment extends Expression {
 	void checkAssignment(BlockScope scope, TypeBinding lhsType, TypeBinding rhsType) {
 		
 		FieldBinding leftField = getLastField(this.lhs);
-		if (leftField != null &&  rhsType != NullBinding && lhsType.isWildcard() && ((WildcardBinding)lhsType).kind != Wildcard.SUPER) {
+		if (leftField != null &&  rhsType != NullBinding && lhsType.isWildcard() && ((WildcardBinding)lhsType).boundKind != Wildcard.SUPER) {
 		    scope.problemReporter().wildcardAssignment(lhsType, rhsType, this.expression);
-		} else if (leftField != null && leftField.declaringClass != null /*length pseudo field*/&& leftField.declaringClass.isRawType() 
-		        && (rhsType.isParameterizedType() || rhsType.isGenericType())) {
+		} else if (leftField != null && leftField.declaringClass != null /*length pseudo field*/&& leftField.declaringClass.isRawType()) {
 		    scope.problemReporter().unsafeRawFieldAssignment(leftField, rhsType, this.lhs);
 		} else if (rhsType.needsUncheckedConversion(lhsType)) {
-		    scope.problemReporter().unsafeRawConversion(this.expression, rhsType, lhsType);
+		    scope.problemReporter().unsafeTypeConversion(this.expression, rhsType, lhsType);
 		}		
 	}
 	
@@ -115,6 +114,8 @@ public class Assignment extends Expression {
 			if (fieldRef.receiver.isThis() && !(fieldRef.receiver instanceof QualifiedThisReference)) {
 				return fieldRef.binding;
 			}			
+		} else if (someExpression instanceof PostfixExpression) { // recurse for postfix: i++ --> i
+			return getDirectBinding(((PostfixExpression) someExpression).lhs);
 		}
 		return null;
 	}
@@ -173,8 +174,10 @@ public class Assignment extends Expression {
 			scope.problemReporter().expressionShouldBeAVariable(this.lhs);
 			return null;
 		}
-		TypeBinding lhsType = this.resolvedType = lhs.resolveType(scope);
+		TypeBinding lhsType = lhs.resolveType(scope);
 		expression.setExpectedType(lhsType); // needed in case of generic method invocation
+		if (lhsType != null) 
+			this.resolvedType = lhsType.capture();
 		TypeBinding rhsType = expression.resolveType(scope);
 		if (lhsType == null || rhsType == null) {
 			return null;

@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -23,14 +23,14 @@ import org.eclipse.jdt.core.search.IJavaSearchConstants;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.internal.codeassist.ISearchRequestor;
 import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
+import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
-import org.eclipse.jdt.internal.compiler.env.IConstants;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
+import org.eclipse.jdt.internal.core.search.BasicSearchEngine;
 import org.eclipse.jdt.internal.core.search.IRestrictedAccessTypeRequestor;
-import org.eclipse.jdt.internal.core.search.SearchBasicEngine;
 
 /**
  *	This class provides a <code>SearchableBuilderEnvironment</code> for code assist which
@@ -41,6 +41,7 @@ public class SearchableEnvironment
 	
 	public NameLookup nameLookup;
 	protected ICompilationUnit unitToSkip;
+	protected org.eclipse.jdt.core.ICompilationUnit[] workingCopies;
 
 	protected JavaProject project;
 	protected IJavaSearchScope searchScope;
@@ -52,14 +53,17 @@ public class SearchableEnvironment
 	 */
 	public SearchableEnvironment(JavaProject project, org.eclipse.jdt.core.ICompilationUnit[] workingCopies) throws JavaModelException {
 		this.project = project;
-		this.checkAccessRestrictions = !JavaCore.IGNORE.equals(project.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true));
+		this.checkAccessRestrictions = 
+			!JavaCore.IGNORE.equals(project.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
+			|| !JavaCore.IGNORE.equals(project.getOption(JavaCore.COMPILER_PB_DISCOURAGED_REFERENCE, true));
+		this.workingCopies = workingCopies;
 		this.nameLookup = project.newNameLookup(workingCopies);
 
 		// Create search scope with visible entry on the project's classpath
 		if(this.checkAccessRestrictions) {
-			this.searchScope = SearchBasicEngine.createJavaSearchScope(new IJavaElement[] {project});
+			this.searchScope = BasicSearchEngine.createJavaSearchScope(new IJavaElement[] {project});
 		} else {
-			this.searchScope = SearchBasicEngine.createJavaSearchScope(this.nameLookup.packageFragmentRoots);
+			this.searchScope = BasicSearchEngine.createJavaSearchScope(this.nameLookup.packageFragmentRoots);
 		}
 	}
 
@@ -67,16 +71,7 @@ public class SearchableEnvironment
 	 * Creates a SearchableEnvironment on the given project
 	 */
 	public SearchableEnvironment(JavaProject project, WorkingCopyOwner owner) throws JavaModelException {
-		this.project = project;
-		this.checkAccessRestrictions = !JavaCore.IGNORE.equals(project.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true));
-		this.nameLookup = project.newNameLookup(owner);
-
-		// Create search scope with visible entry on the project's classpath
-		if(this.checkAccessRestrictions) {
-			this.searchScope = SearchBasicEngine.createJavaSearchScope(new IJavaElement[] {project});
-		} else {
-			this.searchScope = SearchBasicEngine.createJavaSearchScope(this.nameLookup.packageFragmentRoots);
-		}
+		this(project, owner == null ? null : JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary WCs*/));
 	}
 
 	/**
@@ -102,12 +97,12 @@ public class SearchableEnvironment
 				PackageFragmentRoot root = (PackageFragmentRoot)type.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
 				ClasspathEntry entry = (ClasspathEntry) this.nameLookup.rootToResolvedEntries.get(root);
 				if (entry != null) { // reverse map always contains resolved CP entry
-					accessRestriction = entry.getImportRestriction();
-					if (accessRestriction != null) {
+					AccessRuleSet accessRuleSet = entry.getAccessRuleSet();
+					if (accessRuleSet != null) {
 						// TODO (philippe) improve char[] <-> String conversions to avoid performing them on the fly
 						char[][] packageChars = CharOperation.splitOn('.', packageName.toCharArray());
-						char[] typeChars = typeName.toCharArray();
-						accessRestriction = accessRestriction.getViolatedRestriction(CharOperation.concatWith(packageChars, typeChars, '/'), null);
+						char[] classFileChars = type.getParent().getElementName().toCharArray();
+						accessRestriction = accessRuleSet.getViolatedRestriction(CharOperation.concatWith(packageChars, classFileChars, '/'));
 					}
 				}
 			}
@@ -130,7 +125,7 @@ public class SearchableEnvironment
 					// find all siblings (other types declared in same unit, since may be used for name resolution)
 					IType[] types = sourceType.getHandle().getCompilationUnit().getTypes();
 					ISourceType[] sourceTypes = new ISourceType[types.length];
-
+	
 					// in the resulting collection, ensure the requested type is the first one
 					sourceTypes[0] = sourceType;
 					int length = types.length;
@@ -273,57 +268,16 @@ public class SearchableEnvironment
 				}
 			};
 			IRestrictedAccessTypeRequestor typeRequestor = new IRestrictedAccessTypeRequestor() {
-				public void acceptAnnotation(
-					char[] packageName,
-					char[] simpleTypeName,
-					char[][] enclosingTypeNames,
-					String path,
-					AccessRestriction access) {
+				public void acceptType(int modifiers, char[] packageName, char[] simpleTypeName, char[][] enclosingTypeNames, String path, AccessRestriction access) {
 					if (excludePath != null && excludePath.equals(path))
 						return;
 					if (enclosingTypeNames != null && enclosingTypeNames.length > 0)
 						return; // accept only top level types
-					storage.acceptAnnotation(packageName, simpleTypeName, IConstants.AccPublic, access);
-				}
-				public void acceptClass(
-					char[] packageName,
-					char[] simpleTypeName,
-					char[][] enclosingTypeNames,
-					String path,
-					AccessRestriction access) {
-					if (excludePath != null && excludePath.equals(path))
-						return;
-					if (enclosingTypeNames != null && enclosingTypeNames.length > 0)
-						return; // accept only top level types
-					storage.acceptClass(packageName, simpleTypeName, IConstants.AccPublic, access);
-				}
-				public void acceptEnum(
-					char[] packageName,
-					char[] simpleTypeName,
-					char[][] enclosingTypeNames,
-					String path,
-					AccessRestriction access) {
-					if (excludePath != null && excludePath.equals(path))
-						return;
-					if (enclosingTypeNames != null && enclosingTypeNames.length > 0)
-						return; // accept only top level types
-					storage.acceptEnum(packageName, simpleTypeName, IConstants.AccPublic, access);
-				}
-				public void acceptInterface(
-					char[] packageName,
-					char[] simpleTypeName,
-					char[][] enclosingTypeNames,
-					String path,
-					AccessRestriction access) {
-					if (excludePath != null && excludePath.equals(path))
-						return;
-					if (enclosingTypeNames != null && enclosingTypeNames.length > 0)
-						return; // accept only top level types
-					storage.acceptInterface(packageName, simpleTypeName, IConstants.AccPublic, access);
+					storage.acceptType(packageName, simpleTypeName, modifiers, access);
 				}
 			};
 			try {
-				new SearchBasicEngine().searchAllTypeNames(
+				new BasicSearchEngine(this.workingCopies).searchAllTypeNames(
 					qualification,
 					simpleName,
 					SearchPattern.R_PREFIX_MATCH, // not case sensitive

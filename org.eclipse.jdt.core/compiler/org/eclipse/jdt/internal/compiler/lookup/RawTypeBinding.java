@@ -1,17 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.internal.compiler.ast.Wildcard;
 
 /**
  * Denote a raw type, i.e. a generic type referenced without any type arguments.
@@ -30,6 +29,27 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 		if (enclosingType == null || (enclosingType.modifiers & AccGenericSignature) == 0)
 			this.modifiers &= ~AccGenericSignature; // only need signature if enclosing needs one
 	}    
+	
+	public char[] computeUniqueKey(boolean withAccessFlags) {
+	    StringBuffer sig = new StringBuffer(10);
+		if (isMemberType() && enclosingType().isParameterizedType()) {
+		    char[] typeSig = enclosingType().computeUniqueKey(false/*without access flags*/);
+		    for (int i = 0; i < typeSig.length-1; i++) sig.append(typeSig[i]); // copy all but trailing semicolon
+		    sig.append('.').append(sourceName()).append('<').append('>').append(';');
+		} else {
+		     sig.append(this.type.signature()); // erasure
+		     sig.insert(sig.length()-1, "<>"); //$NON-NLS-1$
+		}
+		if (withAccessFlags) {
+			sig.append('^');
+			sig.append(getAccessFlags());
+		}
+		int sigLength = sig.length();
+		char[] uniqueKey = new char[sigLength];
+		sig.getChars(0, sigLength, uniqueKey, 0);						    
+		return uniqueKey;
+   	}
+	
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding#createParameterizedMethod(org.eclipse.jdt.internal.compiler.lookup.MethodBinding)
 	 */
@@ -76,12 +96,22 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 	}		
 	
     public boolean isEquivalentTo(TypeBinding otherType) {
-	    if (this == otherType) return true;
-        if (otherType == null) return false;
-		if (otherType.isWildcard()) // wildcard
-			return ((WildcardBinding) otherType).boundCheck(this);
-        return otherType.erasure() == this.erasure();
-    }
+		if (this == otherType) 
+		    return true;
+	    if (otherType == null) 
+	        return false;
+	    switch(otherType.kind()) {
+	
+	    	case Binding.WILDCARD_TYPE :
+	        	return ((WildcardBinding) otherType).boundCheck(this);
+	    		
+	    	case Binding.GENERIC_TYPE :
+	    	case Binding.PARAMETERIZED_TYPE :
+	    	case Binding.RAW_TYPE :
+	            return erasure() == otherType.erasure();
+	    }
+        return false;
+	}
 	/**
 	 * Raw type is not treated as a standard parameterized type
 	 * @see org.eclipse.jdt.internal.compiler.lookup.TypeBinding#isParameterizedType()
@@ -114,78 +144,6 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 		}
 		return readableName;
 	}
-
-	/**
-	 * Returns a type, where original type was substituted using the receiver
-	 * raw type.
-	 * On raw types, all parameterized type denoting same original type are converted
-	 * to raw types. e.g. 
-	 * class X <T> {
-	 *   X<T> foo;
-	 *   X<String> bar;
-	 * } when used in raw fashion, then type of both foo and bar is raw type X.
-	 */
-	public TypeBinding substitute(TypeBinding originalType) {
-	    
-		switch (originalType.kind()) {
-			
-			case Binding.TYPE_PARAMETER:
-		        TypeVariableBinding originalVariable = (TypeVariableBinding) originalType;
-			    ParameterizedTypeBinding currentType = this;
-		        while (true) {
-			        TypeVariableBinding[] typeVariables = currentType.type.typeVariables();
-			        int length = typeVariables.length;
-			        // check this variable can be substituted given parameterized type
-			        if (originalVariable.rank < length && typeVariables[originalVariable.rank] == originalVariable) {
-					    // lazy init, since cannot do so during binding creation if during supertype connection
-					    if (currentType.arguments == null)  currentType.initializeArguments();
-					    if (currentType.arguments != null)
-				           return currentType.arguments[originalVariable.rank];
-			        }
-				    // recurse on enclosing type, as it may hold more substitutions to perform
-				    ReferenceBinding enclosing = currentType.enclosingType();
-				    if (!(enclosing instanceof ParameterizedTypeBinding))
-				        break;
-				    currentType = (ParameterizedTypeBinding) enclosing;
-		        }
-		        break;
-		        
-			case Binding.PARAMETERIZED_TYPE:
-				ReferenceBinding substitutedEnclosing = originalType.enclosingType();
-				if (substitutedEnclosing != null) {
-					substitutedEnclosing = (ReferenceBinding) this.substitute(substitutedEnclosing);
-				}				
-		        ParameterizedTypeBinding originalParameterizedType = (ParameterizedTypeBinding) originalType;
-				return this.environment.createRawType(originalParameterizedType.type, substitutedEnclosing);
-				
-			case Binding.GENERIC_TYPE:
-				substitutedEnclosing = originalType.enclosingType();
-				if (substitutedEnclosing != null) {
-					substitutedEnclosing = (ReferenceBinding) this.substitute(substitutedEnclosing);
-				}				
-	            return this.environment.createRawType((ReferenceBinding)originalType, substitutedEnclosing);
-	            
-			case Binding.WILDCARD_TYPE:
-		        WildcardBinding wildcard = (WildcardBinding) originalType;
-		        if (wildcard.kind != Wildcard.UNBOUND) {
-			        TypeBinding originalBound = wildcard.bound;
-			        TypeBinding substitutedBound = substitute(originalBound);
-			        if (substitutedBound != originalBound) {
-		        		return this.environment.createWildcard(wildcard.genericType, wildcard.rank, substitutedBound, wildcard.kind);
-			        }
-		        }
-		        break;
-		        
-			case Binding.ARRAY_TYPE:
-				TypeBinding originalLeafComponentType = originalType.leafComponentType();
-				TypeBinding substitute = substitute(originalLeafComponentType); // substitute could itself be array type
-				if (substitute != originalLeafComponentType) {
-					return this.environment.createArrayType(substitute.leafComponentType(), substitute.dimensions() + originalType.dimensions());
-				}
-				break;
-	    }
-	    return originalType;
-	}	
 
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.lookup.Binding#shortReadableName()

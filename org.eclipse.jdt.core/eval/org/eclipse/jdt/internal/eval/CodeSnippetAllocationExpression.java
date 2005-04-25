@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -199,7 +199,7 @@ public TypeBinding resolveType(BlockScope scope) {
 		    TypeBinding argumentType = argumentTypes[i];
 			arguments[i].computeConversion(scope, parameterType, argumentType);
 			if (argumentType.needsUncheckedConversion(parameterType)) {
-				scope.problemReporter().unsafeRawConversion(arguments[i], argumentType, parameterType);
+				scope.problemReporter().unsafeTypeConversion(arguments[i], argumentType, parameterType);
 			}
 		}
 		if (argsContainCast) {

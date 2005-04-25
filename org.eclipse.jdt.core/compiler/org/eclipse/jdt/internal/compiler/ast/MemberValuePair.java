@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -41,7 +41,7 @@ public class MemberValuePair extends ASTNode {
 		output
 			.append(name)
 			.append(" = "); //$NON-NLS-1$
-		value.print(indent, output);
+		value.print(0, output);
 		return output;
 	}
 	
@@ -76,7 +76,11 @@ public class MemberValuePair extends ASTNode {
 							|| (leafType.isBaseType() && BaseTypeBinding.isWidening(leafType.id, valueType.id)))
 							|| valueType.isCompatibleWith(leafType))) {
 				
-				scope.problemReporter().typeMismatchError(valueType, requiredType, this.value);
+				if (leafType.isAnnotationType() && !valueType.isAnnotationType()) {
+					scope.problemReporter().annotationValueMustBeAnnotation(this.binding.declaringClass, this.name, this.value, leafType);				
+				} else {
+					scope.problemReporter().typeMismatchError(valueType, requiredType, this.value);
+				}
 				return; // may allow to proceed to find more errors at once
 			}
 		} else {
@@ -130,6 +134,9 @@ public class MemberValuePair extends ASTNode {
 				break checkAnnotationMethodType;
 			}
 			if (leafType.isAnnotationType()) {
+				if (!valueType.leafComponentType().isAnnotationType()) { // null literal
+					scope.problemReporter().annotationValueMustBeAnnotation(this.binding.declaringClass, this.name, this.value, leafType);
+				}
 				break checkAnnotationMethodType;
 			}
 		}

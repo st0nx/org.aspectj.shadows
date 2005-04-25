@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -54,7 +54,7 @@ public final class HashtableOfObjectToInt implements Cloneable {
 
 	public boolean containsKey(Object key) {
 
-		int index = key.hashCode() % this.valueTable.length;
+		int index = (key.hashCode()& 0x7FFFFFFF) % this.valueTable.length;
 		Object currentKey;
 		while ((currentKey = this.keyTable[index]) != null) {
 			if (currentKey.equals(key))
@@ -66,7 +66,7 @@ public final class HashtableOfObjectToInt implements Cloneable {
 
 	public int get(Object key) {
 
-		int index = key.hashCode() % this.valueTable.length;
+		int index = (key.hashCode()& 0x7FFFFFFF) % this.valueTable.length;
 		Object currentKey;
 		while ((currentKey = this.keyTable[index]) != null) {
 			if (currentKey.equals(key))
@@ -76,9 +76,17 @@ public final class HashtableOfObjectToInt implements Cloneable {
 		return -1;
 	}
 
+	public void keysToArray(Object[] array) {
+		int index = 0;
+		for (int i=0, length=this.keyTable.length; i<length; i++) {
+			if (this.keyTable[i] != null)
+				array[index++] = this.keyTable[i];
+		}
+	}
+
 	public int put(Object key, int value) {
 
-		int index = key.hashCode() % this.valueTable.length;
+		int index = (key.hashCode()& 0x7FFFFFFF) % this.valueTable.length;
 		Object currentKey;
 		while ((currentKey = this.keyTable[index]) != null) {
 			if (currentKey.equals(key))
@@ -96,7 +104,7 @@ public final class HashtableOfObjectToInt implements Cloneable {
 
 	public int removeKey(Object key) {
 
-		int index = key.hashCode() % this.valueTable.length;
+		int index = (key.hashCode()& 0x7FFFFFFF) % this.valueTable.length;
 		Object currentKey;
 		while ((currentKey = this.keyTable[index]) != null) {
 			if (currentKey.equals(key)) {
@@ -127,7 +135,7 @@ public final class HashtableOfObjectToInt implements Cloneable {
 	public int size() {
 		return elementSize;
 	}
-
+	
 	public String toString() {
 		String s = ""; //$NON-NLS-1$
 		Object key;

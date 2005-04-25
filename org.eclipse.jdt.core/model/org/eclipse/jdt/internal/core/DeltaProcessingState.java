@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -240,6 +240,10 @@ public class DeltaProcessingState implements IResourceChangeListener {
 				// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=47213
 				if (!this.initializingThreads.add(currentThread)) return;
 				addedCurrentThread = true;
+				
+				// all classpaths in the workspace are going to be resolved
+				// ensure that containers are initialized in one batch
+				JavaModelManager.getJavaModelManager().batchContainerInitializations = true;
 
 				newRoots = new HashMap();
 				newOtherRoots = new HashMap();

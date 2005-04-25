@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -116,7 +116,7 @@ public class FieldReference extends Reference implements InvocationSite {
 		receiver.analyseCode(currentScope, flowContext, flowInfo, nonStatic);
 		if (nonStatic) receiver.checkNullStatus(currentScope, flowContext, flowInfo, FlowInfo.NON_NULL);
 		
-		if (valueRequired) {
+		if (valueRequired || currentScope.environment().options.complianceLevel >= ClassFileConstants.JDK1_4) {
 			manageSyntheticAccessIfNecessary(currentScope, flowInfo, true /*read-access*/);
 		}
 		return flowInfo;
@@ -134,7 +134,10 @@ public class FieldReference extends Reference implements InvocationSite {
 			if (originalBinding != this.binding) {
 			    // extra cast needed if method return type has type variable
 			    if ((originalBinding.type.tagBits & TagBits.HasTypeVariable) != 0 && runtimeTimeType.id != T_JavaLangObject) {
-			        this.genericCast = originalBinding.type.genericCast(scope.boxing(runtimeTimeType)); // runtimeType could be base type in boxing case
+			    	TypeBinding targetType = (!compileTimeType.isBaseType() && runtimeTimeType.isBaseType()) 
+			    		? compileTimeType  // unboxing: checkcast before conversion
+			    		: runtimeTimeType;
+			        this.genericCast = originalBinding.type.genericCast(targetType);
 			    }
 			}
 		} 	
@@ -152,10 +155,12 @@ public class FieldReference extends Reference implements InvocationSite {
 		Assignment assignment,
 		boolean valueRequired) {
 
+		int pc = codeStream.position;
 		receiver.generateCode(
 			currentScope,
 			codeStream,
 			!this.codegenBinding.isStatic());
+		codeStream.recordPositionsFrom(pc, this.sourceStart);
 		assignment.expression.generateCode(currentScope, codeStream, true);
 		fieldStore(
 			codeStream,
@@ -187,11 +192,26 @@ public class FieldReference extends Reference implements InvocationSite {
 			}
 		} else {
 			boolean isStatic = this.codegenBinding.isStatic();
-			receiver.generateCode(currentScope, codeStream, !isStatic);
-			if (valueRequired) {
-				if (!this.codegenBinding.isConstantValue()) {
+			if (this.codegenBinding.isConstantValue()) {
+				receiver.generateCode(currentScope, codeStream, !isStatic);
+				if (!isStatic){
+					codeStream.invokeObjectGetClass();
+					codeStream.pop();
+				}
+				if (valueRequired) {
+					codeStream.generateConstant(this.codegenBinding.constant(), implicitConversion);
+				}
+			} else {
+				receiver.generateCode(currentScope, codeStream, !isStatic);
+				if (valueRequired || currentScope.environment().options.complianceLevel >= ClassFileConstants.JDK1_4) {
 					if (this.codegenBinding.declaringClass == null) { // array length
 						codeStream.arraylength();
+						if (valueRequired) {
+							codeStream.generateImplicitConversion(implicitConversion);
+						} else {
+							// could occur if !valueRequired but compliance >= 1.4
+							codeStream.pop();
+						}
 					} else {
 						if (syntheticAccessors == null || syntheticAccessors[READ] == null) {
 							if (isStatic) {
@@ -202,20 +222,26 @@ public class FieldReference extends Reference implements InvocationSite {
 						} else {
 							codeStream.invokestatic(syntheticAccessors[READ]);
 						}
+						if (valueRequired) {
+							if (this.genericCast != null) codeStream.checkcast(this.genericCast);			
+							codeStream.generateImplicitConversion(implicitConversion);
+						} else {
+							// could occur if !valueRequired but compliance >= 1.4
+							switch (this.codegenBinding.type.id) {
+								case T_long :
+								case T_double :
+									codeStream.pop2();
+									break;
+								default :
+									codeStream.pop();
+							}
+						}
 					}
-					if (this.genericCast != null) codeStream.checkcast(this.genericCast);			
-					codeStream.generateImplicitConversion(implicitConversion);
 				} else {
-					if (!isStatic) {
+					if (!isStatic){
 						codeStream.invokeObjectGetClass(); // perform null check
 						codeStream.pop();
 					}
-					codeStream.generateConstant(this.codegenBinding.constant(), implicitConversion);
-				}
-			} else {
-				if (!isStatic){
-					codeStream.invokeObjectGetClass(); // perform null check
-					codeStream.pop();
 				}
 			}
 		}
@@ -452,19 +478,23 @@ public class FieldReference extends Reference implements InvocationSite {
 		// if the binding declaring class is not visible, need special action
 		// for runtime compatibility on 1.2 VMs : change the declaring class of the binding
 		// NOTE: from target 1.2 on, field's declaring class is touched if any different from receiver type
+		// and not from Object or implicit static field access.	
 		if (this.binding.declaringClass != this.receiverType
-			&& !this.receiverType.isArrayType()
-			&& this.binding.declaringClass != null // array.length
-			&& !this.binding.isConstantValue()
-			&& ((currentScope.environment().options.targetJDK >= ClassFileConstants.JDK1_2
-				&& this.binding.declaringClass.id != T_JavaLangObject)
-			//no change for Object fields (in case there was)
-				|| !this.codegenBinding.declaringClass.canBeSeenBy(currentScope))) {
-			this.codegenBinding =
-				currentScope.enclosingSourceType().getUpdatedFieldBinding(
-					this.codegenBinding,
-					(ReferenceBinding) this.receiverType.erasure());
-		}
+				&& !this.receiverType.isArrayType()
+				&& this.binding.declaringClass != null // array.length
+				&& !this.binding.isConstantValue()) {
+			CompilerOptions options = currentScope.environment().options;
+			if ((options.targetJDK >= ClassFileConstants.JDK1_2
+					&& (options.complianceLevel >= ClassFileConstants.JDK1_4 || !receiver.isImplicitThis() || !this.codegenBinding.isStatic())
+					&& this.binding.declaringClass.id != T_JavaLangObject) // no change for Object fields
+				|| !this.binding.declaringClass.canBeSeenBy(currentScope)) {
+	
+				this.codegenBinding =
+					currentScope.enclosingSourceType().getUpdatedFieldBinding(
+						this.codegenBinding,
+						(ReferenceBinding) this.receiverType.erasure());
+			}
+		}		
 	}
 
 
@@ -497,33 +527,44 @@ public class FieldReference extends Reference implements InvocationSite {
 			}
 		}		
 		// the case receiverType.isArrayType and token = 'length' is handled by the scope API
-		this.codegenBinding = this.binding = scope.getField(this.receiverType, token, this);
-		if (!binding.isValidBinding()) {
+		FieldBinding fieldBinding = this.codegenBinding = this.binding = scope.getField(this.receiverType, token, this);
+		if (!fieldBinding.isValidBinding()) {
 			constant = NotAConstant;
 			scope.problemReporter().invalidField(this, this.receiverType);
 			return null;
 		}
+		TypeBinding receiverErasure = this.receiverType.erasure();
+		if (receiverErasure instanceof ReferenceBinding) {
+			ReferenceBinding match = ((ReferenceBinding)receiverErasure).findSuperTypeErasingTo((ReferenceBinding)fieldBinding.declaringClass.erasure());
+			if (match == null) {
+				this.receiverType = fieldBinding.declaringClass; // handle indirect inheritance thru variable secondary bound
+			}
+		}
 		this.receiver.computeConversion(scope, this.receiverType, this.receiverType);
-		if (isFieldUseDeprecated(binding, scope, (this.bits & IsStrictlyAssignedMASK) !=0)) {
-			scope.problemReporter().deprecatedField(binding, this);
+		if (isFieldUseDeprecated(fieldBinding, scope, (this.bits & IsStrictlyAssignedMASK) !=0)) {
+			scope.problemReporter().deprecatedField(fieldBinding, this);
 		}
 		boolean isImplicitThisRcv = receiver.isImplicitThis();
-		constant = FieldReference.getConstantFor(binding, this, isImplicitThisRcv, scope);
+		constant = FieldReference.getConstantFor(fieldBinding, this, isImplicitThisRcv, scope);
 		if (!isImplicitThisRcv) {
 			constant = NotAConstant;
 		}
-		if (binding.isStatic()) {
+		if (fieldBinding.isStatic()) {
 			// static field accessed through receiver? legal but unoptimal (optional warning)
 			if (!(isImplicitThisRcv
 					|| (receiver instanceof NameReference 
 						&& (((NameReference) receiver).bits & Binding.TYPE) != 0))) {
-				scope.problemReporter().nonStaticAccessToStaticField(this, binding);
+				scope.problemReporter().nonStaticAccessToStaticField(this, fieldBinding);
 			}
-			if (!isImplicitThisRcv && binding.declaringClass != receiverType) {
-				scope.problemReporter().indirectAccessToStaticField(this, binding);
+			if (!isImplicitThisRcv && fieldBinding.declaringClass != receiverType) {
+				scope.problemReporter().indirectAccessToStaticField(this, fieldBinding);
 			}
 		}
-		return this.resolvedType = binding.type;
+		// perform capture conversion if read access
+		return this.resolvedType = 
+			(((this.bits & IsStrictlyAssignedMASK) == 0) 
+				? fieldBinding.type.capture()
+				: fieldBinding.type);
 	}
 
 	public void setActualReceiverType(ReferenceBinding receiverType) {

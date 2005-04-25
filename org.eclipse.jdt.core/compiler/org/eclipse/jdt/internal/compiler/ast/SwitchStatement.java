@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -14,8 +14,10 @@ import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
 public class SwitchStatement extends Statement {
 
@@ -56,12 +58,12 @@ public class SwitchStatement extends Statement {
 				for (int i = 0, max = statements.length; i < max; i++) {
 					Statement statement = statements[i];
 					if ((caseIndex < caseCount) && (statement == cases[caseIndex])) { // statement is a case
-						this.scope.switchCase = cases[caseIndex]; // record entering in a switch case block
+						this.scope.enclosingCase = cases[caseIndex]; // record entering in a switch case block
 						caseIndex++;
 						caseInits = caseInits.mergedWith(flowInfo.copy().unconditionalInits());
 						didAlreadyComplain = false; // reset complaint
 					} else if (statement == defaultCase) { // statement is the default case
-						this.scope.switchCase = defaultCase; // record entering in a switch case block
+						this.scope.enclosingCase = defaultCase; // record entering in a switch case block
 						caseInits = caseInits.mergedWith(flowInfo.copy().unconditionalInits());
 						didAlreadyComplain = false; // reset complaint
 					}
@@ -89,7 +91,7 @@ public class SwitchStatement extends Statement {
 				currentScope.methodScope().recordInitializationStates(mergedInfo);
 			return mergedInfo;
 	    } finally {
-	        if (this.scope != null) this.scope.switchCase = null; // no longer inside switch case block
+	        if (this.scope != null) this.scope.enclosingCase = null; // no longer inside switch case block
 	    }
 	}
 
@@ -156,7 +158,7 @@ public class SwitchStatement extends Statement {
 				} else {
 					codeStream.lookupswitch(defaultLabel, this.constants, sortedIndexes, caseLabels);
 				}
-				codeStream.updateLastRecordedEndPC(codeStream.position);
+				codeStream.updateLastRecordedEndPC(this.scope, codeStream.position);
 			}
 			
 			// generate the switch block statements
@@ -165,14 +167,14 @@ public class SwitchStatement extends Statement {
 				for (int i = 0, maxCases = this.statements.length; i < maxCases; i++) {
 					Statement statement = this.statements[i];
 					if ((caseIndex < this.caseCount) && (statement == this.cases[caseIndex])) { // statements[i] is a case
-						this.scope.switchCase = this.cases[caseIndex]; // record entering in a switch case block
+						this.scope.enclosingCase = this.cases[caseIndex]; // record entering in a switch case block
 						if (preSwitchInitStateIndex != -1) {
 							codeStream.removeNotDefinitelyAssignedVariables(currentScope, preSwitchInitStateIndex);
 						}
 						caseIndex++;
 					} else {
 						if (statement == this.defaultCase) { // statements[i] is a case or a default case
-							this.scope.switchCase = this.defaultCase; // record entering in a switch case block
+							this.scope.enclosingCase = this.defaultCase; // record entering in a switch case block
 							if (preSwitchInitStateIndex != -1) {
 								codeStream.removeNotDefinitelyAssignedVariables(currentScope, preSwitchInitStateIndex);
 							}
@@ -196,7 +198,7 @@ public class SwitchStatement extends Statement {
 			}
 			codeStream.recordPositionsFrom(pc, this.sourceStart);
 	    } finally {
-	        if (this.scope != null) this.scope.switchCase = null; // no longer inside switch case block
+	        if (this.scope != null) this.scope.enclosingCase = null; // no longer inside switch case block
 	    }		
 	}
 
@@ -221,6 +223,7 @@ public class SwitchStatement extends Statement {
 	public void resolve(BlockScope upperScope) {
 	
 	    try {
+			boolean isEnumSwitch = false;
 			TypeBinding expressionType = expression.resolveType(upperScope);
 			if (expressionType == null)
 				return;
@@ -232,6 +235,7 @@ public class SwitchStatement extends Statement {
 					if (expressionType.isCompatibleWith(IntBinding))
 						break checkType;
 				} else if (expressionType.isEnum()) {
+					isEnumSwitch = true;
 					break checkType;
 				} else if (upperScope.isBoxingCompatibleWith(expressionType, IntBinding)) {
 					expression.computeConversion(upperScope, IntBinding, expressionType);
@@ -242,7 +246,7 @@ public class SwitchStatement extends Statement {
 				return;
 			}
 			if (statements != null) {
-				scope = explicitDeclarations == 0 ? upperScope : new BlockScope(upperScope);
+				scope = /*explicitDeclarations == 0 ? upperScope : */new BlockScope(upperScope);
 				int length;
 				// collection of cases is too big but we will only iterate until caseCount
 				cases = new CaseStatement[length = statements.length];
@@ -291,8 +295,28 @@ public class SwitchStatement extends Statement {
 					upperScope.problemReporter().undocumentedEmptyBlock(this.blockStart, this.sourceEnd);
 				}
 			}
+			// for enum switch, check if all constants are accounted for (if no default) 
+			if (isEnumSwitch && defaultCase == null 
+					&& upperScope.environment().options.getSeverity(CompilerOptions.IncompleteEnumSwitch) != ProblemSeverities.Ignore) {
+				int constantCount = this.constants == null ? 0 : this.constants.length; // could be null if no case statement
+				if (constantCount == caseCount // ignore diagnosis if unresolved constants
+						&& caseCount != ((ReferenceBinding)expressionType).enumConstantCount()) {
+					FieldBinding[] enumFields = ((ReferenceBinding)expressionType.erasure()).fields();
+					for (int i = 0, max = enumFields.length; i <max; i++) {
+						FieldBinding enumConstant = enumFields[i];
+						if ((enumConstant.modifiers & AccEnum) == 0) continue;
+						findConstant : {
+							for (int j = 0; j < caseCount; j++) {
+								if (enumConstant.id == this.constants[j]) break findConstant;
+							}
+							// enum constant did not get referenced from switch
+							upperScope.problemReporter().missingEnumConstantCase(this, enumConstant);
+						}
+					}
+				}
+			}
 	    } finally {
-	        if (this.scope != null) this.scope.switchCase = null; // no longer inside switch case block
+	        if (this.scope != null) this.scope.enclosingCase = null; // no longer inside switch case block
 	    }
 	}
 

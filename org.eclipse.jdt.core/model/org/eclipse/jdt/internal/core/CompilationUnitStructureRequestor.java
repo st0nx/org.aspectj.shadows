@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -68,19 +68,6 @@ public class CompilationUnitStructureRequestor extends ReferenceInfoAdapter impl
 	protected Stack handleStack;
 
 	/**
-	 * The name of the source file being parsed.
-	 */
-	protected char[] sourceFileName= null;
-
-	/**
-	 * The dot-separated name of the package the compilation unit
-	 * is contained in - based on the package statement in the
-	 * compilation unit, and initialized by #acceptPackage.
-	 * Initialized to <code>null</code> for the default package.
-	 */
-	protected char[] packageName= null;
-
-	/**
 	 * The number of references reported thus far. Used to
 	 * expand the arrays of reference kinds and names.
 	 */
@@ -111,7 +98,6 @@ protected CompilationUnitStructureRequestor(ICompilationUnit unit, CompilationUn
 	this.unit = unit;
 	this.unitInfo = unitInfo;
 	this.newElements = newElements;
-	this.sourceFileName= unit.getPath().toString().toCharArray();
 } 
 /**
  * @see ISourceElementRequestor
@@ -132,23 +118,14 @@ public void acceptImport(int declarationStart, int declarationEnd, char[] name, 
 		this.newElements.put(importContainer, this.importContainerInfo);
 	}
 	
-	// tack on the '.*' if it is onDemand
-	String importName;
-	if (onDemand) {
-		importName= new String(name) + ".*"; //$NON-NLS-1$
-	} else {
-		importName= new String(name);
-	}
-	
-	ImportDeclaration handle = new ImportDeclaration(importContainer, importName);
+	String elementName = JavaModelManager.getJavaModelManager().intern(new String(name));
+	ImportDeclaration handle = new ImportDeclaration(importContainer, elementName, onDemand);
 	resolveDuplicates(handle);
 	
 	ImportDeclarationElementInfo info = new ImportDeclarationElementInfo();
 	info.setSourceRangeStart(declarationStart);
 	info.setSourceRangeEnd(declarationEnd);
 	info.setFlags(modifiers);
-	info.name  = name; // no trailing * if onDemand
-	info.setOnDemand(onDemand);
 
 	this.importContainerInfo.addChild(handle);
 	this.newElements.put(handle, info);
@@ -171,7 +148,6 @@ public void acceptPackage(int declarationStart, int declarationEnd, char[] name)
 		JavaElementInfo parentInfo = (JavaElementInfo) this.infoStack.peek();
 		JavaElement parentHandle= (JavaElement) this.handleStack.peek();
 		PackageDeclaration handle = null;
-		this.packageName= name;
 		
 		if (parentHandle.getElementType() == IJavaElement.COMPILATION_UNIT) {
 			handle = new PackageDeclaration((CompilationUnit) parentHandle, new String(name));
@@ -204,9 +180,10 @@ public void acceptProblem(IProblem problem) {
 	int n = typeNames.length;
 	if (n == 0)
 		return NO_STRINGS;
+	JavaModelManager manager = JavaModelManager.getJavaModelManager();
 	String[] typeSigs = new String[n];
 	for (int i = 0; i < n; ++i) {
-		typeSigs[i] = Signature.createTypeSignature(typeNames[i], false);
+		typeSigs[i] = manager.intern(Signature.createTypeSignature(typeNames[i], false));
 	}
 	return typeSigs;
 }
@@ -233,9 +210,9 @@ public void enterField(FieldInfo fieldInfo) {
 	SourceTypeElementInfo parentInfo = (SourceTypeElementInfo) this.infoStack.peek();
 	JavaElement parentHandle= (JavaElement) this.handleStack.peek();
 	SourceField handle = null;
-	
 	if (parentHandle.getElementType() == IJavaElement.TYPE) {
-		handle = new SourceField(parentHandle, new String(fieldInfo.name));
+		String fieldName = JavaModelManager.getJavaModelManager().intern(new String(fieldInfo.name));
+		handle = new SourceField(parentHandle, fieldName);
 	}
 	else {
 		Assert.isTrue(false); // Should not happen
@@ -243,12 +220,12 @@ public void enterField(FieldInfo fieldInfo) {
 	resolveDuplicates(handle);
 	
 	SourceFieldElementInfo info = new SourceFieldElementInfo();
-	info.fieldName = fieldInfo.name;
 	info.setNameSourceStart(fieldInfo.nameSourceStart);
 	info.setNameSourceEnd(fieldInfo.nameSourceEnd);
 	info.setSourceRangeStart(fieldInfo.declarationStart);
 	info.setFlags(fieldInfo.modifiers);
-	info.setTypeName(fieldInfo.type);
+	char[] typeName = JavaModelManager.getJavaModelManager().intern(fieldInfo.type);
+	info.setTypeName(typeName);
 	
 	this.unitInfo.addAnnotationPositions(handle, fieldInfo.annotationPositions);
 
@@ -308,7 +285,8 @@ public void enterMethod(MethodInfo methodInfo) {
 	
 	String[] parameterTypeSigs = convertTypeNamesToSigs(methodInfo.parameterTypes);
 	if (parentHandle.getElementType() == IJavaElement.TYPE) {
-		handle = new SourceMethod(parentHandle, new String(methodInfo.name), parameterTypeSigs);
+		String selector = JavaModelManager.getJavaModelManager().intern(new String(methodInfo.name));
+		handle = new SourceMethod(parentHandle, selector, parameterTypeSigs);
 	}
 	else {
 		Assert.isTrue(false); // Should not happen
@@ -324,14 +302,20 @@ public void enterMethod(MethodInfo methodInfo) {
 		info = new SourceMethodInfo();
 	info.setSourceRangeStart(methodInfo.declarationStart);
 	int flags = methodInfo.modifiers;
-	info.selector = methodInfo.name;
 	info.setNameSourceStart(methodInfo.nameSourceStart);
 	info.setNameSourceEnd(methodInfo.nameSourceEnd);
 	info.setFlags(flags);
-	info.setArgumentNames(methodInfo.parameterNames);
-	info.setArgumentTypeNames(methodInfo.parameterTypes);
-	info.setReturnType(methodInfo.returnType == null ? new char[]{'v', 'o','i', 'd'} : methodInfo.returnType);
-	info.setExceptionTypeNames(methodInfo.exceptionTypes);
+	JavaModelManager manager = JavaModelManager.getJavaModelManager();
+	char[][] parameterNames = methodInfo.parameterNames;
+	for (int i = 0, length = parameterNames.length; i < length; i++)
+		parameterNames[i] = manager.intern(parameterNames[i]);
+	info.setArgumentNames(parameterNames);
+	char[] returnType = methodInfo.returnType == null ? new char[]{'v', 'o','i', 'd'} : methodInfo.returnType;
+	info.setReturnType(manager.intern(returnType));
+	char[][] exceptionTypes = methodInfo.exceptionTypes;
+	info.setExceptionTypeNames(exceptionTypes);
+	for (int i = 0, length = exceptionTypes.length; i < length; i++)
+		exceptionTypes[i] = manager.intern(exceptionTypes[i]);
 	this.unitInfo.addAnnotationPositions(handle, methodInfo.annotationPositions);
 	parentInfo.addChild(handle);
 	this.newElements.put(handle, info);
@@ -363,10 +347,13 @@ public void enterType(TypeInfo typeInfo) {
 	info.setFlags(typeInfo.modifiers);
 	info.setNameSourceStart(typeInfo.nameSourceStart);
 	info.setNameSourceEnd(typeInfo.nameSourceEnd);
-	info.setSuperclassName(typeInfo.superclass);
-	info.setSuperInterfaceNames(typeInfo.superinterfaces);
-	info.setSourceFileName(this.sourceFileName);
-	info.setPackageName(this.packageName);
+	JavaModelManager manager = JavaModelManager.getJavaModelManager();
+	char[] superclass = typeInfo.superclass;
+	info.setSuperclassName(superclass == null ? null : manager.intern(superclass));
+	char[][] superinterfaces = typeInfo.superinterfaces;
+	for (int i = 0, length = superinterfaces == null ? 0 : superinterfaces.length; i < length; i++)
+		superinterfaces[i] = manager.intern(superinterfaces[i]);
+	info.setSuperInterfaceNames(superinterfaces);
 	parentInfo.addChild(handle);
 	this.unitInfo.addAnnotationPositions(handle, typeInfo.annotationPositions);
 	this.newElements.put(handle, info);

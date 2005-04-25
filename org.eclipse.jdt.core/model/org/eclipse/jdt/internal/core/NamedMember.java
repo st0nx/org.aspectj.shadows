@@ -1,22 +1,27 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import org.eclipse.jdt.core.BindingKey;
+import org.eclipse.jdt.core.Flags;
+import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.IField;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IMember;
+import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IPackageFragment;
+import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.ITypeParameter;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
-import org.eclipse.jdt.core.compiler.CharOperation;
 
 public abstract class NamedMember extends Member {
 
@@ -58,18 +63,111 @@ public abstract class NamedMember extends Member {
 	public String getElementName() {
 		return this.name;
 	}
+	
+	protected String getKey(IField field, boolean withAccessFlags, boolean forceOpen) throws JavaModelException {
+		StringBuffer key = new StringBuffer();
+		
+		// declaring class 
+		String declaringKey = getKey((IType) field.getParent(), false/*without access flags*/, forceOpen);
+		key.append(declaringKey);
+		
+		// field name
+		key.append('.');
+		key.append(field.getElementName());
+		
+		// flags
+		if (withAccessFlags) {
+			key.append('^');
+			if (forceOpen) 
+				key.append(field.getFlags());
+			else
+				key.append(Flags.AccDefault);
+		}
+
+		return key.toString();
+	}
+	
+	protected String getKey(IMethod method, boolean withAccessFlags, boolean forceOpen) throws JavaModelException {
+		StringBuffer key = new StringBuffer();
+		
+		// declaring class 
+		String declaringKey = getKey((IType) method.getParent(), false/*without access flags*/, forceOpen);
+		key.append(declaringKey);
+		
+		// selector
+		key.append('.');
+		String selector = method.getElementName();
+		key.append(selector);
+		
+		// parameters
+		key.append('(');
+		String[] parameters = method.getParameterTypes();
+		for (int i = 0, length = parameters.length; i < length; i++)
+			key.append(parameters[i].replace('.', '/'));
+		key.append(')');
+		
+		// return type
+		if (forceOpen)
+			key.append(method.getReturnType());
+		else
+			key.append('V');
+		
+		// flags
+		if (withAccessFlags) {
+			key.append('^');
+			if (forceOpen)
+				key.append(method.getFlags());
+			else
+				key.append(Flags.AccDefault); // cannot get the flags without opening the element		
+		}
+		
+		return key.toString();
+	}
+	
+	protected String getKey(IType type, boolean withAccessFlags, boolean forceOpen) throws JavaModelException {
+		StringBuffer key = new StringBuffer();
+		key.append('L');
+		String packageName = type.getPackageFragment().getElementName();
+		key.append(packageName.replace('.', '/'));
+		if (packageName.length() > 0)
+			key.append('/');
+		String typeQualifiedName = type.getTypeQualifiedName('$');
+		ICompilationUnit cu = (ICompilationUnit) type.getAncestor(IJavaElement.COMPILATION_UNIT);
+		if (cu != null) {
+			String cuName = cu.getElementName();
+			String mainTypeName = cuName.substring(0, cuName.lastIndexOf('.'));
+			int end = typeQualifiedName.indexOf('$');
+			if (end == -1)
+				end = typeQualifiedName.length();
+			String topLevelTypeName = typeQualifiedName.substring(0, end);
+			if (!mainTypeName.equals(topLevelTypeName)) {
+				key.append(mainTypeName);
+				key.append('~');
+			}
+		}
+		key.append(typeQualifiedName);
+		key.append(';');
+		if (withAccessFlags) {
+			key.append('^');
+			if (forceOpen)
+				key.append(type.getFlags());
+			else
+				key.append(Flags.AccDefault);
+		}
+		return key.toString();
+	}
 
 	protected String getFullyQualifiedParameterizedName(String fullyQualifiedName, String uniqueKey) throws JavaModelException {
-		char[][] typeArguments = Signature.getTypeArguments(uniqueKey.toCharArray());
+		String[] typeArguments = new BindingKey(uniqueKey).getTypeArguments();
 		int length = typeArguments.length;
 		if (length == 0) return fullyQualifiedName;
 		StringBuffer buffer = new StringBuffer();
 		buffer.append(fullyQualifiedName);
 		buffer.append('<');
 		for (int i = 0; i < length; i++) {
-			char[] typeArgument = typeArguments[i];
-			CharOperation.replace(typeArgument, '/', '.');
-			buffer.append(Signature.toCharArray(typeArgument));
+			String typeArgument = typeArguments[i];
+			typeArgument.replace('/', '.');
+			buffer.append(Signature.toString(typeArgument));
 			if (i < length-1)
 				buffer.append(',');
 		}

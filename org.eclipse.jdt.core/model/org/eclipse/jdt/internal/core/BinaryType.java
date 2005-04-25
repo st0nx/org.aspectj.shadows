@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -21,9 +21,11 @@ import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.IGenericType;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -107,8 +109,10 @@ public void codeComplete(char[] snippet,int insertion,int position,char[][] loca
 	} else {
 		engine.complete(this, snippet, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic);
 	}
-	if (NameLookup.VERBOSE)
+	if (NameLookup.VERBOSE) {
 		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+	}
 }
 
 /*
@@ -390,6 +394,9 @@ public IInitializer getInitializer(int count) {
 public IInitializer[] getInitializers() {
 	return NO_INITIALIZERS;
 }
+public String getKey(boolean forceOpen) throws JavaModelException {
+	return getKey(this, org.eclipse.jdt.internal.compiler.lookup.Binding.USE_ACCESS_FLAGS_IN_BINDING_KEY/*with access flags*/, forceOpen);
+}
 /*
  * @see IType#getMethod(String name, String[] parameterTypeSignatures)
  */
@@ -433,11 +440,36 @@ public IPackageFragment getPackageFragment() {
  */
 public String getSuperclassTypeSignature() throws JavaModelException {
 	IBinaryType info = (IBinaryType) getElementInfo();
-	char[] superclassName = info.getSuperclassName();
-	if (superclassName == null) {
-		return null;
+	char[] genericSignature = info.getGenericSignature();
+	if (genericSignature != null) {
+		int signatureLength = genericSignature.length;
+		// skip type parameters
+		int index = 0;
+		if (genericSignature[0] == '<') {
+			int count = 1;
+			while (count > 0 && ++index < signatureLength) {
+				switch (genericSignature[index]) {
+					case '<': 
+						count++;
+						break;
+					case '>':
+						count--;
+						break;
+				}
+			}
+			index++;
+		}
+		int start = index;
+		index = Util.scanClassTypeSignature(genericSignature, start) + 1;
+		char[] superclassSig = CharOperation.subarray(genericSignature, start, index);
+		return new String(ClassFile.translatedName(superclassSig));
+	} else {
+		char[] superclassName = info.getSuperclassName();
+		if (superclassName == null) {
+			return null;
+		}
+		return new String(Signature.createTypeSignature(ClassFile.translatedName(superclassName), true));
 	}
-	return new String(Signature.createTypeSignature(ClassFile.translatedName(superclassName), true));
 }
 
 /*
@@ -475,17 +507,51 @@ public String[] getSuperInterfaceNames() throws JavaModelException {
  */
 public String[] getSuperInterfaceTypeSignatures() throws JavaModelException {
 	IBinaryType info = (IBinaryType) getElementInfo();
-	char[][] names= info.getInterfaceNames();
-	int length;
-	if (names == null || (length = names.length) == 0) {
-		return NO_STRINGS;
+	char[] genericSignature = info.getGenericSignature();
+	if (genericSignature != null) {
+		ArrayList interfaces = new ArrayList();
+		int signatureLength = genericSignature.length;
+		// skip type parameters
+		int index = 0;
+		if (genericSignature[0] == '<') {
+			int count = 1;
+			while (count > 0 && ++index < signatureLength) {
+				switch (genericSignature[index]) {
+					case '<': 
+						count++;
+						break;
+					case '>':
+						count--;
+						break;
+				}
+			}
+			index++;
+		}
+		// skip superclass
+		index = Util.scanClassTypeSignature(genericSignature, index) + 1;
+		while (index  < signatureLength) {
+			int start = index;
+			index = Util.scanClassTypeSignature(genericSignature, start) + 1;
+			char[] interfaceSig = CharOperation.subarray(genericSignature, start, index);
+			interfaces.add(new String(ClassFile.translatedName(interfaceSig)));
+		}
+		int size = interfaces.size();
+		String[] result = new String[size];
+		interfaces.toArray(result);
+		return result;
+	} else {
+		char[][] names= info.getInterfaceNames();
+		int length;
+		if (names == null || (length = names.length) == 0) {
+			return NO_STRINGS;
+		}
+		names= ClassFile.translatedNames(names);
+		String[] strings= new String[length];
+		for (int i= 0; i < length; i++) {
+			strings[i]= new String(Signature.createTypeSignature(names[i], true));
+		}
+		return strings;
 	}
-	names= ClassFile.translatedNames(names);
-	String[] strings= new String[length];
-	for (int i= 0; i < length; i++) {
-		strings[i]= new String(Signature.createTypeSignature(names[i], true));
-	}
-	return strings;
 }
 
 public ITypeParameter[] getTypeParameters() throws JavaModelException {
@@ -500,22 +566,9 @@ public ITypeParameter[] getTypeParameters() throws JavaModelException {
 	return typeParameters;
 }
 
-// Get type parameter names
-// TODO (frederic) see if this method needs to be added to API
-public char[][] getTypeParameterNames() throws JavaModelException {
-	String[] typeParameterSignatures = getTypeParameterSignatures();
-	int length = typeParameterSignatures.length;
-	char[][] names = new char[length][];
-	for (int i = 0; i < length; i++) {
-		names[i] = Signature.getTypeVariable(typeParameterSignatures[i]).toCharArray();
-	}
-	return names;
-}
-
 /**
  * @see IType#getTypeParameterSignatures()
  * @since 3.0
- * @deprecated
  */
 public String[] getTypeParameterSignatures() throws JavaModelException {
 	IBinaryType info = (IBinaryType) getElementInfo();
@@ -600,9 +653,13 @@ public boolean isEnum() throws JavaModelException {
  */
 public boolean isInterface() throws JavaModelException {
 	IBinaryType info = (IBinaryType) getElementInfo();
-	return info.getKind() == IGenericType.INTERFACE_DECL;
+	switch (info.getKind()) {
+		case IGenericType.INTERFACE_DECL:
+		case IGenericType.ANNOTATION_TYPE_DECL: // annotation is interface too
+			return true;
+	}
+	return false;
 }
-
 /**
  * @see IType#isAnnotation()
  * @since 3.0
@@ -625,6 +682,12 @@ public boolean isLocal() throws JavaModelException {
 public boolean isMember() throws JavaModelException {
 	IBinaryType info = (IBinaryType) getElementInfo();
 	return info.isMember();
+}
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.IType#isResolved()
+ */
+public boolean isResolved() {
+	return false;
 }
 /*
  * @see IType
@@ -704,7 +767,7 @@ public ITypeHierarchy newTypeHierarchy(IJavaProject project, IProgressMonitor mo
  */
 public ITypeHierarchy newTypeHierarchy(IJavaProject project, WorkingCopyOwner owner, IProgressMonitor monitor) throws JavaModelException {
 	if (project == null) {
-		throw new IllegalArgumentException(Util.bind("hierarchy.nullProject")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.hierarchy_nullProject); 
 	}
 	ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary working copies*/);
 	ICompilationUnit[] projectWCs = null;
@@ -785,6 +848,11 @@ public ITypeHierarchy newTypeHierarchy(
 	op.runOperation(monitor);
 	return op.getResult();	
 }
+public JavaElement resolved(Binding binding) {
+	SourceRefElement resolvedHandle = new ResolvedBinaryType(this.parent, this.name, new String(binding.computeUniqueKey()));
+	resolvedHandle.occurrenceCount = this.occurrenceCount;
+	return resolvedHandle;
+}
 /*
  * @see IType#resolveType(String)
  */
@@ -845,7 +913,11 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 		toStringName(buffer);
 	} else {
 		try {
-			if (this.isInterface()) {
+			if (this.isAnnotation()) {
+				buffer.append("@interface "); //$NON-NLS-1$
+			} else if (this.isEnum()) {
+				buffer.append("enum "); //$NON-NLS-1$
+			} else if (this.isInterface()) {
 				buffer.append("interface "); //$NON-NLS-1$
 			} else {
 				buffer.append("class "); //$NON-NLS-1$

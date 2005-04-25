@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -192,7 +192,6 @@ public class BinaryTypeConverter {
 			}
 		}
 		boolean isInterface = type.isInterface();
-		boolean isAnnotation = type.isAnnotation();
 		neededCount = isInterface ? 0 : neededCount;
 		typeDeclaration.methods = new AbstractMethodDeclaration[methodCount + neededCount];
 		if (neededCount != 0) { // add default constructor in first position
@@ -202,7 +201,7 @@ public class BinaryTypeConverter {
 		for (int i = 0; i < methodCount; i++) {
 			AbstractMethodDeclaration method =convert(methods[i], type, compilationResult);
 			boolean isAbstract;
-			if ((isAbstract = method.isAbstract()) || isInterface || isAnnotation) { // fix-up flag 
+			if ((isAbstract = method.isAbstract()) || isInterface) { // fix-up flag 
 				method.modifiers |= CompilerModifiers.AccSemicolonBody;
 			}
 			if (isAbstract) {

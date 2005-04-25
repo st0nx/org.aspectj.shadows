@@ -1,20 +1,27 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
+import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchMatch;
+import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ParameterizedGenericMethodBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ParameterizedMethodBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 
 public class ConstructorLocator extends PatternLocator {
 
@@ -29,7 +36,7 @@ public int match(ASTNode node, MatchingNodeSet nodeSet) { // interested in Expli
 	if (!this.pattern.findReferences) return IMPOSSIBLE_MATCH;
 	if (!(node instanceof ExplicitConstructorCall)) return IMPOSSIBLE_MATCH;
 
-	if (this.pattern.parameterSimpleNames != null) {
+	if (this.pattern.parameterSimpleNames != null && (this.pattern.shouldCountParameter() || ((node.bits & ASTNode.InsideJavadoc) != 0))) {
 		int length = this.pattern.parameterSimpleNames.length;
 		Expression[] args = ((ExplicitConstructorCall) node).arguments;
 		int argsLength = args == null ? 0 : args.length;
@@ -54,7 +61,7 @@ public int match(Expression node, MatchingNodeSet nodeSet) { // interested in Al
 	if (this.pattern.declaringSimpleName != null && !matchesName(this.pattern.declaringSimpleName, typeName[typeName.length-1]))
 		return IMPOSSIBLE_MATCH;
 
-	if (this.pattern.parameterSimpleNames != null) {
+	if (this.pattern.parameterSimpleNames != null && (this.pattern.shouldCountParameter() || ((node.bits & ASTNode.InsideJavadoc) != 0))) {
 		int length = this.pattern.parameterSimpleNames.length;
 		Expression[] args = allocation.arguments;
 		int argsLength = args == null ? 0 : args.length;
@@ -74,7 +81,7 @@ public int match(FieldDeclaration field, MatchingNodeSet nodeSet) {
 			return IMPOSSIBLE_MATCH;
 	}
 
-	if (this.pattern.parameterSimpleNames != null) {
+	if (this.pattern.parameterSimpleNames != null && this.pattern.shouldCountParameter()) {
 		int length = this.pattern.parameterSimpleNames.length;
 		Expression[] args = allocation.arguments;
 		int argsLength = args == null ? 0 : args.length;
@@ -84,7 +91,17 @@ public int match(FieldDeclaration field, MatchingNodeSet nodeSet) {
 	return nodeSet.addMatch(field, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 }
 //public int match(MethodDeclaration node, MatchingNodeSet nodeSet) - SKIP IT
-//public int match(MessageSend node, MatchingNodeSet nodeSet) - SKIP IT
+/**
+ * Special case for message send in javadoc comment. They can be in fact bound to a contructor.
+ * @see "http://bugs.eclipse.org/bugs/show_bug.cgi?id=83285"
+ */
+public int match(MessageSend msgSend, MatchingNodeSet nodeSet)  {
+	if ((msgSend.bits & ASTNode.InsideJavadoc) == 0) return IMPOSSIBLE_MATCH;
+	if (this.pattern.declaringSimpleName == null || CharOperation.equals(msgSend.selector, this.pattern.declaringSimpleName)) {
+		return nodeSet.addMatch(msgSend, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+	}
+	return IMPOSSIBLE_MATCH;
+}
 //public int match(Reference node, MatchingNodeSet nodeSet) - SKIP IT
 public int match(TypeDeclaration node, MatchingNodeSet nodeSet) {
 	if (!this.pattern.findReferences) return IMPOSSIBLE_MATCH;
@@ -94,6 +111,35 @@ public int match(TypeDeclaration node, MatchingNodeSet nodeSet) {
 }
 //public int match(TypeReference node, MatchingNodeSet nodeSet) - SKIP IT
 
+protected int matchConstructor(MethodBinding constructor) {
+	if (!constructor.isConstructor()) return IMPOSSIBLE_MATCH;
+
+	// declaring type, simple name has already been matched by matchIndexEntry()
+	int level = resolveLevelForType(this.pattern.declaringSimpleName, this.pattern.declaringQualification, constructor.declaringClass);
+	if (level == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
+
+	// parameter types
+	int parameterCount = this.pattern.parameterSimpleNames == null ? -1 : this.pattern.parameterSimpleNames.length;
+	if (parameterCount > -1) {
+		if (constructor.parameters == null) return INACCURATE_MATCH;
+		if (parameterCount != constructor.parameters.length) return IMPOSSIBLE_MATCH;
+		for (int i = 0; i < parameterCount; i++) {
+			// TODO (frederic) use this call to refine accuracy on parameter types
+//			int newLevel = resolveLevelForType(this.pattern.parameterSimpleNames[i], this.pattern.parameterQualifications[i], this.pattern.parametersTypeArguments[i], 0, constructor.parameters[i]);
+			int newLevel = resolveLevelForType(this.pattern.parameterSimpleNames[i], this.pattern.parameterQualifications[i], constructor.parameters[i]);
+			if (level > newLevel) {
+				if (newLevel == IMPOSSIBLE_MATCH) {
+//					if (isErasureMatch) {
+//						return ERASURE_MATCH;
+//					}
+					return IMPOSSIBLE_MATCH;
+				}
+				level = newLevel; // can only be downgraded
+			}
+		}
+	}
+	return level;
+}
 protected int matchContainer() {
 	if (this.pattern.findReferences) return ALL_CONTAINER; // handles both declarations + references & just references
 	// COMPILATION_UNIT_CONTAINER - implicit constructor call: case of Y extends X and Y doesn't define any constructor
@@ -127,16 +173,94 @@ protected int matchLevelForDeclarations(ConstructorDeclaration constructor) {
 		Argument[] args = constructor.arguments;
 		int argsLength = args == null ? 0 : args.length;
 		if (length != argsLength) return IMPOSSIBLE_MATCH;
+	}
 
-		for (int i = 0; i < length; i++)
-			if (!matchesTypeReference(this.pattern.parameterSimpleNames[i], args[i].type))
-				return IMPOSSIBLE_MATCH;
+	// Verify type arguments (do not reject if pattern has no argument as it can be an erasure match)
+	if (this.pattern.hasConstructorArguments()) {
+		if (constructor.typeParameters == null || constructor.typeParameters.length != this.pattern.constructorArguments.length) return IMPOSSIBLE_MATCH;
 	}
 
 	return ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
 }
-public SearchMatch newDeclarationMatch(ASTNode reference, IJavaElement element, int accuracy, int length, MatchLocator locator) {
-	SearchMatch match = null;
+protected void matchReportReference(ASTNode reference, IJavaElement element, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
+
+	MethodBinding constructorBinding = null;
+	boolean isSynthetic = false;
+	if (reference instanceof ExplicitConstructorCall) {
+		ExplicitConstructorCall call = (ExplicitConstructorCall) reference;
+		isSynthetic = call.isImplicitSuper();
+		constructorBinding = call.binding;
+	} else if (reference instanceof AllocationExpression) {
+		AllocationExpression alloc = (AllocationExpression) reference;
+		constructorBinding = alloc.binding;
+	} else if (reference instanceof TypeDeclaration || reference instanceof FieldDeclaration) {
+		super.matchReportReference(reference, element, elementBinding, accuracy, locator);
+		if (match != null) return;
+	}
+
+	// Create search match
+	match = locator.newMethodReferenceMatch(element, elementBinding, accuracy, -1, -1, true, isSynthetic, reference);
+
+	// Look to refine accuracy
+	if (constructorBinding instanceof ParameterizedGenericMethodBinding) { // parameterized generic method
+		// Update match regarding constructor type arguments
+		ParameterizedGenericMethodBinding parameterizedMethodBinding = (ParameterizedGenericMethodBinding) constructorBinding;
+		match.setRaw(parameterizedMethodBinding.isRaw);
+		TypeBinding[] typeBindings = parameterizedMethodBinding.isRaw ? null : parameterizedMethodBinding.typeArguments;
+		updateMatch(typeBindings, locator, this.pattern.constructorArguments, this.pattern.hasConstructorParameters());
+
+		// Update match regarding declaring class type arguments
+		if (constructorBinding.declaringClass.isParameterizedType() || constructorBinding.declaringClass.isRawType()) {
+			ParameterizedTypeBinding parameterizedBinding = (ParameterizedTypeBinding)constructorBinding.declaringClass;
+			if (!this.pattern.hasTypeArguments() && this.pattern.hasConstructorArguments()) {
+				// special case for constructor pattern which defines arguments but no type
+				// in this case, we only use refined accuracy for constructor
+			} else if (this.pattern.hasTypeArguments() && !this.pattern.hasConstructorArguments()) {
+				// special case for constructor pattern which defines no constructor arguments but has type ones
+				// in this case, we do not use refined accuracy
+				updateMatch(parameterizedBinding, this.pattern.getTypeArguments(), this.pattern.hasTypeParameters(), 0, locator);
+			} else {
+				updateMatch(parameterizedBinding, this.pattern.getTypeArguments(), this.pattern.hasTypeParameters(), 0, locator);
+			}
+		} else if (this.pattern.hasTypeArguments()) {
+			match.setRule(SearchPattern.R_ERASURE_MATCH);
+		}
+
+		// Update match regarding constructor parameters
+		// TODO ? (frederic)
+	} else if (constructorBinding instanceof ParameterizedMethodBinding) {
+		// Update match regarding declaring class type arguments
+		if (constructorBinding.declaringClass.isParameterizedType() || constructorBinding.declaringClass.isRawType()) {
+			ParameterizedTypeBinding parameterizedBinding = (ParameterizedTypeBinding)constructorBinding.declaringClass;
+			if (!this.pattern.hasTypeArguments() && this.pattern.hasConstructorArguments()) {
+				// special case for constructor pattern which defines arguments but no type
+				updateMatch(parameterizedBinding, new char[][][] {this.pattern.constructorArguments}, this.pattern.hasTypeParameters(), 0, locator);
+			} else {
+				updateMatch(parameterizedBinding, this.pattern.getTypeArguments(), this.pattern.hasTypeParameters(), 0, locator);
+			}
+		} else if (this.pattern.hasTypeArguments()) {
+			match.setRule(SearchPattern.R_ERASURE_MATCH);
+		}
+
+		// Update match regarding constructor parameters
+		// TODO ? (frederic)
+	} else if (this.pattern.hasConstructorArguments()) { // binding has no type params, compatible erasure if pattern does
+		match.setRule(SearchPattern.R_ERASURE_MATCH);
+	}
+
+	// See whether it is necessary to report or not
+	if (match.getRule() == 0) return; // impossible match
+	boolean report = (this.isErasureMatch && match.isErasure()) || (this.isEquivalentMatch && match.isEquivalent()) || match.isExact();
+	if (!report) return;
+
+	// Report match
+	int offset = reference.sourceStart;
+	match.setOffset(offset);
+	match.setLength(reference.sourceEnd - offset + 1);
+	locator.report(match);
+}
+public SearchMatch newDeclarationMatch(ASTNode reference, IJavaElement element, Binding binding, int accuracy, int length, MatchLocator locator) {
+	match = null;
 	int offset = reference.sourceStart;
 	if (this.pattern.findReferences) {
 		if (reference instanceof TypeDeclaration) {
@@ -146,21 +270,21 @@ public SearchMatch newDeclarationMatch(ASTNode reference, IJavaElement element, 
 				for (int i = 0, max = methods.length; i < max; i++) {
 					AbstractMethodDeclaration method = methods[i];
 					boolean synthetic = method.isDefaultConstructor() && method.sourceStart < type.bodyStart;
-					match = locator.newMethodReferenceMatch(element, accuracy, offset, length, method.isConstructor(), synthetic, method);
+					match = locator.newMethodReferenceMatch(element, binding, accuracy, offset, length, method.isConstructor(), synthetic, method);
 				}
 			}
 		} else if (reference instanceof ConstructorDeclaration) {
 			ConstructorDeclaration constructor = (ConstructorDeclaration) reference;
 			ExplicitConstructorCall call = constructor.constructorCall;
 			boolean synthetic = call != null && call.isImplicitSuper();
-			match = locator.newMethodReferenceMatch(element, accuracy, offset, length, constructor.isConstructor(), synthetic, constructor);
+			match = locator.newMethodReferenceMatch(element, binding, accuracy, offset, length, constructor.isConstructor(), synthetic, constructor);
 		}
 	}
 	if (match != null) {
 		return match;
 	}
 	// super implementation...
-    return locator.newDeclarationMatch(element, accuracy, reference.sourceStart, length);
+    return locator.newDeclarationMatch(element, binding, accuracy, reference.sourceStart, length);
 }
 public int resolveLevel(ASTNode node) {
 	if (this.pattern.findReferences) {
@@ -172,6 +296,9 @@ public int resolveLevel(ASTNode node) {
 			return resolveLevel((TypeDeclaration) node);
 		if (node instanceof FieldDeclaration)
 			return resolveLevel((FieldDeclaration) node);
+		if (node instanceof JavadocMessageSend) {
+			return resolveLevel(((JavadocMessageSend)node).binding);
+		}
 	}
 	if (node instanceof ConstructorDeclaration)
 		return resolveLevel((ConstructorDeclaration) node, true);
@@ -201,24 +328,11 @@ public int resolveLevel(Binding binding) {
 	if (binding == null) return INACCURATE_MATCH;
 	if (!(binding instanceof MethodBinding)) return IMPOSSIBLE_MATCH;
 
-	MethodBinding method = ((MethodBinding) binding).original();
-	if (!method.isConstructor()) return IMPOSSIBLE_MATCH;
-
-	// declaring type, simple name has already been matched by matchIndexEntry()
-	int level = resolveLevelForType(this.pattern.declaringSimpleName, this.pattern.declaringQualification, method.declaringClass);
-	if (level == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
-
-	// parameter types
-	int parameterCount = this.pattern.parameterSimpleNames == null ? -1 : this.pattern.parameterSimpleNames.length;
-	if (parameterCount > -1) {
-		if (method.parameters == null) return INACCURATE_MATCH;
-		if (parameterCount != method.parameters.length) return IMPOSSIBLE_MATCH;
-		for (int i = 0; i < parameterCount; i++) {
-			int newLevel = resolveLevelForType(this.pattern.parameterSimpleNames[i], this.pattern.parameterQualifications[i], method.parameters[i]);
-			if (level > newLevel) {
-				if (newLevel == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
-				level = newLevel; // can only be downgraded
-			}
+	MethodBinding constructor = (MethodBinding) binding;
+	int level= matchConstructor(constructor);
+	if (level== IMPOSSIBLE_MATCH) {
+		if (constructor != constructor.original()) {
+			level= matchConstructor(constructor.original());
 		}
 	}
 	return level;

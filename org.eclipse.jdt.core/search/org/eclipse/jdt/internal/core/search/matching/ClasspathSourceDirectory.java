@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -101,8 +101,9 @@ public boolean equals(Object o) {
 public NameEnvironmentAnswer findClass(String sourceFileWithoutExtension, String qualifiedPackageName, String qualifiedSourceFileWithoutExtension) {
 	
 	String sourceFolderPath = this.sourceFolder.getFullPath().toString() + IPath.SEPARATOR;
-	for (int i = 0, length = Util.JAVA_LIKE_EXTENSIONS.length; i < length; i++) {
-		String extension = new String(Util.JAVA_LIKE_EXTENSIONS[i]);
+	char[][] javaLikeExtensions = Util.getJavaLikeExtensions();
+	for (int i = 0, length = javaLikeExtensions.length; i < length; i++) {
+		String extension = new String(javaLikeExtensions[i]);
 		String sourceFileName = sourceFileWithoutExtension + extension;
 		if (!doesFileExist(sourceFileName, qualifiedPackageName)) continue; // most common case
 	

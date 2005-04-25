@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -12,10 +12,16 @@ package org.eclipse.jdt.internal.core.search.matching;
 
 import java.io.IOException;
 
+import org.eclipse.jdt.core.BindingKey;
+import org.eclipse.jdt.core.Flags;
+import org.eclipse.jdt.core.IMethod;
+import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
-import org.eclipse.jdt.internal.core.index.*;
+import org.eclipse.jdt.internal.core.index.EntryResult;
+import org.eclipse.jdt.internal.core.index.Index;
 import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class ConstructorPattern extends JavaSearchPattern implements IIndexConstants {
 
@@ -28,7 +34,13 @@ public char[] declaringSimpleName;
 public char[][] parameterQualifications;
 public char[][] parameterSimpleNames;
 public int parameterCount;
-public boolean varargs;
+public int flags = 0;
+
+// Signatures and arguments for generic search
+char[][][] parametersTypeSignatures;
+char[][][][] parametersTypeArguments;
+boolean constructorParameters = false;
+char[][] constructorArguments;
 
 protected static char[][] REF_CATEGORIES = { CONSTRUCTOR_REF };
 protected static char[][] REF_AND_DECL_CATEGORIES = { CONSTRUCTOR_REF, CONSTRUCTOR_DECL };
@@ -45,6 +57,9 @@ public static char[] createIndexKey(char[] typeName, int argCount) {
 	return CharOperation.concat(typeName, countChars);
 }
 
+ConstructorPattern(int matchRule) {
+	super(CONSTRUCTOR_PATTERN, matchRule);
+}
 public ConstructorPattern(
 	boolean findDeclarations,
 	boolean findReferences,
@@ -52,7 +67,6 @@ public ConstructorPattern(
 	char[] declaringQualification,
 	char[][] parameterQualifications,
 	char[][] parameterSimpleNames,
-	boolean varargs,
 	int matchRule) {
 
 	this(matchRule);
@@ -73,11 +87,122 @@ public ConstructorPattern(
 	} else {
 		this.parameterCount = -1;
 	}
-	this.varargs = varargs;
 	((InternalSearchPattern)this).mustResolve = mustResolve();
 }
-ConstructorPattern(int matchRule) {
-	super(CONSTRUCTOR_PATTERN, matchRule);
+/*
+ * Instanciate a method pattern with signatures for generics search
+ */
+public ConstructorPattern(
+	boolean findDeclarations,
+	boolean findReferences,
+	char[] declaringSimpleName,	
+	char[] declaringQualification,
+	char[][] parameterQualifications, 
+	char[][] parameterSimpleNames,
+	String[] parameterSignatures,
+	IMethod method,
+//	boolean varargs,
+	int matchRule) {
+
+	this(findDeclarations,
+		findReferences,
+		declaringSimpleName,	
+		declaringQualification,
+		parameterQualifications, 
+		parameterSimpleNames,
+		matchRule);
+
+	// Set flags
+	try {
+		this.flags = method.getFlags();
+	} catch (JavaModelException e) {
+		// do nothing
+	}
+
+	// Get unique key for parameterized constructors
+	String genericDeclaringTypeSignature = null;
+	BindingKey key;
+	if (method.isResolved() && (key = new BindingKey(method.getKey())).isParameterizedType()) {
+		genericDeclaringTypeSignature = key.getDeclaringTypeSignature();
+	} else {
+		constructorParameters = true;
+	}
+
+	// Store type signature and arguments for declaring type
+	if (genericDeclaringTypeSignature != null) {
+		this.typeSignatures = Util.splitTypeLevelsSignature(genericDeclaringTypeSignature);
+		setTypeArguments(Util.getAllTypeArguments(this.typeSignatures));
+	} else {
+		storeTypeSignaturesAndArguments(method.getDeclaringType());
+	}
+
+	// store type signatures and arguments for method parameters type
+	if (parameterSignatures != null) {
+		int length = parameterSignatures.length;
+		if (length > 0) {
+			parametersTypeSignatures = new char[length][][];
+			parametersTypeArguments = new char[length][][][];
+			for (int i=0; i<length; i++) {
+				parametersTypeSignatures[i] = Util.splitTypeLevelsSignature(parameterSignatures[i]);
+				parametersTypeArguments[i] = Util.getAllTypeArguments(parametersTypeSignatures[i]);
+			}
+		}
+	}
+
+	// Store type signatures and arguments for method
+	constructorArguments = extractMethodArguments(method);
+	if (hasConstructorArguments())  ((InternalSearchPattern)this).mustResolve = true;
+}
+/*
+ * Instanciate a method pattern with signatures for generics search
+ */
+public ConstructorPattern(
+	boolean findDeclarations,
+	boolean findReferences,
+	char[] declaringSimpleName,	
+	char[] declaringQualification,
+	String declaringSignature,
+	char[][] parameterQualifications, 
+	char[][] parameterSimpleNames,
+	String[] parameterSignatures,
+	char[][] arguments,
+	int matchRule) {
+
+	this(findDeclarations,
+		findReferences,
+		declaringSimpleName,	
+		declaringQualification,
+		parameterQualifications, 
+		parameterSimpleNames,
+		matchRule);
+
+	// Store type signature and arguments for declaring type
+	if (declaringSignature != null) {
+		typeSignatures = Util.splitTypeLevelsSignature(declaringSignature);
+		setTypeArguments(Util.getAllTypeArguments(typeSignatures));
+	}
+
+	// Store type signatures and arguments for method parameters type
+	if (parameterSignatures != null) {
+		int length = parameterSignatures.length;
+		if (length > 0) {
+			parametersTypeSignatures = new char[length][][];
+			parametersTypeArguments = new char[length][][][];
+			for (int i=0; i<length; i++) {
+				parametersTypeSignatures[i] = Util.splitTypeLevelsSignature(parameterSignatures[i]);
+				parametersTypeArguments[i] = Util.getAllTypeArguments(parametersTypeSignatures[i]);
+			}
+		}
+	}
+
+	// Store type signatures and arguments for method
+	constructorArguments = arguments;
+	if (arguments  == null || arguments.length == 0) {
+		if (getTypeArguments() != null && getTypeArguments().length > 0) {
+			constructorArguments = getTypeArguments()[0];
+		}
+	}
+	if (hasConstructorArguments())  ((InternalSearchPattern)this).mustResolve = true;
 }
 public void decodeIndexKey(char[] key) {
 	int size = key.length;
@@ -96,10 +221,16 @@ public char[][] getIndexCategories() {
 		return DECL_CATEGORIES;
 	return CharOperation.NO_CHAR_CHAR;
 }
+boolean hasConstructorArguments() {
+	return constructorArguments != null && constructorArguments.length > 0;
+}
+boolean hasConstructorParameters() {
+	return constructorParameters;
+}
 public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 	ConstructorPattern pattern = (ConstructorPattern) decodedPattern;
 
-	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1 || this.varargs)
+	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1 || !shouldCountParameter())
 		&& matchesName(this.declaringSimpleName, pattern.declaringSimpleName);
 }
 protected boolean mustResolve() {
@@ -117,7 +248,7 @@ EntryResult[] queryIn(Index index) throws IOException {
 
 	switch(getMatchMode()) {
 		case R_EXACT_MATCH :
-			if (!this.varargs && this.declaringSimpleName != null && this.parameterCount >= 0)
+			if (shouldCountParameter() && this.declaringSimpleName != null && this.parameterCount >= 0)
 				key = createIndexKey(this.declaringSimpleName, this.parameterCount);
 			else // do a prefix query with the declaringSimpleName
 				matchRule = matchRule - R_EXACT_MATCH + R_PREFIX_MATCH;
@@ -126,7 +257,7 @@ EntryResult[] queryIn(Index index) throws IOException {
 			// do a prefix query with the declaringSimpleName
 			break;
 		case R_PATTERN_MATCH :
-			if (!this.varargs && this.parameterCount >= 0)
+			if (shouldCountParameter() && this.parameterCount >= 0)
 				key = createIndexKey(this.declaringSimpleName == null ? ONE_STAR : this.declaringSimpleName, this.parameterCount);
 			else if (this.declaringSimpleName != null && this.declaringSimpleName[this.declaringSimpleName.length - 1] != '*')
 				key = CharOperation.concat(this.declaringSimpleName, ONE_STAR, SEPARATOR);
@@ -163,5 +294,8 @@ protected StringBuffer print(StringBuffer output) {
 	}
 	output.append(')');
 	return super.print(output);
+}
+boolean shouldCountParameter() {
+	return (this.flags & Flags.AccStatic) == 0 && (this.flags & Flags.AccVarargs) == 0;
 }
 }

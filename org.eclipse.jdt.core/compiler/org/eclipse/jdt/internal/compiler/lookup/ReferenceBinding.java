@@ -1,16 +1,17 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
 import org.eclipse.jdt.internal.compiler.env.IDependent;
 
 /*
@@ -25,6 +26,9 @@ null is NOT a valid value for a non-public field... it just means the field is n
 */
 
 abstract public class ReferenceBinding extends TypeBinding implements IDependent {
+	
+	public static ReferenceBinding LUB_GENERIC = new ReferenceBinding() { /* used for lub computation */};
+	
 	public char[][] compoundName;
 	public char[] sourceName;
 	public int modifiers;
@@ -77,11 +81,13 @@ public final boolean canBeSeenBy(ReferenceBinding receiverType, SourceTypeBindin
 
 		ReferenceBinding currentType = invocationType;
 		ReferenceBinding declaringClass = enclosingType(); // protected types always have an enclosing one
+		if (declaringClass == invocationType) return true;
+
+		ReferenceBinding declaringErasure = (ReferenceBinding) declaringClass.erasure();
 		if (declaringClass == null) return false; // could be null if incorrect top-level protected type
 		//int depth = 0;
 		do {
-			if (declaringClass == invocationType) return true;
-			if (declaringClass.isSuperclassOf(currentType)) return true;
+			if (currentType.findSuperTypeErasingTo(declaringErasure) != null) return true;
 			//depth++;
 			currentType = currentType.enclosingType();
 		} while (currentType != null);
@@ -191,6 +197,26 @@ public final boolean canBeSeenBy(Scope scope) {
 
 	// isDefault()
 	return invocationType.fPackage == fPackage;
+}
+public char[] computeGenericTypeSignature(TypeVariableBinding[] typeVariables) {
+    if (typeVariables == NoTypeVariables) {
+        return signature();
+    } else {
+	    char[] typeSig = signature();
+	    StringBuffer sig = new StringBuffer(10);
+	    for (int i = 0; i < typeSig.length-1; i++) { // copy all but trailing semicolon
+	    	sig.append(typeSig[i]);
+	    }
+	    sig.append('<');
+	    for (int i = 0, length = typeVariables.length; i < length; i++) {
+	        sig.append(typeVariables[i].genericTypeSignature());
+	    }
+	    sig.append(">;"); //$NON-NLS-1$
+		int sigLength = sig.length();
+		char[] result = new char[sigLength];
+		sig.getChars(0, sigLength, result, 0);
+		return result;
+    }
 }
 public void computeId() {
 	
@@ -346,13 +372,37 @@ public void computeId() {
 			break;
 	}
 }
+/*
+ * p.X<T extends Y & I, U extends Y> {} -> Lp/X<TT;TU;>;^123
+ */
+public char[] computeUniqueKey(boolean withAccessFlags) {
+	// generic type signature
+	char[] genericSignature = genericTypeSignature();
+	int sigLength = genericSignature.length;
+	
+	if (!withAccessFlags) return genericSignature;
+	
+	// flags
+	String flags = Integer.toString(getAccessFlags());
+	int flagsLength = flags.length();
+	
+	// unique key
+	char[] uniqueKey = new char[sigLength + 1 + flagsLength];
+	int index = 0;
+	System.arraycopy(genericSignature, 0, uniqueKey, index, sigLength);
+	index += sigLength;
+	uniqueKey[index++] = '^';
+	flags.getChars(0, flagsLength, uniqueKey, index);
+	
+	return uniqueKey;
+}
 /* Answer the receiver's constant pool name.
 *
 * NOTE: This method should only be used during/after code gen.
 */
 
 public char[] constantPoolName() /* java/lang/Object */ {
-	if (constantPoolName != null) 	return constantPoolName;
+	if (constantPoolName != null) return constantPoolName;
 	return constantPoolName = CharOperation.concatWith(compoundName, '/');
 }
 public String debugName() {
@@ -365,11 +415,38 @@ public final int depth() {
 		depth++;
 	return depth;
 }
+public boolean detectAnnotationCycle() {
+	if ((this.tagBits & TagBits.EndAnnotationCheck) != 0) return false; // already checked
+	if ((this.tagBits & TagBits.BeginAnnotationCheck) != 0) return true; // in the middle of checking its methods
+
+	this.tagBits |= TagBits.BeginAnnotationCheck;
+	MethodBinding[] currentMethods = methods();
+	for (int i = 0, l = currentMethods.length; i < l; i++) {
+		TypeBinding returnType = currentMethods[i].returnType.leafComponentType();
+		if (returnType.isAnnotationType() && ((ReferenceBinding) returnType).detectAnnotationCycle()) {
+			if (this instanceof SourceTypeBinding) {
+				MethodDeclaration decl = (MethodDeclaration) currentMethods[i].sourceMethod();
+				((SourceTypeBinding) this).scope.problemReporter().annotationCircularity(this, returnType, decl != null ? decl.returnType : null);
+			}
+			return true;
+		}
+	}
+	this.tagBits |= TagBits.EndAnnotationCheck;
+	return false;
+}
 public final ReferenceBinding enclosingTypeAt(int relativeDepth) {
 	ReferenceBinding current = this;
 	while (relativeDepth-- > 0 && current != null)
 		current = current.enclosingType();
 	return current;
+}
+public int enumConstantCount() {
+	int count = 0;
+	FieldBinding[] fields = fields();
+	for (int i = 0, length = fields.length; i < length; i++) {
+		if ((fields[i].modifiers & AccEnum) != 0) count++;
+	}
+	return count;
 }
 public int fieldCount() {
 	return fields().length;
@@ -429,7 +506,7 @@ public ReferenceBinding findSuperTypeErasingTo(ReferenceBinding erasure) {
 
     if (this == erasure || erasure() == erasure) return this;
     ReferenceBinding currentType = this;
-    if (erasure.isClass()) {
+    if (!erasure.isInterface()) {
 		while ((currentType = currentType.superclass()) != null) {
 			if (currentType == erasure || currentType.erasure() == erasure) return currentType;
 		}
@@ -477,9 +554,7 @@ public long getAnnotationTagBits() {
 public MethodBinding getExactConstructor(TypeBinding[] argumentTypes) {
 	return null;
 }
-public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes) {
-	return getExactMethod(selector, argumentTypes, null);
-}
+
 public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes, CompilationUnitScope refScope) {
 	return null;
 }
@@ -605,22 +680,37 @@ public boolean isHierarchyBeingConnected() {
 */
 public boolean isCompatibleWith(TypeBinding otherType) {
     
-	if (otherType == this)
+	if (otherType == this) 
 		return true;
-	if (otherType.id == T_JavaLangObject)
+	if (otherType.id == T_JavaLangObject) 
 		return true;
-	if (!(otherType instanceof ReferenceBinding))
-		return false;
-	ReferenceBinding otherReferenceType = (ReferenceBinding) otherType;
-	if (this.isEquivalentTo(otherReferenceType)) return true;
-	if (otherReferenceType.isWildcard()) {
-		return false; // should have passed equivalence check above if wildcard
+	// equivalence may allow compatibility with array type through wildcard bound
+	if (this.isEquivalentTo(otherType)) 
+		return true;
+	switch (otherType.kind()) {
+		case Binding.WILDCARD_TYPE :
+			return false; // should have passed equivalence check above if wildcard
+		case Binding.TYPE_PARAMETER :
+			// check compatibility with capture of ? super X
+			if (otherType.isCapture()) {
+				CaptureBinding otherCapture = (CaptureBinding) otherType;
+				if (otherCapture.lowerBound != null) {
+					return this.isCompatibleWith(otherCapture.lowerBound);
+				}
+			}
+		case Binding.GENERIC_TYPE :
+		case Binding.TYPE :
+		case Binding.PARAMETERIZED_TYPE :
+		case Binding.RAW_TYPE :
+			ReferenceBinding otherReferenceType = (ReferenceBinding) otherType;
+			if (otherReferenceType.isInterface()) // could be annotation type
+				return implementsInterface(otherReferenceType, true);
+			if (this.isInterface())  // Explicit conversion from an interface to a class is not allowed
+				return false;
+			return otherReferenceType.isSuperclassOf(this);
+		default :
+			return false;
 	}
-	if (otherReferenceType.isInterface())
-		return implementsInterface(otherReferenceType, true);
-	if (isInterface())  // Explicit conversion from an interface to a class is not allowed
-		return false;
-	return otherReferenceType.isSuperclassOf(this);
 }
 
 /* Answer true if the receiver has default visibility
@@ -643,8 +733,20 @@ public final boolean isFinal() {
 	return (modifiers & AccFinal) != 0;
 }
 public boolean isInterface() {
-	// only consider strict interfaces
-	return (modifiers & (AccInterface | AccAnnotation)) == AccInterface;
+	// consider strict interfaces and annotation types
+	return (modifiers & AccInterface) != 0;
+}
+	
+public final boolean isPartOfRawType() {
+	ReferenceBinding current = this;
+	do {
+		if (current.isRawType())
+			return true;
+		// no static type
+		if (isStatic()) 
+			break;
+	} while ((current = current.enclosingType()) != null);
+    return false;
 }
 
 /* Answer true if the receiver has private visibility
@@ -674,8 +776,7 @@ public final boolean isPublic() {
  */
 
 public final boolean isStatic() {
-	return (modifiers & (AccStatic | AccInterface)) != 0 ||
-		    (tagBits & IsNestedType) == 0;
+	return (modifiers & (AccStatic | AccInterface)) != 0 || (tagBits & IsNestedType) == 0;
 }
 /* Answer true if all float operations must adher to IEEE 754 float/double rules
 */
@@ -699,34 +800,22 @@ public boolean isSuperclassOf(ReferenceBinding otherType) {
 */
 
 public final boolean isViewedAsDeprecated() {
-	return (modifiers & AccDeprecated) != 0 ||
-		(modifiers & AccDeprecatedImplicitly) != 0;
+	return (modifiers & (AccDeprecated | AccDeprecatedImplicitly)) != 0;
 }
 public ReferenceBinding[] memberTypes() {
 	return NoMemberTypes;
 }
 
-/**
- * Meant to be invoked on compatible types, to figure if unchecked conversion is necessary
- */
-public boolean needsUncheckedConversion(TypeBinding targetType) {
-	if (this == targetType) return false;
-	if (!(targetType instanceof ReferenceBinding)) 
-		return false;
-	TypeBinding compatible = this.findSuperTypeErasingTo((ReferenceBinding)targetType.erasure());
-	if (compatible == null) 
-		return false;
-	if (!compatible.isPartOfRawType()) return false;
-	do {
-		if (compatible.isRawType() && (targetType.isBoundParameterizedType() || targetType.isGenericType())) {
-			return true;
-		}
-	} while ((compatible = compatible.enclosingType()) != null && (targetType = targetType.enclosingType()) != null);
-	return false;
-}
-
 public MethodBinding[] methods() {
 	return NoMethods;
+}
+public final ReferenceBinding outermostEnclosingType() {
+	ReferenceBinding current = this;
+	while (true) {
+		ReferenceBinding last = current;
+		if ((current = current.enclosingType()) == null) 
+			return last;
+	}
 }
 /**
 * Answer the source name for the type.

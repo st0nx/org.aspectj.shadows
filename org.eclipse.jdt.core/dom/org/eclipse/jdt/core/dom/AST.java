@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -16,10 +16,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.StringTokenizer;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 
-import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaProject;
@@ -95,10 +95,17 @@ public final class AST {
      * up to and including J2SE 1.4.
      *
 	 * @since 3.0
+	 * @deprecated Clients should use the {@link #JLS3} AST API instead.
 	 */
-	// TODO (jeem) When JLS3 support is complete (post 3.0) - deprecated Clients should use the JLS3 API.
 	public static final int JLS2 = 2;
 	
+	/**
+	 * Internal synonym for {@link #JLS2}. Use to alleviate
+	 * deprecation warnings.
+	 * @since 3.1
+	 */
+	/*package*/ static final int JLS2_INTERNAL = JLS2;
+
 	/**
 	 * Constant for indicating the AST API that handles JLS3.
 	 * This API is capable of handling all constructs in the
@@ -107,15 +114,9 @@ public final class AST {
      * JLS3 is a superset of all earlier versions of the
      * Java language, and the JLS3 API can be used to manipulate
      * programs written in all versions of the Java language
-     * up to and including J2SE 1.5.
-     * <p>
-     * <b>NOTE:</b>In Eclipse 3.0, there is no underlying parser support for
-     * JLS3 ASTs. This support is planned for the follow-on release of
-     * Eclipse which includes support for J2SE 1.5. Without a parser to create
-     * JLS3 ASTs, they are not much use. Use JLS2 ASTs instead.
-     * </p>
+     * up to and including J2SE 5 (aka JDK 1.5). 
      *
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public static final int JLS3 = 3;
 	
@@ -206,6 +207,7 @@ public final class AST {
 				true /*whitespace*/, 
 				false /*nls*/, 
 				ClassFileConstants.JDK1_3 /*sourceLevel*/, 
+				ClassFileConstants.JDK1_5 /*complianceLevel*/, 
 				null/*taskTag*/, 
 				null/*taskPriorities*/,
 				true/*taskCaseSensitive*/);
@@ -215,8 +217,9 @@ public final class AST {
 	 * Creates a new, empty abstract syntax tree using default options.
 	 * 
 	 * @see JavaCore#getDefaultOptions()
+	 * @deprecated Clients should port their code to use the new JLS3 AST API and call
+	 *    {@link #newAST(int) AST.newAST(AST.JLS3)} instead of using this constructor.
 	 */
-	// TODO (jeem) When JLS3 support is complete (post 3.0) - deprecated Clients should port their code to use the new JLS3 API and call {@link #newAST(int)} instead of using this constructor.
 	public AST() {
 		this(JavaCore.getDefaultOptions());
 	}
@@ -232,8 +235,7 @@ public final class AST {
 	 * @param compilationUnitDeclaration an internal AST node for a compilation unit declaration
 	 * @param source the string of the Java compilation unit
 	 * @param options compiler options
-	 * @param workingCopyOwner the owner of the working copy that the AST is created from, 
-	 *     or <code>null</code> if none
+	 * @param workingCopy the working copy that the AST is created from
 	 * @param monitor the progress monitor used to report progress and request cancelation,
 	 *     or <code>null</code> if none
 	 * @param isResolved whether the given compilation unit declaration is resolved
@@ -245,19 +247,20 @@ public final class AST {
 		char[] source,
 		Map options,
 		boolean isResolved,
-		WorkingCopyOwner workingCopyOwner,
+		org.eclipse.jdt.internal.core.CompilationUnit workingCopy,
 		IProgressMonitor monitor) {
 		
 		ASTConverter converter = new ASTConverter(options, isResolved, monitor);
 		AST ast = AST.newAST(level);
 		int savedDefaultNodeFlag = ast.getDefaultNodeFlag();
 		ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
-		BindingResolver resolver = isResolved ? new DefaultBindingResolver(compilationUnitDeclaration.scope, workingCopyOwner, new DefaultBindingResolver.BindingTables()) : new BindingResolver();
+		BindingResolver resolver = isResolved ? new DefaultBindingResolver(compilationUnitDeclaration.scope, workingCopy.owner, new DefaultBindingResolver.BindingTables()) : new BindingResolver();
 		ast.setBindingResolver(resolver);
 		converter.setAST(ast);
 	
 		CompilationUnit unit = converter.convert(compilationUnitDeclaration, source);
 		unit.setLineEndTable(compilationUnitDeclaration.compilationResult.lineSeparatorPositions);
+		unit.setJavaElement(workingCopy);
 		ast.setDefaultNodeFlag(savedDefaultNodeFlag);
 		return unit;
 	}
@@ -282,8 +285,9 @@ public final class AST {
 	 * @param options the table of options (key type: <code>String</code>;
 	 *    value type: <code>String</code>)
 	 * @see JavaCore#getDefaultOptions()
+	 * @deprecated Clients should port their code to use the new JLS3 AST API and call
+	 *    {@link #newAST(int) AST.newAST(AST.JLS3)} instead of using this constructor.
 	 */
-	// TODO (jeem) When JLS3 support is complete (post 3.0) - deprecated Clients should port their code to use the new JLS3 API and call {@link #newAST(int)} instead of using this constructor.
 	public AST(Map options) {
 		this(JLS2);
 		Object sourceLevelOption = options.get(JavaCore.COMPILER_SOURCE);
@@ -293,12 +297,20 @@ public final class AST {
 		} else if (JavaCore.VERSION_1_5.equals(sourceLevelOption)) {
 			sourceLevel = ClassFileConstants.JDK1_5;
 		}
+		Object complianceLevelOption = options.get(JavaCore.COMPILER_COMPLIANCE);
+		long complianceLevel = ClassFileConstants.JDK1_3;
+		if (JavaCore.VERSION_1_4.equals(complianceLevelOption)) {
+			complianceLevel = ClassFileConstants.JDK1_4;
+		} else if (JavaCore.VERSION_1_5.equals(complianceLevelOption)) {
+			complianceLevel = ClassFileConstants.JDK1_5;
+		}
 		// override scanner if 1.4 or 1.5 asked for
 		this.scanner = new Scanner(
 			true /*comment*/, 
 			true /*whitespace*/, 
 			false /*nls*/, 
 			sourceLevel /*sourceLevel*/,
+			complianceLevel /*complianceLevel*/,
 			null/*taskTag*/, 
 			null/*taskPriorities*/,
 			true/*taskCaseSensitive*/);
@@ -308,12 +320,16 @@ public final class AST {
 	 * Creates a new Java abstract syntax tree
      * (AST) following the specified set of API rules. 
      * <p>
-     * Clients should use this method. It is provided only so that
-     * test suites can create AST instances that employ the JLS2 APIs.
+     * Clients should use this method specifing {@link #JLS3} as the
+     * AST level in all cases, even when dealing with JDK 1.3 or 1.4..
      * </p>
      * 
  	 * @param level the API level; one of the LEVEL constants
-	 * @return new AST instance following the specified set of API rules. 
+	 * @return new AST instance following the specified set of API rules.
+	 * @exception IllegalArgumentException if:
+	 * <ul>
+	 * <li>the API level is not one of the LEVEL constants</li>
+	 * </ul>
      * @since 3.0
 	 */
 	public static AST newAST(int level) {
@@ -1055,23 +1071,32 @@ public final class AST {
 	 * The following type names are supported:
 	 * <ul>
 	 * <li><code>"boolean"</code></li>
-	 * <li><code>"char"</code></li>
 	 * <li><code>"byte"</code></li>
-	 * <li><code>"short"</code></li>
+	 * <li><code>"char"</code></li>
+	 * <li><code>"double"</code></li>
+	 * <li><code>"float"</code></li>
 	 * <li><code>"int"</code></li>
 	 * <li><code>"long"</code></li>
-	 * <li><code>"float"</code></li>
-	 * <li><code>"double"</code></li>
+	 * <li><code>"short"</code></li>
 	 * <li><code>"void"</code></li>
+	 * <li><code>"java.lang.Boolean"</code> (since 3.1)</li>
+	 * <li><code>"java.lang.Byte"</code> (since 3.1)</li>
+	 * <li><code>"java.lang.Character"</code> (since 3.1)</li>
 	 * <li><code>"java.lang.Class"</code></li>
 	 * <li><code>"java.lang.Cloneable"</code></li>
+	 * <li><code>"java.lang.Double"</code> (since 3.1)</li>
 	 * <li><code>"java.lang.Error"</code></li>
 	 * <li><code>"java.lang.Exception"</code></li>
+	 * <li><code>"java.lang.Float"</code> (since 3.1)</li>
+	 * <li><code>"java.lang.Integer"</code> (since 3.1)</li>
+	 * <li><code>"java.lang.Long"</code> (since 3.1)</li>
 	 * <li><code>"java.lang.Object"</code></li>
 	 * <li><code>"java.lang.RuntimeException"</code></li>
+	 * <li><code>"java.lang.Short"</code> (since 3.1)</li>
 	 * <li><code>"java.lang.String"</code></li>
 	 * <li><code>"java.lang.StringBuffer"</code></li>
 	 * <li><code>"java.lang.Throwable"</code></li>
+	 * <li><code>"java.lang.Void"</code> (since 3.1)</li>
 	 * <li><code>"java.io.Serializable"</code></li>
 	 * </ul>
 	 * </p>
@@ -1083,7 +1108,7 @@ public final class AST {
 	 */
 	public ITypeBinding resolveWellKnownType(String name) {
 		if (name == null) {
-			throw new IllegalArgumentException();
+			return null;
 		}
 		return getBindingResolver().resolveWellKnownType(name);
 	}
@@ -1214,7 +1239,7 @@ public final class AST {
 		result.setIdentifier(identifier);
 		return result;
 	}
-	
+
 	/**
 	 * Creates and returns a new unparented qualified name node for the given 
 	 * qualifier and simple name child node.
@@ -1255,6 +1280,7 @@ public final class AST {
 	 * </ul>
 	 */
 	public Name newName(String[] identifiers) {
+		// update internalSetName(String[] if changed
 		int count = identifiers.length;
 		if (count == 0) {
 			throw new IllegalArgumentException();
@@ -1263,6 +1289,83 @@ public final class AST {
 		for (int i = 1; i < count; i++) {
 			SimpleName name = newSimpleName(identifiers[i]);
 			result = newQualifiedName(result, name);
+		}
+		return result;
+	}
+	
+	/* (omit javadoc for this method)
+	 * This method is a copy of setName(String[]) that doesn't do any validation.
+	 */
+	Name internalNewName(String[] identifiers) {
+		int count = identifiers.length;
+		if (count == 0) {
+			throw new IllegalArgumentException();
+		}
+		final SimpleName simpleName = new SimpleName(this);
+		simpleName.internalSetIdentifier(identifiers[0]);
+		Name result = simpleName;
+		for (int i = 1; i < count; i++) {
+			SimpleName name = new SimpleName(this);
+			name.internalSetIdentifier(identifiers[i]);
+			result = newQualifiedName(result, name);
+		}
+		return result;
+	}
+
+	/**
+	 * Creates and returns a new unparented name node for the given name.
+	 * The name string must consist of 1 or more name segments separated 
+	 * by single dots '.'. Returns a {@link QualifiedName} if the name has
+	 * dots, and a {@link SimpleName} otherwise. Each of the name
+	 * segments should be legal Java identifiers (this constraint may or may 
+	 * not be enforced), and there must be at least one name segment.
+	 * The string must not contains white space, '&lt;', '&gt;',
+	 * '[', ']', or other any other characters that are not
+	 * part of the Java identifiers or separating '.'s.
+	 * 
+	 * @param qualifiedName string consisting of 1 or more name segments,
+	 * each of which is a legal Java identifier, separated  by single dots '.'
+	 * @return a new unparented name node
+	 * @exception IllegalArgumentException if:
+	 * <ul>
+	 * <li>the string is empty</li>
+	 * <li>the string begins or ends in a '.'</li>
+	 * <li>the string has adjacent '.'s</li>
+	 * <li>the segments between the '.'s are not valid Java identifiers</li>
+	 * </ul>
+	 * @since 3.1
+	 */
+	public Name newName(String qualifiedName) {
+		StringTokenizer t = new StringTokenizer(qualifiedName, ".", true); //$NON-NLS-1$
+		Name result = null;
+		// balance is # of name tokens - # of period tokens seen so far
+		// initially 0; finally 1; should never drop < 0 or > 1
+		int balance = 0;
+		while(t.hasMoreTokens()) {
+			String s = t.nextToken();
+			if (s.indexOf('.') >= 0) {
+				// this is a delimiter
+				if (s.length() > 1) {
+					// too many dots in a row
+					throw new IllegalArgumentException();
+				}
+				balance--;
+				if (balance < 0) {
+					throw new IllegalArgumentException();
+				}
+			} else {
+				// this is an identifier segment
+				balance++;
+				SimpleName name = newSimpleName(s);
+				if (result == null) {
+					result = name;
+				} else {
+					result = newQualifiedName(result, name);
+				}
+			}
+		}
+		if (balance != 1) {
+			throw new IllegalArgumentException();
 		}
 		return result;
 	}
@@ -1325,6 +1428,10 @@ public final class AST {
 	 * <li>the node belongs to a different AST</li>
 	 * <li>the node already has a parent</li>
 	 * <li>a cycle in would be created</li>
+	 * <li>the element type is null</li>
+	 * <li>the element type is an array type</li>
+	 * <li>the number of dimensions is lower than 1</li>
+	 * <li>the number of dimensions is greater than 1000</li>
 	 * </ul>
 	 */
 	public ArrayType newArrayType(Type elementType, int dimensions) {
@@ -1372,7 +1479,7 @@ public final class AST {
 	 * </ul>
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public ParameterizedType newParameterizedType(Type type) {
 		ParameterizedType result = new ParameterizedType(this);
@@ -1394,7 +1501,7 @@ public final class AST {
 	 * </ul>
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public QualifiedType newQualifiedType(Type qualifier, SimpleName name) {
 		QualifiedType result = new QualifiedType(this);
@@ -1408,14 +1515,9 @@ public final class AST {
 	 * type bound.
 	 * 
 	 * @return a new unparented wildcard type node
-	 * @exception IllegalArgumentException if:
-	 * <ul>
-	 * <li>the node belongs to a different AST</li>
-	 * <li>the node already has a parent</li>
-	 * </ul>
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public WildcardType newWildcardType() {
 		WildcardType result = new WildcardType(this);
@@ -1445,11 +1547,6 @@ public final class AST {
 	 * unspecified name.
 	 * 
 	 * @return the new unparented package declaration node
-	 * @exception IllegalArgumentException if:
-	 * <ul>
-	 * <li>the node belongs to a different AST</li>
-	 * <li>the node already has a parent</li>
-	 * </ul>
 	 */
 	public PackageDeclaration newPackageDeclaration() {
 		PackageDeclaration result = new PackageDeclaration(this);
@@ -1462,11 +1559,6 @@ public final class AST {
 	 * of a type with an unspecified name.
 	 * 
 	 * @return the new unparented import declaration node
-	 * @exception IllegalArgumentException if:
-	 * <ul>
-	 * <li>the node belongs to a different AST</li>
-	 * <li>the node already has a parent</li>
-	 * </ul>
 	 */
 	public ImportDeclaration newImportDeclaration() {
 		ImportDeclaration result = new ImportDeclaration(this);
@@ -1561,7 +1653,7 @@ public final class AST {
 	 * @return a new unparented enum constant declaration node
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public EnumConstantDeclaration newEnumConstantDeclaration() {
 		EnumConstantDeclaration result = new EnumConstantDeclaration(this);
@@ -1578,7 +1670,7 @@ public final class AST {
 	 * @return a new unparented enum declaration node
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public EnumDeclaration newEnumDeclaration() {
 		EnumDeclaration result = new EnumDeclaration(this);
@@ -1592,7 +1684,7 @@ public final class AST {
 	 * @return a new unparented type parameter node
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public TypeParameter newTypeParameter() {
 		TypeParameter result = new TypeParameter(this);
@@ -1607,7 +1699,7 @@ public final class AST {
 	 * @return a new unparented annotation type declaration node
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public AnnotationTypeDeclaration newAnnotationTypeDeclaration() {
 		AnnotationTypeDeclaration result = new AnnotationTypeDeclaration(this);
@@ -1623,7 +1715,7 @@ public final class AST {
 	 * @return a new unparented annotation type member declaration node
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public AnnotationTypeMemberDeclaration newAnnotationTypeMemberDeclaration() {
 		AnnotationTypeMemberDeclaration result = new AnnotationTypeMemberDeclaration(this);
@@ -1639,7 +1731,7 @@ public final class AST {
 	 * @exception IllegalArgumentException if the primitive type code is invalid
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public Modifier newModifier(Modifier.ModifierKeyword keyword) {
 		Modifier result = new Modifier(this);
@@ -1824,7 +1916,7 @@ public final class AST {
 	/**
 	 * Creates and returns a new method reference node.
 	 * Initially the new node has an unspecified, but legal,
-	 * type, and no parameter name. 
+	 * type, not variable arity, and no parameter name. 
 	 * <p>
 	 * Note that this node type is used only inside doc comments
 	 * ({@link Javadoc}).
@@ -1858,6 +1950,7 @@ public final class AST {
 	 * <li>the node belongs to a different AST</li>
 	 * <li>the node already has a parent</li>
 	 * <li>a cycle in would be created</li>
+	 * <li>the variable declaration fragment is null</li>
 	 * </ul>
 	 */
 	public VariableDeclarationStatement
@@ -1919,7 +2012,7 @@ public final class AST {
 			newTypeDeclarationStatement(AbstractTypeDeclaration decl) {
 		TypeDeclarationStatement result = new TypeDeclarationStatement(this);
 		if (this.apiLevel == AST.JLS2) {
-			result.setTypeDeclaration((TypeDeclaration) decl);
+			result.internalSetTypeDeclaration((TypeDeclaration) decl);
 		}
 		if (this.apiLevel >= AST.JLS3) {
 			result.setDeclaration(decl);
@@ -2139,7 +2232,7 @@ public final class AST {
 	 * @return a new unparented throw statement node
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public EnhancedForStatement newEnhancedForStatement() {
 		return new EnhancedForStatement(this);
@@ -2173,6 +2266,7 @@ public final class AST {
 	 * @param literal the token for the numeric literal as it would 
 	 *    appear in Java source code
 	 * @return a new unparented number literal node
+	 * @exception IllegalArgumentException if the literal is null
 	 */
 	public NumberLiteral newNumberLiteral(String literal) {
 		if (literal == null) {
@@ -2319,6 +2413,8 @@ public final class AST {
 	 * <li>the node belongs to a different AST</li>
 	 * <li>the node already has a parent</li>
 	 * <li>a cycle in would be created</li>
+	 * <li>the given fragment is null</li>
+	 * <li>a cycle in would be created</li>
 	 * </ul>
 	 */
 	public VariableDeclarationExpression
@@ -2352,6 +2448,7 @@ public final class AST {
 	 * <li>the node belongs to a different AST</li>
 	 * <li>the node already has a parent</li>
 	 * <li>a cycle in would be created</li>
+	 * <li>the given fragment is null</li>
 	 * </ul>
 	 */
 	public FieldDeclaration newFieldDeclaration(VariableDeclarationFragment fragment) {
@@ -2595,7 +2692,7 @@ public final class AST {
 	 * @return a new unparented normal annotation node
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public NormalAnnotation newNormalAnnotation() {
 		NormalAnnotation result = new NormalAnnotation(this);
@@ -2609,7 +2706,7 @@ public final class AST {
 	 * @return a new unparented marker annotation node
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public MarkerAnnotation newMarkerAnnotation() {
 		MarkerAnnotation result = new MarkerAnnotation(this);
@@ -2623,7 +2720,7 @@ public final class AST {
 	 * @return a new unparented single member annotation node
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public SingleMemberAnnotation newSingleMemberAnnotation() {
 		SingleMemberAnnotation result = new SingleMemberAnnotation(this);
@@ -2637,7 +2734,7 @@ public final class AST {
 	 * @return a new unparented member value pair node
 	 * @exception UnsupportedOperationException if this operation is used in
 	 * a JLS2 AST
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public MemberValuePair newMemberValuePair() {
 		MemberValuePair result = new MemberValuePair(this);

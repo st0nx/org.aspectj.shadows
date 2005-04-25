@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -14,6 +14,7 @@ package org.eclipse.jdt.core.dom;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.util.IModifierConstants;
+import org.eclipse.jdt.internal.compiler.env.IConstants;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
@@ -109,11 +110,25 @@ class VariableBinding implements IVariableBinding {
 	}
 
 	/*
+	 * @see IVariableBinding#getVariableDeclaration()
+	 * @since 3.1
+	 */
+	public IVariableBinding getVariableDeclaration() {
+		if (this.isField()) {
+			FieldBinding fieldBinding = (FieldBinding) this.binding;
+			return this.resolver.getVariableBinding(fieldBinding.original());
+		}
+		return this;
+	}
+	
+	/*
 	 * @see IBinding#getJavaElement()
 	 */
 	public IJavaElement getJavaElement() {
 		if (isField()) {
 			// field
+			FieldBinding fieldBinding = (FieldBinding) this.binding;
+			if (fieldBinding.declaringClass == null) return null; // arraylength
 			IType declaringType = (IType) getDeclaringClass().getJavaElement();
 			if (declaringType == null) return null;
 			return declaringType.getField(getName());
@@ -257,6 +272,14 @@ class VariableBinding implements IVariableBinding {
 	 */
 	public boolean isField() {
 		return this.binding instanceof FieldBinding;
+	}
+
+	/*
+	 * @see IVariableBinding#isEnumConstant()
+	 * @since 3.1
+	 */
+	public boolean isEnumConstant() {
+		return (this.binding.modifiers & IConstants.AccEnum) != 0;
 	}
 
 	/*

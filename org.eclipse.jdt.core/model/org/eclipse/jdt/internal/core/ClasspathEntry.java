@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -22,6 +22,8 @@ import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.jdt.core.IAccessRule;
+import org.eclipse.jdt.core.IClasspathAttribute;
 import org.eclipse.jdt.core.IClasspathContainer;
 import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.IJavaModelStatus;
@@ -31,10 +33,15 @@ import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
+import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
+import org.eclipse.jdt.internal.compiler.env.AccessRule;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 
 /**
  * @see IClasspathEntry
@@ -51,6 +58,17 @@ public class ClasspathEntry implements IClasspathEntry {
 	public static final String TAG_EXPORTED = "exported"; //$NON-NLS-1$
 	public static final String TAG_INCLUDING = "including"; //$NON-NLS-1$
 	public static final String TAG_EXCLUDING = "excluding"; //$NON-NLS-1$
+	public static final String TAG_ATTRIBUTES = "attributes"; //$NON-NLS-1$
+	public static final String TAG_ATTRIBUTE = "attribute"; //$NON-NLS-1$
+	public static final String TAG_ATTRIBUTE_NAME = "name"; //$NON-NLS-1$
+	public static final String TAG_ATTRIBUTE_VALUE = "value"; //$NON-NLS-1$
+	public static final String TAG_COMBINE_ACCESS_RULES = "combineaccessrules"; //$NON-NLS-1$
+	public static final String TAG_ACCESS_RULES = "accessrules"; //$NON-NLS-1$
+	public static final String TAG_ACCESS_RULE = "accessrule"; //$NON-NLS-1$
+	public static final String TAG_PATTERN = "pattern"; //$NON-NLS-1$
+	public static final String TAG_ACCESSIBLE = "accessible"; //$NON-NLS-1$
+	public static final String TAG_NON_ACCESSIBLE = "nonaccessible"; //$NON-NLS-1$
+	public static final String TAG_DISCOURAGED = "discouraged"; //$NON-NLS-1$
 	
 	/**
 	 * Describes the kind of classpath entry - one of 
@@ -96,9 +114,10 @@ public class ClasspathEntry implements IClasspathEntry {
 	private char[][] fullExclusionPatternChars;
 	private final static char[][] UNINIT_PATTERNS = new char[][] { "Non-initialized yet".toCharArray() }; //$NON-NLS-1$
 	
+	private boolean combineAccessRules;
+	
 	private String rootID;
-	private AccessRestriction importRestriction;
-	private final static AccessRestriction UNINIT_RESTRICTION = new AccessRestriction(null, null, null, null);
+	private AccessRuleSet accessRuleSet;
 	
 	/*
 	 * Default inclusion pattern set
@@ -109,6 +128,16 @@ public class ClasspathEntry implements IClasspathEntry {
 	 * Default exclusion pattern set
 	 */
 	public final static IPath[] EXCLUDE_NONE = {};
+	
+	/*
+	 * Default extra attributes
+	 */
+	public final static IClasspathAttribute[] NO_EXTRA_ATTRIBUTES = {};
+	
+	/*
+	 * Default access rules
+	 */
+	public final static IAccessRule[] NO_ACCESS_RULES = {};
 				
 	/**
 	 * Describes the path to the source archive associated with this
@@ -146,6 +175,11 @@ public class ClasspathEntry implements IClasspathEntry {
 	 * The export flag
 	 */
 	public boolean isExported;
+	
+	/*
+	 * The extra attributes
+	 */
+	private IClasspathAttribute[] extraAttributes;
 
 	/**
 	 * Creates a class path entry of the specified kind with the given path.
@@ -159,7 +193,10 @@ public class ClasspathEntry implements IClasspathEntry {
 		IPath sourceAttachmentPath,
 		IPath sourceAttachmentRootPath,
 		IPath specificOutputLocation,
-		boolean isExported) {
+		boolean isExported,
+		IAccessRule[] accessRules,
+		boolean combineAccessRules,
+		IClasspathAttribute[] extraAttributes) {
 
 		this.contentKind = contentKind;
 		this.entryKind = entryKind;
@@ -167,13 +204,21 @@ public class ClasspathEntry implements IClasspathEntry {
 		this.inclusionPatterns = inclusionPatterns;
 		this.exclusionPatterns = exclusionPatterns;
 		
+		AccessRuleSet ruleSet = createAccessRuleSet(accessRules);
+		if (ruleSet != null) {
+			// compute message template
+			ruleSet.messageTemplate = getMessageTemplate();
+		}
+		this.accessRuleSet = ruleSet;
+		
+		this.combineAccessRules = combineAccessRules;
+		this.extraAttributes = extraAttributes;
+		
 	    if (inclusionPatterns != INCLUDE_ALL && inclusionPatterns.length > 0) {
 			this.fullInclusionPatternChars = UNINIT_PATTERNS;
-			this.importRestriction = UNINIT_RESTRICTION;
 	    }
 	    if (exclusionPatterns.length > 0) {
 			this.fullExclusionPatternChars = UNINIT_PATTERNS;
-			this.importRestriction = UNINIT_RESTRICTION;
 	    }
 		this.sourceAttachmentPath = sourceAttachmentPath;
 		this.sourceAttachmentRootPath = sourceAttachmentRootPath;
@@ -181,36 +226,107 @@ public class ClasspathEntry implements IClasspathEntry {
 		this.isExported = isExported;
 	}
 	
+	private static AccessRuleSet createAccessRuleSet(IAccessRule[] accessRules) {
+		int length = accessRules == null ? 0 : accessRules.length;
+		if (length == 0) return null;
+		AccessRule[] rules = new AccessRule[length];
+		System.arraycopy(accessRules, 0, rules, 0, length);
+		return new AccessRuleSet(rules);
+	}
+	
+	public boolean combineAccessRules() {
+		return this.combineAccessRules;
+	}
+	
 	/**
 	 * Used to perform export/restriction propagation across referring projects/containers
 	 */
-	public ClasspathEntry combineWith(IClasspathEntry referringEntry) {
+	public ClasspathEntry combineWith(ClasspathEntry referringEntry) {
 		if (referringEntry == null) return this;
-		if (referringEntry.isExported() 
-				|| referringEntry.getInclusionPatterns().length > 0 
-				|| referringEntry.getExclusionPatterns().length > 0) {
+		if (referringEntry.isExported() || referringEntry.getAccessRuleSet() != null ) {
+			boolean combine = this.entryKind == CPE_SOURCE || referringEntry.combineAccessRules();
 			return new ClasspathEntry(
 								this.getContentKind(), this.getEntryKind(), this.getPath(),
-								ClasspathEntry.concatPatterns(referringEntry.getInclusionPatterns(), this.getInclusionPatterns()), 
-								ClasspathEntry.concatPatterns(referringEntry.getExclusionPatterns(), this.getExclusionPatterns()), 
+								this.inclusionPatterns, 
+								this.exclusionPatterns, 
 								this.getSourceAttachmentPath(), this.getSourceAttachmentRootPath(), this.getOutputLocation(), 
-								referringEntry.isExported()|| this.isExported); // duplicate container entry for tagging it as exported
+								referringEntry.isExported() || this.isExported, // duplicate container entry for tagging it as exported
+								combine(referringEntry.getAccessRules(), getAccessRules(), combine),
+								this.combineAccessRules,
+								this.extraAttributes); 
 		}
 		// no need to clone
 		return this;
 	}
 
-	/**
-	 * Concatenate two pattern lists
-	 */
-	public static IPath[] concatPatterns(IPath[] patternList1, IPath[] patternList2) {
-		int length1 = patternList1.length;
-		if (length1 == 0) return patternList2;
-		int length2 = patternList2.length;
-		if (length2 == 0) return patternList1;
-		IPath[] result = new IPath[length1+length2];
-		System.arraycopy(patternList1, 0, result, 0, length1);
-		System.arraycopy(patternList2, 0, result, length1, length2);
+	private IAccessRule[] combine(IAccessRule[] referringRules, IAccessRule[] rules, boolean combine) {
+		if (!combine) return rules;
+		if (rules == null) return referringRules;
+		
+		// concat access rules
+		int referringRulesLength = referringRules.length;
+		int accessRulesLength = rules.length;
+		int rulesLength = referringRulesLength + accessRulesLength;
+		IAccessRule[] result = new IAccessRule[rulesLength];
+		System.arraycopy(referringRules, 0, result, 0, referringRulesLength);
+		System.arraycopy(rules, 0, result, referringRulesLength, accessRulesLength);
+		
+		return result;
+	}
+
+	private static IClasspathAttribute[] decodeExtraAttributes(Element element) {
+		Node extra = element.getElementsByTagName(TAG_ATTRIBUTES).item(0);
+		if (extra == null) return NO_EXTRA_ATTRIBUTES;
+		NodeList attributes = element.getElementsByTagName(TAG_ATTRIBUTE);
+		if (attributes == null) return NO_EXTRA_ATTRIBUTES;
+		int length = attributes.getLength();
+		if (length == 0) return NO_EXTRA_ATTRIBUTES;
+		IClasspathAttribute[] result = new IClasspathAttribute[length];
+		int index = 0;
+		for (int i = 0; i < length; ++i) {
+			Node node = attributes.item(i);
+			if (node.getNodeType() == Node.ELEMENT_NODE) {
+				Element attribute = (Element)node;
+				String name = attribute.getAttribute(TAG_ATTRIBUTE_NAME);
+				if (name == null) continue;
+				String value = attribute.getAttribute(TAG_ATTRIBUTE_VALUE);
+				if (value == null) continue;
+				result[index++] = new ClasspathAttribute(name, value);
+			}
+		}
+		if (index != length)
+			System.arraycopy(result, 0, result = new IClasspathAttribute[index], 0, index);
+		return result;
+	}
+	
+	private static IAccessRule[] decodeAccessRules(Element element) {
+		Node accessRules = element.getElementsByTagName(TAG_ACCESS_RULES).item(0);
+		if (accessRules == null || accessRules.getNodeType() != Node.ELEMENT_NODE) return null;
+		NodeList list = ((Element) accessRules).getElementsByTagName(TAG_ACCESS_RULE);
+		int length = list.getLength();
+		if (length == 0) return null;
+		IAccessRule[] result = new IAccessRule[length];
+		int index = 0;
+		for (int i = 0; i < length; i++) {
+			Node accessRule = list.item(i);
+			if (accessRule == null || accessRule.getNodeType() != Node.ELEMENT_NODE) return null;
+			Element elementAccessRule = (Element) accessRule;
+			String pattern = elementAccessRule.getAttribute(TAG_PATTERN);
+			if (pattern == null) continue;
+			String tagKind =  elementAccessRule.getAttribute(TAG_KIND);
+			int kind;
+			if (TAG_ACCESSIBLE.equals(tagKind))
+				kind = IAccessRule.K_ACCESSIBLE;
+			else if (TAG_NON_ACCESSIBLE.equals(tagKind))
+				kind = IAccessRule.K_NON_ACCESSIBLE;
+			else if (TAG_DISCOURAGED.equals(tagKind))
+				kind = IAccessRule.K_DISCOURAGED;
+			else
+				continue;
+			result[index++] = new ClasspathAccessRule(new Path(pattern), kind);
+		}
+		if (index != length)
+			System.arraycopy(result, 0, result = new IAccessRule[index], 0, index);
 		return result;
 	}
 	
@@ -309,6 +425,9 @@ public class ClasspathEntry implements IClasspathEntry {
 		}
 		encodePatterns(this.inclusionPatterns, TAG_INCLUDING, parameters);
 		encodePatterns(this.exclusionPatterns, TAG_EXCLUDING, parameters);
+		if (this.entryKind == CPE_PROJECT && !this.combineAccessRules)
+			parameters.put(TAG_COMBINE_ACCESS_RULES, "false"); //$NON-NLS-1$
+		
 		
 		if (this.specificOutputLocation != null) {
 			IPath outputLocation = this.specificOutputLocation.removeFirstSegments(1);
@@ -316,7 +435,61 @@ public class ClasspathEntry implements IClasspathEntry {
 			parameters.put(TAG_OUTPUT, String.valueOf(outputLocation));
 		}
 
-		writer.printTag(TAG_CLASSPATHENTRY, parameters, indent, newLine, true);
+		boolean hasExtraAttributes = this.extraAttributes != NO_EXTRA_ATTRIBUTES;
+		boolean hasRestrictions = getAccessRuleSet() != null;
+		writer.printTag(TAG_CLASSPATHENTRY, parameters, indent, newLine, !hasExtraAttributes && !hasRestrictions /*close tag if no extra attributes and no restriction*/);
+		
+		if (hasExtraAttributes)
+			encodeExtraAttributes(writer, indent, newLine);
+	
+		if (hasRestrictions)
+			encodeAccessRules(writer, indent, newLine);
+
+		if (hasExtraAttributes || hasRestrictions)
+			writer.endTag(TAG_CLASSPATHENTRY, indent);
+	}
+	
+	private void encodeExtraAttributes(XMLWriter writer, boolean indent, boolean newLine) {
+		writer.startTag(TAG_ATTRIBUTES, indent);
+		for (int i = 0; i < this.extraAttributes.length; i++) {
+			IClasspathAttribute attribute = this.extraAttributes[i];
+			HashMap parameters = new HashMap();
+	    	parameters.put(TAG_ATTRIBUTE_NAME, attribute.getName());
+			parameters.put(TAG_ATTRIBUTE_VALUE, attribute.getValue());
+			writer.printTag(TAG_ATTRIBUTE, parameters, indent, newLine, true);
+		}
+		writer.endTag(TAG_ATTRIBUTES, indent);
+	}
+	
+	private void encodeAccessRules(XMLWriter writer, boolean indent, boolean newLine) {
+
+		writer.startTag(TAG_ACCESS_RULES, indent);
+		AccessRule[] rules = getAccessRuleSet().getAccessRules();
+		for (int i = 0, length = rules.length; i < length; i++) {
+			encodeAccessRule(rules[i], writer, indent, newLine);
+		}
+		writer.endTag(TAG_ACCESS_RULES, indent);
+	}
+	
+	private void encodeAccessRule(AccessRule accessRule, XMLWriter writer, boolean indent, boolean newLine) {
+
+		HashMap parameters = new HashMap();
+		parameters.put(TAG_PATTERN, new String(accessRule.pattern));
+		
+		switch (accessRule.problemId) {
+			case IProblem.ForbiddenReference:
+				parameters.put(TAG_KIND, TAG_NON_ACCESSIBLE);
+				break;
+			case IProblem.DiscouragedReference:
+				parameters.put(TAG_KIND, TAG_DISCOURAGED);
+				break;
+			default:
+				parameters.put(TAG_KIND, TAG_ACCESSIBLE);
+				break;
+		}
+		
+		writer.printTag(TAG_ACCESS_RULE, parameters, indent, newLine, true);
+
 	}
 	
 	public static IClasspathEntry elementDecode(Element element, IJavaProject project) {
@@ -355,63 +528,80 @@ public class ClasspathEntry implements IClasspathEntry {
 		IPath[] exclusionPatterns = decodePatterns(element, TAG_EXCLUDING);
 		if (exclusionPatterns == null) exclusionPatterns = EXCLUDE_NONE;
 		
+		// access rules (optional)
+		IAccessRule[] accessRules = decodeAccessRules(element);
+		
+		// backward compatibility
+		if (accessRules == null) {
+			accessRules = getAccessRules(inclusionPatterns, exclusionPatterns);
+		}
+
+		// combine access rules (optional)
+		boolean combineAccessRestrictions = !element.getAttribute(TAG_COMBINE_ACCESS_RULES).equals("false"); //$NON-NLS-1$
+		
+		// extra attributes (optional)
+		IClasspathAttribute[] extraAttributes = decodeExtraAttributes(element);
+		
 		// custom output location
 		IPath outputLocation = element.hasAttribute(TAG_OUTPUT) ? projectPath.append(element.getAttribute(TAG_OUTPUT)) : null;
 		
 		// recreate the CP entry
+		IClasspathEntry entry = null;
 		switch (kind) {
 
 			case IClasspathEntry.CPE_PROJECT :
-				return JavaCore.newProjectEntry(
+				entry = JavaCore.newProjectEntry(
 												path, 
-												inclusionPatterns,
-												exclusionPatterns,
+												accessRules,
+												combineAccessRestrictions,
+												extraAttributes,
 												isExported);
-				
+				break;				
 			case IClasspathEntry.CPE_LIBRARY :
-				return JavaCore.newLibraryEntry(
+				entry = JavaCore.newLibraryEntry(
 												path,
 												sourceAttachmentPath,
 												sourceAttachmentRootPath,
-												inclusionPatterns,
-												exclusionPatterns,
+												accessRules,
+												extraAttributes,
 												isExported);
-				
+				break;
 			case IClasspathEntry.CPE_SOURCE :
 				// must be an entry in this project or specify another project
 				String projSegment = path.segment(0);
 				if (projSegment != null && projSegment.equals(project.getElementName())) { // this project
-					return JavaCore.newSourceEntry(path, inclusionPatterns, exclusionPatterns, outputLocation);
+					return JavaCore.newSourceEntry(path, inclusionPatterns, exclusionPatterns, outputLocation, extraAttributes);
 				} else { 
 					if (path.segmentCount() == 1) {
 						// another project
-						return JavaCore.newProjectEntry(
+						entry = JavaCore.newProjectEntry(
 												path, 
-												inclusionPatterns,
-												exclusionPatterns,
+												accessRules,
+												combineAccessRestrictions,
+												extraAttributes,
 												isExported);
 					} else {
 						// an invalid source folder
-						return JavaCore.newSourceEntry(path, inclusionPatterns, exclusionPatterns, outputLocation);
+						return JavaCore.newSourceEntry(path, inclusionPatterns, exclusionPatterns, outputLocation, extraAttributes);
 					}
 				}
-
+				break;
 			case IClasspathEntry.CPE_VARIABLE :
-				return JavaCore.newVariableEntry(
+				entry = JavaCore.newVariableEntry(
 						path,
 						sourceAttachmentPath,
 						sourceAttachmentRootPath, 
-						inclusionPatterns,
-						exclusionPatterns,
+						accessRules,
+						extraAttributes,
 						isExported);
-				
+				break;
 			case IClasspathEntry.CPE_CONTAINER :
-				return JavaCore.newContainerEntry(
+				entry = JavaCore.newContainerEntry(
 						path,
-						inclusionPatterns,
-						exclusionPatterns,
+						accessRules,
+						extraAttributes,
 						isExported);
-
+				break;
 			case ClasspathEntry.K_OUTPUT :
 				if (!path.isAbsolute()) return null;
 				return new ClasspathEntry(
@@ -423,10 +613,14 @@ public class ClasspathEntry implements IClasspathEntry {
 						null, // source attachment
 						null, // source attachment root
 						null, // custom output location
-						false);
+						false,
+						null,
+						false, // no accessible files to combine
+						NO_EXTRA_ATTRIBUTES);
 			default :
-				throw new Assert.AssertionFailedException(Util.bind("classpath.unknownKind", kindAttr)); //$NON-NLS-1$
+				throw new Assert.AssertionFailedException(Messages.bind(Messages.classpath_unknownKind, kindAttr)); 
 		}
+		return entry;
 	}
 
 	/**
@@ -450,8 +644,8 @@ public class ClasspathEntry implements IClasspathEntry {
 	public boolean equals(Object object) {
 		if (this == object)
 			return true;
-		if (object instanceof IClasspathEntry) {
-			IClasspathEntry otherEntry = (IClasspathEntry) object;
+		if (object instanceof ClasspathEntry) {
+			ClasspathEntry otherEntry = (ClasspathEntry) object;
 
 			if (this.contentKind != otherEntry.getContentKind())
 				return false;
@@ -487,6 +681,14 @@ public class ClasspathEntry implements IClasspathEntry {
 				return false;
 			if (!equalPatterns(this.exclusionPatterns, otherEntry.getExclusionPatterns()))
 				return false;
+			AccessRuleSet otherRuleSet = otherEntry.getAccessRuleSet();
+			if (getAccessRuleSet() != null) {
+				if (!getAccessRuleSet().equals(otherRuleSet))
+					return false;
+			} else if (otherRuleSet != null)
+				return false;
+			if (this.combineAccessRules != otherEntry.combineAccessRules())
+				return false;
 			otherPath = otherEntry.getOutputLocation();
 			if (this.specificOutputLocation == null) {
 				if (otherPath != null)
@@ -495,12 +697,28 @@ public class ClasspathEntry implements IClasspathEntry {
 				if (!this.specificOutputLocation.equals(otherPath))
 					return false;
 			}
+			if (!equalAttributes(this.extraAttributes, otherEntry.getExtraAttributes()))
+				return false;
 			return true;
 		} else {
 			return false;
 		}
 	}
 
+	private static boolean equalAttributes(IClasspathAttribute[] firstAttributes, IClasspathAttribute[] secondAttributes) {
+		if (firstAttributes != secondAttributes){
+		    if (firstAttributes == null) return false;
+			int length = firstAttributes.length;
+			if (secondAttributes == null || secondAttributes.length != length) 
+				return false;
+			for (int i = 0; i < length; i++) {
+				if (!firstAttributes[i].equals(secondAttributes[i]))
+					return false;
+			}
+		}
+		return true;
+	}
+	
 	private static boolean equalPatterns(IPath[] firstPatterns, IPath[] secondPatterns) {
 		if (firstPatterns != secondPatterns){
 		    if (firstPatterns == null) return false;
@@ -517,6 +735,23 @@ public class ClasspathEntry implements IClasspathEntry {
 		return true;
 	}
 	
+	/**
+	 * @see IClasspathEntry#getAccessRules()
+	 */
+	public IAccessRule[] getAccessRules() {
+		if (this.accessRuleSet == null) return NO_ACCESS_RULES;
+		AccessRule[] rules = this.accessRuleSet.getAccessRules();
+		int length = rules.length;
+		if (length == 0) return NO_ACCESS_RULES;
+		IAccessRule[] result = new IAccessRule[length];
+		System.arraycopy(rules, 0, result, 0, length);
+		return result;
+	}
+	
+	public AccessRuleSet getAccessRuleSet() {
+		return this.accessRuleSet;
+	}
+
 	/**
 	 * @see IClasspathEntry
 	 */
@@ -537,6 +772,29 @@ public class ClasspathEntry implements IClasspathEntry {
 	public IPath[] getExclusionPatterns() {
 		return this.exclusionPatterns;
 	}
+	
+	public IClasspathAttribute[] getExtraAttributes() {
+		return this.extraAttributes;
+	}
+	
+	private String getMessageTemplate() {
+		if (this.entryKind == CPE_PROJECT || this.entryKind == CPE_SOURCE) { // can be remote source entry when reconciling
+			return Messages.bind(
+				org.eclipse.jdt.internal.core.util.Messages.restrictedAccess_project,
+				new String[] {"{0}", getPath().segment(0)});  //$NON-NLS-1$
+		} else {
+			IPath libPath = getPath();
+			Object target = JavaModel.getTarget(ResourcesPlugin.getWorkspace().getRoot(), libPath, false);
+			String pathString;
+			if (target instanceof java.io.File)
+				pathString = libPath.toOSString();
+			else
+				pathString = libPath.makeRelative().toString();
+			return Messages.bind(
+				org.eclipse.jdt.internal.core.util.Messages.restrictedAccess_library,
+				new String[] {"{0}", pathString}); //$NON-NLS-1$ 
+		}
+	}
 
 	/**
 	 * @see IClasspathEntry#getExclusionPatterns()
@@ -544,40 +802,6 @@ public class ClasspathEntry implements IClasspathEntry {
 	public IPath[] getInclusionPatterns() {
 		return this.inclusionPatterns;
 	}
-
-	/**
-	 * Defines access restriction rules for project import
-	 */	
-	public AccessRestriction getImportRestriction() {
-		
-		if (this.importRestriction == UNINIT_RESTRICTION) {
-			char[][] importIncludes = getAccessRestrictionPatterns(this.inclusionPatterns);
-			char[][] importExcludes = getAccessRestrictionPatterns(this.exclusionPatterns);
-			if (importIncludes == null && importExcludes == null) {
-				this.importRestriction = null;
-			} else {
-				this.importRestriction = new AccessRestriction(
-									(this.entryKind == CPE_PROJECT || this.entryKind == CPE_SOURCE) // can be remote source entry when reconciling
-										? org.eclipse.jdt.internal.core.util.Util.bind("restrictedAccess.project", null, getPath().segment(0)) //$NON-NLS-1$
-										: org.eclipse.jdt.internal.core.util.Util.bind("restrictedAccess.library", null, getPath().makeRelative().toOSString()), //$NON-NLS-1$
-									importIncludes, 
-									importExcludes,
-									null /* no further restriction */);
-			}
-		}
-		return this.importRestriction;
-	}
-	
-	public static char[][] getAccessRestrictionPatterns(IPath[] patternSequence) {
-		if (patternSequence == null) return null;
-		int length = patternSequence.length;
-		if (length == 0) return null;
-		char[][] patternChars = new char[length][];
-		for (int i = 0; i < length; i++) {
-			patternChars[i] = patternSequence[i].toString().toCharArray();
-		}
-		return patternChars;
-	}		
 
 	/**
 	 * @see IClasspathEntry#getOutputLocation()
@@ -592,7 +816,7 @@ public class ClasspathEntry implements IClasspathEntry {
 	public IPath getPath() {
 		return this.path;
 	}
-
+	
 	/**
 	 * @see IClasspathEntry
 	 */
@@ -664,6 +888,21 @@ public class ClasspathEntry implements IClasspathEntry {
 		}
 	}
 
+	public static IAccessRule[] getAccessRules(IPath[] accessibleFiles, IPath[] nonAccessibleFiles) {
+		int accessibleFilesLength = accessibleFiles == null ? 0 : accessibleFiles.length;
+		int nonAccessibleFilesLength = nonAccessibleFiles == null ? 0 : nonAccessibleFiles.length;
+		int length = accessibleFilesLength + nonAccessibleFilesLength;
+		if (length == 0) return null;
+		IAccessRule[] accessRules = new IAccessRule[length];
+		for (int i = 0; i < accessibleFilesLength; i++) {
+			accessRules[i] = JavaCore.newAccessRule(accessibleFiles[i], IAccessRule.K_ACCESSIBLE);
+		}
+		for (int i = 0; i < nonAccessibleFilesLength; i++) {
+			accessRules[accessibleFilesLength + i] = JavaCore.newAccessRule(nonAccessibleFiles[i], IAccessRule.K_NON_ACCESSIBLE);
+		}
+		return accessRules;
+	}
+	
 	/**
 	 * Returns a printable representation of this classpath entry.
 	 */
@@ -714,7 +953,7 @@ public class ClasspathEntry implements IClasspathEntry {
 		buffer.append("[isExported:"); //$NON-NLS-1$
 		buffer.append(this.isExported);
 		buffer.append(']');
-		IPath[] patterns = getInclusionPatterns();
+		IPath[] patterns = this.inclusionPatterns;
 		int length;
 		if ((length = patterns == null ? 0 : patterns.length) > 0) {
 			buffer.append("[including:"); //$NON-NLS-1$
@@ -726,7 +965,7 @@ public class ClasspathEntry implements IClasspathEntry {
 			}
 			buffer.append(']');
 		}
-		patterns = getExclusionPatterns();
+		patterns = this.exclusionPatterns;
 		if ((length = patterns == null ? 0 : patterns.length) > 0) {
 			buffer.append("[excluding:"); //$NON-NLS-1$
 			for (int i = 0; i < length; i++) {
@@ -737,9 +976,29 @@ public class ClasspathEntry implements IClasspathEntry {
 			}
 			buffer.append(']');
 		}
+		if (this.accessRuleSet != null) {
+			buffer.append('[');
+			buffer.append(this.accessRuleSet.toString(false/*on one line*/));
+			buffer.append(']');
+		}
+		if (this.entryKind == CPE_PROJECT) {
+			buffer.append("[combine access rules:"); //$NON-NLS-1$
+			buffer.append(this.combineAccessRules);
+			buffer.append(']');
+		}
 		if (getOutputLocation() != null) {
 			buffer.append("[output:"); //$NON-NLS-1$
 			buffer.append(getOutputLocation());
+			buffer.append(']');
+		}
+		if ((length = this.extraAttributes == null ? 0 : this.extraAttributes.length) > 0) {
+			buffer.append("[attributes:"); //$NON-NLS-1$
+			for (int i = 0; i < length; i++) {
+				buffer.append(this.extraAttributes[i]);
+				if (i != length-1) {
+					buffer.append(',');
+				}
+			}
 			buffer.append(']');
 		}
 		return buffer.toString();
@@ -908,7 +1167,7 @@ public class ClasspathEntry implements IClasspathEntry {
 					// output before complaining
 					if (potentialNestedOutput == null) potentialNestedOutput = customOutput;
 				} else {
-					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.cannotNestOutputInOutput", customOutput.makeRelative().toString(), outputLocations[index].makeRelative().toString())); //$NON-NLS-1$
+					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_cannotNestOutputInOutput, new String[] {customOutput.makeRelative().toString(), outputLocations[index].makeRelative().toString()})); 
 				}
 			}
 		}	
@@ -916,7 +1175,7 @@ public class ClasspathEntry implements IClasspathEntry {
 		if (sourceEntryCount <= outputCount-1) {
 		    allowNestingInOutputLocations[0] = true;
 		} else if (potentialNestedOutput != null) {
-			return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.cannotNestOutputInOutput", potentialNestedOutput.makeRelative().toString(), outputLocations[0].makeRelative().toString())); //$NON-NLS-1$
+			return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_cannotNestOutputInOutput, new String[] {potentialNestedOutput.makeRelative().toString(), outputLocations[0].makeRelative().toString()})); 
 		}
 
 		for (int i = 0 ; i < length; i++) {
@@ -959,13 +1218,13 @@ public class ClasspathEntry implements IClasspathEntry {
 	
 			// complain if duplicate path
 			if (!pathes.add(entryPath)){
-				return new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION, Util.bind("classpath.duplicateEntryPath", entryPathMsg, projectName)); //$NON-NLS-1$
+				return new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION, Messages.bind(Messages.classpath_duplicateEntryPath, new String[] {entryPathMsg, projectName})); 
 			}
 			// no further check if entry coincidates with project or output location
 			if (entryPath.equals(projectPath)){
 				// complain if self-referring project entry
 				if (kind == IClasspathEntry.CPE_PROJECT){
-					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_PATH, Util.bind("classpath.cannotReferToItself", entryPath.makeRelative().toString()));//$NON-NLS-1$
+					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_PATH, Messages.bind(Messages.classpath_cannotReferToItself, new String[] {entryPath.makeRelative().toString()}));
 				}
 				// tolerate nesting output in src if src==prj
 				continue;
@@ -989,13 +1248,13 @@ public class ClasspathEntry implements IClasspathEntry {
 								&& !Util.isExcluded(entryPath.append("*"), inclusionPatterns = ((ClasspathEntry)otherEntry).fullInclusionPatternChars(), exclusionPatterns = ((ClasspathEntry)otherEntry).fullExclusionPatternChars(), false)) { //$NON-NLS-1$
 							String exclusionPattern = entryPath.removeFirstSegments(otherPath.segmentCount()).segment(0);
 							if (Util.isExcluded(entryPath, inclusionPatterns, exclusionPatterns, false)) {
-								return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.mustEndWithSlash", exclusionPattern, entryPath.makeRelative().toString())); //$NON-NLS-1$
+								return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_mustEndWithSlash, new String[] {exclusionPattern, entryPath.makeRelative().toString()})); 
 							} else {
 								if (otherKind == IClasspathEntry.CPE_SOURCE) {
 									exclusionPattern += '/';
-									return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.cannotNestEntryInEntry", new String[] {entryPath.makeRelative().toString(), otherEntry.getPath().makeRelative().toString(), exclusionPattern})); //$NON-NLS-1$
+									return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_cannotNestEntryInEntry, new String[] {entryPath.makeRelative().toString(), otherEntry.getPath().makeRelative().toString(), exclusionPattern})); 
 								} else {
-									return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.cannotNestEntryInLibrary", entryPath.makeRelative().toString(), otherEntry.getPath().makeRelative().toString())); //$NON-NLS-1$
+									return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_cannotNestEntryInLibrary, new String[] {entryPath.makeRelative().toString(), otherEntry.getPath().makeRelative().toString()})); 
 								}
 							}
 						}
@@ -1011,7 +1270,7 @@ public class ClasspathEntry implements IClasspathEntry {
     			if (entryPath.equals(currentOutput)) continue;
 				if (entryPath.isPrefixOf(currentOutput)) {
 				    if (kind != IClasspathEntry.CPE_SOURCE || !Util.isExcluded(currentOutput, inclusionPatterns, exclusionPatterns, true)) {
-						return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.cannotNestOutputInEntry", currentOutput.makeRelative().toString(), entryPath.makeRelative().toString())); //$NON-NLS-1$
+						return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_cannotNestOutputInEntry, new String[] {currentOutput.makeRelative().toString(), entryPath.makeRelative().toString()})); 
 				    }
 				}
 		    }
@@ -1021,7 +1280,7 @@ public class ClasspathEntry implements IClasspathEntry {
 		        if (allowNestingInOutputLocations[j]) continue;
 		        IPath currentOutput = outputLocations[j];
 				if (currentOutput.isPrefixOf(entryPath)) {
-					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.cannotNestEntryInOutput", entryPath.makeRelative().toString(), currentOutput.makeRelative().toString())); //$NON-NLS-1$
+					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_cannotNestEntryInOutput, new String[] {entryPath.makeRelative().toString(), currentOutput.makeRelative().toString()})); 
 				}
 		    }			
 		}
@@ -1055,12 +1314,12 @@ public class ClasspathEntry implements IClasspathEntry {
 					switch (otherEntry.getEntryKind()) {
 						case IClasspathEntry.CPE_SOURCE :
 							if (otherEntry.getPath().equals(output)) {
-								return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.cannotUseDistinctSourceFolderAsOutput", new String[] {entryPathMsg, otherPathMsg, projectName})); //$NON-NLS-1$
+								return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_cannotUseDistinctSourceFolderAsOutput, new String[] {entryPathMsg, otherPathMsg, projectName})); 
 							}
 							break;
 						case IClasspathEntry.CPE_LIBRARY :
 							if (otherEntry.getPath().equals(output)) {
-								return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.cannotUseLibraryAsOutput", new String[] {entryPathMsg, otherPathMsg, projectName})); //$NON-NLS-1$
+								return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_cannotUseLibraryAsOutput, new String[] {entryPathMsg, otherPathMsg, projectName})); 
 							}
 					}
 				}
@@ -1129,7 +1388,7 @@ public class ClasspathEntry implements IClasspathEntry {
 						return new JavaModelStatus(e);
 					}
 				} else {
-					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.illegalContainerPath", entryPathMsg, projectName));					 //$NON-NLS-1$
+					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_illegalContainerPath, new String[] {entryPathMsg, projectName}));					 
 				}
 				break;
 				
@@ -1148,7 +1407,7 @@ public class ClasspathEntry implements IClasspathEntry {
 					}
 					return validateClasspathEntry(project, entry, checkSourceAttachment, recurseInContainers);
 				} else {
-					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.illegalVariablePath", entryPathMsg, projectName));					 //$NON-NLS-1$
+					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_illegalVariablePath, new String[] {entryPathMsg, projectName}));					 
 				}
 	
 			// library entry check
@@ -1172,10 +1431,10 @@ public class ClasspathEntry implements IClasspathEntry {
 										&& sourceAttachment != null
 										&& !sourceAttachment.isEmpty()
 										&& JavaModel.getTarget(workspaceRoot, sourceAttachment, true) == null){
-										return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.unboundSourceAttachment", new String [] {sourceAttachment.toString(), path.toString(), projectName})); //$NON-NLS-1$
+										return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_unboundSourceAttachment, new String [] {sourceAttachment.toString(), path.toString(), projectName})); 
 									}
 								} else {
-									return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.illegalLibraryArchive", entryPathMsg, projectName)); //$NON-NLS-1$
+									return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_illegalLibraryArchive, new String[] {entryPathMsg, projectName})); 
 								}
 								break;
 							case IResource.FOLDER :	// internal binary folder
@@ -1183,31 +1442,31 @@ public class ClasspathEntry implements IClasspathEntry {
 									&& sourceAttachment != null 
 									&& !sourceAttachment.isEmpty()
 									&& JavaModel.getTarget(workspaceRoot, sourceAttachment, true) == null){
-									return  new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.unboundSourceAttachment", new String [] {sourceAttachment.toString(), path.toString(), projectName})); //$NON-NLS-1$
+									return  new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_unboundSourceAttachment, new String [] {sourceAttachment.toString(), path.toString(), projectName})); 
 								}
 						}
 					} else if (target instanceof File){
 					    File file = (File) target;
 					    if (!file.isFile()) {
-							return  new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.illegalExternalFolder", path.toOSString(), projectName)); //$NON-NLS-1$
+							return  new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_illegalExternalFolder, new String[] {path.toOSString(), projectName})); 
 					    } else if (!org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())) {
-							return  new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.illegalLibraryArchive", path.toOSString(), projectName)); //$NON-NLS-1$
+							return  new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_illegalLibraryArchive, (new String[] {path.toOSString(), projectName}))); 
 					    } else if (checkSourceAttachment 
 								&& sourceAttachment != null 
 								&& !sourceAttachment.isEmpty()
 								&& JavaModel.getTarget(workspaceRoot, sourceAttachment, true) == null){
-								return  new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.unboundSourceAttachment", new String [] {sourceAttachment.toString(), path.toOSString(), projectName})); //$NON-NLS-1$
+								return  new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_unboundSourceAttachment, new String [] {sourceAttachment.toString(), path.toOSString(), projectName})); 
 					    }
 					} else {
 						boolean isExternal = path.getDevice() != null || !workspaceRoot.getProject(path.segment(0)).exists();
 						if (isExternal) {
-							return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.unboundLibrary", path.toOSString(), projectName)); //$NON-NLS-1$
+							return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_unboundLibrary, new String[] {path.toOSString(), projectName})); 
 						} else {
-							return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.unboundLibrary", entryPathMsg, projectName)); //$NON-NLS-1$
+							return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_unboundLibrary, new String[] {entryPathMsg, projectName})); 
 						}
 					}
 				} else {
-					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.illegalLibraryPath", entryPathMsg, projectName)); //$NON-NLS-1$
+					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_illegalLibraryPath, new String[] {entryPathMsg, projectName})); 
 				}
 				break;
 	
@@ -1218,10 +1477,10 @@ public class ClasspathEntry implements IClasspathEntry {
 					IJavaProject prereqProject = JavaCore.create(prereqProjectRsc);
 					try {
 						if (!prereqProjectRsc.exists() || !prereqProjectRsc.hasNature(JavaCore.NATURE_ID)){
-							return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.unboundProject", path.segment(0), projectName)); //$NON-NLS-1$
+							return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_unboundProject, new String[] {path.segment(0), projectName})); 
 						}
 						if (!prereqProjectRsc.isOpen()){
-							return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.closedProject", path.segment(0))); //$NON-NLS-1$
+							return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_closedProject, new String[] {path.segment(0)})); 
 						}
 						if (project.getOption(JavaCore.CORE_INCOMPATIBLE_JDK_LEVEL, true) != JavaCore.IGNORE) {
 							long projectTargetJDK = CompilerOptions.versionToJdkLevel(project.getOption(JavaCore.COMPILER_CODEGEN_TARGET_PLATFORM, true));
@@ -1231,10 +1490,10 @@ public class ClasspathEntry implements IClasspathEntry {
 							}
 						}
 					} catch (CoreException e){
-						return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.unboundProject", path.segment(0), projectName)); //$NON-NLS-1$
+						return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_unboundProject, new String[] {path.segment(0), projectName})); 
 					}
 				} else {
-					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.illegalProjectPath", path.segment(0), projectName)); //$NON-NLS-1$
+					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_illegalProjectPath, new String[] {path.segment(0), projectName})); 
 				}
 				break;
 	
@@ -1251,10 +1510,10 @@ public class ClasspathEntry implements IClasspathEntry {
 				if (path != null && path.isAbsolute() && !path.isEmpty()) {
 					IPath projectPath= project.getProject().getFullPath();
 					if (!projectPath.isPrefixOf(path) || JavaModel.getTarget(workspaceRoot, path, true) == null){
-						return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.unboundSourceFolder", entryPathMsg, projectName)); //$NON-NLS-1$
+						return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_unboundSourceFolder, new String[] {entryPathMsg, projectName})); 
 					}
 				} else {
-					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Util.bind("classpath.illegalSourceFolderPath", entryPathMsg, projectName)); //$NON-NLS-1$
+					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_illegalSourceFolderPath, new String[] {entryPathMsg, projectName})); 
 				}
 				break;
 		}

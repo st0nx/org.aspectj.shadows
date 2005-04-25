@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -23,12 +23,22 @@ import org.eclipse.jdt.internal.formatter.align.Alignment;
  */
 
 public class DefaultCodeFormatterOptions {
+	public static final int TAB = 1;
+	public static final int SPACE = 2;
+	public static final int MIXED = 4;
+	
 	public static DefaultCodeFormatterOptions getDefaultSettings() {
 		DefaultCodeFormatterOptions options = new DefaultCodeFormatterOptions();
 		options.setDefaultSettings();
 		return options;
 	}
 	
+	public static DefaultCodeFormatterOptions getEclipseDefaultSettings() {
+		DefaultCodeFormatterOptions options = new DefaultCodeFormatterOptions();
+		options.setEclipseDefaultSettings();
+		return options;
+	}
+
 	public static DefaultCodeFormatterOptions getJavaConventionsSettings() {
 		DefaultCodeFormatterOptions options = new DefaultCodeFormatterOptions();
 		options.setJavaConventionsSettings();
@@ -43,6 +53,7 @@ public class DefaultCodeFormatterOptions {
 	public int alignment_for_binary_expression;
 	public int alignment_for_compact_if;
 	public int alignment_for_conditional_expression;
+	public int alignment_for_enum_constants;
 	public int alignment_for_expressions_in_array_initializer;
 	public int alignment_for_multiple_fields;
 	public int alignment_for_parameters_in_constructor_declaration;
@@ -83,6 +94,17 @@ public class DefaultCodeFormatterOptions {
 	public int blank_lines_between_type_declarations;
 	public int blank_lines_at_beginning_of_method_body;
 	
+	public boolean comment_clear_blank_lines;
+	public boolean comment_format;
+	public boolean comment_format_header;
+	public boolean comment_format_html;
+	public boolean comment_format_source;
+	public boolean comment_indent_parameter_description;
+	public boolean comment_indent_root_tags;
+	public boolean comment_insert_empty_line_before_root_tags;
+	public boolean comment_insert_new_line_for_parameter;
+	public int comment_line_length;
+	
 	public boolean indent_statements_compare_to_block;
 	public boolean indent_statements_compare_to_body;
 	public boolean indent_body_declarations_compare_to_enum_constant_header;
@@ -91,7 +113,9 @@ public class DefaultCodeFormatterOptions {
 	public boolean indent_breaks_compare_to_cases;
 	public boolean indent_switchstatements_compare_to_cases;
 	public boolean indent_switchstatements_compare_to_switch;
-	
+	public int indentation_size;
+
+	public boolean insert_new_line_after_annotation;
 	public boolean insert_new_line_after_opening_brace_in_array_initializer;
 	public boolean insert_new_line_at_end_of_file_if_missing;
 	public boolean insert_new_line_before_catch_in_try_statement;
@@ -268,8 +292,9 @@ public class DefaultCodeFormatterOptions {
 	public int tab_size;
 	public final char filling_space = ' ';
 	public int page_width;
-	public boolean use_tab;
-
+	public int tab_char;
+	public boolean use_tabs_only_for_leading_indentations;
+	
 	public int initial_indentation_level;
 	public String line_separator;
 	
@@ -297,6 +322,7 @@ public class DefaultCodeFormatterOptions {
 		options.put(DefaultCodeFormatterConstants.FORMATTER_ALIGNMENT_FOR_BINARY_EXPRESSION, getAlignment(this.alignment_for_binary_expression));
 		options.put(DefaultCodeFormatterConstants.FORMATTER_ALIGNMENT_FOR_COMPACT_IF, getAlignment(this.alignment_for_compact_if));
 		options.put(DefaultCodeFormatterConstants.FORMATTER_ALIGNMENT_FOR_CONDITIONAL_EXPRESSION, getAlignment(this.alignment_for_conditional_expression));
+		options.put(DefaultCodeFormatterConstants.FORMATTER_ALIGNMENT_FOR_ENUM_CONSTANTS, getAlignment(this.alignment_for_enum_constants));
 		options.put(DefaultCodeFormatterConstants.FORMATTER_ALIGNMENT_FOR_EXPRESSIONS_IN_ARRAY_INITIALIZER, getAlignment(this.alignment_for_expressions_in_array_initializer));
 		options.put(DefaultCodeFormatterConstants.FORMATTER_ALIGNMENT_FOR_MULTIPLE_FIELDS, getAlignment(this.alignment_for_multiple_fields));
 		options.put(DefaultCodeFormatterConstants.FORMATTER_ALIGNMENT_FOR_PARAMETERS_IN_CONSTRUCTOR_DECLARATION, getAlignment(this.alignment_for_parameters_in_constructor_declaration));
@@ -319,6 +345,16 @@ public class DefaultCodeFormatterOptions {
 		options.put(DefaultCodeFormatterConstants.FORMATTER_BRACE_POSITION_FOR_METHOD_DECLARATION, this.brace_position_for_method_declaration);
 		options.put(DefaultCodeFormatterConstants.FORMATTER_BRACE_POSITION_FOR_TYPE_DECLARATION, this.brace_position_for_type_declaration);
 		options.put(DefaultCodeFormatterConstants.FORMATTER_BRACE_POSITION_FOR_SWITCH, this.brace_position_for_switch);
+		options.put(DefaultCodeFormatterConstants.FORMATTER_COMMENT_CLEAR_BLANK_LINES, this.comment_clear_blank_lines ? DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
+		options.put(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT, this.comment_format ? DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
+		options.put(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT_HEADER, this.comment_format_header ? DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
+		options.put(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT_HTML, this.comment_format_html ? DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
+		options.put(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT_SOURCE, this.comment_format_source ? DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
+		options.put(DefaultCodeFormatterConstants.FORMATTER_COMMENT_INDENT_PARAMETER_DESCRIPTION, this.comment_indent_parameter_description ? DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
+		options.put(DefaultCodeFormatterConstants.FORMATTER_COMMENT_INDENT_ROOT_TAGS, this.comment_indent_root_tags ? DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
+		options.put(DefaultCodeFormatterConstants.FORMATTER_COMMENT_INSERT_EMPTY_LINE_BEFORE_ROOT_TAGS, this.comment_insert_empty_line_before_root_tags ? JavaCore.INSERT : JavaCore.DO_NOT_INSERT);
+		options.put(DefaultCodeFormatterConstants.FORMATTER_COMMENT_INSERT_NEW_LINE_FOR_PARAMETER, this.comment_insert_new_line_for_parameter ? JavaCore.INSERT : JavaCore.DO_NOT_INSERT);
+		options.put(DefaultCodeFormatterConstants.FORMATTER_COMMENT_LINE_LENGTH, Integer.toString(this.comment_line_length));
 		options.put(DefaultCodeFormatterConstants.FORMATTER_CONTINUATION_INDENTATION, Integer.toString(this.continuation_indentation));
 		options.put(DefaultCodeFormatterConstants.FORMATTER_CONTINUATION_INDENTATION_FOR_ARRAY_INITIALIZER, Integer.toString(this.continuation_indentation_for_array_initializer));
 		options.put(DefaultCodeFormatterConstants.FORMATTER_BLANK_LINES_AFTER_IMPORTS, Integer.toString(this.blank_lines_after_imports));
@@ -340,6 +376,8 @@ public class DefaultCodeFormatterOptions {
 		options.put(DefaultCodeFormatterConstants.FORMATTER_INDENT_BREAKS_COMPARE_TO_CASES, this.indent_breaks_compare_to_cases ? DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
 		options.put(DefaultCodeFormatterConstants.FORMATTER_INDENT_SWITCHSTATEMENTS_COMPARE_TO_CASES, this.indent_switchstatements_compare_to_cases ? DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
 		options.put(DefaultCodeFormatterConstants.FORMATTER_INDENT_SWITCHSTATEMENTS_COMPARE_TO_SWITCH, this.indent_switchstatements_compare_to_switch ? DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
+		options.put(DefaultCodeFormatterConstants.FORMATTER_INDENTATION_SIZE, Integer.toString(this.indentation_size));
+		options.put(DefaultCodeFormatterConstants.FORMATTER_INSERT_NEW_LINE_AFTER_ANNOTATION, this.insert_new_line_after_annotation ? JavaCore.INSERT : JavaCore.DO_NOT_INSERT);
 		options.put(DefaultCodeFormatterConstants.FORMATTER_INSERT_NEW_LINE_AFTER_OPENING_BRACE_IN_ARRAY_INITIALIZER, this.insert_new_line_after_opening_brace_in_array_initializer? JavaCore.INSERT : JavaCore.DO_NOT_INSERT);
 		options.put(DefaultCodeFormatterConstants.FORMATTER_INSERT_NEW_LINE_AT_END_OF_FILE_IF_MISSING, this.insert_new_line_at_end_of_file_if_missing ? JavaCore.INSERT : JavaCore.DO_NOT_INSERT);
 		options.put(DefaultCodeFormatterConstants.FORMATTER_INSERT_NEW_LINE_BEFORE_CATCH_IN_TRY_STATEMENT, this.insert_new_line_before_catch_in_try_statement? JavaCore.INSERT : JavaCore.DO_NOT_INSERT);
@@ -514,8 +552,19 @@ public class DefaultCodeFormatterOptions {
 		options.put(DefaultCodeFormatterConstants.FORMATTER_NUMBER_OF_EMPTY_LINES_TO_PRESERVE, Integer.toString(this.number_of_empty_lines_to_preserve));
 		options.put(DefaultCodeFormatterConstants.FORMATTER_PUT_EMPTY_STATEMENT_ON_NEW_LINE, this.put_empty_statement_on_new_line ? DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
 		options.put(DefaultCodeFormatterConstants.FORMATTER_LINE_SPLIT, Integer.toString(this.page_width));
-		options.put(DefaultCodeFormatterConstants.FORMATTER_TAB_CHAR, this.use_tab ? JavaCore.TAB: JavaCore.SPACE);
+		switch(this.tab_char) {
+			case SPACE :
+				options.put(DefaultCodeFormatterConstants.FORMATTER_TAB_CHAR, JavaCore.SPACE);
+				break;
+			case TAB :
+				options.put(DefaultCodeFormatterConstants.FORMATTER_TAB_CHAR, JavaCore.TAB);
+				break;
+			case MIXED :
+				options.put(DefaultCodeFormatterConstants.FORMATTER_TAB_CHAR, DefaultCodeFormatterConstants.MIXED);
+				break;
+		}
 		options.put(DefaultCodeFormatterConstants.FORMATTER_TAB_SIZE, Integer.toString(this.tab_size));
+		options.put(DefaultCodeFormatterConstants.FORMATTER_USE_TABS_ONLY_FOR_LEADING_INDENTATIONS, this.use_tabs_only_for_leading_indentations ?  DefaultCodeFormatterConstants.TRUE : DefaultCodeFormatterConstants.FALSE);
 		return options;
 	}
 
@@ -598,6 +647,16 @@ public class DefaultCodeFormatterOptions {
 				this.alignment_for_conditional_expression = Alignment.M_ONE_PER_LINE_SPLIT;
 			} catch (ClassCastException e) {
 				this.alignment_for_conditional_expression = Alignment.M_ONE_PER_LINE_SPLIT;
+			}
+		}
+		final Object alignmentForEnumConstantsOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_ALIGNMENT_FOR_ENUM_CONSTANTS);
+		if (alignmentForEnumConstantsOption != null) {
+			try {
+				this.alignment_for_enum_constants = Integer.parseInt((String) alignmentForEnumConstantsOption);
+			} catch (NumberFormatException e) {
+				this.alignment_for_enum_constants = Alignment.NONE;
+			} catch (ClassCastException e) {
+				this.alignment_for_enum_constants = Alignment.NONE;
 			}
 		}
 		final Object alignmentForExpressionsInArrayInitializerOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_ALIGNMENT_FOR_EXPRESSIONS_IN_ARRAY_INITIALIZER);
@@ -922,6 +981,52 @@ public class DefaultCodeFormatterOptions {
 				this.blank_lines_at_beginning_of_method_body = 0;
 			}
 		}
+		final Object commentClearBlankLinesOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_CLEAR_BLANK_LINES);
+		if (commentClearBlankLinesOption != null) {
+			this.comment_clear_blank_lines = DefaultCodeFormatterConstants.TRUE.equals(commentClearBlankLinesOption);
+		}
+		final Object commentFormatOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT);
+		if (commentFormatOption != null) {
+			this.comment_format = DefaultCodeFormatterConstants.TRUE.equals(commentFormatOption);
+		}
+		final Object commentFormatHeaderOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT_HEADER);
+		if (commentFormatHeaderOption != null) {
+			this.comment_format_header = DefaultCodeFormatterConstants.TRUE.equals(commentFormatHeaderOption);
+		}
+		final Object commentFormatHtmlOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT_HTML);
+		if (commentFormatHtmlOption != null) {
+			this.comment_format_html = DefaultCodeFormatterConstants.TRUE.equals(commentFormatHtmlOption);
+		}
+		final Object commentFormatSourceOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT_SOURCE);
+		if (commentFormatSourceOption != null) {
+			this.comment_format_source = DefaultCodeFormatterConstants.TRUE.equals(commentFormatSourceOption);
+		}
+		final Object commentIndentParameterDescriptionOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_INDENT_PARAMETER_DESCRIPTION);
+		if (commentIndentParameterDescriptionOption != null) {
+			this.comment_indent_parameter_description = DefaultCodeFormatterConstants.TRUE.equals(commentIndentParameterDescriptionOption);
+		}
+		final Object commentIndentRootTagsOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_INDENT_ROOT_TAGS);
+		if (commentIndentRootTagsOption != null) {
+			this.comment_indent_root_tags = DefaultCodeFormatterConstants.TRUE.equals(commentIndentRootTagsOption);
+		}
+		final Object commentInsertEmptyLineBeforeRootTagsOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_INSERT_EMPTY_LINE_BEFORE_ROOT_TAGS);
+		if (commentInsertEmptyLineBeforeRootTagsOption != null) {
+			this.comment_insert_empty_line_before_root_tags = JavaCore.INSERT.equals(commentInsertEmptyLineBeforeRootTagsOption);
+		}
+		final Object commentInsertNewLineForParameterOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_INSERT_NEW_LINE_FOR_PARAMETER);
+		if (commentInsertNewLineForParameterOption != null) {
+			this.comment_insert_new_line_for_parameter = JavaCore.INSERT.equals(commentInsertNewLineForParameterOption);
+		}
+		final Object commentLineLengthOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_LINE_LENGTH);
+		if (commentLineLengthOption != null) {
+			try {
+				this.comment_line_length = Integer.parseInt((String) commentLineLengthOption);
+			} catch (NumberFormatException e) {
+				this.comment_line_length = 80;
+			} catch(ClassCastException e) {
+				this.comment_line_length = 80;
+			}
+		}
 		final Object indentStatementsCompareToBlockOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_INDENT_STATEMENTS_COMPARE_TO_BLOCK);
 		if (indentStatementsCompareToBlockOption != null) {
 			this.indent_statements_compare_to_block = DefaultCodeFormatterConstants.TRUE.equals(indentStatementsCompareToBlockOption);
@@ -953,6 +1058,20 @@ public class DefaultCodeFormatterOptions {
 		final Object indentSwitchstatementsCompareToSwitchOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_INDENT_SWITCHSTATEMENTS_COMPARE_TO_SWITCH);
 		if (indentSwitchstatementsCompareToSwitchOption != null) {
 			this.indent_switchstatements_compare_to_switch = DefaultCodeFormatterConstants.TRUE.equals(indentSwitchstatementsCompareToSwitchOption);
+		}
+		final Object indentationSizeOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_INDENTATION_SIZE);
+		if (indentationSizeOption != null) {
+			try {
+				this.indentation_size = Integer.parseInt((String) indentationSizeOption);
+			} catch (NumberFormatException e) {
+				this.indentation_size = 4;
+			} catch(ClassCastException e) {
+				this.indentation_size = 4;
+			}
+		}
+		final Object insertNewLineAfterAnnotationOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_INSERT_NEW_LINE_AFTER_ANNOTATION);
+		if (insertNewLineAfterAnnotationOption != null) {
+			this.insert_new_line_after_annotation = JavaCore.INSERT.equals(insertNewLineAfterAnnotationOption);
 		}
 		final Object insertNewLineAfterOpeningBraceInArrayInitializerOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_INSERT_NEW_LINE_AFTER_OPENING_BRACE_IN_ARRAY_INITIALIZER);
 		if (insertNewLineAfterOpeningBraceInArrayInitializerOption != null) {
@@ -1662,6 +1781,10 @@ public class DefaultCodeFormatterOptions {
 				this.tab_size = 4;
 			}
 		}
+		final Object useTabsOnlyForLeadingIndentationsOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_USE_TABS_ONLY_FOR_LEADING_INDENTATIONS);
+		if (useTabsOnlyForLeadingIndentationsOption != null) {
+			this.use_tabs_only_for_leading_indentations = DefaultCodeFormatterConstants.TRUE.equals(useTabsOnlyForLeadingIndentationsOption);
+		}
 		final Object pageWidthOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_LINE_SPLIT);
 		if (pageWidthOption != null) {
 			try {
@@ -1674,7 +1797,13 @@ public class DefaultCodeFormatterOptions {
 		}
 		final Object useTabOption = settings.get(DefaultCodeFormatterConstants.FORMATTER_TAB_CHAR);
 		if (useTabOption != null) {
-			this.use_tab = JavaCore.TAB.equals(useTabOption);
+			if (JavaCore.TAB.equals(useTabOption)) {
+				this.tab_char = TAB;
+			} else if (JavaCore.SPACE.equals(useTabOption)) {
+				this.tab_char = SPACE;
+			} else {
+				this.tab_char = MIXED;
+			}
 		}
 	}
 
@@ -1687,6 +1816,7 @@ public class DefaultCodeFormatterOptions {
 		this.alignment_for_binary_expression = Alignment.M_COMPACT_SPLIT;
 		this.alignment_for_compact_if = Alignment.M_ONE_PER_LINE_SPLIT | Alignment.M_INDENT_BY_ONE;
 		this.alignment_for_conditional_expression = Alignment.M_ONE_PER_LINE_SPLIT;
+		this.alignment_for_enum_constants = Alignment.NONE;
 		this.alignment_for_expressions_in_array_initializer = Alignment.M_COMPACT_SPLIT;
 		this.alignment_for_multiple_fields = Alignment.M_COMPACT_SPLIT;
 		this.alignment_for_parameters_in_constructor_declaration = Alignment.M_COMPACT_SPLIT;
@@ -1709,6 +1839,16 @@ public class DefaultCodeFormatterOptions {
 		this.brace_position_for_method_declaration = DefaultCodeFormatterConstants.END_OF_LINE;
 		this.brace_position_for_type_declaration = DefaultCodeFormatterConstants.END_OF_LINE;
 		this.brace_position_for_switch = DefaultCodeFormatterConstants.END_OF_LINE;
+		this.comment_clear_blank_lines = false;
+		this.comment_format = true;
+		this.comment_format_header = false;
+		this.comment_format_html = true;
+		this.comment_format_source = true;
+		this.comment_indent_parameter_description = true;
+		this.comment_indent_root_tags = true;
+		this.comment_insert_empty_line_before_root_tags = true;
+		this.comment_insert_new_line_for_parameter = true;
+		this.comment_line_length = 80;
 		this.continuation_indentation = 2;
 		this.continuation_indentation_for_array_initializer = 2;
 		this.blank_lines_after_imports = 0;
@@ -1730,6 +1870,8 @@ public class DefaultCodeFormatterOptions {
 		this.indent_breaks_compare_to_cases = true;
 		this.indent_switchstatements_compare_to_cases = true;
 		this.indent_switchstatements_compare_to_switch = true;
+		this.indentation_size = 4;
+		this.insert_new_line_after_annotation = true;
 		this.insert_new_line_after_opening_brace_in_array_initializer = false;
 		this.insert_new_line_at_end_of_file_if_missing = false;
 		this.insert_new_line_before_catch_in_try_statement = false;
@@ -1904,9 +2046,16 @@ public class DefaultCodeFormatterOptions {
 		this.put_empty_statement_on_new_line = false;
 		this.tab_size = 4;
 		this.page_width = 80;
-		this.use_tab = true; // see https://bugs.eclipse.org/bugs/show_bug.cgi?id=49081
+		this.tab_char = TAB; // see https://bugs.eclipse.org/bugs/show_bug.cgi?id=49081
+		this.use_tabs_only_for_leading_indentations = false;
 	}
 	
+	public void setEclipseDefaultSettings() {
+		setJavaConventionsSettings();
+		this.tab_char = TAB;
+		this.tab_size = 4;
+	}
+
 	public void setJavaConventionsSettings() {
 		this.alignment_for_arguments_in_allocation_expression = Alignment.M_COMPACT_SPLIT;
 		this.alignment_for_arguments_in_enum_constant = Alignment.M_COMPACT_SPLIT;
@@ -1916,6 +2065,7 @@ public class DefaultCodeFormatterOptions {
 		this.alignment_for_binary_expression = Alignment.M_COMPACT_SPLIT;
 		this.alignment_for_compact_if = Alignment.M_COMPACT_SPLIT;
 		this.alignment_for_conditional_expression = Alignment.M_NEXT_PER_LINE_SPLIT;
+		this.alignment_for_enum_constants = Alignment.NONE;
 		this.alignment_for_expressions_in_array_initializer = Alignment.M_COMPACT_SPLIT;
 		this.alignment_for_multiple_fields = Alignment.M_COMPACT_SPLIT;
 		this.alignment_for_parameters_in_constructor_declaration = Alignment.M_COMPACT_SPLIT;
@@ -1938,6 +2088,16 @@ public class DefaultCodeFormatterOptions {
 		this.brace_position_for_method_declaration = DefaultCodeFormatterConstants.END_OF_LINE;
 		this.brace_position_for_type_declaration = DefaultCodeFormatterConstants.END_OF_LINE;
 		this.brace_position_for_switch = DefaultCodeFormatterConstants.END_OF_LINE;
+		this.comment_clear_blank_lines = false;
+		this.comment_format = true;
+		this.comment_format_header = false;
+		this.comment_format_html = true;
+		this.comment_format_source = true;
+		this.comment_indent_parameter_description = true;
+		this.comment_indent_root_tags = true;
+		this.comment_insert_empty_line_before_root_tags = true;
+		this.comment_insert_new_line_for_parameter = true;
+		this.comment_line_length = 80;
 		this.continuation_indentation = 2;
 		this.continuation_indentation_for_array_initializer = 2;
 		this.blank_lines_after_imports = 1;
@@ -1959,6 +2119,8 @@ public class DefaultCodeFormatterOptions {
 		this.indent_breaks_compare_to_cases = true;
 		this.indent_switchstatements_compare_to_cases = true;
 		this.indent_switchstatements_compare_to_switch = false;
+		this.indentation_size = 4;
+		this.insert_new_line_after_annotation = true;
 		this.insert_new_line_after_opening_brace_in_array_initializer = false;
 		this.insert_new_line_at_end_of_file_if_missing = false;
 		this.insert_new_line_before_catch_in_try_statement = false;
@@ -2133,6 +2295,7 @@ public class DefaultCodeFormatterOptions {
 		this.put_empty_statement_on_new_line = true;
 		this.tab_size = 4;
 		this.page_width = 80;
-		this.use_tab = false;
+		this.tab_char = SPACE;
+		this.use_tabs_only_for_leading_indentations = false;
 	}
 }

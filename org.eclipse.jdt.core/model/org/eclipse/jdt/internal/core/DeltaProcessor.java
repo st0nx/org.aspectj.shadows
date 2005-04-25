@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -178,6 +178,7 @@ public class DeltaProcessor {
 	private final static int NON_JAVA_RESOURCE = -1;
 	public static boolean DEBUG = false;
 	public static boolean VERBOSE = false;
+	public static boolean PERF = false;
 
 	public static final int DEFAULT_CHANGE_EVENT = 0; // must not collide with ElementChangedEvent event masks
 
@@ -1423,7 +1424,15 @@ public class DeltaProcessor {
 						Util.log(exception, "Exception occurred in listener of Java element change notification"); //$NON-NLS-1$
 					}
 					public void run() throws Exception {
+						PerformanceStats stats = null;
+						if(PERF) {
+							stats = PerformanceStats.getStats(JavaModelManager.DELTA_LISTENER_PERF, listener);
+							stats.startRun();
+						}
 						listener.elementChanged(extraEvent);
+						if(PERF) {
+							stats.endRun();
+						}
 					}
 				});
 				if (VERBOSE) {
@@ -2369,7 +2378,8 @@ public class DeltaProcessor {
 						indexManager.addBinary(file, binaryFolderPath);
 						break;
 					case IResourceDelta.REMOVED :
-						indexManager.remove(file.getFullPath().toString(), binaryFolderPath);
+						String containerRelativePath = Util.relativePath(file.getFullPath(), binaryFolderPath.segmentCount());
+						indexManager.remove(containerRelativePath, binaryFolderPath);
 						break;
 				}
 				break;
@@ -2385,7 +2395,7 @@ public class DeltaProcessor {
 						indexManager.addSource(file, file.getProject().getFullPath());
 						break;
 					case IResourceDelta.REMOVED :
-						indexManager.remove(file.getFullPath().toString(), file.getProject().getFullPath());
+						indexManager.remove(Util.relativePath(file.getFullPath(), 1/*remove project segment*/), file.getProject().getFullPath());
 						break;
 				}
 		}

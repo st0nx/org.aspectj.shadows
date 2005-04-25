@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -15,7 +15,7 @@ import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.ISourceReference;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.internal.core.util.Util;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * This operation renames elements.
@@ -42,7 +42,7 @@ public RenameElementsOperation(IJavaElement[] elements, IJavaElement[] destinati
  * @see MultiOperation
  */
 protected String getMainTaskName() {
-	return Util.bind("operation.renameElementProgress"); //$NON-NLS-1$
+	return Messages.operation_renameElementProgress; 
 }
 /**
  * @see CopyElementsOperation#isRename()
@@ -79,12 +79,6 @@ protected void verify(IJavaElement element) throws JavaModelException {
 	if (elementType < IJavaElement.TYPE || elementType == IJavaElement.INITIALIZER)
 		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
 		
-	Member localContext;
-	if (element instanceof Member && (localContext = ((Member)element).getOuterMostLocalContext()) != null && localContext != element) {
-		// JDOM doesn't support source manipulation in local/anonymous types
-		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
-	}
-
 	verifyRenaming(element);
 }
 }

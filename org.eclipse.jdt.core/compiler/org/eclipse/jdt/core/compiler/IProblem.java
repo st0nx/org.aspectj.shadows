@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     IBM Corporation - added the following constants
@@ -72,7 +72,7 @@
  *     IBM Corporation - added the following constants
  *								   IllegalUsageOfQualifiedTypeReference
  *								   InvalidDigit
- ****************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core.compiler;
  
 import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
@@ -253,6 +253,12 @@ public interface IProblem {
 	/** @since 2.1 */
 	int EnclosingInstanceInConstructorCall = Internal + 28;
 	int AnonymousClassCannotExtendFinalClass = TypeRelated + 29;
+	/** @since 3.1 */
+	int CannotDefineAnnotationInLocalType = Internal + 30;
+	/** @since 3.1 */
+	int CannotDefineEnumInLocalType = Internal + 31;
+	/** @since 3.1 */
+	int NonStaticContextForEnumMemberType = Internal + 32;
 
 	// variables
 	int UndefinedName = 50;
@@ -415,7 +421,8 @@ public interface IProblem {
 	int SuperfluousSemicolon = Internal + 180;
 	/** @since 3.0 */
 	int UnnecessaryCast = Internal + TypeRelated + 181;
-	/** @since 3.0 */
+	/** @deprecated - no longer generated, simply treated as UnnecessaryCast
+	 *   @since 3.0 */
 	int UnnecessaryArgumentCast = Internal + TypeRelated + 182;
 	/** @since 3.0 */
 	int UnnecessaryInstanceof = Internal + TypeRelated + 183;	
@@ -512,8 +519,15 @@ public interface IProblem {
 	int UnterminatedComment = Syntax + Internal + 260;
 	/** @since 3.1 */
 	int InvalidDigit = Syntax + Internal + 262;	
+	/** @since 3.1 */
+	int InvalidLowSurrogate = Syntax + Internal + 263;
+	int InvalidHighSurrogate = Syntax + Internal + 264;
+	
 
 	// type related problems
+	/** @since 3.1 */
+	int DiscouragedReference = TypeRelated + 280;
+
 	int InterfaceCannotHaveInitializers = TypeRelated + 300;
 	int DuplicateModifierForType = TypeRelated + 301;
 	int IllegalModifierForClass = TypeRelated + 302;
@@ -860,13 +874,13 @@ public interface IProblem {
 	/** @since 3.1 */
 	int ReferenceToForwardTypeVariable = TypeRelated + 528;
     /** @since 3.1 */
-	int BoundsMustBeAnInterface = TypeRelated + 529;	
+	int BoundMustBeAnInterface = TypeRelated + 529;	
     /** @since 3.1 */
 	int UnsafeRawConstructorInvocation = TypeRelated + 530;
     /** @since 3.1 */
 	int UnsafeRawMethodInvocation = TypeRelated + 531;
     /** @since 3.1 */
-	int UnsafeRawConversion = TypeRelated + 532;
+	int UnsafeTypeConversion = TypeRelated + 532;
     /** @since 3.1 */
 	int InvalidTypeVariableExceptionType = TypeRelated + 533;
 	/** @since 3.1 */
@@ -933,7 +947,19 @@ public interface IProblem {
 	int BoundHasConflictingArguments = TypeRelated + 564;	
     /** @since 3.1 */
 	int DuplicateParameterizedMethods = MethodRelated + 565;
-
+	/** @since 3.1 */
+	int IllegalQualifiedParameterizedTypeAllocation = TypeRelated + 566;
+	/** @since 3.1 */
+	int DuplicateBounds = TypeRelated + 567;
+	/** @since 3.1 */
+	int BoundCannotBeArray = TypeRelated + 568;
+    /** @since 3.1 */
+	int UnsafeRawGenericConstructorInvocation = TypeRelated + 569;
+    /** @since 3.1 */
+	int UnsafeRawGenericMethodInvocation = TypeRelated + 570;
+	/** @since 3.1 */
+	int TypeParameterHidingType = TypeRelated + 571;
+	
 	/**
 	 * Foreach
 	 */
@@ -1012,10 +1038,22 @@ public interface IProblem {
 	/** @since 3.1 */
 	int DisallowedTargetForAnnotation = TypeRelated + 622;
 	/** @since 3.1 */
-	int MethodMustOverride = TypeRelated + 623;
+	int MethodMustOverride = MethodRelated + 623;
 	/** @since 3.1 */
 	int AnnotationTypeDeclarationCannotHaveConstructor = Syntax + Internal + 624;
-		
+	/** @since 3.1 */
+	int AnnotationValueMustBeAnnotation = Internal + 625;
+	/** @since 3.1 */
+	int AnnotationTypeUsedAsSuperInterface = TypeRelated + 626;
+	/** @since 3.1 */
+	int MissingOverrideAnnotation = MethodRelated + 627;
+	/** @since 3.1 */
+	int FieldMissingDeprecatedAnnotation = Internal + 628;
+	/** @since 3.1 */
+	int MethodMissingDeprecatedAnnotation = Internal + 629;
+	/** @since 3.1 */
+	int TypeMissingDeprecatedAnnotation = Internal + 630;
+	
 	/**
 	 * Corrupted binaries
 	 */
@@ -1051,7 +1089,13 @@ public interface IProblem {
 	int CannotInvokeSuperConstructorInEnum = MethodRelated + 757;
 	/** @since 3.1 */
 	int EnumAbstractMethodMustBeImplemented = MethodRelated + 758;
-
+	/** @since 3.1 */
+	int EnumSwitchCannotTargetField = FieldRelated + 759;
+	/** @since 3.1 */
+	int IllegalModifierForEnumConstructor = MethodRelated + 760;
+	/** @since 3.1 */
+	int MissingEnumConstantCase = FieldRelated + 761;
+	
 	/**
 	 * Var args
 	 */
@@ -1061,4 +1105,30 @@ public interface IProblem {
 	int MethodVarargsArgumentNeedCast = MethodRelated + 801;
 	/** @since 3.1 */
 	int ConstructorVarargsArgumentNeedCast = ConstructorRelated + 802;
+	/** @since 3.1 */
+	int VarargsConflict = MethodRelated + 803;
+	
+	/**
+	 * Javadoc Generic
+	 */
+	/** @since 3.1 */
+	int JavadocGenericMethodTypeArgumentMismatch = Javadoc + Internal + 850;
+	/** @since 3.1 */
+	int JavadocNonGenericMethod = Javadoc + Internal + 851;
+	/** @since 3.1 */
+	int JavadocIncorrectArityForParameterizedMethod = Javadoc + Internal + 852;
+	/** @since 3.1 */
+	int JavadocParameterizedMethodArgumentTypeMismatch = Javadoc + Internal + 853;
+	/** @since 3.1 */
+	int JavadocTypeArgumentsForRawGenericMethod = Javadoc + Internal + 854;
+	/** @since 3.1 */
+	int JavadocGenericConstructorTypeArgumentMismatch = Javadoc + Internal + 855;
+	/** @since 3.1 */
+	int JavadocNonGenericConstructor = Javadoc + Internal + 856;
+	/** @since 3.1 */
+	int JavadocIncorrectArityForParameterizedConstructor = Javadoc + Internal + 857;
+	/** @since 3.1 */
+	int JavadocParameterizedConstructorArgumentTypeMismatch = Javadoc + Internal + 858;
+	/** @since 3.1 */
+	int JavadocTypeArgumentsForRawGenericConstructor = Javadoc + Internal + 859;
 }

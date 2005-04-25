@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -41,6 +41,7 @@ import org.eclipse.jdt.internal.core.util.ASTNodeFinder;
 public final class SelectionEngine extends Engine implements ISearchRequestor {
 
 	public static boolean DEBUG = false;
+	public static boolean PERF = false;
 	
 	SelectionParser parser;
 	ISelectionRequestor requestor;
@@ -52,9 +53,13 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 	private char[] selectedIdentifier;
 	
 	private char[][][] acceptedClasses;
+	private int[] acceptedClassesModifiers;
 	private char[][][] acceptedInterfaces;
+	private int[] acceptedInterfacesModifiers;
 	private char[][][] acceptedEnums;
+	private int[] acceptedEnumsModifiers;
 	private char[][][] acceptedAnnotations;
+	private int[] acceptedAnnotationsModifiers;
 	int acceptedClassesCount;
 	int acceptedInterfacesCount;
 	int acceptedEnumsCount;
@@ -126,144 +131,96 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 		this.parser = new SelectionParser(problemReporter);
 	}
 
-	public void acceptAnnotation(char[] packageName, char[] typeName, int modifiers, AccessRestriction accessRestriction) {
+	public void acceptType(char[] packageName, char[] typeName, int modifiers, AccessRestriction accessRestriction) {
 		if (CharOperation.equals(typeName, this.selectedIdentifier)) {
 			if(mustQualifyType(packageName, typeName)) {
-				char[][] acceptedAnnotation = new char[2][];
-				acceptedAnnotation[0] = packageName;
-				acceptedAnnotation[1] = typeName;
-				
-				if(this.acceptedAnnotations == null) {
-					this.acceptedAnnotations = new char[10][][];
-					this.acceptedAnnotationsCount = 0;
+				int length = 0;
+				int kind = modifiers & (IConstants.AccInterface | IConstants.AccEnum | IConstants.AccAnnotation);
+				switch (kind) {
+					case IConstants.AccAnnotation:
+					case IConstants.AccAnnotation | IConstants.AccInterface:
+						char[][] acceptedAnnotation = new char[2][];
+						acceptedAnnotation[0] = packageName;
+						acceptedAnnotation[1] = typeName;
+						
+						if(this.acceptedAnnotations == null) {
+							this.acceptedAnnotations = new char[10][][];
+							this.acceptedAnnotationsModifiers = new int[10];
+							this.acceptedAnnotationsCount = 0;
+						}
+						length = this.acceptedAnnotations.length;
+						if(length == this.acceptedAnnotationsCount) {
+							int newLength = (length + 1)* 2;
+							System.arraycopy(this.acceptedAnnotations, 0, this.acceptedAnnotations = new char[newLength][][], 0, length);
+							System.arraycopy(this.acceptedAnnotationsModifiers, 0, this.acceptedAnnotationsModifiers = new int[newLength], 0, length);
+						}
+						this.acceptedAnnotationsModifiers[this.acceptedAnnotationsCount] = modifiers;
+						this.acceptedAnnotations[this.acceptedAnnotationsCount++] = acceptedAnnotation;
+						break;
+					case IConstants.AccEnum:
+						char[][] acceptedEnum = new char[2][];
+						acceptedEnum[0] = packageName;
+						acceptedEnum[1] = typeName;
+						
+						if(this.acceptedEnums == null) {
+							this.acceptedEnums = new char[10][][];
+							this.acceptedEnumsModifiers = new int[10];
+							this.acceptedEnumsCount = 0;
+						}
+						length = this.acceptedEnums.length;
+						if(length == this.acceptedEnumsCount) {
+							int newLength = (length + 1)* 2;
+							System.arraycopy(this.acceptedEnums, 0, this.acceptedEnums = new char[newLength][][], 0, length);
+							System.arraycopy(this.acceptedEnumsModifiers, 0, this.acceptedEnumsModifiers = new int[newLength], 0, length);
+						}
+						this.acceptedEnumsModifiers[this.acceptedEnumsCount] = modifiers;
+						this.acceptedEnums[this.acceptedEnumsCount++] = acceptedEnum;
+						break;
+					case IConstants.AccInterface:
+						char[][] acceptedInterface= new char[2][];
+						acceptedInterface[0] = packageName;
+						acceptedInterface[1] = typeName;
+						
+						if(this.acceptedInterfaces == null) {
+							this.acceptedInterfaces = new char[10][][];
+							this.acceptedInterfacesModifiers = new int[10];
+							this.acceptedInterfacesCount = 0;
+						}
+						length = this.acceptedInterfaces.length;
+						if(length == this.acceptedInterfacesCount) {
+							int newLength = (length + 1)* 2;
+							System.arraycopy(this.acceptedInterfaces, 0, this.acceptedInterfaces = new char[newLength][][], 0, length);
+							System.arraycopy(this.acceptedInterfacesModifiers, 0, this.acceptedInterfacesModifiers = new int[newLength], 0, length);
+						}
+						this.acceptedInterfacesModifiers[this.acceptedInterfacesCount] = modifiers;
+						this.acceptedInterfaces[this.acceptedInterfacesCount++] = acceptedInterface;
+						break;
+					default:
+						char[][] acceptedClass = new char[2][];
+						acceptedClass[0] = packageName;
+						acceptedClass[1] = typeName;
+						
+						if(this.acceptedClasses == null) {
+							this.acceptedClasses = new char[10][][];
+							this.acceptedClassesModifiers = new int[10];
+							this.acceptedClassesCount = 0;
+						}
+						length = this.acceptedClasses.length;
+						if(length == this.acceptedClassesCount) {
+							int newLength = (length + 1)* 2;
+							System.arraycopy(this.acceptedClasses, 0, this.acceptedClasses = new char[newLength][][], 0, length);
+							System.arraycopy(this.acceptedClassesModifiers, 0, this.acceptedClassesModifiers = new int[newLength], 0, length);
+						}
+						this.acceptedClassesModifiers[this.acceptedClassesCount] = modifiers;
+						this.acceptedClasses[this.acceptedClassesCount++] = acceptedClass;
+						break;
 				}
-				int length = this.acceptedAnnotations.length;
-				if(length == this.acceptedAnnotationsCount) {
-					System.arraycopy(this.acceptedAnnotations, 0, this.acceptedAnnotations = new char[(length + 1)* 2][][], 0, length);
-				}
-				this.acceptedAnnotations[this.acceptedAnnotationsCount++] = acceptedAnnotation;
-				
 			} else {
 				this.noProposal = false;
-				this.requestor.acceptAnnotation(
+				this.requestor.acceptType(
 					packageName,
 					typeName,
-					false,
-					null,
-					this.actualSelectionStart,
-					this.actualSelectionEnd);
-				this.acceptedAnswer = true;
-			}
-		}
-	}
-	
-	/**
-	 * One result of the search consists of a new class.
-	 * @param packageName char[]
-	 * @param className char[]
-	 * @param modifiers int
-	 *
-	 * NOTE - All package and type names are presented in their readable form:
-	 *    Package names are in the form "a.b.c".
-	 *    Nested type names are in the qualified form "A.M".
-	 *    The default package is represented by an empty array.
-	 */
-	public void acceptClass(char[] packageName, char[] className, int modifiers, AccessRestriction accessRestriction) {
-		if (CharOperation.equals(className, this.selectedIdentifier)) {
-			if(mustQualifyType(packageName, className)) {
-				char[][] acceptedClass = new char[2][];
-				acceptedClass[0] = packageName;
-				acceptedClass[1] = className;
-				
-				if(this.acceptedClasses == null) {
-					this.acceptedClasses = new char[10][][];
-					this.acceptedClassesCount = 0;
-				}
-				int length = this.acceptedClasses.length;
-				if(length == this.acceptedClassesCount) {
-					System.arraycopy(this.acceptedClasses, 0, this.acceptedClasses = new char[(length + 1)* 2][][], 0, length);
-				}
-				this.acceptedClasses[this.acceptedClassesCount++] = acceptedClass;
-				
-			} else {
-				this.noProposal = false;
-				this.requestor.acceptClass(
-					packageName,
-					className,
-					false,
-					null,
-					this.actualSelectionStart,
-					this.actualSelectionEnd);
-				this.acceptedAnswer = true;
-			}
-		}
-	}
-
-	public void acceptEnum(char[] packageName, char[] typeName, int modifiers, AccessRestriction accessRestriction) {
-		if (CharOperation.equals(typeName, this.selectedIdentifier)) {
-			if(mustQualifyType(packageName, typeName)) {
-				char[][] acceptedEnum = new char[2][];
-				acceptedEnum[0] = packageName;
-				acceptedEnum[1] = typeName;
-				
-				if(this.acceptedEnums == null) {
-					this.acceptedEnums = new char[10][][];
-					this.acceptedEnumsCount = 0;
-				}
-				int length = this.acceptedEnums.length;
-				if(length == this.acceptedEnumsCount) {
-					System.arraycopy(this.acceptedEnums, 0, this.acceptedEnums = new char[(length + 1)* 2][][], 0, length);
-				}
-				this.acceptedEnums[this.acceptedEnumsCount++] = acceptedEnum;
-				
-			} else {
-				this.noProposal = false;
-				this.requestor.acceptEnum(
-					packageName,
-					typeName,
-					false,
-					null,
-					this.actualSelectionStart,
-					this.actualSelectionEnd);
-				this.acceptedAnswer = true;
-			}
-		}
-	}
-	/**
-	 * One result of the search consists of a new interface.
-	 *
-	 * NOTE - All package and type names are presented in their readable form:
-	 *    Package names are in the form "a.b.c".
-	 *    Nested type names are in the qualified form "A.I".
-	 *    The default package is represented by an empty array.
-	 */
-	public void acceptInterface(
-		char[] packageName,
-		char[] interfaceName,
-		int modifiers,
-		AccessRestriction accessRestriction) {
-
-		if (CharOperation.equals(interfaceName, this.selectedIdentifier)) {
-			if(mustQualifyType(packageName, interfaceName)) {
-				char[][] acceptedInterface= new char[2][];
-				acceptedInterface[0] = packageName;
-				acceptedInterface[1] = interfaceName;
-				
-				if(this.acceptedInterfaces == null) {
-					this.acceptedInterfaces = new char[10][][];
-					this.acceptedInterfacesCount = 0;
-				}
-				int length = this.acceptedInterfaces.length;
-				if(length == this.acceptedInterfacesCount) {
-					System.arraycopy(this.acceptedInterfaces, 0, this.acceptedInterfaces = new char[(length + 1) * 2][][], 0, length);
-				}
-				this.acceptedInterfaces[this.acceptedInterfacesCount++] = acceptedInterface;
-				
-			} else {
-				this.noProposal = false;
-				this.requestor.acceptInterface(
-					packageName,
-					interfaceName,
+					modifiers,
 					false,
 					null,
 					this.actualSelectionStart,
@@ -290,60 +247,68 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 			this.acceptedAnswer = true;
 			for (int i = 0; i < this.acceptedClassesCount; i++) {
 				this.noProposal = false;
-				this.requestor.acceptClass(
+				this.requestor.acceptType(
 					this.acceptedClasses[i][0],
 					this.acceptedClasses[i][1],
+					this.acceptedClassesModifiers[i],
 					false,
 					null,
 					this.actualSelectionStart,
 					this.actualSelectionEnd);
 			}
 			this.acceptedClasses = null;
+			this.acceptedClassesModifiers = null;
 			this.acceptedClassesCount = 0;
 		}
 		if(this.acceptedInterfaces != null){
 			this.acceptedAnswer = true;
 			for (int i = 0; i < this.acceptedInterfacesCount; i++) {
 				this.noProposal = false;
-				this.requestor.acceptInterface(
+				this.requestor.acceptType(
 					this.acceptedInterfaces[i][0],
 					this.acceptedInterfaces[i][1],
+					this.acceptedInterfacesModifiers[i],
 					false,
 					null,
 					this.actualSelectionStart,
 					this.actualSelectionEnd);
 			}
 			this.acceptedInterfaces = null;
+			this.acceptedInterfacesModifiers = null;
 			this.acceptedInterfacesCount = 0;
 		}
 		if(this.acceptedAnnotations != null){
 			this.acceptedAnswer = true;
 			for (int i = 0; i < this.acceptedAnnotationsCount; i++) {
 				this.noProposal = false;
-				this.requestor.acceptAnnotation(
+				this.requestor.acceptType(
 					this.acceptedAnnotations[i][0],
 					this.acceptedAnnotations[i][1],
+					this.acceptedAnnotationsModifiers[i],
 					false,
 					null,
 					this.actualSelectionStart,
 					this.actualSelectionEnd);
 			}
 			this.acceptedAnnotations = null;
+			this.acceptedAnnotationsModifiers = null;
 			this.acceptedAnnotationsCount = 0;
 		}
 		if(this.acceptedEnums != null){
 			this.acceptedAnswer = true;
 			for (int i = 0; i < this.acceptedEnumsCount; i++) {
 				this.noProposal = false;
-				this.requestor.acceptEnum(
+				this.requestor.acceptType(
 					this.acceptedEnums[i][0],
 					this.acceptedEnums[i][1],
+					this.acceptedEnumsModifiers[i],
 					false,
 					null,
 					this.actualSelectionStart,
 					this.actualSelectionEnd);
 			}
 			this.acceptedEnums = null;
+			this.acceptedEnumsModifiers = null;
 			this.acceptedEnumsCount = 0;
 		}
 	}
@@ -367,7 +332,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 			int nextCharacterPosition = selectionStart;
 			char currentCharacter = ' ';
 			try {
-				while(currentPosition > 0){
+				lineLoop: while(currentPosition > 0){
 					
 					if(source[currentPosition] == '\\' && source[currentPosition+1] == 'u') {
 						int pos = currentPosition + 2;
@@ -393,8 +358,13 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 						nextCharacterPosition = currentPosition+1;
 					}
 					
-					if(currentCharacter == '\r' || currentCharacter == '\n') {
-						break;
+					switch(currentCharacter) {
+						case '\r':
+						case '\n':
+						case '/':
+						case '"':
+						case '\'':
+							break lineLoop;
 					}
 					currentPosition--;
 				}
@@ -410,14 +380,16 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 				} catch (InvalidInputException e) {
 					return false;
 				}
-				if((token == TerminalTokens.TokenNamethis ||
-					token == TerminalTokens.TokenNamesuper ||
-					token == TerminalTokens.TokenNameIdentifier) &&
-					scanner.startPosition <= selectionStart &&
-					selectionStart <= scanner.currentPosition) {
-					lastIdentifierStart = scanner.startPosition;
-					lastIdentifierEnd = scanner.currentPosition - 1;
-					lastIdentifier = scanner.getCurrentTokenSource();
+				switch (token) {
+					case TerminalTokens.TokenNamethis:
+					case TerminalTokens.TokenNamesuper:
+					case TerminalTokens.TokenNameIdentifier:
+						if (scanner.startPosition <= selectionStart && selectionStart <= scanner.currentPosition) {
+							lastIdentifierStart = scanner.startPosition;
+							lastIdentifierEnd = scanner.currentPosition - 1;
+							lastIdentifier = scanner.getCurrentTokenSource();
+						}
+						break;
 				}
 			} while (token != TerminalTokens.TokenNameEOF);
 		} else {
@@ -455,6 +427,10 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 							break;
 						case TerminalTokens.TokenNameLESS :
 							if(!checkTypeArgument(scanner))
+								return false;
+							break;
+						case TerminalTokens.TokenNameAT:
+							if(scanner.startPosition != scanner.initialPosition)
 								return false;
 							break;
 						default :
@@ -540,55 +516,6 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 		
 		return false;
 	}
-
-	private void completeLocalTypes(Binding binding){
-		switch(binding.kind()) {
-			case Binding.PARAMETERIZED_TYPE :
-			case Binding.RAW_TYPE :
-				ParameterizedTypeBinding parameterizedTypeBinding = (ParameterizedTypeBinding) binding;
-				this.completeLocalTypes(parameterizedTypeBinding.type);
-				TypeBinding[] args = parameterizedTypeBinding.arguments;
-				int length = args == null ? 0 : args.length;
-				for (int i = 0; i < length; i++) {
-					this.completeLocalTypes(args[i]);
-				}
-				break;
-			case Binding.TYPE :
-			case Binding.GENERIC_TYPE :
-				if(binding instanceof LocalTypeBinding) {
-					LocalTypeBinding localTypeBinding = (LocalTypeBinding) binding;
-					if(localTypeBinding.constantPoolName() == null) {
-						char[] constantPoolName = this.unitScope.computeConstantPoolName(localTypeBinding);
-						localTypeBinding.setConstantPoolName(constantPoolName);
-					}
-				}
-				TypeBinding typeBinding = (TypeBinding) binding;
-				ReferenceBinding enclosingType = typeBinding.enclosingType();
-				if(enclosingType != null) {
-					this.completeLocalTypes(enclosingType);
-				}
-				break;
-			case Binding.ARRAY_TYPE :
-				ArrayBinding arrayBinding = (ArrayBinding) binding;
-				this.completeLocalTypes(arrayBinding.leafComponentType);
-			case Binding.WILDCARD_TYPE :
-			case Binding.TYPE_PARAMETER :
-				break;	
-			case Binding.FIELD :
-				FieldBinding fieldBinding = (FieldBinding) binding;
-				this.completeLocalTypes(fieldBinding.declaringClass);
-				this.completeLocalTypes(fieldBinding.type);
-				break;	
-			case Binding.METHOD :
-				MethodBinding methodBinding = (MethodBinding) binding;
-				this.completeLocalTypes(methodBinding.returnType);
-				TypeBinding[] parameters = methodBinding.parameters;
-				for(int i = 0, max = parameters == null ? 0 : parameters.length; i < max; i++) {
-					this.completeLocalTypes(parameters[i]);
-				}
-				break;
-		}
-	}
 	
 	public AssistParser getParser() {
 		return this.parser;
@@ -638,8 +565,14 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 			System.out.println("SELECTION - Source :"); //$NON-NLS-1$
 			System.out.println(source);
 		}
-		if (!checkSelection(source, selectionSourceStart, selectionSourceEnd))
+		if (!checkSelection(source, selectionSourceStart, selectionSourceEnd)) {
 			return;
+		}
+		if (DEBUG) {
+			System.out.print("SELECTION - Checked : \""); //$NON-NLS-1$
+			System.out.print(new String(source, actualSelectionStart, actualSelectionEnd-actualSelectionStart+1));
+			System.out.println('"');
+		}
 		try {
 			this.acceptedAnswer = false;
 			CompilationResult result = new CompilationResult(sourceUnit, 1, 1, this.compilerOptions.maxProblemsPerUnit);
@@ -669,6 +602,23 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 							this.noProposal = false;
 							this.requestor.acceptPackage(CharOperation.concatWith(tokens, '.'));
 							this.nameEnvironment.findTypes(CharOperation.concatWith(tokens, '.'), this);
+							
+							if(importReference.isStatic()) {
+								this.lookupEnvironment.buildTypeBindings(parsedUnit, null /*no access restriction*/);
+								if ((this.unitScope = parsedUnit.scope) != null) {
+									int tokenCount = tokens.length;
+									char[] lastToken = tokens[tokenCount - 1];
+									char[][] qualifierTokens = CharOperation.subarray(tokens, 0, tokenCount - 1);
+									
+									Binding binding = this.unitScope.getTypeOrPackage(qualifierTokens);
+									if(binding != null && binding instanceof ReferenceBinding) {
+										ReferenceBinding ref = (ReferenceBinding) binding;
+										selectStaticFieldFromStaticImport(parsedUnit, lastToken, ref);
+										selectStaticMethodFromStaticImport(parsedUnit, lastToken, ref);
+									}
+								}
+							}
+							
 							// accept qualified types only if no unqualified type was accepted
 							if(!this.acceptedAnswer) {
 								acceptQualifiedTypes();
@@ -745,6 +695,52 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 		}
 	}
 
+	private void selectStaticFieldFromStaticImport(CompilationUnitDeclaration parsedUnit, char[] lastToken, ReferenceBinding ref) {
+		int fieldLength = lastToken.length;
+		FieldBinding[] fields = ref.fields();
+		next : for (int j = 0; j < fields.length; j++) {
+			FieldBinding field = fields[j];
+			
+			if (fieldLength > field.name.length)
+				continue next;
+			
+			if (field.isSynthetic())
+				continue next;
+
+			if (!field.isStatic())
+				continue next;
+
+			if (!CharOperation.equals(lastToken, field.name, true))
+				continue next;
+			
+			this.selectFrom(field, parsedUnit, false);
+		}
+	}
+	
+	private void selectStaticMethodFromStaticImport(CompilationUnitDeclaration parsedUnit, char[] lastToken, ReferenceBinding ref) {
+		int methodLength = lastToken.length;
+		MethodBinding[] methods = ref.methods();
+		next : for (int j = 0; j < methods.length; j++) {
+			MethodBinding method = methods[j];
+			
+			if (method.isSynthetic()) continue next;
+
+			if (method.isDefaultAbstract())	continue next;
+
+			if (method.isConstructor()) continue next;
+
+			if (!method.isStatic()) continue next;
+
+			if (methodLength > method.selector.length)
+				continue next;
+
+			if (!CharOperation.equals(lastToken, method.selector, true))
+				continue next;
+			
+			this.selectFrom(method, parsedUnit, false);
+		}
+	}
+
 	private void selectFrom(Binding binding, CompilationUnitDeclaration parsedUnit, boolean isDeclaration) {
 		if(binding instanceof TypeVariableBinding) {
 			TypeVariableBinding typeVariableBinding = (TypeVariableBinding) binding;
@@ -766,7 +762,9 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 				this.requestor.acceptMethodTypeParameter(
 					enclosingMethod.declaringClass.qualifiedPackageName(),
 					enclosingMethod.declaringClass.qualifiedSourceName(),
-					enclosingMethod.selector,
+					enclosingMethod.isConstructor()
+							? enclosingMethod.declaringClass.sourceName()
+							: enclosingMethod.selector,
 					enclosingMethod.sourceStart(),
 					enclosingMethod.sourceEnd(),
 					typeVariableBinding.sourceName(),
@@ -784,52 +782,18 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 			if (typeBinding == null) return;
 			if (isLocal(typeBinding) && this.requestor instanceof SelectionRequestor) {
 				this.noProposal = false;
-				if(typeBinding.isParameterizedType() || typeBinding.isRawType()) {
-					completeLocalTypes(typeBinding);
-				}
 				((SelectionRequestor)this.requestor).acceptLocalType(typeBinding);
 			} else {
 				this.noProposal = false;
-				
-				char[] genericTypeSignature = null;
-				if(typeBinding.isParameterizedType() || typeBinding.isRawType()) {
-					completeLocalTypes(typeBinding);
-					genericTypeSignature = typeBinding.computeUniqueKey();
-				}
-				if (typeBinding.isAnnotationType()) {
-					this.requestor.acceptAnnotation(
-						typeBinding.qualifiedPackageName(),
-						typeBinding.qualifiedSourceName(),
-						false,
-						genericTypeSignature,
-						this.actualSelectionStart,
-						this.actualSelectionEnd);
-				} else if (typeBinding.isInterface()) {
-					this.requestor.acceptInterface(
-						typeBinding.qualifiedPackageName(),
-						typeBinding.qualifiedSourceName(),
-						false,
-						genericTypeSignature,
-						this.actualSelectionStart,
-						this.actualSelectionEnd);
-				} else if (typeBinding.isEnum()) {
-					this.requestor.acceptEnum(
-						typeBinding.qualifiedPackageName(),
-						typeBinding.qualifiedSourceName(),
-						false,
-						genericTypeSignature,
-						this.actualSelectionStart,
-						this.actualSelectionEnd);
-				} else {
-					this.noProposal = false;
-					this.requestor.acceptClass(
-						typeBinding.qualifiedPackageName(),
-						typeBinding.qualifiedSourceName(),
-						false,
-						genericTypeSignature,
-						this.actualSelectionStart,
-						this.actualSelectionEnd);
-				}
+
+				this.requestor.acceptType(
+					typeBinding.qualifiedPackageName(),
+					typeBinding.qualifiedSourceName(),
+					typeBinding.modifiers,
+					false,
+					typeBinding.computeUniqueKey(),
+					this.actualSelectionStart,
+					this.actualSelectionEnd);
 			}
 			this.acceptedAnswer = true;
 		} else
@@ -848,16 +812,8 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 				this.noProposal = false;
 				ReferenceBinding declaringClass = methodBinding.declaringClass;
 				if (isLocal(declaringClass) && this.requestor instanceof SelectionRequestor) {
-					if(methodBinding instanceof ParameterizedMethodBinding) {
-						completeLocalTypes(methodBinding);
-					}
 					((SelectionRequestor)this.requestor).acceptLocalMethod(methodBinding);
 				} else {
-					char[] uniqueKey = null;
-					if(methodBinding instanceof ParameterizedMethodBinding) {
-						completeLocalTypes(methodBinding);
-						uniqueKey = methodBinding.computeUniqueKey();
-					}
 					this.requestor.acceptMethod(
 						declaringClass.qualifiedPackageName(),
 						declaringClass.qualifiedSourceName(),
@@ -870,7 +826,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 						parameterSignatures,
 						methodBinding.isConstructor(), 
 						isDeclaration,
-						uniqueKey,
+						methodBinding.computeUniqueKey(),
 						this.actualSelectionStart,
 						this.actualSelectionEnd);
 				}
@@ -882,22 +838,14 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 					if (declaringClass != null) { // arraylength
 						this.noProposal = false;
 						if (isLocal(declaringClass) && this.requestor instanceof SelectionRequestor) {
-							if(fieldBinding instanceof ParameterizedFieldBinding) {
-								completeLocalTypes(fieldBinding.declaringClass);
-							}
 							((SelectionRequestor)this.requestor).acceptLocalField(fieldBinding);
 						} else {
-							char[] uniqueKey = null;
-							if(fieldBinding instanceof ParameterizedFieldBinding) {
-								completeLocalTypes(fieldBinding.declaringClass);
-								uniqueKey = fieldBinding.computeUniqueKey();
-							}
 							this.requestor.acceptField(
 								declaringClass.qualifiedPackageName(),
 								declaringClass.qualifiedSourceName(),
 								fieldBinding.name,
 								false,
-								uniqueKey,
+								fieldBinding.computeUniqueKey(),
 								this.actualSelectionStart,
 								this.actualSelectionEnd);
 						}
@@ -1144,44 +1092,17 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 				qualifiedSourceName = CharOperation.concat(enclosingType.name, qualifiedSourceName, '.');
 				enclosingType = enclosingType.enclosingType;
 			}
-			switch (typeDeclaration.kind()) {
-				case IGenericType.CLASS_DECL :
-					this.requestor.acceptClass(
-						packageName,
-						qualifiedSourceName,
-						true,
-						null,
-						this.actualSelectionStart,
-						this.actualSelectionEnd);
-					break;
-				case IGenericType.INTERFACE_DECL :
-					this.requestor.acceptInterface(
-						packageName,
-						qualifiedSourceName,
-						true,
-						null,
-						this.actualSelectionStart,
-						this.actualSelectionEnd);
-					break;
-				case IGenericType.ENUM_DECL :
-					this.requestor.acceptEnum(
-						packageName,
-						qualifiedSourceName,
-						true,
-						null,
-						this.actualSelectionStart,
-						this.actualSelectionEnd);
-					break;
-				case IGenericType.ANNOTATION_TYPE_DECL :
-					this.requestor.acceptAnnotation(
-						packageName,
-						qualifiedSourceName,
-						true,
-						null,
-						this.actualSelectionStart,
-						this.actualSelectionEnd);
-					break;
-			}			
+			char[] uniqueKey = typeDeclaration.binding != null ? typeDeclaration.binding.computeUniqueKey() : null;
+			
+			this.requestor.acceptType(
+				packageName,
+				qualifiedSourceName,
+				typeDeclaration.modifiers,
+				true,
+				uniqueKey,
+				this.actualSelectionStart,
+				this.actualSelectionEnd);
+			
 			this.noProposal = false;
 			return true;
 		}
@@ -1200,13 +1121,13 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 					qualifiedSourceName = CharOperation.concat(enclosingType.name, qualifiedSourceName, '.');
 					enclosingType = enclosingType.enclosingType;
 				}
-				
+				FieldDeclaration field = fields[i];
 				this.requestor.acceptField(
 					packageName,
 					qualifiedSourceName,
-					fields[i].name,
+					field.name,
 					true,
-					null,
+					field.binding != null ? field.binding.computeUniqueKey() : null,
 					this.actualSelectionStart,
 					this.actualSelectionEnd);
 
@@ -1237,7 +1158,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 					null, // SelectionRequestor does not need of parameters type for method declaration
 					method.isConstructor(),
 					true,
-					null,
+					method.binding != null ? method.binding.computeUniqueKey() : null,
 					this.actualSelectionStart,
 					this.actualSelectionEnd);
 				

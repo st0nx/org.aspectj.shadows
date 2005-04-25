@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -55,14 +55,17 @@ class DocCommentParser extends AbstractCommentParser {
 		// Init
 		this.source = this.scanner.source;
 		this.lineEnds = this.scanner.lineEnds;
-		this.docComment = this.ast.newJavadoc();
+		this.docComment = new Javadoc(this.ast);
 		
 		// Parse
 		if (this.checkDocComment) {
-			commentParse(start, start+length-1);
+			this.javadocStart = start;
+			this.javadocEnd = start+length-1;
+			this.firstTagPosition = this.javadocStart;
+			commentParse();
 		}
 		this.docComment.setSourceRange(start, length);
-		if (this.ast.apiLevel == AST.JLS2) {
+		if (this.ast.apiLevel == AST.JLS2_INTERNAL) {
 			setComment(start, length);  // backward compatibility
 		}
 		return this.docComment;
@@ -88,7 +91,7 @@ class DocCommentParser extends AbstractCommentParser {
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#createArgumentReference(char[], java.lang.Object, int)
 	 */
-	protected Object createArgumentReference(char[] name, int dim, Object typeRef, long[] dimPositions, long argNamePos) throws InvalidInputException {
+	protected Object createArgumentReference(char[] name, int dim, boolean isVarargs, Object typeRef, long[] dimPositions, long argNamePos) throws InvalidInputException {
 		try {
 			MethodRefParameter argument = this.ast.newMethodRefParameter();
 			ASTNode node = (ASTNode) typeRef;
@@ -97,7 +100,8 @@ class DocCommentParser extends AbstractCommentParser {
 			if (dim > 0) argEnd = (int) dimPositions[dim-1];
 			if (argNamePos >= 0) argEnd = (int) argNamePos;
 			if (name.length != 0) {
-				SimpleName argName = this.ast.newSimpleName(new String(name));
+				final SimpleName argName = new SimpleName(this.ast);
+				argName.internalSetIdentifier(new String(name));
 				argument.setName(argName);
 				int argNameStart = (int) (argNamePos >>> 32);
 				argName.setSourceRange(argNameStart, argEnd-argNameStart+1);
@@ -114,7 +118,7 @@ class DocCommentParser extends AbstractCommentParser {
 				argType = this.ast.newSimpleType(argTypeName);
 				argType.setSourceRange(argStart, node.getLength());
 			}
-			if (dim > 0) {
+			if (dim > 0 && !isVarargs) {
 				for (int i=0; i<dim; i++) {
 					argType = this.ast.newArrayType(argType);
 					argType.setSourceRange(argStart, ((int) dimPositions[i])-argStart+1);
@@ -134,7 +138,8 @@ class DocCommentParser extends AbstractCommentParser {
 	protected Object createFieldReference(Object receiver) throws InvalidInputException {
 		try {
 			MemberRef fieldRef = this.ast.newMemberRef();
-			SimpleName fieldName = this.ast.newSimpleName(new String(this.identifierStack[0]));
+			SimpleName fieldName = new SimpleName(this.ast);
+			fieldName.internalSetIdentifier(new String(this.identifierStack[0]));
 			fieldRef.setName(fieldName);
 			int start = (int) (this.identifierPositionStack[0] >>> 32);
 			int end = (int) this.identifierPositionStack[0];
@@ -162,7 +167,8 @@ class DocCommentParser extends AbstractCommentParser {
 		try {
 			// Create method ref
 			MethodRef methodRef = this.ast.newMethodRef();
-			SimpleName methodName = this.ast.newSimpleName(new String(this.identifierStack[0]));
+			SimpleName methodName = new SimpleName(this.ast);
+			methodName.internalSetIdentifier(new String(this.identifierStack[0]));
 			methodRef.setName(methodName);
 			int start = (int) (this.identifierPositionStack[0] >>> 32);
 			int end = (int) this.identifierPositionStack[0];
@@ -266,7 +272,7 @@ class DocCommentParser extends AbstractCommentParser {
 		}
 		ASTNode typeRef = null;
 		if (primitiveToken == -1) {
-			typeRef = this.ast.newName(identifiers);
+			typeRef = this.ast.internalNewName(identifiers);
 		} else {
 			switch (primitiveToken) {
 				case TerminalTokens.TokenNamevoid :
@@ -308,16 +314,20 @@ class DocCommentParser extends AbstractCommentParser {
 		// Update references of each simple name
 		if (size > 1) {
 			Name name = (Name)typeRef;
-			for (int i=this.identifierPtr; i>pos; i--) {
+			int nameIndex = size;
+			for (int i=this.identifierPtr; i>pos; i--, nameIndex--) {
 				int s = (int) (this.identifierPositionStack[i] >>> 32);
 				int e = (int) this.identifierPositionStack[i];
+				name.index = nameIndex;
 				SimpleName simpleName = ((QualifiedName)name).getName();
+				simpleName.index = nameIndex;
 				simpleName.setSourceRange(s, e-s+1);
 				name.setSourceRange(start, e-start+1);
 				name =  ((QualifiedName)name).getQualifier();
 			}
 			int end = (int) this.identifierPositionStack[pos];
 			name.setSourceRange(start, end-start+1);
+			name.index = nameIndex;
 		} else {
 			int end = (int) this.identifierPositionStack[pos];
 			typeRef.setSourceRange(start, end-start+1);
@@ -343,12 +353,10 @@ class DocCommentParser extends AbstractCommentParser {
 		int token = readTokenAndConsume();
 		this.tagSourceStart = this.scanner.getCurrentTokenStartPosition();
 		this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
-		char[] tag = this.scanner.getCurrentIdentifierSource(); // first token is either an identifier or a keyword
 
 		// Try to get tag name other than java identifier
 		// (see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=51660)
 		int tk = token;
-		int le = this.lineEnd;
 		char pc = peekChar();
 		tagNameToken: while (tk != TerminalTokens.TokenNameEOF) {
 			this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
@@ -375,12 +383,11 @@ class DocCommentParser extends AbstractCommentParser {
 			pc = peekChar();
 		}
 		int length = this.tagSourceEnd-this.tagSourceStart+1;
-		tag = new char[length];
+		char[] tag = new char[length];
 		System.arraycopy(this.source, this.tagSourceStart, tag, 0, length);
 		this.index = this.tagSourceEnd+1;
 		this.scanner.currentPosition = this.tagSourceEnd+1;
 		this.tagSourceStart = previousPosition;
-		this.lineEnd = le;
 
 		// Decide which parse to perform depending on tag name
 		this.tagValue = NO_TAG_VALUE;
@@ -404,7 +411,9 @@ class DocCommentParser extends AbstractCommentParser {
 							// Note that for DOM_PARSER, nodes stack may be not empty even no '@' tag
 							// was encountered in comment. But it cannot be the case for COMPILER_PARSER
 							// and so is enough as it is only this parser which signals the missing tag warnings...
-							this.inherited = this.astPtr==-1;
+							if (this.astPtr==-1) {
+								this.inheritedPositions = (((long) this.tagSourceStart) << 32) + this.tagSourceEnd;
+							}
 							this.tagValue = TAG_INHERITDOC_VALUE;
 						} else {
 							this.tagValue = TAG_OTHERS_VALUE;
@@ -550,7 +559,8 @@ class DocCommentParser extends AbstractCommentParser {
 	 */
 	protected boolean pushParamName(boolean isTypeParam) {
 		int idIndex = isTypeParam ? 1 : 0;
-		SimpleName name = this.ast.newSimpleName(new String(this.identifierStack[idIndex]));
+		final SimpleName name = new SimpleName(this.ast);
+		name.internalSetIdentifier(new String(this.identifierStack[idIndex]));
 		int nameStart = (int) (this.identifierPositionStack[idIndex] >>> 32);
 		int nameEnd = (int) (this.identifierPositionStack[idIndex] & 0x00000000FFFFFFFFL);
 		name.setSourceRange(nameStart, nameEnd-nameStart+1);

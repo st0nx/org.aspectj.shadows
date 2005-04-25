@@ -1,10 +1,10 @@
 /*******************************************************************************
  * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -113,16 +113,28 @@ public FieldDeclaration updatedFieldDeclaration(){
 	if (this.anonymousTypes != null) {
 		if(fieldDeclaration.initialization == null) {
 			for (int i = 0; i < this.anonymousTypeCount; i++){
-				if (anonymousTypes[i].preserveContent){
-					fieldDeclaration.initialization = this.anonymousTypes[i].updatedTypeDeclaration().allocation;
+				RecoveredType recoveredType = anonymousTypes[i];
+				TypeDeclaration typeDeclaration = recoveredType.typeDeclaration;
+				if(typeDeclaration.declarationSourceEnd == 0) {
+					typeDeclaration.declarationSourceEnd = this.fieldDeclaration.declarationSourceEnd;
+					typeDeclaration.bodyEnd = this.fieldDeclaration.declarationSourceEnd;
+				}
+				if (recoveredType.preserveContent){
+					fieldDeclaration.initialization = recoveredType.updatedTypeDeclaration().allocation;
 				}
 			}
 			if (this.anonymousTypeCount > 0) fieldDeclaration.bits |= ASTNode.HasLocalTypeMASK;
 		} else if(fieldDeclaration.getKind() == AbstractVariableDeclaration.ENUM_CONSTANT) {
 			// fieldDeclaration is an enum constant
 			for (int i = 0; i < this.anonymousTypeCount; i++){
-				if (anonymousTypes[i].preserveContent){
-					this.anonymousTypes[i].updatedTypeDeclaration();
+				RecoveredType recoveredType = anonymousTypes[i];
+				TypeDeclaration typeDeclaration = recoveredType.typeDeclaration;
+				if(typeDeclaration.declarationSourceEnd == 0) {
+					typeDeclaration.declarationSourceEnd = this.fieldDeclaration.declarationSourceEnd;
+					typeDeclaration.bodyEnd = this.fieldDeclaration.declarationSourceEnd;
+				}
+				if (recoveredType.preserveContent){
+					recoveredType.updatedTypeDeclaration();
 				}
 			}
 		}

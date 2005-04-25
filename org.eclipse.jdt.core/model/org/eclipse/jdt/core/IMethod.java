@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     IBM Corporation - added J2SE 1.5 support
@@ -86,6 +86,17 @@ ITypeParameter[] getTypeParameters() throws JavaModelException;
  * @return the number of parameters of this method
  */
 int getNumberOfParameters();
+/**
+ * Returns the binding key for this method. A binding key is a key that uniquely
+ * identifies this method. It allows access to generic info for parameterized
+ * methods.
+ * 
+ * @return the binding key for this method
+ * @see org.eclipse.jdt.core.dom.IBinding#getKey()
+ * @see BindingKey
+ * @since 3.1
+ */
+String getKey();
 /**
  * Returns the names of parameters in this method.
  * For binary types, these names are invented as "arg"+i, where i starts at 1 
@@ -194,6 +205,14 @@ boolean isConstructor() throws JavaModelException;
  * @return true if this method is a main method, false otherwise
  */
 boolean isMainMethod() throws JavaModelException;
+/**
+ * Returns whether this method represents a resolved method.
+ * If a method is resoved, its key contains resolved information.
+ * 
+ * @return whether this method represents a resolved method.
+ * @since 3.1
+ */
+boolean isResolved();
 /**
  * Returns whether this method is similar to the given method.
  * Two methods are similar if:

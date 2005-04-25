@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -38,17 +38,6 @@ public BasicCompilationUnit(char[] contents, char[][] packageName, String fileNa
 	this.contents = contents;
 	this.fileName = fileName.toCharArray();
 	this.packageName = packageName;
-
-	int start = fileName.lastIndexOf("/") + 1; //$NON-NLS-1$
-	if (start == 0 || start < fileName.lastIndexOf("\\")) //$NON-NLS-1$
-		start = fileName.lastIndexOf("\\") + 1; //$NON-NLS-1$
-
-	int end = fileName.lastIndexOf("."); //$NON-NLS-1$
-	if (end == -1)
-		end = fileName.length();
-
-	this.mainTypeName = fileName.substring(start, end).toCharArray();
-	this.encoding = null;
 }
 
 public BasicCompilationUnit(char[] contents, char[][] packageName, String fileName, String encoding) {
@@ -115,6 +104,23 @@ public char[] getFileName() {
 	return this.fileName;
 }
 public char[] getMainTypeName() {
+	if (this.mainTypeName == null) {
+		int start = CharOperation.lastIndexOf('/', this.fileName) + 1;
+		if (start == 0 || start < CharOperation.lastIndexOf('\\', this.fileName))
+			start = CharOperation.lastIndexOf('\\', this.fileName) + 1;
+		int separator = CharOperation.indexOf('|', this.fileName) + 1;
+		if (separator > start) // case of a .class file in a default package in a jar
+			start = separator;
+	
+		int end = CharOperation.lastIndexOf('$', this.fileName);
+		if (end == -1) {
+			end = CharOperation.lastIndexOf('.', this.fileName);
+			if (end == -1)
+				end = this.fileName.length;
+		}
+	
+		this.mainTypeName = CharOperation.subarray(this.fileName, start, end);
+	}
 	return this.mainTypeName;
 }
 public char[][] getPackageName() {

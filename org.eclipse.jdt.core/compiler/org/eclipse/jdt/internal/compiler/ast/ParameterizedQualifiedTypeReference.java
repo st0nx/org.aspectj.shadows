@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -52,7 +52,7 @@ public class ParameterizedQualifiedTypeReference extends ArrayQualifiedTypeRefer
 			TypeBinding[] argTypes = parameterizedType.arguments;
 			if (argTypes != null && typeVariables != null) { // argTypes may be null in error cases
 				for (int i = 0, argLength = typeVariables.length; i < argLength; i++)
-				    if (!typeVariables[i].boundCheck(parameterizedType, argTypes[i]))
+				    if (typeVariables[i].boundCheck(parameterizedType, argTypes[i])  != TypeConstants.OK)
 						scope.problemReporter().typeMismatchError(argTypes[i], typeVariables[i], currentType, this.typeArguments[index][i]);
 			}
 		}
@@ -166,7 +166,9 @@ public class ParameterizedQualifiedTypeReference extends ArrayQualifiedTypeRefer
 						argTypes[j] = argType;
 					}			    
 				}
-				if (argHasError) return null;
+				if (argHasError) {
+					return null;
+				}
 // TODO (philippe)	if ((this.bits & ASTNode.IsSuperType) != 0)
 				if (isClassScope)
 					if (((ClassScope) scope).detectHierarchyCycle(currentType, this, argTypes))
@@ -186,13 +188,27 @@ public class ParameterizedQualifiedTypeReference extends ArrayQualifiedTypeRefer
 							this, scope.environment().createRawType((ReferenceBinding)currentType.erasure(), qualifiedType), argTypes);
 					typeIsConsistent = false;				
 				}
-				ParameterizedTypeBinding parameterizedType = scope.createParameterizedType((ReferenceBinding)currentType.erasure(), argTypes, qualifiedType);
-				// check argument type compatibility
-				if (checkBounds) // otherwise will do it in Scope.connectTypeVariables() or generic method resolution
-					for (int j = 0; j < argLength; j++)
-					    if (!typeVariables[j].boundCheck(parameterizedType, argTypes[j]))
-							scope.problemReporter().typeMismatchError(argTypes[j], typeVariables[j], currentType, args[j]);
-				qualifiedType = parameterizedType;
+				// if generic type X<T> is referred to as parameterized X<T>, then answer itself
+				boolean isIdentical = (qualifiedType == null) || (qualifiedType instanceof SourceTypeBinding);
+				if (isIdentical) {
+				    for (int j = 0; j < argLength; j++) {
+						if (typeVariables[j] != argTypes[j]) {
+							isIdentical = false;
+						    break;
+						}
+					}
+				}
+			    if (isIdentical) {
+			    	qualifiedType = (ReferenceBinding) currentType.erasure();
+			    } else {
+					ParameterizedTypeBinding parameterizedType = scope.createParameterizedType((ReferenceBinding)currentType.erasure(), argTypes, qualifiedType);
+					// check argument type compatibility
+					if (checkBounds) // otherwise will do it in Scope.connectTypeVariables() or generic method resolution
+						for (int j = 0; j < argLength; j++)
+						    if (typeVariables[j].boundCheck(parameterizedType, argTypes[j]) != TypeConstants.OK)
+								scope.problemReporter().typeMismatchError(argTypes[j], typeVariables[j], currentType, args[j]);
+					qualifiedType = parameterizedType;
+			    }
 		    } else {
 // TODO (philippe)	if ((this.bits & ASTNode.IsSuperType) != 0)
 				if (isClassScope)

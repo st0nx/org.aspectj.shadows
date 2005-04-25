@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v1.0
+ * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v10.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -25,11 +25,6 @@ protected FieldBinding() {
 public FieldBinding(char[] name, TypeBinding type, int modifiers, ReferenceBinding declaringClass, Constant constant) {
 	super(name, type, modifiers, constant);
 	this.declaringClass = declaringClass;
-
-	// propagate the deprecated modifier
-	if (this.declaringClass != null)
-		if (this.declaringClass.isViewedAsDeprecated() && !isDeprecated())
-			this.modifiers |= AccDeprecatedImplicitly;
 }
 public FieldBinding(FieldDeclaration field, TypeBinding type, int modifiers, ReferenceBinding declaringClass) {
 	this(field.name, type, modifiers, declaringClass, null);
@@ -82,8 +77,10 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 		
 		ReferenceBinding currentType = invocationType;
 		int depth = 0;
+		ReferenceBinding receiverErasure = (ReferenceBinding)receiverType.erasure();
+		ReferenceBinding declaringErasure = (ReferenceBinding) declaringClass.erasure();
 		do {
-			if (declaringClass.isSuperclassOf(currentType)) {
+			if (currentType.findSuperTypeErasingTo(declaringErasure) != null) {
 				if (invocationSite.isSuperAccess()){
 					return true;
 				}
@@ -95,7 +92,7 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 					if (depth > 0) invocationSite.setDepth(depth);
 					return true; // see 1FMEPDL - return invocationSite.isTypeAccess();
 				}
-				if (currentType == receiverType || currentType.isSuperclassOf((ReferenceBinding) receiverType)){
+				if (currentType == receiverErasure || receiverErasure.findSuperTypeErasingTo(currentType) != null){
 					if (depth > 0) invocationSite.setDepth(depth);
 					return true;
 				}
@@ -154,17 +151,43 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 }
 /*
  * declaringUniqueKey dot fieldName
- * p.X { X<T> x} --> Lp/X;.x;
+ * p.X { X<T> x} --> Lp/X;.x^123
  */
-public char[] computeUniqueKey() {
-	char[] declaringKey = this.declaringClass == null /*case of length field for an array*/ ? CharOperation.NO_CHAR : this.declaringClass.computeUniqueKey();
+public char[] computeUniqueKey(boolean withAccessFlags) {
+	// declaring key
+	char[] declaringKey = 
+		this.declaringClass == null /*case of length field for an array*/ 
+			? CharOperation.NO_CHAR 
+			: this.declaringClass.computeUniqueKey(false/*without access flags*/);
 	int declaringLength = declaringKey.length;
+	
+	// name
 	int nameLength = this.name.length;
-	char[] uniqueKey = new char[declaringLength + 1 + nameLength];
-	System.arraycopy(declaringKey, 0, uniqueKey, 0, declaringLength);
-	uniqueKey[declaringLength] = '.';
-	System.arraycopy(this.name, 0, uniqueKey, declaringLength + 1, nameLength);
-	return uniqueKey;
+	
+	if (withAccessFlags) {
+		// flags
+		String flags = Integer.toString(getAccessFlags());
+		int flagsLength = flags.length();
+	
+		char[] uniqueKey = new char[declaringLength + 1 + nameLength + 1 + flagsLength];
+		int index = 0;
+		System.arraycopy(declaringKey, 0, uniqueKey, index, declaringLength);
+		index += declaringLength;
+		uniqueKey[index++] = '.';
+		System.arraycopy(this.name, 0, uniqueKey, index, nameLength);
+		index += nameLength;
+		uniqueKey[index++] = '^';
+		flags.getChars(0, flagsLength, uniqueKey, index);
+		return uniqueKey;
+	} else {
+		char[] uniqueKey = new char[declaringLength + 1 + nameLength];
+		int index = 0;
+		System.arraycopy(declaringKey, 0, uniqueKey, index, declaringLength);
+		index += declaringLength;
+		uniqueKey[index++] = '.';
+		System.arraycopy(this.name, 0, uniqueKey, index, nameLength);
+		return uniqueKey;
+	}
 }
 /**
  * X<T> t   -->  LX<TT;>;
@@ -188,7 +211,8 @@ public long getAnnotationTagBits() {
 	if ((originalField.tagBits & TagBits.AnnotationResolved) == 0 && originalField.declaringClass instanceof SourceTypeBinding) {
 		TypeDeclaration typeDecl = ((SourceTypeBinding)originalField.declaringClass).scope.referenceContext;
 		FieldDeclaration fieldDecl = typeDecl.declarationOf(originalField);
-		ASTNode.resolveAnnotations(isStatic() ? typeDecl.staticInitializerScope : typeDecl.initializerScope, fieldDecl.annotations, originalField);
+		if (fieldDecl != null)
+			ASTNode.resolveAnnotations(isStatic() ? typeDecl.staticInitializerScope : typeDecl.initializerScope, fieldDecl.annotations, originalField);
 	}
 	return originalField.tagBits;
 }
@@ -251,8 +275,7 @@ public final boolean isTransient() {
 */
 
 public final boolean isViewedAsDeprecated() {
-	return (modifiers & AccDeprecated) != 0 ||
-		(modifiers & AccDeprecatedImplicitly) != 0;
+	return (modifiers & (AccDeprecated | AccDeprecatedImplicitly)) != 0;
 }
 /* Answer true if the receiver is a volatile field
 */
