@@ -7,10 +7,13 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
 import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.StringTokenizer;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -25,6 +28,7 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 import org.eclipse.jdt.internal.compiler.util.Messages;
 
+//AspectJ Extension - Added minimal support for extensible attributes
 /**
  * Represents a class file wrapper on bytes, it is aware of its actual
  * type name.
@@ -326,6 +330,10 @@ public class ClassFile
 	public SourceTypeBinding referenceBinding;
 	public long targetJDK;
 	
+    //  AspectJ Extension
+	public List/*<IAttribute>*/ extraAttributes = new ArrayList(1);
+	//  End AspectJ Extension
+
 	/**
 	 * INTERNAL USE-ONLY
 	 * This methods creates a new instance of the receiver.
@@ -400,15 +408,29 @@ public class ClassFile
 		contents[contentsOffset++] = (byte) (classNameIndex >> 8);
 		contents[contentsOffset++] = (byte) classNameIndex;
 		int superclassNameIndex;
+	    // AspectJ extension
+	     // Use the original superclass if it has been changed
+	     ReferenceBinding superclass = null;
+	     if (aType.originalSuperclass!=null) superclass=aType.originalSuperclass;
+	     else superclass=aType.superclass;
 		if (aType.isInterface()) {
 			superclassNameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangObjectConstantPoolName);
 		} else {
 			superclassNameIndex =
 				(aType.superclass == null ? 0 : constantPool.literalIndexForType(aType.superclass.constantPoolName()));
 		}
+        // End AspectJ extension
 		contents[contentsOffset++] = (byte) (superclassNameIndex >> 8);
 		contents[contentsOffset++] = (byte) superclassNameIndex;
-		ReferenceBinding[] superInterfacesBinding = aType.superInterfaces();
+//		 AspectJ extension
+	     // Use the original superinterfaces if the list has been changed
+	      ReferenceBinding[] superInterfacesBinding = null;
+	     if (aType.originalSuperInterfaces!=null) {
+	       superInterfacesBinding = aType.originalSuperInterfaces;   
+	     } else {
+	       superInterfacesBinding = aType.superInterfaces();
+	     }
+	     // End AspectJ extension		
 		int interfacesCount = superInterfacesBinding.length;
 		contents[contentsOffset++] = (byte) (interfacesCount >> 8);
 		contents[contentsOffset++] = (byte) interfacesCount;
@@ -644,6 +666,19 @@ public class ClassFile
 				}
 			}
 		}
+
+	    //  AspectJ Extension
+	    // write any "extraAttributes"
+	    if (extraAttributes != null) {
+	        for (int i=0, len=extraAttributes.size(); i < len; i++) {
+	            IAttribute attribute = (IAttribute)extraAttributes.get(i);
+	            short nameIndex = (short)constantPool.literalIndex(attribute.getNameChars());
+	            writeToContents(attribute.getAllBytes(nameIndex));
+	            attributeNumber++;
+	        }
+	    }
+	    //  End AspectJ Extension
+				
 		// update the number of attributes
 		if (attributeOffset + 2 >= this.contents.length) {
 			resizeContents(2);
@@ -3054,8 +3089,16 @@ public class ClassFile
 	}
 
 	public int generateMethodInfoAttribute(MethodBinding methodBinding) {
-		return generateMethodInfoAttribute(methodBinding, false);
+		// AspectJ Extension, added third parameter
+		return generateMethodInfoAttribute(methodBinding, false,null);
 	}
+
+	// AspectJ Extension, new stub to add third param
+	public int generateMethodInfoAttribute(MethodBinding methodBinding, boolean createProblemMethod) {
+		return generateMethodInfoAttribute(methodBinding,createProblemMethod,null);
+	}
+	// End AspectJ Extension
+	
 	/**
 	 * INTERNAL USE-ONLY
 	 * That method generates the attributes of a code attribute.
@@ -3069,7 +3112,8 @@ public class ClassFile
 	 * @param methodBinding org.eclipse.jdt.internal.compiler.lookup.MethodBinding
 	 * @return <CODE>int</CODE>
 	 */
-	public int generateMethodInfoAttribute(MethodBinding methodBinding, boolean createProblemMethod) {
+	// AspectJ Extension - added third parameter
+	public int generateMethodInfoAttribute(MethodBinding methodBinding, boolean createProblemMethod, List extraAttributes) {
 		// leave two bytes for the attribute_number
 		contentsOffset += 2;
 		// now we can handle all the attribute for that method info:
@@ -3183,8 +3227,33 @@ public class ClassFile
 				}
 			}
 		}
+		
+	      // AspectJ Extension
+	      if (extraAttributes != null) {
+	          for (int i=0, len = extraAttributes.size(); i < len; i++) {
+	              IAttribute attribute = (IAttribute)extraAttributes.get(i);
+	              short nameIndex = (short)constantPool.literalIndex(attribute.getNameChars());
+	              writeToContents(attribute.getAllBytes(nameIndex));
+	              attributeNumber++;
+	          }
+	      }
+	      // End AspectJ Extension
+
 		return attributeNumber;
 	}
+
+  // AspectJ Extension
+  void writeToContents(byte[] data) {
+      int N = data.length;
+	  if (contentsOffset + N >= this.contents.length) {
+			resizeContents(N);
+	  }
+      System.arraycopy(data,0,contents,contentsOffset,N);
+      contentsOffset += N;
+  }
+  // End AspectJ Extension    
+	  
+
 
 	public int generateMethodInfoAttribute(MethodBinding methodBinding, AnnotationMethodDeclaration declaration) {
 		int attributesNumber = generateMethodInfoAttribute(methodBinding);

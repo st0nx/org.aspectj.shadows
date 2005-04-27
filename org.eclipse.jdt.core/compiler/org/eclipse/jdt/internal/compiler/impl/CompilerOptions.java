@@ -177,6 +177,10 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final long IncompleteEnumSwitch = ASTNode.Bit42L;
 	public static final long MissingDeprecatedAnnotation = ASTNode.Bit43L;
 	public static final long DiscouragedReference = ASTNode.Bit44L;
+	// AspectJ Extension
+	// when picking up a later version of this class, if new constants have been added to 
+	// the above list, then AjCompilerOptions will need updating also.
+	// End AspectJ Extension
 	
 	// Default severity level for handlers
 	public long errorThreshold = 0;

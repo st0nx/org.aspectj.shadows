@@ -7,7 +7,8 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
@@ -17,6 +18,9 @@ import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
+/**
+ * AspectJ Extension - support for FieldBinding.alwaysNeedsAccessMethod
+ */
 public class FieldReference extends Reference implements InvocationSite {
 
 	public Expression receiver;
@@ -432,6 +436,16 @@ public class FieldReference extends Reference implements InvocationSite {
 	 */
 	public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo, boolean isReadAccess) {
 
+		// AspectJ Extension
+		//System.err.println("manage synthetic: " + this + " with " + binding + ", " + binding.getClass());
+		if (binding.alwaysNeedsAccessMethod(false)) {
+			if (syntheticAccessors == null) syntheticAccessors = new MethodBinding[2];
+			syntheticAccessors[isReadAccess ? READ : WRITE] = 
+				binding.getAccessMethod(isReadAccess);
+			this.codegenBinding = this.binding.original();
+			return;
+		}
+		// End AspectJ Extension
 		if (!flowInfo.isReachable()) return;
 		// if field from parameterized type got found, use the original field at codegen time
 		this.codegenBinding = this.binding.original();

@@ -7,7 +7,8 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -16,6 +17,9 @@ import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.codegen.ConstantPool;
 
+/**
+ * AspectJ Extension- hooks for subtypes
+ */
 public class MethodBinding extends Binding implements BaseTypes, TypeConstants {
 	
 	public int modifiers;
@@ -159,10 +163,11 @@ public final boolean areTypeVariableErasuresEqual(MethodBinding method) {
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
 
-public final boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
+//AspectJ Extension - made non-final
+public boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
 
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+	SourceTypeBinding invocationType = scope.invocationType(); // AspectJ Extension
 	if (invocationType == declaringClass) return true;
 
 	if (isProtected()) {
@@ -193,16 +198,39 @@ public final boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 	// isDefault()
 	return invocationType.fPackage == declaringClass.fPackage;
 }
+
+//AspectJ Extension
+public MethodBinding getVisibleBinding(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+	if (canBeSeenBy(receiverType, invocationSite, scope)) return this;
+	return findPrivilegedBinding(scope.invocationType(), (ASTNode)invocationSite);
+}
+
+public MethodBinding getVisibleBinding(InvocationSite invocationSite, Scope scope) {
+	if (canBeSeenBy(invocationSite, scope)) return this;
+	return findPrivilegedBinding(scope.invocationType(), (ASTNode)invocationSite);
+}
+
+
+public MethodBinding findPrivilegedBinding(SourceTypeBinding invocationType, ASTNode location) {
+	if (Scope.findPrivilegedHandler(invocationType) != null) {
+		return Scope.findPrivilegedHandler(invocationType).getPrivilegedAccessMethod(this, location); //notePrivilegedTypeAccess(this, null);
+	} else {
+		return null;
+	}
+}
+// End AspectJ Extension
+
 /* Answer true if the receiver is visible to the type provided by the scope.
 * InvocationSite implements isSuperAccess() to provide additional information
 * if the receiver is protected.
 *
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
-public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+//AspectJ Extension - made non-final
+public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
-
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+    //XXX invocation vs. source
+	SourceTypeBinding invocationType = scope.invocationType(); // AspectJ Extension
 	if (invocationType == declaringClass && invocationType == receiverType) return true;
 
 	if (isProtected()) {
@@ -214,7 +242,15 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 		if (invocationType == declaringClass) return true;
 		if (invocationType.fPackage == declaringClass.fPackage) return true;
 		
-		ReferenceBinding currentType = invocationType;
+		//	AspectJ Extension
+		// for protected we need to check based on the type of this
+		ReferenceBinding currentType = scope.enclosingSourceType();
+		// MUST be in the same package as the invocationType though... (pr 71723)
+		if (invocationType != currentType) {
+		    // this MUST be an ITD
+		    if (invocationType.fPackage != currentType.fPackage) return false;
+		}
+		//	End AspectJ Extension
 		TypeBinding receiverErasure = receiverType.erasure();		
 		ReferenceBinding declaringErasure = (ReferenceBinding) declaringClass.erasure();
 		int depth = 0;
@@ -703,6 +739,9 @@ public final int sourceEnd() {
 }
 public AbstractMethodDeclaration sourceMethod() {
 	SourceTypeBinding sourceType;
+	//	AspectJ Extension
+	if (declaringClass instanceof BinaryTypeBinding) return null;
+	//	End AspectJ Extension
 	try {
 		sourceType = (SourceTypeBinding) declaringClass;
 	} catch (ClassCastException e) {
@@ -721,6 +760,24 @@ public final int sourceStart() {
 		return 0;
 	return method.sourceStart;
 }
+
+	//AspectJ Extension	
+	/**
+	 * Subtypes can override this to return true if an access method should be
+	 * used when referring to this method binding.  Currently used
+	 * for AspectJ's inter-type method declarations.
+	 */
+	public boolean alwaysNeedsAccessMethod() { return false; }
+
+
+	/**
+	 * This will only be called if alwaysNeedsAccessMethod() returns true.
+	 * In that case it should return the access method to be used.
+	 */
+	public MethodBinding getAccessMethod(boolean staticReference) {
+		throw new RuntimeException("unimplemented");
+	}
+	//	End AspectJ Extension
 
 /* During private access emulation, the binding can be requested to loose its
  * private visibility when the class file is dumped.

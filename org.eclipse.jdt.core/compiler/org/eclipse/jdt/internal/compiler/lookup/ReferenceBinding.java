@@ -7,7 +7,8 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -25,6 +26,8 @@ Non-public fields have accessors which should be used everywhere you expect the 
 null is NOT a valid value for a non-public field... it just means the field is not initialized.
 */
 
+
+// AspectJ Extension - added hooks for more sophisticated field lookup
 abstract public class ReferenceBinding extends TypeBinding implements IDependent {
 	
 	public static ReferenceBinding LUB_GENERIC = new ReferenceBinding() { /* used for lub computation */};
@@ -64,7 +67,22 @@ public final boolean canBeSeenBy(PackageBinding invocationPackage) {
 /* Answer true if the receiver is visible to the receiverType and the invocationType.
 */
 
+//AspectJ Extension - replace original impl with this one
 public final boolean canBeSeenBy(ReferenceBinding receiverType, SourceTypeBinding invocationType) {
+	boolean ret = innerCanBeSeenBy(receiverType, invocationType);
+	if (ret) return true;
+
+	//System.err.println("trying to see: " + new String(sourceName));
+
+	if (Scope.findPrivilegedHandler(invocationType) != null) {
+		Scope.findPrivilegedHandler(invocationType).notePrivilegedTypeAccess(this, null);
+		return true;
+	}
+	return false;
+}
+
+private final boolean innerCanBeSeenBy(ReferenceBinding receiverType, SourceTypeBinding invocationType) {
+//	End AspectJ Extension	- this is the original impl
 	if (isPublic()) return true;
 
 	if (invocationType == this && invocationType == receiverType) return true;
@@ -147,13 +165,32 @@ public final boolean canBeSeenBy(ReferenceBinding receiverType, SourceTypeBindin
 
 public final boolean canBeSeenBy(Scope scope) {
 	
+//	AspectJ Extension - replace original impl with this one	
+	boolean ret = innerCanBeSeenBy(scope);
+	if (ret) return true;
+	
+	SourceTypeBinding invocationType = scope.invocationType();
+//	System.err.println("trying to see (scope): " + new String(sourceName) + 
+//			" from " + new String(invocationType.sourceName));
+
+
+	if (Scope.findPrivilegedHandler(invocationType) != null) {
+		//System.err.println("    is privileged!");
+		Scope.findPrivilegedHandler(invocationType).notePrivilegedTypeAccess(this, null);
+		return true;
+	}
+	return false;
+}
+		
+private final boolean innerCanBeSeenBy(Scope scope) {
+//	End AspectJ Extension	- this is the original impl
 	if (isPublic()) return true;
 
 	if (scope.kind == Scope.COMPILATION_UNIT_SCOPE){
 		return this.canBeSeenBy(((CompilationUnitScope)scope).fPackage);
 	}
 	
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+	SourceTypeBinding invocationType = scope.invocationType(); /*enclosingSourceType();*/ // AspectJ Extension
 	if (invocationType == this) return true;
 
 	if (isProtected()) {
@@ -561,6 +598,20 @@ public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes
 public FieldBinding getField(char[] fieldName, boolean needResolve) {
 	return null;
 }
+
+//AspectJ Extension
+/**
+ * Where multiple fields with the same name are defined, this will
+ * return the one most visible one...
+ * 
+ * Added for AspectJ to allow proper lookup with inter-type fields
+ */
+public FieldBinding getField(char[] fieldName, boolean resolve, InvocationSite site, Scope scope) {
+	return getField(fieldName, resolve);
+}
+// End AspectJ Extension
+
+
 /**
  * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
  */

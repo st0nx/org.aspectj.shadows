@@ -220,7 +220,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		
 		classFile.generateMethodInfoHeader(binding);
 		int methodAttributeOffset = classFile.contentsOffset;
-		int attributeNumber = classFile.generateMethodInfoAttribute(this.binding);
+		int attributeNumber = generateInfoAttributes(classFile);  // AspectJ Extension - moved to helper method
 		if ((!binding.isNative()) && (!binding.isAbstract())) {
 			
 			TypeDeclaration declaringType = classScope.referenceContext;
@@ -348,6 +348,10 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		ConstructorDeclaration targetConstructor = 
 			((ConstructorDeclaration)this.scope.referenceType().declarationOf(constructorCall.binding.original()));
 		if (this == targetConstructor) return true; // direct case
+
+		// AspectJ Extension
+		if (targetConstructor == null) return false; // aj fun
+		// End AspectJ Extension
 
 		if (visited == null) { // lazy allocation
 			visited = new ArrayList(1);
