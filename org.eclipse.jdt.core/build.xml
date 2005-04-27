@@ -1,5 +1,5 @@
 <project name="ShadowJdtCore" basedir="." default="make.jdtcore.jar">
-    <property name="eclipse.home" value="c:/colyerroot/programs/eclipse31m4/eclipse"/>
+    <property name="eclipse.home" value="c:/colyer/programs/eclipse31m6/eclipse"/>
     <property name="plugins.dir" value="${eclipse.home}/plugins"/>
     <property name="eclipse.version" value="3.1.0"/>
     <property name="plugins.src.dir" value="${plugins.dir}/org.eclipse.platform.source_${eclipse.version}/src"/>
@@ -10,27 +10,27 @@
         <jar destfile="lib/jdtDepends.jar">
             <zipfileset src="${plugins.dir}/org.eclipse.core.boot_3.0.0/boot.jar"/>
             <zipfileset src="${plugins.dir}/org.eclipse.core.resources_${eclipse.version}/resources.jar"/>
-            <zipfileset src="${plugins.dir}/org.eclipse.core.runtime_${eclipse.version}/runtime.jar"/>
-            <zipfileset src="${plugins.dir}/org.eclipse.osgi_${eclipse.version}/osgi.jar"/>
+            <zipfileset src="${plugins.dir}/org.eclipse.core.runtime_${eclipse.version}.jar"/>
+            <zipfileset src="${plugins.dir}/org.eclipse.osgi_${eclipse.version}.jar"/>
  <!--           <zipfileset src="${plugins.dir}/org.apache.xerces_4.0.13/xercesImpl.jar"/>
             <zipfileset src="${plugins.dir}/org.apache.xerces_4.0.13/xmlParserAPIs.jar"/> -->
 
             <zipfileset src="${plugins.dir}/org.eclipse.text_${eclipse.version}/text.jar"/>
-            <zipfileset src="${plugins.dir}/org.eclipse.core.runtime.compatibility_3.0.0/compatibility.jar"/>
+            <zipfileset src="${plugins.dir}/org.eclipse.core.runtime.compatibility_${eclipse.version}/compatibility.jar"/>
             <zipfileset src="${plugins.dir}/org.apache.ant_1.6.2/lib/ant.jar"/>
  <!--           <zipfileset src="${plugins.dir}/org.apache.ant_1.6.2/lib/optional.jar"/> -->
             
         </jar>
         <delete file="lib/jdtDepends-src.zip"/>
         <jar destfile="lib/jdtDepends-src.zip" update="true">
-<!--           <zipfileset src="${plugins.src.dir}/org.eclipse.core.boot_${eclipse.version}/bootsrc.zip"/> -->
-            <zipfileset src="${plugins.src.dir}/org.eclipse.core.resources_${eclipse.version}/resourcessrc.zip"/>
-            <zipfileset src="${plugins.src.dir}/org.eclipse.core.runtime_${eclipse.version}/runtimesrc.zip"/>
-            <zipfileset src="${plugins.src.dir}/org.eclipse.osgi_${eclipse.version}/osgisrc.zip"/>
+ <!--            <zipfileset src="${plugins.src.dir}/org.eclipse.core.boot_3.0.0/bootsrc.zip"/>  -->
+	         <zipfileset src="${plugins.src.dir}/org.eclipse.core.resources_${eclipse.version}/resourcessrc.zip"/> 
+             <zipfileset src="${plugins.src.dir}/org.eclipse.core.runtime_${eclipse.version}/src.zip"/> 
+             <zipfileset src="${plugins.src.dir}/org.eclipse.osgi_${eclipse.version}/src.zip"/> 
  <!--           <zipfileset src="${plugins.src.dir}/org.apache.xerces_4.0.13/xercessrc.zip"/> -->
 
             <zipfileset src="${plugins.src.dir}/org.eclipse.text_${eclipse.version}/textsrc.zip"/>
-            <zipfileset src="${plugins.src.dir}/org.eclipse.core.runtime.compatibility_3.0.0/compatibilitysrc.zip"/>
+            <zipfileset src="${plugins.src.dir}/org.eclipse.core.runtime.compatibility_3.1.0/compatibilitysrc.zip"/>
             <zipfileset src="${plugins.src.dir}/org.apache.ant_1.6.2/lib/antsrc.zip"/>
         </jar>
     </target>

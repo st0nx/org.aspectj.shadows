@@ -1,15 +1,48 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
-	<classpathentry output="antbin" kind="src" path="antadapter"/>
-	<classpathentry kind="src" path="batch"/>
-	<classpathentry kind="src" path="codeassist"/>
-	<classpathentry kind="src" path="compiler"/>
-	<classpathentry kind="src" path="dom"/>
-	<classpathentry kind="src" path="eval"/>
-	<classpathentry kind="src" path="formatter"/>
-	<classpathentry kind="src" path="model"/>
-	<classpathentry kind="src" path="search"/>
-	<classpathentry kind="con" path="org.eclipse.pde.core.requiredPlugins" excluding="**/internal/"/>
-	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry output="antbin" kind="src" path="antadapter">
+		<attributes>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="src" path="batch">
+		<attributes>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="src" path="codeassist">
+		<attributes>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="src" path="compiler">
+		<attributes>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="src" path="dom">
+		<attributes>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="src" path="eval">
+		<attributes>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="src" path="formatter">
+		<attributes>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="src" path="model">
+		<attributes>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="src" path="search">
+		<attributes>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER">
+		<attributes>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="lib" path="lib/jdtDepends.jar">
+		<attributes>
+		</attributes>
+	</classpathentry>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
