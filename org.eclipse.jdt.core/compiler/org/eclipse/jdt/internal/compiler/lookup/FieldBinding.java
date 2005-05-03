@@ -69,7 +69,7 @@ public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSi
 	if (isPublic()) return true;
 
 	SourceTypeBinding invocationType = scope.invocationType(); // AspectJ Extension
-	if (invocationType == declaringClass && invocationType == receiverType) return true;
+	if (invocationType == declaringClass && invocationType == invocationSite) return true;
 
 	if (isProtected()) {
 		// answer true if the invocationType is the declaringClass or they are in the same package

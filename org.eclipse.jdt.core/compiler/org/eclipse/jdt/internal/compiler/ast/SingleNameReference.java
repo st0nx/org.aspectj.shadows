@@ -658,8 +658,16 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 						&& fieldBinding.declaringClass.id != T_JavaLangObject) // no change for Object fields
 					|| !fieldBinding.declaringClass.canBeSeenBy(currentScope)) {
 		
+					// AspectJ Extension for inter-type scopes
+					if (fieldBinding.isStatic() && (fieldBinding.declaringClass.canBeSeenBy(currentScope))) {
+						ReferenceBinding rb = (ReferenceBinding) this.actualReceiverType.erasure();
+						FieldBinding b = rb.getField(token, false);
+						if (b == null) return;  // field was visible in inter-type scope and is not on actualReceiverType, don't muck about with it
+					}
+					// End AspectJ Extension
+					
 					this.codegenBinding = 
-					    currentScope.enclosingSourceType().getUpdatedFieldBinding(
+					    currentScope.enclosingSourceType().getUpdatedFieldBinding(  
 						       codegenField, 
 						        (ReferenceBinding)this.actualReceiverType.erasure());
 				}
@@ -693,6 +701,19 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 			this.actualReceiverType = scope.enclosingSourceType();
 			this.binding = scope.getBinding(token, bits & RestrictiveFlagMASK, this, true /*resolve*/);
 		}
+//		if (this.actualReceiverType != null) {
+//			this.binding = scope.getField(this.actualReceiverType, token, this);
+//		} else {
+//			// AspectJ Extension
+//			this.binding = scope.getBinding(token, bits & RestrictiveFlagMASK, this, true /*resolve*/);
+//			if (binding instanceof FieldBinding) {
+//				// itds can mean that the actual receiver type is not always the enclosing source type...
+//				this.actualReceiverType = ((FieldBinding)binding).declaringClass;
+//			} else {
+//				this.actualReceiverType = scope.enclosingSourceType();
+//			}
+//			// End AspectJ Extension
+//		}
 		this.codegenBinding = this.binding;
 		if (this.binding.isValidBinding()) {
 			switch (bits & RestrictiveFlagMASK) {

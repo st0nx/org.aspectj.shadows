@@ -417,7 +417,7 @@ public class ClassFile
 			superclassNameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangObjectConstantPoolName);
 		} else {
 			superclassNameIndex =
-				(aType.superclass == null ? 0 : constantPool.literalIndexForType(aType.superclass.constantPoolName()));
+				(superclass == null ? 0 : constantPool.literalIndexForType(superclass.constantPoolName()));
 		}
         // End AspectJ extension
 		contents[contentsOffset++] = (byte) (superclassNameIndex >> 8);

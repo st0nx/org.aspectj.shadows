@@ -760,6 +760,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		return buf.toString();
 	}
 
+	protected // AspectJ Extension
 	void updateSeverity(long irritant, Object severityString) {
 		if (ERROR.equals(severityString)) {
 			this.errorThreshold |= irritant;
