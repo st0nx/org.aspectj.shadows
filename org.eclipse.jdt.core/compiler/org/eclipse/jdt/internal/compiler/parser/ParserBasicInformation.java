@@ -25,22 +25,24 @@ package org.eclipse.jdt.internal.compiler.parser;
  */
 public interface ParserBasicInformation {
 
-	int ERROR_SYMBOL      = 117,
+    public final static int
+
+    ERROR_SYMBOL      = 117,
     MAX_NAME_LENGTH   = 41,
-    NUM_STATES        = 1072,
+    NUM_STATES        = 1074,
 
     NT_OFFSET         = 117,
     SCOPE_UBOUND      = 163,
     SCOPE_SIZE        = 164,
-    LA_STATE_OFFSET   = 15155,
+    LA_STATE_OFFSET   = 15218,
     MAX_LA            = 1,
-    NUM_RULES         = 844,
+    NUM_RULES         = 846,
     NUM_TERMINALS     = 117,
-    NUM_NON_TERMINALS = 359,
-    NUM_SYMBOLS       = 476,
-    START_STATE       = 880,
+    NUM_NON_TERMINALS = 360,
+    NUM_SYMBOLS       = 477,
+    START_STATE       = 886,
     EOFT_SYMBOL       = 75,
     EOLT_SYMBOL       = 75,
-    ACCEPT_ACTION     = 15154,
-    ERROR_ACTION      = 15155;
+    ACCEPT_ACTION     = 15217,
+    ERROR_ACTION      = 15218;
 }

@@ -312,6 +312,9 @@ ClassType -> ClassOrInterfaceType
 NameOrAj -> AjName
 NameOrAj -> Name
 
+SimpleNameOrAj -> AjSimpleName
+SimpleNameOrAj -> SimpleName
+
 AjName -> AjSimpleName
 AjName -> AjQualifiedName
 
@@ -2595,7 +2598,7 @@ MemberValuePairs ::= MemberValuePairs ',' MemberValuePair
 /:$readableName MemberValuePairs:/
 /:$compliance 1.5:/
 
-MemberValuePair ::= SimpleName '=' EnterMemberValue MemberValue ExitMemberValue
+MemberValuePair ::= SimpleNameOrAj '=' EnterMemberValue MemberValue ExitMemberValue  -- AspectJ Extension was SimpleName
 /.$putCase consumeMemberValuePair() ; $break ./
 /:$readableName MemberValuePair:/
 /:$compliance 1.5:/
