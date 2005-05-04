@@ -25,7 +25,7 @@ public class WeakHashSet {
 		}
 		public boolean equals(Object obj) {
 			if (!(obj instanceof HashableWeakReference)) return false;
-			Object referent = get();
+			Object referent = super.get();
 			Object other = ((HashableWeakReference) obj).get();
 			if (referent == null) return other == null;
 			return referent.equals(other);
@@ -34,7 +34,7 @@ public class WeakHashSet {
 			return this.hashCode;
 		}
 		public String toString() {
-			Object referent = get();
+			Object referent = super.get();
 			if (referent == null) return "[hashCode=" + this.hashCode + "] <referent was garbage collected>"; //$NON-NLS-1$  //$NON-NLS-2$
 			return "[hashCode=" + this.hashCode + "] " + referent.toString(); //$NON-NLS-1$ //$NON-NLS-2$
 		}
