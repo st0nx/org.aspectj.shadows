@@ -56,6 +56,7 @@
             <fileset dir="formatter"/>
             <fileset dir="model"/>
             <fileset dir="search"/>
+        	<fileset dir="aspectj"/>
         </jar> 
         <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj-src.zip" update="true">
             <zipfileset src="lib/jdtDepends-src.zip" excludes="org/apache/**,org/w3c/**,org/xml/**,org/eclipse/jface/**,org/eclipse/text/**,org/eclipse/osgi/**"/>
@@ -91,6 +92,7 @@
 		<antcall target="transformOneFolderToAJ"><param name="srcfolder" value="formatter"/></antcall>
 		<antcall target="transformOneFolderToAJ"><param name="srcfolder" value="model"/></antcall>
 		<antcall target="transformOneFolderToAJ"><param name="srcfolder" value="search"/></antcall>
+		<antcall target="transformOneFolderToAJ"><param name="srcfolder" value="aspectj"/></antcall>
 	</target>
 	
 	<target name="transformProjectFromORGASPECTJ"
@@ -104,6 +106,7 @@
 		<antcall target="transformOneFolderFromAJ"><param name="srcfolder" value="formatter"/></antcall>
 		<antcall target="transformOneFolderFromAJ"><param name="srcfolder" value="model"/></antcall>
 		<antcall target="transformOneFolderFromAJ"><param name="srcfolder" value="search"/></antcall>	
+		<antcall target="transformOneFolderFromAJ"><param name="srcfolder" value="aspectj"/></antcall>	
 	</target>
 	
     <target name="transformOneFolderToAJ" description="For source folder named in 'srcfolder' param, renames refs to org.aspectj.org.eclipse.jdt">
