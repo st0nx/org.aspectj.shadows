@@ -924,8 +924,10 @@ public class ClassScope extends Scope {
 			for (int i = 0, l = argTypes.length; i < l; i++) {
 				TypeBinding argType = argTypes[i].leafComponentType();
 				if ((argType.tagBits & BeginHierarchyCheck) == 0 && argType instanceof SourceTypeBinding)
-			    	// ensure if this is a source argument type that it has already been checked
-			    	((SourceTypeBinding) argType).scope.connectTypeHierarchyWithoutMembers();
+                    // AspectJ Extension, we hacked the hierarchy of BinaryTypeBinding and here we pay the price
+					if (! (argType instanceof BinaryTypeBinding)) 
+			    	  // ensure if this is a source argument type that it has already been checked
+			    	  ((SourceTypeBinding) argType).scope.connectTypeHierarchyWithoutMembers();
 			}
 		}
 
