@@ -4,6 +4,10 @@
 		<attributes>
 		</attributes>
 	</classpathentry>
+	<classpathentry kind="src" path="aspectj">
+		<attributes>
+		</attributes>
+	</classpathentry>
 	<classpathentry kind="src" path="batch">
 		<attributes>
 		</attributes>
@@ -41,6 +45,10 @@
 		</attributes>
 	</classpathentry>
 	<classpathentry kind="lib" path="lib/jdtDepends.jar">
+		<attributes>
+		</attributes>
+	</classpathentry>
+	<classpathentry kind="var" path="ASPECTJRT_LIB">
 		<attributes>
 		</attributes>
 	</classpathentry>
