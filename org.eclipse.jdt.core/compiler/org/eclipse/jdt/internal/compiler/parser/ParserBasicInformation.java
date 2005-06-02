@@ -29,20 +29,20 @@ public interface ParserBasicInformation {
 
     ERROR_SYMBOL      = 117,
     MAX_NAME_LENGTH   = 41,
-    NUM_STATES        = 1074,
+    NUM_STATES        = 1081,
 
     NT_OFFSET         = 117,
-    SCOPE_UBOUND      = 163,
-    SCOPE_SIZE        = 164,
-    LA_STATE_OFFSET   = 15218,
+    SCOPE_UBOUND      = 165,
+    SCOPE_SIZE        = 166,
+    LA_STATE_OFFSET   = 15072,
     MAX_LA            = 1,
-    NUM_RULES         = 846,
+    NUM_RULES         = 852,
     NUM_TERMINALS     = 117,
     NUM_NON_TERMINALS = 360,
     NUM_SYMBOLS       = 477,
-    START_STATE       = 886,
+    START_STATE       = 918,
     EOFT_SYMBOL       = 75,
     EOLT_SYMBOL       = 75,
-    ACCEPT_ACTION     = 15217,
-    ERROR_ACTION      = 15218;
+    ACCEPT_ACTION     = 15071,
+    ERROR_ACTION      = 15072;
 }

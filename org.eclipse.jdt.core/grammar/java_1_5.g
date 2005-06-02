@@ -702,6 +702,8 @@ InterTypeMethodHeader ::= InterTypeMethodHeaderName FormalParameterListopt Metho
 InterTypeMethodHeaderName ::= Modifiersopt Type OnType '.' JavaIdentifier '('
 /.$putCase consumeInterTypeMethodHeaderName(); $break ./
 
+InterTypeMethodHeaderName ::= Modifiersopt TypeParameters Type OnType '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderNameWithTypeParameters(); $break ./
 
 AbstractInterTypeMethodDeclaration ::= InterTypeMethodHeader ';'
 /.$putCase // set to false to consume a method without body
@@ -719,6 +721,8 @@ InterTypeConstructorHeader ::= InterTypeConstructorHeaderName FormalParameterLis
 InterTypeConstructorHeaderName ::= Modifiersopt Name '.' 'new' '('
 /.$putCase consumeInterTypeConstructorHeaderName(); $break ./
 
+InterTypeConstructorHeaderName ::= Modifiersopt TypeParameters Name '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderNameWithTypeParameters(); $break ./
 
 InterTypeFieldDeclaration ::= Modifiersopt Type OnType '.' ITDFieldVariableDeclarator ';'
 /.$putCase consumeInterTypeFieldDeclaration(); $break ./
@@ -813,6 +817,17 @@ PseudoToken ::= '@'
 PseudoToken ::= '...'
 /.$putCase consumePseudoToken("..."); $break ./
 
+PseudoToken ::= '?'
+/.$putCase consumePseudoToken("?"); $break ./
+
+PseudoToken ::= '<'
+/.$putCase consumePseudoToken("<"); $break ./
+
+PseudoToken ::= '>'
+/.$putCase consumePseudoToken(">"); $break ./
+
+PseudoToken ::= '&'
+/.$putCase consumePseudoToken("&"); $break ./
 
 PseudoToken ::= PrimitiveType
 /.$putCase consumePseudoTokenPrimitiveType(); $break ./
