@@ -894,4 +894,13 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 		} 
 		return NoTypeVariables;
 	}	
+	
+	// AspectJ extension - delegate to the source type (the generic type) as it has a memberFinder for resolving ITDd fields
+	public FieldBinding getField(char[] fieldName, boolean resolve, InvocationSite site, Scope scope) {
+		FieldBinding fb = null;
+        fb = super.getField(fieldName, resolve, site, scope); // Check this parameterized type
+		if (fb==null) fb = type.getField(fieldName,resolve,site,scope); // Not found? then check the generic type, this may discover ITDs
+		return fb;
+	}	
+	// End AspectJ extension
 }
