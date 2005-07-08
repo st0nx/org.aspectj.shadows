@@ -43,11 +43,12 @@ public class SourceTypeBinding extends ReferenceBinding {
     public TypeVariableBinding[] typeVariables;
 
   //  AspectJ Extension
- // These store the original superclass and superinterfaces.  This means if decp processing changes them,
- // we can still write out the original correct ones at code gen time.
+  
+  // These store the original superclass and superinterfaces.  This means if decp processing changes them,
+  // we can still write out the original correct ones at code gen time.
  
- public ReferenceBinding   originalSuperclass      = null;
- public ReferenceBinding[] originalSuperInterfaces = null;
+  public ReferenceBinding   originalSuperclass      = null;
+  public ReferenceBinding[] originalSuperInterfaces = null;
  
   public IPrivilegedHandler privilegedHandler = null;
   public IMemberFinder memberFinder = null;
@@ -615,6 +616,19 @@ public char[] genericTypeSignature() {
  * <T:LY<TT;>;U:Ljava/lang/Object;V::Ljava/lang/Runnable;:Ljava/lang/Cloneable;:Ljava/util/Map;>Ljava/lang/Exception;Ljava/lang/Runnable;
  */
 public char[] genericSignature() {
+	
+	// AspectJ Extension
+	// messy messy.  We need to use the 'originalSuperclass/SuperInterfaces' if there are any
+	// rather than what they might have become due to declare parents being applied.
+	// Unfortunately here this means changing 'this.superclass' and 'this.superInterfaces'
+	// through the rest of the method...
+	
+	// next 4 lines are new code, rest is changed from the original method body, marked 'AJ was'
+	ReferenceBinding supclass      = this.superclass;
+	ReferenceBinding[] supinterfaces = this.superInterfaces;
+	if (this.originalSuperclass!=null) supclass = this.originalSuperclass;
+	if (this.originalSuperInterfaces!=null) supinterfaces = this.originalSuperInterfaces;
+	
     StringBuffer sig = null;
 	if (this.typeVariables != NoTypeVariables) {
 	    sig = new StringBuffer(10);
@@ -624,21 +638,24 @@ public char[] genericSignature() {
 	    sig.append('>');
 	} else {
 	    // could still need a signature if any of supertypes is parameterized
-	    noSignature: if (this.superclass == null || !this.superclass.isParameterizedType()) {
-		    for (int i = 0, length = this.superInterfaces.length; i < length; i++)
-		        if (this.superInterfaces[i].isParameterizedType())
+	    noSignature: if (supclass/*AJ was this.superclass*/ == null || !supclass/*AJ was this.superclass*/.isParameterizedType()) {
+		    for (int i = 0, length = supinterfaces/*AJ was this.superInterfaces*/.length; i < length; i++)
+		        if (supinterfaces/*AJ was this.superInterfaces*/[i].isParameterizedType())
 					break noSignature;
 	        return null;
 	    }
 	    sig = new StringBuffer(10);
 	}
-	if (this.superclass != null)
-		sig.append(this.superclass.genericTypeSignature());
+	if (supclass/*AJ was this.superclass*/ != null)
+		sig.append(supclass/*AJ was this.superclass*/.genericTypeSignature());
 	else // interface scenario only (as Object cannot be generic) - 65953
 		sig.append(scope.getJavaLangObject().genericTypeSignature());
-    for (int i = 0, length = this.superInterfaces.length; i < length; i++)
-        sig.append(this.superInterfaces[i].genericTypeSignature());
+    for (int i = 0, length = supinterfaces/*AJ was this.superInterfaces*/.length; i < length; i++)
+        sig.append(supinterfaces/*AJ was this.superInterfaces*/[i].genericTypeSignature());
 	return sig.toString().toCharArray();
+
+	// End AspectJ Extension
+
 }
 /**
  * Compute the tagbits for standard annotations. For source types, these could require
