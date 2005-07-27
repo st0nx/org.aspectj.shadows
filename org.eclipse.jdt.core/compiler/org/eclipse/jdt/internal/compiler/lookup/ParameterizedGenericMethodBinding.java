@@ -450,7 +450,7 @@ public class ParameterizedGenericMethodBinding extends ParameterizedMethodBindin
 	
 	// AspectJ Extension
 	// delegate to the original method since it might be an intertypemethodbinding ...
-	public boolean alwaysNeedAccessMethod() { return originalMethod.alwaysNeedsAccessMethod(); }
+	public boolean alwaysNeedsAccessMethod() { return originalMethod.alwaysNeedsAccessMethod(); }
 	
 	public MethodBinding getAccessMethod(boolean staticReference) {
 		return originalMethod.getAccessMethod(staticReference);
