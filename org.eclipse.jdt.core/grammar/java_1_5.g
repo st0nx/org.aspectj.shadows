@@ -826,6 +826,14 @@ PseudoToken ::= '<'
 PseudoToken ::= '>'
 /.$putCase consumePseudoToken(">"); $break ./
 
+-- we never see the shift operator in pointcut expressions, we always want 2 > tokens instead
+PseudoToken ::= '>>'
+/.$putCase consumePseudoToken(">"); consumePseudoToken(">"); $break ./
+
+-- we never see the shift operator in pointcut expressions, we always want 3 > tokens instead
+PseudoToken ::= '>>>'
+/.$putCase consumePseudoToken(">"); consumePseudoToken(">"); consumePseudoToken(">"); $break ./
+
 PseudoToken ::= '&'
 /.$putCase consumePseudoToken("&"); $break ./
 
