@@ -700,10 +700,16 @@ InterTypeMethodHeader ::= InterTypeMethodHeaderName FormalParameterListopt Metho
 /.$putCase consumeInterTypeMethodHeader(); $break ./
 
 InterTypeMethodHeaderName ::= Modifiersopt Type OnType '.' JavaIdentifier '('
-/.$putCase consumeInterTypeMethodHeaderName(); $break ./
+/.$putCase consumeInterTypeMethodHeaderName(false,false); $break ./
+
+InterTypeMethodHeaderName ::= Modifiersopt Type OnType TypeParameters '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderName(false,true); $break ./
 
 InterTypeMethodHeaderName ::= Modifiersopt TypeParameters Type OnType '.' JavaIdentifier '('
-/.$putCase consumeInterTypeMethodHeaderNameWithTypeParameters(); $break ./
+/.$putCase consumeInterTypeMethodHeaderName(true,false); $break ./
+
+InterTypeMethodHeaderName ::= Modifiersopt TypeParameters Type OnType TypeParameters '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderName(true,true); $break ./
 
 AbstractInterTypeMethodDeclaration ::= InterTypeMethodHeader ';'
 /.$putCase // set to false to consume a method without body
@@ -719,20 +725,38 @@ InterTypeConstructorHeader ::= InterTypeConstructorHeaderName FormalParameterLis
 
 -- using Name instead of OnType to make jikespg happier
 InterTypeConstructorHeaderName ::= Modifiersopt Name '.' 'new' '('
-/.$putCase consumeInterTypeConstructorHeaderName(); $break ./
+/.$putCase consumeInterTypeConstructorHeaderName(false,false); $break ./
 
 InterTypeConstructorHeaderName ::= Modifiersopt TypeParameters Name '.' 'new' '('
-/.$putCase consumeInterTypeConstructorHeaderNameWithTypeParameters(); $break ./
+/.$putCase consumeInterTypeConstructorHeaderName(true,false); $break ./
 
-InterTypeFieldDeclaration ::= Modifiersopt Type OnType '.' ITDFieldVariableDeclarator ';'
+InterTypeConstructorHeaderName ::= Modifiersopt GenericType '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderName(false,true); $break ./
+
+InterTypeConstructorHeaderName ::= Modifiersopt TypeParameters GenericType '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderName(true,true); $break ./
+
+InterTypeFieldDeclaration ::= InterTypeFieldHeader InterTypeFieldBody ';'
 /.$putCase consumeInterTypeFieldDeclaration(); $break ./
 
-ITDFieldVariableDeclarator ::= JavaIdentifier EnterITDVariable InterTypeFieldBody
-/:$readableName ITDFieldVariableDeclarator:/
+InterTypeFieldHeader ::= Modifiersopt Type OnType '.' JavaIdentifier
+/.$putCase consumeInterTypeFieldHeader(false); $break ./
 
-EnterITDVariable ::= $empty
-/.$putCase consumeEnterITDVariable(); $break ./
-/:$readableName EnterITDVariable:/
+InterTypeFieldHeader ::= Modifiersopt Type OnType TypeParameters '.' JavaIdentifier
+/.$putCase consumeInterTypeFieldHeader(true); $break ./
+
+--InterTypeFieldDeclaration ::= Modifiersopt Type OnType '.' ITDFieldVariableDeclarator ';'
+--/.$putCase consumeInterTypeFieldDeclaration(); $break ./
+--
+--InterTypeFieldDeclaration ::= Modifiersopt Type OnType TypeParameters '.' ITDFieldVariableDeclarator ';'
+--/.$putCase consumeInterTypeFieldDeclarationWithTypeParameters(); $break ./
+--
+--ITDFieldVariableDeclarator ::= JavaIdentifier EnterITDVariable InterTypeFieldBody
+--/:$readableName ITDFieldVariableDeclarator:/
+--
+--EnterITDVariable ::= $empty
+--/.$putCase consumeEnterITDVariable(); $break ./
+--/:$readableName EnterITDVariable:/
 
 InterTypeFieldBody ::=  $empty
 /.$putCase consumeExitITDVariableWithoutInitializer(); $break ./
@@ -826,13 +850,11 @@ PseudoToken ::= '<'
 PseudoToken ::= '>'
 /.$putCase consumePseudoToken(">"); $break ./
 
--- we never see the shift operator in pointcut expressions, we always want 2 > tokens instead
 PseudoToken ::= '>>'
-/.$putCase consumePseudoToken(">"); consumePseudoToken(">"); $break ./
+/.$putCase consumePseudoToken(">>"); $break ./
 
--- we never see the shift operator in pointcut expressions, we always want 3 > tokens instead
 PseudoToken ::= '>>>'
-/.$putCase consumePseudoToken(">"); consumePseudoToken(">"); consumePseudoToken(">"); $break ./
+/.$putCase consumePseudoToken(">>>"); $break ./
 
 PseudoToken ::= '&'
 /.$putCase consumePseudoToken("&"); $break ./
