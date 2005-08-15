@@ -226,9 +226,11 @@ BooleanLiteral -> false
 -- keyword to appear at those points in the grammar.
 JavaIdentifier -> 'Identifier'
 JavaIdentifier -> AjSimpleName
+/:$readableName identifier:/
 
 JavaIdentifierNoAround -> 'Identifier'
 JavaIdentifierNoAround -> AjSimpleNameNoAround
+/:$readableName identifier:/
 -- End AspectJ Extension
 
 Type ::= PrimitiveType
@@ -311,14 +313,19 @@ ClassType -> ClassOrInterfaceType
 -- compatibility with existing Java applications.
 NameOrAj -> AjName
 NameOrAj -> Name
+/:$readableName name:/
 
 SimpleNameOrAj -> AjSimpleName
 SimpleNameOrAj -> SimpleName
+/:$readableName name:/
 
 AjName -> AjSimpleName
 AjName -> AjQualifiedName
+/:$readableName name:/
 
 AjSimpleName -> AjSimpleNameNoAround
+/:$readableName identifer:/
+
 AjSimpleNameNoAround -> 'aspect'
 AjSimpleNameNoAround -> 'privileged'
 AjSimpleNameNoAround -> 'pointcut'
@@ -326,9 +333,11 @@ AjSimpleName -> 'around'
 AjSimpleNameNoAround -> 'before'
 AjSimpleNameNoAround -> 'after'
 AjSimpleNameNoAround -> 'declare'
+/:$readableName identifier (aspect keywords permitted):/
 
 AjQualifiedName ::= AjName '.' SimpleName
 /.$putCase consumeQualifiedName(); $break ./
+/:$readableName qualified name:/
 -- End AspectJ Extension
 
 Name -> SimpleName
@@ -482,6 +491,7 @@ SimpleModifier -> 'synchronized'
 SimpleModifier -> 'transient'
 SimpleModifier -> 'volatile'
 SimpleModifier -> 'strictfp'
+/:$readableName Modifiers:/
 -- End AspectJ Extension, for LALR(1)
 Modifier -> SimpleModifier
 Modifier ::= Annotation
@@ -513,6 +523,7 @@ AspectDeclaration ::= AspectHeader AspectBody
 
 AspectHeader ::= AspectHeaderName ClassHeaderExtendsopt ClassHeaderImplementsopt AspectHeaderRest
 /.$putCase consumeAspectHeader(); $break ./
+/:$readableName aspect header:/
 
 AspectHeaderName -> AspectHeaderName1
 /:$readableName aspect header:/
@@ -528,9 +539,11 @@ AspectHeaderName ::= AspectHeaderName1 TypeParameters
 
 AspectHeaderName1 ::= Modifiersopt 'aspect' 'Identifier'
 /.$putCase consumeAspectHeaderName(false); $break ./
+/:$readableName aspect declaration:/
 
 AspectHeaderName2 ::= Modifiersopt 'privileged' Modifiersopt 'aspect' 'Identifier'
 /.$putCase consumeAspectHeaderName(true); $break ./
+/:$readableName privileged aspect declaration:/
 
 
 AspectHeaderRest ::= $empty
@@ -538,20 +551,23 @@ AspectHeaderRest ::= $empty
 --[dominates TypePattern] [persingleton() | percflow(PCD) | perthis(PCD) | pertarget(PCD)]
 AspectHeaderRest ::= AspectHeaderRestStart PseudoTokens
 /.$putCase consumeAspectHeaderRest(); $break ./
+/:$readableName per-clause:/
 
 AspectHeaderRestStart ::= 'Identifier'
 /.$putCase consumePseudoTokenIdentifier(); $break ./
-
+/:$readableName per-clause:/
 
 AspectBody ::= '{' AspectBodyDeclarationsopt '}'
+/:$readableName aspect body:/
 
 AspectBodyDeclarations ::= AspectBodyDeclaration
 AspectBodyDeclarations ::= AspectBodyDeclarations AspectBodyDeclaration
 /.$putCase consumeClassBodyDeclarations(); $break ./
-
+/:$readableName member declaration:/
 
 AspectBodyDeclarationsopt ::= $empty
 /.$putCase consumeEmptyClassBodyDeclarationsopt(); $break ./
+/:$readableName empty aspect body:/
 
 -- ??? why is NestedType here
 AspectBodyDeclarationsopt ::= NestedType AspectBodyDeclarations
@@ -560,6 +576,7 @@ AspectBodyDeclarationsopt ::= NestedType AspectBodyDeclarations
 
 AspectBodyDeclaration ::= ClassBodyDeclarationNoAroundMethod
 /.$putCase consumeClassBodyDeclarationInAspect(); $break ./
+/:$readableName aspect member declaration:/
 
 --*****************************************
 -- these rules are a copy of ClassBodyDeclaration rules, going down the member route until
@@ -623,6 +640,7 @@ MethodHeaderNameNoAround ::= Modifiersopt Type JavaIdentifierNoAround '('
 
 PointcutDeclaration ::= PointcutHeader FormalParameterListopt MethodHeaderRightParen ';'
 /.$putCase consumeEmptyPointcutDeclaration(); $break ./
+/:$readableName pointcut declaration:/
 
 PointcutDeclaration ::= PointcutHeader FormalParameterListopt MethodHeaderRightParen ':' PseudoTokens  ';'
 /.$putCase consumePointcutDeclaration(); $break ./
@@ -630,21 +648,24 @@ PointcutDeclaration ::= PointcutHeader FormalParameterListopt MethodHeaderRightP
 
 PointcutHeader ::= Modifiersopt 'pointcut'  JavaIdentifier '('
 /.$putCase consumePointcutHeader(); $break ./
-
-
+/:$readableName pointcut declaration:/
 
 AspectBodyDeclaration -> AroundDeclaration
 AspectBodyDeclaration -> BasicAdviceDeclaration
 
 AroundDeclaration ::= AroundHeader MethodBody
 /.$putCase consumeAroundDeclaration(); $break ./
+/:$readableName around advice:/
 
 AroundHeader ::= AroundHeaderName FormalParameterListopt MethodHeaderRightParen MethodHeaderThrowsClauseopt ':' PseudoTokens
 /.$putCase consumeAroundHeader(); $break ./
+/:$readableName around advice header:/
+
 
 -- no modifiers are actually allowed on around, but the grammar is happier this way
 AroundHeaderName ::= Modifiersopt Type  'around' '(' 
 /.$putCase consumeAroundHeaderName(); $break ./
+/:$readableName [modifiers] <return-type> around ( :/
 
 BasicAdviceDeclaration ::= BasicAdviceHeader MethodBody
 /.$putCase consumeBasicAdviceDeclaration(); $break ./
@@ -695,37 +716,47 @@ InterTypeMethodDeclaration -> AbstractInterTypeMethodDeclaration
 InterTypeMethodDeclaration ::= InterTypeMethodHeader MethodBody 
 /.$putCase // set to true to consume a method with a body
   consumeInterTypeMethodDeclaration(true);  $break ./
+/:$readableName inter-type method declaration:/
 
 InterTypeMethodHeader ::= InterTypeMethodHeaderName FormalParameterListopt MethodHeaderRightParen MethodHeaderExtendedDims MethodHeaderThrowsClauseopt
 /.$putCase consumeInterTypeMethodHeader(); $break ./
+/:$readableName inter-type method declaration header:/
 
 InterTypeMethodHeaderName ::= Modifiersopt Type OnType '.' JavaIdentifier '('
 /.$putCase consumeInterTypeMethodHeaderName(false,false); $break ./
 
-InterTypeMethodHeaderName ::= Modifiersopt Type OnType TypeParameters '.' JavaIdentifier '('
+InterTypeMethodHeaderName ::= Modifiersopt Type OnType TypeParametersAsReference '.' JavaIdentifier '('
 /.$putCase consumeInterTypeMethodHeaderName(false,true); $break ./
+/:$readableName inter-type method declaration header:/
 
 InterTypeMethodHeaderName ::= Modifiersopt TypeParameters Type OnType '.' JavaIdentifier '('
 /.$putCase consumeInterTypeMethodHeaderName(true,false); $break ./
 
-InterTypeMethodHeaderName ::= Modifiersopt TypeParameters Type OnType TypeParameters '.' JavaIdentifier '('
+InterTypeMethodHeaderName ::= Modifiersopt TypeParameters Type OnType TypeParametersAsReference '.' JavaIdentifier '('
 /.$putCase consumeInterTypeMethodHeaderName(true,true); $break ./
 
 AbstractInterTypeMethodDeclaration ::= InterTypeMethodHeader ';'
 /.$putCase // set to false to consume a method without body
   consumeInterTypeMethodDeclaration(false); $break ./
+/:$readableName abstract inter-type method declaration:/
 
+TypeParametersAsReference ::= TypeParameters
+/.$putCase convertTypeParametersToSingleTypeReferences(); $break ./
+/:$readableName type parameter list:/
 
 InterTypeConstructorDeclaration ::= InterTypeConstructorHeader MethodBody 
 /.$putCase // set to true to consume a method with a body
   consumeInterTypeConstructorDeclaration();  $break ./
+/:$readableName inter-type constructor declaration:/
 
 InterTypeConstructorHeader ::= InterTypeConstructorHeaderName FormalParameterListopt MethodHeaderRightParen MethodHeaderThrowsClauseopt
 /.$putCase consumeInterTypeConstructorHeader(); $break ./
+/:$readableName inter-type constructor declaration header:/
 
 -- using Name instead of OnType to make jikespg happier
 InterTypeConstructorHeaderName ::= Modifiersopt Name '.' 'new' '('
 /.$putCase consumeInterTypeConstructorHeaderName(false,false); $break ./
+/:$readableName inter-type constructor declaration header:/
 
 InterTypeConstructorHeaderName ::= Modifiersopt TypeParameters Name '.' 'new' '('
 /.$putCase consumeInterTypeConstructorHeaderName(true,false); $break ./
@@ -738,11 +769,13 @@ InterTypeConstructorHeaderName ::= Modifiersopt TypeParameters GenericType '.' '
 
 InterTypeFieldDeclaration ::= InterTypeFieldHeader InterTypeFieldBody ';'
 /.$putCase consumeInterTypeFieldDeclaration(); $break ./
+/:$readableName inter-type field declaration:/
 
 InterTypeFieldHeader ::= Modifiersopt Type OnType '.' JavaIdentifier
 /.$putCase consumeInterTypeFieldHeader(false); $break ./
+/:$readableName inter-type field declaration header:/
 
-InterTypeFieldHeader ::= Modifiersopt Type OnType TypeParameters '.' JavaIdentifier
+InterTypeFieldHeader ::= Modifiersopt Type OnType TypeParametersAsReference '.' JavaIdentifier
 /.$putCase consumeInterTypeFieldHeader(true); $break ./
 
 --InterTypeFieldDeclaration ::= Modifiersopt Type OnType '.' ITDFieldVariableDeclarator ';'
@@ -763,15 +796,19 @@ InterTypeFieldBody ::=  $empty
 
 InterTypeFieldBody ::= '=' ForceNoDiet VariableInitializer RestoreDiet
 /.$putCase consumeExitITDVariableWithInitializer(); $break ./
+/:$readableName field initialization expression:/
 
 -- declares (more fun than a pcd)
 AspectBodyDeclaration -> DeclareDeclaration
 
 DeclareDeclaration ::= DeclareHeader PseudoTokens ';'
 /.$putCase consumeDeclareDeclaration(); $break ./
+/:$readableName declare statement:/
 
 DeclareHeader ::= 'declare' 'Identifier' ':' 
 /.$putCase consumeDeclareHeader(); $break ./
+/:$readableName declare [error | warning | parents | soft | precedence]:/
+
 
 -- for declare annotation support
 DeclareDeclaration ::= DeclareAnnotationHeader PseudoTokensNoColon ':' Annotation ';'
@@ -779,10 +816,12 @@ DeclareDeclaration ::= DeclareAnnotationHeader PseudoTokensNoColon ':' Annotatio
 
 DeclareAnnotationHeader ::= 'declare' '@' 'Identifier' ':'
 /.$putCase consumeDeclareAnnotationHeader(); $break ./
+/:$readableName declare @AnnotationName:/
 
 -- the joy of pcds
 PseudoTokens ::= PseudoToken
 PseudoTokens ::= ColonPseudoToken
+/:$readableName type pattern or pointcut expression:/
 
 PseudoTokens ::= PseudoTokens ColonPseudoToken
 /.$putCase consumePseudoTokens(); $break ./
@@ -794,13 +833,17 @@ PseudoTokens ::= PseudoTokens PseudoToken
 PseudoTokensNoColon ::= PseudoToken
 PseudoTokensNoColon ::= PseudoTokensNoColon PseudoToken
 /.$putCase consumePseudoTokens(); $break ./
+/:$readableName allowable token in pointcut or type pattern:/
 
 
 ColonPseudoToken ::= ':'
 /.$putCase consumePseudoToken(":"); $break ./
+/:$readableName any allowable token in pointcut or type pattern, except ':':/
 
 PseudoToken ::= JavaIdentifier
 /.$putCase consumePseudoTokenIdentifier(); $break ./
+/:$readableName allowable token in pointcut or type pattern:/
+
 
 PseudoToken ::= '('
 /.$putCase consumePseudoToken("("); $break ./
