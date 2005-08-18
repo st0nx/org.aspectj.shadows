@@ -13,9 +13,6 @@ package org.eclipse.jdt.internal.compiler.ast;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.env.IConstants;
 import org.eclipse.jdt.internal.compiler.lookup.*;
-import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
-import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
-
 
 public class JavadocArgumentExpression extends Expression {
 	public char[] token;
@@ -51,7 +48,7 @@ public class JavadocArgumentExpression extends Expression {
 					scope.problemReporter().javadocDeprecatedType(this.resolvedType, typeRef, scope.getDeclarationModifiers());
 					return null;
 				}
-				return this.resolvedType = scope.convertToRawType(this.resolvedType);
+				return this.resolvedType = scope.environment().convertToRawType(this.resolvedType);
 			}
 		}
 		return null;
@@ -82,7 +79,7 @@ public class JavadocArgumentExpression extends Expression {
 	public TypeBinding resolveType(ClassScope scope) {
 		return internalResolveType(scope);
 	}
-	
+
 	/* (non-Javadoc)
 	 * Redefine to capture javadoc specific signatures
 	 * @see org.eclipse.jdt.internal.compiler.ast.ASTNode#traverse(org.eclipse.jdt.internal.compiler.ASTVisitor, org.eclipse.jdt.internal.compiler.lookup.BlockScope)

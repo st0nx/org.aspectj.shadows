@@ -152,8 +152,7 @@ public class BlockScope extends Scope {
 		if (methodScope.isStatic != binding.isStatic())
 			return false;
 		return methodScope.isInsideInitializer() // inside initializer
-				|| ((AbstractMethodDeclaration) methodScope.referenceContext)
-					.isInitializationMethod(); // inside constructor or clinit
+				|| ((AbstractMethodDeclaration) methodScope.referenceContext).isInitializationMethod(); // inside constructor or clinit
 	}
 	String basicToString(int tab) {
 		String newLine = "\n"; //$NON-NLS-1$
@@ -235,7 +234,7 @@ public class BlockScope extends Scope {
 				
 				// could be optimized out, but does need to preserve unread variables ?
 				if (!generateCurrentLocalVar) {
-					if (local.declaration != null && environment().options.preserveAllLocalVariables) {
+					if (local.declaration != null && compilerOptions().preserveAllLocalVariables) {
 						generateCurrentLocalVar = true; // force it to be preserved in the generated code
 						local.useFlag = LocalVariableBinding.USED;
 					}
@@ -320,7 +319,7 @@ public class BlockScope extends Scope {
 	 */
 	public final ReferenceBinding findLocalType(char[] name) {
 
-		long compliance = environment().options.complianceLevel;
+		long compliance = compilerOptions().complianceLevel;
 		for (int i = 0, length = subscopeCount; i < length; i++) {
 			if (subscopes[i] instanceof ClassScope) {
 				LocalTypeBinding sourceType = (LocalTypeBinding)((ClassScope) subscopes[i]).referenceContext.binding;
@@ -402,6 +401,7 @@ public class BlockScope extends Scope {
 						// must be a type if its the last name, otherwise we have no idea if its a package or type
 						return new ProblemReferenceBinding(
 							CharOperation.subarray(compoundName, 0, currentIndex),
+							null,
 							NotFound);
 					}
 					return new ProblemBinding(
@@ -412,6 +412,7 @@ public class BlockScope extends Scope {
 					if (!binding.isValidBinding())
 						return new ProblemReferenceBinding(
 							CharOperation.subarray(compoundName, 0, currentIndex),
+							null, // TODO should improve
 							binding.problemId());
 					if (!((ReferenceBinding) binding).canBeSeenBy(this))
 						return new ProblemReferenceBinding(
@@ -426,10 +427,12 @@ public class BlockScope extends Scope {
 			// It is illegal to request a PACKAGE from this method.
 			return new ProblemReferenceBinding(
 				CharOperation.subarray(compoundName, 0, currentIndex),
+				null,
 				NotFound);
 		}
 
 		// know binding is now a ReferenceBinding
+		binding = environment().convertToRawType((ReferenceBinding) binding);
 		while (currentIndex < length) {
 			ReferenceBinding typeBinding = (ReferenceBinding) binding;
 			char[] nextName = compoundName[currentIndex++];
@@ -438,7 +441,7 @@ public class BlockScope extends Scope {
 			if ((mask & Binding.FIELD) != 0 && (binding = findField(typeBinding, nextName, invocationSite, true /*resolve*/)) != null) {
 				if (!binding.isValidBinding())
 					return new ProblemFieldBinding(
-						((FieldBinding) binding).declaringClass,
+						(FieldBinding)binding,
 						CharOperation.subarray(compoundName, 0, currentIndex),
 						binding.problemId());
 				break; // binding is now a field
@@ -458,6 +461,7 @@ public class BlockScope extends Scope {
 			if (!binding.isValidBinding())
 				return new ProblemReferenceBinding(
 					CharOperation.subarray(compoundName, 0, currentIndex),
+					null, // TODO should improve
 					binding.problemId());
 		}
 		if ((mask & Binding.FIELD) != 0 && (binding instanceof FieldBinding)) {
@@ -465,7 +469,7 @@ public class BlockScope extends Scope {
 			FieldBinding field = (FieldBinding) binding;
 			if (!field.isStatic())
 				return new ProblemFieldBinding(
-					field.declaringClass,
+					field,
 					CharOperation.subarray(compoundName, 0, currentIndex),
 					NonStaticReferenceInStaticContext);
 			return binding;
@@ -505,6 +509,7 @@ public class BlockScope extends Scope {
 						// must be a type if its the last name, otherwise we have no idea if its a package or type
 						return new ProblemReferenceBinding(
 							CharOperation.subarray(compoundName, 0, currentIndex),
+							null,
 							NotFound);
 					}
 					return new ProblemBinding(
@@ -515,6 +520,7 @@ public class BlockScope extends Scope {
 					if (!binding.isValidBinding())
 						return new ProblemReferenceBinding(
 							CharOperation.subarray(compoundName, 0, currentIndex),
+							null, // TODO should improve
 							binding.problemId());
 					if (!((ReferenceBinding) binding).canBeSeenBy(this))
 						return new ProblemReferenceBinding(
@@ -534,12 +540,12 @@ public class BlockScope extends Scope {
 				if ((binding = findField(typeBinding, nextName, invocationSite, true /*resolve*/)) != null) {
 					if (!binding.isValidBinding())
 						return new ProblemFieldBinding(
-							((FieldBinding) binding).declaringClass,
+							(FieldBinding) binding,
 							CharOperation.subarray(compoundName, 0, currentIndex),
 							binding.problemId());
 					if (!((FieldBinding) binding).isStatic())
 						return new ProblemFieldBinding(
-							((FieldBinding) binding).declaringClass,
+							(FieldBinding) binding,
 							CharOperation.subarray(compoundName, 0, currentIndex),
 							NonStaticReferenceInStaticContext);
 					break foundField; // binding is now a field
@@ -552,6 +558,7 @@ public class BlockScope extends Scope {
 				if (!binding.isValidBinding())
 					return new ProblemReferenceBinding(
 						CharOperation.subarray(compoundName, 0, currentIndex),
+						null, // TODO should improve
 						binding.problemId());
 			}
 			return binding;
@@ -645,7 +652,7 @@ public class BlockScope extends Scope {
 
 		// use 'this' if possible
 		if (!currentMethodScope.isStatic && !currentMethodScope.isConstructorCall) {
-			if (sourceType == targetEnclosingType || (!onlyExactMatch && sourceType.findSuperTypeErasingTo(targetEnclosingType) != null)) {
+			if (sourceType == targetEnclosingType || (!onlyExactMatch && sourceType.findSuperTypeWithSameErasure(targetEnclosingType) != null)) {
 				return EmulationPathToImplicitThis; // implicit this is good enough
 			}
 		}
@@ -665,7 +672,7 @@ public class BlockScope extends Scope {
 				// reject allocation and super constructor call
 				if (denyEnclosingArgInConstructorCall
 						&& currentMethodScope.isConstructorCall 
-						&& (sourceType == targetEnclosingType || (!onlyExactMatch && sourceType.findSuperTypeErasingTo(targetEnclosingType) != null))) {
+						&& (sourceType == targetEnclosingType || (!onlyExactMatch && sourceType.findSuperTypeWithSameErasure(targetEnclosingType) != null))) {
 					return NoEnclosingInstanceInConstructorCall;
 				}
 				return new Object[] { syntheticArg };
@@ -684,7 +691,7 @@ public class BlockScope extends Scope {
 				if (enclosingArgument != null) {
 					FieldBinding syntheticField = sourceType.getSyntheticField(enclosingArgument);
 					if (syntheticField != null) {
-						if (syntheticField.type == targetEnclosingType || (!onlyExactMatch && ((ReferenceBinding)syntheticField.type).findSuperTypeErasingTo(targetEnclosingType) != null))
+						if (syntheticField.type == targetEnclosingType || (!onlyExactMatch && ((ReferenceBinding)syntheticField.type).findSuperTypeWithSameErasure(targetEnclosingType) != null))
 							return new Object[] { syntheticField };
 					}
 				}
@@ -717,7 +724,7 @@ public class BlockScope extends Scope {
 
 				//done?
 				if (currentType == targetEnclosingType
-					|| (!onlyExactMatch && currentType.findSuperTypeErasingTo(targetEnclosingType) != null))	break;
+					|| (!onlyExactMatch && currentType.findSuperTypeWithSameErasure(targetEnclosingType) != null))	break;
 
 				if (currentMethodScope != null) {
 					currentMethodScope = currentMethodScope.enclosingMethodScope();
@@ -741,7 +748,7 @@ public class BlockScope extends Scope {
 				currentType = currentEnclosingType;
 			}
 			if (currentType == targetEnclosingType
-				|| (!onlyExactMatch && currentType.findSuperTypeErasingTo(targetEnclosingType) != null)) {
+				|| (!onlyExactMatch && currentType.findSuperTypeWithSameErasure(targetEnclosingType) != null)) {
 				return path;
 			}
 		}

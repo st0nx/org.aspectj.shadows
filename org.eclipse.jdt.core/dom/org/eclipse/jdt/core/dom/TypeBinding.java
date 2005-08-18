@@ -50,6 +50,7 @@ import org.eclipse.jdt.internal.compiler.lookup.TypeVariableBinding;
 import org.eclipse.jdt.internal.compiler.lookup.WildcardBinding;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.ClassFile;
+import org.eclipse.jdt.internal.core.JavaElement;
 
 /**
  * Internal implementation of type bindings.
@@ -277,7 +278,7 @@ class TypeBinding implements ITypeBinding {
 			}
 		} else if (this.binding.isTypeVariable()) {
 			TypeVariableBinding typeVariableBinding = (TypeVariableBinding) this.binding;
-			Binding declaringElement = typeVariableBinding.declaringElement;
+			Binding declaringElement = typeVariableBinding.isCapture() ? ((CaptureBinding) typeVariableBinding).sourceType : typeVariableBinding.declaringElement;
 			if (declaringElement instanceof ReferenceBinding) {
 				try {
 					return this.resolver.getTypeBinding((ReferenceBinding)declaringElement);
@@ -366,23 +367,39 @@ class TypeBinding implements ITypeBinding {
 	}
 	
 	public IJavaElement getJavaElement() {
-		if (this.binding == null) 
+		JavaElement element = getUnresolvedJavaElement();
+		if (element == null)
 			return null;
-		switch (this.binding.kind()) {
+		return element.resolved(this.binding);
+	}
+	
+	private JavaElement getUnresolvedJavaElement() {
+		return getUnresolvedJavaElement(this.binding);
+	}
+	private JavaElement getUnresolvedJavaElement(org.eclipse.jdt.internal.compiler.lookup.TypeBinding typeBinding ) {
+		if (typeBinding == null) 
+			return null;
+		switch (typeBinding.kind()) {
 			case Binding.ARRAY_TYPE :
+				typeBinding = ((ArrayBinding) typeBinding).leafComponentType();
+				return getUnresolvedJavaElement(typeBinding);
 			case Binding.BASE_TYPE :
+			case Binding.WILDCARD_TYPE :
 				return null;
+			default :
+				if (typeBinding.isCapture()) 
+					return null;
 		}
 		ReferenceBinding referenceBinding;
-		if (this.binding.isParameterizedType() || this.binding.isRawType())
-			referenceBinding = (ReferenceBinding) this.binding.erasure();
+		if (typeBinding.isParameterizedType() || typeBinding.isRawType())
+			referenceBinding = (ReferenceBinding) typeBinding.erasure();
 		else
-			referenceBinding = (ReferenceBinding) this.binding;
+			referenceBinding = (ReferenceBinding) typeBinding;
 		char[] fileName = referenceBinding.getFileName();
 		if (Util.isClassFileName(fileName)) {
 			ClassFile classFile = (ClassFile) getClassFile(fileName);
 			if (classFile == null) return null;
-			return classFile.getType();
+			return (JavaElement) classFile.getType();
 		}
 		if (referenceBinding.isLocalType() || referenceBinding.isAnonymousType()) {
 			// local or anonymous type
@@ -393,7 +410,7 @@ class TypeBinding implements ITypeBinding {
 			ASTNode node = (ASTNode) bindingResolver.bindingsToAstNodes.get(this);
 			// must use getElementAt(...) as there is no back pointer to the defining method (scope is null after resolution has ended)
 			try {
-				return cu.getElementAt(node.getStartPosition());
+				return (JavaElement) cu.getElementAt(node.getStartPosition());
 			} catch (JavaModelException e) {
 				// does not exist
 				return null;
@@ -406,11 +423,11 @@ class TypeBinding implements ITypeBinding {
 			if (declaringElement instanceof MethodBinding) {
 				declaringTypeBinding = this.resolver.getMethodBinding((MethodBinding) declaringElement);
 				IMethod declaringMethod = (IMethod) declaringTypeBinding.getJavaElement();
-				return declaringMethod.getTypeParameter(typeVariableName);
+				return (JavaElement) declaringMethod.getTypeParameter(typeVariableName);
 			} else {
 				declaringTypeBinding = this.resolver.getTypeBinding((org.eclipse.jdt.internal.compiler.lookup.TypeBinding) declaringElement);
 				IType declaringType = (IType) declaringTypeBinding.getJavaElement();
-				return declaringType.getTypeParameter(typeVariableName);
+				return (JavaElement) declaringType.getTypeParameter(typeVariableName);
 			}
 		} else {
 			if (fileName == null) return null; // case of a WilCardBinding that doesn't have a corresponding Java element
@@ -420,12 +437,12 @@ class TypeBinding implements ITypeBinding {
 				// top level type
 				ICompilationUnit cu = getCompilationUnit(fileName);
 				if (cu == null) return null;
-				return cu.getType(new String(referenceBinding.sourceName()));
+				return (JavaElement) cu.getType(new String(referenceBinding.sourceName()));
 			} else {
 				// member type
 				IType declaringType = (IType) declaringTypeBinding.getJavaElement();
 				if (declaringType == null) return null;
-				return declaringType.getType(new String(referenceBinding.sourceName()));
+				return (JavaElement) declaringType.getType(new String(referenceBinding.sourceName()));
 			}
 		}
 	}
@@ -769,22 +786,29 @@ class TypeBinding implements ITypeBinding {
 	public ITypeBinding[] getTypeBounds() {
 		if (this.binding instanceof TypeVariableBinding) {
 			TypeVariableBinding typeVariableBinding = (TypeVariableBinding) this.binding;
-			int boundsNumber = 0;
-			ReferenceBinding superclass = typeVariableBinding.superclass();
-			if (superclass != null) {
-				boundsNumber++;
+			ReferenceBinding varSuperclass = typeVariableBinding.superclass();
+			org.eclipse.jdt.internal.compiler.lookup.TypeBinding firstClassOrArrayBound = typeVariableBinding.firstBound;
+			int boundsLength = 0;
+			if (firstClassOrArrayBound != null) {
+				if (firstClassOrArrayBound == varSuperclass) {
+					boundsLength++;
+				} else if (firstClassOrArrayBound.isArrayType()) { // capture of ? extends/super arrayType
+					boundsLength++;
+				} else {
+					firstClassOrArrayBound = null;
+				}
 			}
 			ReferenceBinding[] superinterfaces = typeVariableBinding.superInterfaces();
 			int superinterfacesLength = 0;
 			if (superinterfaces != null) {
 				superinterfacesLength = superinterfaces.length;
-				boundsNumber += superinterfacesLength;
+				boundsLength += superinterfacesLength;
 			}
-			if (boundsNumber != 0) {
-				ITypeBinding[] typeBounds = new ITypeBinding[boundsNumber];
+			if (boundsLength != 0) {
+				ITypeBinding[] typeBounds = new ITypeBinding[boundsLength];
 				int boundsIndex = 0;
-				if (superclass != null) {
-					typeBounds[boundsIndex++] = this.resolver.getTypeBinding(superclass);
+				if (firstClassOrArrayBound != null) {
+					typeBounds[boundsIndex++] = this.resolver.getTypeBinding(firstClassOrArrayBound);
 				}
 				if (superinterfaces != null) {
 					for (int i = 0; i < superinterfacesLength; i++, boundsIndex++) {
@@ -894,14 +918,17 @@ class TypeBinding implements ITypeBinding {
 		};
 		Scope scope = this.resolver.scope();
 		if (scope == null) return false;
-		return expression.checkCastTypesCompatibility(scope, this.binding, ((TypeBinding) type).binding, null);
+		org.eclipse.jdt.internal.compiler.lookup.TypeBinding expressionType = ((TypeBinding) type).binding;
+		// simulate capture in case checked binding did not properly get extracted from a reference
+		expressionType = expressionType.capture(scope, 0);
+		return expression.checkCastTypesCompatibility(scope, this.binding, expressionType, null);
 	}
 
 	/*
 	 * @see ITypeBinding#isClass()
 	 */
 	public boolean isClass() {
-		return this.binding.isClass() && !this.binding.isTypeVariable();
+		return this.binding.isClass() && !this.binding.isTypeVariable() && !this.binding.isWildcard();
 	}
 
 	/*
@@ -961,6 +988,28 @@ class TypeBinding implements ITypeBinding {
 			} else {
 				return !referenceBinding.isBinaryBinding();
 			}
+		} else if (isTypeVariable()) {
+			final TypeVariableBinding typeVariableBinding = (TypeVariableBinding) this.binding;
+			final Binding declaringElement = typeVariableBinding.declaringElement;
+			if (declaringElement instanceof MethodBinding) {
+				MethodBinding methodBinding = (MethodBinding) declaringElement;
+				return !methodBinding.declaringClass.isBinaryBinding();
+			} else {
+				final org.eclipse.jdt.internal.compiler.lookup.TypeBinding typeBinding = (org.eclipse.jdt.internal.compiler.lookup.TypeBinding) declaringElement;
+				if (typeBinding instanceof ReferenceBinding) {
+					return !((ReferenceBinding) typeBinding).isBinaryBinding();
+				} else if (typeBinding instanceof ArrayBinding) {
+					final ArrayBinding arrayBinding = (ArrayBinding) typeBinding;
+					final org.eclipse.jdt.internal.compiler.lookup.TypeBinding leafComponentType = arrayBinding.leafComponentType;
+					if (leafComponentType instanceof ReferenceBinding) {
+						return !((ReferenceBinding) leafComponentType).isBinaryBinding();
+					}
+				}
+			}
+			
+		} else if (isCapture()) {
+			CaptureBinding captureBinding = (CaptureBinding) this.binding;
+			return !captureBinding.sourceType.isBinaryBinding();
 		}
 		return false;
 	}
@@ -969,7 +1018,7 @@ class TypeBinding implements ITypeBinding {
 	 * @see ITypeBinding#isInterface()
 	 */
 	public boolean isInterface() {
-		return this.binding.isInterface();
+		return this.binding.isInterface() && !this.binding.isTypeVariable() && !this.binding.isWildcard();
 	}
 
 	/*

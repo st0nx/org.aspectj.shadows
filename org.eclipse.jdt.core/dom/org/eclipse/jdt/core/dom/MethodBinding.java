@@ -28,6 +28,7 @@ import org.eclipse.jdt.internal.compiler.lookup.RawTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeVariableBinding;
+import org.eclipse.jdt.internal.core.JavaElement;
 import org.eclipse.jdt.internal.core.Member;
 import org.eclipse.jdt.internal.core.util.Util;
 
@@ -155,8 +156,15 @@ class MethodBinding implements IMethodBinding {
 		}
 		return this.exceptionTypes;
 	}
-
+	
 	public IJavaElement getJavaElement() {
+		JavaElement element = getUnresolvedJavaElement();
+		if (element == null)
+			return null;
+		return element.resolved(this.binding);
+	}
+
+	private JavaElement getUnresolvedJavaElement() {
 		IType declaringType = (IType) getDeclaringClass().getJavaElement();
 		if (declaringType == null) return null;
 		if (!(this.resolver instanceof DefaultBindingResolver)) return null;
@@ -171,20 +179,22 @@ class MethodBinding implements IMethodBinding {
 					Type type = parameter.getType();
 					String typeSig = Util.getSignature(type);
 					int arrayDim = parameter.getExtraDimensions();
-					if (parameter.isVarargs())
+					if (parameter.getAST().apiLevel() >= AST.JLS3 && parameter.isVarargs()) {
 						arrayDim++;
-					if (arrayDim > 0)
+					}
+					if (arrayDim > 0) {
 						typeSig = Signature.createArraySignature(typeSig, arrayDim);
+					}
 					parameterSignatures.add(typeSig);
 				}
 				int parameterCount = parameterSignatures.size();
 				String[] parameters = new String[parameterCount];
 				parameterSignatures.toArray(parameters);
-				return declaringType.getMethod(getName(), parameters);
+				return (JavaElement) declaringType.getMethod(getName(), parameters);
 			} else {
 				// annotation type member declaration
 				AnnotationTypeMemberDeclaration typeMemberDeclaration = (AnnotationTypeMemberDeclaration) node;
-				return declaringType.getMethod(typeMemberDeclaration.getName().getIdentifier(), new String[0]); // annotation type members don't have parameters
+				return (JavaElement) declaringType.getMethod(typeMemberDeclaration.getName().getIdentifier(), new String[0]); // annotation type members don't have parameters
 			}
 		} else {
 			// case of method not in the created AST, or a binary method
@@ -198,7 +208,7 @@ class MethodBinding implements IMethodBinding {
 			}
 			IMethod result = declaringType.getMethod(selector, parameterSignatures);
 			if (declaringType.isBinary())
-				return result;
+				return (JavaElement) result;
 			IMethod[] methods = null;
 			try {
 				methods = declaringType.getMethods();
@@ -209,7 +219,7 @@ class MethodBinding implements IMethodBinding {
 			IMethod[] candidates = Member.findMethods(result, methods);
 			if (candidates == null || candidates.length == 0)
 				return null;
-			return candidates[0];
+			return (JavaElement) candidates[0];
 		}
 	}
 	
@@ -379,16 +389,25 @@ class MethodBinding implements IMethodBinding {
 	/* (non-Javadoc)
 	 * @see IMethodBinding#overrides(IMethodBinding)
 	 */
-	public boolean overrides(IMethodBinding method) {
-		org.eclipse.jdt.internal.compiler.lookup.MethodBinding otherCompilerBinding = ((MethodBinding) method).binding;
-		if (this.binding == otherCompilerBinding) 
+	public boolean overrides(IMethodBinding overridenMethod) {
+		org.eclipse.jdt.internal.compiler.lookup.MethodBinding overridenCompilerBinding = ((MethodBinding) overridenMethod).binding;
+		if (this.binding == overridenCompilerBinding) 
 			return false;
-		if (!this.binding.declaringClass.isCompatibleWith(otherCompilerBinding.declaringClass))
+		if (!CharOperation.equals(this.binding.selector, overridenCompilerBinding.selector))
 			return false;
-		LookupEnvironment lookupEnvironment = this.resolver.lookupEnvironment();
-		if (lookupEnvironment == null) return false;
-		MethodVerifier methodVerifier = lookupEnvironment.methodVerifier();
-		return methodVerifier.doesMethodOverride(this.binding, otherCompilerBinding);
+		ReferenceBinding match = this.binding.declaringClass.findSuperTypeWithSameErasure(overridenCompilerBinding.declaringClass);
+		if (match == null) return false;
+		
+		org.eclipse.jdt.internal.compiler.lookup.MethodBinding[] superMethods = match.methods();
+		for (int i = 0, length = superMethods.length; i < length; i++) {
+			if (superMethods[i].original() == overridenCompilerBinding) {
+				LookupEnvironment lookupEnvironment = this.resolver.lookupEnvironment();
+				if (lookupEnvironment == null) return false;
+				MethodVerifier methodVerifier = lookupEnvironment.methodVerifier();
+				return methodVerifier.doesMethodOverride(this.binding, superMethods[i]);
+			}
+		}
+		return false;
 	}
 
 	/* 

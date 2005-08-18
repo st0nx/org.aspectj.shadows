@@ -108,7 +108,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		this.problemReporter =
 			new ProblemReporter(policy, this.options, problemFactory);
 		this.lookupEnvironment =
-			new LookupEnvironment(this, options, problemReporter, environment);
+			new LookupEnvironment(this, this.options, this.problemReporter, environment);
 		initializeParser();
 	}
 	
@@ -173,7 +173,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			};
 		}
 		this.problemReporter = new ProblemReporter(policy, this.options, problemFactory);
-		this.lookupEnvironment = new LookupEnvironment(this, options, problemReporter, environment);
+		this.lookupEnvironment = new LookupEnvironment(this, this.options, problemReporter, environment);
 		initializeParser();
 	}
 	
@@ -181,7 +181,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 	 * Add an additional binary type
 	 */
 	public void accept(IBinaryType binaryType, PackageBinding packageBinding, AccessRestriction accessRestriction) {
-		if (options.verbose) {
+		if (this.options.verbose) {
 			System.out.println(
 				Messages.bind(Messages.compilation_loadBinary, new String(binaryType.getName())));
 //			new Exception("TRACE BINARY").printStackTrace(System.out);
@@ -315,7 +315,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			beginToCompile(sourceUnits);
 
 			// process all units (some more could be injected in the loop by the lookup environment)
-			for (; i < totalUnits; i++) {
+			for (; i < this.totalUnits; i++) {
 				unit = unitsToProcess[i];
 				try {
 					if (options.verbose)
@@ -323,7 +323,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 							Messages.bind(Messages.compilation_process,
 							new String[] {
 								String.valueOf(i + 1),
-								String.valueOf(totalUnits),
+								String.valueOf(this.totalUnits),
 								new String(unitsToProcess[i].getFileName())
 							}));
 					process(unit, i);
@@ -338,7 +338,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 						Messages.bind(Messages.compilation_done,
 						new String[] {
 							String.valueOf(i + 1),
-							String.valueOf(totalUnits),
+							String.valueOf(this.totalUnits),
 							new String(unit.getFileName())
 						}));
 			}
@@ -354,12 +354,12 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			this.reset();
 		}
 		if (options.verbose) {
-			if (totalUnits > 1) {
+			if (this.totalUnits > 1) {
 				System.out.println(
-					Messages.bind(Messages.compilation_units, String.valueOf(totalUnits))); 
+					Messages.bind(Messages.compilation_units, String.valueOf(this.totalUnits))); 
 			} else {
 				System.out.println(
-					Messages.bind(Messages.compilation_unit, String.valueOf(totalUnits))); 
+					Messages.bind(Messages.compilation_unit, String.valueOf(this.totalUnits))); 
 			}
 		}
 	}
@@ -372,9 +372,17 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		CompilationUnitDeclaration unit,
 		CompilationResult result) {
 
-		/* find a compilation result */
-		if ((unit != null)) // basing result upon the current unit if available
+		if ((result == null) && (unit != null)) {
 			result = unit.compilationResult; // current unit being processed ?
+		}
+		// Lookup environment may be in middle of connecting types
+		if ((result == null) && lookupEnvironment.unitBeingCompleted != null) {
+		    result = lookupEnvironment.unitBeingCompleted.compilationResult;
+		}		
+		// Lookup environment may be in middle of connecting types
+		if ((result == null) && lookupEnvironment.unitBeingCompleted != null) {
+		    result = lookupEnvironment.unitBeingCompleted.compilationResult;
+		}		
 		if ((result == null) && (unitsToProcess != null) && (totalUnits > 0))
 			result = unitsToProcess[totalUnits - 1].compilationResult;
 		// last unit in beginToCompile ?

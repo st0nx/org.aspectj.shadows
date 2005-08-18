@@ -75,19 +75,19 @@ public class Javadoc extends ASTNode {
 	/*
 	 * Resolve type javadoc while a class scope
 	 */
-	public void resolve(ClassScope classScope) {
+	public void resolve(ClassScope scope) {
 
 		// @param tags
 		int paramTagsSize = this.paramReferences == null ? 0 : this.paramReferences.length;
 		for (int i = 0; i < paramTagsSize; i++) {
 			JavadocSingleNameReference param = this.paramReferences[i];
-			classScope.problemReporter().javadocUnexpectedTag(param.tagSourceStart, param.tagSourceEnd);
+			scope.problemReporter().javadocUnexpectedTag(param.tagSourceStart, param.tagSourceEnd);
 		}
-		resolveTypeParameterTags(classScope, true);
+		resolveTypeParameterTags(scope, true);
 
 		// @return tags
 		if (this.returnStatement != null) {
-			classScope.problemReporter().javadocUnexpectedTag(this.returnStatement.sourceStart, this.returnStatement.sourceEnd);
+			scope.problemReporter().javadocUnexpectedTag(this.returnStatement.sourceStart, this.returnStatement.sourceEnd);
 		}
 
 		// @throws/@exception tags
@@ -107,13 +107,13 @@ public class Javadoc extends ASTNode {
 				start = typeRef.sourceStart;
 				end = typeRef.sourceEnd;
 			}
-			classScope.problemReporter().javadocUnexpectedTag(start, end);
+			scope.problemReporter().javadocUnexpectedTag(start, end);
 		}
 
 		// @see tags
 		int seeTagsLength = this.seeReferences == null ? 0 : this.seeReferences.length;
 		for (int i = 0; i < seeTagsLength; i++) {
-			resolveReference(this.seeReferences[i], classScope);
+			resolveReference(this.seeReferences[i], scope);
 		}
 	}
 	
@@ -143,12 +143,12 @@ public class Javadoc extends ASTNode {
 						if (messageSend.binding != null && messageSend.binding.isValidBinding()) {
 							if (methDecl.binding.declaringClass.isCompatibleWith(messageSend.actualReceiverType) &&
 								CharOperation.equals(messageSend.selector, methDecl.selector) &&
-								(messageSend.binding.returnType == methDecl.binding.returnType)) {
+								(methDecl.binding.returnType.isCompatibleWith(messageSend.binding.returnType))) {
 								if (messageSend.arguments == null && methDecl.arguments == null) {
 									superRef = true;
 								}
 								else if (messageSend.arguments != null && methDecl.arguments != null) {
-									superRef = methDecl.binding.areParametersEqual(messageSend.binding);
+									superRef = methDecl.binding.areParametersCompatibleWith(messageSend.binding.parameters);
 								}
 							}
 						}
@@ -162,7 +162,7 @@ public class Javadoc extends ASTNode {
 									superRef = true;
 								}
 								else if (allocationExpr.arguments != null && methDecl.arguments != null) {
-									superRef = methDecl.binding.areParametersEqual(allocationExpr.binding);
+									superRef = methDecl.binding.areParametersCompatibleWith(allocationExpr.binding.parameters);
 								}
 							}
 						}
@@ -217,14 +217,14 @@ public class Javadoc extends ASTNode {
 		switch (scope.kind) {
 			case Scope.METHOD_SCOPE:
 				reference.resolveType((MethodScope)scope);
-			break;
+				break;
 			case Scope.CLASS_SCOPE:
 				reference.resolveType((ClassScope)scope);
-			break;
+				break;
 		}
 
 		// Verify field references
-		boolean verifyValues = scope.environment().options.sourceLevel >= ClassFileConstants.JDK1_5;
+		boolean verifyValues = scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5;
 		if (reference instanceof JavadocFieldReference) {
 			JavadocFieldReference fieldRef = (JavadocFieldReference) reference;
 			int modifiers = fieldRef.binding==null ? -1 : fieldRef.binding.modifiers;
@@ -269,6 +269,12 @@ public class Javadoc extends ASTNode {
 			if (alloc.tagValue == AbstractCommentParser.TAG_VALUE_VALUE) { // cannot refer to method for @value tag
 				scope.problemReporter().javadocInvalidValueReference(alloc.sourceStart, alloc.sourceEnd, modifiers);
 			}
+		}
+		
+		// Verify that there's no type variable reference
+		// (javadoc does not accept them and this is not a referenced bug or requested enhancement)
+		if (reference.resolvedType != null && reference.resolvedType.isTypeVariable()) {
+			scope.problemReporter().javadocInvalidReference(reference.sourceStart, reference.sourceEnd);
 		}
 	}
 
@@ -392,7 +398,6 @@ public class Javadoc extends ASTNode {
 		// Otherwise verify that all param tags match type parameters
 		} else if (typeVariables.length == typeParametersLength) {
 			TypeVariableBinding[] bindings = new TypeVariableBinding[paramTypeParamLength];
-			int maxBindings = 0;
 
 			// Scan all @param tags
 			for (int i = 0; i < paramTypeParamLength; i++) {
@@ -402,14 +407,14 @@ public class Javadoc extends ASTNode {
 					if (paramBindind.isTypeVariable()) {
 						// Verify duplicated tags
 						boolean duplicate = false;
-						for (int j = 0; j < maxBindings && !duplicate; j++) {
+						for (int j = 0; j < i && !duplicate; j++) {
 							if (bindings[j] == param.resolvedType) {
 								scope.problemReporter().javadocDuplicatedParamTag(param.token, param.sourceStart, param.sourceEnd, modifiers);
 								duplicate = true;
 							}
 						}
 						if (!duplicate) {
-							bindings[maxBindings++] = (TypeVariableBinding) param.resolvedType;
+							bindings[i] = (TypeVariableBinding) param.resolvedType;
 						}
 					} else {
 						scope.problemReporter().javadocUndeclaredParamTagName(param.token, param.sourceStart, param.sourceEnd, modifiers);
@@ -418,18 +423,25 @@ public class Javadoc extends ASTNode {
 			}
 
 			// Look for undocumented type parameters
-			if (reportMissing) {
-				for (int i = 0; i < typeParametersLength; i++) {
-					TypeParameter parameter = parameters[i];
-					boolean found = false;
-					for (int j = 0; j < maxBindings && !found; j++) {
-						if (parameter.binding == bindings[j]) {
-							found = true;
-						}
+			for (int i = 0; i < typeParametersLength; i++) {
+				TypeParameter parameter = parameters[i];
+				boolean found = false;
+				for (int j = 0; j < paramTypeParamLength && !found; j++) {
+					if (parameter.binding == bindings[j]) {
+						found = true;
+						bindings[j] = null;
 					}
-					if (!found) {
-						scope.problemReporter().javadocMissingParamTag(parameter.name, parameter.sourceStart, parameter.sourceEnd, modifiers);
-					}
+				}
+				if (!found && reportMissing) {
+					scope.problemReporter().javadocMissingParamTag(parameter.name, parameter.sourceStart, parameter.sourceEnd, modifiers);
+				}
+			}
+			
+			// Report invalid param
+			for (int i=0; i<paramTypeParamLength; i++) {
+				if (bindings[i] != null) {
+					JavadocSingleTypeReference param = this.paramTypeParameters[i];
+					scope.problemReporter().javadocUndeclaredParamTagName(param.token, param.sourceStart, param.sourceEnd, modifiers);
 				}
 			}
 		}
@@ -530,9 +542,7 @@ public class Javadoc extends ASTNode {
 					}
 			
 					//  If not compatible only complain on unchecked exception
-					if (!compatible &&
-						 !typeRef.resolvedType.isCompatibleWith(methScope.getJavaLangRuntimeException()) &&
-						 !typeRef.resolvedType.isCompatibleWith(methScope.getJavaLangError())) {
+					if (!compatible && !typeRef.resolvedType.isUncheckedException(false)) {
 						methScope.problemReporter().javadocInvalidThrowsClassName(typeRef, md.binding.modifiers);
 					}
 				}

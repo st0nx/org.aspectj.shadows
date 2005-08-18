@@ -39,7 +39,7 @@ public class ClassLiteralAccess extends Expression {
 		if ((!(sourceType.isInterface()
 				// no field generated in interface case (would'nt verify) see 1FHHEZL
 				|| sourceType.isBaseType()))
-				&& currentScope.environment().options.sourceLevel <= ClassFileConstants.JDK1_5) {
+				&& currentScope.compilerOptions().sourceLevel <= ClassFileConstants.JDK1_5) {
 			syntheticField = sourceType.addSyntheticFieldForClassLiteral(targetType, currentScope);
 		}
 		return flowInfo;
@@ -91,12 +91,12 @@ public class ClassLiteralAccess extends Expression {
 			if (targetType.id == T_void) {
 				boxedType = scope.environment().getType(JAVA_LANG_VOID);
 				if (boxedType == null) {
-					boxedType = new ProblemReferenceBinding(JAVA_LANG_VOID, ProblemReasons.NotFound);
+					boxedType = new ProblemReferenceBinding(JAVA_LANG_VOID, null, ProblemReasons.NotFound);
 				}
 			} else {
 				boxedType = scope.boxing(targetType);
 			}
-		    this.resolvedType = scope.createParameterizedType(classType, new TypeBinding[]{ boxedType }, null/*not a member*/);
+		    this.resolvedType = scope.environment().createParameterizedType(classType, new TypeBinding[]{ boxedType }, null/*not a member*/);
 		} else {
 		    this.resolvedType = classType;
 		}

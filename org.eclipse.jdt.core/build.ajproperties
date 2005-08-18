@@ -1,0 +1,10 @@
+src.includes = antadapter/,\
+               aspectj/,\
+               batch/,\
+               codeassist/,\
+               compiler/,\
+               dom/,\
+               eval/,\
+               formatter/,\
+               model/,\
+               search/

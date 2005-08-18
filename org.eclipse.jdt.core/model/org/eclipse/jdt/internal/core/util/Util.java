@@ -16,11 +16,10 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 import org.eclipse.core.resources.*;
-import org.eclipse.core.resources.IFile;
-import org.eclipse.core.resources.IFolder;
-import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.*;
 import org.eclipse.core.runtime.content.IContentType;
+import org.eclipse.core.runtime.preferences.IScopeContext;
+import org.eclipse.core.runtime.preferences.InstanceScope;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.dom.ASTNode;
@@ -841,6 +840,41 @@ public class Util {
 	}
 	
 	/**
+	 * Returns the line separator found in the given text.
+	 * If it is null, or not found return the line delimitor for the given project.
+	 * If the project is null, returns the line separator for the workspace.
+	 * If still null, return the system line separator.
+	 */
+	public static String getLineSeparator(String text, IJavaProject project) {
+		String lineSeparator = null;
+		
+		// line delimiter in given text
+		if (text != null) {
+			lineSeparator = findLineSeparator(text.toCharArray());
+			if (lineSeparator != null)
+				return lineSeparator;
+		}
+		
+		// line delimiter in project preference
+		IScopeContext[] scopeContext;
+		if (project != null) {
+			scopeContext= new IScopeContext[] { new ProjectScope(project.getProject()) };
+			lineSeparator= Platform.getPreferencesService().getString(Platform.PI_RUNTIME, Platform.PREF_LINE_SEPARATOR, null, scopeContext);
+			if (lineSeparator != null)
+				return lineSeparator;
+		}
+		
+		// line delimiter in workspace preference
+		scopeContext= new IScopeContext[] { new InstanceScope() };
+		lineSeparator = Platform.getPreferencesService().getString(Platform.PI_RUNTIME, Platform.PREF_LINE_SEPARATOR, null, scopeContext);
+		if (lineSeparator != null)
+			return lineSeparator;
+		
+		// system line delimiter
+		return org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR;
+	}
+	
+	/**
 	 * Returns the line separator used by the given buffer.
 	 * Uses the given text if none found.
 	 *
@@ -854,7 +888,7 @@ public class Util {
 			lineSeparator = findLineSeparator(text);
 			if (lineSeparator == null) {
 				// default to system line separator
-				return org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR;
+				return getLineSeparator((String) null, (IJavaProject) null);
 			}
 		}
 		return lineSeparator;
@@ -1014,6 +1048,18 @@ public class Util {
 		StringBuffer buffer = new StringBuffer();
 		getFullyQualifiedName(type, buffer);
 		return Signature.createTypeSignature(buffer.toString(), false/*not resolved in source*/);
+	}
+	
+	/*
+	 * Returns the declaring type signature of the element represented by the given binding key.
+	 * Returns the signature of the element if it is a type.
+	 * 
+	 * @return the declaring type signature
+	 */
+	public static String getDeclaringTypeSignature(String key) {
+		KeyToSignature keyToSignature = new KeyToSignature(key, KeyToSignature.DECLARING_TYPE);
+		keyToSignature.parse();
+		return keyToSignature.signature.toString();
 	}
 	
 	/*
@@ -1931,14 +1977,6 @@ public class Util {
 		}
 		return segs;
 	}
-	
-	/**
-	 * Converts a char[] to String.
-	 */
-	public static String toString(char[] c) {
-		return new String(c);
-	}
-
 	/**
 	 * Converts a char[][] to String, where segments are separated by '.'.
 	 */
@@ -1976,19 +2014,34 @@ public class Util {
 		}
 		return result;
 	}
-	private static void appendArrayTypeSignature(char[] string, int start, StringBuffer buffer) {
+	private static void appendArrayTypeSignature(char[] string, int start, StringBuffer buffer, boolean compact) {
+		int length = string.length;
 		// need a minimum 2 char
-		if (start >= string.length - 1) {
+		if (start >= length - 1) {
 			throw new IllegalArgumentException();
 		}
 		char c = string[start];
 		if (c != Signature.C_ARRAY) { //$NON-NLS-1$
 			throw new IllegalArgumentException();
 		}
-		appendTypeSignature(string, start + 1, buffer);
-		buffer.append('[').append(']');
+		
+		int index = start;
+		c = string[++index];
+		while(c == Signature.C_ARRAY) {
+			// need a minimum 2 char
+			if (index >= length - 1) {
+				throw new IllegalArgumentException();
+			}
+			c = string[++index];
+		}
+		
+		appendTypeSignature(string, index, buffer, compact);
+		
+		for(int i = 0, dims = index - start; i < dims; i++) {
+			buffer.append('[').append(']');
+		}
 	}
-	private static void appendClassTypeSignature(char[] string, int start, StringBuffer buffer) {
+	private static void appendClassTypeSignature(char[] string, int start, StringBuffer buffer, boolean compact) {
 		char c = string[start];
 		if (c != Signature.C_RESOLVED) {
 			return;
@@ -2002,12 +2055,13 @@ public class Util {
 					// all done
 					return;
 				case Signature.C_DOT :
+				case '/' :
 					// erase package prefix
-					buffer.setLength(checkpoint);
-					break;
-				 case '/' :
-					// erase package prefix
-					buffer.setLength(checkpoint);
+					if (compact) {
+						buffer.setLength(checkpoint);
+					} else {
+						buffer.append('.');
+					}
 					break;
 				 case Signature.C_DOLLAR :
 					/**
@@ -2024,14 +2078,14 @@ public class Util {
 			p++;
 		}
 	}
-	static void appendTypeSignature(char[] string, int start, StringBuffer buffer) {
+	static void appendTypeSignature(char[] string, int start, StringBuffer buffer, boolean compact) {
 		char c = string[start];
 		switch (c) {
 			case Signature.C_ARRAY :
-				appendArrayTypeSignature(string, start, buffer);
+				appendArrayTypeSignature(string, start, buffer, compact);
 				break;
 			case Signature.C_RESOLVED :
-				appendClassTypeSignature(string, start, buffer);
+				appendClassTypeSignature(string, start, buffer, compact);
 				break;
 			case Signature.C_TYPE_VARIABLE :
 				int e = Util.scanTypeVariableSignature(string, start);
@@ -2066,8 +2120,8 @@ public class Util {
 				break;
 		}
 	}
-	public static String toString(char[] declaringClass, char[] methodName, char[] methodSignature, boolean includeReturnType) {
-		boolean isConstructor = CharOperation.equals(methodName, INIT);
+	public static String toString(char[] declaringClass, char[] methodName, char[] methodSignature, boolean includeReturnType, boolean compact) {
+		final boolean isConstructor = CharOperation.equals(methodName, INIT);
 		int firstParen = CharOperation.indexOf(Signature.C_PARAM_START, methodSignature);
 		if (firstParen == -1) {
 			return ""; //$NON-NLS-1$
@@ -2075,25 +2129,28 @@ public class Util {
 		
 		StringBuffer buffer = new StringBuffer(methodSignature.length + 10);
 		
-		if (!isConstructor) {
-			// return type
-			if (includeReturnType) {
-				char[] rts = Signature.getReturnType(methodSignature);
-				appendTypeSignature(rts, 0 , buffer);
-				buffer.append(' ');
+		// decode declaring class name
+		// it can be either an array signature or a type signature
+		if (declaringClass.length > 0) {
+			char[] declaringClassSignature = null;
+			if (declaringClass[0] == Signature.C_ARRAY) {
+				CharOperation.replace(declaringClass, '/', '.');
+				declaringClassSignature = Signature.toCharArray(declaringClass);
+			} else {
+				CharOperation.replace(declaringClass, '/', '.');
+				declaringClassSignature = declaringClass;
+			}
+			int lastIndexOfSlash = CharOperation.lastIndexOf('.', declaringClassSignature);
+			if (compact && lastIndexOfSlash != -1) {
+				buffer.append(declaringClassSignature, lastIndexOfSlash + 1, declaringClassSignature.length - lastIndexOfSlash - 1);
+			} else {
+				buffer.append(declaringClassSignature);
 			}
 		}
-		
+
 		// selector
-		int lastIndexOfSlash = CharOperation.lastIndexOf('/', declaringClass);
-		if (lastIndexOfSlash != -1) {
-			buffer.append(declaringClass, lastIndexOfSlash + 1, declaringClass.length - lastIndexOfSlash - 1);
-		} else {
-			buffer.append(declaringClass);
-		}
 		if (!isConstructor) {
 			buffer.append('.');
-	
 			if (methodName != null) {
 				buffer.append(methodName);
 			}
@@ -2103,17 +2160,23 @@ public class Util {
 		buffer.append('(');
 		char[][] pts = Signature.getParameterTypes(methodSignature);
 		for (int i = 0, max = pts.length; i < max; i++) {
-			if (i == max - 1) {
-				appendTypeSignature(pts[i], 0 , buffer);
-			} else {
-				appendTypeSignature(pts[i], 0 , buffer);
-			}
+			appendTypeSignature(pts[i], 0 , buffer, compact);
 			if (i != pts.length - 1) {
 				buffer.append(',');
 				buffer.append(' ');
 			}
 		}
 		buffer.append(')');
+		
+		if (!isConstructor) {
+			buffer.append(" : "); //$NON-NLS-1$
+			// return type
+			if (includeReturnType) {
+				char[] rts = Signature.getReturnType(methodSignature);
+				appendTypeSignature(rts, 0 , buffer, compact);
+				buffer.append(' ');
+			}
+		}
 		return String.valueOf(buffer);
 	}
 	/*
@@ -2352,15 +2415,25 @@ public class Util {
 	 * @exception IllegalArgumentException if this is not an array type signature
 	 */
 	public static int scanArrayTypeSignature(char[] string, int start) {
+		int length = string.length;
 		// need a minimum 2 char
-		if (start >= string.length - 1) {
+		if (start >= length - 1) {
 			throw new IllegalArgumentException();
 		}
 		char c = string[start];
 		if (c != Signature.C_ARRAY) { //$NON-NLS-1$
 			throw new IllegalArgumentException();
 		}
-		return scanTypeSignature(string, start + 1);
+		
+		c = string[++start];
+		while(c == Signature.C_ARRAY) {
+			// need a minimum 2 char
+			if (start >= length - 1) {
+				throw new IllegalArgumentException();
+			}
+			c = string[++start];
+		}
+		return scanTypeSignature(string, start);
 	}
 	
 	/**
@@ -2545,6 +2618,8 @@ public class Util {
 				return scanTypeVariableSignature(string, start);
 			case Signature.C_ARRAY :
 				return scanArrayTypeSignature(string, start);
+			case Signature.C_STAR:
+				return start;
 			default:
 				throw new IllegalArgumentException();
 		}
@@ -2677,7 +2752,7 @@ public class Util {
 	 */
 	public final static char[][] splitTypeLevelsSignature(String typeSignature) {
 		// In case of IJavaElement signature, replace '$' by '.'
-		char[] source = Signature.removeCaptureFromMethod(typeSignature.toCharArray());
+		char[] source = Signature.removeCapture(typeSignature.toCharArray());
 		CharOperation.replace(source, '$', '.');
 
 		// Init counters and arrays

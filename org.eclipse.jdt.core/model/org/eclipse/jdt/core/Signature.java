@@ -1005,8 +1005,8 @@ public static int getParameterCount(char[] methodSignature) throws IllegalArgume
  * @param typeSignature the type signature string
  * @return the kind of type signature; one of the kind constants:
  * {@link #ARRAY_TYPE_SIGNATURE}, {@link #CLASS_TYPE_SIGNATURE},
- * {@link #BASE_TYPE_SIGNATURE}, {@link #TYPE_VARIABLE_SIGNATURE}
- * or {@link #WILDCARD_TYPE_SIGNATURE}
+ * {@link #BASE_TYPE_SIGNATURE}, or {@link #TYPE_VARIABLE_SIGNATURE},
+ * or (since 3.1) {@link #WILDCARD_TYPE_SIGNATURE} or {@link #CAPTURE_TYPE_SIGNATURE}
  * @exception IllegalArgumentException if this is not a type signature
  * @since 3.0
  */
@@ -1016,6 +1016,24 @@ public static int getTypeSignatureKind(char[] typeSignature) {
 		throw new IllegalArgumentException();
 	}
 	char c = typeSignature[0];
+	if (c == C_GENERIC_START) {
+		int count = 1;
+		for (int i = 1, length = typeSignature.length; i < length; i++) {
+			switch (typeSignature[i]) {
+				case 	C_GENERIC_START:
+					count++;
+					break;
+				case C_GENERIC_END:
+					count--;
+					break;
+			}
+			if (count == 0) {
+				if (i+1 < length)
+					c = typeSignature[i+1]; 
+				break;
+			}
+		}
+	}
 	switch (c) {
 		case C_ARRAY :
 			return ARRAY_TYPE_SIGNATURE;
@@ -1051,7 +1069,8 @@ public static int getTypeSignatureKind(char[] typeSignature) {
  * @param typeSignature the type signature string
  * @return the kind of type signature; one of the kind constants:
  * {@link #ARRAY_TYPE_SIGNATURE}, {@link #CLASS_TYPE_SIGNATURE},
- * {@link #BASE_TYPE_SIGNATURE}, or {@link #TYPE_VARIABLE_SIGNATURE}
+ * {@link #BASE_TYPE_SIGNATURE}, or {@link #TYPE_VARIABLE_SIGNATURE},
+ * or (since 3.1) {@link #WILDCARD_TYPE_SIGNATURE} or {@link #CAPTURE_TYPE_SIGNATURE}
  * @exception IllegalArgumentException if this is not a type signature
  * @since 3.0
  */
@@ -1061,6 +1080,24 @@ public static int getTypeSignatureKind(String typeSignature) {
 		throw new IllegalArgumentException();
 	}
 	char c = typeSignature.charAt(0);
+	if (c == C_GENERIC_START) {
+		int count = 1;
+		for (int i = 1, length = typeSignature.length(); i < length; i++) {
+			switch (typeSignature.charAt(i)) {
+				case 	C_GENERIC_START:
+					count++;
+					break;
+				case C_GENERIC_END:
+					count--;
+					break;
+			}
+			if (count == 0) {
+				if (i+1 < length)
+					c = typeSignature.charAt(i+1); 
+				break;
+			}
+		}
+	}
 	switch (c) {
 		case C_ARRAY :
 			return ARRAY_TYPE_SIGNATURE;
@@ -1084,7 +1121,7 @@ public static int getTypeSignatureKind(String typeSignature) {
 		case C_EXTENDS :
 			return WILDCARD_TYPE_SIGNATURE;
 		case C_CAPTURE :
-			return CAPTURE_TYPE_SIGNATURE;			
+			return CAPTURE_TYPE_SIGNATURE;
 		default :
 			throw new IllegalArgumentException();
 	}
@@ -1166,6 +1203,8 @@ public static String[] getParameterTypes(String methodSignature) throws IllegalA
  * @return the list of thrown exception type signatures
  * @exception IllegalArgumentException if the signature is syntactically
  *   incorrect
+ *
+ * @since 3.1
  */
 public static String[] getThrownExceptionTypes(String methodSignature) throws IllegalArgumentException {
 	char[][] parameterTypes = getThrownExceptionTypes(methodSignature.toCharArray());
@@ -1180,6 +1219,8 @@ public static String[] getThrownExceptionTypes(String methodSignature) throws Il
  * @return the list of thrown exception type signatures
  * @exception IllegalArgumentException if the signature is syntactically
  *   incorrect
+ *
+ * @since 3.1
  */
 public static char[][] getThrownExceptionTypes(char[] methodSignature) throws IllegalArgumentException {
 	// skip type parameters
@@ -1365,15 +1406,43 @@ public static char[][] getTypeParameters(char[] methodOrTypeSignature) throws Il
 				return result;
 			}
 			i = CharOperation.indexOf(C_COLON, methodOrTypeSignature, i);
-			if (i < 0 || i >= length) throw new IllegalArgumentException();
+			if (i < 0 || i >= length) 
+				throw new IllegalArgumentException();
 			// iterate over bounds
 			nextBound: while (methodOrTypeSignature[i] == ':') {
 				i++; // skip colon
-				if (methodOrTypeSignature[i] == ':') {
-					continue nextBound; // empty bound
+				switch (methodOrTypeSignature[i]) {
+					case ':':
+						// no class bound
+						break; 
+					case C_GENERIC_END:
+						break;
+					case C_RESOLVED:
+						try {
+							i = Util.scanClassTypeSignature(methodOrTypeSignature, i);
+							i++; // position at start of next param if any
+						} catch (IllegalArgumentException e) {
+							// not a class type signature -> it is a new type parameter
+						}
+						break;
+					case C_ARRAY:
+						try {
+							i = Util.scanArrayTypeSignature(methodOrTypeSignature, i);
+							i++; // position at start of next param if any
+						} catch (IllegalArgumentException e) {
+							// not an array type signature -> it is a new type parameter
+						}
+						break;
+					case C_TYPE_VARIABLE:
+						try {
+							i = Util.scanTypeVariableSignature(methodOrTypeSignature, i);
+							i++; // position at start of next param if any
+						} catch (IllegalArgumentException e) {
+							// not a type variable signature -> it is a new type parameter
+						}							
+						break;
+					// default: another type parameter is starting
 				}
-				i = Util.scanTypeSignature(methodOrTypeSignature, i);
-				i++; // position at start of next param if any
 			}
 			paramList.add(CharOperation.subarray(methodOrTypeSignature, paramStart, i));
 			paramStart = i; // next param start from here
@@ -1980,74 +2049,77 @@ public static String[] getSimpleNames(String name) {
 	return CharOperation.toStrings(getSimpleNames(name.toCharArray()));
 }
 
-	
 /**
- * Returns a method signature with any capture information removed. 
- * Returns the method signature itself if no capture information is
+ * Removes any capture information from the given type or method signature
+ * and returns the resulting signature.
+ * Returns the type or method signature itself if no capture information is
  * present.
  * <p>
  * For example (using equivalent string-based method):
  * <pre>
  * <code>
- * removeCaptureFromMethod("LTest<!+Ljava.lang.Throwable;>;")
+ * removeCapture("LTest<!+Ljava.lang.Throwable;>;")
  * will return: "LTest<+Ljava.lang.Throwable;>;"
  * </code>
  * </pre>
  * </p>
  *
- * @param captureSignature the signature which may have been captured
- * @return new signature without capture information or siganture itself
- * 	if no specific capture information was there
- * @exception NullPointerException if <code>captureSignature</code> is null
+ * @param methodOrTypeSignature the signature which may have been captured
+ * @return a new signature without capture information or the signature itself
+ * 	if no specific capture information is present
+ * @exception NullPointerException if <code>methodOrTypeSignature</code> is null
+ *
  * @since 3.1
- * TODO (frederic) Create remove(char[], char) method on CharOperation and call it from here
  */
-public static char[] removeCaptureFromMethod(char[] captureSignature) {
+public static char[] removeCapture(char[] methodOrTypeSignature) {
 		
+// TODO (frederic) Create remove(char[], char) method on CharOperation and call it from here
 	char[] result = null;
 	int count = 0;
-	for (int i = 0, length = captureSignature.length; i < length; i++) {
-		char c = captureSignature[i];
+	for (int i = 0, length = methodOrTypeSignature.length; i < length; i++) {
+		char c = methodOrTypeSignature[i];
 		if (c == C_CAPTURE) {
 			if (result == null) {
 				result = new char[length];
-				System.arraycopy(captureSignature, 0, result, 0, i);
+				System.arraycopy(methodOrTypeSignature, 0, result, 0, i);
 				count = i;
 			}
 		} else if (result != null) {
 			result[count++] = c;
 		}
 	}
-	if (result == null) return captureSignature;
+	if (result == null) return methodOrTypeSignature;
 	System.arraycopy(result, 0, result = new char[count], 0, count);
 	return result;
 }
 	
 /**
- * Returns a method signature with any capture information removed. 
- * Returns the method signature itself if no capture information is
+ * Removes any capture information from the given type or method signature
+ * and returns the resulting signature.
+ * Returns the type or method signature itself if no capture information is
  * present.
  * <p>
  * For example:
  * <pre>
  * <code>
- * removeCaptureFromMethod("LTest<!+Ljava.lang.Throwable;>;")
+ * removeCapture("LTest<!+Ljava.lang.Throwable;>;")
  * will return: "LTest<+Ljava.lang.Throwable;>;"
  * </code>
  * </pre>
  * </p>
  *
- * @param captureSignature the signature which may have been captured
- * @return new signature without capture information or siganture itself
- * 	if no specific capture information was there
- * @exception NullPointerException if <code>captureSignature</code> is null
+ * @param methodOrTypeSignature the signature which may have been captured
+ * @return a new signature without capture information or the signature itself
+ * 	if no specific capture information is present
+ * @exception NullPointerException if <code>methodOrTypeSignature</code> is null
+ *
  * @since 3.1
  */
-public static String removeCaptureFromMethod(String captureSignature) {
-		char[] array = captureSignature.toCharArray();
-		char[] result = removeCaptureFromMethod(array);
-		if (array == result) return captureSignature;
-		return new String(result);
+public static String removeCapture(String methodOrTypeSignature) {
+	char[] array = methodOrTypeSignature.toCharArray();
+	char[] result = removeCapture(array);
+	if (array == result) return methodOrTypeSignature;
+	return new String(result);
 }
 
 /**
@@ -2362,15 +2434,32 @@ private static int appendCaptureTypeSignature(char[] string, int start, boolean 
  * @see Util#scanArrayTypeSignature(char[], int)
  */
 private static int appendArrayTypeSignature(char[] string, int start, boolean fullyQualifyTypeNames, StringBuffer buffer, boolean isVarArgs) {
+	int length = string.length;
 	// need a minimum 2 char
-	if (start >= string.length - 1) {
+	if (start >= length - 1) {
 		throw new IllegalArgumentException();
 	}
 	char c = string[start];
 	if (c != C_ARRAY) { //$NON-NLS-1$
 		throw new IllegalArgumentException();
 	}
-	int e = appendTypeSignature(string, start + 1, fullyQualifyTypeNames, buffer);
+	
+	int index = start;
+	c = string[++index];
+	while(c == C_ARRAY) {
+		// need a minimum 2 char
+		if (index >= length - 1) {
+			throw new IllegalArgumentException();
+		}
+		c = string[++index];
+	}
+	
+	int e = appendTypeSignature(string, index, fullyQualifyTypeNames, buffer);
+	
+	for(int i = 1, dims = index - start; i < dims; i++) {
+		buffer.append('[').append(']');
+	}
+	
 	if (isVarArgs) {
 		buffer.append('.').append('.').append('.');
 	} else {
@@ -2674,6 +2763,8 @@ public static String toString(String methodSignature, String methodName, String[
  * variable argument, <code>false</code> otherwise
  * @see #toCharArray(char[], char[], char[][], boolean, boolean)
  * @return the string representation of the method signature
+ *
+ * @since 3.1
  */
 public static String toString(String methodSignature, String methodName, String[] parameterNames, boolean fullyQualifyTypeNames, boolean includeReturnType, boolean isVarArgs) {
 	char[][] params;

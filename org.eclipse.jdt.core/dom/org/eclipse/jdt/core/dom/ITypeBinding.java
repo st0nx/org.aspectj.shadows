@@ -146,11 +146,16 @@ public interface ITypeBinding extends IBinding {
 	 * classes) is the innermost class or interface containing the expression
 	 * or statement in which this type is declared.
 	 * </p>
-	 * <p>The declaring class of a type variable is the class in which the type variable
-	 * is declared if it is declared on a type. It returns <code>null</code> otherwise.
+	 * <p>The declaring class of a type variable is the class in which the type 
+	 * variable is declared if it is declared on a type. It returns 
+	 * <code>null</code> otherwise.
+	 * </p>
+	 * <p>The declaring class of a capture binding is the innermost class or
+	 * interface containing the expression or statement in which this capture is 
+	 * declared.
 	 * </p>
 	 * <p>Array types, primitive types, the null type, top-level types,
-	 * wildcard types, and capture bindings have no declaring class.
+	 * wildcard types have no declaring class.
 	 * </p>
 	 * 
 	 * @return the binding of the type that declares this type, or
@@ -178,6 +183,7 @@ public interface ITypeBinding extends IBinding {
 	 * 
 	 * @return the binding of the method that declares this type, or
 	 * <code>null</code> if none
+	 * @since 3.1
 	 */
 	public IMethodBinding getDeclaringMethod();
 
@@ -215,7 +221,11 @@ public interface ITypeBinding extends IBinding {
 	 * if it has bounds and java.lang.Object if it does not.</li>
 	 * <li>For captures ({@link #isCapture()})
 	 * - returns the binding for the erasure of the leftmost bound
-	 * if it has bounds and java.lang.Object if it does not.</li>	 
+	 * if it has bounds and java.lang.Object if it does not.</li>
+	 * <li>For array types ({@link #isArray()}) - returns an array type of
+	 * the same dimension ({@link #getDimensions()}) as this type
+	 * binding for which the element type is the erasure of the element type
+	 * ({@link #getElementType()}) of this type binding.</li>
 	 * <li>For all other type bindings - returns the identical binding.</li>
 	 * </ul>
 	 *
@@ -445,11 +455,14 @@ public interface ITypeBinding extends IBinding {
 	public ITypeBinding[] getTypeArguments();
 	
 	/**
-	 * Returns the type bounds of this type variable or capture.
+	 * Returns the declared type bounds of this type variable or capture. If the
+	 * variable or the capture had no explicit bound, then it returns an empty list.
      * <p>
-     * Note that the first type bound is always a class type. If the type
-     * variable does not explicitly declare a class type bound, the first
-     * type bound will be the binding for <code>java.lang.Object</code>.
+     * Note that per construction, it can only contain one class or array type, 
+     * at most, and then it is located in first position.
+     * </p>
+     * Also note that array type bound may only occur in the case of a capture
+     * binding, e.g. <code>capture-of ? extends Object[]</code>
      * </p>
 	 *
 	 * @return the list of type bindings for this type variable or capture,
@@ -581,7 +594,11 @@ public interface ITypeBinding extends IBinding {
 	 * Returns whether this type is cast compatible with the given type,
 	 * as specified in section 5.5 of <em>The Java Language 
 	 * Specification, Third Edition</em> (JLS3).
-	 * 
+	 * <p>
+	 * NOTE: The cast compatibility check performs backwards. 
+	 * When testing whether type B can be cast to type A, one would use:
+	 * <code>A.isCastCompatible(B)</code>
+	 * </p>
 	 * @param type the type to check compatibility against
 	 * @return <code>true</code> if this type is cast compatible with the
 	 * given type, and <code>false</code> otherwise

@@ -24,6 +24,14 @@ import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.util.Messages;
 
 public class ProblemReporter extends ProblemHandler implements ProblemReasons {
+
+	/** These constants will be defined on IProblem in 3.2 branch, but are only internal in 3.1 maintenance
+	 * stream so as not to compromise source compatibility with 3.1.0.
+	 */
+	/** @since 3.2 */
+	private final static int JavadocNonStaticTypeFromStaticInvocation = IProblem.Javadoc + IProblem.Internal + 468;
+	/** @since 3.2 */ 
+	private final static int EnumStaticFieldInInInitializerContext = IProblem.FieldRelated + 762;
 	
 	public ReferenceContext referenceContext;
 	
@@ -314,14 +322,6 @@ public void boundCannotBeArray(ASTNode location, TypeBinding type) {
 		location.sourceStart,
 		location.sourceEnd);
 }
-public void boundHasConflictingArguments(ASTNode location, TypeBinding type) {
-	this.handle(
-		IProblem.BoundHasConflictingArguments,
-		new String[] {new String(type.readableName())},
-		new String[] {new String(type.shortReadableName())},
-		location.sourceStart,
-		location.sourceEnd);
-}
 public void boundMustBeAnInterface(ASTNode location, TypeBinding type) {
 	this.handle(
 		IProblem.BoundMustBeAnInterface,
@@ -376,8 +376,8 @@ public void cannotAssignToFinalField(FieldBinding field, ASTNode location) {
 		new String[] {
 			(field.declaringClass == null ? "array" : new String(field.declaringClass.shortReadableName())), //$NON-NLS-1$
 			new String(field.shortReadableName())},
-		location.sourceStart,
-		location.sourceEnd);
+		fieldSourceStart(field, location),
+		fieldSourceEnd(field, location));
 }
 public void cannotAssignToFinalLocal(LocalVariableBinding local, ASTNode location) {
 	String[] arguments = new String[] { new String(local.readableName())};
@@ -489,13 +489,13 @@ public void cannotThrowType(SourceTypeBinding type, AbstractMethodDeclaration me
 		exceptionType.sourceStart,
 		exceptionType.sourceEnd);
 }
-public void cannotUseQualifiedEnumConstantInCaseLabel(Reference reference, FieldBinding field) {
+public void cannotUseQualifiedEnumConstantInCaseLabel(Reference location, FieldBinding field) {
 	this.handle(
 			IProblem.IllegalQualifiedEnumConstantLabel,
 			new String[]{ String.valueOf(field.declaringClass.readableName()), String.valueOf(field.name) },
 			new String[]{ String.valueOf(field.declaringClass.shortReadableName()), String.valueOf(field.name) },
-			reference.sourceStart,
-			reference.sourceEnd);	
+			fieldSourceStart(field, location),
+			fieldSourceEnd(field, location)); 
 }
 public void cannotUseSuperInCodeSnippet(int start, int end) {
 	this.handle(
@@ -559,197 +559,13 @@ public void codeSnippetMissingMethod(String className, String missingMethod, Str
  * falls into:
  *		Error | Warning | Ignore
  */
-public int computeSeverity(int problemId){
+public int computeSeverity(int problemID){
 
-	// severity can have been preset on the problem
-//	if ((problem.severity & Fatal) != 0){
-//		return Error;
-//	}
-
-	// if not then check whether it is a configurable problem
-	switch(problemId){
-
-		case IProblem.MaskedCatch : 
-			return this.options.getSeverity(CompilerOptions.MaskedCatchBlock);
-
-		case IProblem.UnusedImport :
-			return this.options.getSeverity(CompilerOptions.UnusedImport);
-			
-		case IProblem.MethodButWithConstructorName :
-			return this.options.getSeverity(CompilerOptions.MethodWithConstructorName);
-		
-		case IProblem.OverridingNonVisibleMethod :
-			return this.options.getSeverity(CompilerOptions.OverriddenPackageDefaultMethod);
-
-		case IProblem.IncompatibleReturnTypeForNonInheritedInterfaceMethod :
-		case IProblem.IncompatibleExceptionInThrowsClauseForNonInheritedInterfaceMethod :
-			return this.options.getSeverity(CompilerOptions.IncompatibleNonInheritedInterfaceMethod);
-
-		case IProblem.OverridingDeprecatedMethod :				
-		case IProblem.UsingDeprecatedType :				
-		case IProblem.UsingDeprecatedMethod :
-		case IProblem.UsingDeprecatedConstructor :
-		case IProblem.UsingDeprecatedField :
-			return this.options.getSeverity(CompilerOptions.UsingDeprecatedAPI);
-		
-		case IProblem.LocalVariableIsNeverUsed :
-			return this.options.getSeverity(CompilerOptions.UnusedLocalVariable);
-		
-		case IProblem.ArgumentIsNeverUsed :
-			return this.options.getSeverity(CompilerOptions.UnusedArgument);
-
-		case IProblem.NoImplicitStringConversionForCharArrayExpression :
-			return this.options.getSeverity(CompilerOptions.NoImplicitStringConversion);
-
-		case IProblem.NeedToEmulateFieldReadAccess :
-		case IProblem.NeedToEmulateFieldWriteAccess :
-		case IProblem.NeedToEmulateMethodAccess :
-		case IProblem.NeedToEmulateConstructorAccess :			
-			return this.options.getSeverity(CompilerOptions.AccessEmulation);
-
-		case IProblem.NonExternalizedStringLiteral :
-			return this.options.getSeverity(CompilerOptions.NonExternalizedString);
-
-		case IProblem.UseAssertAsAnIdentifier :
-			return this.options.getSeverity(CompilerOptions.AssertUsedAsAnIdentifier);
-		case IProblem.UseEnumAsAnIdentifier :
-			return this.options.getSeverity(CompilerOptions.EnumUsedAsAnIdentifier);
-
-		case IProblem.NonStaticAccessToStaticMethod :
-		case IProblem.NonStaticAccessToStaticField :
-			return this.options.getSeverity(CompilerOptions.NonStaticAccessToStatic);
-
-		case IProblem.IndirectAccessToStaticMethod :
-		case IProblem.IndirectAccessToStaticField :
-		case IProblem.IndirectAccessToStaticType :
-			return this.options.getSeverity(CompilerOptions.IndirectStaticAccess);
-
-		case IProblem.AssignmentHasNoEffect:
-			return this.options.getSeverity(CompilerOptions.NoEffectAssignment);
-
-		case IProblem.UnusedPrivateConstructor:
-		case IProblem.UnusedPrivateMethod:
-		case IProblem.UnusedPrivateField:
-		case IProblem.UnusedPrivateType:
-			return this.options.getSeverity(CompilerOptions.UnusedPrivateMember);
-
+	switch (problemID) {
 		case IProblem.Task :
-			return Warning;			
-
-		case IProblem.LocalVariableHidingLocalVariable:
-		case IProblem.LocalVariableHidingField:
-		case IProblem.ArgumentHidingLocalVariable:
-		case IProblem.ArgumentHidingField:
-			return this.options.getSeverity(CompilerOptions.LocalVariableHiding);
-
-		case IProblem.FieldHidingLocalVariable:
-		case IProblem.FieldHidingField:
-			return this.options.getSeverity(CompilerOptions.FieldHiding);
-
-		case IProblem.TypeParameterHidingType:
-			return this.options.getSeverity(CompilerOptions.TypeParameterHiding);
+ 		case IProblem.VarargsConflict :
+			return ProblemSeverities.Warning;
 			
-		case IProblem.PossibleAccidentalBooleanAssignment:
-			return this.options.getSeverity(CompilerOptions.AccidentalBooleanAssign);
-
-		case IProblem.SuperfluousSemicolon:
-		case IProblem.EmptyControlFlowStatement:
-			return this.options.getSeverity(CompilerOptions.EmptyStatement);
-
-		case IProblem.UndocumentedEmptyBlock:
-			return this.options.getSeverity(CompilerOptions.UndocumentedEmptyBlock);
-			
-		case IProblem.UnnecessaryCast:
-		case IProblem.UnnecessaryInstanceof:
-			return this.options.getSeverity(CompilerOptions.UnnecessaryTypeCheck);
-			
-		case IProblem.FinallyMustCompleteNormally:
-			return this.options.getSeverity(CompilerOptions.FinallyBlockNotCompleting);
-			
-		case IProblem.UnusedMethodDeclaredThrownException:
-		case IProblem.UnusedConstructorDeclaredThrownException:
-			return this.options.getSeverity(CompilerOptions.UnusedDeclaredThrownException);
-
-		case IProblem.UnqualifiedFieldAccess:
-			return this.options.getSeverity(CompilerOptions.UnqualifiedFieldAccess);
-		
-		case IProblem.UnnecessaryElse:
-			return this.options.getSeverity(CompilerOptions.UnnecessaryElse);
-
-		case IProblem.UnsafeRawConstructorInvocation:
-		case IProblem.UnsafeRawMethodInvocation:
-		case IProblem.UnsafeTypeConversion:
-		case IProblem.UnsafeRawFieldAssignment:
-		case IProblem.UnsafeGenericCast:
-		case IProblem.UnsafeReturnTypeOverride:
-		case IProblem.UnsafeRawGenericMethodInvocation:
-		case IProblem.UnsafeRawGenericConstructorInvocation:
-			return this.options.getSeverity(CompilerOptions.UncheckedTypeOperation);
-
-		case IProblem.MissingOverrideAnnotation:
-			return this.options.getSeverity(CompilerOptions.MissingOverrideAnnotation);
-			
-		case IProblem.FieldMissingDeprecatedAnnotation:
-		case IProblem.MethodMissingDeprecatedAnnotation:
-		case IProblem.TypeMissingDeprecatedAnnotation:
-			return this.options.getSeverity(CompilerOptions.MissingDeprecatedAnnotation);
-			
-		case IProblem.FinalBoundForTypeVariable:
-		    return this.options.getSeverity(CompilerOptions.FinalParameterBound);
-
-		case IProblem.MissingSerialVersion:
-			return this.options.getSeverity(CompilerOptions.MissingSerialVersion);
-		
-		case IProblem.ForbiddenReference:
-			return this.options.getSeverity(CompilerOptions.ForbiddenReference);
-
-		case IProblem.DiscouragedReference:
-			return this.options.getSeverity(CompilerOptions.DiscouragedReference);
-
-		case IProblem.MethodVarargsArgumentNeedCast :
-		case IProblem.ConstructorVarargsArgumentNeedCast :
-			return this.options.getSeverity(CompilerOptions.VarargsArgumentNeedCast);
-
-		case IProblem.LocalVariableCannotBeNull :
-		case IProblem.LocalVariableCanOnlyBeNull :
-			return this.options.getSeverity(CompilerOptions.NullReference);
-			
-		case IProblem.BoxingConversion :
-		case IProblem.UnboxingConversion :
-			return this.options.getSeverity(CompilerOptions.Autoboxing);
-
-		case IProblem.MissingEnumConstantCase :
-			return this.options.getSeverity(CompilerOptions.IncompleteEnumSwitch);
-			
-		case IProblem.VarargsConflict :
-			return Warning;
-			
-		case IProblem.AnnotationTypeUsedAsSuperInterface :
-			return this.options.getSeverity(CompilerOptions.AnnotationSuperInterface);
-			
-		/*
-		 * Javadoc syntax errors
-		 */
-		case IProblem.JavadocUnexpectedTag:
-		case IProblem.JavadocDuplicateReturnTag:
-		case IProblem.JavadocInvalidThrowsClass:
-		case IProblem.JavadocInvalidReference:
-		case IProblem.JavadocInvalidParamTagName:
-		case IProblem.JavadocInvalidParamTagTypeParameter:
-		case IProblem.JavadocMalformedSeeReference:
-		case IProblem.JavadocInvalidSeeHref:
-		case IProblem.JavadocInvalidSeeArgs:
-		case IProblem.JavadocInvalidTag:
-		case IProblem.JavadocUnterminatedInlineTag:
-		case IProblem.JavadocMissingHashCharacter:
-		case IProblem.JavadocEmptyReturnTag:
-		case IProblem.JavadocUnexpectedText:
-			if (this.options.docCommentSupport) {
-				return this.options.getSeverity(CompilerOptions.InvalidJavadoc);
-			} else {
-				return ProblemSeverities.Ignore;
-			}
-
 		/*
 		 * Javadoc tags resolved references errors
 		 */
@@ -759,7 +575,7 @@ public int computeSeverity(int problemId){
 		case IProblem.JavadocInvalidThrowsClassName:
 		case IProblem.JavadocDuplicateThrowsClassName:
 		case IProblem.JavadocMissingThrowsClassName:
-		case IProblem.JavadocMissingReference:
+		case IProblem.JavadocMissingSeeReference:
 		case IProblem.JavadocInvalidValueReference:
 		case IProblem.JavadocUndefinedField:
 		case IProblem.JavadocAmbiguousField:
@@ -777,6 +593,7 @@ public int computeSeverity(int problemId){
 		case IProblem.JavadocInheritedMethodHidesEnclosingName:
 		case IProblem.JavadocInheritedFieldHidesEnclosingName:
 		case IProblem.JavadocInheritedNameHidesEnclosingTypeName:
+		case ProblemReporter.JavadocNonStaticTypeFromStaticInvocation: // internal problem ID in 3.1 maintenance branch
 		case IProblem.JavadocGenericMethodTypeArgumentMismatch:
 		case IProblem.JavadocNonGenericMethod:
 		case IProblem.JavadocIncorrectArityForParameterizedMethod:
@@ -787,11 +604,10 @@ public int computeSeverity(int problemId){
 		case IProblem.JavadocIncorrectArityForParameterizedConstructor:
 		case IProblem.JavadocParameterizedConstructorArgumentTypeMismatch:
 		case IProblem.JavadocTypeArgumentsForRawGenericConstructor:
-			if (this.options.docCommentSupport && this.options.reportInvalidJavadocTags) {
-				return this.options.getSeverity(CompilerOptions.InvalidJavadoc);
+			if (!this.options.reportInvalidJavadocTags) {
+				return ProblemSeverities.Ignore;		
 			}
-			return ProblemSeverities.Ignore;
-
+			break;
 		/*
 		 * Javadoc invalid tags due to deprecated references
 		 */
@@ -799,11 +615,10 @@ public int computeSeverity(int problemId){
 		case IProblem.JavadocUsingDeprecatedConstructor:
 		case IProblem.JavadocUsingDeprecatedMethod:
 		case IProblem.JavadocUsingDeprecatedType:
-			if (this.options.docCommentSupport && this.options.reportInvalidJavadocTags && this.options.reportInvalidJavadocTagsDeprecatedRef) {
-				return this.options.getSeverity(CompilerOptions.InvalidJavadoc);
+			if (!(this.options.reportInvalidJavadocTags && this.options.reportInvalidJavadocTagsDeprecatedRef)) {
+				return ProblemSeverities.Ignore;
 			}
-			return ProblemSeverities.Ignore;
-
+			break;
 		/*
 		 * Javadoc invalid tags due to non-visible references
 		 */
@@ -811,37 +626,18 @@ public int computeSeverity(int problemId){
 		case IProblem.JavadocNotVisibleConstructor:
 		case IProblem.JavadocNotVisibleMethod:
 		case IProblem.JavadocNotVisibleType:
-			if (this.options.docCommentSupport && this.options.reportInvalidJavadocTags && this.options.reportInvalidJavadocTagsNotVisibleRef) {
-				return this.options.getSeverity(CompilerOptions.InvalidJavadoc);
+			if (!(this.options.reportInvalidJavadocTags && this.options.reportInvalidJavadocTagsNotVisibleRef)) {
+				return ProblemSeverities.Ignore;			
 			}
-			return ProblemSeverities.Ignore;
-
-		/*
-		 * Javadoc missing tags errors
-		 */
-		case IProblem.JavadocMissingParamTag:
-		case IProblem.JavadocMissingReturnTag:
-		case IProblem.JavadocMissingThrowsTag:
-			if (this.options.docCommentSupport) {
-				return this.options.getSeverity(CompilerOptions.MissingJavadocTags);
-			} else {
-				return ProblemSeverities.Ignore;
-			}
-
-		/*
-		 * Missing Javadoc errors
-		 */
-		case IProblem.JavadocMissing:
-			if (this.options.docCommentSupport) {
-				return this.options.getSeverity(CompilerOptions.MissingJavadocComments);
-			} else {
-				return ProblemSeverities.Ignore;
-			}
-			
-		// by default problems are errors.
-		default:
-			return Error;
+			break;
 	}
+	long irritant = getIrritant(problemID);
+	if (irritant != 0) {
+		if ((problemID & IProblem.Javadoc) != 0 && !this.options.docCommentSupport) 
+			return ProblemSeverities.Ignore;
+		return this.options.getSeverity(irritant);
+	}
+	return Error;
 }
 public void conditionalArgumentsIncompatibleTypes(ConditionalExpression expression, TypeBinding trueType, TypeBinding falseType) {
 	this.handle(
@@ -928,8 +724,8 @@ public void deprecatedField(FieldBinding field, ASTNode location) {
 		IProblem.UsingDeprecatedField,
 		new String[] {new String(field.declaringClass.readableName()), new String(field.name)},
 		new String[] {new String(field.declaringClass.shortReadableName()), new String(field.name)},
-		location.sourceStart,
-		location.sourceEnd);
+		fieldSourceStart(field, location),
+		fieldSourceEnd(field, location));
 }
 public void deprecatedMethod(MethodBinding method, ASTNode location) {
 	if (method.isConstructor()) {
@@ -1062,8 +858,8 @@ public void duplicateInitializationOfBlankFinalField(FieldBinding field, Referen
 		IProblem.DuplicateBlankFinalFieldInitialization,
 		arguments,
 		arguments,
-		reference.sourceStart,
-		reference.sourceEnd);
+		fieldSourceStart(field, reference),
+		fieldSourceEnd(field, reference));
 }
 public void duplicateInitializationOfFinalLocal(LocalVariableBinding local, ASTNode location) {
 	String[] arguments = new String[] { new String(local.readableName())};
@@ -1176,7 +972,7 @@ public void duplicateNestedType(TypeDeclaration typeDecl) {
 		typeDecl.sourceStart,
 		typeDecl.sourceEnd);
 }
-public void duplicateSuperinterface(SourceTypeBinding type, TypeDeclaration typeDecl, ReferenceBinding superType) {
+public void duplicateSuperinterface(SourceTypeBinding type, TypeReference reference, ReferenceBinding superType) {
 	this.handle(
 		IProblem.DuplicateSuperInterface,
 		new String[] {
@@ -1185,17 +981,18 @@ public void duplicateSuperinterface(SourceTypeBinding type, TypeDeclaration type
 		new String[] {
 			new String(superType.shortReadableName()),
 			new String(type.sourceName())},
-		typeDecl.sourceStart,
-		typeDecl.sourceEnd);
+		reference.sourceStart,
+		reference.sourceEnd);
 }
 public void duplicateTargetInTargetAnnotation(TypeBinding annotationType, NameReference reference) {
-	String name = 	new String(reference.fieldBinding().name);
+	FieldBinding field = reference.fieldBinding();
+	String name = 	new String(field.name);
 	this.handle(
 		IProblem.DuplicateTargetInTargetAnnotation,
 		new String[] { name, new String(annotationType.readableName())},
 		new String[] {	name, new String(annotationType.shortReadableName())},
-		reference.sourceStart,
-		reference.sourceEnd);
+		fieldSourceStart(field, reference),
+		fieldSourceEnd(field, reference)); 
 }
 public void duplicateTypeParameterInType(TypeParameter typeParameter) {
 	this.handle(
@@ -1243,13 +1040,21 @@ public void enumAbstractMethodMustBeImplemented(AbstractMethodDeclaration method
 		method.sourceStart(),
 		method.sourceEnd());
 }
+public void enumStaticFieldUsedDuringInitialization(FieldBinding field, ASTNode location) {
+	this.handle(
+		ProblemReporter.EnumStaticFieldInInInitializerContext, // internal problem ID in 3.1 maintenance branch
+		new String[] {new String(field.declaringClass.readableName()), new String(field.name)},
+		new String[] {new String(field.declaringClass.shortReadableName()), new String(field.name)},
+		fieldSourceStart(field, location),
+		fieldSourceEnd(field, location));
+}
 public void enumSwitchCannotTargetField(Reference reference, FieldBinding field) {
 	this.handle(
 			IProblem.EnumSwitchCannotTargetField,
 			new String[]{ String.valueOf(field.declaringClass.readableName()), String.valueOf(field.name) },
 			new String[]{ String.valueOf(field.declaringClass.shortReadableName()), String.valueOf(field.name) },
-			reference.sourceStart,
-			reference.sourceEnd);	
+			fieldSourceStart(field, reference),
+			fieldSourceEnd(field, reference)); 
 }
 public void errorNoMethodFor(MessageSend messageSend, TypeBinding recType, TypeBinding[] params) {
 	StringBuffer buffer = new StringBuffer();
@@ -1327,7 +1132,8 @@ public void fieldHiding(FieldDeclaration fieldDecl, Binding hiddenVariable) {
 			fieldDecl.sourceEnd);
 	}
 }
-private int fieldLocation(FieldBinding field, ASTNode node) {
+
+private int fieldSourceEnd(FieldBinding field, ASTNode node) {
 	if (node instanceof QualifiedNameReference) {
 		QualifiedNameReference ref = (QualifiedNameReference) node;
 		FieldBinding[] bindings = ref.otherBindings;
@@ -1338,6 +1144,14 @@ private int fieldLocation(FieldBinding field, ASTNode node) {
 	}
 	return node.sourceEnd;
 }
+private int fieldSourceStart(FieldBinding field, ASTNode node) {
+	if (node instanceof FieldReference) {
+		FieldReference fieldReference = (FieldReference) node;
+		return (int) (fieldReference.nameSourcePosition >> 32);
+	}
+	return node.sourceStart;
+}
+
 public void fieldsOrThisBeforeConstructorInvocation(ThisReference reference) {
 	this.handle(
 		IProblem.ThisSuperDuringConstructorInvocation,
@@ -1406,6 +1220,238 @@ public void genericTypeCannotExtendThrowable(TypeDeclaration typeDecl) {
 		typeDecl.superclass.sourceStart,
 		typeDecl.superclass.sourceEnd);
 }
+public static long getIrritant(int problemID) {
+	switch(problemID){
+
+		case IProblem.MaskedCatch : 
+			return CompilerOptions.MaskedCatchBlock;
+
+		case IProblem.UnusedImport :
+			return CompilerOptions.UnusedImport;
+			
+		case IProblem.MethodButWithConstructorName :
+			return CompilerOptions.MethodWithConstructorName;
+		
+		case IProblem.OverridingNonVisibleMethod :
+			return CompilerOptions.OverriddenPackageDefaultMethod;
+
+		case IProblem.IncompatibleReturnTypeForNonInheritedInterfaceMethod :
+		case IProblem.IncompatibleExceptionInThrowsClauseForNonInheritedInterfaceMethod :
+			return CompilerOptions.IncompatibleNonInheritedInterfaceMethod;
+
+		case IProblem.OverridingDeprecatedMethod :				
+		case IProblem.UsingDeprecatedType :				
+		case IProblem.UsingDeprecatedMethod :
+		case IProblem.UsingDeprecatedConstructor :
+		case IProblem.UsingDeprecatedField :
+			return CompilerOptions.UsingDeprecatedAPI;
+		
+		case IProblem.LocalVariableIsNeverUsed :
+			return CompilerOptions.UnusedLocalVariable;
+		
+		case IProblem.ArgumentIsNeverUsed :
+			return CompilerOptions.UnusedArgument;
+
+		case IProblem.NoImplicitStringConversionForCharArrayExpression :
+			return CompilerOptions.NoImplicitStringConversion;
+
+		case IProblem.NeedToEmulateFieldReadAccess :
+		case IProblem.NeedToEmulateFieldWriteAccess :
+		case IProblem.NeedToEmulateMethodAccess :
+		case IProblem.NeedToEmulateConstructorAccess :			
+			return CompilerOptions.AccessEmulation;
+
+		case IProblem.NonExternalizedStringLiteral :
+			return CompilerOptions.NonExternalizedString;
+
+		case IProblem.UseAssertAsAnIdentifier :
+			return CompilerOptions.AssertUsedAsAnIdentifier;
+			
+		case IProblem.UseEnumAsAnIdentifier :
+			return CompilerOptions.EnumUsedAsAnIdentifier;
+
+		case IProblem.NonStaticAccessToStaticMethod :
+		case IProblem.NonStaticAccessToStaticField :
+			return CompilerOptions.NonStaticAccessToStatic;
+
+		case IProblem.IndirectAccessToStaticMethod :
+		case IProblem.IndirectAccessToStaticField :
+		case IProblem.IndirectAccessToStaticType :
+			return CompilerOptions.IndirectStaticAccess;
+
+		case IProblem.AssignmentHasNoEffect:
+			return CompilerOptions.NoEffectAssignment;
+
+		case IProblem.UnusedPrivateConstructor:
+		case IProblem.UnusedPrivateMethod:
+		case IProblem.UnusedPrivateField:
+		case IProblem.UnusedPrivateType:
+			return CompilerOptions.UnusedPrivateMember;
+
+		case IProblem.LocalVariableHidingLocalVariable:
+		case IProblem.LocalVariableHidingField:
+		case IProblem.ArgumentHidingLocalVariable:
+		case IProblem.ArgumentHidingField:
+			return CompilerOptions.LocalVariableHiding;
+
+		case IProblem.FieldHidingLocalVariable:
+		case IProblem.FieldHidingField:
+			return CompilerOptions.FieldHiding;
+
+		case IProblem.TypeParameterHidingType:
+			return CompilerOptions.TypeParameterHiding;
+			
+		case IProblem.PossibleAccidentalBooleanAssignment:
+			return CompilerOptions.AccidentalBooleanAssign;
+
+		case IProblem.SuperfluousSemicolon:
+		case IProblem.EmptyControlFlowStatement:
+			return CompilerOptions.EmptyStatement;
+
+		case IProblem.UndocumentedEmptyBlock:
+			return CompilerOptions.UndocumentedEmptyBlock;
+			
+		case IProblem.UnnecessaryCast:
+		case IProblem.UnnecessaryInstanceof:
+			return CompilerOptions.UnnecessaryTypeCheck;
+			
+		case IProblem.FinallyMustCompleteNormally:
+			return CompilerOptions.FinallyBlockNotCompleting;
+			
+		case IProblem.UnusedMethodDeclaredThrownException:
+		case IProblem.UnusedConstructorDeclaredThrownException:
+			return CompilerOptions.UnusedDeclaredThrownException;
+
+		case IProblem.UnqualifiedFieldAccess:
+			return CompilerOptions.UnqualifiedFieldAccess;
+		
+		case IProblem.UnnecessaryElse:
+			return CompilerOptions.UnnecessaryElse;
+
+		case IProblem.UnsafeRawConstructorInvocation:
+		case IProblem.UnsafeRawMethodInvocation:
+		case IProblem.UnsafeTypeConversion:
+		case IProblem.UnsafeRawFieldAssignment:
+		case IProblem.UnsafeGenericCast:
+		case IProblem.UnsafeReturnTypeOverride:
+		case IProblem.UnsafeRawGenericMethodInvocation:
+		case IProblem.UnsafeRawGenericConstructorInvocation:
+			return CompilerOptions.UncheckedTypeOperation;
+
+		case IProblem.MissingOverrideAnnotation:
+			return CompilerOptions.MissingOverrideAnnotation;
+			
+		case IProblem.FieldMissingDeprecatedAnnotation:
+		case IProblem.MethodMissingDeprecatedAnnotation:
+		case IProblem.TypeMissingDeprecatedAnnotation:
+			return CompilerOptions.MissingDeprecatedAnnotation;
+			
+		case IProblem.FinalBoundForTypeVariable:
+		    return CompilerOptions.FinalParameterBound;
+
+		case IProblem.MissingSerialVersion:
+			return CompilerOptions.MissingSerialVersion;
+		
+		case IProblem.ForbiddenReference:
+			return CompilerOptions.ForbiddenReference;
+
+		case IProblem.DiscouragedReference:
+			return CompilerOptions.DiscouragedReference;
+
+		case IProblem.MethodVarargsArgumentNeedCast :
+		case IProblem.ConstructorVarargsArgumentNeedCast :
+			return CompilerOptions.VarargsArgumentNeedCast;
+
+		case IProblem.LocalVariableCannotBeNull :
+		case IProblem.LocalVariableCanOnlyBeNull :
+			return CompilerOptions.NullReference;
+			
+		case IProblem.BoxingConversion :
+		case IProblem.UnboxingConversion :
+			return CompilerOptions.Autoboxing;
+
+		case IProblem.MissingEnumConstantCase :
+			return CompilerOptions.IncompleteEnumSwitch;
+			
+		case IProblem.AnnotationTypeUsedAsSuperInterface :
+			return CompilerOptions.AnnotationSuperInterface;
+			
+		case IProblem.UnhandledWarningToken :
+			return CompilerOptions.UnhandledWarningToken;
+			
+		case IProblem.JavadocUnexpectedTag:
+		case IProblem.JavadocDuplicateReturnTag:
+		case IProblem.JavadocInvalidThrowsClass:
+		case IProblem.JavadocInvalidSeeReference:
+		case IProblem.JavadocInvalidParamTagName:
+		case IProblem.JavadocInvalidParamTagTypeParameter:
+		case IProblem.JavadocMalformedSeeReference:
+		case IProblem.JavadocInvalidSeeHref:
+		case IProblem.JavadocInvalidSeeArgs:
+		case IProblem.JavadocInvalidTag:
+		case IProblem.JavadocUnterminatedInlineTag:
+		case IProblem.JavadocMissingHashCharacter:
+		case IProblem.JavadocEmptyReturnTag:
+		case IProblem.JavadocUnexpectedText:
+		case IProblem.JavadocInvalidParamName:
+		case IProblem.JavadocDuplicateParamName:
+		case IProblem.JavadocMissingParamName:
+		case IProblem.JavadocInvalidThrowsClassName:
+		case IProblem.JavadocDuplicateThrowsClassName:
+		case IProblem.JavadocMissingThrowsClassName:
+		case IProblem.JavadocMissingSeeReference:
+		case IProblem.JavadocInvalidValueReference:
+		case IProblem.JavadocUndefinedField:
+		case IProblem.JavadocAmbiguousField:
+		case IProblem.JavadocUndefinedConstructor:
+		case IProblem.JavadocAmbiguousConstructor:
+		case IProblem.JavadocUndefinedMethod:
+		case IProblem.JavadocAmbiguousMethod:
+		case IProblem.JavadocAmbiguousMethodReference:
+		case IProblem.JavadocParameterMismatch:
+		case IProblem.JavadocUndefinedType:
+		case IProblem.JavadocAmbiguousType:
+		case IProblem.JavadocInternalTypeNameProvided:
+		case IProblem.JavadocNoMessageSendOnArrayType:
+		case IProblem.JavadocNoMessageSendOnBaseType:
+		case IProblem.JavadocInheritedMethodHidesEnclosingName:
+		case IProblem.JavadocInheritedFieldHidesEnclosingName:
+		case IProblem.JavadocInheritedNameHidesEnclosingTypeName:
+		case ProblemReporter.JavadocNonStaticTypeFromStaticInvocation:  // internal problem ID in 3.1 maintenance branch
+		case IProblem.JavadocGenericMethodTypeArgumentMismatch:
+		case IProblem.JavadocNonGenericMethod:
+		case IProblem.JavadocIncorrectArityForParameterizedMethod:
+		case IProblem.JavadocParameterizedMethodArgumentTypeMismatch:
+		case IProblem.JavadocTypeArgumentsForRawGenericMethod:
+		case IProblem.JavadocGenericConstructorTypeArgumentMismatch:
+		case IProblem.JavadocNonGenericConstructor:
+		case IProblem.JavadocIncorrectArityForParameterizedConstructor:
+		case IProblem.JavadocParameterizedConstructorArgumentTypeMismatch:
+		case IProblem.JavadocTypeArgumentsForRawGenericConstructor:
+		case IProblem.JavadocNotVisibleField:
+		case IProblem.JavadocNotVisibleConstructor:
+		case IProblem.JavadocNotVisibleMethod:
+		case IProblem.JavadocNotVisibleType:
+			return CompilerOptions.InvalidJavadoc;
+			
+		case IProblem.JavadocUsingDeprecatedField:
+		case IProblem.JavadocUsingDeprecatedConstructor:
+		case IProblem.JavadocUsingDeprecatedMethod:
+		case IProblem.JavadocUsingDeprecatedType:
+			return CompilerOptions.InvalidJavadoc | CompilerOptions.UsingDeprecatedAPI;
+
+		case IProblem.JavadocMissingParamTag:
+		case IProblem.JavadocMissingReturnTag:
+		case IProblem.JavadocMissingThrowsTag:
+			return CompilerOptions.MissingJavadocTags;
+
+		case IProblem.JavadocMissing:
+			return CompilerOptions.MissingJavadocComments;
+	}
+	return 0;
+	
+}
+
 // use this private API when the compilation unit result can be found through the
 // reference context. Otherwise, use the other API taking a problem and a compilation result
 // as arguments
@@ -2074,8 +2120,8 @@ public void indirectAccessToStaticField(ASTNode location, FieldBinding field){
 		IProblem.IndirectAccessToStaticField,
 		new String[] {new String(field.declaringClass.readableName()), new String(field.name)},
 		new String[] {new String(field.declaringClass.shortReadableName()), new String(field.name)},
-		location.sourceStart,
-		fieldLocation(field, location));
+		fieldSourceStart(field, location),
+		fieldSourceEnd(field, location));
 }
 public void indirectAccessToStaticMethod(ASTNode location, MethodBinding method) {
 	this.handle(
@@ -2281,24 +2327,27 @@ public void invalidConstructor(Statement statement, MethodBinding targetConstruc
 			problemConstructor = (ProblemMethodBinding) targetConstructor;
 			ParameterizedGenericMethodBinding substitutedConstructor = (ParameterizedGenericMethodBinding) problemConstructor.closestMatch;
 			shownConstructor = substitutedConstructor.original();
-			TypeBinding typeArgument = targetConstructor.parameters[0];
-			TypeVariableBinding typeParameter = (TypeVariableBinding) targetConstructor.parameters[1];
+			int augmentedLength = problemConstructor.parameters.length;
+			TypeBinding inferredTypeArgument = problemConstructor.parameters[augmentedLength-2];
+			TypeVariableBinding typeParameter = (TypeVariableBinding) problemConstructor.parameters[augmentedLength-1];
+			TypeBinding[] invocationArguments = new TypeBinding[augmentedLength-2]; // remove extra info from the end
+			System.arraycopy(problemConstructor.parameters, 0, invocationArguments, 0, augmentedLength-2);
 			this.handle(
 				IProblem.GenericConstructorTypeArgumentMismatch,
 				new String[] { 
 				        new String(shownConstructor.declaringClass.sourceName()),
 				        typesAsString(shownConstructor.isVarargs(), shownConstructor.parameters, false), 
 				        new String(shownConstructor.declaringClass.readableName()), 
-				        typesAsString(substitutedConstructor.isVarargs(), substitutedConstructor.parameters, false), 
-				        new String(typeArgument.readableName()), 
+				        typesAsString(false, invocationArguments, false), 
+				        new String(inferredTypeArgument.readableName()), 
 				        new String(typeParameter.sourceName), 
 				        parameterBoundAsString(typeParameter, false) },
 				new String[] { 
 				        new String(shownConstructor.declaringClass.sourceName()),
 				        typesAsString(shownConstructor.isVarargs(), shownConstructor.parameters, true), 
 				        new String(shownConstructor.declaringClass.shortReadableName()), 
-				        typesAsString(substitutedConstructor.isVarargs(), substitutedConstructor.parameters, true), 
-				        new String(typeArgument.shortReadableName()), 
+				        typesAsString(false, invocationArguments, true), 
+				        new String(inferredTypeArgument.shortReadableName()), 
 				        new String(typeParameter.sourceName), 
 				        parameterBoundAsString(typeParameter, true) },
 				sourceStart,
@@ -2453,6 +2502,7 @@ public void invalidExpressionAsStatement(Expression expression){
 public void invalidField(FieldReference fieldRef, TypeBinding searchedType) {
 	int id = IProblem.UndefinedField;
 	FieldBinding field = fieldRef.binding;
+	final int sourceStart= (int) (fieldRef.nameSourcePosition >> 32);
 	switch (field.problemId()) {
 		case NotFound :
 			id = IProblem.UndefinedField;
@@ -2462,8 +2512,13 @@ public void invalidField(FieldReference fieldRef, TypeBinding searchedType) {
 */
 			break;
 		case NotVisible :
-			id = IProblem.NotVisibleField;
-			break;
+			this.handle(
+				IProblem.NotVisibleField,
+				new String[] {new String(fieldRef.token), new String(field.declaringClass.readableName())},
+				new String[] {new String(fieldRef.token), new String(field.declaringClass.shortReadableName())},
+				sourceStart,
+				fieldRef.sourceEnd);			
+			return;
 		case Ambiguous :
 			id = IProblem.AmbiguousField;
 			break;
@@ -2496,7 +2551,7 @@ public void invalidField(FieldReference fieldRef, TypeBinding searchedType) {
 		id,
 		arguments,
 		arguments,
-		fieldRef.sourceStart,
+		sourceStart,
 		fieldRef.sourceEnd);
 }
 public void invalidField(NameReference nameRef, FieldBinding field) {
@@ -2506,8 +2561,15 @@ public void invalidField(NameReference nameRef, FieldBinding field) {
 			id = IProblem.UndefinedField;
 			break;
 		case NotVisible :
-			id = IProblem.NotVisibleField;
-			break;
+			char[] name = field.readableName();
+			name = CharOperation.lastSegment(name, '.');
+			this.handle(
+				IProblem.NotVisibleField,
+				new String[] {new String(name), new String(field.declaringClass.readableName())},
+				new String[] {new String(name), new String(field.declaringClass.shortReadableName())},
+				nameRef.sourceStart,
+				nameRef.sourceEnd);				
+			return;
 		case Ambiguous :
 			id = IProblem.AmbiguousField;
 			break;
@@ -2576,8 +2638,14 @@ public void invalidField(QualifiedNameReference nameRef, FieldBinding field, int
 */
 			break;
 		case NotVisible :
-			id = IProblem.NotVisibleField;
-			break;
+			String fieldName = new String(nameRef.tokens[index]);
+			this.handle(
+				IProblem.NotVisibleField,
+				new String[] {fieldName, new String(field.declaringClass.readableName())},
+				new String[] {fieldName, new String(field.declaringClass.shortReadableName())},
+				nameRef.sourceStart, 
+				(int) nameRef.sourcePositions[index]);				
+			return;
 		case Ambiguous :
 			id = IProblem.AmbiguousField;
 			break;
@@ -2629,13 +2697,9 @@ public void invalidMethod(MessageSend messageSend, MethodBinding method) {
 			if (problemMethod.closestMatch != null) {
 			    	shownMethod = problemMethod.closestMatch;
 					String closestParameterTypeNames = typesAsString(shownMethod.isVarargs(), shownMethod.parameters, false);
-					String parameterTypeNames = typesAsString(method.isVarargs(), method.parameters, false);
+					String parameterTypeNames = typesAsString(false, problemMethod.parameters, false);
 					String closestParameterTypeShortNames = typesAsString(shownMethod.isVarargs(), shownMethod.parameters, true);
-					String parameterTypeShortNames = typesAsString(method.isVarargs(), method.parameters, true);
-					if (closestParameterTypeShortNames.equals(parameterTypeShortNames)){
-						closestParameterTypeShortNames = closestParameterTypeNames;
-						parameterTypeShortNames = parameterTypeNames;
-					}
+					String parameterTypeShortNames = typesAsString(false, problemMethod.parameters, true);
 					this.handle(
 						IProblem.ParameterMismatch,
 						new String[] {
@@ -2686,24 +2750,27 @@ public void invalidMethod(MessageSend messageSend, MethodBinding method) {
 			problemMethod = (ProblemMethodBinding) method;
 			ParameterizedGenericMethodBinding substitutedMethod = (ParameterizedGenericMethodBinding) problemMethod.closestMatch;
 			shownMethod = substitutedMethod.original();
-			TypeBinding typeArgument = method.parameters[0];
-			TypeVariableBinding typeParameter = (TypeVariableBinding) method.parameters[1];
+			int augmentedLength = problemMethod.parameters.length;
+			TypeBinding inferredTypeArgument = problemMethod.parameters[augmentedLength-2];
+			TypeVariableBinding typeParameter = (TypeVariableBinding) problemMethod.parameters[augmentedLength-1];
+			TypeBinding[] invocationArguments = new TypeBinding[augmentedLength-2]; // remove extra info from the end
+			System.arraycopy(problemMethod.parameters, 0, invocationArguments, 0, augmentedLength-2);
 			this.handle(
 				IProblem.GenericMethodTypeArgumentMismatch,
 				new String[] { 
 				        new String(shownMethod.selector),
 				        typesAsString(shownMethod.isVarargs(), shownMethod.parameters, false), 
 				        new String(shownMethod.declaringClass.readableName()), 
-				        typesAsString(substitutedMethod.isVarargs(), substitutedMethod.parameters, false), 
-				        new String(typeArgument.readableName()), 
+				        typesAsString(false, invocationArguments, false), 
+				        new String(inferredTypeArgument.readableName()), 
 				        new String(typeParameter.sourceName), 
 				        parameterBoundAsString(typeParameter, false) },
 				new String[] { 
 				        new String(shownMethod.selector),
 				        typesAsString(shownMethod.isVarargs(), shownMethod.parameters, true), 
 				        new String(shownMethod.declaringClass.shortReadableName()), 
-				        typesAsString(substitutedMethod.isVarargs(), substitutedMethod.parameters, true), 
-				        new String(typeArgument.shortReadableName()), 
+				        typesAsString(false, invocationArguments, true), 
+				        new String(inferredTypeArgument.shortReadableName()), 
 				        new String(typeParameter.sourceName), 
 				        parameterBoundAsString(typeParameter, true) },
 				(int) (messageSend.nameSourcePosition >>> 32),
@@ -2892,7 +2959,7 @@ public void invalidType(ASTNode location, TypeBinding type) {
 			id = IProblem.InheritedTypeHidesEnclosingName;
 			break;
 		case NonStaticReferenceInStaticContext :
-			id = IProblem.TypeVariableReferenceFromStaticContext;
+			id = IProblem.NonStaticTypeFromStaticInvocation;
 		    break;
 		case IllegalSuperTypeVariable : 
 		    id = IProblem.IllegalTypeVariableSuperReference;
@@ -3242,24 +3309,29 @@ public void javadocInvalidConstructor(Statement statement, MethodBinding targetC
 			problemConstructor = (ProblemMethodBinding) targetConstructor;
 			ParameterizedGenericMethodBinding substitutedConstructor = (ParameterizedGenericMethodBinding) problemConstructor.closestMatch;
 			shownConstructor = substitutedConstructor.original();
-			TypeBinding typeArgument = targetConstructor.parameters[0];
-			TypeVariableBinding typeParameter = (TypeVariableBinding) targetConstructor.parameters[1];
+			
+			int augmentedLength = problemConstructor.parameters.length;
+			TypeBinding inferredTypeArgument = problemConstructor.parameters[augmentedLength-2];
+			TypeVariableBinding typeParameter = (TypeVariableBinding) problemConstructor.parameters[augmentedLength-1];
+			TypeBinding[] invocationArguments = new TypeBinding[augmentedLength-2]; // remove extra info from the end
+			System.arraycopy(problemConstructor.parameters, 0, invocationArguments, 0, augmentedLength-2);
+			
 			this.handle(
 				IProblem.JavadocGenericConstructorTypeArgumentMismatch,
 				new String[] { 
 				        new String(shownConstructor.declaringClass.sourceName()),
 				        typesAsString(shownConstructor.isVarargs(), shownConstructor.parameters, false), 
 				        new String(shownConstructor.declaringClass.readableName()), 
-				        typesAsString(substitutedConstructor.isVarargs(), substitutedConstructor.parameters, false), 
-				        new String(typeArgument.readableName()), 
+				        typesAsString(false, invocationArguments, false), 
+				        new String(inferredTypeArgument.readableName()), 
 				        new String(typeParameter.sourceName), 
 				        parameterBoundAsString(typeParameter, false) },
 				new String[] { 
 				        new String(shownConstructor.declaringClass.sourceName()),
 				        typesAsString(shownConstructor.isVarargs(), shownConstructor.parameters, true), 
 				        new String(shownConstructor.declaringClass.shortReadableName()), 
-				        typesAsString(substitutedConstructor.isVarargs(), substitutedConstructor.parameters, true), 
-				        new String(typeArgument.shortReadableName()), 
+				        typesAsString(false, invocationArguments, true), 
+				        new String(inferredTypeArgument.shortReadableName()), 
 				        new String(typeParameter.sourceName), 
 				        parameterBoundAsString(typeParameter, true) },
 				sourceStart,
@@ -3372,9 +3444,6 @@ public void javadocInvalidField(int sourceStart, int sourceEnd, Binding fieldBin
 		case Ambiguous :
 			id = IProblem.JavadocAmbiguousField;
 			break;
-		case InheritedNameHidesEnclosingName :
-			id = IProblem.JavadocInheritedFieldHidesEnclosingName;
-			break;
 		case NoError : // 0
 		default :
 			needImplementation(); // want to fail to see why we were here...
@@ -3437,31 +3506,31 @@ public void javadocInvalidMethod(MessageSend messageSend, MethodBinding method, 
 		case Ambiguous :
 			id = IProblem.JavadocAmbiguousMethod;
 			break;
-		case InheritedNameHidesEnclosingName :
-			id = IProblem.JavadocInheritedMethodHidesEnclosingName;
-			break;
 		case ParameterBoundMismatch :
 			problemMethod = (ProblemMethodBinding) method;
 			ParameterizedGenericMethodBinding substitutedMethod = (ParameterizedGenericMethodBinding) problemMethod.closestMatch;
 			shownMethod = substitutedMethod.original();
-			TypeBinding typeArgument = method.parameters[0];
-			TypeVariableBinding typeParameter = (TypeVariableBinding) method.parameters[1];
+			int augmentedLength = problemMethod.parameters.length;
+			TypeBinding inferredTypeArgument = problemMethod.parameters[augmentedLength-2];
+			TypeVariableBinding typeParameter = (TypeVariableBinding) problemMethod.parameters[augmentedLength-1];
+			TypeBinding[] invocationArguments = new TypeBinding[augmentedLength-2]; // remove extra info from the end
+			System.arraycopy(problemMethod.parameters, 0, invocationArguments, 0, augmentedLength-2);
 			this.handle(
 				IProblem.JavadocGenericMethodTypeArgumentMismatch,
 				new String[] { 
 				        new String(shownMethod.selector),
 				        typesAsString(shownMethod.isVarargs(), shownMethod.parameters, false), 
 				        new String(shownMethod.declaringClass.readableName()), 
-				        typesAsString(substitutedMethod.isVarargs(), substitutedMethod.parameters, false), 
-				        new String(typeArgument.readableName()), 
+				        typesAsString(false, invocationArguments, false), 
+				        new String(inferredTypeArgument.readableName()), 
 				        new String(typeParameter.sourceName), 
 				        parameterBoundAsString(typeParameter, false) },
 				new String[] { 
 				        new String(shownMethod.selector),
 				        typesAsString(shownMethod.isVarargs(), shownMethod.parameters, true), 
 				        new String(shownMethod.declaringClass.shortReadableName()), 
-				        typesAsString(substitutedMethod.isVarargs(), substitutedMethod.parameters, true), 
-				        new String(typeArgument.shortReadableName()), 
+				        typesAsString(false, invocationArguments, true), 
+				        new String(inferredTypeArgument.shortReadableName()), 
 				        new String(typeParameter.sourceName), 
 				        parameterBoundAsString(typeParameter, true) },
 				(int) (messageSend.nameSourcePosition >>> 32),
@@ -3566,7 +3635,7 @@ public void javadocInvalidParamTypeParameter(int sourceStart, int sourceEnd) {
 	this.handle(IProblem.JavadocInvalidParamTagTypeParameter, NoArgument, NoArgument, sourceStart, sourceEnd);
 }
 public void javadocInvalidReference(int sourceStart, int sourceEnd) {
-	this.handle(IProblem.JavadocInvalidReference, NoArgument, NoArgument, sourceStart, sourceEnd);
+	this.handle(IProblem.JavadocInvalidSeeReference, NoArgument, NoArgument, sourceStart, sourceEnd);
 }
 public void javadocInvalidSeeReferenceArgs(int sourceStart, int sourceEnd) {
 	this.handle(IProblem.JavadocInvalidSeeArgs, NoArgument, NoArgument, sourceStart, sourceEnd);
@@ -3605,6 +3674,9 @@ public void javadocInvalidType(ASTNode location, TypeBinding type, int modifiers
 			case InheritedNameHidesEnclosingName :
 				id = IProblem.JavadocInheritedNameHidesEnclosingTypeName;
 				break;
+			case NonStaticReferenceInStaticContext :
+				id = ProblemReporter.JavadocNonStaticTypeFromStaticInvocation; // internal problem ID in 3.1 maintenance branch
+			    break;
 			case NoError : // 0
 			default :
 				needImplementation(); // want to fail to see why we were here...
@@ -3656,7 +3728,7 @@ public void javadocMissingParamTag(char[] name, int sourceStart, int sourceEnd, 
 }
 public void javadocMissingReference(int sourceStart, int sourceEnd, int modifiers){
 	if (javadocVisibility(this.options.reportInvalidJavadocTagsVisibility, modifiers))
-		this.handle(IProblem.JavadocMissingReference, NoArgument, NoArgument, sourceStart, sourceEnd);
+		this.handle(IProblem.JavadocMissingSeeReference, NoArgument, NoArgument, sourceStart, sourceEnd);
 }
 public void javadocMissingReturnTag(int sourceStart, int sourceEnd, int modifiers){
 	boolean overriding = (modifiers & (CompilerModifiers.AccImplementing|CompilerModifiers.AccOverriding)) != 0;
@@ -3954,8 +4026,8 @@ public void needToEmulateFieldAccess(FieldBinding field, ASTNode location, boole
 			: IProblem.NeedToEmulateFieldWriteAccess,
 		new String[] {new String(field.declaringClass.readableName()), new String(field.name)},
 		new String[] {new String(field.declaringClass.shortReadableName()), new String(field.name)},
-		location.sourceStart,
-		location.sourceEnd);
+		fieldSourceStart(field, location),
+		fieldSourceEnd(field, location));
 }
 public void needToEmulateMethodAccess(
 	MethodBinding method, 
@@ -4075,8 +4147,8 @@ public void nonStaticAccessToStaticField(ASTNode location, FieldBinding field) {
 		IProblem.NonStaticAccessToStaticField,
 		new String[] {new String(field.declaringClass.readableName()), new String(field.name)},
 		new String[] {new String(field.declaringClass.shortReadableName()), new String(field.name)},
-		location.sourceStart,
-		fieldLocation(field, location));
+		fieldSourceStart(field, location),
+		fieldSourceEnd(field, location));
 }
 public void nonStaticAccessToStaticMethod(ASTNode location, MethodBinding method) {
 	this.handle(
@@ -4773,8 +4845,8 @@ public void staticFieldAccessToNonStaticVariable(ASTNode location, FieldBinding 
 		IProblem.NonStaticFieldFromStaticInvocation,
 		arguments,
 		arguments,
-		location.sourceStart,
-		fieldLocation(field, location)); 
+		fieldSourceStart(field,location),
+		fieldSourceEnd(field, location)); 
 }
 public void staticInheritedMethodConflicts(SourceTypeBinding type, MethodBinding concreteMethod, MethodBinding[] abstractMethods) {
 	this.handle(
@@ -4840,13 +4912,13 @@ public void superinterfaceMustBeAnInterface(SourceTypeBinding type, TypeReferenc
 		superInterfaceRef.sourceStart,
 		superInterfaceRef.sourceEnd);
 }
-public void superinterfacesCollide(ReferenceBinding type, TypeDeclaration typeDecl, ReferenceBinding superType, ReferenceBinding inheritedSuperType) {
+public void superinterfacesCollide(TypeBinding type, ASTNode decl, TypeBinding superType, TypeBinding inheritedSuperType) {
 	this.handle(
 		IProblem.SuperInterfacesCollide,
 		new String[] {new String(superType.readableName()), new String(inheritedSuperType.readableName()), new String(type.sourceName())},
 		new String[] {new String(superType.shortReadableName()), new String(inheritedSuperType.shortReadableName()), new String(type.sourceName())},
-		typeDecl.sourceStart,
-		typeDecl.sourceEnd);
+		decl.sourceStart,
+		decl.sourceEnd);
 }
 public void superTypeCannotUseWildcard(SourceTypeBinding type, TypeReference superclass, TypeBinding superTypeBinding) {
 	String name = new String(type.sourceName());
@@ -5076,14 +5148,14 @@ public void unhandledException(TypeBinding exceptionType, ASTNode location) {
 		location.sourceStart,
 		location.sourceEnd);
 }
-public void uninitializedBlankFinalField(FieldBinding binding, ASTNode location) {
-	String[] arguments = new String[] {new String(binding.readableName())};
+public void uninitializedBlankFinalField(FieldBinding field, ASTNode location) {
+	String[] arguments = new String[] {new String(field.readableName())};
 	this.handle(
 		IProblem.UninitializedBlankFinalField,
 		arguments,
 		arguments,
-		location.sourceStart,
-		fieldLocation(binding, location));
+		fieldSourceStart(field, location),
+		fieldSourceEnd(field, location));
 }
 public void uninitializedLocalVariable(LocalVariableBinding binding, ASTNode location) {
 	String[] arguments = new String[] {new String(binding.readableName())};
@@ -5171,6 +5243,15 @@ public void unreachableCode(Statement statement) {
 		statement.sourceStart,
 		statement.sourceEnd);
 }
+public void unhandledWarningToken(Expression token) {
+	String[] arguments = new String[] { token.constant.stringValue() };
+	this.handle(
+		IProblem.UnhandledWarningToken,
+		arguments,
+		arguments,
+		token.sourceStart,
+		token.sourceEnd);
+}
 public void unresolvableReference(NameReference nameRef, Binding binding) {
 	int severity = Error;
 /* also need to check that the searchedType is the receiver type
@@ -5214,15 +5295,15 @@ public void unsafeCast(CastExpression castExpression, Scope scope) {
 		castExpression.sourceStart,
 		castExpression.sourceEnd);
 }
-public void unsafeRawFieldAssignment(FieldBinding rawField, TypeBinding expressionType, ASTNode location) {
+public void unsafeRawFieldAssignment(FieldBinding field, TypeBinding expressionType, ASTNode location) {
 	this.handle(
 		IProblem.UnsafeRawFieldAssignment,
 		new String[] { 
-		        new String(expressionType.readableName()), new String(rawField.name), new String(rawField.declaringClass.readableName()), new String(rawField.declaringClass.erasure().readableName()) },
+		        new String(expressionType.readableName()), new String(field.name), new String(field.declaringClass.readableName()), new String(field.declaringClass.erasure().readableName()) },
 		new String[] { 
-		        new String(expressionType.shortReadableName()), new String(rawField.name), new String(rawField.declaringClass.shortReadableName()), new String(rawField.declaringClass.erasure().shortReadableName()) },
-		location.sourceStart,
-		location.sourceEnd);    
+		        new String(expressionType.shortReadableName()), new String(field.name), new String(field.declaringClass.shortReadableName()), new String(field.declaringClass.erasure().shortReadableName()) },
+		fieldSourceStart(field,location),
+		fieldSourceEnd(field, location)); 
 }
 public void unsafeRawGenericMethodInvocation(ASTNode location, MethodBinding rawMethod) {
     if (rawMethod.isConstructor()) {

@@ -76,7 +76,7 @@ public void computeConversion(Scope scope, TypeBinding runtimeTimeType, TypeBind
 		} 	else if (this.actualReceiverType.isArrayType() 
 						&& runtimeTimeType.id != T_JavaLangObject
 						&& this.binding.parameters == NoParameters 
-						&& scope.environment().options.complianceLevel >= JDK1_5 
+						&& scope.compilerOptions().complianceLevel >= JDK1_5 
 						&& CharOperation.equals(this.binding.selector, CLONE)) {
 					// from 1.5 compliant mode on, array#clone() resolves to array type, but codegen to #clone()Object - thus require extra inserted cast
 			this.valueCast = runtimeTimeType;			
@@ -204,7 +204,7 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo f
 	// and not from Object or implicit static method call.	
 	if (this.binding.declaringClass != this.actualReceiverType
 			&& !this.actualReceiverType.isArrayType()) {
-		CompilerOptions options = currentScope.environment().options;
+		CompilerOptions options = currentScope.compilerOptions();
 		if ((options.targetJDK >= ClassFileConstants.JDK1_2
 				&& (options.complianceLevel >= ClassFileConstants.JDK1_4 || !receiver.isImplicitThis() || !this.codegenBinding.isStatic())
 				&& this.binding.declaringClass.id != T_JavaLangObject) // no change for Object methods
@@ -337,9 +337,9 @@ public TypeBinding resolveType(BlockScope scope) {
 		// record the closest match, for clients who may still need hint about possible method match
 		if (closestMatch != null) {
 			this.binding = closestMatch;
-			if (closestMatch.isPrivate() && !scope.isDefinedInMethod(closestMatch)) {
+			if ((closestMatch.isPrivate() || closestMatch.declaringClass.isLocalType()) && !scope.isDefinedInMethod(closestMatch)) {
 				// ignore cases where method is used from within inside itself (e.g. direct recursions)
-				closestMatch.original().modifiers |= AccPrivateUsed;
+				closestMatch.original().modifiers |= AccLocallyUsed;
 			}
 		}
 		return this.resolvedType;
@@ -353,7 +353,7 @@ public TypeBinding resolveType(BlockScope scope) {
 			// compute generic cast if necessary
 			TypeBinding receiverErasure = this.actualReceiverType.erasure();
 			if (receiverErasure instanceof ReferenceBinding) {
-				ReferenceBinding match = ((ReferenceBinding)receiverErasure).findSuperTypeErasingTo((ReferenceBinding)this.binding.declaringClass.erasure());
+				ReferenceBinding match = ((ReferenceBinding)receiverErasure).findSuperTypeWithSameErasure(this.binding.declaringClass);
 				if (match == null) {
 					this.actualReceiverType = this.binding.declaringClass; // handle indirect inheritance thru variable secondary bound
 				}
@@ -387,18 +387,19 @@ public TypeBinding resolveType(BlockScope scope) {
 	// from 1.5 compliance on, array#clone() returns the array type (but binding still shows Object)
 	if (actualReceiverType.isArrayType() 
 			&& this.binding.parameters == NoParameters 
-			&& scope.environment().options.complianceLevel >= JDK1_5 
+			&& scope.compilerOptions().complianceLevel >= JDK1_5 
 			&& CharOperation.equals(this.binding.selector, CLONE)) {
 		this.resolvedType = actualReceiverType;
 	} else {
 		TypeBinding returnType = this.binding.returnType;
-		if (returnType != null) returnType = returnType.capture();
+		if (returnType != null) returnType = returnType.capture(scope, this.sourceEnd);
 		this.resolvedType = returnType;
 	}
 	return this.resolvedType;
 }
 
 public void setActualReceiverType(ReferenceBinding receiverType) {
+	if (receiverType == null) return; // error scenario only
 	this.actualReceiverType = receiverType;
 }
 /**

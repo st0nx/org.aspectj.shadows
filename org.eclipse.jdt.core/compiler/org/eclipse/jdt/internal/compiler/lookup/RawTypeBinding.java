@@ -30,20 +30,17 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 			this.modifiers &= ~AccGenericSignature; // only need signature if enclosing needs one
 	}    
 	
-	public char[] computeUniqueKey(boolean withAccessFlags) {
+	public char[] computeUniqueKey(boolean isLeaf) {
 	    StringBuffer sig = new StringBuffer(10);
 		if (isMemberType() && enclosingType().isParameterizedType()) {
-		    char[] typeSig = enclosingType().computeUniqueKey(false/*without access flags*/);
+		    char[] typeSig = enclosingType().computeUniqueKey(false/*not a leaf*/);
 		    for (int i = 0; i < typeSig.length-1; i++) sig.append(typeSig[i]); // copy all but trailing semicolon
 		    sig.append('.').append(sourceName()).append('<').append('>').append(';');
 		} else {
-		     sig.append(this.type.signature()); // erasure
+		     sig.append(this.type.computeUniqueKey(false/*not a leaf*/));
 		     sig.insert(sig.length()-1, "<>"); //$NON-NLS-1$
 		}
-		if (withAccessFlags) {
-			sig.append('^');
-			sig.append(getAccessFlags());
-		}
+
 		int sigLength = sig.length();
 		char[] uniqueKey = new char[sigLength];
 		sig.getChars(0, sigLength, uniqueKey, 0);						    
@@ -112,6 +109,22 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 	    }
         return false;
 	}
+    
+    public boolean isIntersectingWith(TypeBinding otherType) {
+		if (this == otherType) 
+		    return true;
+	    if (otherType == null) 
+	        return false;
+	    switch(otherType.kind()) {
+	
+	    	case Binding.GENERIC_TYPE :
+	    	case Binding.PARAMETERIZED_TYPE :
+	    	case Binding.RAW_TYPE :
+	            return erasure() == otherType.erasure();
+	    }
+        return false;
+	}
+    
 	/**
 	 * Raw type is not treated as a standard parameterized type
 	 * @see org.eclipse.jdt.internal.compiler.lookup.TypeBinding#isParameterizedType()
@@ -128,7 +141,8 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 		int length = typeVariables.length;
 		TypeBinding[] typeArguments = new TypeBinding[length];
 		for (int i = 0; i < length; i++) {
-		    typeArguments[i] = typeVariables[i].erasure();
+			// perform raw conversion on variable upper bound - could cause infinite regression if arguments were initialized lazily
+		    typeArguments[i] = this.environment.convertToRawType(typeVariables[i].erasure());
 		}
 		this.arguments = typeArguments;
 	}

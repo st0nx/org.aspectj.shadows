@@ -374,8 +374,8 @@ public IClasspathEntry findSourceAttachmentRecommendation() {
 						return entry;
 					}
 				} else if (target instanceof java.io.File){
-					java.io.File file = (java.io.File) target;
-					if (file.isFile()) {
+					java.io.File file = JavaModel.getFile(target);
+					if (file != null) {
 						if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())){
 							return entry;
 						}
@@ -820,12 +820,12 @@ public void move(
 /**
  * @private Debugging purposes
  */
-protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
+protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean showResolvedInfo) {
 	buffer.append(this.tabString(tab));
 	IPath path = getPath();
 	if (getJavaProject().getElementName().equals(path.segment(0))) {
 	    if (path.segmentCount() == 1) {
-	buffer.append("<project root>"); //$NON-NLS-1$
+			buffer.append("<project root>"); //$NON-NLS-1$
 	    } else {
 			buffer.append(path.removeFirstSegments(1).makeRelative());
 	    }

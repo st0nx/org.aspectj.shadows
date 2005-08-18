@@ -59,6 +59,14 @@ public final static String[] JAVA_PROBLEM_MARKER_ATTRIBUTE_NAMES = {
 					IMarker.CHAR_END, 
 					IMarker.LINE_NUMBER, 
 					IJavaModelMarker.ARGUMENTS};
+public final static String[] JAVA_TASK_MARKER_ATTRIBUTE_NAMES = {
+	IMarker.MESSAGE, 
+	IMarker.PRIORITY, 
+	IJavaModelMarker.ID, 
+	IMarker.CHAR_START, 
+	IMarker.CHAR_END, 
+	IMarker.LINE_NUMBER, 
+	IJavaModelMarker.ARGUMENTS};
 public final static Integer S_ERROR = new Integer(IMarker.SEVERITY_ERROR);
 public final static Integer S_WARNING = new Integer(IMarker.SEVERITY_WARNING);
 public final static Integer P_HIGH = new Integer(IMarker.PRIORITY_HIGH);
@@ -313,8 +321,12 @@ protected Compiler newCompiler() {
 		option = (String) projectOptions.get(JavaCore.COMPILER_PB_MISSING_JAVADOC_TAGS);
 		if (option == null || option.equals(JavaCore.IGNORE)) {
 			option = (String) projectOptions.get(JavaCore.COMPILER_PB_MISSING_JAVADOC_COMMENTS);
-			if (option == null || option.equals(JavaCore.IGNORE))
-				projectOptions.put(JavaCore.COMPILER_DOC_COMMENT_SUPPORT, JavaCore.DISABLED);
+			if (option == null || option.equals(JavaCore.IGNORE)) {
+				option = (String) projectOptions.get(JavaCore.COMPILER_PB_UNUSED_IMPORT);
+				if (option == null || option.equals(JavaCore.IGNORE)) { // Unused import need also to look inside javadoc comment
+					projectOptions.put(JavaCore.COMPILER_DOC_COMMENT_SUPPORT, JavaCore.DISABLED);
+				}
+			}
 		}
 	}
 	
@@ -430,11 +442,11 @@ protected void storeTasksFor(SourceFile sourceFile, IProblem[] tasks) throws Cor
 			else if (JavaCore.COMPILER_TASK_PRIORITY_LOW.equals(compilerPriority))
 				priority = P_LOW;
 			marker.setAttributes(
-				JAVA_PROBLEM_MARKER_ATTRIBUTE_NAMES,
+				JAVA_TASK_MARKER_ATTRIBUTE_NAMES,
 				new Object[] { 
 					task.getMessage(),
 					priority,
-					org.eclipse.jdt.internal.compiler.util.Util.toBoolean(false),
+					new Integer(task.getID()),
 					new Integer(task.getSourceStart()),
 					new Integer(task.getSourceEnd() + 1),
 					new Integer(task.getSourceLineNumber()),

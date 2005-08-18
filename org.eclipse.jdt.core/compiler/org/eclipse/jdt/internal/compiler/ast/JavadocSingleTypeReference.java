@@ -47,6 +47,9 @@ public class JavadocSingleTypeReference extends SingleTypeReference {
 		visitor.endVisit(this, scope);
 	}
 
+	/*
+	 * We need to modify resolving behavior to handle package references
+	 */
 	TypeBinding internalResolveType(Scope scope) {
 		// handle the error here
 		this.constant = NotAConstant;
@@ -60,6 +63,13 @@ public class JavadocSingleTypeReference extends SingleTypeReference {
 			if (binding instanceof PackageBinding) {
 				this.packageBinding = (PackageBinding) binding;
 			} else {
+				if (this.resolvedType.problemId() == ProblemReasons.NonStaticReferenceInStaticContext) {
+					ReferenceBinding closestMatch = ((ProblemReferenceBinding)this.resolvedType).closestMatch;
+					if (closestMatch != null && closestMatch.isTypeVariable()) {
+						this.resolvedType = closestMatch; // ignore problem as we want report specific javadoc one instead
+						return resolvedType;
+					}
+				}
 				reportInvalidType(scope);
 			}
 			return null;
@@ -80,10 +90,6 @@ public class JavadocSingleTypeReference extends SingleTypeReference {
 		return internalResolveType(blockScope);
 	}
 
-	/* (non-Javadoc)
-	 * @see org.eclipse.jdt.internal.compiler.ast.Expression#resolveType(org.eclipse.jdt.internal.compiler.lookup.ClassScope)
-	 * We need to override to handle package references
-	 */
 	public TypeBinding resolveType(ClassScope classScope) {
 		return internalResolveType(classScope);
 	}

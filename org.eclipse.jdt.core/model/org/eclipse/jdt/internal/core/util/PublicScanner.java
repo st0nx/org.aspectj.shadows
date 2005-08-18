@@ -906,6 +906,9 @@ public int getNextToken() throws InvalidInputException {
 					if (this.currentPosition > this.eofPosition)
 						return TokenNameEOF;
 				}
+				//little trick to get out in the middle of a source compuation
+				if (this.currentPosition > this.eofPosition)
+					return TokenNameEOF;
 				if (checkIfUnicode) {
 					isWhiteSpace = jumpOverUnicodeWhiteSpace();
 					offset = this.currentPosition - offset;
@@ -954,12 +957,7 @@ public int getNextToken() throws InvalidInputException {
 					this.withoutUnicodePtr = 0;
 				}
 			}
-			//little trick to get out in the middle of a source compuation
-			if (this.currentPosition > this.eofPosition)
-				return TokenNameEOF;
-
 			// ---------Identify the next token-------------
-
 			switch (this.currentCharacter) {
 				case '@' :
 /*					if (this.sourceLevel >= ClassFileConstants.JDK1_5) {
@@ -2386,11 +2384,6 @@ public void resetTo(int begin, int end) {
 	}
 	this.commentPtr = -1; // reset comment stack
 	this.foundTaskCount = 0;
-	
-//	// if resetTo is used with being > than end.
-//	if (begin > this.eofPosition) {
-//		begin = this.eofPosition;
-//	}
 }
 
 public final void scanEscapeCharacter() throws InvalidInputException {
@@ -3357,19 +3350,29 @@ public final void setSource(char[] sourceString){
 	this.containsAssertKeyword = false;
 	this.linePtr = -1;	
 }
-
 /*
  * Should be used if a parse (usually a diet parse) has already been performed on the unit, 
  * so as to get the already computed line end positions.
  */
-public final void setSource(CompilationResult compilationResult) {
-	char[] contents = compilationResult.compilationUnit.getContents();
-	setSource(contents);
+public final void setSource(char[] contents, CompilationResult compilationResult) {
+	if (contents == null) {
+		char[] cuContents = compilationResult.compilationUnit.getContents();
+		setSource(cuContents);
+	} else {
+		setSource(contents);
+	}
 	int[] lineSeparatorPositions = compilationResult.lineSeparatorPositions;
 	if (lineSeparatorPositions != null) {
 		this.lineEnds = lineSeparatorPositions;
 		this.linePtr = lineSeparatorPositions.length - 1;
 	}
+}
+/*
+ * Should be used if a parse (usually a diet parse) has already been performed on the unit, 
+ * so as to get the already computed line end positions.
+ */
+public final void setSource(CompilationResult compilationResult) {
+	setSource(null, compilationResult);
 }
 public String toString() {
 	if (this.startPosition == this.source.length)

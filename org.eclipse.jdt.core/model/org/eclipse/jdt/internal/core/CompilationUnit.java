@@ -388,7 +388,8 @@ public IType createType(String content, IJavaElement sibling, boolean force, IPr
 		String source = ""; //$NON-NLS-1$
 		if (!pkg.isDefaultPackage()) {
 			//not the default package...add the package declaration
-			source = "package " + pkg.getElementName() + ";"  + org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR + org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR; //$NON-NLS-1$ //$NON-NLS-2$
+			String lineSeparator = Util.getLineSeparator(null/*no existing source*/, getJavaProject());
+			source = "package " + pkg.getElementName() + ";"  + lineSeparator + lineSeparator; //$NON-NLS-1$ //$NON-NLS-2$
 		}
 		CreateCompilationUnitOperation op = new CreateCompilationUnitOperation(pkg, this.name, source, force);
 		op.runOperation(monitor);
@@ -578,7 +579,7 @@ public ICompilationUnit getCompilationUnit() {
 public char[] getContents() {
 	try {
 		IBuffer buffer = this.getBuffer();
-		return buffer == null ? null : buffer.getCharacters();
+		return buffer == null ? CharOperation.NO_CHAR : buffer.getCharacters();
 	} catch (JavaModelException e) {
 		return CharOperation.NO_CHAR;
 	}
@@ -1124,9 +1125,9 @@ public void save(IProgressMonitor pm, boolean force) throws JavaModelException {
 	}
 }
 /**
- * @private Debugging purposes
+ * Debugging purposes
  */
-protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
+protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean showResolvedInfo) {
 	if (!isPrimary()) {
 		buffer.append(this.tabString(tab));
 		buffer.append("[Working copy] "); //$NON-NLS-1$
@@ -1140,7 +1141,7 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
 				buffer.append(" (not open)"); //$NON-NLS-1$
 			}
 		} else {
-			super.toStringInfo(tab, buffer, info);
+			super.toStringInfo(tab, buffer, info, showResolvedInfo);
 		}
 	}
 }

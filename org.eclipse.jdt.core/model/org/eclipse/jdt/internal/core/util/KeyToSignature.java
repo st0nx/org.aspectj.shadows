@@ -12,13 +12,14 @@ package org.eclipse.jdt.internal.core.util;
 
 import java.util.ArrayList;
 
+import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.Wildcard;
+import org.eclipse.jdt.internal.compiler.codegen.ConstantPool;
 
 /*
  * Converts a binding key into a signature 
  */
-// TODO (jerome) handle methods and fields
 public class KeyToSignature extends BindingKeyParser {
 	
 	public static final int SIGNATURE = 0;
@@ -31,9 +32,11 @@ public class KeyToSignature extends BindingKeyParser {
 	private ArrayList typeParameters = new ArrayList();
 	private int mainTypeStart = -1;
 	private int mainTypeEnd;
+	private int typeSigStart = -1;
 	
 	public KeyToSignature(BindingKeyParser parser) {
 		super(parser);
+		this.kind = ((KeyToSignature) parser).kind;
 	}
 	
 	public KeyToSignature(String key, int kind) {
@@ -45,8 +48,14 @@ public class KeyToSignature extends BindingKeyParser {
 		this.signature.append(brakets);
 	}
 	
-	public void consumeCapture() {
-		this.signature.append('!');
+	public void consumeBaseType(char[] baseTypeSig) {
+		this.typeSigStart = this.signature.length();
+		this.signature.append(baseTypeSig);
+	}
+	
+	public void consumeCapture(int position) {
+		// behave as if it was a wildcard
+		this.signature = ((KeyToSignature) this.arguments.get(0)).signature;
 	}
 		
 	public void consumeLocalType(char[] uniqueKey) {
@@ -75,6 +84,92 @@ public class KeyToSignature extends BindingKeyParser {
 		this.signature.append(pkgName);
 	}
 	
+	public void consumeParameterizedGenericMethod() {
+		int typeParametersSize = this.arguments.size();
+		if (typeParametersSize > 0) {
+			int sigLength = this.signature.length();
+			char[] methodSignature = new char[sigLength];
+			this.signature.getChars(0, sigLength, methodSignature, 0);
+			char[][] typeParameterSigs = Signature.getTypeParameters(methodSignature);
+			if (typeParameterSigs.length != typeParametersSize)
+				return;
+			this.signature = new StringBuffer();
+			
+			// type parameters
+			for (int i = 0; i < typeParametersSize; i++)
+				typeParameterSigs[i] = CharOperation.concat(Signature.C_TYPE_VARIABLE,Signature.getTypeVariable(typeParameterSigs[i]), Signature.C_SEMICOLON);
+			int paramStart = CharOperation.indexOf(Signature.C_PARAM_START, methodSignature);
+			char[] typeParametersString = CharOperation.subarray(methodSignature, 0, paramStart);
+			this.signature.append(typeParametersString);
+			
+			// substitute parameters
+			this.signature.append(Signature.C_PARAM_START);
+			char[][] parameters = Signature.getParameterTypes(methodSignature);
+			for (int i = 0, parametersLength = parameters.length; i < parametersLength; i++)
+				substitute(parameters[i], typeParameterSigs, typeParametersSize);
+			this.signature.append(Signature.C_PARAM_END);
+			
+			// substitute return type
+			char[] returnType = Signature.getReturnType(methodSignature);
+			substitute(returnType, typeParameterSigs, typeParametersSize);
+
+			// substitute exceptions
+			char[][] exceptions = Signature.getThrownExceptionTypes(methodSignature);
+			for (int i = 0, exceptionsLength = exceptions.length; i < exceptionsLength; i++) {
+				this.signature.append(Signature.C_EXCEPTION_START);
+				substitute(exceptions[i], typeParameterSigs, typeParametersSize);
+			}
+		
+		}
+	}
+	
+	/*
+	 * Substitutes the type variables referenced in the given parameter (a parameterized type signature) with the corresponding
+	 * type argument.
+	 * Appends the given parameter if it is not a parameterized type signature.
+	 */
+	private void substitute(char[] parameter, char[][] typeParameterSigs, int typeParametersLength) {
+		for (int i = 0; i < typeParametersLength; i++) {
+			if (CharOperation.equals(parameter, typeParameterSigs[i])) {
+				String typeArgument = ((KeyToSignature) this.arguments.get(i)).signature.toString();
+				this.signature.append(typeArgument);
+				return;
+			}
+		}
+		int genericStart = CharOperation.indexOf(Signature.C_GENERIC_START, parameter);
+		if (genericStart > -1) {
+			this.signature.append(CharOperation.subarray(parameter, 0, genericStart));
+			char[][] parameters = Signature.getTypeArguments(parameter);
+			this.signature.append(Signature.C_GENERIC_START);
+			for (int j = 0, paramsLength = parameters.length; j < paramsLength; j++)
+				substitute(parameters[j], typeParameterSigs, typeParametersLength);
+			this.signature.append(Signature.C_GENERIC_END);
+			this.signature.append(Signature.C_SEMICOLON);
+		} else {
+			// handle array, wildcard and capture
+			int index = 0;
+			int length = parameter.length;
+			loop: while (index < length) {
+				char current = parameter[index];
+				switch (current) {
+					case Signature.C_CAPTURE:
+					case Signature.C_EXTENDS:
+					case Signature.C_SUPER:
+					case Signature.C_ARRAY:
+						this.signature.append(current);
+						index++;
+						break;
+					default:
+						break loop;
+				}
+			}
+			if (index > 0) 
+				substitute(CharOperation.subarray(parameter, index, length), typeParameterSigs, typeParametersLength);
+			else
+				this.signature.append(parameter);
+		}
+	}
+	
 	public void consumeParameterizedType(char[] simpleTypeName, boolean isRaw) {
 		if (simpleTypeName != null) {
 			// member type
@@ -85,7 +180,7 @@ public class KeyToSignature extends BindingKeyParser {
 			this.signature.append('<');
 			int length = this.arguments.size();
 			for (int i = 0; i < length; i++) {
-				this.signature.append(this.arguments.get(i));
+				this.signature.append(((KeyToSignature) this.arguments.get(i)).signature);
 			}
 			this.signature.append('>');
 			if (this.kind != TYPE_ARGUMENTS)
@@ -94,10 +189,17 @@ public class KeyToSignature extends BindingKeyParser {
 	}
 	
 	public void consumeParser(BindingKeyParser parser) {
-		this.arguments.add(((KeyToSignature) parser).signature);
+		this.arguments.add(parser);
+	}
+	
+	public void consumeField(char[] fieldName) {
+		if (this.kind == SIGNATURE) {
+			this.signature = ((KeyToSignature) this.arguments.get(0)).signature;
+		}
 	}
 	
 	public void consumeFullyQualifiedName(char[] fullyQualifiedName) {
+		this.typeSigStart = this.signature.length();
 		this.signature.append('L');
 		this.signature.append(CharOperation.replaceOnCopy(fullyQualifiedName, '/', '.'));
 	}
@@ -112,20 +214,25 @@ public class KeyToSignature extends BindingKeyParser {
 	}
 
 	public void consumeType() {
-		int length = this.typeParameters.size();
-		if (length > 0) {
-			this.signature.append('<');
-			for (int i = 0; i < length; i++) {
-				this.signature.append('T');
-				this.signature.append((char[]) this.typeParameters.get(i));
-				this.signature.append(';');
-			}
-			this.signature.append('>');
-			this.typeParameters = new ArrayList();
-		}
 		// remove main type if needed
 		if (this.mainTypeStart != -1) {
 			this.signature.replace(this.mainTypeStart, this.mainTypeEnd, ""); //$NON-NLS-1$
+		}
+		// parameter types
+		int length = this.typeParameters.size();
+		if (length > 0) {
+			StringBuffer typeParametersSig = new StringBuffer();
+			typeParametersSig.append('<');
+			for (int i = 0; i < length; i++) {
+				char[] typeParameterSig = Signature.createTypeParameterSignature(
+						(char[]) this.typeParameters.get(i), 
+						new char[][]{ ConstantPool.ObjectSignature });
+				typeParametersSig.append(typeParameterSig);
+				// TODO (jerome) add type parameter bounds in binding key
+			}
+			typeParametersSig.append('>');
+			this.signature.insert(this.typeSigStart, typeParametersSig);
+			this.typeParameters = new ArrayList();
 		}
 		this.signature.append(';');
 	}
@@ -134,23 +241,33 @@ public class KeyToSignature extends BindingKeyParser {
 		this.typeParameters.add(typeParameterName);
 	}
 	
-	public void consumeTypeVariable(char[] typeVariableName) {
+	public void consumeTypeVariable(char[] position, char[] typeVariableName) {
 		this.signature = new StringBuffer();
 		this.signature.append('T');
 		this.signature.append(typeVariableName);
 		this.signature.append(';');
 	}
 	
+	public void consumeTypeWithCapture() {
+		KeyToSignature keyToSignature = (KeyToSignature) this.arguments.get(0);
+		this.signature = keyToSignature.signature;
+		this.arguments = keyToSignature.arguments;
+	}
+	
 	public void consumeWildCard(int wildCardKind) {
+		// don't put generic type in signature
+		this.signature = new StringBuffer();
 		switch (wildCardKind) {
 			case Wildcard.UNBOUND:
 				this.signature.append('*');
 				break;
 			case Wildcard.EXTENDS:
 				this.signature.append('+');
+				this.signature.append(((KeyToSignature) this.arguments.get(0)).signature);
 				break;
 			case Wildcard.SUPER:
 				this.signature.append('-');
+				this.signature.append(((KeyToSignature) this.arguments.get(0)).signature);
 				break;
 			default:
 				// malformed
@@ -162,7 +279,7 @@ public class KeyToSignature extends BindingKeyParser {
 		int length = this.arguments.size();
 		String[] result = new String[length];
 		for (int i = 0; i < length; i++) {
-			result[i] = ((StringBuffer) this.arguments.get(i)).toString();
+			result[i] = ((KeyToSignature) this.arguments.get(i)).signature.toString();
 		}
 		return result;
 	}

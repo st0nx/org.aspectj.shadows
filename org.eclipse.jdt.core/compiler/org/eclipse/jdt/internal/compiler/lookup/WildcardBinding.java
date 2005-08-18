@@ -80,6 +80,7 @@ public class WildcardBinding extends ReferenceBinding {
 		// cannot be asked per construction
 		return false;
 	}
+	
 	/**
 	 * Collect the substitutes into a map for certain type variables inside the receiver type
 	 * e.g.   Collection<T>.collectSubstitutes(Collection<List<X>>, Map), will populate Map with: T --> List<X>
@@ -262,15 +263,25 @@ public class WildcardBinding extends ReferenceBinding {
 		}
 	}
 	
-	public char[] computeUniqueKey(boolean withAccessFlags) {
+	/*
+	 * genericTypeKey *|+|- [boundKey]
+	 * p.X<T> { X<?> ... } --> Lp/X<TT;>;*
+	 */
+	public char[] computeUniqueKey(boolean isLeaf) {
+		char[] genericTypeKey = this.genericType.computeUniqueKey(false/*not a leaf*/);
+		char[] wildCardKey;
         switch (this.boundKind) {
             case Wildcard.UNBOUND : 
-                return WILDCARD_STAR;
+                wildCardKey = WILDCARD_STAR;
+                break;
             case Wildcard.EXTENDS :
-                return CharOperation.concat(WILDCARD_PLUS, this.bound.computeUniqueKey(false/*without access flags*/));
+                wildCardKey = CharOperation.concat(WILDCARD_PLUS, this.bound.computeUniqueKey(false/*not a leaf*/));
+                break;
 			default: // SUPER
-			    return CharOperation.concat(WILDCARD_MINUS, this.bound.computeUniqueKey(false/*without access flags*/));
+			    wildCardKey = CharOperation.concat(WILDCARD_MINUS, this.bound.computeUniqueKey(false/*not a leaf*/));
+				break;
         }
+        return CharOperation.concat(genericTypeKey, wildCardKey);
        }
 	
 	/**
@@ -320,8 +331,7 @@ public class WildcardBinding extends ReferenceBinding {
 			this.fPackage = someGenericType.getPackage();
 		}
 		if (someBound != null) {
-		    if (someBound.isTypeVariable())
-		        this.tagBits |= HasTypeVariable;
+			this.tagBits |= someBound.tagBits & HasTypeVariable;
 		}
 	}
 
@@ -338,7 +348,14 @@ public class WildcardBinding extends ReferenceBinding {
         }
         return false;
     }
-
+    
+    /**
+     * Returns true if the current type denotes an intersection type: Number & Comparable<?>
+     */
+    public boolean isIntersectionType() {
+    	return this.otherBounds != null;
+    }
+    
     /**
 	 * Returns true if the type is a wildcard
 	 */
@@ -467,6 +484,30 @@ public class WildcardBinding extends ReferenceBinding {
 
 		return this.superclass;
     }
+    
+    public ReferenceBinding superclass2() {
+		if (this.superclass == null) {
+			TypeBinding superType = (this.boundKind == Wildcard.EXTENDS && !this.bound.isInterface()) 
+				? this.bound
+				: null;
+			this.superclass = superType instanceof ReferenceBinding && !superType.isInterface()
+				? (ReferenceBinding) superType
+				: environment.getType(JAVA_LANG_OBJECT);
+			
+//			TypeBinding superType = null;
+//			if (this.boundKind == Wildcard.EXTENDS && !this.bound.isInterface()) {
+//				superType = this.bound;
+//			} else {
+//				TypeVariableBinding variable = this.typeVariable();
+//				if (variable != null) superType = variable.firstBound;
+//			}
+//			this.superclass = superType instanceof ReferenceBinding && !superType.isInterface()
+//				? (ReferenceBinding) superType
+//				: environment.getType(JAVA_LANG_OBJECT);
+		}
+
+		return this.superclass;
+    }
     /* (non-Javadoc)
      * @see org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding#superInterfaces()
      */
@@ -498,13 +539,38 @@ public class WildcardBinding extends ReferenceBinding {
         return this.superInterfaces;
     }
 
+    public ReferenceBinding[] superInterfaces2() {
+        if (this.superInterfaces == null) {
+        	if (this.boundKind == Wildcard.EXTENDS) {
+        		if (this.bound.isInterface()) {
+        			if (this.otherBounds != null) {
+						// augment super interfaces with the wildcard otherBounds (interfaces per construction)
+						int otherLength = this.otherBounds.length;
+						System.arraycopy(this.otherBounds, 0, this.superInterfaces = new ReferenceBinding[otherLength+1], 1, otherLength);
+						this.superInterfaces[0] = (ReferenceBinding) this.bound;
+        			} else {
+        				this.superInterfaces = new ReferenceBinding[] { (ReferenceBinding) this.bound };
+        			}
+        		} else if (this.otherBounds != null) {
+					int otherLength = this.otherBounds.length;
+        			System.arraycopy(this.otherBounds, 0, this.superInterfaces = new ReferenceBinding[otherLength], 0, otherLength);
+        		} else {
+        			this.superInterfaces = NoSuperInterfaces;
+        		}
+        	} else { 
+        		this.superInterfaces = NoSuperInterfaces;
+        	}
+        }
+        return this.superInterfaces;
+    }
+
 	public void swapUnresolved(UnresolvedReferenceBinding unresolvedType, ReferenceBinding resolvedType, LookupEnvironment env) {
 		boolean affected = false;
 		if (this.genericType == unresolvedType) {
 			this.genericType = resolvedType; // no raw conversion
 			affected = true;
 		} else if (this.bound == unresolvedType) {
-			this.bound = resolvedType.isGenericType() ? env.createRawType(resolvedType, resolvedType.enclosingType()) : resolvedType;
+			this.bound = env.convertToRawType(resolvedType);
 			affected = true;
 		}
 		if (affected) 

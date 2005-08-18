@@ -17,18 +17,18 @@ import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
-import org.eclipse.jdt.internal.compiler.util.Util;
 
 /**
  * A parser for code snippets.
  */
 public class CodeSnippetParser extends Parser implements EvaluationConstants {
 	int codeSnippetStart, codeSnippetEnd;
-	boolean hasRecoveredOnExpression;
-	int problemCountBeforeRecovery = 0;
-	int lastStatement = -1; // end of last top level statement
-
 	EvaluationContext evaluationContext;
+	boolean hasRecoveredOnExpression;
+	int lastStatement = -1; // end of last top level statement
+	int lineSeparatorLength;
+
+	int problemCountBeforeRecovery = 0;
 /**
  * Creates a new code snippet parser.
  */
@@ -145,6 +145,11 @@ protected void consumeEmptyStatement() {
 	/* recovery */
 	recordLastStatementIfNeeded();
 }
+protected void consumeEnhancedForStatement() {
+	super.consumeEnhancedForStatement();
+	/* recovery */
+	recordLastStatementIfNeeded();	
+}
 protected void consumeExpressionStatement() {
 	super.consumeExpressionStatement();
 	/* recovery */
@@ -245,6 +250,7 @@ protected void consumeLocalVariableDeclarationStatement() {
 	/* recovery */
 	recordLastStatementIfNeeded();
 }
+
 /**
  * In case emulating local variables, wrap the (recovered) statements inside a 
  * try statement so as to achieve local state commiting (copy local vars back to fields).
@@ -338,7 +344,7 @@ protected void consumeMethodInvocationName() {
 	// MethodInvocation ::= Name '(' ArgumentListopt ')'
 
 	if (this.scanner.startPosition >= this.codeSnippetStart
-		&& this.scanner.startPosition <= this.codeSnippetEnd + 1 + Util.LINE_SEPARATOR_CHARS.length // 14838
+		&& this.scanner.startPosition <= this.codeSnippetEnd + 1 + this.lineSeparatorLength // 14838
 		&& isTopLevelType()) {
 			
 		// when the name is only an identifier...we have a message send to "this" (implicit)
@@ -374,12 +380,11 @@ protected void consumeMethodInvocationSuper() {
 	m.receiver = new CodeSnippetSuperReference(m.sourceStart, this.endPosition, this.evaluationContext);
 	pushOnExpressionStack(m);
 }
-
 protected void consumePrimaryNoNewArrayThis() {
 	// PrimaryNoNewArray ::= 'this'
 
 	if (this.scanner.startPosition >= this.codeSnippetStart
-		&& this.scanner.startPosition <= this.codeSnippetEnd + 1 + Util.LINE_SEPARATOR_CHARS.length // 14838
+		&& this.scanner.startPosition <= this.codeSnippetEnd + 1 + this.lineSeparatorLength // 14838
 		&& isTopLevelType()) {
 		pushOnExpressionStack(
 			new CodeSnippetThisReference(this.intStack[this.intPtr--], this.endPosition, this.evaluationContext, false));
@@ -443,7 +448,7 @@ protected void consumeStatementReturn() {
 	// returned value intercepted by code snippet 
 	// support have to be defined at toplevel only
 	if ((this.hasRecoveredOnExpression
-			|| (this.scanner.startPosition >= this.codeSnippetStart && this.scanner.startPosition <= this.codeSnippetEnd+1+Util.LINE_SEPARATOR_CHARS.length /* 14838*/))
+			|| (this.scanner.startPosition >= this.codeSnippetStart && this.scanner.startPosition <= this.codeSnippetEnd+1+this.lineSeparatorLength /* 14838*/))
 		&& this.expressionLengthStack[this.expressionLengthPtr] != 0
 		&& isTopLevelType()) {
 		this.expressionLengthPtr--;
@@ -566,7 +571,7 @@ protected NameReference getUnspecifiedReference() {
 	/* build a (unspecified) NameReference which may be qualified*/
 
 	if (this.scanner.startPosition >= this.codeSnippetStart 
-		&& this.scanner.startPosition <= this.codeSnippetEnd+1+Util.LINE_SEPARATOR_CHARS.length /*14838*/){
+		&& this.scanner.startPosition <= this.codeSnippetEnd+1+this.lineSeparatorLength /*14838*/){
 		int length;
 		NameReference ref;
 		if ((length = this.identifierLengthStack[this.identifierLengthPtr--]) == 1) {
@@ -604,7 +609,7 @@ protected NameReference getUnspecifiedReferenceOptimized() {
 	look for that it is not a type reference */
 
 	if (this.scanner.startPosition >= this.codeSnippetStart 
-		&& this.scanner.startPosition <= this.codeSnippetEnd+1+Util.LINE_SEPARATOR_CHARS.length /*14838*/){
+		&& this.scanner.startPosition <= this.codeSnippetEnd+1+this.lineSeparatorLength /*14838*/){
 		int length;
 		NameReference ref;
 		if ((length = this.identifierLengthStack[this.identifierLengthPtr--]) == 1) {
@@ -675,10 +680,11 @@ protected MessageSend newMessageSend() {
  * Records the scanner position if we're parsing a top level type.
  */
 private void recordLastStatementIfNeeded() {
-	if ((isTopLevelType()) && (this.scanner.startPosition <= this.codeSnippetEnd+Util.LINE_SEPARATOR_CHARS.length /*14838*/)) {
+	if ((isTopLevelType()) && (this.scanner.startPosition <= this.codeSnippetEnd+this.lineSeparatorLength /*14838*/)) {
 		this.lastStatement = this.scanner.startPosition;
 	}
 }
+
 protected void reportSyntaxErrors(boolean isDietParse, int oldFirstToken) {
 	if (!isDietParse) {
 		this.scanner.initialPosition = this.lastStatement;
@@ -687,7 +693,6 @@ protected void reportSyntaxErrors(boolean isDietParse, int oldFirstToken) {
 	}
 	super.reportSyntaxErrors(isDietParse, oldFirstToken);
 }
-
 /*
  * A syntax error was detected. If a method is being parsed, records the number of errors and
  * attempts to restart from the last statement by going for an expression.

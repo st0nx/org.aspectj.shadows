@@ -20,7 +20,6 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
 import org.eclipse.jdt.internal.compiler.flow.UnconditionalFlowInfo;
-import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 
@@ -212,10 +211,9 @@ public class MethodScope extends BlockScope {
 		if (referenceContext instanceof AbstractMethodDeclaration) {
 			AbstractMethodDeclaration methodDecl = (AbstractMethodDeclaration)referenceContext;
 			MethodBinding method = methodDecl.binding;
-			CompilerOptions options = compilationUnitScope().environment.options;
 			if (!(method.isAbstract()
-					|| (method.isImplementing() && !options.reportUnusedParameterWhenImplementingAbstract) 
-					|| (method.isOverriding() && !method.isImplementing() && !options.reportUnusedParameterWhenOverridingConcrete)
+					|| (method.isImplementing() && !compilerOptions().reportUnusedParameterWhenImplementingAbstract) 
+					|| (method.isOverriding() && !method.isImplementing() && !compilerOptions().reportUnusedParameterWhenOverridingConcrete)
 					|| method.isMain())) {
 				isReportingUnusedArgument = true;
 			}
@@ -300,7 +298,7 @@ public class MethodScope extends BlockScope {
 
 		Argument[] argTypes = method.arguments;
 		int argLength = argTypes == null ? 0 : argTypes.length;
-		if (argLength > 0 && environment().options.sourceLevel >= ClassFileConstants.JDK1_5) {
+		if (argLength > 0 && compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5) {
 			if (argTypes[--argLength].isVarArgs())
 				method.binding.modifiers |= AccVarargs;
 			while (--argLength >= 0) {
@@ -311,7 +309,7 @@ public class MethodScope extends BlockScope {
 		
 		TypeParameter[] typeParameters = method.typeParameters();
 	    // do not construct type variables if source < 1.5
-		if (typeParameters == null || environment().options.sourceLevel < ClassFileConstants.JDK1_5) {
+		if (typeParameters == null || compilerOptions().sourceLevel < ClassFileConstants.JDK1_5) {
 		    method.binding.typeVariables = NoTypeVariables;
 		} else {
 			method.binding.typeVariables = createTypeVariables(typeParameters, method.binding);

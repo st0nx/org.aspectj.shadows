@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import java.util.ArrayList;
+import java.util.*;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
@@ -23,10 +23,7 @@ import org.eclipse.jdt.internal.compiler.util.Messages;
 
 public abstract class Expression extends Statement {
 	
-	public static final boolean isConstantValueRepresentable(
-		Constant constant,
-		int constantTypeID,
-		int targetTypeID) {
+	public static final boolean isConstantValueRepresentable(Constant constant, int constantTypeID, int targetTypeID) {
 
 		//true if there is no loss of precision while casting.
 		// constantTypeID == constant.typeID
@@ -222,8 +219,7 @@ public abstract class Expression extends Statement {
 	
 		// identity conversion cannot be performed upfront, due to side-effects
 		// like constant propagation
-		LookupEnvironment env = scope.environment();
-		boolean use15specifics = env.options.sourceLevel >= JDK1_5;
+		boolean use15specifics = scope.compilerOptions().sourceLevel >= JDK1_5;
 		if (castType.isBaseType()) {
 			if (expressionType.isBaseType()) {
 				if (expressionType == castType) {
@@ -247,194 +243,239 @@ public abstract class Expression extends Statement {
 					
 				}
 			} else if (use15specifics 
-								&& env.computeBoxingType(expressionType).isCompatibleWith(castType)) { // unboxing - only widening match is allowed
+								&& scope.environment().computeBoxingType(expressionType).isCompatibleWith(castType)) { // unboxing - only widening match is allowed
 				tagAsUnnecessaryCast(scope, castType);  
 				return true;
 			}
 			return false;
 		} else if (use15specifics 
 							&& expressionType.isBaseType() 
-							&& env.computeBoxingType(expressionType).isCompatibleWith(castType)) { // boxing - only widening match is allowed
+							&& scope.environment().computeBoxingType(expressionType).isCompatibleWith(castType)) { // boxing - only widening match is allowed
 			tagAsUnnecessaryCast(scope, castType);  
 			return true;
 		}
 	
-		//-----------cast to something which is NOT a base type--------------------------	
-		if (expressionType == NullBinding) {
-			tagAsUnnecessaryCast(scope, castType);
-			return true; //null is compatible with every thing
-		}
-		if (expressionType.isBaseType()) {
-			return false;
-		}
-	
-		if (expressionType.isArrayType()) {
-			if (castType == expressionType) {
-				tagAsUnnecessaryCast(scope, castType);
-				return true; // identity conversion
-			}
-	
-			if (castType.isArrayType()) {
-				//------- (castType.isArray) expressionType.isArray -----------
-				TypeBinding castElementType = ((ArrayBinding) castType).elementsType();
-				TypeBinding exprElementType = ((ArrayBinding) expressionType).elementsType();
-				if (exprElementType.isBaseType() || castElementType.isBaseType()) {
-					// <---stop the recursion------- 
-					if (castElementType == exprElementType) {
-						tagAsNeedCheckCast();
-						return true;
-					} else {
-						return false;
-					}
-				}
-				// recursively on the elements...
-				return checkCastTypesCompatibility(scope, ((ArrayBinding) castType).elementsType(), exprElementType, expression);
-			} else if (castType.isTypeVariable()) {
-				if (expressionType instanceof ReferenceBinding) {
-					ReferenceBinding match = ((ReferenceBinding)expressionType).findSuperTypeErasingTo((ReferenceBinding)castType);
-					if (match == null) {
-						checkUnsafeCast(scope, castType, expressionType, match, true);
-					}
-				} else {
-					checkUnsafeCast(scope, castType, expressionType, null, true);
-				}
-				// recursively on the type variable upper bound
-				return checkCastTypesCompatibility(scope, castType.erasure(), expressionType, expression);
-			} else if (castType.isClass() || castType.isEnum()) {
-				//------(castType.isClass) expressionType.isArray ---------------	
-				if (castType.id == T_JavaLangObject) {
+		switch(expressionType.kind()) {
+			case Binding.BASE_TYPE :
+				//-----------cast to something which is NOT a base type--------------------------	
+				if (expressionType == NullBinding) {
 					tagAsUnnecessaryCast(scope, castType);
-					return true;
+					return true; //null is compatible with every thing
 				}
-			} else { //------- (castType.isInterface) expressionType.isArray -----------
-				if (castType.id == T_JavaLangCloneable || castType.id == T_JavaIoSerializable) {
-					tagAsNeedCheckCast();
-					return true;
-				}
-			}
-			return false;
-		}
-		if (expressionType.isTypeVariable() || expressionType.isWildcard()) {
-			if (castType instanceof ReferenceBinding) {
-				TypeBinding match = ((ReferenceBinding)expressionType).findSuperTypeErasingTo((ReferenceBinding)castType);
-				if (match != null) {
-					tagAsUnnecessaryCast(scope, castType);
-					return true;
-				}
-			}
-			// recursively on the type variable upper bound
-			return checkCastTypesCompatibility(scope, castType, expressionType.erasure(), expression);
-		}
-		
-		if (expressionType.isClass() || expressionType.isEnum()) {
-			if (castType.isArrayType()) {
-				// ---- (castType.isArray) expressionType.isClass -------
-				if (expressionType.id == T_JavaLangObject) { // potential runtime error
-					tagAsNeedCheckCast();
-					return true;
-				}
-			} else if (castType.isTypeVariable()) {
-				TypeBinding match = ((ReferenceBinding)expressionType).findSuperTypeErasingTo((ReferenceBinding)castType);
-				if (match == null) {
-					checkUnsafeCast(scope, castType, expressionType, match, true);
-				}
-				// recursively on the type variable upper bound
-				return checkCastTypesCompatibility(scope, castType.erasure(), expressionType, expression);
-			} else if (castType.isClass() || castType.isEnum()) { // ----- (castType.isClass) expressionType.isClass ------
-				TypeBinding match = ((ReferenceBinding)expressionType).findSuperTypeErasingTo((ReferenceBinding)castType.erasure());
-				if (match != null) {
-					if (expression != null && castType.id == T_JavaLangString) this.constant = expression.constant; // (String) cst is still a constant
-					return checkUnsafeCast(scope, castType, expressionType, match, false);
-				}
-				match = ((ReferenceBinding)castType).findSuperTypeErasingTo((ReferenceBinding)expressionType.erasure());
-				if (match != null) {
-					tagAsNeedCheckCast();
-					return checkUnsafeCast(scope, castType, expressionType, match, true);
-				}
-			} else { // ----- (castType.isInterface) expressionType.isClass -------  
-
-				TypeBinding match = ((ReferenceBinding)expressionType).findSuperTypeErasingTo((ReferenceBinding)castType.erasure());
-				if (match != null) {
-					return checkUnsafeCast(scope, castType, expressionType, match, false);
-				}
-				// a subclass may implement the interface ==> no check at compile time
-				if (!((ReferenceBinding) expressionType).isFinal()) {
-					tagAsNeedCheckCast();
-					match = ((ReferenceBinding)castType).findSuperTypeErasingTo((ReferenceBinding)expressionType.erasure());
-					if (match != null) {
-						return checkUnsafeCast(scope, castType, expressionType, match, true);
-					}
-					return true;
-				}
-				// no subclass for expressionType, thus compile-time check is valid
-			}
-			return false;
-		}
-	
-		//	if (expressionType.isInterface()) { cannot be anything else
-		if (castType.isArrayType()) {
-			// ----- (castType.isArray) expressionType.isInterface ------
-			if (expressionType.id == T_JavaLangCloneable
-					|| expressionType.id == T_JavaIoSerializable) {// potential runtime error
-				tagAsNeedCheckCast();
-				return true;
-			} else {
 				return false;
-			}
-		} else if (castType.isTypeVariable()) {
-			TypeBinding match = ((ReferenceBinding)expressionType).findSuperTypeErasingTo((ReferenceBinding)castType);
-			if (match == null) {
-				checkUnsafeCast(scope, castType, expressionType, match, true);
-			}
-			// recursively on the type variable upper bound
-			return checkCastTypesCompatibility(scope, castType.erasure(), expressionType, expression);
-		} else if (castType.isClass() || castType.isEnum()) { // ----- (castType.isClass) expressionType.isInterface --------
-
-			if (castType.id == T_JavaLangObject) { // no runtime error
-				tagAsUnnecessaryCast(scope, castType);
-				return true;
-			}
-			if (((ReferenceBinding) castType).isFinal()) {
-				// no subclass for castType, thus compile-time check is valid
-				TypeBinding match = ((ReferenceBinding)castType).findSuperTypeErasingTo((ReferenceBinding)expressionType.erasure());
-				if (match == null) {
-					// potential runtime error
-					return false;
-				}				
-			}
-		} else { // ----- (castType.isInterface) expressionType.isInterface -------
-				ReferenceBinding interfaceType = (ReferenceBinding) expressionType;
-				TypeBinding match = interfaceType.findSuperTypeErasingTo((ReferenceBinding)castType.erasure());
-				if (match != null) {
-					return checkUnsafeCast(scope, castType, interfaceType, match, false);
-				}
 				
-				tagAsNeedCheckCast();
-				match = ((ReferenceBinding)castType).findSuperTypeErasingTo((ReferenceBinding)interfaceType.erasure());
-				if (match != null) {
-					return checkUnsafeCast(scope, castType, interfaceType, match, true);
+			case Binding.ARRAY_TYPE :
+				if (castType == expressionType) {
+					tagAsUnnecessaryCast(scope, castType);
+					return true; // identity conversion
 				}
-				if (use15specifics) {
-					// a subclass may implement the interface ==> no check at compile time
-					return true;
-				}
-				// pre1.5 semantics - no covariance allowed (even if 1.5 compliant, but 1.4 source)
-				MethodBinding[] castTypeMethods = getAllInheritedMethods((ReferenceBinding) castType);
-				MethodBinding[] expressionTypeMethods = getAllInheritedMethods((ReferenceBinding) expressionType);
-				int exprMethodsLength = expressionTypeMethods.length;
-				for (int i = 0, castMethodsLength = castTypeMethods.length; i < castMethodsLength; i++)
-					for (int j = 0; j < exprMethodsLength; j++) {
-						if ((castTypeMethods[i].returnType != expressionTypeMethods[j].returnType)
-								&& (CharOperation.equals(castTypeMethods[i].selector, expressionTypeMethods[j].selector))
-								&& castTypeMethods[i].areParametersEqual(expressionTypeMethods[j])) {
+				switch (castType.kind()) {
+					case Binding.ARRAY_TYPE : 
+						// ( ARRAY ) ARRAY
+						TypeBinding castElementType = ((ArrayBinding) castType).elementsType();
+						TypeBinding exprElementType = ((ArrayBinding) expressionType).elementsType();
+						if (exprElementType.isBaseType() || castElementType.isBaseType()) {
+							if (castElementType == exprElementType) {
+								tagAsNeedCheckCast();
+								return true;
+							} 
 							return false;
-
 						}
+						// recurse on array type elements
+						return checkCastTypesCompatibility(scope, castElementType, exprElementType, expression);
+						
+					case Binding.TYPE_PARAMETER : 
+						// ( TYPE_PARAMETER ) ARRAY
+						if (expressionType instanceof ReferenceBinding) {
+							ReferenceBinding match = ((ReferenceBinding)expressionType).findSuperTypeWithSameErasure(castType);
+							if (match == null) {
+								checkUnsafeCast(scope, castType, expressionType, match, true);
+							}
+						} else {
+							checkUnsafeCast(scope, castType, expressionType, null, true);
+						}
+						// recurse on the type variable upper bound
+						return checkCastTypesCompatibility(scope, ((TypeVariableBinding)castType).upperBound(), expressionType, expression);
+						
+					default:
+						// ( CLASS/INTERFACE ) ARRAY
+						switch (castType.id) {
+							case T_JavaLangCloneable :
+							case T_JavaIoSerializable :
+								tagAsNeedCheckCast();
+								return true;
+							case T_JavaLangObject :
+								tagAsUnnecessaryCast(scope, castType);
+								return true;
+							default :
+								return false;
+						}
+				}
+						
+			case Binding.TYPE_PARAMETER :
+				if (castType instanceof ReferenceBinding) {
+					TypeBinding match = ((ReferenceBinding)expressionType).findSuperTypeWithSameErasure(castType);
+					if (match != null) {
+						return checkUnsafeCast(scope, castType, expressionType, match, false);
+					}					
+				}
+				// recursively on the type variable upper bound
+				return checkCastTypesCompatibility(scope, castType, ((TypeVariableBinding)expressionType).upperBound(), expression);
+				
+			case Binding.WILDCARD_TYPE : // intersection type
+				if (castType instanceof ReferenceBinding) {
+					TypeBinding match = ((ReferenceBinding)expressionType).findSuperTypeWithSameErasure(castType);
+					if (match != null) {
+						return checkUnsafeCast(scope, castType, expressionType, match, false);
+					}						
+				}
+				// recursively on the type variable upper bound
+				return checkCastTypesCompatibility(scope, castType, ((WildcardBinding)expressionType).bound, expression);
+
+			default:
+				if (expressionType.isInterface()) {
+					switch (castType.kind()) {
+						case Binding.ARRAY_TYPE :
+							// ( ARRAY ) INTERFACE
+							switch (expressionType.id) {
+								case T_JavaLangCloneable :
+								case T_JavaIoSerializable :
+									tagAsNeedCheckCast();
+									return true;
+								default :									
+									return false;
+							}
+
+						case Binding.TYPE_PARAMETER :
+							// ( INTERFACE ) TYPE_PARAMETER
+							TypeBinding match = ((ReferenceBinding)expressionType).findSuperTypeWithSameErasure(castType);
+							if (match == null) {
+								checkUnsafeCast(scope, castType, expressionType, match, true);
+							}
+							// recurse on the type variable upper bound
+							return checkCastTypesCompatibility(scope, ((TypeVariableBinding)castType).upperBound(), expressionType, expression);
+
+						default :
+							if (castType.isInterface()) {
+								// ( INTERFACE ) INTERFACE
+								ReferenceBinding interfaceType = (ReferenceBinding) expressionType;
+								match = interfaceType.findSuperTypeWithSameErasure(castType);
+								if (match != null) {
+									return checkUnsafeCast(scope, castType, interfaceType, match, false);
+								}
+								tagAsNeedCheckCast();
+								match = ((ReferenceBinding)castType).findSuperTypeWithSameErasure(interfaceType);
+								if (match != null) {
+									return checkUnsafeCast(scope, castType, interfaceType, match, true);
+								}
+								if (use15specifics) {
+									// ensure there is no collision between both interfaces: i.e. I1 extends List<String>, I2 extends List<Object>
+									if (interfaceType.hasIncompatibleSuperType((ReferenceBinding)castType))
+										return false;
+								} else {
+									// pre1.5 semantics - no covariance allowed (even if 1.5 compliant, but 1.4 source)
+									MethodBinding[] castTypeMethods = getAllInheritedMethods((ReferenceBinding) castType);
+									MethodBinding[] expressionTypeMethods = getAllInheritedMethods((ReferenceBinding) expressionType);
+									int exprMethodsLength = expressionTypeMethods.length;
+									for (int i = 0, castMethodsLength = castTypeMethods.length; i < castMethodsLength; i++) {
+										for (int j = 0; j < exprMethodsLength; j++) {
+											if ((castTypeMethods[i].returnType != expressionTypeMethods[j].returnType)
+													&& (CharOperation.equals(castTypeMethods[i].selector, expressionTypeMethods[j].selector))
+													&& castTypeMethods[i].areParametersEqual(expressionTypeMethods[j])) {
+												return false;
+					
+											}
+										}
+									}
+								}
+								return true;		
+							} else {
+								// ( CLASS ) INTERFACE
+								if (castType.id == T_JavaLangObject) { // no runtime error
+									tagAsUnnecessaryCast(scope, castType);
+									return true;
+								}
+								if (((ReferenceBinding) castType).isFinal()) {
+									// no subclass for castType, thus compile-time check is valid
+									match = ((ReferenceBinding)castType).findSuperTypeWithSameErasure(expressionType);
+									if (match == null /*|| !match.isCompatibleWith(expressionType)*/) {
+										// potential runtime error
+										return false;
+									}
+								}
+								if (use15specifics) {
+									// ensure there is no collision between both interfaces: i.e. I1 extends List<String>, I2 extends List<Object>
+									if (((ReferenceBinding)castType).hasIncompatibleSuperType((ReferenceBinding) expressionType))
+										return false;
+								}
+							}
 					}
-				return true;
+					tagAsNeedCheckCast();
+					return true;
+				} else {
+					switch (castType.kind()) {
+						case Binding.ARRAY_TYPE :
+							// ( ARRAY ) CLASS
+							if (expressionType.id == T_JavaLangObject) { // potential runtime error
+								checkUnsafeCast(scope, castType, expressionType, expressionType, true);
+								tagAsNeedCheckCast();
+								return true;
+							}
+							return false;
+							
+						case Binding.TYPE_PARAMETER :
+							// ( TYPE_PARAMETER ) CLASS
+							TypeBinding match = ((ReferenceBinding)expressionType).findSuperTypeWithSameErasure(castType);
+							if (match == null) {
+								checkUnsafeCast(scope, castType, expressionType, match, true);
+							}
+							// recurse on the type variable upper bound
+							return checkCastTypesCompatibility(scope, ((TypeVariableBinding)castType).upperBound(), expressionType, expression);
+							
+						default :
+							if (castType.isInterface()) {
+								// ( INTERFACE ) CLASS
+								ReferenceBinding refExprType = (ReferenceBinding) expressionType;
+								match = refExprType.findSuperTypeWithSameErasure(castType);
+								if (refExprType.isFinal()) {
+									// unless final a subclass may implement the interface ==> no check at compile time
+									if (match == null || !match.isCompatibleWith(castType)) {
+										return false;
+									}
+									return checkUnsafeCast(scope, castType, expressionType, match, false);
+								} else {
+									if (match != null) {
+										return checkUnsafeCast(scope, castType, expressionType, match, false);
+									}
+								}
+								tagAsNeedCheckCast();
+								match = ((ReferenceBinding)castType).findSuperTypeWithSameErasure(expressionType);
+								if (match != null) {
+									return checkUnsafeCast(scope, castType, expressionType, match, true);
+								}
+								if (use15specifics) {
+									// ensure there is no collision between both interfaces: i.e. I1 extends List<String>, I2 extends List<Object>
+									if (refExprType.hasIncompatibleSuperType((ReferenceBinding) castType))
+										return false;
+								}								
+								return true;
+							} else {
+								// ( CLASS ) CLASS
+								match = ((ReferenceBinding)expressionType).findSuperTypeWithSameErasure(castType);
+								if (match != null) {
+									if (expression != null && castType.id == T_JavaLangString) this.constant = expression.constant; // (String) cst is still a constant
+									return checkUnsafeCast(scope, castType, expressionType, match, false);
+								}
+								match = ((ReferenceBinding)castType).findSuperTypeWithSameErasure(expressionType);
+								if (match != null) {
+									tagAsNeedCheckCast();
+									return checkUnsafeCast(scope, castType, expressionType, match, true);
+								}
+								return false;
+							}
+					}
+				}
 		}
-		tagAsNeedCheckCast();
-		return true;
 	}	
 	
 	public FlowInfo checkNullStatus(BlockScope scope, FlowContext flowContext, FlowInfo flowInfo, int nullStatus) {
@@ -483,7 +524,12 @@ public abstract class Expression extends Statement {
 			if (!isNarrowing) tagAsUnnecessaryCast(scope, castType);
 			return true;
 		}
-		if (match != null && (castType.isBoundParameterizedType() || castType.isGenericType() || expressionType.isBoundParameterizedType() || expressionType.isGenericType())) {
+		if (match != null && (
+				castType.isBoundParameterizedType() 
+				|| castType.isGenericType() 
+				|| 	expressionType.isBoundParameterizedType() 
+				|| expressionType.isGenericType())) {
+			
 			if (match.isProvablyDistinctFrom(isNarrowing ? expressionType : castType, 0)) {
 				return false; 
 			}
@@ -496,38 +542,41 @@ public abstract class Expression extends Statement {
 	 * Base types need that the widening is explicitly done by the compiler using some bytecode like i2f.
 	 * Also check unsafe type operations.
 	 */ 
-	public void computeConversion(Scope scope, TypeBinding runtimeTimeType, TypeBinding compileTimeType) {
+	public void computeConversion(Scope scope, TypeBinding runtimeType, TypeBinding compileTimeType) {
 
-		if (runtimeTimeType == null || compileTimeType == null)
+		if (runtimeType == null || compileTimeType == null)
 			return;
 		if (this.implicitConversion != 0) return; // already set independantly
-
+		
 		// it is possible for a Byte to be unboxed to a byte & then converted to an int
 		// but it is not possible for a byte to become Byte & then assigned to an Integer,
 		// or to become an int before boxed into an Integer
-		if (runtimeTimeType != NullBinding && runtimeTimeType.isBaseType()) {
+		if (runtimeType != NullBinding && runtimeType.isBaseType()) {
 			if (!compileTimeType.isBaseType()) {
 				TypeBinding unboxedType = scope.environment().computeBoxingType(compileTimeType);
 				this.implicitConversion = UNBOXING;
-				scope.problemReporter().autoboxing(this, compileTimeType, runtimeTimeType);
+				scope.problemReporter().autoboxing(this, compileTimeType, runtimeType);
 				compileTimeType = unboxedType;
 			}
 		} else {
 			if (compileTimeType != NullBinding && compileTimeType.isBaseType()) {
-				TypeBinding boxedType = scope.environment().computeBoxingType(runtimeTimeType);
-				if (boxedType == runtimeTimeType) // Object o = 12;
+				TypeBinding boxedType = scope.environment().computeBoxingType(runtimeType);
+				if (boxedType == runtimeType) // Object o = 12;
 					boxedType = compileTimeType; 
 				this.implicitConversion = BOXING | (boxedType.id << 4) + compileTimeType.id;
 				scope.problemReporter().autoboxing(this, compileTimeType, scope.environment().computeBoxingType(boxedType));
 				return;
 			}
 		}
-
-		switch (runtimeTimeType.id) {
+		int compileTimeTypeID, runtimeTypeID;
+		if ((compileTimeTypeID = compileTimeType.id) == NoId) { // e.g. ? extends String  ==> String (103227)
+			compileTimeTypeID = compileTimeType.erasure().id == T_JavaLangString ? T_JavaLangString : T_JavaLangObject;
+		}		
+		switch (runtimeTypeID = runtimeType.id) {
 			case T_byte :
 			case T_short :
 			case T_char :
-				this.implicitConversion |= (T_int << 4) + compileTimeType.id;
+				this.implicitConversion |= (T_int << 4) + compileTimeTypeID;
 				break;
 			case T_JavaLangString :
 			case T_float :
@@ -535,7 +584,7 @@ public abstract class Expression extends Statement {
 			case T_double :
 			case T_int : //implicitConversion may result in i2i which will result in NO code gen
 			case T_long :
-				this.implicitConversion |= (runtimeTimeType.id << 4) + compileTimeType.id;
+				this.implicitConversion |= (runtimeTypeID << 4) + compileTimeTypeID;
 				break;
 			default : // regular object ref
 //				if (compileTimeType.isRawType() && runtimeTimeType.isBoundParameterizedType()) {
@@ -716,7 +765,7 @@ public abstract class Expression extends Statement {
 	//(this request some work d be done by the VM on signed numbers)
 	public boolean isConstantValueOfTypeAssignableToType(TypeBinding constantType, TypeBinding targetType) {
 
-		if (constant == Constant.NotAConstant)
+		if (this.constant == Constant.NotAConstant)
 			return false;
 		if (constantType == targetType)
 			return true;
@@ -726,7 +775,7 @@ public abstract class Expression extends Statement {
 				|| BaseTypeBinding.isWidening(T_int, constantType.id))
 				&& (BaseTypeBinding.isNarrowing(targetType.id, T_int))) {
 				//use current explicit conversion in order to get some new value to compare with current one
-				return isConstantValueRepresentable(constant, constantType.id, targetType.id);
+				return isConstantValueRepresentable(this.constant, constantType.id, targetType.id);
 			}
 		}
 		return false;
@@ -782,12 +831,11 @@ public abstract class Expression extends Statement {
 	}
 
 	public TypeBinding resolveType(BlockScope scope) {
-		// by default... subclasses should implement a better TC if required.
-
+		// by default... subclasses should implement a better TB if required.
 		return null;
 	}
 
-	public TypeBinding resolveType(ClassScope classScope) {
+	public TypeBinding resolveType(ClassScope scope) {
 		// by default... subclasses should implement a better TB if required.
 		return null;
 	}

@@ -158,12 +158,14 @@ public final class Messages extends NLS {
 	public static String classpath_disabledInclusionExclusionPatterns;
 	public static String classpath_disabledMultipleOutputLocations;
 	public static String classpath_incompatibleLibraryJDKLevel;
+	public static String classpath_duplicateEntryExtraAttribute;
 	public static String file_notFound;
 	public static String file_badFormat;
 	public static String path_nullPath;
 	public static String path_mustBeAbsolute;
 	public static String cache_invalidLoadFactor;
 	public static String savedState_jobName;
+	public static String javamodel_initialization;
 	public static String restrictedAccess_project;
 	public static String restrictedAccess_library;
 	public static String convention_unit_nullName;
@@ -289,13 +291,9 @@ public final class Messages extends NLS {
 	public static String classformat_new;
 	public static String classformat_iinc;
 	public static String classformat_invokespecial;
-	public static String classformat_invokespecial_compact;
 	public static String classformat_invokeinterface;
-	public static String classformat_invokeinterface_compact;
 	public static String classformat_invokestatic;
-	public static String classformat_invokestatic_compact;
 	public static String classformat_invokevirtual;
-	public static String classformat_invokevirtual_compact;
 	public static String classformat_getfield;
 	public static String classformat_getstatic;
 	public static String classformat_putstatic;

@@ -177,7 +177,7 @@ protected IProject[] build(int kind, Map ignored, IProgressMonitor monitor) thro
 	} catch (MissingClassFileException e) {
 		// do not log this exception since its thrown to handle aborted compiles because of missing class files
 		if (DEBUG)
-			System.out.println(Messages.bind(Messages.build_incompleteClassPath, (new String[] {e.missingClassFile}))); 
+			System.out.println(Messages.bind(Messages.build_incompleteClassPath, e.missingClassFile)); 
 		IMarker marker = currentProject.createMarker(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER);
 		marker.setAttribute(IMarker.MESSAGE, Messages.bind(Messages.build_incompleteClassPath, e.missingClassFile)); 
 		marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
@@ -408,8 +408,10 @@ private boolean hasClasspathChanged() {
 			}
 		} catch (CoreException ignore) { // skip it
 		}
-		if (DEBUG)
-			System.out.println(newSourceLocations[n] + " != " + oldSourceLocations[o]); //$NON-NLS-1$
+		if (DEBUG) {
+			System.out.println("New location: " + newSourceLocations[n] + "\n!= old location: " + oldSourceLocations[o]); //$NON-NLS-1$ //$NON-NLS-2$
+			printLocations(newSourceLocations, oldSourceLocations);
+		}
 		return true;
 	}
 	while (n < newLength) {
@@ -420,13 +422,17 @@ private boolean hasClasspathChanged() {
 			}
 		} catch (CoreException ignore) { // skip it
 		}
-		if (DEBUG)
+		if (DEBUG) {
 			System.out.println("Added non-empty source folder"); //$NON-NLS-1$
+			printLocations(newSourceLocations, oldSourceLocations);
+		}
 		return true;
 	}
 	if (o < oldLength) {
-		if (DEBUG)
+		if (DEBUG) {
 			System.out.println("Removed source folder"); //$NON-NLS-1$
+			printLocations(newSourceLocations, oldSourceLocations);
+		}
 		return true;
 	}
 
@@ -436,18 +442,16 @@ private boolean hasClasspathChanged() {
 	oldLength = oldBinaryLocations.length;
 	for (n = o = 0; n < newLength && o < oldLength; n++, o++) {
 		if (newBinaryLocations[n].equals(oldBinaryLocations[o])) continue;
-		if (DEBUG)
-			System.out.println(newBinaryLocations[n] + " != " + oldBinaryLocations[o]); //$NON-NLS-1$
+		if (DEBUG) {
+			System.out.println("New location: " + newBinaryLocations[n] + "\n!= old location: " + oldBinaryLocations[o]); //$NON-NLS-1$ //$NON-NLS-2$
+			printLocations(newBinaryLocations, oldBinaryLocations);
+		}
 		return true;
 	}
 	if (n < newLength || o < oldLength) {
 		if (DEBUG) {
 			System.out.println("Number of binary folders/jar files has changed:"); //$NON-NLS-1$
-			for (int i = 0; i < newLength; i++)
-				System.out.println(newBinaryLocations[i]);
-			System.out.println("was:"); //$NON-NLS-1$
-			for (int i = 0; i < oldLength; i++)
-				System.out.println(oldBinaryLocations[i]);
+			printLocations(newBinaryLocations, oldBinaryLocations);
 		}
 		return true;
 	}
@@ -547,6 +551,9 @@ private boolean isWorthBuilding() throws CoreException {
 		return false;
 	}
 
+	if (JavaCore.WARNING.equals(javaProject.getOption(JavaCore.CORE_INCOMPLETE_CLASSPATH, true)))
+		return true;
+
 	// make sure all prereq projects have valid build states... only when aborting builds since projects in cycles do not have build states
 	// except for projects involved in a 'warning' cycle (see below)
 	IProject[] requiredProjects = getRequiredProjects(false);
@@ -596,6 +603,15 @@ void mustPropagateStructuralChanges() {
 			}
 		}
 	}
+}
+
+private void printLocations(ClasspathLocation[] newLocations, ClasspathLocation[] oldLocations) {
+	System.out.println("New locations:"); //$NON-NLS-1$
+	for (int i = 0, length = newLocations.length; i < length; i++)
+		System.out.println("    " + newLocations[i].debugPathString()); //$NON-NLS-1$
+	System.out.println("Old locations:"); //$NON-NLS-1$
+	for (int i = 0, length = oldLocations.length; i < length; i++)
+		System.out.println("    " + oldLocations[i].debugPathString()); //$NON-NLS-1$
 }
 
 private void recordNewState(State state) {

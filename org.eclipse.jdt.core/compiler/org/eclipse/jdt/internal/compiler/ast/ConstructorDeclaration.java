@@ -40,8 +40,8 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 		if (ignoreFurtherInvestigation)
 			return;
 
-		if (this.binding != null && this.binding.isPrivate() && !this.binding.isPrivateUsed()) {
-			if (!classScope.referenceCompilationUnit().compilationResult.hasSyntaxError()) {
+		if (this.binding != null && !this.binding.isUsed() && (this.binding.isPrivate() || (this.binding.declaringClass.tagBits & (TagBits.IsAnonymousType|TagBits.IsLocalType)) == TagBits.IsLocalType)) {
+			if (!classScope.referenceCompilationUnit().compilationResult.hasSyntaxError) {
 				scope.problemReporter().unusedPrivateConstructor(this);
 			}
 		}
@@ -268,7 +268,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 			boolean needFieldInitializations = constructorCall == null || constructorCall.accessMode != ExplicitConstructorCall.This;
 
 			// post 1.4 source level, synthetic initializations occur prior to explicit constructor call
-			boolean preInitSyntheticFields = scope.environment().options.targetJDK >= ClassFileConstants.JDK1_4;
+			boolean preInitSyntheticFields = scope.compilerOptions().targetJDK >= ClassFileConstants.JDK1_4;
 
 			if (needFieldInitializations && preInitSyntheticFields){
 				generateSyntheticFieldInitializationsIfNecessary(scope, codeStream, declaringClass);
@@ -408,12 +408,18 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 	 */
 	public void resolveStatements() {
 
-		if (!CharOperation.equals(scope.enclosingSourceType().sourceName, selector)){
-			scope.problemReporter().missingReturnType(this);
+		if (!CharOperation.equals(this.scope.enclosingSourceType().sourceName, selector)){
+			this.scope.problemReporter().missingReturnType(this);
 		}
 
+		if (this.typeParameters != null) {
+			for (int i = 0, length = this.typeParameters.length; i < length; i++) {
+				this.typeParameters[i].resolve(this.scope);
+			}
+		}
+		
 		if (this.binding != null && this.binding.declaringClass.isAnnotationType()) {
-			scope.problemReporter().annotationTypeDeclarationCannotHaveConstructor(this);
+			this.scope.problemReporter().annotationTypeDeclarationCannotHaveConstructor(this);
 		}
 		// if null ==> an error has occurs at parsing time ....
 		if (this.constructorCall != null) {
@@ -422,7 +428,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 				&& this.binding.declaringClass.id == T_JavaLangObject
 				&& this.constructorCall.accessMode != ExplicitConstructorCall.This) {
 					if (this.constructorCall.accessMode == ExplicitConstructorCall.Super) {
-						scope.problemReporter().cannotUseSuperInJavaLangObject(this.constructorCall);
+						this.scope.problemReporter().cannotUseSuperInJavaLangObject(this.constructorCall);
 					}
 					this.constructorCall = null;
 			} else {
@@ -430,7 +436,7 @@ public class ConstructorDeclaration extends AbstractMethodDeclaration {
 			}
 		}
 		if ((modifiers & AccSemicolonBody) != 0) {
-			scope.problemReporter().methodNeedBody(this);		
+			this.scope.problemReporter().methodNeedBody(this);		
 		}
 		super.resolveStatements();
 	}

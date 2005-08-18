@@ -11,15 +11,6 @@
 package org.eclipse.jdt.internal.core;
 
 import java.io.*;
-import java.io.BufferedInputStream;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStreamWriter;
-import java.io.StringReader;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -337,8 +328,6 @@ public class JavaProject
 			throw newNotPresentException();
 		}
 		
-		IWorkspace workspace = ResourcesPlugin.getWorkspace();
-		IWorkspaceRoot wRoot = workspace.getRoot();
 		// cannot refresh cp markers on opening (emulate cp check on startup) since can create deadlocks (see bug 37274)
 		IClasspathEntry[] resolvedClasspath = getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
 
@@ -346,23 +335,11 @@ public class JavaProject
 		info.setChildren(computePackageFragmentRoots(resolvedClasspath, false, null /*no reverse map*/));	
 		
 		// remember the timestamps of external libraries the first time they are looked up
-		for (int i = 0, length = resolvedClasspath.length; i < length; i++) {
-			IClasspathEntry entry = resolvedClasspath[i];
-			if (entry.getEntryKind() == IClasspathEntry.CPE_LIBRARY) {
-				IPath path = entry.getPath();
-				Object target = JavaModel.getTarget(wRoot, path, true);
-				if (target instanceof java.io.File) {
-					Map externalTimeStamps = JavaModelManager.getJavaModelManager().deltaState.externalTimeStamps;
-					if (externalTimeStamps.get(path) == null) {
-						long timestamp = DeltaProcessor.getTimeStamp((java.io.File)target);
-						externalTimeStamps.put(path, new Long(timestamp));							
-					}
-				}
-			}
-		}			
+		getPerProjectInfo().rememberExternalLibTimestamps();			
 
 		return true;
 	}
+
 	protected void closing(Object info) {
 		
 		// forget source attachment recommendations
@@ -550,7 +527,7 @@ public class JavaProject
 						root = getPackageFragmentRoot((IResource) target);
 					} else {
 						// external target - only JARs allowed
-						if (((java.io.File)target).isFile() && (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(entryPath.lastSegment()))) {
+						if (JavaModel.isFile(target) && (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(entryPath.lastSegment()))) {
 							root = new JarPackageFragmentRoot(entryPath, this);
 						}
 					}
@@ -863,7 +840,7 @@ public class JavaProject
 			if (createMarker && this.project.isAccessible()) {
 					this.createClasspathProblemMarker(new JavaModelStatus(
 							IJavaModelStatusConstants.INVALID_CLASSPATH_FILE_FORMAT,
-							Messages.bind(Messages.classpath_xmlFormatError, (new String[] {this.getElementName(), e.getMessage()})))); 
+							Messages.bind(Messages.classpath_xmlFormatError, new String[] {this.getElementName(), e.getMessage()}))); 
 			}
 			if (logProblems) {
 				Util.log(e, 
@@ -876,7 +853,7 @@ public class JavaProject
 			if (createMarker && this.project.isAccessible()) {
 				this.createClasspathProblemMarker(new JavaModelStatus(
 						IJavaModelStatusConstants.INVALID_CLASSPATH_FILE_FORMAT,
-						Messages.bind(Messages.classpath_illegalEntryInClasspathFile, (new String[] {this.getElementName(), e.getMessage()})))); 
+						Messages.bind(Messages.classpath_illegalEntryInClasspathFile, new String[] {this.getElementName(), e.getMessage()}))); 
 			}
 			if (logProblems) {
 				Util.log(e, 
@@ -928,7 +905,7 @@ public class JavaProject
 		try {
 			ByteArrayOutputStream s = new ByteArrayOutputStream();
 			OutputStreamWriter writer = new OutputStreamWriter(s, "UTF8"); //$NON-NLS-1$
-			XMLWriter xmlWriter = new XMLWriter(writer);
+			XMLWriter xmlWriter = new XMLWriter(writer, this);
 			
 			xmlWriter.startTag(ClasspathEntry.TAG_CLASSPATH, indent);
 			for (int i = 0; i < classpath.length; ++i) {
@@ -1603,7 +1580,7 @@ public class JavaProject
 			Iterator propertyNames = projectOptions.keySet().iterator();
 			while (propertyNames.hasNext()) {
 				String propertyName = (String) propertyNames.next();
-				String propertyValue = (String) perProjectInfo.options.get(propertyName);
+				String propertyValue = (String) projectOptions.get(propertyName);
 				if (propertyValue != null && optionNames.contains(propertyName)){
 					options.put(propertyName, propertyValue.trim());
 				}
@@ -2135,6 +2112,26 @@ public class JavaProject
 				// fallback to default
 				property = new String(bytes);
 			}
+		} else {
+			// when a project is imported, we get a first delta for the addition of the .project, but the .classpath is not accessible
+			// so default to using java.io.File
+			// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=96258
+			File file  = rscFile.getLocation().toFile();
+			if (file.exists()) {
+				byte[] bytes;
+				try {
+					bytes = org.eclipse.jdt.internal.compiler.util.Util.getFileByteContent(file);
+				} catch (IOException e) {
+					return null;
+				}
+				try {
+					property = new String(bytes, "UTF-8"); //$NON-NLS-1$ // .classpath always encoded with UTF-8
+				} catch (UnsupportedEncodingException e) {
+					Util.log(e, "Could not read .classpath with UTF-8 encoding"); //$NON-NLS-1$
+					// fallback to default
+					property = new String(bytes);
+				}
+			}
 		}
 		return property;
 	}
@@ -2242,40 +2239,101 @@ public class JavaProject
 	 * @see IJavaProject
 	 */
 	public boolean isOnClasspath(IJavaElement element) {
-		IPath path = element.getPath();
-		IClasspathEntry[] classpath;
+		IClasspathEntry[] rawClasspath;
 		try {
-			classpath = getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
+			rawClasspath = getRawClasspath();
 		} catch(JavaModelException e){
 			return false; // not a Java project
 		}
+		int elementType = element.getElementType();
+		boolean isPackageFragmentRoot = false;
 		boolean isFolderPath = false;
-		switch (element.getElementType()) {
-			case IJavaElement.PACKAGE_FRAGMENT_ROOT:
-				// package fragment roots must match exactly entry pathes (no exclusion there)
-				for (int i = 0; i < classpath.length; i++) {
-					IClasspathEntry entry = classpath[i];
-					IPath entryPath = entry.getPath();
-					if (entryPath.equals(path)) {
-						return true;
-					}
-				}
+		boolean isSource = false;
+		switch (elementType) {
+			case IJavaElement.JAVA_MODEL:
 				return false;
-				
+			case IJavaElement.JAVA_PROJECT:
+				break;
+			case IJavaElement.PACKAGE_FRAGMENT_ROOT:
+				isPackageFragmentRoot = true;
+				break;
 			case IJavaElement.PACKAGE_FRAGMENT:
-				if (!((IPackageFragmentRoot)element.getParent()).isArchive()) {
-					// ensure that folders are only excluded if all of their children are excluded
-					isFolderPath = true;
-				}
+				isFolderPath = !((IPackageFragmentRoot)element.getParent()).isArchive();
+				break;
+			case IJavaElement.COMPILATION_UNIT:
+				isSource = true;
+				break;
+			default:
+				isSource = element.getAncestor(IJavaElement.COMPILATION_UNIT) != null;
 				break;
 		}
-		for (int i = 0; i < classpath.length; i++) {
-			IClasspathEntry entry = classpath[i];
-			IPath entryPath = entry.getPath();
-			if (entryPath.isPrefixOf(path) 
-					&& !Util.isExcluded(path, ((ClasspathEntry)entry).fullInclusionPatternChars(), ((ClasspathEntry)entry).fullExclusionPatternChars(), isFolderPath)) {
-				return true;
+		IPath elementPath = element.getPath();
+		
+		// first look at unresolved entries
+		int length = rawClasspath.length;
+		for (int i = 0; i < length; i++) {
+			IClasspathEntry entry = rawClasspath[i];
+			switch (entry.getEntryKind()) {
+				case IClasspathEntry.CPE_LIBRARY:
+				case IClasspathEntry.CPE_PROJECT:
+				case IClasspathEntry.CPE_SOURCE:
+					if (isOnClasspathEntry(elementPath, isFolderPath, isPackageFragmentRoot, entry))
+						return true;
+					break;
 			}
+		}
+		
+		// no need to go further for compilation units and elements inside a compilation unit
+		// it can only be in a source folder, thus on the raw classpath
+		if (isSource)
+			return false;
+		
+		// then look at resolved entries
+		for (int i = 0; i < length; i++) {
+			IClasspathEntry rawEntry = rawClasspath[i];
+			switch (rawEntry.getEntryKind()) {
+				case IClasspathEntry.CPE_CONTAINER:
+					IClasspathContainer container;
+					try {
+						container = JavaCore.getClasspathContainer(rawEntry.getPath(), this);
+					} catch (JavaModelException e) {
+						break;
+					}
+					if (container == null)
+						break;
+					IClasspathEntry[] containerEntries = container.getClasspathEntries();
+					if (containerEntries == null) 
+						break;
+					// container was bound
+					for (int j = 0, containerLength = containerEntries.length; j < containerLength; j++){
+						IClasspathEntry resolvedEntry = containerEntries[j];
+						if (isOnClasspathEntry(elementPath, isFolderPath, isPackageFragmentRoot, resolvedEntry))
+							return true;
+					}					
+					break;
+				case IClasspathEntry.CPE_VARIABLE:
+					IClasspathEntry resolvedEntry = JavaCore.getResolvedClasspathEntry(rawEntry);
+					if (resolvedEntry == null) 
+						break;
+					if (isOnClasspathEntry(elementPath, isFolderPath, isPackageFragmentRoot, resolvedEntry))
+						return true;
+					break;
+			}
+		}
+		
+		return false;
+	}
+	
+	private boolean isOnClasspathEntry(IPath elementPath, boolean isFolderPath, boolean isPackageFragmentRoot, IClasspathEntry entry) {
+		IPath entryPath = entry.getPath();
+		if (isPackageFragmentRoot) {
+			// package fragment roots must match exactly entry pathes (no exclusion there)
+			if (entryPath.equals(elementPath))
+				return true;
+		} else {
+			if (entryPath.isPrefixOf(elementPath) 
+					&& !Util.isExcluded(elementPath, ((ClasspathEntry)entry).fullInclusionPatternChars(), ((ClasspathEntry)entry).fullExclusionPatternChars(), isFolderPath)) 
+				return true;
 		}
 		return false;
 	}
@@ -2349,8 +2407,9 @@ public class JavaProject
 	 * @see IJavaProject#newEvaluationContext()
 	 */
 	public IEvaluationContext newEvaluationContext() {
-
-		return new EvaluationContextWrapper(new EvaluationContext(), this);
+		EvaluationContext context = new EvaluationContext();
+		context.setLineSeparator(Util.getLineSeparator(null/*no existing source*/, this));
+		return new EvaluationContextWrapper(context, this);
 	}
 
 	/*

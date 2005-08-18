@@ -16,6 +16,7 @@ import java.util.Iterator;
 import java.util.Map;
 
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaProject;
@@ -85,6 +86,8 @@ class CompilationUnitResolver extends Compiler {
 	DefaultBindingResolver.BindingTables bindingTables;
 	
 	boolean hasCompilationAborted;
+	
+	private IProgressMonitor monitor;
 
 	/**
 	 * Answer a new CompilationUnitVisitor using the given name environment and compiler options.
@@ -126,10 +129,12 @@ class CompilationUnitResolver extends Compiler {
 		IErrorHandlingPolicy policy,
 		Map settings,
 		ICompilerRequestor requestor,
-		IProblemFactory problemFactory) {
+		IProblemFactory problemFactory,
+		IProgressMonitor monitor) {
 
 		super(environment, policy, settings, requestor, problemFactory, false);
 		this.hasCompilationAborted = false;
+		this.monitor =monitor;
 	}
 	
 	/*
@@ -181,6 +186,7 @@ class CompilationUnitResolver extends Compiler {
 				this.lookupEnvironment.buildTypeBindings(parsedUnit, null /*no access restriction*/);
 				addCompilationUnit(sourceUnit, parsedUnit);
 				this.requestedSources.put(unitResult.getFileName(), sourceUnit);
+				worked(1);
 			} finally {
 				sourceUnits[i] = null; // no longer hold onto the unit
 			}
@@ -207,16 +213,12 @@ class CompilationUnitResolver extends Compiler {
 				} 
 					
 			} else {
-				if (!resolver.hasTypeName()) {
-					// package binding key
-					char[] pkgName = CharOperation.concatWith(resolver.compoundName(), '.');
-					this.requestedKeys.put(pkgName, resolver);
-				} else {
-					// base type binding or binary binding
-					char[] key = resolver.getKey().toCharArray();
-					this.requestedKeys.put(key, resolver);
-				}
+				char[] key = resolver.hasTypeName() 
+					? resolver.getKey().toCharArray() // binary binding
+					: CharOperation.concatWith(resolver.compoundName(), '.'); // package binding or base type binding
+				this.requestedKeys.put(key, resolver);
 			}
+			worked(1);
 		}
 		
 		// binding resolution
@@ -319,40 +321,47 @@ class CompilationUnitResolver extends Compiler {
 	}	
 	
 	public static void parse(ICompilationUnit[] compilationUnits, ASTRequestor astRequestor, int apiLevel, Map options, IProgressMonitor monitor) {
-		CompilerOptions compilerOptions = new CompilerOptions(options);
-		Parser parser = new CommentRecorderParser(
-			new ProblemReporter(
-					DefaultErrorHandlingPolicies.proceedWithAllProblems(), 
-					compilerOptions, 
-					new DefaultProblemFactory()),
-			false);
-		for (int i = 0, length = compilationUnits.length; i < length; i++) {
-			org.eclipse.jdt.internal.compiler.env.ICompilationUnit sourceUnit = (org.eclipse.jdt.internal.compiler.env.ICompilationUnit) compilationUnits[i];
-			CompilationResult compilationResult = new CompilationResult(sourceUnit, 0, 0, compilerOptions.maxProblemsPerUnit);
-			CompilationUnitDeclaration compilationUnitDeclaration = parser.dietParse(sourceUnit, compilationResult);
-			
-			if (compilationUnitDeclaration.ignoreMethodBodies) {
-				compilationUnitDeclaration.ignoreFurtherInvestigation = true;
-				// if initial diet parse did not work, no need to dig into method bodies.
-				continue; 
+		try {
+			CompilerOptions compilerOptions = new CompilerOptions(options);
+			Parser parser = new CommentRecorderParser(
+				new ProblemReporter(
+						DefaultErrorHandlingPolicies.proceedWithAllProblems(), 
+						compilerOptions, 
+						new DefaultProblemFactory()),
+				false);
+			int length = compilationUnits.length;
+			if (monitor != null) monitor.beginTask("", length); //$NON-NLS-1$
+			for (int i = 0; i < length; i++) {
+				org.eclipse.jdt.internal.compiler.env.ICompilationUnit sourceUnit = (org.eclipse.jdt.internal.compiler.env.ICompilationUnit) compilationUnits[i];
+				CompilationResult compilationResult = new CompilationResult(sourceUnit, 0, 0, compilerOptions.maxProblemsPerUnit);
+				CompilationUnitDeclaration compilationUnitDeclaration = parser.dietParse(sourceUnit, compilationResult);
+				
+				if (compilationUnitDeclaration.ignoreMethodBodies) {
+					compilationUnitDeclaration.ignoreFurtherInvestigation = true;
+					// if initial diet parse did not work, no need to dig into method bodies.
+					continue; 
+				}
+				
+				//fill the methods bodies in order for the code to be generated
+				//real parse of the method....
+				parser.scanner.setSource(compilationResult);
+				org.eclipse.jdt.internal.compiler.ast.TypeDeclaration[] types = compilationUnitDeclaration.types;
+				if (types != null) {
+					for (int j = types.length; --j >= 0;)
+						types[j].parseMethod(parser, compilationUnitDeclaration);
+				}
+				
+				// convert AST
+				CompilationUnit node = convert(compilationUnitDeclaration, sourceUnit.getContents(), apiLevel, options, false/*don't resolve binding*/, null/*no owner needed*/, null/*no binding table needed*/, monitor);
+				node.setJavaElement(compilationUnits[i]);
+				
+				// accept AST
+				astRequestor.acceptAST(compilationUnits[i], node);
+				
+				if (monitor != null) monitor.worked(1);
 			}
-			
-			//fill the methods bodies in order for the code to be generated
-			//real parse of the method....
-			parser.scanner.setSource(compilationResult);
-			org.eclipse.jdt.internal.compiler.ast.TypeDeclaration[] types = compilationUnitDeclaration.types;
-			if (types != null) {
-				for (int j = types.length; --j >= 0;)
-					types[j].parseMethod(parser, compilationUnitDeclaration);
-			}
-			
-			// convert AST
-			CompilationUnit node = convert(compilationUnitDeclaration, sourceUnit.getContents(), apiLevel, options, false/*don't resolve binding*/, null/*no owner needed*/, null/*no binding table needed*/, monitor);
-			node.setJavaElement(compilationUnits[i]);
-			
-			
-			// accept AST
-			astRequestor.acceptAST(compilationUnits[i], node);
+		} finally {
+			if (monitor != null) monitor.done();
 		}
 	}
 	
@@ -428,6 +437,10 @@ class CompilationUnitResolver extends Compiler {
 		CancelableNameEnvironment environment = null;
 		CancelableProblemFactory problemFactory = null;
 		try {
+			if (monitor != null) {
+				int amountOfWork = (compilationUnits.length + bindingKeys.length) * 2; // 1 for beginToCompile, 1 for resolve
+				monitor.beginTask("", amountOfWork); //$NON-NLS-1$
+			}
 			environment = new CancelableNameEnvironment(((JavaProject) javaProject), owner, monitor);
 			problemFactory = new CancelableProblemFactory(monitor);
 			CompilationUnitResolver resolver =
@@ -436,9 +449,10 @@ class CompilationUnitResolver extends Compiler {
 					getHandlingPolicy(),
 					options,
 					getRequestor(),
-					problemFactory);
+					problemFactory, 
+					monitor);
 
-			resolver.resolve(compilationUnits, bindingKeys, requestor, apiLevel, options, owner, monitor);
+			resolver.resolve(compilationUnits, bindingKeys, requestor, apiLevel, options, owner);
 			if (NameLookup.VERBOSE) {
 				System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
 				System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
@@ -447,6 +461,7 @@ class CompilationUnitResolver extends Compiler {
 			// project doesn't exist -> simple parse without resolving
 			parse(compilationUnits, requestor, apiLevel, options, monitor);
 		} finally {
+			if (monitor != null) monitor.done();
 			if (environment != null) {
 				environment.monitor = null; // don't hold a reference to this external object
 			}
@@ -476,7 +491,8 @@ class CompilationUnitResolver extends Compiler {
 					getHandlingPolicy(),
 					options,
 					getRequestor(),
-					problemFactory);
+					problemFactory, 
+					monitor);
 
 			unit = 
 				resolver.resolve(
@@ -631,7 +647,7 @@ class CompilationUnitResolver extends Compiler {
 		}
 	}
 
-	private void resolve(ICompilationUnit[] compilationUnits, String[] bindingKeys, ASTRequestor astRequestor, int apiLevel, Map compilerOptions, WorkingCopyOwner owner, IProgressMonitor monitor) {
+	private void resolve(ICompilationUnit[] compilationUnits, String[] bindingKeys, ASTRequestor astRequestor, int apiLevel, Map compilerOptions, WorkingCopyOwner owner) {
 	
 		// temporararily connect ourselves to the ASTResolver - must disconnect when done
 		astRequestor.compilationUnitResolver = this;
@@ -653,7 +669,7 @@ class CompilationUnitResolver extends Compiler {
 					if (this.requestedKeys.containsKey(fileName) || this.requestedSources.containsKey(fileName)) {
 						super.process(unit, i); // this.process(...) is optimized to not process already known units
 						
-						ICompilationUnit source = (ICompilationUnit) this.requestedSources.removeKey(fileName);
+						ICompilationUnit source = (ICompilationUnit) this.requestedSources.get(fileName);
 						if (source != null) {
 							// convert AST
 							CompilationResult compilationResult = unit.compilationResult;
@@ -661,7 +677,7 @@ class CompilationUnitResolver extends Compiler {
 							char[] contents = sourceUnit.getContents();
 							AST ast = AST.newAST(apiLevel);
 							ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
-							ASTConverter converter = new ASTConverter(compilerOptions, true/*need to resolve bindings*/, monitor);
+							ASTConverter converter = new ASTConverter(compilerOptions, true/*need to resolve bindings*/, this.monitor);
 							BindingResolver resolver = new DefaultBindingResolver(unit.scope, owner, this.bindingTables);
 							ast.setBindingResolver(resolver);
 							converter.setAST(ast);
@@ -673,17 +689,25 @@ class CompilationUnitResolver extends Compiler {
 							
 							// pass it to requestor
 							astRequestor.acceptAST(source, compilationUnit);
+							
+							worked(1);
 						} 
 						
-						Object key = this.requestedKeys.removeKey(fileName);
+						Object key = this.requestedKeys.get(fileName);
 						if (key instanceof BindingKeyResolver) {
 							reportBinding(key, astRequestor, owner, unit);
+							worked(1);
 						} else if (key instanceof ArrayList) {
 							Iterator iterator = ((ArrayList) key).iterator();
 							while (iterator.hasNext()) {
 								reportBinding(iterator.next(), astRequestor, owner, unit);
+								worked(1);
 							}
 						}
+						
+						// remove at the end so that we don't resolve twice if a source and a key for the same file name have been requested
+						this.requestedSources.removeKey(fileName);
+						this.requestedKeys.removeKey(fileName);
 					} else {
 						if (unit.scope != null)
 							unit.scope.faultInTypes(); // still force resolution of signatures, so clients can query DOM AST
@@ -706,7 +730,10 @@ class CompilationUnitResolver extends Compiler {
 				IBinding binding = compilerBinding == null ? null : resolver.getBinding(compilerBinding);
 				// pass it to requestor
 				astRequestor.acceptBinding(((BindingKeyResolver) this.requestedKeys.valueTable[j]).getKey(), binding);
+				worked(1);
 			}
+		} catch (OperationCanceledException e) {
+			throw e;
 		} catch (AbortCompilation e) {
 			this.handleInternalException(e, unit);
 		} catch (Error e) {
@@ -856,5 +883,13 @@ class CompilationUnitResolver extends Compiler {
 			verifyMethods, 
 			analyzeCode, 
 			generateCode);
+	}
+	
+	private void worked(int work) {
+		if (this.monitor != null) {
+			if (this.monitor.isCanceled())
+				throw new OperationCanceledException();
+			this.monitor.worked(work);
+		}
 	}
 }

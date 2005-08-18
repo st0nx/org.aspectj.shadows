@@ -13,6 +13,7 @@ package org.eclipse.jdt.internal.core.search.matching;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.zip.ZipFile;
@@ -38,6 +39,7 @@ import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies;
 import org.eclipse.jdt.internal.compiler.ast.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.compiler.env.*;
@@ -65,6 +67,7 @@ import org.eclipse.jdt.internal.core.PackageFragment;
 import org.eclipse.jdt.internal.core.PackageFragmentRoot;
 import org.eclipse.jdt.internal.core.SearchableEnvironment;
 import org.eclipse.jdt.internal.core.SourceMapper;
+import org.eclipse.jdt.internal.core.SourceMethod;
 import org.eclipse.jdt.internal.core.SourceTypeElementInfo;
 import org.eclipse.jdt.internal.core.index.Index;
 import org.eclipse.jdt.internal.core.search.*;
@@ -118,6 +121,9 @@ int progressWorked;
 CompilationUnitScope unitScope;
 SimpleLookupTable bindings;
 
+// Cache for method handles
+HashSet methodHandles;
+
 /**
  * An ast visitor that visits local type declarations.
  */
@@ -146,21 +152,11 @@ public class LocalDeclarationVisitor extends ASTVisitor {
 				occurrenceCount = occurrenceCount + 1;
 			}
 			occurrencesCounts.put(simpleName, occurrenceCount);
-			if (typeDeclaration.allocation == null || typeDeclaration.allocation.enumConstant == null) {
-				if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0) {				
-					reportMatching(typeDeclaration, this.enclosingElement, -1, nodeSet, occurrenceCount);
-				} else {
-					Integer level = (Integer) nodeSet.matchingNodes.removeKey(typeDeclaration);
-					reportMatching(typeDeclaration, this.enclosingElement, level != null ? level.intValue() : -1, nodeSet, occurrenceCount);
-				}
+			if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0) {				
+				reportMatching(typeDeclaration, this.enclosingElement, -1, nodeSet, occurrenceCount);
 			} else {
 				Integer level = (Integer) nodeSet.matchingNodes.removeKey(typeDeclaration);
-				if (level != null) {
-					FieldDeclaration enumConstant = typeDeclaration.allocation.enumConstant;
-					int offset = enumConstant.sourceStart;
-					SearchMatch match = newDeclarationMatch(this.enclosingElement, this.enclosingElementBinding, level.intValue(), offset, enumConstant.sourceEnd-offset+1);
-					report(match);
-				}
+				reportMatching(typeDeclaration, this.enclosingElement, level != null ? level.intValue() : -1, nodeSet, occurrenceCount);
 			}
 			return false; // don't visit members as this was done during reportMatching(...)
 		} catch (CoreException e) {
@@ -406,36 +402,6 @@ protected Parser basicParser() {
 	}
 	return this.basicParser;
 }
-/**
- * Add the possibleMatch to the loop
- *  ->  build compilation unit declarations, their bindings and record their results.
- */
-protected void parseAndBuildBindings(PossibleMatch possibleMatch, boolean mustResolve) {
-	if (this.progressMonitor != null && this.progressMonitor.isCanceled())
-		throw new OperationCanceledException();
-
-	try {
-		if (BasicSearchEngine.VERBOSE)
-			System.out.println("Parsing " + possibleMatch.openable.toStringWithAncestors()); //$NON-NLS-1$
-
-		this.parser.nodeSet = possibleMatch.nodeSet;
-		CompilationResult unitResult = new CompilationResult(possibleMatch, 1, 1, this.options.maxProblemsPerUnit);
-		CompilationUnitDeclaration parsedUnit = this.parser.dietParse(possibleMatch, unitResult);
-		if (parsedUnit != null) {
-			if (mustResolve && !parsedUnit.isEmpty())
-				this.lookupEnvironment.buildTypeBindings(parsedUnit, null /*no access restriction*/);
-
-			// add the possibleMatch with its parsedUnit to matchesToProcess
-			possibleMatch.parsedUnit = parsedUnit;
-			int size = this.matchesToProcess.length;
-			if (this.numberOfMatches == size)
-				System.arraycopy(this.matchesToProcess, 0, this.matchesToProcess = new PossibleMatch[size == 0 ? 1 : size * 2], 0, this.numberOfMatches);
-			this.matchesToProcess[this.numberOfMatches++] = possibleMatch;
-		}
-	} finally {
-		this.parser.nodeSet = null;
-	}
-}
 /*
  * Caches the given binary type in the lookup environment and returns it.
  * Returns the existing one if already cached.
@@ -515,7 +481,9 @@ protected IJavaElement createHandle(AbstractMethodDeclaration method, IJavaEleme
 					IBinaryMethod binaryMethod = methods[i];
 					char[] selector = binaryMethod.isConstructor() ? type.getElementName().toCharArray() : binaryMethod.getSelector();
 					if (CharOperation.equals(selector, method.selector)) {
-						char[][] parameterTypes = Signature.getParameterTypes(binaryMethod.getMethodDescriptor());
+						char[] signature = binaryMethod.getGenericSignature();
+						if (signature == null) signature = binaryMethod.getMethodDescriptor();
+						char[][] parameterTypes = Signature.getParameterTypes(signature);
 						if (argCount != parameterTypes.length) continue nextMethod;
 						for (int j = 0; j < argCount; j++) {
 							char[] typeName;
@@ -528,11 +496,11 @@ protected IJavaElement createHandle(AbstractMethodDeclaration method, IJavaEleme
 									typeName = CharOperation.concat(typeName, new char[] {'[', ']'});
 							}
 							char[] parameterTypeName = ClassFileMatchLocator.convertClassFileFormat(parameterTypes[j]);
-							if (!CharOperation.endsWith(Signature.toCharArray(parameterTypeName), typeName))
+							if (!CharOperation.endsWith(Signature.toCharArray(Signature.getTypeErasure(parameterTypeName)), typeName))
 								continue nextMethod;
 							parameterTypes[j] = parameterTypeName;
 						}
-						return type.getMethod(new String(selector), CharOperation.toStrings(parameterTypes));
+						return createMethodHandle(type, new String(selector), CharOperation.toStrings(parameterTypes));
 					}
 				}
 			}
@@ -548,18 +516,40 @@ protected IJavaElement createHandle(AbstractMethodDeclaration method, IJavaEleme
 //			typeName = CharOperation.concat(typeName, new char[] {'[', ']'});
 		parameterTypeSignatures[i] = Signature.createTypeSignature(typeName, false);
 	}
-	return type.getMethod(new String(method.selector), parameterTypeSignatures);
+
+	return createMethodHandle(type, new String(method.selector), parameterTypeSignatures);
+}
+
+/*
+ * Create method handle.
+ * Store occurences for create handle to retrieve possible duplicate ones.
+ */
+private IJavaElement createMethodHandle(IType type, String methodName, String[] parameterTypeSignatures) {
+	IMethod methodHandle = type.getMethod(methodName, parameterTypeSignatures);
+	if (methodHandle instanceof SourceMethod) {
+		while (this.methodHandles.contains(methodHandle)) {
+			((SourceMethod) methodHandle).occurrenceCount++;
+		}
+	}
+	this.methodHandles.add(methodHandle);
+	return methodHandle;
 }
 /**
  * Creates an IField from the given field declaration and type. 
  */
 protected IJavaElement createHandle(FieldDeclaration fieldDeclaration, TypeDeclaration typeDeclaration, IJavaElement parent) {
 	if (!(parent instanceof IType)) return parent;
+	IType type = (IType) parent;
 
 	switch (fieldDeclaration.getKind()) {
 		case AbstractVariableDeclaration.FIELD :
 		case AbstractVariableDeclaration.ENUM_CONSTANT :
 			return ((IType) parent).getField(new String(fieldDeclaration.name));
+	}
+	if (type.isBinary()) {
+		// do not return initializer for binary types
+		// see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=98378
+		return type;
 	}
 	// find occurence count of the given initializer in its type declaration
 	int occurrenceCount = 0;
@@ -621,6 +611,19 @@ protected IJavaElement createImportHandle(ImportReference importRef) {
 	int lastDollar = typeName.lastIndexOf('$');
 	if (lastDollar == -1) return binaryType;
 	return createTypeHandle(typeName.substring(0, lastDollar));
+}
+/**
+ * Creates an IImportDeclaration from the given import statement
+ */
+protected IJavaElement createPackageDeclarationHandle(CompilationUnitDeclaration unit) {
+	if (unit.isPackageInfo()) {
+		char[] packName = CharOperation.concatWith(unit.currentPackage.getImportName(), '.');
+		Openable openable = this.currentPossibleMatch.openable;
+		if (openable instanceof CompilationUnit) {
+			return ((CompilationUnit) openable).getPackageDeclaration(new String(packName));
+		}
+	}
+	return createTypeHandle(new String(unit.getMainTypeName()));
 }
 /**
  * Creates an IType from the given simple top level type name. 
@@ -719,7 +722,7 @@ protected IBinaryType getBinaryInfo(ClassFile classFile, IResource resource) thr
 protected IType getFocusType() {
 	return this.scope instanceof HierarchyScope ? ((HierarchyScope) this.scope).focusType : null;
 }
-protected void getMethodBodies(CompilationUnitDeclaration unit) {
+protected void getMethodBodies(CompilationUnitDeclaration unit, MatchingNodeSet nodeSet) {
 	if (unit.ignoreMethodBodies) {
 		unit.ignoreFurtherInvestigation = true;
 		return; // if initial diet parse did not work, no need to dig into method bodies.
@@ -738,7 +741,7 @@ protected void getMethodBodies(CompilationUnitDeclaration unit) {
 			char[] contents = compilationResult.compilationUnit.getContents();
 			this.parser.javadocParser.scanner.setSource(contents);
 		}
-		this.parser.nodeSet = this.currentPossibleMatch.nodeSet;
+		this.parser.nodeSet = nodeSet;
 		this.parser.parseBodies(unit);
 	} finally {
 		this.parser.nodeSet = null;
@@ -763,31 +766,32 @@ protected TypeBinding getType(Object typeKey, char[] typeName) {
 	this.bindings.put(typeKey, typeBinding);
 	return typeBinding.isValidBinding() ? typeBinding : null;
 }
-public MethodBinding getMethodBinding(IMethod method) {
+public MethodBinding getMethodBinding(MethodPattern methodPattern) {
 	if (this.unitScope == null) return null;
 	// Try to get binding from cache
-	Binding binding = (Binding) this.bindings.get(method);
+	Binding binding = (Binding) this.bindings.get(methodPattern);
 	if (binding != null) {
 		if (binding instanceof MethodBinding && binding.isValidBinding())
 			return (MethodBinding) binding;
 		return null;
 	}
 	//	Get binding from unit scope
-	String typeName = method.getDeclaringType().getElementName();
-	TypeBinding declaringTypeBinding = getType(typeName, typeName.toCharArray());
+	char[] typeName = PatternLocator.qualifiedPattern(methodPattern.declaringSimpleName, methodPattern.declaringQualification);
+	if (typeName == null) {
+		if (methodPattern.declaringType == null) return null;
+		typeName = methodPattern.declaringType.getFullyQualifiedName().toCharArray();
+	}
+	TypeBinding declaringTypeBinding = getType(typeName, typeName);
 	if (declaringTypeBinding != null) {
 		if (declaringTypeBinding.isArrayType()) {
 			declaringTypeBinding = declaringTypeBinding.leafComponentType();
 		}
 		if (!declaringTypeBinding.isBaseType()) {
-			String[] parameterTypes = method.getParameterTypes();
+			char[][] parameterTypes = methodPattern.parameterSimpleNames;
+			if (parameterTypes == null) return null;
 			int paramTypeslength = parameterTypes.length;
-			char[][] paramTypesChars = new char[paramTypeslength][];
-			for (int i=0;  i<paramTypeslength; i++) {
-				paramTypesChars[i] = Signature.toCharArray(parameterTypes[i].toCharArray());
-			}
 			ReferenceBinding referenceBinding = (ReferenceBinding) declaringTypeBinding;
-			MethodBinding[] methods = referenceBinding.getMethods(method.getElementName().toCharArray());
+			MethodBinding[] methods = referenceBinding.getMethods(methodPattern.selector);
 			int methodsLength = methods.length;
 			TypeVariableBinding[] refTypeVariables = referenceBinding.typeVariables();
 			int typeVarLength = refTypeVariables==null ? 0 : refTypeVariables.length;
@@ -796,42 +800,43 @@ public MethodBinding getMethodBinding(IMethod method) {
 				int paramLength = methodParameters==null ? 0 : methodParameters.length;
 				TypeVariableBinding[] methodTypeVariables = methods[i].typeVariables;
 				int methTypeVarLength = methodTypeVariables==null ? 0 : methodTypeVariables.length;
-				boolean found = paramLength == paramTypeslength;
-				if (found) {
-					for (int p=0; found && p<paramLength; p++) {
-						if (CharOperation.equals(methodParameters[p].erasure().shortReadableName(), paramTypesChars[p])) {
+				boolean found = false;
+				if (paramLength == paramTypeslength) {
+					for (int p=0; p<paramLength; p++) {
+						if (CharOperation.equals(methodParameters[p].sourceName(), parameterTypes[p])) {
 							// param erasure match
+							found = true;
 						} else {
 							// type variable
-							boolean foundVar = true;
-							for (int v=0; foundVar && v<typeVarLength; v++) {
-								if (!CharOperation.equals(refTypeVariables[v].sourceName, paramTypesChars[p])) {
-									foundVar = false;
+							found = false;
+							for (int v=0; v<typeVarLength; v++) {
+								if (!CharOperation.equals(refTypeVariables[v].sourceName, parameterTypes[p])) {
+									found = false;
+									break;
 								}
+								found = true;
 							}
-							if (!foundVar) {
-								foundVar = true;
-								for (int v=0; foundVar && v<methTypeVarLength; v++) {
-									if (!CharOperation.equals(methodTypeVariables[v].sourceName, paramTypesChars[p])) {
-										foundVar = false;
+							if (!found) {
+								for (int v=0; v<methTypeVarLength; v++) {
+									if (!CharOperation.equals(methodTypeVariables[v].sourceName, parameterTypes[p])) {
+										found = false;
+										break;
 									}
+									found = true;
 								}
-								if (!foundVar) found = false;
 							}
+							if (!found) break;
 						}
 					}
 				}
 				if (found) {
-					this.bindings.put(method, methods[i]);
+					this.bindings.put(methodPattern, methods[i]);
 					return methods[i];
 				}
 			}
-//			methodBinding = referenceBinding.getExactMethod(method.getElementName().toCharArray(), parameters);
-//			this.bindings.put(method, methodBinding);
-//			return methodBinding;
 		}
 	}
-	this.bindings.put(method, new ProblemMethodBinding(method.getElementName().toCharArray(), null, ProblemReasons.NotFound));
+	this.bindings.put(methodPattern, new ProblemMethodBinding(methodPattern.selector, null, ProblemReasons.NotFound));
 	return null;
 }
 protected boolean hasAlreadyDefinedType(CompilationUnitDeclaration parsedUnit) {
@@ -884,22 +889,43 @@ protected void locateMatches(JavaProject javaProject, PossibleMatch[] possibleMa
 	initialize(javaProject, length);
 
 	// create and resolve binding (equivalent to beginCompilation() in Compiler)
-	boolean mustResolve = ((InternalSearchPattern)this.pattern).mustResolve;
+	boolean mustResolvePattern = ((InternalSearchPattern)this.pattern).mustResolve;
+	boolean mustResolve = mustResolvePattern;
+	this.patternLocator.mayBeGeneric = this.options.sourceLevel >= ClassFileConstants.JDK1_5;
 	boolean bindingsWereCreated = mustResolve;
 	try {
 		for (int i = start, maxUnits = start + length; i < maxUnits; i++) {
 			PossibleMatch possibleMatch = possibleMatches[i];
 			try {
-				parseAndBuildBindings(possibleMatch, mustResolve);
-				if (!mustResolve) {
+				if (!parseAndBuildBindings(possibleMatch, mustResolvePattern)) continue;
+				// Currently we only need to resolve over pattern flag if there's potential parameterized types
+				if (this.patternLocator.mayBeGeneric) {
+					// If pattern does not resolve then rely on possible match node set resolution
+					// which may have been modified while locator was adding possible matches to it
+					if (!mustResolvePattern && !mustResolve) {
+						mustResolve = possibleMatch.nodeSet.mustResolve;
+						bindingsWereCreated = mustResolve;
+					}
+				} else {
+					// Reset matching node resolution with pattern one if there's no potential parameterized type
+					// to minimize side effect on previous search behavior
+					possibleMatch.nodeSet.mustResolve = mustResolvePattern;
+				}
+				// possible match node resolution has been merged with pattern one, so rely on it to know
+				// whether we need to process compilation unit now or later
+				if (!possibleMatch.nodeSet.mustResolve) {
 					if (this.progressMonitor != null) {
 						this.progressWorked++;
 						if ((this.progressWorked%this.progressStep)==0) this.progressMonitor.worked(this.progressStep);
 					}
 					process(possibleMatch, bindingsWereCreated);
+					if (this.numberOfMatches>0 && this.matchesToProcess[this.numberOfMatches-1] == possibleMatch) {
+						// forget last possible match as it was processed
+						this.numberOfMatches--;
+					}
 				}
 			} finally {
-				if (!mustResolve)
+				if (!possibleMatch.nodeSet.mustResolve)
 					possibleMatch.cleanUp();
 			}
 		}
@@ -1081,7 +1107,7 @@ public void locateMatches(SearchDocument[] searchDocuments) throws CoreException
 				}
 				previousJavaProject = javaProject;
 			}
-			matchSet.add(new PossibleMatch(this, resource, openable, searchDocument));
+			matchSet.add(new PossibleMatch(this, resource, openable, searchDocument, ((InternalSearchPattern) this.pattern).mustResolve));
 		}
 
 		// last project
@@ -1100,6 +1126,7 @@ public void locateMatches(SearchDocument[] searchDocuments) throws CoreException
 			this.nameEnvironment.cleanup();
 		manager.flushZipFiles();
 		this.bindings = null;
+		this.patternLocator.clear();
 	}
 }
 /**
@@ -1120,7 +1147,7 @@ protected void locatePackageDeclarations(SearchPattern searchPattern, SearchPart
 		IJavaElement focus = ((InternalSearchPattern) searchPattern).focus;
 		if (focus != null) {
 			SearchDocument document = participant.getDocument(focus.getPath().toString());
-			this.currentPossibleMatch = new PossibleMatch(this, focus.getResource(), null, document);
+			this.currentPossibleMatch = new PossibleMatch(this, focus.getResource(), null, document, ((InternalSearchPattern) searchPattern).mustResolve);
 			if (encloses(focus)) {
 				SearchMatch match = newDeclarationMatch(focus.getAncestor(IJavaElement.PACKAGE_FRAGMENT), null/*no binding*/, SearchMatch.A_ACCURATE, -1, -1);
 				report(match);
@@ -1161,7 +1188,7 @@ protected void locatePackageDeclarations(SearchPattern searchPattern, SearchPart
 						if (resource == null) // case of a file in an external jar
 							resource = javaProject.getProject();
 						SearchDocument document = participant.getDocument(resource.getFullPath().toString());
-						this.currentPossibleMatch = new PossibleMatch(this, resource, null, document);
+						this.currentPossibleMatch = new PossibleMatch(this, resource, null, document, ((InternalSearchPattern) searchPattern).mustResolve);
 						try {
 							if (encloses(pkg)) {
 								SearchMatch match = newDeclarationMatch(pkg, null/*no binding*/, SearchMatch.A_ACCURATE, -1, -1);
@@ -1360,6 +1387,47 @@ public SearchMatch newTypeReferenceMatch(
 	return newTypeReferenceMatch(enclosingElement, enclosingBinding, accuracy, reference.sourceStart, reference.sourceEnd-reference.sourceStart+1, reference);
 }
 
+/**
+ * Add the possibleMatch to the loop
+ *  ->  build compilation unit declarations, their bindings and record their results.
+ */
+protected boolean parseAndBuildBindings(PossibleMatch possibleMatch, boolean mustResolve) throws CoreException {
+	if (this.progressMonitor != null && this.progressMonitor.isCanceled())
+		throw new OperationCanceledException();
+
+	try {
+		if (BasicSearchEngine.VERBOSE)
+			System.out.println("Parsing " + possibleMatch.openable.toStringWithAncestors()); //$NON-NLS-1$
+
+		this.parser.nodeSet = possibleMatch.nodeSet;
+		CompilationResult unitResult = new CompilationResult(possibleMatch, 1, 1, this.options.maxProblemsPerUnit);
+		CompilationUnitDeclaration parsedUnit = this.parser.dietParse(possibleMatch, unitResult);
+		if (parsedUnit != null) {
+			if (!parsedUnit.isEmpty()) {
+				if (mustResolve) {
+					this.lookupEnvironment.buildTypeBindings(parsedUnit, null /*no access restriction*/);
+				}
+				if (hasAlreadyDefinedType(parsedUnit)) return false; // skip type has it is hidden so not visible
+				getMethodBodies(parsedUnit, possibleMatch.nodeSet);
+				if (this.patternLocator.mayBeGeneric && !mustResolve && possibleMatch.nodeSet.mustResolve) {
+					// special case: possible match node set force resolution although pattern does not
+					// => we need to build types for this compilation unit
+					this.lookupEnvironment.buildTypeBindings(parsedUnit, null /*no access restriction*/);
+				}
+			}
+	
+			// add the possibleMatch with its parsedUnit to matchesToProcess
+			possibleMatch.parsedUnit = parsedUnit;
+			int size = this.matchesToProcess.length;
+			if (this.numberOfMatches == size)
+				System.arraycopy(this.matchesToProcess, 0, this.matchesToProcess = new PossibleMatch[size == 0 ? 1 : size * 2], 0, this.numberOfMatches);
+			this.matchesToProcess[this.numberOfMatches++] = possibleMatch;
+		}
+	} finally {
+		this.parser.nodeSet = null;
+	}
+	return true;
+}
 /*
  * Process a compilation unit already parsed and build.
  */
@@ -1378,26 +1446,31 @@ protected void process(PossibleMatch possibleMatch, boolean bindingsWereCreated)
 		}
 		if (hasAlreadyDefinedType(unit)) return; // skip type has it is hidden so not visible
 
-		getMethodBodies(unit);
+		// Move getMethodBodies to #parseAndBuildings(...) method to allow possible match resolution management
+		//getMethodBodies(unit);
 
-		if (bindingsWereCreated && ((InternalSearchPattern)this.pattern).mustResolve && unit.types != null) {
-			if (BasicSearchEngine.VERBOSE)
-				System.out.println("Resolving " + this.currentPossibleMatch.openable.toStringWithAncestors()); //$NON-NLS-1$
-
-			reduceParseTree(unit);
-
-			if (unit.scope != null) {
-				// fault in fields & methods
-				unit.scope.faultInTypes();
+		boolean mustResolve = ((InternalSearchPattern)this.pattern).mustResolve || possibleMatch.nodeSet.mustResolve;
+		if (bindingsWereCreated &&  mustResolve) {
+			if (unit.types != null) {
+				if (BasicSearchEngine.VERBOSE)
+					System.out.println("Resolving " + this.currentPossibleMatch.openable.toStringWithAncestors()); //$NON-NLS-1$
+	
+				reduceParseTree(unit);
+	
+				if (unit.scope != null) {
+					// fault in fields & methods
+					unit.scope.faultInTypes();
+				}
+				unit.resolve();
+			} else if (unit.isPackageInfo()) {
+				if (BasicSearchEngine.VERBOSE)
+					System.out.println("Resolving " + this.currentPossibleMatch.openable.toStringWithAncestors()); //$NON-NLS-1$
+				unit.resolve();
 			}
-			unit.resolve();
-
-			reportMatching(unit, true);
-		} else {
-			reportMatching(unit, ((InternalSearchPattern)this.pattern).mustResolve);
 		}
+		reportMatching(unit, mustResolve);
 	} catch (AbortCompilation e) {
-		// could not resolve: report innacurate matches
+		// could not resolve: report inaccurate matches
 		reportMatching(unit, true); // was partially resolved
 		if (!(e instanceof AbortCompilationUnit)) {
 			// problem with class path
@@ -1453,11 +1526,21 @@ protected void report(SearchMatch match) throws CoreException {
 		System.out.println("Reporting match"); //$NON-NLS-1$
 		System.out.println("\tResource: " + match.getResource()); //$NON-NLS-2$//$NON-NLS-1$
 		System.out.println("\tPositions: [offset=" + match.getOffset() + ", length=" + match.getLength() + "]"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-		if (this.parser != null && match.getOffset() > 0 && match.getLength() > 0 && !(match.getElement() instanceof BinaryMember)) {
-			String selection = new String(this.parser.scanner.source, match.getOffset(), match.getLength());
-			System.out.println("\tSelection: -->" + selection + "<--"); //$NON-NLS-1$ //$NON-NLS-2$
+		try {
+			if (this.parser != null && match.getOffset() > 0 && match.getLength() > 0 && !(match.getElement() instanceof BinaryMember)) {
+				String selection = new String(this.parser.scanner.source, match.getOffset(), match.getLength());
+				System.out.println("\tSelection: -->" + selection + "<--"); //$NON-NLS-1$ //$NON-NLS-2$
+			}
+		} catch (Exception e) {
+			// it's just for debug purposes... ignore all exceptions in this area
 		}
-		System.out.println("\tJava element: " + ((JavaElement)match.getElement()).toStringWithAncestors()); //$NON-NLS-1$
+		try {
+			JavaElement javaElement = (JavaElement)match.getElement();
+			System.out.println("\tJava element: "+ javaElement.toStringWithAncestors()); //$NON-NLS-1$
+			if (!javaElement.exists()) System.out.println("\t\tWARNING: this element does NOT exist!"); //$NON-NLS-1$
+		} catch (Exception e) {
+			// it's just for debug purposes... ignore all exceptions in this area
+		}
 		System.out.println(match.getAccuracy() == SearchMatch.A_ACCURATE
 			? "\tAccuracy: EXACT_MATCH" //$NON-NLS-1$
 			: "\tAccuracy: POTENTIAL_MATCH"); //$NON-NLS-1$
@@ -1748,7 +1831,7 @@ protected void reportMatching(AbstractMethodDeclaration method, IJavaElement par
 			if (encloses(enclosingElement)) {
 				int length = scanner.currentPosition - nameSourceStart;
 				SearchMatch match = this.patternLocator.newDeclarationMatch(method, enclosingElement, method.binding, accuracy, length, this);
-				report(match);
+				if (match != null) report(match);
 			}
 		}
 	}
@@ -1767,15 +1850,10 @@ protected void reportMatching(AbstractMethodDeclaration method, IJavaElement par
 
 	// report annotations
 	if (method.annotations != null) {
-		for (int i=0, al=method.annotations.length; i<al; i++) {
-			TypeReference typeRef = method.annotations[i].type;
-			Integer level = (Integer) nodeSet.matchingNodes.removeKey(typeRef);
-			if (level != null) {
-				if (enclosingElement == null)
-					enclosingElement = createHandle(method, parent);
-				this.patternLocator.matchReportReference(typeRef, enclosingElement, method.binding, level.intValue(), this);
-			}
+		if (enclosingElement == null) {
+			enclosingElement = createHandle(method, parent);
 		}
+		reportMatching(method.annotations, enclosingElement, method.binding, nodeSet, true, true);
 	}
 
 	// references in this method
@@ -1800,10 +1878,66 @@ protected void reportMatching(AbstractMethodDeclaration method, IJavaElement par
 	}
 }
 /**
+ * Report matching in annotations.
+ */
+protected void reportMatching(Annotation[] annotations, IJavaElement enclosingElement, Binding elementBinding, MatchingNodeSet nodeSet, boolean matchedContainer, boolean enclosesElement) throws CoreException {
+	for (int i=0, al=annotations.length; i<al; i++) {
+		Annotation annotationType = annotations[i];
+
+		// Look for annotation type ref
+		TypeReference typeRef = annotationType.type;
+		Integer level = (Integer) nodeSet.matchingNodes.removeKey(typeRef);
+		if (level != null && matchedContainer) {
+			this.patternLocator.matchReportReference(typeRef, enclosingElement, elementBinding, level.intValue(), this);
+		}
+		
+		// Look for attribute ref
+		MemberValuePair[] pairs = annotationType.memberValuePairs();
+		for (int j = 0, pl = pairs.length; j < pl; j++) {
+			MemberValuePair pair = pairs[j];
+			level = (Integer) nodeSet.matchingNodes.removeKey(pair);
+			if (level != null && enclosesElement) {
+				ASTNode reference = (annotationType instanceof SingleMemberAnnotation) ? (ASTNode) annotationType: pair;
+				this.patternLocator.matchReportReference(reference, enclosingElement, pair.binding, level.intValue(), this);
+			}
+		}
+		
+		// Look for reference inside annotation
+		ASTNode[] nodes = nodeSet.matchingNodes(annotationType.sourceStart, annotationType.declarationSourceEnd);
+		if (nodes != null) {
+			if (!matchedContainer) {
+				for (int j = 0, nl = nodes.length; j < nl; j++) {
+					nodeSet.matchingNodes.removeKey(nodes[j]);
+				}
+			} else {
+				for (int j = 0, nl = nodes.length; j < nl; j++) {
+					ASTNode node = nodes[j];
+					level = (Integer) nodeSet.matchingNodes.removeKey(node);
+					if (enclosesElement) {
+						this.patternLocator.matchReportReference(node, enclosingElement, elementBinding, level.intValue(), this);
+					}
+				}
+			}
+		}
+	}
+}
+/**
  * Visit the given resolved parse tree and report the nodes that match the search pattern.
  */
 protected void reportMatching(CompilationUnitDeclaration unit, boolean mustResolve) throws CoreException {
 	MatchingNodeSet nodeSet = this.currentPossibleMatch.nodeSet;
+	boolean locatorMustResolve = this.patternLocator.mustResolve;
+	if (nodeSet.mustResolve) this.patternLocator.mustResolve = true;
+	if (BasicSearchEngine.VERBOSE) {
+		System.out.println("Report matching: "); //$NON-NLS-1$
+		int size = nodeSet.matchingNodes==null ? 0 : nodeSet.matchingNodes.elementSize;
+		System.out.print("	- node set: accurate="+ size); //$NON-NLS-1$
+		size = nodeSet.possibleMatchingNodesSet==null ? 0 : nodeSet.possibleMatchingNodesSet.elementSize;
+		System.out.println(", possible="+size); //$NON-NLS-1$
+		System.out.print("	- must resolve: "+mustResolve); //$NON-NLS-1$
+		System.out.print(" (locator: "+this.patternLocator.mustResolve); //$NON-NLS-1$
+		System.out.println(", nodeSet: "+nodeSet.mustResolve+')'); //$NON-NLS-1$
+	}
 	if (mustResolve) {
 		this.unitScope= unit.scope.compilationUnitScope();
 		// move the possible matching nodes that exactly match the search pattern to the matching nodes set
@@ -1825,18 +1959,48 @@ protected void reportMatching(CompilationUnitDeclaration unit, boolean mustResol
 			nodeSet.addMatch(node, this.patternLocator.resolveLevel(node));
 		}
 		nodeSet.possibleMatchingNodesSet = new SimpleSet(3);
+		if (BasicSearchEngine.VERBOSE) {
+			int size = nodeSet.matchingNodes==null ? 0 : nodeSet.matchingNodes.elementSize;
+			System.out.print("	- node set: accurate="+size); //$NON-NLS-1$
+			size = nodeSet.possibleMatchingNodesSet==null ? 0 : nodeSet.possibleMatchingNodesSet.elementSize;
+			System.out.println(", possible="+size); //$NON-NLS-1$
+		}
 	} else {
 		this.unitScope = null;
 	}
 
 	if (nodeSet.matchingNodes.elementSize == 0) return; // no matching nodes were found
+	this.methodHandles = new HashSet();
 
 	boolean matchedUnitContainer = (this.matchContainer & PatternLocator.COMPILATION_UNIT_CONTAINER) != 0;
+
+	// report references in javadoc
+	if (unit.javadoc != null) {
+		ASTNode[] nodes = nodeSet.matchingNodes(unit.javadoc.sourceStart, unit.javadoc.sourceEnd);
+		if (nodes != null) {
+			if (!matchedUnitContainer) {
+				for (int i = 0, l = nodes.length; i < l; i++)
+					nodeSet.matchingNodes.removeKey(nodes[i]);
+			} else {
+				IJavaElement element = createPackageDeclarationHandle(unit);
+				for (int i = 0, l = nodes.length; i < l; i++) {
+					ASTNode node = nodes[i];
+					Integer level = (Integer) nodeSet.matchingNodes.removeKey(node);
+					if (encloses(element))
+						this.patternLocator.matchReportReference(node, element, null/*no binding*/, level.intValue(), this);
+				}
+			}
+		}
+	}
+
 	if (matchedUnitContainer) {
-// Currently a no-op
-//	ImportReference pkg = unit.currentPackage;
-//	if (pkg != null && nodeSet.matchingNodes.removeKey(pkg) != null)
-//		reportPackageDeclaration(pkg);
+		ImportReference pkg = unit.currentPackage;
+		if (pkg != null && pkg.annotations != null) {
+			IJavaElement element = createPackageDeclarationHandle(unit);
+			if (element != null) {
+				reportMatching(pkg.annotations, element, null, nodeSet, true, encloses(element));
+			}
+		}
 
 		ImportReference[] imports = unit.imports;
 		if (imports != null) {
@@ -1859,6 +2023,10 @@ protected void reportMatching(CompilationUnitDeclaration unit, boolean mustResol
 			reportMatching(type, null, accuracy, nodeSet, 1);
 		}
 	}
+	
+	// Clear handle cache
+	this.methodHandles = null;
+	this.patternLocator.mustResolve = locatorMustResolve;
 }
 /**
  * Visit the given field declaration and report the nodes that match exactly the
@@ -1889,15 +2057,10 @@ protected void reportMatching(FieldDeclaration field, TypeDeclaration type, IJav
 
 	// report annotations
 	if (field.annotations != null) {
-		for (int i=0, al=field.annotations.length; i<al; i++) {
-			TypeReference typeRef = field.annotations[i].type;
-			Integer level = (Integer) nodeSet.matchingNodes.removeKey(typeRef);
-			if (level != null) {
-				if (enclosingElement == null)
-					enclosingElement = createHandle(field, type, parent);
-				this.patternLocator.matchReportReference(typeRef, enclosingElement, field.binding, level.intValue(), this);
-			}
+		if (enclosingElement == null) {
+			enclosingElement = createHandle(field, type, parent);
 		}
+		reportMatching(field.annotations, enclosingElement, field.binding, nodeSet, true, true);
 	}
 
 	if (typeInHierarchy) {
@@ -1915,6 +2078,13 @@ protected void reportMatching(FieldDeclaration field, TypeDeclaration type, IJav
 					for (int i = 0, l = nodes.length; i < l; i++) {
 						ASTNode node = nodes[i];
 						Integer level = (Integer) nodeSet.matchingNodes.removeKey(node);
+						if (node instanceof TypeDeclaration) {
+							// use field declaration to report match (see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=88174)
+							AllocationExpression allocation = ((TypeDeclaration)node).allocation;
+							if (allocation != null && allocation.enumConstant != null) {
+								node = field;
+							}
+						}
 						this.patternLocator.matchReportReference(node, enclosingElement, field.binding, level.intValue(), this);
 					}
 			}
@@ -1940,9 +2110,10 @@ protected void reportMatching(TypeDeclaration type, IJavaElement parent, int acc
 			enclosingElement = member.getType(new String(type.name), occurrenceCount);
 	}
 	if (enclosingElement == null) return;
+	boolean enclosesElement = encloses(enclosingElement);
 
 	// report the type declaration
-	if (accuracy > -1 && encloses(enclosingElement)) {
+	if (accuracy > -1 && enclosesElement) {
 		int offset = type.sourceStart;
 		SearchMatch match = this.patternLocator.newDeclarationMatch(type, enclosingElement, type.binding, accuracy, type.sourceEnd-offset+1, this);
 		report(match);
@@ -1957,7 +2128,7 @@ protected void reportMatching(TypeDeclaration type, IJavaElement parent, int acc
 			if (typeParameter != null) {
 				Integer level = (Integer) nodeSet.matchingNodes.removeKey(typeParameter);
 				if (level != null && matchedClassContainer) {
-					if (level.intValue() > -1 && encloses(enclosingElement)) {
+					if (level.intValue() > -1 && enclosesElement) {
 						int offset = typeParameter.sourceStart;
 						SearchMatch match = this.patternLocator.newDeclarationMatch(typeParameter, enclosingElement, type.binding, level.intValue(), typeParameter.sourceEnd-offset+1, this);
 						report(match);
@@ -1983,13 +2154,7 @@ protected void reportMatching(TypeDeclaration type, IJavaElement parent, int acc
 
 	// report annotations
 	if (type.annotations != null) {
-		for (int i=0, al=type.annotations.length; i<al; i++) {
-			TypeReference typeRef = type.annotations[i].type;
-			Integer level = (Integer) nodeSet.matchingNodes.removeKey(typeRef);
-			if (level != null && matchedClassContainer) {
-				this.patternLocator.matchReportReference(typeRef, enclosingElement, type.binding, level.intValue(), this);
-			}
-		}
+		reportMatching(type.annotations, enclosingElement, type.binding, nodeSet, matchedClassContainer, enclosesElement);
 	}
 
 	// report references in javadoc
@@ -2003,8 +2168,9 @@ protected void reportMatching(TypeDeclaration type, IJavaElement parent, int acc
 				for (int i = 0, l = nodes.length; i < l; i++) {
 					ASTNode node = nodes[i];
 					Integer level = (Integer) nodeSet.matchingNodes.removeKey(node);
-					if (encloses(enclosingElement))
+					if (enclosesElement) {
 						this.patternLocator.matchReportReference(node, enclosingElement, type.binding, level.intValue(), this);
+					}
 				}
 			}
 		}

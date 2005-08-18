@@ -201,7 +201,7 @@ public class ExplicitConstructorCall extends Statement implements InvocationSite
 		// perform some emulation work in case there is some and we are inside a local type only
 		if (binding.isPrivate() && accessMode != This) {
 
-			if (currentScope.environment().options.isPrivateConstructorAccessChangingVisibility) {
+			if (currentScope.compilerOptions().isPrivateConstructorAccessChangingVisibility) {
 				this.codegenBinding.tagForClearingPrivateModifier();
 				// constructor will not be dumped as private, no emulation required thus
 			} else {
@@ -328,8 +328,8 @@ public class ExplicitConstructorCall extends Statement implements InvocationSite
 				if (isMethodUseDeprecated(binding, scope))
 					scope.problemReporter().deprecatedMethod(binding, this);
 				checkInvocationArguments(scope, null, receiverType, binding, this.arguments, argumentTypes, argsContainCast, this);
-				if (binding.isPrivate()) {
-					binding.original().modifiers |= AccPrivateUsed;
+				if (binding.isPrivate() || receiverType.isLocalType()) {
+					binding.original().modifiers |= AccLocallyUsed;
 				}				
 			} else {
 				if (binding.declaringClass == null)

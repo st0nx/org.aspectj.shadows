@@ -880,6 +880,17 @@ private boolean isAffectedByJavaProject(IJavaElementDelta delta, IJavaElement el
 						return true;
 					}
 				}
+				if (this.focusType != null) {
+					// if the hierarchy's project is on the added project classpath, then the hierarchy has changed
+					classpath = ((JavaProject)element).getExpandedClasspath(true);
+					IPath hierarchyProject = javaProject().getPath();
+					for (int i = 0; i < classpath.length; i++) {
+						if (classpath[i].getEntryKind() == IClasspathEntry.CPE_PROJECT 
+								&& classpath[i].getPath().equals(hierarchyProject)) {
+							return true;
+						}
+					}
+				}
 				return false;
 			} catch (JavaModelException e) {
 				return false;
@@ -1470,7 +1481,7 @@ boolean subtypesIncludeSupertypeOf(IType type) {
 public String toString() {
 	StringBuffer buffer = new StringBuffer();
 	buffer.append("Focus: "); //$NON-NLS-1$
-	buffer.append(this.focusType == null ? "<NONE>" : ((JavaElement)this.focusType).toStringWithAncestors()); //$NON-NLS-1$
+	buffer.append(this.focusType == null ? "<NONE>" : ((JavaElement)this.focusType).toStringWithAncestors(false/*don't show key*/)); //$NON-NLS-1$
 	buffer.append("\n"); //$NON-NLS-1$
 	if (exists()) {
 		if (this.focusType != null) {
@@ -1513,7 +1524,7 @@ private void toString(StringBuffer buffer, IType type, int indent, boolean ascen
 			buffer.append("  "); //$NON-NLS-1$
 		}
 		JavaElement element = (JavaElement)types[i];
-		buffer.append(element.toStringWithAncestors());
+		buffer.append(element.toStringWithAncestors(false/*don't show key*/));
 		buffer.append('\n');
 		toString(buffer, types[i], indent + 1, ascendant);
 	}

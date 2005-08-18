@@ -13,6 +13,7 @@ package org.eclipse.jdt.internal.core;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 
 import org.eclipse.jdt.core.IBuffer;
@@ -26,12 +27,16 @@ import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.ASTVisitor;
+import org.eclipse.jdt.core.dom.AbstractTypeDeclaration;
 import org.eclipse.jdt.core.dom.AnnotationTypeDeclaration;
 import org.eclipse.jdt.core.dom.AnonymousClassDeclaration;
+import org.eclipse.jdt.core.dom.BodyDeclaration;
+import org.eclipse.jdt.core.dom.EnumConstantDeclaration;
 import org.eclipse.jdt.core.dom.EnumDeclaration;
 import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
+import org.eclipse.jdt.core.util.CompilationUnitSorter;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jface.text.BadLocationException;
@@ -49,17 +54,21 @@ public class SortElementsOperation extends JavaModelOperation {
 	
 	Comparator comparator;
 	int[] positions;
+    int apiLevel;
 	
 	/**
 	 * Constructor for SortElementsOperation.
+     * 
+     * @param level the AST API level; one of the AST LEVEL constants
 	 * @param elements
 	 * @param positions
 	 * @param comparator
 	 */
-	public SortElementsOperation(IJavaElement[] elements, int[] positions, Comparator comparator) {
+	public SortElementsOperation(int level, IJavaElement[] elements, int[] positions, Comparator comparator) {
 		super(elements);
 		this.comparator = comparator;
-		this.positions = positions;
+        this.positions = positions;
+        this.apiLevel = level;
 	}
 
 	/**
@@ -100,12 +109,62 @@ public class SortElementsOperation extends JavaModelOperation {
 	 */
 	private String processElement(ICompilationUnit unit, char[] source) {
 		CompilerOptions options = new CompilerOptions(unit.getJavaProject().getOptions(true));
-		ASTParser parser = ASTParser.newParser(AST.JLS3);
+		ASTParser parser = ASTParser.newParser(this.apiLevel);
 		parser.setCompilerOptions(options.getMap());
 		parser.setSource(source);
 		parser.setKind(ASTParser.K_COMPILATION_UNIT);
 		parser.setResolveBindings(false);
 		org.eclipse.jdt.core.dom.CompilationUnit domUnit = (org.eclipse.jdt.core.dom.CompilationUnit) parser.createAST(null);
+		domUnit.accept(new ASTVisitor() {
+			public boolean visit(org.eclipse.jdt.core.dom.CompilationUnit compilationUnit) {
+				List types = compilationUnit.types();
+				for (Iterator iter = types.iterator(); iter.hasNext();) {
+					AbstractTypeDeclaration typeDeclaration = (AbstractTypeDeclaration) iter.next();
+					typeDeclaration.setProperty(CompilationUnitSorter.RELATIVE_ORDER, new Integer(typeDeclaration.getStartPosition()));
+				}
+				return true;
+			}
+			public boolean visit(AnnotationTypeDeclaration annotationTypeDeclaration) {
+				List bodyDeclarations = annotationTypeDeclaration.bodyDeclarations();
+				for (Iterator iter = bodyDeclarations.iterator(); iter.hasNext();) {
+					BodyDeclaration bodyDeclaration = (BodyDeclaration) iter.next();
+					bodyDeclaration.setProperty(CompilationUnitSorter.RELATIVE_ORDER, new Integer(bodyDeclaration.getStartPosition()));
+				}
+				return true;
+			}
+
+			public boolean visit(AnonymousClassDeclaration anonymousClassDeclaration) {
+				List bodyDeclarations = anonymousClassDeclaration.bodyDeclarations();
+				for (Iterator iter = bodyDeclarations.iterator(); iter.hasNext();) {
+					BodyDeclaration bodyDeclaration = (BodyDeclaration) iter.next();
+					bodyDeclaration.setProperty(CompilationUnitSorter.RELATIVE_ORDER, new Integer(bodyDeclaration.getStartPosition()));
+				}
+				return true;
+			}
+			
+			public boolean visit(TypeDeclaration typeDeclaration) {
+				List bodyDeclarations = typeDeclaration.bodyDeclarations();
+				for (Iterator iter = bodyDeclarations.iterator(); iter.hasNext();) {
+					BodyDeclaration bodyDeclaration = (BodyDeclaration) iter.next();
+					bodyDeclaration.setProperty(CompilationUnitSorter.RELATIVE_ORDER, new Integer(bodyDeclaration.getStartPosition()));
+				}
+				return true;
+			}
+
+			public boolean visit(EnumDeclaration enumDeclaration) {
+				List bodyDeclarations = enumDeclaration.bodyDeclarations();
+				for (Iterator iter = bodyDeclarations.iterator(); iter.hasNext();) {
+					BodyDeclaration bodyDeclaration = (BodyDeclaration) iter.next();
+					bodyDeclaration.setProperty(CompilationUnitSorter.RELATIVE_ORDER, new Integer(bodyDeclaration.getStartPosition()));
+				}
+				List enumConstants = enumDeclaration.enumConstants();
+				for (Iterator iter = enumConstants.iterator(); iter.hasNext();) {
+					EnumConstantDeclaration enumConstantDeclaration = (EnumConstantDeclaration) iter.next();
+					enumConstantDeclaration.setProperty(CompilationUnitSorter.RELATIVE_ORDER, new Integer(enumConstantDeclaration.getStartPosition()));
+				}				
+				return true;
+			}
+		});
 		final AST localAst = domUnit.getAST();
 		final ASTRewrite rewriter = ASTRewrite.create(localAst);
 		RangeMarker[] markers = null;
@@ -190,7 +249,7 @@ public class SortElementsOperation extends JavaModelOperation {
 					for (int i = 0; i < length; i++) {
 						listRewrite.replace((ASTNode) bodyDeclarations.get(i), rewriter.createMoveTarget((ASTNode) myCopy.get(i)), null);
 					}
-				}				
+				}
 				listRewrite = rewriter.getListRewrite(enumDeclaration, EnumDeclaration.ENUM_CONSTANTS_PROPERTY);
 				List enumConstants = enumDeclaration.enumConstants();
 				length = enumConstants.size();

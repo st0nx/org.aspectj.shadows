@@ -75,11 +75,14 @@ public class ParameterizedMethodBinding extends MethodBinding {
 			for (int i = 0; i < length; i++) {
 				TypeVariableBinding originalVariable = originalVariables[i];
 				TypeVariableBinding substitutedVariable = substitutedVariables[i];
-				substitutedVariable.superclass = (ReferenceBinding) Scope.substitute(substitution, originalVariable.superclass);
+				TypeBinding substitutedSuperclass = Scope.substitute(substitution, originalVariable.superclass);
+				substitutedVariable.superclass = (ReferenceBinding) (substitutedSuperclass.isArrayType() 
+							? parameterizedDeclaringClass.environment.getType(JAVA_LANG_OBJECT)
+							: substitutedSuperclass);
 				substitutedVariable.superInterfaces = Scope.substitute(substitution, originalVariable.superInterfaces);
 				if (originalVariable.firstBound != null) {
 					substitutedVariable.firstBound = originalVariable.firstBound == originalVariable.superclass
-						? substitutedVariable.superclass
+						? substitutedSuperclass // could be array type
 						: substitutedVariable.superInterfaces[0];
 				}
 			}
@@ -95,14 +98,6 @@ public class ParameterizedMethodBinding extends MethodBinding {
 		// no init
 	}
 
-	/*
-	 * parameterizedDeclaringUniqueKey dot selector originalMethodGenericSignature
-	 * p.X<U> { void bar(U u) { new X<String>().bar("") } } --> Lp/X<Ljava/lang/String;>;.bar(TU;)V^123
-	 */
-	public char[] computeUniqueKey(boolean withAccessFlags) {
-		return computeUniqueKey(original(), withAccessFlags);
-	}
-
 	/**
 	 * The type of x.getClass() is substituted from 'Class<? extends Object>' into: 'Class<? extends |X|> where |X| is X's erasure.
 	 */
@@ -116,7 +111,7 @@ public class ParameterizedMethodBinding extends MethodBinding {
 		method.parameters = originalMethod.parameters;
 		method.thrownExceptions = originalMethod.thrownExceptions;
 		ReferenceBinding genericClassType = scope.getJavaLangClass();
-		method.returnType = scope.createParameterizedType(
+		method.returnType = scope.environment().createParameterizedType(
 			genericClassType,
 			new TypeBinding[] {  scope.environment().createWildcard(genericClassType, 0, receiverType.erasure(), null /*no extra bound*/, Wildcard.EXTENDS) },
 			null);

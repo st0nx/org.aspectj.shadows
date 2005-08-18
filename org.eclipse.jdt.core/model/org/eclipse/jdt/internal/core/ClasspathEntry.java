@@ -179,7 +179,7 @@ public class ClasspathEntry implements IClasspathEntry {
 	/*
 	 * The extra attributes
 	 */
-	private IClasspathAttribute[] extraAttributes;
+	IClasspathAttribute[] extraAttributes;
 
 	/**
 	 * Creates a class path entry of the specified kind with the given path.
@@ -246,10 +246,14 @@ public class ClasspathEntry implements IClasspathEntry {
 		if (referringEntry.isExported() || referringEntry.getAccessRuleSet() != null ) {
 			boolean combine = this.entryKind == CPE_SOURCE || referringEntry.combineAccessRules();
 			return new ClasspathEntry(
-								this.getContentKind(), this.getEntryKind(), this.getPath(),
+								getContentKind(), 
+								getEntryKind(), 
+								getPath(),
 								this.inclusionPatterns, 
 								this.exclusionPatterns, 
-								this.getSourceAttachmentPath(), this.getSourceAttachmentRootPath(), this.getOutputLocation(), 
+								getSourceAttachmentPath(), 
+								getSourceAttachmentRootPath(), 
+								getOutputLocation(), 
 								referringEntry.isExported() || this.isExported, // duplicate container entry for tagging it as exported
 								combine(referringEntry.getAccessRules(), getAccessRules(), combine),
 								this.combineAccessRules,
@@ -261,7 +265,7 @@ public class ClasspathEntry implements IClasspathEntry {
 
 	private IAccessRule[] combine(IAccessRule[] referringRules, IAccessRule[] rules, boolean combine) {
 		if (!combine) return rules;
-		if (rules == null) return referringRules;
+		if (rules == null || rules.length == 0) return referringRules;
 		
 		// concat access rules
 		int referringRulesLength = referringRules.length;
@@ -274,7 +278,7 @@ public class ClasspathEntry implements IClasspathEntry {
 		return result;
 	}
 
-	private static IClasspathAttribute[] decodeExtraAttributes(Element element) {
+	static IClasspathAttribute[] decodeExtraAttributes(Element element) {
 		Node extra = element.getElementsByTagName(TAG_ATTRIBUTES).item(0);
 		if (extra == null) return NO_EXTRA_ATTRIBUTES;
 		NodeList attributes = element.getElementsByTagName(TAG_ATTRIBUTE);
@@ -299,7 +303,7 @@ public class ClasspathEntry implements IClasspathEntry {
 		return result;
 	}
 	
-	private static IAccessRule[] decodeAccessRules(Element element) {
+	static IAccessRule[] decodeAccessRules(Element element) {
 		Node accessRules = element.getElementsByTagName(TAG_ACCESS_RULES).item(0);
 		if (accessRules == null || accessRules.getNodeType() != Node.ELEMENT_NODE) return null;
 		NodeList list = ((Element) accessRules).getElementsByTagName(TAG_ACCESS_RULE);
@@ -435,8 +439,8 @@ public class ClasspathEntry implements IClasspathEntry {
 			parameters.put(TAG_OUTPUT, String.valueOf(outputLocation));
 		}
 
-		boolean hasExtraAttributes = this.extraAttributes != NO_EXTRA_ATTRIBUTES;
-		boolean hasRestrictions = getAccessRuleSet() != null;
+		boolean hasExtraAttributes = this.extraAttributes.length != 0;
+		boolean hasRestrictions = getAccessRuleSet() != null; // access rule set is null if no access rules
 		writer.printTag(TAG_CLASSPATHENTRY, parameters, indent, newLine, !hasExtraAttributes && !hasRestrictions /*close tag if no extra attributes and no restriction*/);
 		
 		if (hasExtraAttributes)
@@ -449,7 +453,7 @@ public class ClasspathEntry implements IClasspathEntry {
 			writer.endTag(TAG_CLASSPATHENTRY, indent);
 	}
 	
-	private void encodeExtraAttributes(XMLWriter writer, boolean indent, boolean newLine) {
+	void encodeExtraAttributes(XMLWriter writer, boolean indent, boolean newLine) {
 		writer.startTag(TAG_ATTRIBUTES, indent);
 		for (int i = 0; i < this.extraAttributes.length; i++) {
 			IClasspathAttribute attribute = this.extraAttributes[i];
@@ -461,7 +465,7 @@ public class ClasspathEntry implements IClasspathEntry {
 		writer.endTag(TAG_ATTRIBUTES, indent);
 	}
 	
-	private void encodeAccessRules(XMLWriter writer, boolean indent, boolean newLine) {
+	void encodeAccessRules(XMLWriter writer, boolean indent, boolean newLine) {
 
 		writer.startTag(TAG_ACCESS_RULES, indent);
 		AccessRule[] rules = getAccessRuleSet().getAccessRules();
@@ -614,7 +618,7 @@ public class ClasspathEntry implements IClasspathEntry {
 						null, // source attachment root
 						null, // custom output location
 						false,
-						null,
+						null, // no access rules
 						false, // no accessible files to combine
 						NO_EXTRA_ATTRIBUTES);
 			default :
@@ -1224,7 +1228,7 @@ public class ClasspathEntry implements IClasspathEntry {
 			if (entryPath.equals(projectPath)){
 				// complain if self-referring project entry
 				if (kind == IClasspathEntry.CPE_PROJECT){
-					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_PATH, Messages.bind(Messages.classpath_cannotReferToItself, new String[] {entryPath.makeRelative().toString()}));
+					return new JavaModelStatus(IJavaModelStatusConstants.INVALID_PATH, Messages.bind(Messages.classpath_cannotReferToItself, entryPath.makeRelative().toString()));
 				}
 				// tolerate nesting output in src if src==prj
 				continue;
@@ -1360,6 +1364,18 @@ public class ClasspathEntry implements IClasspathEntry {
 						if (container == null){
 							return new JavaModelStatus(IJavaModelStatusConstants.CP_CONTAINER_PATH_UNBOUND, project, path);
 						} else if (container == JavaModelManager.CONTAINER_INITIALIZATION_IN_PROGRESS) {
+							// Validate extra attributes
+							IClasspathAttribute[] extraAttributes = entry.getExtraAttributes();
+							if (extraAttributes != null) {
+								int length = extraAttributes.length;
+								HashSet set = new HashSet(length);
+								for (int i=0; i<length; i++) {
+									String attName = extraAttributes[i].getName();
+									if (!set.add(attName)) {
+										return new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION, Messages.bind(Messages.classpath_duplicateEntryExtraAttribute, new String[] {attName, entryPathMsg, projectName})); 
+									}
+								}
+							}
 							// don't create a marker if initialization is in progress (case of cp initialization batching)
 							return JavaModelStatus.VERIFIED_OK;
 						}
@@ -1446,8 +1462,8 @@ public class ClasspathEntry implements IClasspathEntry {
 								}
 						}
 					} else if (target instanceof File){
-					    File file = (File) target;
-					    if (!file.isFile()) {
+						File file = JavaModel.getFile(target);
+					    if (file == null) {
 							return  new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_illegalExternalFolder, new String[] {path.toOSString(), projectName})); 
 					    } else if (!org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(file.getName())) {
 							return  new JavaModelStatus(IJavaModelStatusConstants.INVALID_CLASSPATH, Messages.bind(Messages.classpath_illegalLibraryArchive, (new String[] {path.toOSString(), projectName}))); 
@@ -1517,6 +1533,20 @@ public class ClasspathEntry implements IClasspathEntry {
 				}
 				break;
 		}
+
+		// Validate extra attributes
+		IClasspathAttribute[] extraAttributes = entry.getExtraAttributes();
+		if (extraAttributes != null) {
+			int length = extraAttributes.length;
+			HashSet set = new HashSet(length);
+			for (int i=0; i<length; i++) {
+				String attName = extraAttributes[i].getName();
+				if (!set.add(attName)) {
+					return new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION, Messages.bind(Messages.classpath_duplicateEntryExtraAttribute, new String[] {attName, entryPathMsg, projectName})); 
+				}
+			}
+		}
+
 		return JavaModelStatus.VERIFIED_OK;		
 	}
 }

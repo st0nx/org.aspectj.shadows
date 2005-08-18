@@ -703,6 +703,11 @@ public Parser(ProblemReporter problemReporter, boolean optimizeStringLiterals) {
 	// javadoc support
 	this.javadocParser = new JavadocParser(this);	
 }
+protected void annotationRecoveryCheckPoint(int start, int end) {
+	if(this.lastCheckPoint > start && this.lastCheckPoint < end) {
+		this.lastCheckPoint = end + 1;
+	}
+}
 public void arrayInitializer(int length) {
 	//length is the size of the array Initializer
 	//expressionPtr points on the last elt of the arrayInitializer, 
@@ -1037,7 +1042,11 @@ protected void consumeAnnotationAsModifier() {
 	}
 }
 protected void consumeAnnotationName() {
-	// nothing to do
+	if(this.currentElement != null) {
+		int start = this.intStack[this.intPtr];
+		int end = (int) (this.identifierPositionStack[this.identifierPtr] & 0x00000000FFFFFFFFL);
+		annotationRecoveryCheckPoint(start, end);
+	}
 }
 protected void consumeAnnotationTypeDeclaration() {
 	int length;
@@ -1070,6 +1079,8 @@ protected void consumeAnnotationTypeDeclarationHeader() {
 	if (this.currentElement != null) {
 		this.restartRecovery = true; // used to avoid branching back into the regular automaton		
 	}
+	// flush the comments related to the annotation type header
+	this.scanner.commentPtr = -1;
 }
 protected void consumeAnnotationTypeDeclarationHeaderName() {
 	// consumeAnnotationTypeDeclarationHeader ::= Modifiers '@' PushModifiers interface Identifier
@@ -1245,7 +1256,8 @@ protected void consumeArrayInitializer() {
 	arrayInitializer(this.expressionLengthStack[this.expressionLengthPtr--]);
 }
 protected void consumeArrayTypeWithTypeArgumentsName() {
-	this.intStack[this.intPtr] += this.identifierLengthStack[this.identifierLengthPtr];
+	this.genericsIdentifiersLengthStack[this.genericsIdentifiersLengthPtr] += this.identifierLengthStack[this.identifierLengthPtr];
+	pushOnGenericsLengthStack(0); // handle type arguments
 }
 protected void consumeAssertStatement() {
 	// AssertStatement ::= 'assert' Expression ':' Expression ';'
@@ -1731,6 +1743,9 @@ protected void consumeClassBodyDeclarations() {
 }
 protected void consumeClassBodyDeclarationsopt() {
 	// ClassBodyDeclarationsopt ::= NestedType ClassBodyDeclarations
+	this.nestedType-- ;
+}
+protected void consumeAnnotationTypeMemberDeclarationsopt() {
 	this.nestedType-- ;
 }
 protected void consumeClassBodyopt() {
@@ -2575,6 +2590,10 @@ protected void consumeEnterAnonymousClassBody() {
 
 	anonymousType.bodyStart = this.scanner.currentPosition;	
 	this.listLength = 0; // will be updated when reading super-interfaces
+	
+	// flush the comments related to the anonymous
+	this.scanner.commentPtr = -1;
+	
 	// recovery
 	if (this.currentElement != null){ 
 		this.lastCheckPoint = anonymousType.bodyStart;		
@@ -3128,10 +3147,9 @@ protected void consumeFieldAccess(boolean isSuperAccess) {
 		pushOnExpressionStack(fr);
 	} else {
 		//optimize push/pop
-		if ((fr.receiver = this.expressionStack[this.expressionPtr]).isThis()) {
-			//fieldreference begins at the this
-			fr.sourceStart = fr.receiver.sourceStart;
-		}
+		fr.receiver = this.expressionStack[this.expressionPtr];
+		//fieldreference begins at the receiver
+		fr.sourceStart = fr.receiver.sourceStart;
 		this.expressionStack[this.expressionPtr] = fr;
 	}
 }
@@ -3280,7 +3298,8 @@ protected void consumeGenericTypeArrayType() {
 	// Will be consume by a getTypeRefence call
 }
 protected void consumeGenericTypeNameArrayType() {
-	pushOnGenericsLengthStack(0); // handle type arguments
+	// nothing to do
+	// Will be consume by a getTypeRefence call
 }
 protected void consumeImportDeclaration() {
 	// SingleTypeImportDeclaration ::= SingleTypeImportDeclarationName ';'
@@ -4189,6 +4208,11 @@ protected void consumeNormalAnnotation() {
 	}
 	normalAnnotation.declarationSourceEnd = this.rParenPos;
 	pushOnExpressionStack(normalAnnotation);
+	
+	if(this.currentElement != null) {
+		annotationRecoveryCheckPoint(normalAnnotation.sourceStart, normalAnnotation.declarationSourceEnd);
+	}
+	
 	if(options.sourceLevel < ClassFileConstants.JDK1_5 &&
 			this.lastErrorEndPositionBeforeRecovery < this.scanner.currentPosition) {
 		this.problemReporter().invalidUsageOfAnnotation(normalAnnotation);
@@ -4230,7 +4254,11 @@ protected void consumeOpenBlock() {
 	this.realBlockStack[this.realBlockPtr] = 0;
 }
 protected void consumePackageComment() {
-	// do nothing
+	// get possible comment for syntax since 1.5
+	if(options.sourceLevel >= ClassFileConstants.JDK1_5) {
+		checkComment();
+		resetModifiers();
+	}
 }
 protected void consumePackageDeclaration() {
 	// PackageDeclaration ::= 'package' Name ';'
@@ -4238,6 +4266,8 @@ protected void consumePackageDeclaration() {
 	stored in the identifier stack. */
 
 	ImportReference impt = this.compilationUnit.currentPackage;
+	this.compilationUnit.javadoc = this.javadoc;
+	this.javadoc = null;
 	// flush comments defined prior to import statements
 	impt.declarationEnd = this.endStatementPosition;
 	impt.declarationSourceEnd = this.flushCommentsDefinedPriorTo(impt.declarationSourceEnd);
@@ -4272,6 +4302,11 @@ protected void consumePackageDeclarationName() {
 	impt.declarationEnd = impt.declarationSourceEnd;
 	//this.endPosition is just before the ;
 	impt.declarationSourceStart = this.intStack[this.intPtr--];
+
+	// get possible comment source start
+	if(this.javadoc != null) {
+		impt.declarationSourceStart = this.javadoc.sourceStart;
+	}
 
 	// recovery
 	if (this.currentElement != null){
@@ -4315,6 +4350,10 @@ protected void consumePackageDeclarationNameWithModifiers() {
 		intPtr--; // we don't need the position of the 'package keyword
 	} else {
 		impt.declarationSourceStart = this.intStack[this.intPtr--];
+		// get possible comment source start
+		if (this.javadoc != null) {
+			impt.declarationSourceStart = this.javadoc.sourceStart;
+		}
 	}
 		
 	if (this.currentToken == TokenNameSEMICOLON){
@@ -6050,6 +6089,10 @@ protected void consumeRule(int act) {
 		    consumeEmptyAnnotationTypeMemberDeclarationsopt() ;  
 			break;
  
+    case 651 : if (DEBUG) { System.out.println("AnnotationTypeMemberDeclarationsopt ::= NestedType..."); }  //$NON-NLS-1$
+		    consumeAnnotationTypeMemberDeclarationsopt() ;  
+			break;
+ 
     case 653 : if (DEBUG) { System.out.println("AnnotationTypeMemberDeclarations ::=..."); }  //$NON-NLS-1$
 		    consumeAnnotationTypeMemberDeclarations() ;  
 			break;
@@ -6170,6 +6213,12 @@ protected void consumeSingleMemberAnnotation() {
 	this.expressionLengthPtr--;
 	singleMemberAnnotation.declarationSourceEnd = this.rParenPos;
 	pushOnExpressionStack(singleMemberAnnotation);
+	
+	
+	if(this.currentElement != null) {
+		annotationRecoveryCheckPoint(singleMemberAnnotation.sourceStart, singleMemberAnnotation.declarationSourceEnd);
+	}
+	
 	if(options.sourceLevel < ClassFileConstants.JDK1_5 &&
 			this.lastErrorEndPositionBeforeRecovery < this.scanner.currentPosition) {
 		this.problemReporter().invalidUsageOfAnnotation(singleMemberAnnotation);
@@ -6878,11 +6927,12 @@ protected void consumeToken(int type) {
 			this.endPosition = this.scanner.startPosition;
 			this.endStatementPosition = this.scanner.currentPosition - 1;
 			break;
+		case TokenNameLBRACE :
+			this.endStatementPosition = this.scanner.currentPosition - 1;
 		case TokenNamePLUS :
 		case TokenNameMINUS :
 		case TokenNameNOT :
 		case TokenNameTWIDDLE :
-		case TokenNameLBRACE :
 			this.endPosition = this.scanner.startPosition;
 			break;
 		case TokenNamePLUS_PLUS :
@@ -8040,7 +8090,7 @@ public void goForInitializer(){
 	this.scanner.recordLineSeparator = false;
 }
 public void goForMemberValue() {
-	//tells the scanner to go for a memeber value parsing
+	//tells the scanner to go for a member value parsing
 
 	this.firstToken = TokenNameOR_OR;
 	this.scanner.recordLineSeparator = true; // recovery goals must record line separators

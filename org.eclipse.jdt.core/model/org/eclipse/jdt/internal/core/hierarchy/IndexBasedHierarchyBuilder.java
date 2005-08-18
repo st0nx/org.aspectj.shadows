@@ -12,12 +12,10 @@ package org.eclipse.jdt.internal.core.hierarchy;
 
 import java.util.*;
 
+import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.SubProgressMonitor;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
 import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
@@ -35,7 +33,6 @@ import org.eclipse.jdt.internal.core.search.indexing.IndexManager;
 import org.eclipse.jdt.internal.core.search.matching.MatchLocator;
 import org.eclipse.jdt.internal.core.search.matching.SuperTypeReferencePattern;
 import org.eclipse.jdt.internal.core.util.HandleFactory;
-import org.eclipse.jdt.internal.core.util.Util;
 
 public class IndexBasedHierarchyBuilder extends HierarchyBuilder implements SuffixConstants {
 	public static final int MAXTICKS = 800; // heuristic so that there still progress for deep hierachies
@@ -351,7 +348,9 @@ protected IBinaryType createInfoFromClassFile(Openable classFile, String osPath)
 protected IBinaryType createInfoFromClassFileInJar(Openable classFile) {
 	String filePath = (((ClassFile)classFile).getType().getFullyQualifiedName('$')).replace('.', '/') + SuffixConstants.SUFFIX_STRING_class;
 	IPackageFragmentRoot root = classFile.getPackageFragmentRoot();
-	String rootPath = root.isExternal() ? root.getPath().toOSString() : root.getPath().toString();
+	IPath path = root.getPath();
+	// take the OS path for external jars, and the forward slash path for internal jars
+	String rootPath = path.getDevice() == null ? path.toString() : path.toOSString();
 	String documentPath = rootPath + IJavaSearchScope.JAR_FILE_ENTRY_SEPARATOR + filePath;
 	IBinaryType binaryType = (IBinaryType)this.binariesFromIndexMatches.get(documentPath);
 	if (binaryType != null) {
@@ -434,14 +433,15 @@ public static void searchAllPossibleSubTypes(
 	IndexQueryRequestor searchRequestor = new IndexQueryRequestor() {
 		public boolean acceptIndexMatch(String documentPath, SearchPattern indexRecord, SearchParticipant participant, AccessRuleSet access) {
 			SuperTypeReferencePattern record = (SuperTypeReferencePattern)indexRecord;
-			pathRequestor.acceptPath(documentPath, record.enclosingTypeName == IIndexConstants.ONE_ZERO);
+			boolean isLocalOrAnonymous = record.enclosingTypeName == IIndexConstants.ONE_ZERO;
+			pathRequestor.acceptPath(documentPath, isLocalOrAnonymous);
 			char[] typeName = record.simpleName;
 			int suffix = documentPath.toLowerCase().indexOf(SUFFIX_STRING_class);
 			if (suffix != -1){ 
 				HierarchyBinaryType binaryType = (HierarchyBinaryType)binariesFromIndexMatches.get(documentPath);
 				if (binaryType == null){
 					char[] enclosingTypeName = record.enclosingTypeName;
-					if (enclosingTypeName == IIndexConstants.ONE_ZERO) { // local or anonymous type
+					if (isLocalOrAnonymous) {
 						int lastSlash = documentPath.lastIndexOf('/');
 						int lastDollar = documentPath.lastIndexOf('$');
 						if (lastDollar == -1) {
@@ -451,7 +451,7 @@ public static void searchAllPossibleSubTypes(
 							typeName = documentPath.substring(lastSlash+1, suffix).toCharArray();
 						} else {
 							enclosingTypeName = documentPath.substring(lastSlash+1, lastDollar).toCharArray();
-							typeName = Util.localTypeName(documentPath, lastDollar, suffix).toCharArray();
+							typeName = documentPath.substring(lastDollar+1, suffix).toCharArray();
 						}
 					}
 					binaryType = new HierarchyBinaryType(record.modifiers, record.pkgName, typeName, enclosingTypeName, record.typeParameterSignatures, record.classOrInterface);
@@ -459,7 +459,8 @@ public static void searchAllPossibleSubTypes(
 				}
 				binaryType.recordSuperType(record.superSimpleName, record.superQualification, record.superClassOrInterface);
 			}
-			if (!foundSuperNames.containsKey(typeName)){
+			if (!isLocalOrAnonymous // local or anonymous types cannot have subtypes outside the cu that define them
+					&& !foundSuperNames.containsKey(typeName)){
 				foundSuperNames.put(typeName, typeName);
 				queue.add(typeName);
 			}

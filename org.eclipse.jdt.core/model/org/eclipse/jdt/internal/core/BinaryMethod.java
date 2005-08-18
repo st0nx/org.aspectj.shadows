@@ -155,7 +155,7 @@ protected char getHandleMementoDelimiter() {
 	return JavaElement.JEM_METHOD;
 }
 public String getKey(boolean forceOpen) throws JavaModelException {
-	return getKey(this, org.eclipse.jdt.internal.compiler.lookup.Binding.USE_ACCESS_FLAGS_IN_BINDING_KEY/*with access flags*/, forceOpen);
+	return getKey(this, forceOpen);
 }
 /*
  * @see IMethod
@@ -331,7 +331,7 @@ public JavaElement resolved(Binding binding) {
 }/*
  * @private Debugging purposes
  */
-protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
+protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean showResolvedInfo) {
 	buffer.append(tabString(tab));
 	if (info == null) {
 		toStringName(buffer);

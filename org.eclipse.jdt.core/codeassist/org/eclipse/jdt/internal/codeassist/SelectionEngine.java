@@ -131,9 +131,20 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 		this.parser = new SelectionParser(problemReporter);
 	}
 
-	public void acceptType(char[] packageName, char[] typeName, int modifiers, AccessRestriction accessRestriction) {
-		if (CharOperation.equals(typeName, this.selectedIdentifier)) {
-			if(mustQualifyType(packageName, typeName)) {
+	public void acceptType(char[] packageName, char[] simpleTypeName, char[][] enclosingTypeNames, int modifiers, AccessRestriction accessRestriction) {
+		char[] typeName = enclosingTypeNames == null ?
+				simpleTypeName :
+					CharOperation.concat(
+						CharOperation.concatWith(enclosingTypeNames, '.'),
+						simpleTypeName,
+						'.');
+		
+		if (CharOperation.equals(simpleTypeName, this.selectedIdentifier)) {
+			char[] flatEnclosingTypeNames =
+				enclosingTypeNames == null || enclosingTypeNames.length == 0 ?
+						null :
+							CharOperation.concatWith(enclosingTypeNames, '.');
+			if(mustQualifyType(packageName, simpleTypeName, flatEnclosingTypeNames, modifiers)) {
 				int length = 0;
 				int kind = modifiers & (IConstants.AccInterface | IConstants.AccEnum | IConstants.AccAnnotation);
 				switch (kind) {
@@ -601,20 +612,23 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 							char[][] tokens = ((SelectionOnImportReference) importReference).tokens;
 							this.noProposal = false;
 							this.requestor.acceptPackage(CharOperation.concatWith(tokens, '.'));
-							this.nameEnvironment.findTypes(CharOperation.concatWith(tokens, '.'), this);
+							this.nameEnvironment.findTypes(CharOperation.concatWith(tokens, '.'), false, this);
 							
-							if(importReference.isStatic()) {
-								this.lookupEnvironment.buildTypeBindings(parsedUnit, null /*no access restriction*/);
-								if ((this.unitScope = parsedUnit.scope) != null) {
-									int tokenCount = tokens.length;
-									char[] lastToken = tokens[tokenCount - 1];
-									char[][] qualifierTokens = CharOperation.subarray(tokens, 0, tokenCount - 1);
-									
+							this.lookupEnvironment.buildTypeBindings(parsedUnit, null /*no access restriction*/);
+							if ((this.unitScope = parsedUnit.scope) != null) {
+								int tokenCount = tokens.length;
+								char[] lastToken = tokens[tokenCount - 1];
+								char[][] qualifierTokens = CharOperation.subarray(tokens, 0, tokenCount - 1);
+								
+								if(qualifierTokens != null && qualifierTokens.length > 0) {
 									Binding binding = this.unitScope.getTypeOrPackage(qualifierTokens);
 									if(binding != null && binding instanceof ReferenceBinding) {
 										ReferenceBinding ref = (ReferenceBinding) binding;
-										selectStaticFieldFromStaticImport(parsedUnit, lastToken, ref);
-										selectStaticMethodFromStaticImport(parsedUnit, lastToken, ref);
+										selectMemberTypeFromImport(parsedUnit, lastToken, ref, importReference.isStatic());
+										if(importReference.isStatic()) {
+											selectStaticFieldFromStaticImport(parsedUnit, lastToken, ref);
+											selectStaticMethodFromStaticImport(parsedUnit, lastToken, ref);
+										}
 									}
 								}
 							}
@@ -623,7 +637,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 							if(!this.acceptedAnswer) {
 								acceptQualifiedTypes();
 								if (!this.acceptedAnswer) {
-									this.nameEnvironment.findTypes(this.selectedIdentifier, this);
+									this.nameEnvironment.findTypes(this.selectedIdentifier, false, this);
 									// try with simple type name
 									if(!this.acceptedAnswer) {
 										acceptQualifiedTypes();
@@ -637,7 +651,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 						}
 					}
 				}
-				if (parsedUnit.types != null) {
+				if (parsedUnit.types != null || parsedUnit.isPackageInfo()) {
 					if(selectDeclaration(parsedUnit))
 						return;
 					this.lookupEnvironment.buildTypeBindings(parsedUnit, null /*no access restriction*/);
@@ -645,7 +659,9 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 						try {
 							this.lookupEnvironment.completeTypeBindings(parsedUnit, true);
 							parsedUnit.scope.faultInTypes();
-							ASTNode node = parseBlockStatements(parsedUnit, selectionSourceStart);
+							ASTNode node = null;
+							if (parsedUnit.types != null)
+								node = parseBlockStatements(parsedUnit, selectionSourceStart);
 							if(DEBUG) {
 								System.out.println("SELECTION - AST :"); //$NON-NLS-1$
 								System.out.println(parsedUnit.toString());
@@ -670,7 +686,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 			// only reaches here if no selection could be derived from the parsed tree
 			// thus use the selected source and perform a textual type search
 			if (!this.acceptedAnswer) {
-				this.nameEnvironment.findTypes(this.selectedIdentifier, this);
+				this.nameEnvironment.findTypes(this.selectedIdentifier, false, this);
 				
 				// accept qualified types only if no unqualified type was accepted
 				if(!this.acceptedAnswer) {
@@ -695,6 +711,25 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 		}
 	}
 
+	private void selectMemberTypeFromImport(CompilationUnitDeclaration parsedUnit, char[] lastToken, ReferenceBinding ref, boolean staticOnly) {
+		int fieldLength = lastToken.length;
+		ReferenceBinding[] memberTypes = ref.memberTypes();
+		next : for (int j = 0; j < memberTypes.length; j++) {
+			ReferenceBinding memberType = memberTypes[j];
+			
+			if (fieldLength > memberType.sourceName.length)
+				continue next;
+
+			if (staticOnly && !memberType.isStatic())
+				continue next;
+
+			if (!CharOperation.equals(lastToken, memberType.sourceName, true))
+				continue next;
+			
+			this.selectFrom(memberType, parsedUnit, false);
+		}
+	}
+	
 	private void selectStaticFieldFromStaticImport(CompilationUnitDeclaration parsedUnit, char[] lastToken, ReferenceBinding ref) {
 		int fieldLength = lastToken.length;
 		FieldBinding[] fields = ref.fields();
@@ -777,7 +812,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 			ReferenceBinding typeBinding = (ReferenceBinding) binding;
 			
 			if(typeBinding instanceof ProblemReferenceBinding) {
-				typeBinding = ((ProblemReferenceBinding) typeBinding).original;
+				typeBinding = ((ProblemReferenceBinding) typeBinding).closestMatch;
 			}
 			if (typeBinding == null) return;
 			if (isLocal(typeBinding) && this.requestor instanceof SelectionRequestor) {
@@ -963,6 +998,13 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 	public void selectType(ISourceType sourceType, char[] typeName, SourceTypeElementInfo[] topLevelTypes, boolean searchInEnvironment) {
 		try {
 			this.acceptedAnswer = false;
+			
+			// only the type erasure are returned by IType.resolvedType(...)
+			if (CharOperation.indexOf('<', typeName) != -1) {
+				char[] typeSig = Signature.createCharArrayTypeSignature(typeName, false/*not resolved*/);
+				typeSig = Signature.getTypeErasure(typeSig);
+				typeName = Signature.toCharArray(typeSig);
+			}
 
 			// find the outer most type
 			ISourceType outerType = sourceType;
@@ -1045,7 +1087,7 @@ public final class SelectionEngine extends Engine implements ISearchRequestor {
 			// thus use the selected source and perform a textual type search
 			if (!this.acceptedAnswer && searchInEnvironment) {
 				if (this.selectedIdentifier != null) {
-					this.nameEnvironment.findTypes(typeName, this);
+					this.nameEnvironment.findTypes(typeName, false, this);
 					
 					// accept qualified types only if no unqualified type was accepted
 					if(!this.acceptedAnswer) {

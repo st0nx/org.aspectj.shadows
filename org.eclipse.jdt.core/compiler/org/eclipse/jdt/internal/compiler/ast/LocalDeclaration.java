@@ -178,8 +178,6 @@ public class LocalDeclaration extends AbstractVariableDeclaration {
 			this.binding.setConstant(NotAConstant);
 			// allow to recursivelly target the binding....
 			// the correct constant is harmed if correctly computed at the end of this method
-			
-			resolveAnnotations(scope, this.annotations, this.binding);
 		}
 
 		if (variableType == null) {
@@ -209,12 +207,11 @@ public class LocalDeclaration extends AbstractVariableDeclaration {
 						if (initializationType.needsUncheckedConversion(variableType)) {
 						    scope.problemReporter().unsafeTypeConversion(this.initialization, initializationType, variableType);
 						}						
-					} else if (scope.environment().options.sourceLevel >= JDK1_5 // autoboxing
-									&& (scope.isBoxingCompatibleWith(initializationType, variableType) 
-											|| (initializationType.isBaseType()  // narrowing then boxing ?
-													&& initializationType != null 
-													&& !variableType.isBaseType()
-													&& initialization.isConstantValueOfTypeAssignableToType(initializationType, scope.environment().computeBoxingType(variableType))))) {
+					} else if (scope.isBoxingCompatibleWith(initializationType, variableType) 
+										|| (initializationType.isBaseType()  // narrowing then boxing ?
+												&& scope.compilerOptions().sourceLevel >= JDK1_5 // autoboxing
+												&& !variableType.isBaseType()
+												&& initialization.isConstantValueOfTypeAssignableToType(initializationType, scope.environment().computeBoxingType(variableType)))) {
 						this.initialization.computeConversion(scope, variableType, initializationType);
 					} else {
 						scope.problemReporter().typeMismatchError(initializationType, variableType, this);
@@ -232,6 +229,9 @@ public class LocalDeclaration extends AbstractVariableDeclaration {
 						: NotAConstant);
 			}
 		}
+		// only resolve annotation at the end, for constant to be positionned before (96991)
+		if (this.binding != null)
+			resolveAnnotations(scope, this.annotations, this.binding);
 	}
 
 	public void traverse(ASTVisitor visitor, BlockScope scope) {

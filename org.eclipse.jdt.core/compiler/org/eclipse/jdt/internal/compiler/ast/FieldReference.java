@@ -116,7 +116,7 @@ public class FieldReference extends Reference implements InvocationSite {
 		receiver.analyseCode(currentScope, flowContext, flowInfo, nonStatic);
 		if (nonStatic) receiver.checkNullStatus(currentScope, flowContext, flowInfo, FlowInfo.NON_NULL);
 		
-		if (valueRequired || currentScope.environment().options.complianceLevel >= ClassFileConstants.JDK1_4) {
+		if (valueRequired || currentScope.compilerOptions().complianceLevel >= ClassFileConstants.JDK1_4) {
 			manageSyntheticAccessIfNecessary(currentScope, flowInfo, true /*read-access*/);
 		}
 		return flowInfo;
@@ -203,7 +203,7 @@ public class FieldReference extends Reference implements InvocationSite {
 				}
 			} else {
 				receiver.generateCode(currentScope, codeStream, !isStatic);
-				if (valueRequired || currentScope.environment().options.complianceLevel >= ClassFileConstants.JDK1_4) {
+				if (valueRequired || currentScope.compilerOptions().complianceLevel >= ClassFileConstants.JDK1_4) {
 					if (this.codegenBinding.declaringClass == null) { // array length
 						codeStream.arraylength();
 						if (valueRequired) {
@@ -283,6 +283,8 @@ public class FieldReference extends Reference implements InvocationSite {
 				codeStream.generateStringConcatenationAppend(currentScope, null, expression);
 				break;
 			default :
+				if (this.genericCast != null)
+					codeStream.checkcast(this.genericCast);				
 				// promote the array reference to the suitable operation type
 				codeStream.generateImplicitConversion(implicitConversion);
 				// generate the increment value (will by itself  be promoted to the operation value)
@@ -346,13 +348,15 @@ public class FieldReference extends Reference implements InvocationSite {
 				}
 			}
 		}
-		codeStream.generateImplicitConversion(implicitConversion);		
+		if (this.genericCast != null)
+			codeStream.checkcast(this.genericCast);
+		codeStream.generateImplicitConversion(this.implicitConversion);		
 		codeStream.generateConstant(
 			postIncrement.expression.constant,
-			implicitConversion);
+			this.implicitConversion);
 		codeStream.sendOperator(postIncrement.operator, this.implicitConversion & COMPILE_TYPE_MASK);
 		codeStream.generateImplicitConversion(
-			postIncrement.assignmentImplicitConversion);
+			postIncrement.preAssignImplicitConversion);
 		fieldStore(codeStream, this.codegenBinding, syntheticAccessors == null ? null : syntheticAccessors[WRITE], false);
 	}
 	/**
@@ -483,7 +487,7 @@ public class FieldReference extends Reference implements InvocationSite {
 				&& !this.receiverType.isArrayType()
 				&& this.binding.declaringClass != null // array.length
 				&& !this.binding.isConstantValue()) {
-			CompilerOptions options = currentScope.environment().options;
+			CompilerOptions options = currentScope.compilerOptions();
 			if ((options.targetJDK >= ClassFileConstants.JDK1_2
 					&& (options.complianceLevel >= ClassFileConstants.JDK1_4 || !receiver.isImplicitThis() || !this.codegenBinding.isStatic())
 					&& this.binding.declaringClass.id != T_JavaLangObject) // no change for Object fields
@@ -535,7 +539,7 @@ public class FieldReference extends Reference implements InvocationSite {
 		}
 		TypeBinding receiverErasure = this.receiverType.erasure();
 		if (receiverErasure instanceof ReferenceBinding) {
-			ReferenceBinding match = ((ReferenceBinding)receiverErasure).findSuperTypeErasingTo((ReferenceBinding)fieldBinding.declaringClass.erasure());
+			ReferenceBinding match = ((ReferenceBinding)receiverErasure).findSuperTypeWithSameErasure(fieldBinding.declaringClass);
 			if (match == null) {
 				this.receiverType = fieldBinding.declaringClass; // handle indirect inheritance thru variable secondary bound
 			}
@@ -563,7 +567,7 @@ public class FieldReference extends Reference implements InvocationSite {
 		// perform capture conversion if read access
 		return this.resolvedType = 
 			(((this.bits & IsStrictlyAssignedMASK) == 0) 
-				? fieldBinding.type.capture()
+				? fieldBinding.type.capture(scope, this.sourceEnd)
 				: fieldBinding.type);
 	}
 

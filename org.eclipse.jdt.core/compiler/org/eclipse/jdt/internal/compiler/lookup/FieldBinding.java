@@ -80,7 +80,7 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 		ReferenceBinding receiverErasure = (ReferenceBinding)receiverType.erasure();
 		ReferenceBinding declaringErasure = (ReferenceBinding) declaringClass.erasure();
 		do {
-			if (currentType.findSuperTypeErasingTo(declaringErasure) != null) {
+			if (currentType.findSuperTypeWithSameErasure(declaringErasure) != null) {
 				if (invocationSite.isSuperAccess()){
 					return true;
 				}
@@ -92,7 +92,7 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 					if (depth > 0) invocationSite.setDepth(depth);
 					return true; // see 1FMEPDL - return invocationSite.isTypeAccess();
 				}
-				if (currentType == receiverErasure || receiverErasure.findSuperTypeErasingTo(currentType) != null){
+				if (currentType == receiverErasure || receiverErasure.findSuperTypeWithSameErasure(currentType) != null){
 					if (depth > 0) invocationSite.setDepth(depth);
 					return true;
 				}
@@ -151,43 +151,33 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 }
 /*
  * declaringUniqueKey dot fieldName
- * p.X { X<T> x} --> Lp/X;.x^123
+ * p.X { X<T> x} --> Lp/X;.x)p/X<TT;>;
  */
-public char[] computeUniqueKey(boolean withAccessFlags) {
+public char[] computeUniqueKey(boolean isLeaf) {
 	// declaring key
 	char[] declaringKey = 
 		this.declaringClass == null /*case of length field for an array*/ 
 			? CharOperation.NO_CHAR 
-			: this.declaringClass.computeUniqueKey(false/*without access flags*/);
+			: this.declaringClass.computeUniqueKey(false/*not a leaf*/);
 	int declaringLength = declaringKey.length;
 	
 	// name
 	int nameLength = this.name.length;
 	
-	if (withAccessFlags) {
-		// flags
-		String flags = Integer.toString(getAccessFlags());
-		int flagsLength = flags.length();
+	// return type
+	char[] returnTypeKey = this.type == null ? new char[] {'V'} : this.type.computeUniqueKey(false/*not a leaf*/);
+	int returnTypeLength = returnTypeKey.length;
 	
-		char[] uniqueKey = new char[declaringLength + 1 + nameLength + 1 + flagsLength];
-		int index = 0;
-		System.arraycopy(declaringKey, 0, uniqueKey, index, declaringLength);
-		index += declaringLength;
-		uniqueKey[index++] = '.';
-		System.arraycopy(this.name, 0, uniqueKey, index, nameLength);
-		index += nameLength;
-		uniqueKey[index++] = '^';
-		flags.getChars(0, flagsLength, uniqueKey, index);
-		return uniqueKey;
-	} else {
-		char[] uniqueKey = new char[declaringLength + 1 + nameLength];
-		int index = 0;
-		System.arraycopy(declaringKey, 0, uniqueKey, index, declaringLength);
-		index += declaringLength;
-		uniqueKey[index++] = '.';
-		System.arraycopy(this.name, 0, uniqueKey, index, nameLength);
-		return uniqueKey;
-	}
+	char[] uniqueKey = new char[declaringLength + 1 + nameLength + 1 + returnTypeLength];
+	int index = 0;
+	System.arraycopy(declaringKey, 0, uniqueKey, index, declaringLength);
+	index += declaringLength;
+	uniqueKey[index++] = '.';
+	System.arraycopy(this.name, 0, uniqueKey, index, nameLength);
+	index += nameLength;
+	uniqueKey[index++] = ')';
+	System.arraycopy(returnTypeKey, 0, uniqueKey, index, returnTypeLength);
+	return uniqueKey;
 }
 /**
  * X<T> t   -->  LX<TT;>;
@@ -211,8 +201,19 @@ public long getAnnotationTagBits() {
 	if ((originalField.tagBits & TagBits.AnnotationResolved) == 0 && originalField.declaringClass instanceof SourceTypeBinding) {
 		TypeDeclaration typeDecl = ((SourceTypeBinding)originalField.declaringClass).scope.referenceContext;
 		FieldDeclaration fieldDecl = typeDecl.declarationOf(originalField);
-		if (fieldDecl != null)
-			ASTNode.resolveAnnotations(isStatic() ? typeDecl.staticInitializerScope : typeDecl.initializerScope, fieldDecl.annotations, originalField);
+		if (fieldDecl != null) {
+			MethodScope initializationScope = isStatic() ? typeDecl.staticInitializerScope : typeDecl.initializerScope;
+			FieldBinding previousField = initializationScope.initializedField;
+			int previousFieldID = initializationScope.lastVisibleFieldID;			
+			try {
+				initializationScope.initializedField = originalField;
+				initializationScope.lastVisibleFieldID = originalField.id;
+				ASTNode.resolveAnnotations(initializationScope, fieldDecl.annotations, originalField);
+			} finally {
+				initializationScope.initializedField = previousField;
+				initializationScope.lastVisibleFieldID = previousFieldID;
+			}
+		}
 	}
 	return originalField.tagBits;
 }
@@ -238,8 +239,8 @@ public final boolean isPrivate() {
 /* Answer true if the receiver has private visibility and is used locally
 */
 
-public final boolean isPrivateUsed() {
-	return (modifiers & AccPrivateUsed) != 0;
+public final boolean isUsed() {
+	return (modifiers & AccLocallyUsed) != 0;
 }
 /* Answer true if the receiver has protected visibility
 */

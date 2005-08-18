@@ -62,21 +62,17 @@ public void addInnerEmulationDependent(BlockScope dependentScope, boolean wasEnc
 	dependents[index] = new InnerEmulationDependency(dependentScope, wasEnclosingInstanceSupplied);
 	//  System.out.println("Adding dependency: "+ new String(scope.enclosingType().readableName()) + " --> " + new String(this.readableName()));
 }
-public char[] computeUniqueKey(boolean withAccessFlags) {
-	ReferenceBinding enclosing = enclosingType();
-	ReferenceBinding temp;
-	while ((temp = enclosing.enclosingType()) != null)
-		enclosing = temp;
-	StringBuffer buffer = new StringBuffer();
-	buffer.append(enclosing.computeUniqueKey(withAccessFlags));
-	int semicolon = buffer.lastIndexOf(";"); //$NON-NLS-1$
-	buffer.insert(semicolon, '$');
-	semicolon = buffer.lastIndexOf(";"); //$NON-NLS-1$
-	buffer.insert(semicolon, this.sourceStart);
-	int length = buffer.length();
-	char[] uniqueKey = new char[length];
-	buffer.getChars(0, length, uniqueKey, 0);
-	return uniqueKey;
+public char[] computeUniqueKey(boolean isLeaf) {
+	char[] outerKey = outermostEnclosingType().computeUniqueKey(isLeaf);
+	int semicolon = CharOperation.lastIndexOf(';', outerKey);
+	
+	// insert $sourceStart
+	return CharOperation.concat(
+			CharOperation.concat(
+					CharOperation.subarray(outerKey, 0, semicolon),
+					String.valueOf(this.sourceStart).toCharArray(),
+					'$'),
+			CharOperation.subarray(outerKey, semicolon, outerKey.length));
 }
 
 public char[] constantPoolName() /* java/lang/Object */ {
@@ -98,6 +94,21 @@ ArrayBinding createArrayType(int dimensionCount) {
 	// no matching array
 	System.arraycopy(localArrayBindings, 0, localArrayBindings = new ArrayBinding[length + 1], 0, length); 
 	return localArrayBindings[length] = new ArrayBinding(this, dimensionCount, scope.environment());
+}
+
+/*
+ * Overriden for code assist. In this case, the constantPoolName() has not been computed yet.
+ * Slam the source name so that the signature is syntactically correct.
+ * (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=99686)
+ */
+public char[] genericTypeSignature() {
+	if (this.genericReferenceTypeSignature == null && constantPoolName() == null) {
+		if (isAnonymousType())
+			setConstantPoolName(superclass().sourceName());
+		else
+			setConstantPoolName(sourceName());
+	}
+	return super.genericTypeSignature();
 }
 
 public char[] readableName() /*java.lang.Object,  p.X<T> */ {

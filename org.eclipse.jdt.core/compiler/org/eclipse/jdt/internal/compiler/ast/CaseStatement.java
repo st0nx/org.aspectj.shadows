@@ -20,7 +20,7 @@ public class CaseStatement extends Statement {
 	
 	public Expression constantExpression;
 	public CaseLabel targetLabel;
-	boolean isEnumConstant;
+	public boolean isEnumConstant;
 	
 	public CaseStatement(Expression constantExpression, int sourceEnd, int sourceStart) {
 		this.constantExpression = constantExpression;
@@ -121,7 +121,7 @@ public class CaseStatement extends Statement {
 			} else {
 				return constantExpression.constant;
 			}
-		} else if (scope.isBoxingCompatibleWith(switchExpressionType, caseType)) {
+		} else if (scope.isBoxingCompatibleWith(caseType, switchExpressionType)) {
 			constantExpression.computeConversion(scope, caseType, switchExpressionType);
 			return constantExpression.constant;
 		}

@@ -1206,7 +1206,7 @@ public class Scribe {
 						hasModifiers = true;
 						this.print(this.scanner.getRawTokenSource(), !isFirstModifier);
 						isFirstModifier = false;
-						currentTokenStartPosition = this.scanner.getCurrentTokenStartPosition();
+						currentTokenStartPosition = this.scanner.currentPosition;
 						break;
 					case TerminalTokens.TokenNameAT :
 						hasModifiers = true;
@@ -1348,6 +1348,50 @@ public class Scribe {
 			}
 			this.print(currentTokenSource, considerSpaceIfAny);
 		} catch (InvalidInputException e) {
+			throw new AbortFormatting(e);
+		}
+	}
+
+	public void printArrayQualifiedReference(int numberOfTokens, int sourceEnd) {
+		int currentTokenStartPosition = this.scanner.currentPosition;
+		int numberOfIdentifiers = 0;
+		try {
+			do {
+				this.printComment();
+				switch(this.currentToken = this.scanner.getNextToken()) {
+					case TerminalTokens.TokenNameEOF :
+						return;
+					case TerminalTokens.TokenNameWHITESPACE :
+						addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
+						currentTokenStartPosition = this.scanner.currentPosition;
+						break;
+					case TerminalTokens.TokenNameCOMMENT_BLOCK :
+					case TerminalTokens.TokenNameCOMMENT_JAVADOC :
+						this.printBlockComment(this.scanner.getRawTokenSource(), false);
+						currentTokenStartPosition = this.scanner.currentPosition;
+						break;
+					case TerminalTokens.TokenNameCOMMENT_LINE :
+						this.printCommentLine(this.scanner.getRawTokenSource());
+						currentTokenStartPosition = this.scanner.currentPosition;
+						break;
+					case TerminalTokens.TokenNameIdentifier :
+						this.print(this.scanner.getRawTokenSource(), false);
+						currentTokenStartPosition = this.scanner.currentPosition;
+						if (++ numberOfIdentifiers == numberOfTokens) {
+							this.scanner.resetTo(currentTokenStartPosition, this.scannerEndPosition - 1);
+							return;
+						}
+						break;						
+					case TerminalTokens.TokenNameDOT :
+						this.print(this.scanner.getRawTokenSource(), false);
+						currentTokenStartPosition = this.scanner.currentPosition;
+						break;
+					default:
+						this.scanner.resetTo(currentTokenStartPosition, this.scannerEndPosition - 1);
+						return;
+				}
+			} while (this.scanner.currentPosition <= sourceEnd);
+		} catch(InvalidInputException e) {
 			throw new AbortFormatting(e);
 		}
 	}

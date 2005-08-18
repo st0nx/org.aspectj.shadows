@@ -219,7 +219,7 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 		ReferenceBinding declaringErasure = (ReferenceBinding) declaringClass.erasure();
 		int depth = 0;
 		do {
-			if (currentType.findSuperTypeErasingTo(declaringErasure) != null) {
+			if (currentType.findSuperTypeWithSameErasure(declaringErasure) != null) {
 				if (invocationSite.isSuperAccess()){
 					return true;
 				}
@@ -231,7 +231,7 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 					if (depth > 0) invocationSite.setDepth(depth);
 					return true; // see 1FMEPDL - return invocationSite.isTypeAccess();
 				}
-				if (currentType == receiverErasure || ((ReferenceBinding)receiverErasure).findSuperTypeErasingTo(currentType) != null){
+				if (currentType == receiverErasure || ((ReferenceBinding)receiverErasure).findSuperTypeWithSameErasure(currentType) != null){
 					if (depth > 0) invocationSite.setDepth(depth);
 					return true;
 				}
@@ -288,16 +288,30 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 	} while ((type = type.superclass()) != null);
 	return false;
 }
+MethodBinding computeSubstitutedMethod(MethodBinding method, LookupEnvironment env) {
+	TypeVariableBinding[] vars = this.typeVariables;
+	TypeVariableBinding[] vars2 = method.typeVariables;
+	if (vars.length != vars2.length)
+		return null;
+	for (int v = vars.length; --v >= 0;)
+		if (!vars[v].isInterchangeableWith(env, vars2[v]))
+			return null;
+
+	// must substitute to detect cases like:
+	//   <T1 extends X<T1>> void dup() {}
+	//   <T2 extends X<T2>> Object dup() {return null;}
+	return new ParameterizedGenericMethodBinding(method, vars, env);
+}
 /*
  * declaringUniqueKey dot selector genericSignature
- * p.X { <T> void bar(X<T> t) } --> Lp/X;.bar<T:Ljava/lang/Object;>(LX<TT;>;)V^123
+ * p.X { <T> void bar(X<T> t) } --> Lp/X;.bar<T:Ljava/lang/Object;>(LX<TT;>;)V
  */
-public char[] computeUniqueKey(boolean withAccessFlags) {
-	return computeUniqueKey(this, withAccessFlags);
+public char[] computeUniqueKey(boolean isLeaf) {
+	return computeUniqueKey(this, isLeaf);
 }
-protected char[] computeUniqueKey(MethodBinding methodBinding, boolean withAccessFlags) {
+protected char[] computeUniqueKey(MethodBinding methodBinding, boolean isLeaf) {
 	// declaring class 
-	char[] declaringKey = this.declaringClass.computeUniqueKey(false/*without access flags*/);
+	char[] declaringKey = this.declaringClass.computeUniqueKey(false/*not a leaf*/);
 	int declaringLength = declaringKey.length;
 	
 	// selector
@@ -308,36 +322,16 @@ protected char[] computeUniqueKey(MethodBinding methodBinding, boolean withAcces
 	if (sig == null) sig = methodBinding.signature();
 	int signatureLength = sig.length;
 	
-	if (withAccessFlags) {
-		// flags
-		String flags = Integer.toString(methodBinding.getAccessFlags());
-		int flagsLength = flags.length();
-		
-		char[] uniqueKey = new char[declaringLength + 1 + selectorLength + signatureLength + 1 + flagsLength];
-		int index = 0;
-		System.arraycopy(declaringKey, 0, uniqueKey, index, declaringLength);
-		index = declaringLength;
-		uniqueKey[index++] = '.';
-		System.arraycopy(this.selector, 0, uniqueKey, index, selectorLength);
-		index += selectorLength;
-		System.arraycopy(sig, 0, uniqueKey, index, signatureLength);
-		index += signatureLength;
-		uniqueKey[index++] = '^';
-		flags.getChars(0, flagsLength, uniqueKey, index);
-		// index += modifiersLength
-		return uniqueKey;
-	} else {
-		char[] uniqueKey = new char[declaringLength + 1 + selectorLength + signatureLength];
-		int index = 0;
-		System.arraycopy(declaringKey, 0, uniqueKey, index, declaringLength);
-		index = declaringLength;
-		uniqueKey[index++] = '.';
-		System.arraycopy(this.selector, 0, uniqueKey, index, selectorLength);
-		index += selectorLength;
-		System.arraycopy(sig, 0, uniqueKey, index, signatureLength);
-		//index += signatureLength;
-		return uniqueKey;
-	}
+	char[] uniqueKey = new char[declaringLength + 1 + selectorLength + signatureLength];
+	int index = 0;
+	System.arraycopy(declaringKey, 0, uniqueKey, index, declaringLength);
+	index = declaringLength;
+	uniqueKey[index++] = '.';
+	System.arraycopy(this.selector, 0, uniqueKey, index, selectorLength);
+	index += selectorLength;
+	System.arraycopy(sig, 0, uniqueKey, index, signatureLength);
+	//index += signatureLength;
+	return uniqueKey;
 }
 /* 
  * Answer the declaring class to use in the constant pool
@@ -524,8 +518,8 @@ public final boolean isPrivate() {
 
 /* Answer true if the receiver has private visibility and is used locally
 */
-public final boolean isPrivateUsed() {
-	return (modifiers & AccPrivateUsed) != 0;
+public final boolean isUsed() {
+	return (modifiers & AccLocallyUsed) != 0;
 }
 
 /* Answer true if the receiver has protected visibility

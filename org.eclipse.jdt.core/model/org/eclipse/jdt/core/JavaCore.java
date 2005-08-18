@@ -64,15 +64,19 @@ import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 import org.eclipse.core.runtime.jobs.ISchedulingRule;
 import org.eclipse.core.runtime.jobs.Job;
-import org.eclipse.core.runtime.preferences.IEclipsePreferences;
-import org.eclipse.core.runtime.preferences.IPreferencesService;
+import org.eclipse.jdt.core.search.IJavaSearchConstants;
+import org.eclipse.jdt.core.search.IJavaSearchScope;
+import org.eclipse.jdt.core.search.SearchEngine;
+import org.eclipse.jdt.core.search.SearchPattern;
+import org.eclipse.jdt.core.search.TypeNameRequestor;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.*;
+import org.eclipse.jdt.internal.core.builder.JavaBuilder;
+import org.eclipse.jdt.internal.core.builder.State;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 import org.osgi.framework.BundleContext;
-import org.osgi.service.prefs.BackingStoreException;
 
 /**
  * The plug-in runtime class for the Java model plug-in containing the core
@@ -463,13 +467,13 @@ public final class JavaCore extends Plugin {
 	/**
 	 * Possible  configurable option ID.
 	 * @see #getDefaultOptions()
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public static final String COMPILER_PB_INVALID_JAVADOC_TAGS__DEPRECATED_REF = PLUGIN_ID + ".compiler.problem.invalidJavadocTagsDeprecatedRef"; //$NON-NLS-1$
 	/**
 	 * Possible  configurable option ID.
 	 * @see #getDefaultOptions()
-	 * @since 3.0
+	 * @since 3.1
 	 */
 	public static final String COMPILER_PB_INVALID_JAVADOC_TAGS__NOT_VISIBLE_REF = PLUGIN_ID + ".compiler.problem.invalidJavadocTagsNotVisibleRef"; //$NON-NLS-1$
 	/**
@@ -586,6 +590,18 @@ public final class JavaCore extends Plugin {
 	 * @since 3.1
 	 */
 	public static final String COMPILER_PB_DISCOURAGED_REFERENCE = PLUGIN_ID + ".compiler.problem.discouragedReference"; //$NON-NLS-1$
+	/**
+	 * Possible  configurable option ID.
+	 * @see #getDefaultOptions()
+	 * @since 3.1
+	 */
+	public static final String COMPILER_PB_SUPPRESS_WARNINGS = PLUGIN_ID + ".compiler.problem.suppressWarnings"; //$NON-NLS-1$
+	/**
+	 * Possible  configurable option ID.
+	 * @see #getDefaultOptions()
+	 * @since 3.1
+	 */
+	public static final String COMPILER_PB_UNHANDLED_WARNING_TOKEN = PLUGIN_ID + ".compiler.problem.unhandledWarningToken"; //$NON-NLS-1$
 	/**
 	 * Possible  configurable option ID.
 	 * @see #getDefaultOptions()
@@ -816,13 +832,13 @@ public final class JavaCore extends Plugin {
 	 * @see #getDefaultOptions()
 	 * @since 3.1
 	 */
-	public static final String CODEASSIST_FORBIDDEN_REFERENCE_CHECK = PLUGIN_ID + ".codeComplete.restrictionsCheck"; //$NON-NLS-1$
+	public static final String CODEASSIST_FORBIDDEN_REFERENCE_CHECK= PLUGIN_ID + ".codeComplete.forbiddenReferenceCheck"; //$NON-NLS-1$
 	/**
 	 * Possible  configurable option ID.
 	 * @see #getDefaultOptions()
 	 * @since 3.1
 	 */
-	public static final String CODEASSIST_DISCOURAGED_REFERENCE_CHECK = PLUGIN_ID + ".codeComplete.discouragedReferenceCheck"; //$NON-NLS-1$
+	public static final String CODEASSIST_DISCOURAGED_REFERENCE_CHECK= PLUGIN_ID + ".codeComplete.discouragedReferenceCheck"; //$NON-NLS-1$
 	
 	// *************** Possible values for configurable options. ********************
 	
@@ -990,11 +1006,12 @@ public final class JavaCore extends Plugin {
 	 * @since 3.0
 	 */
 	public static final String PRIVATE = "private"; //$NON-NLS-1$
-
-	/*
-	 * Cache for options.
+	/**
+	 * Possible  configurable option value.
+	 * @see #getDefaultOptions()
+	 * @since 3.1
 	 */
-	static Hashtable optionsCache;
+	public static final String NEVER = "never"; //$NON-NLS-1$
 
 	/**
 	 * Creates the Java core plug-in.
@@ -1325,8 +1342,19 @@ public final class JavaCore extends Plugin {
 	 * none was found.
 	 * @since 2.1
 	 */
-	public static ClasspathContainerInitializer getClasspathContainerInitializer(String containerID){
-		
+	public static ClasspathContainerInitializer getClasspathContainerInitializer(String containerID) {
+		HashMap containerInitializersCache = JavaModelManager.getJavaModelManager().containerInitializersCache;
+		ClasspathContainerInitializer initializer = (ClasspathContainerInitializer) containerInitializersCache.get(containerID);
+		if (initializer == null) {
+			initializer = computeClasspathContainerInitializer(containerID);
+			if (initializer == null)
+				return null;
+			containerInitializersCache.put(containerID, initializer);
+		}
+		return initializer;
+	}
+
+	private static ClasspathContainerInitializer computeClasspathContainerInitializer(String containerID) {
 		Plugin jdtCorePlugin = JavaCore.getPlugin();
 		if (jdtCorePlugin == null) return null;
 
@@ -1854,7 +1882,7 @@ public final class JavaCore extends Plugin {
 	 *
 	 * COMPILER / Reporting Unchecked Type Operation
 	 *    When enabled, the compiler will issue an error or a warning whenever an operation involves generic types, and potentially
-	 *    invalidates type safety since involving raw types (e.g. invoking #foo(X<String>) with arguments  (X)).
+	 *    invalidates type safety since involving raw types (e.g. invoking #foo(X&lt;String&gt;) with arguments  (X)).
 	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.uncheckedTypeOperation"
 	 *     - possible values:   { "error", "warning", "ignore" }
 	 *     - default:           "warning"
@@ -1988,7 +2016,7 @@ public final class JavaCore extends Plugin {
 	 *    Specify whether the compiler will verify overriding methods in order to report Javadoc missing tag problems.
 	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.missingJavadocTagsOverriding"
 	 *     - possible values:   { "enabled", "disabled" }
-	 *     - default:           "enabled"
+	 *     - default:           "disabled"
 	 * 
 	 * COMPILER / Reporting Missing Javadoc Comments
 	 *    This is the generic control for the severity of missing Javadoc comment problems.
@@ -2010,7 +2038,7 @@ public final class JavaCore extends Plugin {
 	 *    Specify whether the compiler will verify overriding methods in order to report missing Javadoc comment problems.
 	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.missingJavadocCommentsOverriding"
 	 *     - possible values:   { "enabled", "disabled" }
-	 *     - default:           "enabled"
+	 *     - default:           "disabled"
 	 * 
 	 * COMPILER / Maximum number of problems reported per compilation unit
 	 *    Specify the maximum number of problems reported on each compilation unit.
@@ -2018,7 +2046,7 @@ public final class JavaCore extends Plugin {
 	 *     - possible values:	"&lt;n&gt;" where &lt;n&gt; is zero or a positive integer (if zero then all problems are reported).
 	 *     - default:           "100"
 	 * 
-	 * COMPILER / Define the Automatic Task Tags
+	 * COMPILER / Defining the Automatic Task Tags
 	 *    When the tag list is not empty, the compiler will issue a task marker whenever it encounters
 	 *    one of the corresponding tag inside any comment in Java source code.
 	 *    Generated task messages will include the tag, and range until the next line separator or comment ending.
@@ -2027,11 +2055,12 @@ public final class JavaCore extends Plugin {
 	 *    will be detected for either tag "ToDo" or "#ToDo"). Respectively, a tag ending with a letter or digit cannot be followed
 	 *    by a letter or digit to be recognized ("ToDofoo" will not be recognized as a task for tag "ToDo", but "ToDo:foo" will
 	 *    be detected either for tag "ToDo" or "ToDo:").
+	 *    Note: the tasks are ordered, and the first matching tag will be selected; e.g. "TODO,TODO!" will match "TODO!" against "TODO" first.
 	 *     - option id:         "org.eclipse.jdt.core.compiler.taskTags"
 	 *     - possible values:   { "&lt;tag&gt;[,&lt;tag&gt;]*" } where &lt;tag&gt; is a String without any wild-card or leading/trailing spaces 
 	 *     - default:           "TODO,FIXME,XXX"
 	 * 
-	 * COMPILER / Define the Automatic Task Priorities
+	 * COMPILER / Defining the Automatic Task Priorities
 	 *    In parallel with the Automatic Task Tags, this list defines the priorities (high, normal or low)
 	 *    of the task markers issued by the compiler.
 	 *    If the default is specified, the priority of each task marker is "NORMAL".
@@ -2039,7 +2068,7 @@ public final class JavaCore extends Plugin {
 	 *     - possible values:   { "&lt;priority&gt;[,&lt;priority&gt;]*" } where &lt;priority&gt; is one of "HIGH", "NORMAL" or "LOW"
 	 *     - default:           "NORMAL,HIGH,NORMAL"
 	 * 
-	 * COMPILER / Determine whether task tags are case-sensitive
+	 * COMPILER / Determining whether task tags are case-sensitive
 	 *    When enabled, task tags are considered in a case-sensitive way.
 	 *     - option id:         "org.eclipse.jdt.core.compiler.taskCaseSensitive"
 	 *     - possible values:   { "enabled", "disabled" }
@@ -2056,6 +2085,20 @@ public final class JavaCore extends Plugin {
 	 *    When enabled, the compiler will issue an error or a warning when referring to a type with discouraged access, as defined according
 	 *    to the access rule specifications.
 	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.discouragedReference"
+	 *     - possible values:   { "error", "warning", "ignore" }
+	 *     - default:           "warning"
+	 *
+	 * COMPILER / Determining Effect of @SuppressWarnings
+	 *    When enabled, the @SuppressWarnings annotation can be used to suppress some compiler warnings. 
+	 *    When disabled, all @SupressWarnings annotations are ignored; i.e., warnings are reported.
+	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.suppressWarnings"
+	 *     - possible values:   { "enabled", "disabled" }
+	 *     - default:           "enabled"
+	 *
+	 * COMPILER / Reporting Unhandled Warning Token for @SuppressWarnings
+	 *    When enabled, the compiler will issue an error or a warning when encountering a token
+	 *    it cannot handle inside a @SuppressWarnings annotation.
+	 *     - option id:         "org.eclipse.jdt.core.compiler.problem.unhandledWarningToken"
 	 *     - possible values:   { "error", "warning", "ignore" }
 	 *     - default:           "warning"
 	 *
@@ -2272,19 +2315,18 @@ public final class JavaCore extends Plugin {
 	 *     - option id:         "org.eclipse.jdt.core.codeComplete.argumentSuffixes"
 	 *     - possible values:   { "&lt;suffix&gt;[,&lt;suffix&gt;]*" } where &lt;suffix&gt; is a String without any wild-card 
 	 *     - default:           ""
-	 *     
+	 * 
 	 *  CODEASSIST / Activate Forbidden Reference Sensitive Completion
 	 *    When active, completion doesn't show that have forbidden reference.
-	 *     - option id:         "org.eclipse.jdt.core.codeComplete.restrictionsCheck"
+	 *     - option id:         "org.eclipse.jdt.core.codeComplete.forbiddenReferenceCheck"
 	 *     - possible values:   { "enabled", "disabled" }
-	 *     - default:           "disabled"
+	 *     - default:           "enabled"
 	 * 
 	 *  CODEASSIST / Activate Discouraged Reference Sensitive Completion
 	 *    When active, completion doesn't show that have discouraged reference.
 	 *     - option id:         "org.eclipse.jdt.core.codeComplete.discouragedReferenceCheck"
 	 *     - possible values:   { "enabled", "disabled" }
 	 *     - default:           "disabled"
-	 * 
 	 * </pre>
 	 * 
 	 * @return a mutable table containing the default settings of all known options
@@ -2292,28 +2334,7 @@ public final class JavaCore extends Plugin {
 	 * @see #setOptions(Hashtable)
 	 */
  	public static Hashtable getDefaultOptions(){
-	
-		Hashtable defaultOptions = new Hashtable(10);
-
-		// see JavaCorePreferenceInitializer#initializeDefaultPluginPreferences() for changing default settings
-		JavaModelManager manager = JavaModelManager.getJavaModelManager();
-		IEclipsePreferences defaultPreferences = manager.getDefaultPreferences();
-		HashSet optionNames = manager.optionNames;
-		
-		// initialize preferences to their default
-		Iterator iterator = optionNames.iterator();
-		while (iterator.hasNext()) {
-		    String propertyName = (String) iterator.next();
-		    String value = defaultPreferences.get(propertyName, null);
-		    if (value != null) defaultOptions.put(propertyName, value);
-		}
-		// get encoding through resource plugin
-		defaultOptions.put(CORE_ENCODING, getEncoding());
-		// backward compatibility
-		defaultOptions.put(COMPILER_PB_INVALID_IMPORT, ERROR);		
-		defaultOptions.put(COMPILER_PB_UNREACHABLE_CODE, ERROR);
-		
-		return defaultOptions;
+ 		return JavaModelManager.getJavaModelManager().getDefaultOptions();
 	}
 
 	/**
@@ -2361,23 +2382,7 @@ public final class JavaCore extends Plugin {
 	 * @since 2.0
 	 */
 	public static String getOption(String optionName) {
-		
-		if (CORE_ENCODING.equals(optionName)){
-			return getEncoding();
-		}
-		// backward compatibility
-		if (COMPILER_PB_INVALID_IMPORT.equals(optionName)
-				|| COMPILER_PB_UNREACHABLE_CODE.equals(optionName)) {
-			return ERROR;
-		}
-		String propertyName = optionName;
-		JavaModelManager manager = JavaModelManager.getJavaModelManager();
-		if (manager.optionNames.contains(propertyName)){
-			IPreferencesService service = Platform.getPreferencesService();
-			String value =  service.get(optionName, null, manager.preferencesLookup);
-			return value==null ? null : value.trim();
-		}
-		return null;
+		return JavaModelManager.getJavaModelManager().getOption(optionName);
 	}
 	
 	/**
@@ -2393,40 +2398,8 @@ public final class JavaCore extends Plugin {
 	 * @see JavaCorePreferenceInitializer for changing default settings
 	 */
 	public static Hashtable getOptions() {
-
-		// return cached options if already computed
-		if (optionsCache != null) return new Hashtable(optionsCache);
-
-		// init
-		Hashtable options = new Hashtable(10);
-		JavaModelManager manager = JavaModelManager.getJavaModelManager();
-		HashSet optionNames = manager.optionNames;
-		IPreferencesService service = Platform.getPreferencesService();
-
-		// set options using preferences service lookup
-		Iterator iterator = optionNames.iterator();
-		while (iterator.hasNext()) {
-		    String propertyName = (String) iterator.next();
-		    String propertyValue = service.get(propertyName, null, manager.preferencesLookup);
-		    if (propertyValue != null) {
-			    options.put(propertyName, propertyValue);
-		    }
-		}
-
-		// get encoding through resource plugin
-		options.put(CORE_ENCODING, getEncoding()); 
-
-		// backward compatibility
-		options.put(COMPILER_PB_INVALID_IMPORT, ERROR);
-		options.put(COMPILER_PB_UNREACHABLE_CODE, ERROR);
-
-		// store built map in cache
-		optionsCache = new Hashtable(options);
-
-		// return built map
-		return options;
+		return JavaModelManager.getJavaModelManager().getOptions();
 	}
-
 
 	/**
 	 * Returns the single instance of the Java core plug-in runtime class.
@@ -2514,8 +2487,8 @@ public final class JavaCore extends Plugin {
 		}
 		// outside the workspace
 		if (target instanceof File) {
-			File externalFile = (File) target;
-			if (externalFile.isFile()) {
+			File externalFile = JavaModel.getFile(target);
+			if (externalFile != null) {
 				String fileName = externalFile.getName().toLowerCase();
 				if (fileName.endsWith(SuffixConstants.SUFFIX_STRING_jar) || fileName.endsWith(SuffixConstants.SUFFIX_STRING_zip)) { 
 					// external binary archive
@@ -2615,6 +2588,139 @@ public final class JavaCore extends Plugin {
 		ICompilationUnit[] result = manager.getWorkingCopies(owner, false/*don't add primary WCs*/);
 		if (result == null) return JavaModelManager.NO_WORKING_COPY;
 		return result;
+	}
+	
+	/**
+	 * Initializes JavaCore internal structures to allow subsequent operations (such 
+	 * as the ones that need a resolved classpath) to run full speed. A client may 
+	 * choose to call this method in a background thread early after the workspace 
+	 * has started so that the initialization is transparent to the user.
+	 * <p>
+	 * However calling this method is optional. Services will lazily perform 
+	 * initialization when invoked. This is only a way to reduce initialization 
+	 * overhead on user actions, if it can be performed before at some 
+	 * appropriate moment.
+	 * </p><p>
+	 * This initialization runs accross all Java projects in the workspace. Thus the
+	 * workspace root scheduling rule is used during this operation.
+	 * </p><p>
+	 * This method may return before the initialization is complete. The 
+	 * initialization will then continue in a background thread.
+	 * </p><p>
+	 * This method can be called concurrently.
+	 * </p>
+	 * 
+	 * @param monitor a progress monitor, or <code>null</code> if progress
+	 *    reporting and cancellation are not desired
+	 * @exception CoreException if the initialization fails, 
+	 * 		the status of the exception indicates the reason of the failure
+	 * @since 3.1
+	 */
+	public static void initializeAfterLoad(IProgressMonitor monitor) throws CoreException {
+		Job job = new Job(Messages.javamodel_initialization) {
+			protected IStatus run(IProgressMonitor progressMonitor) {
+				// dummy query for waiting until the indexes are ready and classpath containers/variables are initialized
+				SearchEngine engine = new SearchEngine();
+				IJavaSearchScope scope = SearchEngine.createWorkspaceScope(); // initialize all containers and variables
+				try {
+					engine.searchAllTypeNames(
+						null,
+						"!@$#!@".toCharArray(), //$NON-NLS-1$
+						SearchPattern.R_PATTERN_MATCH | SearchPattern.R_CASE_SENSITIVE,
+						IJavaSearchConstants.CLASS,
+						scope, 
+						new TypeNameRequestor() {
+							public void acceptType(
+								int modifiers,
+								char[] packageName,
+								char[] simpleTypeName,
+								char[][] enclosingTypeNames,
+								String path) {
+								// no type to accept
+							}
+						},
+						// will not activate index query caches if indexes are not ready, since it would take to long
+						// to wait until indexes are fully rebuild
+						IJavaSearchConstants.CANCEL_IF_NOT_READY_TO_SEARCH,
+						progressMonitor == null ? null : new SubProgressMonitor(progressMonitor, 99) // 99% of the time is spent in the dummy search
+					); 
+				} catch (JavaModelException e) {
+					// /search failed: ignore
+				} catch (OperationCanceledException e) {
+					if (progressMonitor != null && progressMonitor.isCanceled())
+						throw e;
+					// else indexes were not ready: catch the exception so that jars are still refreshed
+				}
+				
+				// check if the build state version number has changed since last session
+				// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=98969)
+				QualifiedName qName = new QualifiedName(JavaCore.PLUGIN_ID, "stateVersionNumber"); //$NON-NLS-1$
+				IWorkspaceRoot root = ResourcesPlugin.getWorkspace().getRoot();
+				String versionNumber = null;
+				try {
+					versionNumber = root.getPersistentProperty(qName);
+				} catch (CoreException e) {
+					// could not read version number: consider it is new
+				}
+				final JavaModel model = JavaModelManager.getJavaModelManager().getJavaModel();
+				String newVersionNumber = Byte.toString(State.VERSION);
+				if (!newVersionNumber.equals(versionNumber)) {
+					// build state version number has changed: touch every projects to force a rebuild
+					if (JavaBuilder.DEBUG)
+						System.out.println("Build state version number has changed"); //$NON-NLS-1$
+					IWorkspaceRunnable runnable = new IWorkspaceRunnable() {
+						public void run(IProgressMonitor progressMonitor2) throws CoreException {
+							IJavaProject[] projects = null;
+							try {
+								projects = model.getJavaProjects();
+							} catch (JavaModelException e) {
+								// could not get Java projects: ignore
+							}
+							if (projects != null) {
+								for (int i = 0, length = projects.length; i < length; i++) {
+									IJavaProject project = projects[i];
+									try {
+										if (JavaBuilder.DEBUG)
+											System.out.println("Touching " + project.getElementName()); //$NON-NLS-1$
+										project.getProject().touch(progressMonitor2);
+									} catch (CoreException e) {
+										// could not touch this project: ignore
+									}
+								}
+							}
+						}
+					};
+					try {
+						ResourcesPlugin.getWorkspace().run(runnable, progressMonitor);
+					} catch (CoreException e) {
+						// could not touch all projects
+					}
+					try {
+						root.setPersistentProperty(qName, newVersionNumber);
+					} catch (CoreException e) {
+						Util.log(e, "Could not persist build state version number"); //$NON-NLS-1$
+					}
+				}
+				
+				// ensure external jars are refreshed (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=93668)
+				try {
+					model.refreshExternalArchives(
+						null/*refresh all projects*/, 
+						progressMonitor == null ? null : new SubProgressMonitor(progressMonitor, 1) // 1% of the time is spent in jar refresh
+					);
+				} catch (JavaModelException e) {
+					// refreshing failed: ignore
+				}
+				
+				return Status.OK_STATUS;
+			}
+			public boolean belongsTo(Object family) {
+				return PLUGIN_ID.equals(family);
+			}
+		};
+		job.setPriority(Job.SHORT);
+		job.schedule(2000);	 // wait for the startup activity to calm down
+		
 	}
 	
 	/**
@@ -2812,7 +2918,8 @@ public final class JavaCore extends Plugin {
 	 * </p>
 	 * <p>
 	 * The <code>extraAttributes</code> list contains name/value pairs that must be persisted with
-	 * this entry. If no extra attributes are provided, an empty array must be passed in.
+	 * this entry. If no extra attributes are provided, an empty array must be passed in.<br>
+	 * Note that this list should not contain any duplicate name.
 	 * </p>
 	 * <p>
 	 * The <code>isExported</code> flag indicates whether this entry is contributed to dependent
@@ -2992,7 +3099,8 @@ public final class JavaCore extends Plugin {
 	 * </p>
 	 * <p>
 	 * The <code>extraAttributes</code> list contains name/value pairs that must be persisted with
-	 * this entry. If no extra attributes are provided, an empty array must be passed in.
+	 * this entry. If no extra attributes are provided, an empty array must be passed in.<br>
+	 * Note that this list should not contain any duplicate name.
 	 * </p>
 	 * <p>
 	 * The <code>isExported</code> flag indicates whether this entry is contributed to dependent
@@ -3116,7 +3224,8 @@ public final class JavaCore extends Plugin {
 	 * </p>
 	 * <p>
 	 * The <code>extraAttributes</code> list contains name/value pairs that must be persisted with
-	 * this entry. If no extra attributes are provided, an empty array must be passed in.
+	 * this entry. If no extra attributes are provided, an empty array must be passed in.<br>
+	 * Note that this list should not contain any duplicate name.
 	 * </p>
 	 * <p>
 	 * The <code>isExported</code> flag indicates whether this entry is contributed to dependent
@@ -3325,7 +3434,8 @@ public final class JavaCore extends Plugin {
 	 * </p>
 	 * <p>
 	 * The <code>extraAttributes</code> list contains name/value pairs that must be persisted with
-	 * this entry. If no extra attributes are provided, an empty array must be passed in.
+	 * this entry. If no extra attributes are provided, an empty array must be passed in.<br>
+	 * Note that this list should not contain any duplicate name.
 	 * </p>
 	 *
 	 * @param path the absolute workspace-relative path of a source folder
@@ -3449,7 +3559,8 @@ public final class JavaCore extends Plugin {
 	 * </p>
 	 * <p>
 	 * The <code>extraAttributes</code> list contains name/value pairs that must be persisted with
-	 * this entry. If no extra attributes are provided, an empty array must be passed in.
+	 * this entry. If no extra attributes are provided, an empty array must be passed in.<br>
+	 * Note that this list should not contain any duplicate name.
 	 * </p>
 	 * <p>
 	 * The <code>isExported</code> flag indicates whether this entry is contributed to dependent
@@ -3973,38 +4084,7 @@ public final class JavaCore extends Plugin {
 	 * @see JavaCorePreferenceInitializer for changing default settings
 	 */
 	public static void setOptions(Hashtable newOptions) {
-		
-		try {
-			JavaModelManager manager = JavaModelManager.getJavaModelManager();
-			IEclipsePreferences defaultPreferences = manager.getDefaultPreferences();
-			IEclipsePreferences instancePreferences = manager.getInstancePreferences();
-
-			if (newOptions == null){
-				instancePreferences.clear();
-			} else {
-				Enumeration keys = newOptions.keys();
-				while (keys.hasMoreElements()){
-					String key = (String)keys.nextElement();
-					if (!JavaModelManager.getJavaModelManager().optionNames.contains(key)) continue; // unrecognized option
-					if (key.equals(CORE_ENCODING)) continue; // skipped, contributed by resource prefs
-					String value = (String)newOptions.get(key);
-					String defaultValue = defaultPreferences.get(key, null);
-					if (defaultValue != null && defaultValue.equals(value)) {
-						instancePreferences.remove(key);
-					} else {
-						instancePreferences.put(key, value);
-					}
-				}
-			}
-
-			// persist options
-			instancePreferences.flush();
-			
-			// update cache
-			optionsCache = newOptions==null ? null : new Hashtable(newOptions);
-		} catch (BackingStoreException e) {
-			// ignore
-		}
+		JavaModelManager.getJavaModelManager().setOptions(newOptions);
 	}
 
 	/* (non-Javadoc)
@@ -4016,25 +4096,11 @@ public final class JavaCore extends Plugin {
 	 */
 	public void stop(BundleContext context) throws Exception {
 		try {
-			savePluginPreferences();
-			IWorkspace workspace = ResourcesPlugin.getWorkspace();
-			workspace.removeResourceChangeListener(JavaModelManager.getJavaModelManager().deltaState);
-			workspace.removeSaveParticipant(this);
-	
 			JavaModelManager.getJavaModelManager().shutdown();
 		} finally {
 			// ensure we call super.stop as the last thing
 			super.stop(context);
 		}
-	}
-
-	/**
-	 * Initiate the background indexing process.
-	 * This should be deferred after the plugin activation.
-	 */
-	private void startIndexing() {
-
-		JavaModelManager.getJavaModelManager().getIndexManager().reset();
 	}
 
 	/* (non-Javadoc)
@@ -4048,71 +4114,6 @@ public final class JavaCore extends Plugin {
 	 */
 	public void start(BundleContext context) throws Exception {
 		super.start(context);
-		
-		final JavaModelManager manager = JavaModelManager.getJavaModelManager();
-		try {
-			manager.configurePluginDebugOptions();
-
-			// request state folder creation (workaround 19885)
-			JavaCore.getPlugin().getStateLocation();
-
-			// Initialize eclipse preferences
-			manager.initializePreferences();
-
-			// Listen to preference changes
-			Preferences.IPropertyChangeListener propertyListener = new Preferences.IPropertyChangeListener() {
-				public void propertyChange(Preferences.PropertyChangeEvent event) {
-					JavaCore.optionsCache = null;
-				}
-			};
-			JavaCore.getPlugin().getPluginPreferences().addPropertyChangeListener(propertyListener);
-
-			// retrieve variable values
-			manager.loadVariablesAndContainers();
-
-			final IWorkspace workspace = ResourcesPlugin.getWorkspace();
-			workspace.addResourceChangeListener(
-				manager.deltaState,
-				IResourceChangeEvent.PRE_BUILD
-					| IResourceChangeEvent.POST_BUILD
-					| IResourceChangeEvent.POST_CHANGE
-					| IResourceChangeEvent.PRE_DELETE
-					| IResourceChangeEvent.PRE_CLOSE);
-
-			startIndexing();
-			
-			// process deltas since last activated in indexer thread so that indexes are up-to-date.
-			// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=38658
-			Job processSavedState = new Job(Messages.savedState_jobName) { 
-				protected IStatus run(IProgressMonitor monitor) {
-					try {
-						// add save participant and process delta atomically
-						// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=59937
-						workspace.run(
-							new IWorkspaceRunnable() {
-								public void run(IProgressMonitor progress) throws CoreException {
-									ISavedState savedState = workspace.addSaveParticipant(JavaCore.this, manager);
-									if (savedState != null) {
-										// the event type coming from the saved state is always POST_AUTO_BUILD
-										// force it to be POST_CHANGE so that the delta processor can handle it
-										manager.deltaState.getDeltaProcessor().overridenEventType = IResourceChangeEvent.POST_CHANGE;
-										savedState.processResourceChangeEvents(manager.deltaState);
-									}
-								}
-							},
-							monitor);
-					} catch (CoreException e) {
-						return e.getStatus();
-					}
-					return Status.OK_STATUS;
-				}
-			};
-			processSavedState.setSystem(true);
-			processSavedState.setPriority(Job.SHORT); // process asap
-			processSavedState.schedule();
-		} catch (RuntimeException e) {
-			manager.shutdown();
-			throw e;
-		}
+		JavaModelManager.getJavaModelManager().startup();
 	}
 }

@@ -87,7 +87,7 @@ public final boolean canBeSeenBy(ReferenceBinding receiverType, SourceTypeBindin
 		if (declaringClass == null) return false; // could be null if incorrect top-level protected type
 		//int depth = 0;
 		do {
-			if (currentType.findSuperTypeErasingTo(declaringErasure) != null) return true;
+			if (currentType.findSuperTypeWithSameErasure(declaringErasure) != null) return true;
 			//depth++;
 			currentType = currentType.enclosingType();
 		} while (currentType != null);
@@ -199,24 +199,38 @@ public final boolean canBeSeenBy(Scope scope) {
 	return invocationType.fPackage == fPackage;
 }
 public char[] computeGenericTypeSignature(TypeVariableBinding[] typeVariables) {
-    if (typeVariables == NoTypeVariables) {
-        return signature();
-    } else {
-	    char[] typeSig = signature();
-	    StringBuffer sig = new StringBuffer(10);
+
+	boolean isMemberOfGeneric = isMemberType() && (enclosingType().modifiers & AccGenericSignature) != 0;
+	if (typeVariables == NoTypeVariables && !isMemberOfGeneric) {
+		return signature();
+	}
+	StringBuffer sig = new StringBuffer(10);
+	if (isMemberOfGeneric) {
+	    char[] typeSig = enclosingType().genericTypeSignature();
 	    for (int i = 0; i < typeSig.length-1; i++) { // copy all but trailing semicolon
 	    	sig.append(typeSig[i]);
 	    }
+	    sig.append('.'); // NOTE: cannot override trailing ';' with '.' in enclosing signature, since shared char[]
+	    sig.append(this.sourceName);
+	}	else {
+	    char[] typeSig = signature();
+	    for (int i = 0; i < typeSig.length-1; i++) { // copy all but trailing semicolon
+	    	sig.append(typeSig[i]);
+	    }
+	}
+	if (typeVariables == NoTypeVariables) {
+	    sig.append(';');
+	} else {
 	    sig.append('<');
 	    for (int i = 0, length = typeVariables.length; i < length; i++) {
 	        sig.append(typeVariables[i].genericTypeSignature());
 	    }
 	    sig.append(">;"); //$NON-NLS-1$
-		int sigLength = sig.length();
-		char[] result = new char[sigLength];
-		sig.getChars(0, sigLength, result, 0);
-		return result;
-    }
+	}
+	int sigLength = sig.length();
+	char[] result = new char[sigLength];
+	sig.getChars(0, sigLength, result, 0);
+	return result;
 }
 public void computeId() {
 	
@@ -301,6 +315,10 @@ public void computeId() {
 					else if (CharOperation.equals(typeName, JAVA_LANG_OVERRIDE[2]))
 						id = T_JavaLangOverride;
 					return;
+				case 'R' :
+					if (CharOperation.equals(typeName, JAVA_LANG_RUNTIMEEXCEPTION[2]))
+						id = 	T_JavaLangRuntimeException;
+					break;
 				case 'S' :
 					if (CharOperation.equals(typeName, JAVA_LANG_STRING[2]))
 						id = T_JavaLangString;
@@ -373,28 +391,11 @@ public void computeId() {
 	}
 }
 /*
- * p.X<T extends Y & I, U extends Y> {} -> Lp/X<TT;TU;>;^123
+ * p.X<T extends Y & I, U extends Y> {} -> Lp/X<TT;TU;>;
  */
-public char[] computeUniqueKey(boolean withAccessFlags) {
-	// generic type signature
-	char[] genericSignature = genericTypeSignature();
-	int sigLength = genericSignature.length;
-	
-	if (!withAccessFlags) return genericSignature;
-	
-	// flags
-	String flags = Integer.toString(getAccessFlags());
-	int flagsLength = flags.length();
-	
-	// unique key
-	char[] uniqueKey = new char[sigLength + 1 + flagsLength];
-	int index = 0;
-	System.arraycopy(genericSignature, 0, uniqueKey, index, sigLength);
-	index += sigLength;
-	uniqueKey[index++] = '^';
-	flags.getChars(0, flagsLength, uniqueKey, index);
-	
-	return uniqueKey;
+public char[] computeUniqueKey(boolean isLeaf) {
+	if (!isLeaf) return signature();
+	return genericTypeSignature();
 }
 /* Answer the receiver's constant pool name.
 *
@@ -461,14 +462,16 @@ public FieldBinding[] fields() {
  * same id though being distincts.
  *
  */
-public ReferenceBinding findSuperTypeErasingTo(int erasureId, boolean erasureIsClass) {
+public ReferenceBinding findSuperTypeErasingTo(int wellKnownErasureID, boolean erasureIsClass) {
 
-    if (this.id == erasureId || erasure().id == erasureId) return this;
+    // do not allow type variables to match with erasures for free
+    if (this.id == wellKnownErasureID || (!isTypeVariable() && erasure().id == wellKnownErasureID)) return this;
+
     ReferenceBinding currentType = this;
     // iterate superclass to avoid recording interfaces if searched supertype is class
     if (erasureIsClass) {
 		while ((currentType = currentType.superclass()) != null) { 
-			if (currentType.id == erasureId || currentType.erasure().id == erasureId) return currentType;
+			if (currentType.id == wellKnownErasureID || (!currentType.isTypeVariable() && currentType.erasure().id == wellKnownErasureID)) return currentType;
 		}    
 		return null;
     }
@@ -486,7 +489,7 @@ public ReferenceBinding findSuperTypeErasingTo(int erasureId, boolean erasureIsC
 	for (int i = 0; i <= lastPosition; i++) {
 		ReferenceBinding[] interfaces = interfacesToVisit[i];
 		for (int j = 0, length = interfaces.length; j < length; j++) {
-			if ((currentType = interfaces[j]).id == erasureId || currentType.erasure().id == erasureId)
+			if ((currentType = interfaces[j]).id == wellKnownErasureID || (!currentType.isTypeVariable() && currentType.erasure().id == wellKnownErasureID))
 				return currentType;
 
 			ReferenceBinding[] itsInterfaces = currentType.superInterfaces();
@@ -499,16 +502,20 @@ public ReferenceBinding findSuperTypeErasingTo(int erasureId, boolean erasureIsC
 	}
 	return null;
 }
+
 /**
  * Find supertype which erases to a given type, or null if not found
  */
-public ReferenceBinding findSuperTypeErasingTo(ReferenceBinding erasure) {
+public ReferenceBinding findSuperTypeWithSameErasure(TypeBinding otherType) {
 
-    if (this == erasure || erasure() == erasure) return this;
+    // do not allow type variables to match with erasures for free
+    if (!otherType.isTypeVariable()) otherType = otherType.erasure();
+    if (this == otherType || (!isTypeVariable() && erasure() == otherType)) return this;
+    
     ReferenceBinding currentType = this;
-    if (!erasure.isInterface()) {
+    if (!otherType.isInterface()) {
 		while ((currentType = currentType.superclass()) != null) {
-			if (currentType == erasure || currentType.erasure() == erasure) return currentType;
+			if (currentType == otherType || (!currentType.isTypeVariable() && currentType.erasure() == otherType)) return currentType;
 		}
 		return null;
     }
@@ -526,7 +533,7 @@ public ReferenceBinding findSuperTypeErasingTo(ReferenceBinding erasure) {
 	for (int i = 0; i <= lastPosition; i++) {
 		ReferenceBinding[] interfaces = interfacesToVisit[i];
 		for (int j = 0, length = interfaces.length; j < length; j++) {
-			if ((currentType = interfaces[j]) == erasure || currentType.erasure() == erasure)
+			if ((currentType = interfaces[j]) == otherType || (!currentType.isTypeVariable() && currentType.erasure() == otherType))
 				return currentType;
 
 			ReferenceBinding[] itsInterfaces = currentType.superInterfaces();
@@ -602,6 +609,52 @@ public final boolean hasRestrictedAccess() {
 	return (modifiers & AccRestrictedAccess) != 0;
 }
 
+/**
+ * Returns true if the two types have an incompatible common supertype,
+ * e.g. List<String> and List<Integer>
+ */
+public boolean hasIncompatibleSuperType(ReferenceBinding otherType) {
+
+    if (this == otherType) return false;
+    
+    ReferenceBinding currentType = this;
+	ReferenceBinding[][] interfacesToVisit = new ReferenceBinding[5][];
+	ReferenceBinding match;
+	int lastPosition = -1;
+	do {
+		match = otherType.findSuperTypeWithSameErasure(currentType);
+		if (match != null) {
+			if (!match.isIntersectingWith(currentType))
+					return true;
+		}
+		ReferenceBinding[] itsInterfaces = currentType.superInterfaces();
+		if (itsInterfaces != NoSuperInterfaces) {
+			if (++lastPosition == interfacesToVisit.length)
+				System.arraycopy(interfacesToVisit, 0, interfacesToVisit = new ReferenceBinding[lastPosition * 2][], 0, lastPosition);
+			interfacesToVisit[lastPosition] = itsInterfaces;
+		}
+	} while ((currentType = currentType.superclass()) != null);
+			
+	for (int i = 0; i <= lastPosition; i++) {
+		ReferenceBinding[] interfaces = interfacesToVisit[i];
+		for (int j = 0, length = interfaces.length; j < length; j++) {
+			if ((currentType = interfaces[j]) == otherType) return false;
+			match = otherType.findSuperTypeWithSameErasure(currentType);
+			if (match != null) {
+				if (!match.isIntersectingWith(currentType))
+						return true;				
+			}
+			ReferenceBinding[] itsInterfaces = currentType.superInterfaces();
+			if (itsInterfaces != NoSuperInterfaces) {
+				if (++lastPosition == interfacesToVisit.length)
+					System.arraycopy(interfacesToVisit, 0, interfacesToVisit = new ReferenceBinding[lastPosition * 2][], 0, lastPosition);
+				interfacesToVisit[lastPosition] = itsInterfaces;
+			}
+		}
+	}
+	return false;
+}
+
 /* Answer true if the receiver implements anInterface or is identical to anInterface.
 * If searchHierarchy is true, then also search the receiver's superclasses.
 *
@@ -661,9 +714,6 @@ public final boolean isAbstract() {
 public boolean isAnnotationType() {
 	return (modifiers & AccAnnotation) != 0;
 }
-public final boolean isAnonymousType() {
-	return (tagBits & IsAnonymousType) != 0;
-}
 public final boolean isBinaryBinding() {
 	return (tagBits & IsBinaryBinding) != 0;
 }
@@ -694,14 +744,23 @@ public boolean isCompatibleWith(TypeBinding otherType) {
 			// check compatibility with capture of ? super X
 			if (otherType.isCapture()) {
 				CaptureBinding otherCapture = (CaptureBinding) otherType;
-				if (otherCapture.lowerBound != null) {
-					return this.isCompatibleWith(otherCapture.lowerBound);
+				TypeBinding otherLowerBound;
+				if ((otherLowerBound = otherCapture.lowerBound) != null) {
+					if (otherLowerBound.isArrayType()) return false;
+					return this.isCompatibleWith(otherLowerBound);
 				}
 			}
 		case Binding.GENERIC_TYPE :
 		case Binding.TYPE :
 		case Binding.PARAMETERIZED_TYPE :
 		case Binding.RAW_TYPE :
+			switch (this.kind()) {
+				case Binding.GENERIC_TYPE :
+				case Binding.PARAMETERIZED_TYPE :
+				case Binding.RAW_TYPE :
+					if (this.erasure() == otherType.erasure())
+						return false; // should have passed equivalence check above if same erasure
+			}
 			ReferenceBinding otherReferenceType = (ReferenceBinding) otherType;
 			if (otherReferenceType.isInterface()) // could be annotation type
 				return implementsInterface(otherReferenceType, true);
@@ -737,18 +796,6 @@ public boolean isInterface() {
 	return (modifiers & AccInterface) != 0;
 }
 	
-public final boolean isPartOfRawType() {
-	ReferenceBinding current = this;
-	do {
-		if (current.isRawType())
-			return true;
-		// no static type
-		if (isStatic()) 
-			break;
-	} while ((current = current.enclosingType()) != null);
-    return false;
-}
-
 /* Answer true if the receiver has private visibility
 */
 public final boolean isPrivate() {
@@ -757,8 +804,8 @@ public final boolean isPrivate() {
 /* Answer true if the receiver has private visibility and is used locally
 */
 
-public final boolean isPrivateUsed() {
-	return (modifiers & AccPrivateUsed) != 0;
+public final boolean isUsed() {
+	return (modifiers & AccLocallyUsed) != 0;
 }
 /* Answer true if the receiver has protected visibility
 */
@@ -796,9 +843,39 @@ public boolean isSuperclassOf(ReferenceBinding otherType) {
 	return false;
 }
 
+/**
+ * JLS 11.5 ensures that Throwable, Exception, RuntimeException and Error are directly connected.
+ * (Throwable<- Exception <- RumtimeException, Throwable <- Error). Thus no need to check #isCompatibleWith
+ * but rather check in type IDs so as to avoid some eager class loading for JCL writers.
+ * When 'includeSupertype' is true, answers true if the given type can be a supertype of some unchecked exception
+ * type (i.e. Throwable or Exception).
+ * @see org.eclipse.jdt.internal.compiler.lookup.TypeBinding#isUncheckedException(boolean)
+ */
+public boolean isUncheckedException(boolean includeSupertype) {
+	switch (this.id) {
+			case TypeIds.T_JavaLangError :
+			case TypeIds.T_JavaLangRuntimeException :
+				return true;
+			case TypeIds.T_JavaLangThrowable :
+			case TypeIds.T_JavaLangException :
+				return includeSupertype;
+	}
+	ReferenceBinding current = this;
+	while ((current = current.superclass()) != null) {
+		switch (current.id) {
+			case TypeIds.T_JavaLangError :
+			case TypeIds.T_JavaLangRuntimeException :
+				return true;
+			case TypeIds.T_JavaLangThrowable :
+			case TypeIds.T_JavaLangException :
+				return false;
+		}
+	}
+	return false;
+}
+
 /* Answer true if the receiver is deprecated (or any of its enclosing types)
 */
-
 public final boolean isViewedAsDeprecated() {
 	return (modifiers & (AccDeprecated | AccDeprecatedImplicitly)) != 0;
 }

@@ -101,7 +101,7 @@ public class SearchableEnvironment
 					if (accessRuleSet != null) {
 						// TODO (philippe) improve char[] <-> String conversions to avoid performing them on the fly
 						char[][] packageChars = CharOperation.splitOn('.', packageName.toCharArray());
-						char[] classFileChars = type.getParent().getElementName().toCharArray();
+						char[] classFileChars = type.getElementName().toCharArray();
 						accessRestriction = accessRuleSet.getViolatedRestriction(CharOperation.concatWith(packageChars, classFileChars, '/'));
 					}
 				}
@@ -205,7 +205,7 @@ public class SearchableEnvironment
 	 * This method can not be used to find member types... member
 	 * types are found relative to their enclosing type.
 	 */
-	public void findTypes(char[] prefix, final ISearchRequestor storage) {
+	public void findTypes(char[] prefix, final boolean findMembers, final ISearchRequestor storage) {
 
 		/*
 			if (true){
@@ -271,9 +271,9 @@ public class SearchableEnvironment
 				public void acceptType(int modifiers, char[] packageName, char[] simpleTypeName, char[][] enclosingTypeNames, String path, AccessRestriction access) {
 					if (excludePath != null && excludePath.equals(path))
 						return;
-					if (enclosingTypeNames != null && enclosingTypeNames.length > 0)
+					if (!findMembers && enclosingTypeNames != null && enclosingTypeNames.length > 0)
 						return; // accept only top level types
-					storage.acceptType(packageName, simpleTypeName, modifiers, access);
+					storage.acceptType(packageName, simpleTypeName, enclosingTypeNames, modifiers, access);
 				}
 			};
 			try {

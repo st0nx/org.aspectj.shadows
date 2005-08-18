@@ -78,8 +78,9 @@ public class JavadocMessageSend extends MessageSend {
 		if (this.actualReceiverType == null) {
 			return null;
 		}
-		this.actualReceiverType = scope.convertToRawType(this.receiver.resolvedType);
-		this.superAccess = scope.enclosingSourceType().isCompatibleWith(this.actualReceiverType);
+		this.actualReceiverType = scope.environment().convertToRawType(this.receiver.resolvedType);
+		SourceTypeBinding enclosingType = scope.enclosingSourceType();
+		this.superAccess = enclosingType==null ? false : enclosingType.isCompatibleWith(this.actualReceiverType);
 
 		// base type cannot receive any message
 		if (this.actualReceiverType.isBaseType()) {

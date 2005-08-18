@@ -107,12 +107,12 @@ public void acceptType(IType type) {
 				if (accessRuleSet != null) {
 					// TODO (philippe) improve char[] <-> String conversions to avoid performing them on the fly
 					char[][] packageChars = CharOperation.splitOn('.', packageName);
-					char[] fileChars = type.getParent().getElementName().toCharArray();
-					accessRestriction = accessRuleSet.getViolatedRestriction(CharOperation.concatWith(packageChars, fileChars, '/'));
+					char[] fileWithoutExtension = type.getElementName().toCharArray();
+					accessRestriction = accessRuleSet.getViolatedRestriction(CharOperation.concatWith(packageChars, fileWithoutExtension, '/'));
 				}
 			}
 		}
-		this.requestor.acceptType(packageName, type.getElementName().toCharArray(), type.getFlags(), accessRestriction);
+		this.requestor.acceptType(packageName, type.getElementName().toCharArray(), null, type.getFlags(), accessRestriction);
 	} catch (JavaModelException jme) {
 		// ignore
 	}

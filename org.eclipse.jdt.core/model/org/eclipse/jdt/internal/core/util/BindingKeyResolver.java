@@ -13,10 +13,20 @@ package org.eclipse.jdt.internal.core.util;
 import java.util.ArrayList;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.Compiler;
+import org.eclipse.jdt.internal.compiler.ast.ArrayReference;
+import org.eclipse.jdt.internal.compiler.ast.Assignment;
+import org.eclipse.jdt.internal.compiler.ast.CastExpression;
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.ConditionalExpression;
+import org.eclipse.jdt.internal.compiler.ast.FieldReference;
+import org.eclipse.jdt.internal.compiler.ast.MessageSend;
+import org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference;
+import org.eclipse.jdt.internal.compiler.ast.SingleNameReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Wildcard;
+import org.eclipse.jdt.internal.compiler.lookup.ArrayBinding;
 import org.eclipse.jdt.internal.compiler.lookup.BaseTypes;
 import org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
@@ -29,6 +39,8 @@ import org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ParameterizedGenericMethodBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.RawTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
@@ -50,14 +62,18 @@ public class BindingKeyResolver extends BindingKeyParser {
 	TypeBinding typeBinding;
 	TypeDeclaration typeDeclaration;
 	ArrayList types = new ArrayList();
+	int rank = 0;
 	
-	boolean isCapture;
-	int wildcardKind = -1;
+	int wildcardRank;
 	
-	private BindingKeyResolver(BindingKeyParser parser, Compiler compiler, LookupEnvironment environment) {
+	CompilationUnitDeclaration outerMostParsedUnit;
+	
+	private BindingKeyResolver(BindingKeyParser parser, Compiler compiler, LookupEnvironment environment, int wildcardRank, CompilationUnitDeclaration outerMostParsedUnit) {
 		super(parser);
 		this.compiler = compiler;
 		this.environment = environment;
+		this.wildcardRank = wildcardRank;
+		this.outerMostParsedUnit = outerMostParsedUnit;
 	}
 	
 	public BindingKeyResolver(String key) {
@@ -84,8 +100,92 @@ public class BindingKeyResolver extends BindingKeyParser {
 		this.dimension = brakets.length;
 	}
 	
-	public void consumeCapture() {
-		this.isCapture = true;
+	public void consumeBaseType(char[] baseTypeSig) {
+		this.compoundName = new char[][] {getKey().toCharArray()};
+		TypeBinding baseTypeBinding = getBaseTypeBinding(baseTypeSig);
+		if (baseTypeBinding != null) {
+			this.typeBinding = baseTypeBinding;
+		}
+	}
+	
+	public void consumeCapture(final int position) {
+		CompilationUnitDeclaration outerParsedUnit = this.outerMostParsedUnit == null ? this.parsedUnit : this.outerMostParsedUnit;
+		if (outerParsedUnit == null) return;
+		final Binding wildcardBinding = ((BindingKeyResolver) this.types.get(0)).compilerBinding;
+		class CaptureFinder extends ASTVisitor {
+			CaptureBinding capture;
+			boolean checkType(TypeBinding binding) {
+				if (binding == null)
+					return false;
+				switch (binding.kind()) {
+					case Binding.PARAMETERIZED_TYPE:
+						TypeBinding[] arguments = ((ParameterizedTypeBinding) binding).arguments;
+						if (arguments == null) return false;
+						for (int i = 0, length = arguments.length; i < length; i++) {
+							if (checkType(arguments[i]))
+								return true;
+						}
+						break;
+					case Binding.WILDCARD_TYPE:
+						return checkType(((WildcardBinding) binding).bound);
+					case Binding.ARRAY_TYPE:
+						return checkType(((ArrayBinding) binding).leafComponentType);
+					case Binding.TYPE_PARAMETER:
+						if (binding.isCapture()) {
+							CaptureBinding captureBinding = (CaptureBinding) binding;
+							if (captureBinding.position == position && captureBinding.wildcard == wildcardBinding) {
+								this.capture = captureBinding;
+								return true;
+							}
+						}
+						break;
+				}
+				return false;
+			}
+			public boolean visit(SingleNameReference singleNameReference, BlockScope blockScope) {
+				if (checkType(singleNameReference.resolvedType)) 
+					return false;
+				return super.visit(singleNameReference, blockScope);
+			}
+			public boolean visit(QualifiedNameReference qualifiedNameReference, BlockScope blockScope) {
+				if (checkType(qualifiedNameReference.resolvedType))
+					return false;
+				return super.visit(qualifiedNameReference, blockScope);
+			}
+			public boolean visit(MessageSend messageSend, BlockScope blockScope) {
+				if (checkType(messageSend.resolvedType))
+					return false;
+				return super.visit(messageSend, blockScope);
+			}
+			public boolean visit(FieldReference fieldReference, BlockScope blockScope) {
+				if (checkType(fieldReference.resolvedType))
+					return false;
+				return super.visit(fieldReference, blockScope);
+			}
+			public boolean visit(ConditionalExpression conditionalExpression, BlockScope blockScope) {
+				if (checkType(conditionalExpression.resolvedType))
+					return false;
+				return super.visit(conditionalExpression, blockScope);
+			}
+			public boolean visit(CastExpression castExpression, BlockScope blockScope) {
+				if (checkType(castExpression.resolvedType))
+					return false;
+				return super.visit(castExpression, blockScope);
+			}
+			public boolean visit(Assignment assignment, BlockScope blockScope) {
+				if (checkType(assignment.resolvedType))
+					return false;
+				return super.visit(assignment, blockScope);
+			}
+			public boolean visit(ArrayReference arrayReference, BlockScope blockScope) {
+				if (checkType(arrayReference.resolvedType))
+					return false;
+				return super.visit(arrayReference, blockScope);
+			}
+		}
+		CaptureFinder captureFinder = new CaptureFinder();
+		outerParsedUnit.traverse(captureFinder, outerParsedUnit.scope);
+		this.typeBinding = captureFinder.capture;
 	}
 	
 	public void consumeField(char[] fieldName) {
@@ -93,25 +193,29 @@ public class BindingKeyResolver extends BindingKeyParser {
 	 	for (int i = 0, length = fields.length; i < length; i++) {
 			FieldBinding field = fields[i];
 			if (CharOperation.equals(fieldName, field.name)) {
+				this.typeBinding = null;
 				this.compilerBinding = field;
 				return;
 			}
 		}
 	}
 
-	public void consumeParameterizedMethod() {
+	public void consumeParameterizedGenericMethod() {
+		if (this.methodBinding == null)
+			return;
 		TypeBinding[] arguments = getTypeBindingArguments();
-		if (arguments.length != this.methodBinding.typeVariables().length) return;
-	 	this.methodBinding = new ParameterizedGenericMethodBinding(this.methodBinding, arguments, this.environment);
+		if (arguments.length != this.methodBinding.typeVariables().length)
+			this.methodBinding = new ParameterizedGenericMethodBinding(this.methodBinding, (RawTypeBinding) null, this.environment);
+		else
+	 		this.methodBinding = new ParameterizedGenericMethodBinding(this.methodBinding, arguments, this.environment);
 		this.compilerBinding = this.methodBinding;
 	}
 	
 	public void consumeLocalType(char[] uniqueKey) {
  		LocalTypeBinding[] localTypeBindings  = this.parsedUnit.localTypes;
  		for (int i = 0; i < this.parsedUnit.localTypeCount; i++)
- 			if (CharOperation.equals(uniqueKey, localTypeBindings[i].computeUniqueKey(false/*without access flags*/))) {
+ 			if (CharOperation.equals(uniqueKey, localTypeBindings[i].computeUniqueKey(false/*not a leaf*/))) {
  				this.typeBinding = localTypeBindings[i];
-				this.compilerBinding = this.typeBinding;
  				return;
  			}
 	}
@@ -123,6 +227,7 @@ public class BindingKeyResolver extends BindingKeyParser {
 	 	for (int i = 0; i < this.scope.localIndex; i++) {
 			LocalVariableBinding local = this.scope.locals[i];
 			if (CharOperation.equals(varName, local.name)) {
+				this.methodBinding = null;
 				this.compilerBinding = local;
 				return;
 			}
@@ -134,10 +239,11 @@ public class BindingKeyResolver extends BindingKeyParser {
 	 	for (int i = 0, methodLength = methods.length; i < methodLength; i++) {
 			MethodBinding method = methods[i];
 			if (CharOperation.equals(selector, method.selector) || (selector.length == 0 && method.isConstructor())) {
-				char[] methodSignature = method.original().genericSignature();
+				char[] methodSignature = method.genericSignature();
 				if (methodSignature == null)
 					methodSignature = method.signature();
 				if (CharOperation.equals(signature, methodSignature)) {
+					this.typeBinding = null;
 					this.methodBinding = method;
 					this.compilerBinding = this.methodBinding;
 					return;
@@ -148,7 +254,6 @@ public class BindingKeyResolver extends BindingKeyParser {
 	
 	public void consumeMemberType(char[] simpleTypeName) {
 		this.typeBinding = getTypeBinding(simpleTypeName);
-		this.compilerBinding = this.typeBinding;
 	}
 
 	public void consumePackage(char[] pkgName) {
@@ -159,7 +264,7 @@ public class BindingKeyResolver extends BindingKeyParser {
 	public void consumeParameterizedType(char[] simpleTypeName, boolean isRaw) {
 		TypeBinding[] arguments = getTypeBindingArguments();
 		if (simpleTypeName != null) {
-			// parameterized member type
+			// parameterized member type with parameterized enclosing type
 			this.genericType = this.genericType.getMemberType(simpleTypeName);
 			if (!isRaw)
 				this.typeBinding = this.environment.createParameterizedType(this.genericType, arguments, (ReferenceBinding) this.typeBinding);
@@ -167,16 +272,19 @@ public class BindingKeyResolver extends BindingKeyParser {
 				// raw type
 				this.typeBinding = this.environment.createRawType(this.genericType, (ReferenceBinding) this.typeBinding);
 		} else {
-			// parameterized top level type
+			// parameterized top level type or parameterized member type with raw enclosing type
 			this.genericType = (ReferenceBinding) this.typeBinding;
-			this.typeBinding = this.environment.createParameterizedType(this.genericType, arguments, null);
+			ReferenceBinding enclosing = this.genericType.enclosingType();
+			if (enclosing != null) enclosing = (ReferenceBinding) this.environment.convertToRawType(enclosing);
+			this.typeBinding = this.environment.createParameterizedType(this.genericType, arguments, enclosing);
 		}
-		this.compilerBinding = this.typeBinding;
 	}
 	
 
 	public void consumeParser(BindingKeyParser parser) {
 		this.types.add(parser);
+		if (((BindingKeyResolver) parser).compilerBinding instanceof WildcardBinding)
+			this.rank++;
 	}
 	
 	public void consumeScope(int scopeNumber) {
@@ -190,13 +298,12 @@ public class BindingKeyResolver extends BindingKeyParser {
 	
 	public void consumeRawType() {
 		if (this.typeBinding == null) return;
-		this.typeBinding = this.environment.createRawType((ReferenceBinding) this.typeBinding, null/*no enclosing type*/);
+		this.typeBinding = this.environment.createRawType((ReferenceBinding) this.typeBinding, this.typeBinding.enclosingType());
 	}
 	public void consumeSecondaryType(char[] simpleTypeName) {
 		if (this.parsedUnit == null) return;
 		this.typeDeclaration = null; // start from the parsed unit
 		this.typeBinding = getTypeBinding(simpleTypeName);
-		this.compilerBinding = this.typeBinding;
 	}
 	
 	public void consumeFullyQualifiedName(char[] fullyQualifiedName) {
@@ -204,47 +311,59 @@ public class BindingKeyResolver extends BindingKeyParser {
 	}
 	
 	public void consumeTopLevelType() {
-		if (this.compoundName.length == 1 && this.compoundName[0].length == 1) {
-			// case of base type
- 			TypeBinding baseTypeBinding = getBaseTypeBinding(this.compoundName[0]);
- 			if (baseTypeBinding != null) {
-				this.typeBinding = baseTypeBinding;
-				this.compilerBinding = this.typeBinding;
-				return;
- 			}
-		}
 		this.parsedUnit = getCompilationUnitDeclaration();
 		if (this.parsedUnit != null && this.compiler != null) {
 			this.compiler.process(this.parsedUnit, this.compiler.totalUnits+1); // noop if unit has already been resolved
 		}
 		if (this.parsedUnit == null) {
 			this.typeBinding = getBinaryBinding();
-			this.compilerBinding = this.typeBinding;
 		} else {
 			char[] typeName = this.compoundName[this.compoundName.length-1];
 			this.typeBinding = getTypeBinding(typeName);
+		}
+	}
+	
+	public void consumeKey() {
+		if (this.typeBinding != null) {
+			this.typeBinding = getArrayBinding(this.dimension, this.typeBinding);
 			this.compilerBinding = this.typeBinding;
 		}
 	}
 	
-	public void consumeType() {
-		this.typeBinding = getArrayBinding(this.dimension, this.typeBinding);
-		this.compilerBinding = this.typeBinding;
-	}
-	
-	public void consumeTypeVariable(char[] typeVariableName) {
+	public void consumeTypeVariable(char[] position, char[] typeVariableName) {
+		if (position.length > 0) {
+			int pos = Integer.parseInt(new String(position));
+			MethodBinding[] methods = ((ReferenceBinding) this.typeBinding).methods();
+			if (methods != null && pos < methods.length) {
+				this.methodBinding = methods[pos];
+			}
+		}
 	 	TypeVariableBinding[] typeVariableBindings = this.methodBinding != null ? this.methodBinding.typeVariables() : this.typeBinding.typeVariables();
 	 	for (int i = 0, length = typeVariableBindings.length; i < length; i++) {
 			TypeVariableBinding typeVariableBinding = typeVariableBindings[i];
 			if (CharOperation.equals(typeVariableName, typeVariableBinding.sourceName())) {
-				this.compilerBinding = typeVariableBinding;
+				this.typeBinding = typeVariableBinding;
 				return;
 			}
 		}
 	}
 	
+	public void consumeTypeWithCapture() {
+		BindingKeyResolver resolver = (BindingKeyResolver) this.types.get(0);
+		this.typeBinding =(TypeBinding) resolver.compilerBinding;
+	}
+	
 	public void consumeWildCard(int kind) {
-		this.wildcardKind = kind;
+		switch (kind) {
+			case Wildcard.EXTENDS:
+			case Wildcard.SUPER:
+				BindingKeyResolver boundResolver = (BindingKeyResolver) this.types.get(0);
+				this.typeBinding = this.environment.createWildcard((ReferenceBinding) this.typeBinding, this.wildcardRank, (TypeBinding) boundResolver.compilerBinding, null /*no extra bound*/, kind);
+				break;
+			case Wildcard.UNBOUND:
+				this.typeBinding = this.environment.createWildcard((ReferenceBinding) this.typeBinding, rank++, null/*no bound*/, null /*no extra bound*/, kind);
+				break;
+		}
 	}
 	
 	/*
@@ -290,6 +409,7 @@ public class BindingKeyResolver extends BindingKeyParser {
 	 * Returns null if not found.
 	 */
 	private TypeBinding getBinaryBinding() {
+		if (this.compoundName.length == 0) return null;
 		return this.environment.getType(this.compoundName);
 	}
 	 
@@ -343,25 +463,9 @@ public class BindingKeyResolver extends BindingKeyParser {
 	private TypeBinding[] getTypeBindingArguments() {
 		int size = this.types.size();
 		TypeBinding[] arguments = new TypeBinding[size];
-		int rank = 0;
 		for (int i = 0; i < size; i++) {
 			BindingKeyResolver resolver = (BindingKeyResolver) this.types.get(i);
-			TypeBinding binding;
-			int kind = resolver.wildcardKind;
-			switch (kind) {
-				case Wildcard.EXTENDS:
-				case Wildcard.SUPER:
-					binding = this.environment.createWildcard((ReferenceBinding) this.typeBinding, rank++, (TypeBinding) resolver.compilerBinding, null /*no extra bound*/, kind);
-					break;
-				case Wildcard.UNBOUND:
-					binding = this.environment.createWildcard((ReferenceBinding) this.typeBinding, rank++, null/*no bound*/, null /*no extra bound*/, kind);
-					break;
-				default:
-					binding = (TypeBinding) resolver.compilerBinding;
-			}
-			if (resolver.isCapture)
-				binding = new CaptureBinding((WildcardBinding) binding);
-			arguments[i] = binding;
+			arguments[i] = (TypeBinding) resolver.compilerBinding;
 		}
 		this.types = new ArrayList();
 		return arguments;
@@ -372,7 +476,7 @@ public class BindingKeyResolver extends BindingKeyParser {
 	}
 	
 	public BindingKeyParser newParser() {
-		return new BindingKeyResolver(this, this.compiler, this.environment);
+		return new BindingKeyResolver(this, this.compiler, this.environment, this.rank, this.outerMostParsedUnit == null ? this.parsedUnit : this.outerMostParsedUnit);
 	}
 	 
 	public String toString() {

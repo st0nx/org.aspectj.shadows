@@ -36,10 +36,6 @@ public ArrayBinding(TypeBinding type, int dimensions, LookupEnvironment environm
     	this.tagBits |= type.tagBits & (HasTypeVariable | HasDirectWildcard);
 }
 
-public int kind() {
-	return ARRAY_TYPE;
-}
-
 /**
  * Collect the substitutes into a map for certain type variables inside the receiver type
  * e.g.   Collection<T>.collectSubstitutes(Collection<List<X>>, Map), will populate Map with: T --> List<X>
@@ -70,10 +66,10 @@ public void collectSubstitutes(Scope scope, TypeBinding otherType, Map substitut
  * brakets leafUniqueKey
  * p.X[][] --> [[Lp/X;
  */
-public char[] computeUniqueKey(boolean withAccessFlags) {
+public char[] computeUniqueKey(boolean isLeaf) {
 	char[] brackets = new char[dimensions];
 	for (int i = dimensions - 1; i >= 0; i--) brackets[i] = '[';
-	return CharOperation.concat(brackets, this.leafComponentType.computeUniqueKey(false/*without access flags*/));
+	return CharOperation.concat(brackets, this.leafComponentType.computeUniqueKey(isLeaf));
  }
 	
 /**
@@ -121,6 +117,31 @@ public LookupEnvironment environment() {
     return this.environment;
 }
 
+/**
+ * Find supertype which erases to a given type, or null if not found
+ */
+public TypeBinding findSuperTypeWithSameErasure(TypeBinding otherType) {
+
+	if (this == otherType) return this;
+	int otherDim = otherType.dimensions();
+	if (this.dimensions != otherDim) {
+		switch(otherType.id) {
+			case T_JavaLangObject :
+			case T_JavaIoSerializable :
+			case T_JavaLangCloneable :
+				return otherType;
+		}
+		if (otherDim < this.dimensions & otherType.leafComponentType().id == T_JavaLangObject) {
+			return otherType; // X[][] has Object[] as an implicit supertype
+		}
+		return null;
+	}
+	if (!(this.leafComponentType instanceof ReferenceBinding)) return null;
+	TypeBinding leafSuperType = ((ReferenceBinding)this.leafComponentType).findSuperTypeWithSameErasure(otherType.leafComponentType());
+	if (leafSuperType == null) return null;
+	return environment().createArrayType(leafSuperType, this.dimensions);	
+}
+
 public char[] genericTypeSignature() {
 	
     if (this.genericTypeSignature == null) {
@@ -134,39 +155,58 @@ public char[] genericTypeSignature() {
 public PackageBinding getPackage() {
 	return leafComponentType.getPackage();
 }
+
 public int hashCode() {
 	return this.leafComponentType == null ? super.hashCode() : this.leafComponentType.hashCode();
 }
+
 /* Answer true if the receiver type can be assigned to the argument type (right)
 */
-public boolean isCompatibleWith(TypeBinding right) {
-	if (this == right)
+public boolean isCompatibleWith(TypeBinding otherType) {
+	if (this == otherType)
 		return true;
 
-	switch (right.kind()) {
+	switch (otherType.kind()) {
 		case Binding.ARRAY_TYPE :
-			ArrayBinding rightArray = (ArrayBinding) right;
-			if (rightArray.leafComponentType.isBaseType())
+			ArrayBinding otherArray = (ArrayBinding) otherType;
+			if (otherArray.leafComponentType.isBaseType())
 				return false; // relying on the fact that all equal arrays are identical
-			if (dimensions == rightArray.dimensions)
-				return leafComponentType.isCompatibleWith(rightArray.leafComponentType);
-			if (dimensions < rightArray.dimensions)
+			if (dimensions == otherArray.dimensions)
+				return leafComponentType.isCompatibleWith(otherArray.leafComponentType);
+			if (dimensions < otherArray.dimensions)
 				return false; // cannot assign 'String[]' into 'Object[][]' but can assign 'byte[][]' into 'Object[]'
 			break;
 		case Binding.BASE_TYPE :
 			return false;
 		case Binding.WILDCARD_TYPE :
-		    return ((WildcardBinding) right).boundCheck(this);
+		    return ((WildcardBinding) otherType).boundCheck(this);
+		    
+		case Binding.TYPE_PARAMETER :
+			// check compatibility with capture of ? super X
+			if (otherType.isCapture()) {
+				CaptureBinding otherCapture = (CaptureBinding) otherType;
+				TypeBinding otherLowerBound;
+				if ((otherLowerBound = otherCapture.lowerBound) != null) {
+					if (!otherLowerBound.isArrayType()) return false;					
+					return this.isCompatibleWith(otherLowerBound);
+				}
+			}
+			return false;
+
 	}
 	//Check dimensions - Java does not support explicitly sized dimensions for types.
 	//However, if it did, the type checking support would go here.
-	switch (right.leafComponentType().id) {
+	switch (otherType.leafComponentType().id) {
 	    case T_JavaLangObject :
 	    case T_JavaLangCloneable :
 	    case T_JavaIoSerializable :
 	        return true;
 	}
 	return false;
+}
+
+public int kind() {
+	return ARRAY_TYPE;
 }
 
 public TypeBinding leafComponentType(){
@@ -177,7 +217,6 @@ public TypeBinding leafComponentType(){
 * Answer the problem id associated with the receiver.
 * NoError if the receiver is a valid binding.
 */
-
 public int problemId() {
 	return leafComponentType.problemId();
 }
@@ -221,7 +260,7 @@ public char[] sourceName() {
 }
 public void swapUnresolved(UnresolvedReferenceBinding unresolvedType, ReferenceBinding resolvedType, LookupEnvironment env) {
 	if (this.leafComponentType == unresolvedType) {
-		this.leafComponentType = resolvedType.isGenericType() ? env.createRawType(resolvedType, resolvedType.enclosingType()) : resolvedType;
+		this.leafComponentType = env.convertToRawType(resolvedType);
 		this.tagBits |= this.leafComponentType.tagBits & (HasTypeVariable | HasDirectWildcard);
 	}
 }

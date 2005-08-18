@@ -80,7 +80,7 @@ public void addDefaultAbstractMethods() {
 
 	tagBits |= KnowsDefaultAbstractMethods;
 	if (isClass() && isAbstract()) {
-		if (fPackage.environment.options.targetJDK >= ClassFileConstants.JDK1_2)
+		if (this.scope.compilerOptions().targetJDK >= ClassFileConstants.JDK1_2)
 			return; // no longer added for post 1.2 targets
 
 		ReferenceBinding[][] interfacesToVisit = new ReferenceBinding[5][];
@@ -185,7 +185,7 @@ public FieldBinding addSyntheticFieldForInnerclass(ReferenceBinding enclosingTyp
 			for (int i = 0, max = typeDecl.fields.length; i < max; i++) {
 				FieldDeclaration fieldDecl = typeDecl.fields[i];
 				if (fieldDecl.binding == existingField) {
-					if (this.scope.environment().options.complianceLevel >= ClassFileConstants.JDK1_5) {
+					if (this.scope.compilerOptions().complianceLevel >= ClassFileConstants.JDK1_5) {
 						synthField.name = CharOperation.concat(
 							synthField.name,
 							"$".toCharArray()); //$NON-NLS-1$
@@ -369,6 +369,78 @@ public SyntheticMethodBinding addSyntheticEnumMethod(char[] selector) {
 	}
 	return accessMethod;
 }
+/*
+ * Add a synthetic field to handle the cache of the switch translation table for the corresponding enum type 
+ */
+public SyntheticFieldBinding addSyntheticFieldForSwitchEnum(char[] fieldName, String key) {
+	if (synthetics == null)
+		synthetics = new HashMap[4];
+	if (synthetics[FIELD_EMUL] == null)
+		synthetics[FIELD_EMUL] = new HashMap(5);
+
+	SyntheticFieldBinding synthField = (SyntheticFieldBinding) synthetics[FIELD_EMUL].get(key); //$NON-NLS-1$
+	if (synthField == null) {
+		synthField = new SyntheticFieldBinding(
+			fieldName,
+			scope.createArrayType(BaseTypes.IntBinding,1),
+			AccPrivate | AccStatic | AccSynthetic,
+			this,
+			Constant.NotAConstant,
+			synthetics[FIELD_EMUL].size());
+		synthetics[FIELD_EMUL].put(key, synthField);
+	}
+	// ensure there is not already such a field defined by the user
+	boolean needRecheck;
+	int index = 0;
+	do {
+		needRecheck = false;
+		FieldBinding existingField;
+		if ((existingField = this.getField(synthField.name, true /*resolve*/)) != null) {
+			TypeDeclaration typeDecl = scope.referenceContext;
+			for (int i = 0, max = typeDecl.fields.length; i < max; i++) {
+				FieldDeclaration fieldDecl = typeDecl.fields[i];
+				if (fieldDecl.binding == existingField) {
+					synthField.name = CharOperation.concat(
+						fieldName,
+						("_" + String.valueOf(index++)).toCharArray()); //$NON-NLS-1$
+					needRecheck = true;
+					break;
+				}
+			}
+		}
+	} while (needRecheck);
+	return synthField;
+}
+/* Add a new synthetic method the enum type. Selector can either be 'values' or 'valueOf'.
+ * char[] constants from TypeConstants must be used: TypeConstants.VALUES/VALUEOF
+*/
+public SyntheticMethodBinding addSyntheticMethodForSwitchEnum(TypeBinding enumBinding) {
+	if (synthetics == null)
+		synthetics = new HashMap[4];
+	if (synthetics[METHOD_EMUL] == null)
+		synthetics[METHOD_EMUL] = new HashMap(5);
+
+	SyntheticMethodBinding accessMethod = null;
+	char[] selector = CharOperation.concat(TypeConstants.SYNTHETIC_SWITCH_ENUM_TABLE, enumBinding.constantPoolName());
+	CharOperation.replace(selector, '/', '$');
+	final String key = new String(selector);
+	SyntheticMethodBinding[] accessors = (SyntheticMethodBinding[]) synthetics[METHOD_EMUL].get(key);
+	// first add the corresponding synthetic field
+	if (accessors == null) {
+		// then create the synthetic method
+		final SyntheticFieldBinding fieldBinding = this.addSyntheticFieldForSwitchEnum(selector, key);
+		accessMethod = new SyntheticMethodBinding(fieldBinding, this, enumBinding, selector);
+		synthetics[METHOD_EMUL].put(key, accessors = new SyntheticMethodBinding[2]);
+		accessors[0] = accessMethod;
+	} else {
+		if ((accessMethod = accessors[0]) == null) {
+			final SyntheticFieldBinding fieldBinding = this.addSyntheticFieldForSwitchEnum(selector, key);
+			accessMethod = new SyntheticMethodBinding(fieldBinding, this, enumBinding, selector);
+			accessors[0] = accessMethod;
+		}
+	}
+	return accessMethod;
+}
 /* Add a new synthetic access method for access to <targetMethod>.
  * Must distinguish access method used for super access from others (need to use invokespecial bytecode)
 	Answer the new method or the existing method if one already existed.
@@ -454,12 +526,12 @@ public void collectSubstitutes(Scope currentScope, TypeBinding otherType, Map su
 		case CONSTRAINT_EQUAL :
 		case CONSTRAINT_EXTENDS :
 			equivalent = this;
-	        otherEquivalent = ((ReferenceBinding)otherType).findSuperTypeErasingTo(this);
+	        otherEquivalent = ((ReferenceBinding)otherType).findSuperTypeWithSameErasure(this);
 	        if (otherEquivalent == null) return;
 	        break;
 		case CONSTRAINT_SUPER :
         default:
-	        equivalent = this.findSuperTypeErasingTo((ReferenceBinding)(otherType.erasure()));
+	        equivalent = this.findSuperTypeWithSameErasure(otherType);
 	        if (equivalent == null) return;
 	        otherEquivalent = (ReferenceBinding) otherType;
 	        break;
@@ -500,8 +572,8 @@ public int kind() {
 	if (this.typeVariables != NoTypeVariables) return Binding.GENERIC_TYPE;
 	return Binding.TYPE;
 }
-public char[] computeUniqueKey(boolean withAccessFlags) {
-	char[] uniqueKey = super.computeUniqueKey(withAccessFlags);
+public char[] computeUniqueKey(boolean isLeaf) {
+	char[] uniqueKey = super.computeUniqueKey(isLeaf);
 	if (uniqueKey.length == 2) return uniqueKey; // problem type's unique key is "L;"
 	int start = CharOperation.lastIndexOf('/', this.fileName) + 1;
 	int end = CharOperation.lastIndexOf('.', this.fileName);
@@ -535,7 +607,7 @@ void faultInTypesForFieldsAndMethods() {
 	// check @Deprecated annotation
 	if ((this.getAnnotationTagBits() & AnnotationDeprecated) != 0) {
 		this.modifiers |= AccDeprecated;
-	} else if ((this.modifiers & AccDeprecated) != 0 && scope != null && scope.environment().options.sourceLevel >= JDK1_5) {
+	} else if ((this.modifiers & AccDeprecated) != 0 && scope != null && scope.compilerOptions().sourceLevel >= JDK1_5) {
 		scope.problemReporter().missingDeprecatedAnnotationForType(scope.referenceContext);
 	}
 	ReferenceBinding enclosingType = this.enclosingType();
@@ -781,10 +853,11 @@ public MethodBinding[] getMethods(char[] selector) {
 	MethodBinding[] result = new MethodBinding[matchingMethods.size()];
 	matchingMethods.toArray(result);
 	if (!methodsAreResolved) {
+		boolean isSource15 = this.scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5;
 		for (int i = 0, length = result.length - 1; i < length; i++) {
 			MethodBinding method = result[i];
 			for (int j = length; j > i; j--) {
-				boolean paramsMatch = fPackage.environment.options.sourceLevel >= ClassFileConstants.JDK1_5
+				boolean paramsMatch = isSource15
 					? method.areParameterErasuresEqual(result[j])
 					: method.areParametersEqual(result[j]);
 				if (paramsMatch) {
@@ -820,7 +893,7 @@ public FieldBinding getSyntheticField(ReferenceBinding targetEnclosingType, bool
 		while (accessFields.hasNext()) {
 			field = (FieldBinding) accessFields.next();
 			if (CharOperation.prefixEquals(TypeConstants.SYNTHETIC_ENCLOSING_INSTANCE_PREFIX, field.name)
-				&& ((ReferenceBinding) field.type).findSuperTypeErasingTo(targetEnclosingType) != null)
+				&& ((ReferenceBinding) field.type).findSuperTypeWithSameErasure(targetEnclosingType) != null)
 					return field;
 		}
 	}
@@ -856,9 +929,16 @@ public boolean isEquivalentTo(TypeBinding otherType) {
 			if (this != otherParamType.type) 
 				return false;
 			if (!isStatic()) { // static member types do not compare their enclosing
-				ReferenceBinding enclosing = enclosingType();
-				if (enclosing != null && !enclosing.isEquivalentTo(otherParamType.enclosingType()))
-					return false;
+            	ReferenceBinding enclosing = enclosingType();
+            	if (enclosing != null) {
+            		ReferenceBinding otherEnclosing = otherParamType.enclosingType();
+            		if (otherEnclosing == null) return false;
+            		if ((otherEnclosing.tagBits & HasDirectWildcard) == 0) {
+						if (enclosing != otherEnclosing) return false;
+            		} else {
+            			if (!enclosing.isEquivalentTo(otherParamType.enclosingType())) return false;
+            		}
+            	}				
 			}
 			int length = this.typeVariables == null ? 0 : this.typeVariables.length;
 			TypeBinding[] otherArguments = otherParamType.arguments;
@@ -935,27 +1015,68 @@ public MethodBinding[] methods() {
 		}
 
 		// find & report collision cases
-		boolean complyTo15 = fPackage.environment.options.sourceLevel >= ClassFileConstants.JDK1_5;
+		boolean complyTo15 = this.scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5;
 		for (int i = 0, length = methods.length; i < length; i++) {
 			MethodBinding method = methods[i];
 			if (method != null) {
-				TypeBinding returnErasure = method.returnType == null ? null : method.returnType.erasure();
 				char[] selector = method.selector;
 				AbstractMethodDeclaration methodDecl = null;
 				nextMethod : for (int j = length - 1; j > i; j--) {
 					MethodBinding method2 = methods[j];
 					if (method2 == null || !CharOperation.equals(selector, method2.selector))
 						continue nextMethod;
-					if (complyTo15) {
-						if (returnErasure != (method2.returnType == null ? null : method2.returnType.erasure())) {
-							 // colllision when parameters are identical & type variable erasures match
-							if (!method.areParametersEqual(method2))
-								continue nextMethod;
-							if (method.typeVariables != NoTypeVariables && method2.typeVariables != NoTypeVariables)
-								if (!method.areTypeVariableErasuresEqual(method2))
-									continue nextMethod;
-						} else if (!method.areParameterErasuresEqual(method2)) { // colllision when parameter & return type erasures match
+					if (complyTo15 && method.returnType != null && method2.returnType != null) {
+						// 8.4.2, for collision to be detected between m1 and m2:
+						// signature(m1) == signature(m2) i.e. same arity, same type parameter count, can be substituted
+						// signature(m1) == erasure(signature(m2)) or erasure(signature(m1)) == signature(m2)
+						TypeBinding[] params1 = method.parameters;
+						TypeBinding[] params2 = method2.parameters;
+						int pLength = params1.length;
+						if (pLength != params2.length)
 							continue nextMethod;
+
+						TypeVariableBinding[] vars = method.typeVariables;
+						TypeVariableBinding[] vars2 = method2.typeVariables;
+						boolean equalTypeVars = vars == vars2;
+						MethodBinding subMethod = method2;
+						if (!equalTypeVars) {
+							MethodBinding temp = method.computeSubstitutedMethod(method2, this.scope.environment());
+							if (temp != null) {
+								equalTypeVars = true;
+								subMethod = temp;
+							}
+						}
+						boolean equalParams = method.areParametersEqual(subMethod);
+						if (equalParams && equalTypeVars) {
+							// duplicates regardless of return types
+						} else if (method.returnType.erasure() == subMethod.returnType.erasure() && (equalParams || method.areParameterErasuresEqual(method2))) {
+							// name clash for sure if not duplicates, report as duplicates
+						} else if (!equalTypeVars && vars != NoTypeVariables && vars2 != NoTypeVariables) {
+							// type variables are different so we can distinguish between methods
+							continue nextMethod;
+						} else if (pLength > 0) {
+							// check to see if the erasure of either method is equal to the other
+							int index = pLength;
+							for (; --index >= 0;) {
+								if (params1[index] != params2[index].erasure())
+									if (!params1[index].isRawType() || params1[index].erasure() != params2[index].erasure()) // want X#RAW to match X#RAW and X<T>
+										break;
+								if (params1[index] == params2[index]) {
+									TypeBinding type = params1[index].leafComponentType();
+									if (type instanceof SourceTypeBinding && type.typeVariables() != NoTypeVariables) {
+										index = pLength; // handle comparing identical source types like X<T>... its erasure is itself BUT we need to answer false
+										break;
+									}
+								}
+							}
+							if (index >= 0 && index < pLength) {
+								for (index = pLength; --index >= 0;)
+									if (params1[index].erasure() != params2[index])
+										if (!params2[index].isRawType() || params1[index].erasure() != params2[index].erasure()) // want X#RAW to match X#RAW and X<T>
+											break;
+							}
+							if (index >= 0)
+								continue nextMethod;
 						}
 					} else if (!method.areParametersEqual(method2)) { // prior to 1.5, parameter identity meant a collision case
 						continue nextMethod;
@@ -987,7 +1108,7 @@ public MethodBinding[] methods() {
 						failed++;
 					}
 				}
-				if (returnErasure == null && methodDecl == null) { // forget method with invalid return type... was kept to detect possible collisions
+				if (method.returnType == null && methodDecl == null) { // forget method with invalid return type... was kept to detect possible collisions
 					method.sourceMethod().binding = null;
 					methods[i] = null;
 					failed++;
@@ -1018,11 +1139,11 @@ private FieldBinding resolveTypeFor(FieldBinding field) {
 	if ((field.modifiers & AccUnresolved) == 0)
 		return field;
 
-	if (fPackage.environment.options.sourceLevel >= ClassFileConstants.JDK1_5) {
+	if (this.scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5) {
 		if ((field.getAnnotationTagBits() & AnnotationDeprecated) != 0)
 			field.modifiers |= AccDeprecated;
 		else if ((field.modifiers & AccDeprecated) != 0)
-			scope.problemReporter().missingDeprecatedAnnotationForField(field.sourceField());
+			this.scope.problemReporter().missingDeprecatedAnnotationForField(field.sourceField());
 	}
 	if (isViewedAsDeprecated() && !field.isDeprecated())
 		field.modifiers |= AccDeprecatedImplicitly;	
@@ -1032,15 +1153,15 @@ private FieldBinding resolveTypeFor(FieldBinding field) {
 			continue;
 
 			MethodScope initializationScope = field.isStatic() 
-				? scope.referenceContext.staticInitializerScope 
-				: scope.referenceContext.initializerScope;
+				? this.scope.referenceContext.staticInitializerScope 
+				: this.scope.referenceContext.initializerScope;
 			FieldBinding previousField = initializationScope.initializedField;
 			try {
 				initializationScope.initializedField = field;
 				FieldDeclaration fieldDecl = fieldDecls[f];
 				TypeBinding fieldType = 
 					fieldDecl.getKind() == AbstractVariableDeclaration.ENUM_CONSTANT
-						? this // enum constant is implicitly of declaring enum type
+						? initializationScope.environment().convertToRawType(this) // enum constant is implicitly of declaring enum type
 						: fieldDecl.type.resolveType(initializationScope, true /* check bounds*/);
 				field.type = fieldType;
 				field.modifiers &= ~AccUnresolved;
@@ -1073,11 +1194,11 @@ private MethodBinding resolveTypesFor(MethodBinding method) {
 	if ((method.modifiers & AccUnresolved) == 0)
 		return method;
 
-	if (fPackage.environment.options.sourceLevel >= ClassFileConstants.JDK1_5) {
+	if (this.scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5) {
 		if ((method.getAnnotationTagBits() & AnnotationDeprecated) != 0)
 			method.modifiers |= AccDeprecated;
 		else if ((method.modifiers & AccDeprecated) != 0)
-			scope.problemReporter().missingDeprecatedAnnotationForMethod(method.sourceMethod());
+			this.scope.problemReporter().missingDeprecatedAnnotationForMethod(method.sourceMethod());
 	}
 	if (isViewedAsDeprecated() && !method.isDeprecated())
 		method.modifiers |= AccDeprecatedImplicitly;
@@ -1096,14 +1217,14 @@ private MethodBinding resolveTypesFor(MethodBinding method) {
 	if (exceptionTypes != null) {
 		int size = exceptionTypes.length;
 		method.thrownExceptions = new ReferenceBinding[size];
-		ReferenceBinding throwable = scope.getJavaLangThrowable();
+		ReferenceBinding throwable = this.scope.getJavaLangThrowable();
 		int count = 0;
 		ReferenceBinding resolvedExceptionType;
 		for (int i = 0; i < size; i++) {
 			resolvedExceptionType = (ReferenceBinding) exceptionTypes[i].resolveType(methodDecl.scope, true /* check bounds*/);
 			if (resolvedExceptionType == null)
 				continue;
-			if (resolvedExceptionType.isGenericType() || resolvedExceptionType.isParameterizedType()) {
+			if (resolvedExceptionType.isGenericType() || resolvedExceptionType.isBoundParameterizedType()) {
 				methodDecl.scope.problemReporter().invalidParameterizedExceptionType(resolvedExceptionType, exceptionTypes[i]);
 				continue;
 			}
@@ -1294,7 +1415,10 @@ public String toString() {
 	if (isStatic() && isNestedType()) buffer.append("static "); //$NON-NLS-1$
 	if (isFinal()) buffer.append("final "); //$NON-NLS-1$
 
-	buffer.append(isInterface() ? "interface " : "class "); //$NON-NLS-1$ //$NON-NLS-2$
+	if (isEnum()) buffer.append("enum "); //$NON-NLS-1$
+	else if (isAnnotationType()) buffer.append("@interface "); //$NON-NLS-1$
+	else if (isClass()) buffer.append("class "); //$NON-NLS-1$
+	else buffer.append("interface "); //$NON-NLS-1$
 	buffer.append((compoundName != null) ? CharOperation.toString(compoundName) : "UNNAMED TYPE"); //$NON-NLS-1$
 
 	if (this.typeVariables == null) {

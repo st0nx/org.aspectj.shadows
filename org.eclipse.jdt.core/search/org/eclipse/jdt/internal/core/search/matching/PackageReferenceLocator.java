@@ -90,13 +90,7 @@ public int match(TypeReference node, MatchingNodeSet nodeSet) { // interested in
 }
 
 protected int matchLevel(ImportReference importRef) {
-	// Compare prefix also for static import
-	if (!importRef.onDemand || importRef.isStatic())
-		return matchLevelForTokens(importRef.tokens);
-
-	return matchesName(this.pattern.pkgName, CharOperation.concatWith(importRef.tokens, '.'))
-		? ACCURATE_MATCH
-		: IMPOSSIBLE_MATCH;
+	return matchLevelForTokens(importRef.tokens);
 }
 protected int matchLevelForTokens(char[][] tokens) {
 	if (this.pattern.pkgName == null) return ACCURATE_MATCH;
@@ -148,7 +142,7 @@ protected void matchReportImportRef(ImportReference importRef, Binding binding, 
 			long[] positions = importRef.sourcePositions;
 			int last = positions.length - 1;
 			if (binding instanceof ProblemReferenceBinding)
-				binding = ((ProblemReferenceBinding) binding).original;
+				binding = ((ProblemReferenceBinding) binding).closestMatch;
 			if (binding instanceof ReferenceBinding) {
 				PackageBinding pkgBinding = ((ReferenceBinding) binding).fPackage;
 				if (pkgBinding != null)
@@ -211,11 +205,22 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 		if (typeBinding instanceof ArrayBinding)
 			typeBinding = ((ArrayBinding) typeBinding).leafComponentType;
 		if (typeBinding instanceof ProblemReferenceBinding)
-			typeBinding = ((ProblemReferenceBinding) typeBinding).original;
+			typeBinding = ((ProblemReferenceBinding) typeBinding).closestMatch;
 		if (typeBinding instanceof ReferenceBinding) {
 			PackageBinding pkgBinding = ((ReferenceBinding) typeBinding).fPackage;
 			if (pkgBinding != null)
 				last = pkgBinding.compoundName.length;
+		}
+		// Do not report qualified references which are only enclosing type
+		// (see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=91078)
+		ReferenceBinding enclosingType = typeBinding == null ? null: typeBinding.enclosingType();
+		if (enclosingType != null) {
+			int length = positions.length;
+			while (enclosingType != null && length > 0) {
+				length--;
+				enclosingType = enclosingType.enclosingType();
+			}
+			if (length <= 1) return;
 		}
 	}
 	if (last == -1) {
@@ -263,7 +268,7 @@ public int resolveLevel(Binding binding) {
 		if (binding instanceof ArrayBinding)
 			binding = ((ArrayBinding) binding).leafComponentType;
 		if (binding instanceof ProblemReferenceBinding)
-			binding = ((ProblemReferenceBinding) binding).original;
+			binding = ((ProblemReferenceBinding) binding).closestMatch;
 		if (binding == null) return INACCURATE_MATCH;
 
 		if (binding instanceof ReferenceBinding) {

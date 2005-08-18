@@ -336,7 +336,7 @@ public IInitializer[] getInitializers() throws JavaModelException {
  */
 public String getKey() {
 	try {
-		return getKey(this, org.eclipse.jdt.internal.compiler.lookup.Binding.USE_ACCESS_FLAGS_IN_BINDING_KEY/*with access flags*/, false/*don't open*/);
+		return getKey(this, false/*don't open*/);
 	} catch (JavaModelException e) {
 		// happen only if force open is true
 		return null;
@@ -832,7 +832,7 @@ public String[][] resolveType(String typeName, WorkingCopyOwner owner) throws Ja
 /**
  * @private Debugging purposes
  */
-protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
+protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean showResolvedInfo) {
 	buffer.append(tabString(tab));
 	if (info == null) {
 		String elementName = getElementName();
