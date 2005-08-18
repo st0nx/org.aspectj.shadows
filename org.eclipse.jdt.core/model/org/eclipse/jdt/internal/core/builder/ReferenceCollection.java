@@ -13,12 +13,16 @@ package org.eclipse.jdt.internal.core.builder;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 
+//import java.util.*;
+
+// AspectJ Extension increased member visibilities for AspectJ
 public class ReferenceCollection {
 
 char[][][] qualifiedNameReferences; // contains no simple names as in just 'a' which is kept in simpleNameReferences instead
 char[][] simpleNameReferences;
 
-protected ReferenceCollection(char[][][] qualifiedNameReferences, char[][] simpleNameReferences) {
+//AspectJ Extension - raised visibility
+public ReferenceCollection(char[][][] qualifiedNameReferences, char[][] simpleNameReferences) {
 	this.qualifiedNameReferences = internQualifiedNames(qualifiedNameReferences);
 	this.simpleNameReferences = internSimpleNames(simpleNameReferences, true);
 }
@@ -35,17 +39,19 @@ boolean includes(char[][] qualifiedName) {
 	return false;
 }
 
-boolean includes(char[][][] qualifiedNames, char[][] simpleNames) {
+//AspectJ Extension - raised visibility
+public boolean includes(char[][][] qualifiedNames, char[][] simpleNames) {
+	final boolean DEBUG = false;
 	// if either collection of names is null, it means it contained a well known name so we know it already has a match
 	if (simpleNames == null || qualifiedNames == null) {
 		if (simpleNames == null && qualifiedNames == null) {
-			if (JavaBuilder.DEBUG)
+			if (DEBUG)
 				System.out.println("Found well known match"); //$NON-NLS-1$
 			return true;
 		} else if (qualifiedNames == null) {
 			for (int i = 0, l = simpleNames.length; i < l; i++) {
 				if (includes(simpleNames[i])) {
-					if (JavaBuilder.DEBUG)
+					if (DEBUG)
 						System.out.println("Found match in well known package to " + new String(simpleNames[i])); //$NON-NLS-1$
 					return true;
 				}
@@ -54,7 +60,7 @@ boolean includes(char[][][] qualifiedNames, char[][] simpleNames) {
 			for (int i = 0, l = qualifiedNames.length; i < l; i++) {
 				char[][] qualifiedName = qualifiedNames[i];
 				if (qualifiedName.length == 1 ? includes(qualifiedName[0]) : includes(qualifiedName)) {
-					if (JavaBuilder.DEBUG)
+					if (DEBUG)
 						System.out.println("Found well known match in " + CharOperation.toString(qualifiedName)); //$NON-NLS-1$
 					return true;
 				}
@@ -66,7 +72,7 @@ boolean includes(char[][][] qualifiedNames, char[][] simpleNames) {
 				for (int j = 0, m = qualifiedNames.length; j < m; j++) {
 					char[][] qualifiedName = qualifiedNames[j];
 					if (qualifiedName.length == 1 ? includes(qualifiedName[0]) : includes(qualifiedName)) {
-						if (JavaBuilder.DEBUG)
+						if (DEBUG)
 							System.out.println("Found match in " + CharOperation.toString(qualifiedName) //$NON-NLS-1$
 								+ " to " + new String(simpleNames[i])); //$NON-NLS-1$
 						return true;
@@ -118,6 +124,7 @@ static {
 		InternedSimpleNames[i] = new NameSet(37);
 }
 
+public // AspectJ Extension 
 static char[][][] internQualifiedNames(StringSet qualifiedStrings) {
 	if (qualifiedStrings == null) return EmptyQualifiedNames;
 	int length = qualifiedStrings.elementSize;
@@ -163,6 +170,7 @@ static char[][][] internQualifiedNames(char[][][] qualifiedNames) {
 	return keepers;
 }
 
+public // AspectJ Extension 
 static char[][] internSimpleNames(StringSet simpleStrings) {
 	if (simpleStrings == null) return EmptySimpleNames;
 	int length = simpleStrings.elementSize;

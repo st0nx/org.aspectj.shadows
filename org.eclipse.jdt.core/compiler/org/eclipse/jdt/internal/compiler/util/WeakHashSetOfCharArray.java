@@ -27,7 +27,7 @@ public class WeakHashSetOfCharArray {
 		}
 		public boolean equals(Object obj) {
 			if (!(obj instanceof HashableWeakReference)) return false;
-			char[] referent = (char[]) get();
+			char[] referent = (char[]) super.get();
 			char[] other = (char[]) ((HashableWeakReference) obj).get();
 			if (referent == null) return other == null;
 			return CharOperation.equals(referent, other);
@@ -36,7 +36,7 @@ public class WeakHashSetOfCharArray {
 			return this.hashCode;
 		}
 		public String toString() {
-			char[] referent = (char[]) get();
+			char[] referent = (char[]) super.get();
 			if (referent == null) return "[hashCode=" + this.hashCode + "] <referent was garbage collected>"; //$NON-NLS-1$  //$NON-NLS-2$
 			return "[hashCode=" + this.hashCode + "] \"" + new String(referent) + '\"'; //$NON-NLS-1$ //$NON-NLS-2$
 		}

@@ -7,7 +7,8 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import java.util.HashMap;
@@ -24,11 +25,19 @@ import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfPackage;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 
+/**
+ * AspectJ Extension - made many methods and fields more visible for extension
+ * 
+ * Also modified error checking on getType(char[][] compoundName) to allow
+ * refering to inner types directly.
+ */
 public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstants {
-	final static int BUILD_FIELDS_AND_METHODS = 4;
-	final static int BUILD_TYPE_HIERARCHY = 1;
-	final static int CHECK_AND_SET_IMPORTS = 2;
-	final static int CONNECT_TYPE_HIERARCHY = 3;
+	// AspectJ Extension - raised visibility
+	protected final static int BUILD_FIELDS_AND_METHODS = 4;
+	protected final static int BUILD_TYPE_HIERARCHY = 1;
+	protected final static int CHECK_AND_SET_IMPORTS = 2;
+	protected final static int CONNECT_TYPE_HIERARCHY = 3;
+	// End AspectJ Extension
 	static final ProblemPackageBinding TheNotFoundPackage = new ProblemPackageBinding(CharOperation.NO_CHAR, NotFound);
 	static final ProblemReferenceBinding TheNotFoundType = new ProblemReferenceBinding(CharOperation.NO_CHAR, null, NotFound);
 	
@@ -40,8 +49,10 @@ public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstan
 
 	PackageBinding defaultPackage;
 	HashtableOfPackage knownPackages;
-	private int lastCompletedUnitIndex = -1;
-	private int lastUnitIndex = -1;
+	// AspectJ Extension - raised visibility
+	protected int lastCompletedUnitIndex = -1;
+	protected int lastUnitIndex = -1;
+	// End AspectJ Extension
 
 	public INameEnvironment nameEnvironment;
 	public CompilerOptions globalOptions;
@@ -56,7 +67,7 @@ public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstan
 	// step 1 : build the reference binding
 	// step 2 : conect the hierarchy (connect bindings)
 	// step 3 : build fields and method bindings.
-	private int stepCompleted;
+	protected int stepCompleted; // AspectJ Extension - raised visibility
 	public ITypeRequestor typeRequestor;
 	private ArrayBinding[][] uniqueArrayBindings;
 	private SimpleLookupTable uniqueParameterizedTypeBindings;
@@ -65,7 +76,8 @@ public class LookupEnvironment implements BaseTypes, ProblemReasons, TypeConstan
 	
 	public CompilationUnitDeclaration unitBeingCompleted = null; // only set while completing units
 
-	private CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
+	// AspectJ Extension - raised visibility
+	protected CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
 	private MethodVerifier verifier;
 
 public LookupEnvironment(ITypeRequestor typeRequestor, CompilerOptions globalOptions, ProblemReporter problemReporter, INameEnvironment nameEnvironment) {
@@ -746,8 +758,12 @@ public ReferenceBinding getType(char[][] compoundName) {
 	referenceBinding = BinaryTypeBinding.resolveType(referenceBinding, this, false); // no raw conversion for now
 
 	// compoundName refers to a nested type incorrectly (for example, package1.A$B)
-	if (referenceBinding.isNestedType())
-		return new ProblemReferenceBinding(compoundName, referenceBinding, InternalNameProvided);
+	//	AspectJ Extension - commented out "if" case
+	//XXX how else are we supposed to refer to nested types???
+	//if (referenceBinding.isNestedType())
+	//	return new ProblemReferenceBinding(compoundName, referenceBinding, InternalNameProvided);
+    //else
+	//	End AspectJ Extension
 	return referenceBinding;
 }
 private TypeBinding[] getTypeArgumentsFromSignature(SignatureWrapper wrapper, TypeVariableBinding[] staticVariables, ReferenceBinding enclosingType, ReferenceBinding genericType) {

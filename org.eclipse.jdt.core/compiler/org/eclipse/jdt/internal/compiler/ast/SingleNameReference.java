@@ -18,6 +18,9 @@ import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
+/**
+ * AspectJ Extension - support for FieldBinding.alwaysNeedsAccessMethod
+ */
 public class SingleNameReference extends NameReference implements OperatorIds {
     
 	public char[] token;
@@ -214,9 +217,12 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 		if (runtimeTimeType == null || compileTimeType == null)
 			return;				
 		if ((bits & Binding.FIELD) != 0 && this.binding != null && this.binding.isValidBinding()) {
-			// set the generic cast after the fact, once the type expectation is fully known (no need for strict cast)
-			FieldBinding originalBinding = ((FieldBinding)this.binding).original();
-			if (originalBinding != this.binding) {
+			// XXX AspectJ Extension - ajc_aroundClosure does this
+			if (this.binding instanceof FieldBinding) { 
+			// End AspectJ Extension
+		  	  // set the generic cast after the fact, once the type expectation is fully known (no need for strict cast)
+			  FieldBinding originalBinding = ((FieldBinding)this.binding).original();
+			  if (originalBinding != this.binding) {
 			    // extra cast needed if method return type has type variable
 			    if ((originalBinding.type.tagBits & TagBits.HasTypeVariable) != 0 && runtimeTimeType.id != T_JavaLangObject) {
 			    	TypeBinding targetType = (!compileTimeType.isBaseType() && runtimeTimeType.isBaseType()) 
@@ -224,7 +230,8 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 			    		: runtimeTimeType;
 			        this.genericCast = originalBinding.type.genericCast(scope.boxing(targetType));
 			    }
-			} 	
+			  } 	
+			} // AspectJ - added extra closing brace
 		}
 		super.computeConversion(scope, runtimeTimeType, compileTimeType);
 	}	
@@ -638,16 +645,37 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 	
 		if ((bits & Binding.FIELD) != 0) {
 			FieldBinding fieldBinding = (FieldBinding) binding;
+			
+			// AspectJ Extension
+			if (isReadAccess && fieldBinding.alwaysNeedsAccessMethod(true)) {
+				if (syntheticAccessors == null) {
+					syntheticAccessors = new MethodBinding[2];
+				}
+				syntheticAccessors[READ] = fieldBinding.getAccessMethod(true);
+			    FieldBinding codegenField = fieldBinding.original();
+			    this.codegenBinding = codegenField;
+				return;
+			} else if (fieldBinding.alwaysNeedsAccessMethod(false)) {
+				if (syntheticAccessors == null) {
+					syntheticAccessors = new MethodBinding[2];
+				}
+				syntheticAccessors[WRITE] = fieldBinding.getAccessMethod(false);
+				FieldBinding codegenField = fieldBinding.original();
+				this.codegenBinding = codegenField;
+				return;
+			}	
+			// End	AspectJ Extension
+			
 			FieldBinding codegenField = fieldBinding.original();
 			this.codegenBinding = codegenField;
 			if (((bits & DepthMASK) != 0)
 				&& (codegenField.isPrivate() // private access
 					|| (codegenField.isProtected() // implicit protected access
-							&& codegenField.declaringClass.getPackage() != currentScope.enclosingSourceType().getPackage()))) {
+							&& codegenField.declaringClass.getPackage() != currentScope.invocationType().getPackage()))) { // AspectJ Extensios
 				if (syntheticAccessors == null)
 					syntheticAccessors = new MethodBinding[2];
 				syntheticAccessors[isReadAccess ? READ : WRITE] = 
-				    ((SourceTypeBinding)currentScope.enclosingSourceType().
+				    ((SourceTypeBinding)currentScope.invocationType(). // AspectJ Extension
 						enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT)).addSyntheticMethod(codegenField, isReadAccess);
 				currentScope.problemReporter().needToEmulateFieldAccess(codegenField, this, isReadAccess);
 				return;
@@ -666,6 +694,14 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 						&& fieldBinding.declaringClass.id != T_JavaLangObject) // no change for Object fields
 					|| !fieldBinding.declaringClass.canBeSeenBy(currentScope)) {
 		
+					// AspectJ Extension for inter-type scopes
+					if (fieldBinding.isStatic() && (fieldBinding.declaringClass.canBeSeenBy(currentScope))) {
+						ReferenceBinding rb = (ReferenceBinding) this.actualReceiverType.erasure();
+						FieldBinding b = rb.getField(token, false);
+						if (b == null) return;  // field was visible in inter-type scope and is not on actualReceiverType, don't muck about with it
+					}
+					// End AspectJ Extension
+					
 					this.codegenBinding = 
 					    currentScope.enclosingSourceType().getUpdatedFieldBinding(
 						       codegenField, 

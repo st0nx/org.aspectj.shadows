@@ -367,10 +367,12 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 		return null;
 	}
 
+	// AspectJ Extension - renamed this method to getExactMethodBase(), was getExactMethod()
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding#getExactMethod(char[], TypeBinding[],CompilationUnitScope)
 	 */
-	public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes, CompilationUnitScope refScope) {
+	public MethodBinding getExactMethodBase(char[] selector, TypeBinding[] argumentTypes, CompilationUnitScope refScope) {
+		// End AspectJ Extension
 		// sender from refScope calls recordTypeReference(this)
 		int argCount = argumentTypes.length;
 		int selectorLength = selector.length;
@@ -1010,4 +1012,22 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 		} 
 		return NoTypeVariables;
 	}	
+	
+	// AspectJ extension - delegate to the source type (the generic type) as it has a memberFinder for resolving ITDs
+	public FieldBinding getField(char[] fieldName, boolean resolve, InvocationSite site, Scope scope) {
+		FieldBinding fb = null;
+        fb = super.getField(fieldName, resolve, site, scope); // Check this parameterized type
+		if (fb==null) fb = type.getField(fieldName,resolve,site,scope); // Not found? then check the generic type, this may discover ITDs
+		return fb;
+    }
+    
+	// Also renamed getExactMethod() in the original PTB class to getExactMethodBase
+	public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes, CompilationUnitScope refScope) {
+	  MethodBinding mb = null;
+	  mb = getExactMethodBase(selector,argumentTypes,refScope);
+	  if (mb==null) mb = type.getExactMethod(selector,argumentTypes,refScope);
+	  return mb;
+	}
+
+	// End AspectJ extension
 }

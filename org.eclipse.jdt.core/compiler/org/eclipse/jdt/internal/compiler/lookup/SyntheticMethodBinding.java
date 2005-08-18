@@ -390,4 +390,11 @@ public class SyntheticMethodBinding extends MethodBinding {
 	protected boolean isConstructorRelated() {
 		return kind == ConstructorAccess;
 	}
+	
+	// AspectJ Extension
+	public SyntheticMethodBinding(MethodBinding myBinding) {
+		super(myBinding,null);
+		this.declaringClass = myBinding.declaringClass;
+    }
+	// End AspectJ Extension
 }

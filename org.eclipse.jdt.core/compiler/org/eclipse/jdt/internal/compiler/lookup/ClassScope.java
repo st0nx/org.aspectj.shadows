@@ -7,7 +7,8 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import java.util.*;
@@ -28,6 +29,11 @@ import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
 
+//import java.util.*;
+
+/**
+ * AspectJ Extension - added many hooks
+ */
 public class ClassScope extends Scope {
 	
 	public TypeDeclaration referenceContext;
@@ -147,6 +153,11 @@ public class ClassScope extends Scope {
 	}
 	
 	void buildFieldsAndMethods() {
+		
+		// AspectJ Extension
+		postParse();
+		// End AspectJ Extension
+		
 		buildFields();
 		buildMethods();
 
@@ -158,6 +169,17 @@ public class ClassScope extends Scope {
 		for (int i = 0, length = memberTypes.length; i < length; i++)
 			 ((SourceTypeBinding) memberTypes[i]).scope.buildFieldsAndMethods();
 	}
+	
+	// AspectJ Extension
+	private void postParse() {
+		TypeDeclaration typeDec = referenceContext;
+		AbstractMethodDeclaration[] methods = typeDec.methods;
+		if (methods == null) return;
+		for (int i=0, len=methods.length; i < len; i++) {
+			methods[i].postParse(typeDec);
+		}
+	}
+	// End AspectJ Extension
 	
 	private LocalTypeBinding buildLocalType(
 		SourceTypeBinding enclosingType,
@@ -981,6 +1003,8 @@ public class ClassScope extends Scope {
 			for (int i = 0, l = argTypes.length; i < l; i++) {
 				TypeBinding argType = argTypes[i].leafComponentType();
 				if ((argType.tagBits & BeginHierarchyCheck) == 0 && argType instanceof SourceTypeBinding)
+                    // AspectJ Extension, we hacked the hierarchy of BinaryTypeBinding and here we pay the price
+					if (! (argType instanceof BinaryTypeBinding)) 
 			    	// ensure if this is a source argument type that it has already been checked
 			    	((SourceTypeBinding) argType).scope.connectTypeHierarchyWithoutMembers();
 			}
@@ -997,9 +1021,12 @@ public class ClassScope extends Scope {
 			return detectHierarchyCycle(referenceContext.binding, (ReferenceBinding) superType, reference);
 		}
 
-		if ((superType.tagBits & BeginHierarchyCheck) == 0 && superType instanceof SourceTypeBinding)
+		if ((superType.tagBits & BeginHierarchyCheck) == 0 && superType instanceof SourceTypeBinding) {
+			// AspectJ Extension, we hacked the hierarchy of BinaryTypeBinding and here we pay the price
+			if (! (superType instanceof BinaryTypeBinding)) 
 			// ensure if this is a source superclass that it has already been checked
 			((SourceTypeBinding) superType).scope.connectTypeHierarchyWithoutMembers();
+		}
 		return false;
 	}
 
@@ -1132,4 +1159,13 @@ public class ClassScope extends Scope {
 							+ referenceContext.binding.toString();
 		return "--- Class Scope ---\n\n Binding not initialized" ; //$NON-NLS-1$
 	}
+	
+	// AspectJ Extension - hooks for subclasses to override
+	public int addDepth() {
+		return 1;
+}
+	public SourceTypeBinding invocationType() {
+		return referenceContext.binding;
+	}
+	//	End AspectJ Extension
 }

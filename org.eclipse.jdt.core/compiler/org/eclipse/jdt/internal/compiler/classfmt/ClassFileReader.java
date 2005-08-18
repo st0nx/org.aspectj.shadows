@@ -1063,4 +1063,12 @@ public String toString() {
 	print.flush();
 	return out.toString();
 }
+
+
+// AspectJ Extension
+public byte[] getReferenceBytes() {
+	return reference;
+}
+// End AspectJ Extension
+
 }

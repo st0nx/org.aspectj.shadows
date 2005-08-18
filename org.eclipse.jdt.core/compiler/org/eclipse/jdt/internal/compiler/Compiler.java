@@ -108,7 +108,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		this.problemReporter =
 			new ProblemReporter(policy, this.options, problemFactory);
 		this.lookupEnvironment =
-			new LookupEnvironment(this, this.options, this.problemReporter, environment);
+			new LookupEnvironment(this, options, problemReporter, environment);
 		initializeParser();
 	}
 	
@@ -329,10 +329,12 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 					process(unit, i);
 				} finally {
 					// cleanup compilation unit result
-					unit.cleanUp();
+					//unit.cleanUp(); AspectJ Extension -moved to afterProcessing
 				}
-				unitsToProcess[i] = null; // release reference to processed unit declaration
-				requestor.acceptResult(unit.compilationResult.tagAsAccepted());
+				// AspectJ Extension
+				//unitsToProcess[i] = null; // release reference to processed unit declaration
+				//requestor.acceptResult(unit.compilationResult.tagAsAccepted());
+				// End AspectJ Extension
 				if (options.verbose)
 					System.out.println(
 						Messages.bind(Messages.compilation_done,
@@ -351,7 +353,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			this.handleInternalException(e, unit, null);
 			throw e; // rethrow
 		} finally {
-			this.reset();
+			//this.reset();  AspectJ Extension, handled by CompilerAdapter
 		}
 		if (options.verbose) {
 			if (this.totalUnits > 1) {

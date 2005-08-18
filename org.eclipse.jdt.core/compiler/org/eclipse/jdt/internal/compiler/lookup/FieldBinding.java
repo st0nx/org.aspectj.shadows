@@ -7,7 +7,8 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- *******************************************************************************/
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
+ ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -16,6 +17,10 @@ import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 
+/**
+ * AspectJ Extension added hooks for inter-type field bindings as well as
+ * proto-hooks for allowing privileged access
+ */
 public class FieldBinding extends VariableBinding {
 	public ReferenceBinding declaringClass;
 protected FieldBinding() {
@@ -59,11 +64,11 @@ public final boolean canBeSeenBy(PackageBinding invocationPackage) {
 *
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
-
-public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+//AspectJ Extension made non-final for AspectJ
+public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
 
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+	SourceTypeBinding invocationType = scope.invocationType(); // AspectJ Extension
 	if (invocationType == declaringClass && invocationType == receiverType) return true;
 
 	if (isProtected()) {
@@ -306,4 +311,28 @@ public FieldDeclaration sourceField() {
 	}
 	return null;		
 }
+
+// AspectJ Extension
+public boolean alwaysNeedsAccessMethod(boolean isReadAccess) { return false; }
+public SyntheticMethodBinding getAccessMethod(boolean isReadAccess) {
+	throw new RuntimeException("unimplemented");
+}
+
+public FieldBinding getFieldBindingForLookup() { return this; }
+
+public FieldBinding getVisibleBinding(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+	if (canBeSeenBy(receiverType, invocationSite, scope)) return this;
+	return findPrivilegedBinding(scope.invocationType(), (ASTNode)invocationSite);
+}
+
+
+public FieldBinding findPrivilegedBinding(SourceTypeBinding invocationType, ASTNode location) {
+	if (Scope.findPrivilegedHandler(invocationType) != null) {
+		return Scope.findPrivilegedHandler(invocationType).getPrivilegedAccessField(this, location); //notePrivilegedTypeAccess(this, null);
+	} else {
+		return null;
+	}
+}
+// End AspectJ Extension
+
 }

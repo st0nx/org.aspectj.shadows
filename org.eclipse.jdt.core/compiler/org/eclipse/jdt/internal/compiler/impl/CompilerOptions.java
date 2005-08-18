@@ -180,7 +180,12 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final long MissingDeprecatedAnnotation = ASTNode.Bit43L;
 	public static final long DiscouragedReference = ASTNode.Bit44L;
 	public static final long UnhandledWarningToken = ASTNode.Bit45L;
-	
+
+	// AspectJ Extension
+	// when picking up a later version of this class, if new constants have been added to 
+	// the above list, then AjCompilerOptions will need updating also.
+	// End AspectJ Extension
+		
 	// TODO (olivier) remove once http://gcc.gnu.org/bugzilla/show_bug.cgi?id=21540 is fixed
 	private static final int IntMissingSerialVersion = (int) (MissingSerialVersion >>> 32);
 	private static final int IntAutoBoxing = (int) (Autoboxing >>> 32);
@@ -783,6 +788,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		return buf.toString();
 	}
 
+	protected // AspectJ Extension
 	void updateSeverity(long irritant, Object severityString) {
 		if (ERROR.equals(severityString)) {
 			this.errorThreshold |= irritant;

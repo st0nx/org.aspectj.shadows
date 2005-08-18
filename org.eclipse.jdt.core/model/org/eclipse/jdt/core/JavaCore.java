@@ -94,7 +94,7 @@ import org.osgi.framework.BundleContext;
  * automatically if not already active.
  * </p>
  */
-public final class JavaCore extends Plugin {
+public /* AspectJ Extension non- final */ class JavaCore extends Plugin {
 
 	private static Plugin JAVA_CORE_PLUGIN = null; 
 	/**

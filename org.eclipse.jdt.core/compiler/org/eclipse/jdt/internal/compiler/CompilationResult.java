@@ -396,8 +396,10 @@ public class CompilationResult {
 	public void record(char[] typeName, ClassFile classFile) {
 
 	    SourceTypeBinding sourceType = classFile.referenceBinding;
-	    if (!sourceType.isLocalType() && sourceType.isHierarchyInconsistent()) {
-	        this.hasInconsistentToplevelHierarchies = true;
+	    if (sourceType != null) { // AspectJ Extension - does this matter???
+	    	if (!sourceType.isLocalType() && sourceType.isHierarchyInconsistent()) {
+	       	 this.hasInconsistentToplevelHierarchies = true;
+	    	}
 	    }
 		compiledTypes.put(typeName, classFile);
 	}
@@ -480,4 +482,45 @@ public class CompilationResult {
 		} 
 		return buffer.toString();
 	}
+	
+	// AspectJ Extension
+	private boolean fromBinarySource = false;
+	public boolean isFromBinarySource() { return fromBinarySource; }
+	public void noSourceAvailable() { fromBinarySource = true; }
+	
+	/**
+	 * Can be used to tidy up the problems set, if a problem is accepted by the
+	 * filter, it will be removed. Returns number of problems removed.
+	 */
+	public int removeProblems(ProblemsForRemovalFilter pf) {
+		if (problemCount==0) return 0;
+		
+		// Quick first pass - check if anything to do
+		boolean problemsNeedRemoving = false;
+		for (int i = 0; i < problemCount && !problemsNeedRemoving; i++) {
+			if (pf.accept(problems[i])) problemsNeedRemoving = true;
+}
+		if (!problemsNeedRemoving) return 0;
+		
+		// Second pass, do the removal - is this expensive?
+		int counter = 0;
+		for (int i = 0; i < problemCount; i++) {
+			if (pf.accept(problems[i])) {
+			  if (problemsMap!=null) problemsMap.remove(problems[i]);
+			  if (firstErrors!=null) firstErrors.remove(problems[i]);
+			} else { // keep it
+			  problems[counter++]=problems[i];
+			}
+		}
+		// Don't adjust the array size as the same deows are likely just to get readded
+		// in the imminent weave...
+		int result = problemCount - counter;
+		problemCount = counter;
+		return result;
+	}
+	
+	public interface ProblemsForRemovalFilter {
+		boolean accept(IProblem p);
+	}
+	// End AspectJ Extension
 }
