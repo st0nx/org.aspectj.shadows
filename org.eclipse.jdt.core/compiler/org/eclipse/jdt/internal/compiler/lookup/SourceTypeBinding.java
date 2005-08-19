@@ -1260,7 +1260,7 @@ private FieldBinding resolveTypeFor(FieldBinding field) {
 	}
 	return null; // should never reach this point
 }
-private MethodBinding resolveTypesFor(MethodBinding method) {
+public MethodBinding resolveTypesFor(MethodBinding method) {  // AspectJ Extension - raised visibility
 	if ((method.modifiers & AccUnresolved) == 0)
 		return method;
 
