@@ -66,6 +66,7 @@ public FileSystem(String[] classpathNames, String[] initialFileNames, String enc
 		Classpath classpath = getClasspath(classpathNames[i], encoding,
 					classpathDirectoryModes == null ? 0
 							: classpathDirectoryModes[i], null);
+		if (classpath == null) continue; // AspectJ Extension
 		try {
 			classpath.initialize();
 			this.classpaths[counter++] = classpath;
