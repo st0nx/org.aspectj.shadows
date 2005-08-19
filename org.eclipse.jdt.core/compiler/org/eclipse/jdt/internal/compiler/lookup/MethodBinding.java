@@ -823,4 +823,12 @@ public MethodBinding tiebreakMethod() {
 public TypeVariableBinding[] typeVariables() {
 	return this.typeVariables;
 }
+
+// AspectJ Extension
+// regular methods are always "owned" by their declaringClass, but an ITD method
+// is "owned" by the target class.
+public ReferenceBinding getOwningClass() {
+	return declaringClass;
+}
+// End AspectJ Extension
 }

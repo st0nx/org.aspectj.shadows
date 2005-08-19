@@ -138,4 +138,14 @@ public class ParameterizedMethodBinding extends MethodBinding {
 	public MethodBinding original() {
 		return this.originalMethod.original();
 	}
+	
+
+//	 AspectJ Extension
+//	 regular methods are always "owned" by their declaringClass, but an ITD method
+//	 is "owned" by the target class, when parameterized, we need to go back to the 
+//   original method to find this out.
+	public ReferenceBinding getOwningClass() {
+		return this.originalMethod.getOwningClass();
+    }
+//	 End AspectJ Extension
 }
