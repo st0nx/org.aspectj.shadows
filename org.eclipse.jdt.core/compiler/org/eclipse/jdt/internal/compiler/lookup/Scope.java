@@ -3394,13 +3394,14 @@ public abstract class Scope
 
 					// see if method & method2 are duplicates due to the current substitution or multiple static imported methods
 					if (method.tiebreakMethod().areParametersEqual(method2.tiebreakMethod())) {
-						if (method.declaringClass == method2.declaringClass)
+						// AspectJ Extension, use getOwningClass() rather than declaringClass
+						if (method.getOwningClass() == method2.getOwningClass()) 
 							continue nextVisible; // duplicates thru substitution
 
 						MethodBinding original = method.original();
 						if (method.hasSubstitutedParameters() || original.typeVariables != NoTypeVariables) {
-							ReferenceBinding declaringClass = (ReferenceBinding) method.declaringClass.erasure();
-							ReferenceBinding superType = declaringClass.findSuperTypeWithSameErasure(method2.declaringClass.erasure());
+							ReferenceBinding declaringClass = (ReferenceBinding) method.getOwningClass().erasure(); // AspectJ Extension was declaringClass
+							ReferenceBinding superType = declaringClass.findSuperTypeWithSameErasure(method2.getOwningClass().erasure()); // AspectJ Extension was declaringClass
 							if (superType == null) {
 								// accept concrete methods over abstract methods found due to the default abstract method walk
 								if (!method.isAbstract() && method2.isAbstract())
@@ -3424,8 +3425,8 @@ public abstract class Scope
 								break nextVisible; // dup thru substitution, not overridden... cannot find possible match
 							// method overrides method2, accept it
 						} else if (method.isStatic() && method2.isStatic()) {
-							ReferenceBinding declaringClass = (ReferenceBinding) method.declaringClass.erasure();
-							ReferenceBinding superType = declaringClass.findSuperTypeWithSameErasure(method2.declaringClass.erasure());
+							ReferenceBinding declaringClass = (ReferenceBinding) method.getOwningClass().erasure(); // AspectJ Extension was declaringClass
+							ReferenceBinding superType = declaringClass.findSuperTypeWithSameErasure(method2.getOwningClass().erasure()); // AspectJ Extension was declaringClass
 							if (superType == null)
 								continue nextVisible; // static methods from unrelated types
 						}
