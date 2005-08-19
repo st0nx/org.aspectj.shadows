@@ -725,6 +725,14 @@ InterTypeMethodHeader ::= InterTypeMethodHeaderName FormalParameterListopt Metho
 InterTypeMethodHeaderName ::= Modifiersopt Type OnType '.' JavaIdentifier '('
 /.$putCase consumeInterTypeMethodHeaderName(false,false); $break ./
 
+-- Recovery Rule
+InterTypeMethodHeaderName ::= Modifiersopt Type OnType '.' '*' '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderNameIllegallyUsingTypePattern("*"); $break ./
+
+-- Recovery Rule
+InterTypeMethodHeaderName ::= Modifiersopt Type OnType '+' '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderNameIllegallyUsingTypePattern("+"); $break ./
+
 InterTypeMethodHeaderName ::= Modifiersopt Type OnType TypeParametersAsReference '.' JavaIdentifier '('
 /.$putCase consumeInterTypeMethodHeaderName(false,true); $break ./
 /:$readableName inter-type method declaration header:/
@@ -758,6 +766,16 @@ InterTypeConstructorHeaderName ::= Modifiersopt Name '.' 'new' '('
 /.$putCase consumeInterTypeConstructorHeaderName(false,false); $break ./
 /:$readableName inter-type constructor declaration header:/
 
+-- Recovery Rule
+InterTypeConstructorHeaderName ::= Modifiersopt Name '.' '*' '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderNameIllegallyUsingTypePattern("*"); $break ./
+/:$readableName inter-type constructor declaration header:/
+
+-- Recovery Rule
+InterTypeConstructorHeaderName ::= Modifiersopt Name '+' '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderNameIllegallyUsingTypePattern("+"); $break ./
+/:$readableName inter-type constructor declaration header:/
+
 InterTypeConstructorHeaderName ::= Modifiersopt TypeParameters Name '.' 'new' '('
 /.$putCase consumeInterTypeConstructorHeaderName(true,false); $break ./
 
@@ -773,6 +791,16 @@ InterTypeFieldDeclaration ::= InterTypeFieldHeader InterTypeFieldBody ';'
 
 InterTypeFieldHeader ::= Modifiersopt Type OnType '.' JavaIdentifier
 /.$putCase consumeInterTypeFieldHeader(false); $break ./
+/:$readableName inter-type field declaration header:/
+
+-- Recovery Rule
+InterTypeFieldHeader ::= Modifiersopt Type OnType '.' '*' '.' JavaIdentifier
+/.$putCase consumeInterTypeFieldHeaderIllegallyAttemptingToUseATypePattern("*"); $break ./
+/:$readableName inter-type field declaration header:/
+
+-- Recovery Rule
+InterTypeFieldHeader ::= Modifiersopt Type OnType '+' '.' JavaIdentifier
+/.$putCase consumeInterTypeFieldHeaderIllegallyAttemptingToUseATypePattern("+"); $break ./
 /:$readableName inter-type field declaration header:/
 
 InterTypeFieldHeader ::= Modifiersopt Type OnType TypeParametersAsReference '.' JavaIdentifier
