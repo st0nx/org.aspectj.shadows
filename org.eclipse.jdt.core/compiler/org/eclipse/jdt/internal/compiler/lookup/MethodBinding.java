@@ -167,12 +167,15 @@ public final boolean areTypeVariableErasuresEqual(MethodBinding method) {
 public boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
 
+	ReferenceBinding declaringType = original().declaringClass;  // AspectJ Extension
+	// changed all occurrences of declaringClass in what follows to declaringType
+	
 	SourceTypeBinding invocationType = scope.invocationType(); // AspectJ Extension
-	if (invocationType == declaringClass) return true;
+	if (invocationType == declaringType) return true;
 
 	if (isProtected()) {
 		// answer true if the receiver is in the same package as the invocationType
-		if (invocationType.fPackage == declaringClass.fPackage) return true;
+		if (invocationType.fPackage == declaringType.fPackage) return true;
 		return invocationSite.isSuperAccess();
 	}
 
@@ -186,7 +189,7 @@ public boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 			temp = temp.enclosingType();
 		}
 
-		ReferenceBinding outerDeclaringClass = (ReferenceBinding)declaringClass.erasure();
+		ReferenceBinding outerDeclaringClass = (ReferenceBinding)declaringType.erasure();
 		temp = outerDeclaringClass.enclosingType();
 		while (temp != null) {
 			outerDeclaringClass = temp;
@@ -196,7 +199,7 @@ public boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 	}
 
 	// isDefault()
-	return invocationType.fPackage == declaringClass.fPackage;
+	return invocationType.fPackage == declaringType.fPackage;
 }
 
 //AspectJ Extension
@@ -824,11 +827,4 @@ public TypeVariableBinding[] typeVariables() {
 	return this.typeVariables;
 }
 
-// AspectJ Extension
-// regular methods are always "owned" by their declaringClass, but an ITD method
-// is "owned" by the target class.
-public ReferenceBinding getOwningClass() {
-	return declaringClass;
-}
-// End AspectJ Extension
 }
