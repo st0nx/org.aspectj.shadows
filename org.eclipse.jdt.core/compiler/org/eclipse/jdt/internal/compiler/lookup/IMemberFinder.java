@@ -26,6 +26,7 @@ public interface IMemberFinder {
                           InvocationSite site,
                           Scope scope);
 		
+	MethodBinding[] methods(SourceTypeBinding sourceTypeBinding);	
 		
 	MethodBinding[] getMethods(
                                SourceTypeBinding sourceTypeBinding,
