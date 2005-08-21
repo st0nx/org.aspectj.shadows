@@ -492,7 +492,14 @@ void computeInheritedMethods(ReferenceBinding superclass, ReferenceBinding[] sup
 	}
 }
 void computeMethods() {
-	MethodBinding[] methods = type.methods();
+	// AspectJ Extension - use member finder if there is one.
+	MethodBinding[] methods = null;
+	if (type.memberFinder != null) {
+		methods = type.memberFinder.methods(type);
+	} else {
+		methods = type.methods();
+	}
+	// End AspectJ Extension
 	int size = methods.length;
 	this.currentMethods = new HashtableOfObject(size == 0 ? 1 : size); // maps method selectors to an array of methods... must search to match paramaters & return type
 	for (int m = size; --m >= 0;) {
