@@ -335,7 +335,7 @@ AjSimpleNameNoAround -> 'after'
 AjSimpleNameNoAround -> 'declare'
 /:$readableName identifier (aspect keywords permitted):/
 
-AjQualifiedName ::= AjName '.' SimpleName
+AjQualifiedName ::= AjName '.' SimpleNameOrAj
 /.$putCase consumeQualifiedName(); $break ./
 /:$readableName qualified name:/
 -- End AspectJ Extension
@@ -519,7 +519,8 @@ InterfaceMemberDeclaration -> PointcutDeclaration
 -- everthing else is only visible inside an aspect
 AspectDeclaration ::= AspectHeader AspectBody
 /.$putCase consumeAspectDeclaration(); $break ./
-/:$readableName aspect declaration:/
+/:$readableName declaration:/
+-- shortened readable name above works better in error recovery situations
 
 AspectHeader ::= AspectHeaderName ClassHeaderExtendsopt ClassHeaderImplementsopt AspectHeaderRest
 /.$putCase consumeAspectHeader(); $break ./
@@ -529,6 +530,9 @@ AspectHeaderName -> AspectHeaderName1
 /:$readableName aspect header:/
 
 AspectHeaderName -> AspectHeaderName2
+/:$readableName aspect header:/
+
+AspectHeaderName -> RecoveryHeaderName
 /:$readableName aspect header:/
 
 AspectHeaderName ::= AspectHeaderName1 TypeParameters
@@ -541,10 +545,17 @@ AspectHeaderName1 ::= Modifiersopt 'aspect' 'Identifier'
 /.$putCase consumeAspectHeaderName(false); $break ./
 /:$readableName aspect declaration:/
 
-AspectHeaderName2 ::= Modifiersopt 'privileged' Modifiersopt 'aspect' 'Identifier'
+AspectHeaderName2 ::= Modifiersopt Privileged Modifiersopt 'aspect' 'Identifier'
 /.$putCase consumeAspectHeaderName(true); $break ./
 /:$readableName privileged aspect declaration:/
 
+Privileged -> 'privileged'
+/:$readableName privileged:/
+
+-- for error recovery
+RecoveryHeaderName ::= Modifiersopt QualifiedName LPAREN FormalParameterListopt RPAREN
+/.$putCase consumeBadHeader(); $break ./
+/:$readableName valid member declaration:/ 
 
 AspectHeaderRest ::= $empty
 
@@ -558,7 +569,7 @@ AspectHeaderRestStart ::= 'Identifier'
 /:$readableName per-clause:/
 
 AspectBody ::= '{' AspectBodyDeclarationsopt '}'
-/:$readableName aspect body:/
+/:$readableName body:/
 
 AspectBodyDeclarations ::= AspectBodyDeclaration
 AspectBodyDeclarations ::= AspectBodyDeclarations AspectBodyDeclaration
@@ -672,16 +683,23 @@ BasicAdviceDeclaration ::= BasicAdviceHeader MethodBody
 /:$readableName AdviceDeclaration:/
 
 
-BasicAdviceHeader ::= BasicAdviceHeaderName FormalParameterListopt MethodHeaderRightParen ExtraParamopt MethodHeaderThrowsClauseopt ':' PseudoTokens
+BasicAdviceHeader -> BeforeAdviceHeader
+BasicAdviceHeader -> AfterAdviceHeader
+/:$readableName advice header:/
+
+BeforeAdviceHeader ::= BeforeAdviceHeaderName FormalParameterListopt MethodHeaderRightParen MethodHeaderThrowsClauseopt ':' PseudoTokens
 /.$putCase consumeBasicAdviceHeader(); $break ./
 /:$readableName AdviceHeader:/
 
+AfterAdviceHeader ::= AfterAdviceHeaderName FormalParameterListopt MethodHeaderRightParen ExtraParamopt MethodHeaderThrowsClauseopt ':' PseudoTokens
+/.$putCase consumeBasicAdviceHeader(); $break ./
+/:$readableName AdviceHeader:/
 
-BasicAdviceHeaderName ::= Modifiersopt 'before' '(' 
+BeforeAdviceHeaderName ::= Modifiersopt 'before' '(' 
 /.$putCase consumeBasicAdviceHeaderName(false); $break ./
 /:$readableName AdviceHeaderName:/
 
-BasicAdviceHeaderName ::= Modifiersopt 'after' '(' 
+AfterAdviceHeaderName ::= Modifiersopt 'after' '(' 
 /.$putCase consumeBasicAdviceHeaderName(true); $break ./
 /:$readableName AdviceHeaderName:/
 
@@ -2482,65 +2500,65 @@ UnaryExpressionNotPlusMinus_NotName -> CastExpression
 MultiplicativeExpression_NotName -> UnaryExpression_NotName
 MultiplicativeExpression_NotName ::= MultiplicativeExpression_NotName '*' UnaryExpression
 /.$putCase consumeBinaryExpression(OperatorIds.MULTIPLY); $break ./
-MultiplicativeExpression_NotName ::= Name '*' UnaryExpression
+MultiplicativeExpression_NotName ::= NameOrAj '*' UnaryExpression  -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.MULTIPLY); $break ./
 MultiplicativeExpression_NotName ::= MultiplicativeExpression_NotName '/' UnaryExpression
 /.$putCase consumeBinaryExpression(OperatorIds.DIVIDE); $break ./
-MultiplicativeExpression_NotName ::= Name '/' UnaryExpression
+MultiplicativeExpression_NotName ::= NameOrAj '/' UnaryExpression  -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.DIVIDE); $break ./
 MultiplicativeExpression_NotName ::= MultiplicativeExpression_NotName '%' UnaryExpression
 /.$putCase consumeBinaryExpression(OperatorIds.REMAINDER); $break ./
-MultiplicativeExpression_NotName ::= Name '%' UnaryExpression
+MultiplicativeExpression_NotName ::= NameOrAj '%' UnaryExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.REMAINDER); $break ./
 /:$readableName Expression:/
 
 AdditiveExpression_NotName -> MultiplicativeExpression_NotName
 AdditiveExpression_NotName ::= AdditiveExpression_NotName '+' MultiplicativeExpression
 /.$putCase consumeBinaryExpression(OperatorIds.PLUS); $break ./
-AdditiveExpression_NotName ::= Name '+' MultiplicativeExpression
+AdditiveExpression_NotName ::= NameOrAj '+' MultiplicativeExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.PLUS); $break ./
 AdditiveExpression_NotName ::= AdditiveExpression_NotName '-' MultiplicativeExpression
 /.$putCase consumeBinaryExpression(OperatorIds.MINUS); $break ./
-AdditiveExpression_NotName ::= Name '-' MultiplicativeExpression
+AdditiveExpression_NotName ::= NameOrAj '-' MultiplicativeExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.MINUS); $break ./
 /:$readableName Expression:/
 
 ShiftExpression_NotName -> AdditiveExpression_NotName
 ShiftExpression_NotName ::= ShiftExpression_NotName '<<'  AdditiveExpression
 /.$putCase consumeBinaryExpression(OperatorIds.LEFT_SHIFT); $break ./
-ShiftExpression_NotName ::= Name '<<'  AdditiveExpression
+ShiftExpression_NotName ::= NameOrAj '<<'  AdditiveExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.LEFT_SHIFT); $break ./
 ShiftExpression_NotName ::= ShiftExpression_NotName '>>'  AdditiveExpression
 /.$putCase consumeBinaryExpression(OperatorIds.RIGHT_SHIFT); $break ./
-ShiftExpression_NotName ::= Name '>>'  AdditiveExpression
+ShiftExpression_NotName ::= NameOrAj '>>'  AdditiveExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.RIGHT_SHIFT); $break ./
 ShiftExpression_NotName ::= ShiftExpression_NotName '>>>' AdditiveExpression
 /.$putCase consumeBinaryExpression(OperatorIds.UNSIGNED_RIGHT_SHIFT); $break ./
-ShiftExpression_NotName ::= Name '>>>' AdditiveExpression
+ShiftExpression_NotName ::= NameOrAj '>>>' AdditiveExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.UNSIGNED_RIGHT_SHIFT); $break ./
 /:$readableName Expression:/
 
 RelationalExpression_NotName -> ShiftExpression_NotName
 RelationalExpression_NotName ::= ShiftExpression_NotName '<'  ShiftExpression
 /.$putCase consumeBinaryExpression(OperatorIds.LESS); $break ./
-RelationalExpression_NotName ::= Name '<'  ShiftExpression
+RelationalExpression_NotName ::= Name '<'  ShiftExpression 
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.LESS); $break ./
 RelationalExpression_NotName ::= ShiftExpression_NotName '>'  ShiftExpression
 /.$putCase consumeBinaryExpression(OperatorIds.GREATER); $break ./
-RelationalExpression_NotName ::= Name '>'  ShiftExpression
+RelationalExpression_NotName ::= NameOrAj '>'  ShiftExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.GREATER); $break ./
 RelationalExpression_NotName ::= RelationalExpression_NotName '<=' ShiftExpression
 /.$putCase consumeBinaryExpression(OperatorIds.LESS_EQUAL); $break ./
-RelationalExpression_NotName ::= Name '<=' ShiftExpression
+RelationalExpression_NotName ::= NameOrAj '<=' ShiftExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.LESS_EQUAL); $break ./
 RelationalExpression_NotName ::= RelationalExpression_NotName '>=' ShiftExpression
 /.$putCase consumeBinaryExpression(OperatorIds.GREATER_EQUAL); $break ./
-RelationalExpression_NotName ::= Name '>=' ShiftExpression
+RelationalExpression_NotName ::= NameOrAj '>=' ShiftExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.GREATER_EQUAL); $break ./
 /:$readableName Expression:/
 
 InstanceofExpression_NotName -> RelationalExpression_NotName
-InstanceofExpression_NotName ::= Name 'instanceof' ReferenceType
+InstanceofExpression_NotName ::= NameOrAj 'instanceof' ReferenceType -- AspectJ Extension was Name
 /.$putCase consumeInstanceOfExpressionWithName(OperatorIds.INSTANCEOF); $break ./
 InstanceofExpression_NotName  ::= InstanceofExpression_NotName 'instanceof' ReferenceType
 /.$putCase consumeInstanceOfExpression(OperatorIds.INSTANCEOF); $break ./
@@ -2549,53 +2567,53 @@ InstanceofExpression_NotName  ::= InstanceofExpression_NotName 'instanceof' Refe
 EqualityExpression_NotName -> InstanceofExpression_NotName
 EqualityExpression_NotName ::= EqualityExpression_NotName '==' InstanceofExpression
 /.$putCase consumeEqualityExpression(OperatorIds.EQUAL_EQUAL); $break ./
-EqualityExpression_NotName ::= Name '==' InstanceofExpression
+EqualityExpression_NotName ::= NameOrAj '==' InstanceofExpression -- AspectJ Extension was Name
 /.$putCase consumeEqualityExpressionWithName(OperatorIds.EQUAL_EQUAL); $break ./
 EqualityExpression_NotName ::= EqualityExpression_NotName '!=' InstanceofExpression
 /.$putCase consumeEqualityExpression(OperatorIds.NOT_EQUAL); $break ./
-EqualityExpression_NotName ::= Name '!=' InstanceofExpression
+EqualityExpression_NotName ::= NameOrAj '!=' InstanceofExpression -- AspectJ Extension was Name
 /.$putCase consumeEqualityExpressionWithName(OperatorIds.NOT_EQUAL); $break ./
 /:$readableName Expression:/
 
 AndExpression_NotName -> EqualityExpression_NotName
 AndExpression_NotName ::= AndExpression_NotName '&' EqualityExpression
 /.$putCase consumeBinaryExpression(OperatorIds.AND); $break ./
-AndExpression_NotName ::= Name '&' EqualityExpression
+AndExpression_NotName ::= NameOrAj '&' EqualityExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.AND); $break ./
 /:$readableName Expression:/
 
 ExclusiveOrExpression_NotName -> AndExpression_NotName
 ExclusiveOrExpression_NotName ::= ExclusiveOrExpression_NotName '^' AndExpression
 /.$putCase consumeBinaryExpression(OperatorIds.XOR); $break ./
-ExclusiveOrExpression_NotName ::= Name '^' AndExpression
+ExclusiveOrExpression_NotName ::= NameOrAj '^' AndExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.XOR); $break ./
 /:$readableName Expression:/
 
 InclusiveOrExpression_NotName -> ExclusiveOrExpression_NotName
 InclusiveOrExpression_NotName ::= InclusiveOrExpression_NotName '|' ExclusiveOrExpression
 /.$putCase consumeBinaryExpression(OperatorIds.OR); $break ./
-InclusiveOrExpression_NotName ::= Name '|' ExclusiveOrExpression
+InclusiveOrExpression_NotName ::= NameOrAj '|' ExclusiveOrExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.OR); $break ./
 /:$readableName Expression:/
 
 ConditionalAndExpression_NotName -> InclusiveOrExpression_NotName
 ConditionalAndExpression_NotName ::= ConditionalAndExpression_NotName '&&' InclusiveOrExpression
 /.$putCase consumeBinaryExpression(OperatorIds.AND_AND); $break ./
-ConditionalAndExpression_NotName ::= Name '&&' InclusiveOrExpression
+ConditionalAndExpression_NotName ::= NameOrAj '&&' InclusiveOrExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.AND_AND); $break ./
 /:$readableName Expression:/
 
 ConditionalOrExpression_NotName -> ConditionalAndExpression_NotName
 ConditionalOrExpression_NotName ::= ConditionalOrExpression_NotName '||' ConditionalAndExpression
 /.$putCase consumeBinaryExpression(OperatorIds.OR_OR); $break ./
-ConditionalOrExpression_NotName ::= Name '||' ConditionalAndExpression
+ConditionalOrExpression_NotName ::= NameOrAj '||' ConditionalAndExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.OR_OR); $break ./
 /:$readableName Expression:/
 
 ConditionalExpression_NotName -> ConditionalOrExpression_NotName
 ConditionalExpression_NotName ::= ConditionalOrExpression_NotName '?' Expression ':' ConditionalExpression
 /.$putCase consumeConditionalExpression(OperatorIds.QUESTIONCOLON) ; $break ./
-ConditionalExpression_NotName ::= Name '?' Expression ':' ConditionalExpression
+ConditionalExpression_NotName ::= NameOrAj '?' Expression ':' ConditionalExpression -- AspectJ Extension was Name
 /.$putCase consumeConditionalExpressionWithName(OperatorIds.QUESTIONCOLON) ; $break ./
 /:$readableName Expression:/
 
