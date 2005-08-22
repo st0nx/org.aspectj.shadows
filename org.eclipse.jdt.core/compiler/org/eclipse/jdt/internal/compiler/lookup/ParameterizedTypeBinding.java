@@ -462,7 +462,7 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding#getMethods(char[])
 	 */
-	public MethodBinding[] getMethods(char[] selector) {
+	public MethodBinding[] getMethodsBase(char[] selector) {  // AspectJ extension - renamed (added suffix 'Base')
 		java.util.ArrayList matchingMethods = null;
 		if (this.methods != null) {
 			int selectorLength = selector.length;
@@ -1017,7 +1017,10 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	public FieldBinding getField(char[] fieldName, boolean resolve, InvocationSite site, Scope scope) {
 		FieldBinding fb = null;
         fb = super.getField(fieldName, resolve, site, scope); // Check this parameterized type
-		if (fb==null) fb = type.getField(fieldName,resolve,site,scope); // Not found? then check the generic type, this may discover ITDs
+		if (fb==null) {
+			fb = type.getField(fieldName,resolve,site,scope); // Not found? then check the generic type, this may discover ITDs
+			if (fb!=null) return new ParameterizedFieldBinding(this,fb);
+		}
 		return fb;
     }
     
@@ -1028,6 +1031,35 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	  if (mb==null) mb = type.getExactMethod(selector,argumentTypes,refScope);
 	  return mb;
 	}
+	
+		
+	public MethodBinding[] getMethods(char[] selector) { 
+		MethodBinding[] mbs = null;
+		mbs = getMethodsBase(selector);
+		if (mbs==null || mbs.length==0) {
+			mbs = type.getMethods(selector); // ask the generic type which may return anything ITDd
+			
+			MethodBinding[] parameterizedMethods = null;
+			try {
+			   // MethodBinding[] originalMethods = this.type.getMethods(selector);
+			    int length = mbs.length;
+			    if (length == 0) return NoMethods; 
+
+			    parameterizedMethods = new MethodBinding[length];
+			    for (int i = 0; i < length; i++) {
+			    	// substitute methods, so as to get updated declaring class at least
+		            parameterizedMethods[i] = createParameterizedMethod(mbs[i]);
+			    }
+			    return parameterizedMethods;
+			} finally {
+				// if the original methods cannot be retrieved (ex. AbortCompilation), then assume we do not have any methods
+			    if (parameterizedMethods == null) 
+			        this.methods = parameterizedMethods = NoMethods;
+			}
+		}
+		return mbs;
+	}
+	
 
 	// End AspectJ extension
 }

@@ -14,7 +14,7 @@ package org.eclipse.jdt.internal.compiler.lookup;
 import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.Iterator;
-import java.util.Map;
+import java.util.Map; 
 import java.util.*;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -1275,6 +1275,8 @@ public MethodBinding resolveTypesFor(MethodBinding method) {  // AspectJ Extensi
 			
 	AbstractMethodDeclaration methodDecl = method.sourceMethod();
 	if (methodDecl == null) return null; // method could not be resolved in previous iteration
+
+	methodDecl.ensureScopeSetup(); // AspectJ extension
 	
 	TypeParameter[] typeParameters = methodDecl.typeParameters();
 	if (typeParameters != null) {

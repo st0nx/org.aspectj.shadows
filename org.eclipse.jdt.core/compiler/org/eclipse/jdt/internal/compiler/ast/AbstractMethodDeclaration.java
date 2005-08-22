@@ -463,6 +463,13 @@ public abstract class AbstractMethodDeclaration
 	protected int generateInfoAttributes(ClassFile classFile) {
 		return classFile.generateMethodInfoAttribute(binding);
 	}
+	
+	/**
+	 * Hook for subclasses to influence scope hierarchy. (why-o-why cant fields be accessed through getters...)
+	 */
+	public void ensureScopeSetup() { 
+		// do nothing.  subclasses may override
+	}
 	// End AspectJ Extension
 		
 }

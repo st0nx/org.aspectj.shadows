@@ -2398,7 +2398,7 @@ public abstract class Scope
 							break;
 						}
 						// type variables take precedence over member types
-						TypeVariableBinding typeVariable = sourceType.getTypeVariable(name);
+						TypeVariableBinding typeVariable = scope.findTypeVariable(name,sourceType);// AspectJ extension, use helper method
 						if (typeVariable != null) {
 							if (insideStaticContext) // do not consider this type modifiers: access is legite within same type
 								return new ProblemReferenceBinding(name, typeVariable, NonStaticReferenceInStaticContext);
@@ -3568,4 +3568,14 @@ public abstract class Scope
 	int startIndex() {
 		return 0;
 	}
+	
+	// AspectJ Extension
+	
+	/**
+     * Other scopes can override this method
+     */
+	public TypeVariableBinding findTypeVariable(char[] name, SourceTypeBinding sourceType) {
+		return sourceType.getTypeVariable(name);
+	}
+	// End AspectJ Extension
 }
