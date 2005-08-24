@@ -1605,6 +1605,13 @@ void verifyMethods(MethodVerifier verifier) {
        System.arraycopy(superInterfaces,0,originalSuperInterfaces,0,superInterfaces.length);
      }
    }
+   
+  // overrides unResolvedMethods() in ReferenceBinding - wonder if we should really rename the methods()
+  // method to methodsBase() and have a new methods() use the finder??
+  MethodBinding[] unResolvedMethods() {
+    if (memberFinder != null) return memberFinder.methods(this);
+    else return methods();
+  }
 
 //End AspectJ Extension
 }
