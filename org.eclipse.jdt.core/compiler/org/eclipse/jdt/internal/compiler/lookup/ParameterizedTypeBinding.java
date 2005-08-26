@@ -11,8 +11,6 @@
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import java.util.Map;
-
-import org.eclipse.jdt.internal.compiler.lookup.ParameterizedMethodBinding;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 import org.eclipse.jdt.internal.compiler.ast.Wildcard;
@@ -1043,24 +1041,18 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 		mbs = getMethodsBase(selector);
 		if (mbs==null || mbs.length==0) {
 			mbs = type.getMethods(selector); // ask the generic type which may return anything ITDd
-			
+					
 			MethodBinding[] parameterizedMethods = null;
-			try {
-			   // MethodBinding[] originalMethods = this.type.getMethods(selector);
-			    int length = mbs.length;
-			    if (length == 0) return NoMethods; 
+		    // MethodBinding[] originalMethods = this.type.getMethods(selector);
+		    int length = mbs.length;
+		    if (length == 0) return NoMethods; 
 
-			    parameterizedMethods = new MethodBinding[length];
-			    for (int i = 0; i < length; i++) {
-			    	// substitute methods, so as to get updated declaring class at least
-		            parameterizedMethods[i] = createParameterizedMethod(mbs[i]);
-			    }
-			    return parameterizedMethods;
-			} finally {
-				// if the original methods cannot be retrieved (ex. AbortCompilation), then assume we do not have any methods
-			    if (parameterizedMethods == null) 
-			        this.methods = parameterizedMethods = NoMethods;
-			}
+		    parameterizedMethods = new MethodBinding[length];
+		    for (int i = 0; i < length; i++) {
+		    	// substitute methods, so as to get updated declaring class at least
+	            parameterizedMethods[i] = createParameterizedMethod(mbs[i]);
+		    }
+		    return parameterizedMethods;
 		}
 		return mbs;
 	}
