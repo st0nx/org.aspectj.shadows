@@ -79,7 +79,7 @@ public class SwitchStatement extends Statement {
 	
 			final TypeBinding resolvedTypeBinding = this.expression.resolvedType;
 			if (caseCount > 0 && resolvedTypeBinding.isEnum()) {
-				final SourceTypeBinding sourceTypeBinding = this.scope.classScope().referenceContext.binding;
+				final SourceTypeBinding sourceTypeBinding = this.scope.invocationType(); // AspectJ Extension, was: this.scope.classScope().referenceContext.binding;, see pr108370
 				this.synthetic = sourceTypeBinding.addSyntheticMethodForSwitchEnum(resolvedTypeBinding);
 			}
 			// if no default case, then record it may jump over the block directly to the end
