@@ -510,7 +510,7 @@ public final boolean isDeprecated() {
 
 /* Answer true if the receiver is final and cannot be overridden
 */
-public final boolean isFinal() {
+public /*final*/ boolean isFinal() {  // AspectJ Extension, made non-final
 	return (modifiers & AccFinal) != 0;
 }
 
