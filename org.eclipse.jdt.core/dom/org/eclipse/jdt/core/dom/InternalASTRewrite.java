@@ -82,7 +82,10 @@ class InternalASTRewrite extends NodeEventHandler {
 					return new SourceRange(extendedStartPosition, extendedLength);
 				}
 			};
-			ASTRewriteAnalyzer visitor = new ASTRewriteAnalyzer(document, result, this.eventStore, this.nodeStore, options, xsrComputer);
+			// AspectJ extension - use the factory instead of building one directly
+			ASTVisitor visitor = ASTRewriteAnalyzer.getAnalyzerVisitor(document, result, this.eventStore, this.nodeStore, options, xsrComputer);
+			// original line: ASTRewriteAnalyzer visitor = new ASTRewriteAnalyzer(document, result, this.eventStore, this.nodeStore, options, xsrComputer);
+
 			rootNode.accept(visitor);
 		}
 		return result;

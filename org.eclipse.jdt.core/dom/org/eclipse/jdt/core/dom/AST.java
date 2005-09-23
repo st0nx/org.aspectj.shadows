@@ -250,7 +250,9 @@ public final class AST {
 		org.eclipse.jdt.internal.core.CompilationUnit workingCopy,
 		IProgressMonitor monitor) {
 		
-		ASTConverter converter = new ASTConverter(options, isResolved, monitor);
+		ASTConverter converter = 
+			// AspectJ extension - use the factory
+			ASTConverter.getASTConverter(options,isResolved,monitor); 
 		AST ast = AST.newAST(level);
 		int savedDefaultNodeFlag = ast.getDefaultNodeFlag();
 		ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
@@ -1582,7 +1584,9 @@ public final class AST {
 	 * @return a new unparented type declaration node
 	 */
 	public TypeDeclaration newTypeDeclaration() {
-		TypeDeclaration result = new TypeDeclaration(this);
+		TypeDeclaration result = 
+			// AspectJ Extension - use factory rather than ctor
+			TypeDeclaration.getTypeDeclaration(this); 
 		result.setInterface(false);
 		return result;
 	}

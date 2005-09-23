@@ -63,6 +63,38 @@ import org.eclipse.jdt.internal.core.dom.rewrite.RewriteEventStore.CopySourceInf
  */
 public final class ASTRewriteAnalyzer extends ASTVisitor {
 	
+    // AspectJ Extension start
+	// We use a factory to build the AST rewrite analyzer, so we can plugin in alternatives...
+	private static final String AJ_ASTREWRITEANALYZER_FACTORY = "org.aspectj.ajdt.core.dom.rewrite.AjASTRewriteAnalyzerFactory"; //$NON-NLS-1$
+	private static IASTRewriteAnalyzerFactory astRewriteAnalyzerFactory;
+	
+	static {
+		try{
+			astRewriteAnalyzerFactory = (IASTRewriteAnalyzerFactory) Class.forName(AJ_ASTREWRITEANALYZER_FACTORY).newInstance();
+		} catch (InstantiationException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (IllegalAccessException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (ClassNotFoundException ex) {
+			System.err.println("Warning: AspectJ type declaration factory class not found on classpath"); //$NON-NLS-1$
+			//throw new ExceptionInInitializerError(ex.getMessage());
+		}
+	}
+
+	public interface IASTRewriteAnalyzerFactory {
+		public ASTVisitor getASTRewriteAnalyzer(IDocument document, TextEdit rootEdit, RewriteEventStore eventStore, 
+				NodeInfoStore nodeInfos, Map options, TargetSourceRangeComputer extendedSourceRangeComputer);
+	}
+	
+	public static ASTVisitor getAnalyzerVisitor(IDocument document, TextEdit rootEdit, RewriteEventStore eventStore, 
+			NodeInfoStore nodeInfos, Map options, TargetSourceRangeComputer extendedSourceRangeComputer) {
+		if (astRewriteAnalyzerFactory == null) {
+		  return new ASTRewriteAnalyzer(document,rootEdit,eventStore,nodeInfos,options,extendedSourceRangeComputer);
+		}
+		return astRewriteAnalyzerFactory.getASTRewriteAnalyzer(document,rootEdit,eventStore,nodeInfos,options,extendedSourceRangeComputer);
+	}
+	// AspectJ Extension end
+	
 	/**
 	 * Internal synonynm for deprecated constant AST.JLS2
 	 * to alleviate deprecation warnings.

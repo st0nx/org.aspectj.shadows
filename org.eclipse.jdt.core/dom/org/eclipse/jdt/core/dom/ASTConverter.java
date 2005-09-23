@@ -53,8 +53,37 @@ import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 /**
  * Internal class for converting internal compiler ASTs into public ASTs.
  */
-class ASTConverter {
+// AspectJ extension - made public, was default (package)
+public class ASTConverter {
 
+	// AspectJ Extension start
+	// We use a factory to build the AST converter, so we can provide the right one from the ajdt.core module
+	private static final String AJ_ASTCONVERTER_FACTORY = "org.aspectj.ajdt.core.dom.AjASTConverterFactory"; //$NON-NLS-1$
+	private static IASTConverterFactory astConverterFactory;
+	
+	static {
+		try{
+			astConverterFactory = (IASTConverterFactory) Class.forName(AJ_ASTCONVERTER_FACTORY).newInstance();
+		} catch (InstantiationException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (IllegalAccessException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (ClassNotFoundException ex) {
+			System.err.println("Warning: AspectJ ASTConverter factory class not found on classpath"); //$NON-NLS-1$
+			//throw new ExceptionInInitializerError(ex.getMessage());
+		}
+	}
+
+	public interface IASTConverterFactory {
+		public ASTConverter getASTConverter(Map options, boolean resolveBindings, IProgressMonitor monitor);
+	}
+	
+	public static ASTConverter getASTConverter(Map options, boolean resolveBindings, IProgressMonitor monitor) {
+		return astConverterFactory.getASTConverter(options,resolveBindings,monitor);
+	}
+	// AspectJ Extension end
+	
+	
 	protected AST ast;
 	protected Comment[] commentsTable;
 	char[] compilationUnitSource;
@@ -67,7 +96,8 @@ class ASTConverter {
 	protected Set pendingThisExpressionScopeResolution;
 	protected boolean resolveBindings;
 	Scanner scanner;
-	private DefaultCommentMapper commentMapper;
+	// AspectJ Extension - changed from private to protected
+	protected DefaultCommentMapper commentMapper;
 
 	public ASTConverter(Map options, boolean resolveBindings, IProgressMonitor monitor) {
 		this.resolveBindings = resolveBindings;
@@ -843,7 +873,9 @@ class ASTConverter {
 	 * Used to convert class body declarations
 	 */
 	public TypeDeclaration convert(org.eclipse.jdt.internal.compiler.ast.ASTNode[] nodes) {
-		final TypeDeclaration typeDecl = new TypeDeclaration(this.ast);
+		final TypeDeclaration typeDecl = 
+			// AspectJ Extension - use factory method and not ctor
+			TypeDeclaration.getTypeDeclaration(this.ast);
 		typeDecl.setInterface(false);
 		int nodesLength = nodes.length;
 		for (int i = 0; i < nodesLength; i++) {
@@ -2433,7 +2465,9 @@ class ASTConverter {
 		}
 
 		checkCanceled();
-		TypeDeclaration typeDecl = new TypeDeclaration(this.ast);
+		TypeDeclaration typeDecl = 
+			// AspectJ Extension - use factory method and not ctor
+			TypeDeclaration.getTypeDeclaration(this.ast);
 		if (typeDeclaration.modifiersSourceStart != -1) {
 			setModifiers(typeDecl, typeDeclaration);
 		}
@@ -2659,7 +2693,8 @@ class ASTConverter {
 		return packageDeclaration;
 	}
 	
-	private EnumDeclaration convertToEnumDeclaration(org.eclipse.jdt.internal.compiler.ast.TypeDeclaration typeDeclaration) {
+	// AspectJ extension, made protected - was private
+	protected EnumDeclaration convertToEnumDeclaration(org.eclipse.jdt.internal.compiler.ast.TypeDeclaration typeDeclaration) {
 		checkCanceled();
 		final EnumDeclaration enumDeclaration2 = new EnumDeclaration(this.ast);
 		setModifiers(enumDeclaration2, typeDeclaration);

@@ -204,7 +204,8 @@ public class TypeDeclarationStatement extends Statement {
 			synchronized (this) {
 				if (this.typeDecl == null) {
 					preLazyInit();
-					this.typeDecl = new TypeDeclaration(this.ast);
+					this.typeDecl = 
+						TypeDeclaration.getTypeDeclaration(this.ast);// AspectJ Extension - use factory method and not TypeDeclaration ctor
 					postLazyInit(this.typeDecl, TYPE_DECLARATION_PROPERTY);
 				}
 			}

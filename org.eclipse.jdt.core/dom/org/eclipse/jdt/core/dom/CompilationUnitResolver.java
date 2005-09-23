@@ -240,7 +240,8 @@ class CompilationUnitResolver extends Compiler {
 		AST ast = AST.newAST(apiLevel);
 		ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
 		CompilationUnit compilationUnit = null;
-		ASTConverter converter = new ASTConverter(options, needToResolveBindings, monitor);
+		ASTConverter converter = 
+			ASTConverter.getASTConverter(options,needToResolveBindings,monitor); // AspectJ extension - use the factory
 		if (needToResolveBindings) {
 			resolver = new DefaultBindingResolver(compilationUnitDeclaration.scope, owner, bindingTables);
 		} else {
@@ -677,7 +678,8 @@ class CompilationUnitResolver extends Compiler {
 							char[] contents = sourceUnit.getContents();
 							AST ast = AST.newAST(apiLevel);
 							ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
-							ASTConverter converter = new ASTConverter(compilerOptions, true/*need to resolve bindings*/, this.monitor);
+							ASTConverter converter = 
+								ASTConverter.getASTConverter(compilerOptions,true/*need to resolve bindings*/, this.monitor); // AspectJ extension - use the factory
 							BindingResolver resolver = new DefaultBindingResolver(unit.scope, owner, this.bindingTables);
 							ast.setBindingResolver(resolver);
 							converter.setAST(ast);

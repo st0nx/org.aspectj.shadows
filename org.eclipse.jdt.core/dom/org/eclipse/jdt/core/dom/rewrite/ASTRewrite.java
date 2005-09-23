@@ -23,6 +23,7 @@ import org.eclipse.jdt.core.JavaCore;
 
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.ASTVisitor;
 import org.eclipse.jdt.core.dom.Block;
 import org.eclipse.jdt.core.dom.ChildListPropertyDescriptor;
 import org.eclipse.jdt.core.dom.StructuralPropertyDescriptor;
@@ -182,7 +183,9 @@ public class ASTRewrite {
 			
 			this.eventStore.prepareMovedNodes(sourceRangeComputer);
 
-			ASTRewriteAnalyzer visitor= new ASTRewriteAnalyzer(document, result, this.eventStore, this.nodeStore, options, sourceRangeComputer);
+			// AspectJ extension - ask the factory in ASTRewriteAnalyzer for a visitor rather than building it directly.
+			ASTVisitor visitor= ASTRewriteAnalyzer.getAnalyzerVisitor(document, result, this.eventStore, this.nodeStore, options, sourceRangeComputer);
+			// original line: ASTRewriteAnalyzer visitor= new ASTRewriteAnalyzer(document, result, this.eventStore, this.nodeStore, options, sourceRangeComputer);
 			rootNode.accept(visitor); // throws IllegalArgumentException
 			
 			this.eventStore.revertMovedNodes();

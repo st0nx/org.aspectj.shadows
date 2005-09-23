@@ -135,7 +135,8 @@ public class FieldDeclaration extends BodyDeclaration {
 	 * The list of variable declaration fragments (element type: 
 	 * <code VariableDeclarationFragment</code>).  Defaults to an empty list.
 	 */
-	private ASTNode.NodeList variableDeclarationFragments = 
+	// AspectJ extension - made default visibility, not private.
+	/*private*/ ASTNode.NodeList variableDeclarationFragments = 
 		new ASTNode.NodeList(FRAGMENTS_PROPERTY);
 
 	/**

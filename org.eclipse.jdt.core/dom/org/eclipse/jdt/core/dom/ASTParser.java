@@ -25,7 +25,8 @@ import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Statement;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
-import org.eclipse.jdt.internal.core.*;
+import org.eclipse.jdt.internal.core.BasicCompilationUnit;
+import org.eclipse.jdt.internal.core.BinaryType;
 import org.eclipse.jdt.internal.core.DefaultWorkingCopyOwner;
 import org.eclipse.jdt.internal.core.PackageFragment;
 import org.eclipse.jdt.internal.core.util.CodeSnippetParsingUtil;
@@ -219,7 +220,9 @@ public class ASTParser {
 	   this.unitName = null;
 	   this.project = null;
 	   this.partial = false;
-	   this.compilerOptions = JavaCore.getOptions();
+	   // Aspectj extension - don't set them here (requires JavaCore to be active) - they can be set via the setter
+	   // it doesn't do much harm as they are initialized if null anyway...
+	   // this.compilerOptions = JavaCore.getOptions();
 	}
 	   
 	/**
@@ -888,7 +891,9 @@ public class ASTParser {
 	 * @see ASTNode#getLength()
 	 */
 	private ASTNode internalCreateASTForKind() {
-		final ASTConverter converter = new ASTConverter(this.compilerOptions, false, null);
+		final ASTConverter converter = 
+			// AspectJ extension - use the factory
+			ASTConverter.getASTConverter(this.compilerOptions,false,null);
 		converter.compilationUnitSource = this.rawSource;
 		converter.compilationUnitSourceLength = this.rawSource.length;
 		converter.scanner.setSource(this.rawSource);
