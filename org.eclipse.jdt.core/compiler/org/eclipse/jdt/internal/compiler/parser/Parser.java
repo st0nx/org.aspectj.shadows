@@ -19,28 +19,24 @@ import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.List;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
-import org.eclipse.jdt.internal.compiler.ast.AbstractVariableDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.Annotation;
 import org.eclipse.jdt.internal.compiler.ast.Argument;
-import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.ExplicitConstructorCall;
 import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.Literal;
 import org.eclipse.jdt.internal.compiler.ast.MessageSend;
 import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.OperatorIds;
 import org.eclipse.jdt.internal.compiler.ast.SingleTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeParameter;
-//import org.eclipse.jdt.internal.compiler.ast.OperatorExpression;
-import org.eclipse.jdt.internal.compiler.ast.OperatorIds;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
-import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.core.compiler.IProblem;
 
 
 // AspectJ Extension - this whole class is an AspectJ extension to the parser
@@ -394,7 +390,17 @@ public class Parser extends TheOriginalJDTParserClass {
 		consumePointcutDesignatorOnDeclaration();
 	}
 	
+	// AspectJ extension - accessor method for the currentTokenStart
+	public int getCurrentTokenStart() {
+		return currentTokenStart;
+	}
+	// End AspectJ extension
+	
 	protected void consumeEmptyPointcutDeclaration() {
+		// AspectJ extension - set up some positions, required by AST support
+		MethodDeclaration pcutDecl = (MethodDeclaration)astStack[astPtr];
+		pcutDecl.bodyEnd = endStatementPosition;
+		// End Aspectj Extension
 		//??? set pcd to non-null
 	}
 	
