@@ -36,8 +36,20 @@ public aspect OwningClassSupportForMethodBindings {
 	 * they parameterize. The real owning class is the one owned by that. 
 	 */
 	public ReferenceBinding ParameterizedMethodBinding.getOwningClass() {
-		return original().getOwningClass();
-   }
+		if (this.declaringClass == original().declaringClass) {
+			// the declaring class is unchanged across this method binding and
+			// its backing ("original") method binding, therefore it is safe
+			// to use the owningClass() of the original
+			return original().getOwningClass();
+		} else {
+			// the declaring class has been changed across this method binding
+			// and its original, so we mustn't go back to the original method
+			// for the answer, just use whatever we've got.
+			// This situation can happen if e.g. a ParameterizedGenericMethodBinding
+			// has as its original method a ParameterizedMethodBinding
+			return declaringClass;
+		}
+     }
 	
    /**
     * This aspect handles the switch from declaringClass to owningClass()
