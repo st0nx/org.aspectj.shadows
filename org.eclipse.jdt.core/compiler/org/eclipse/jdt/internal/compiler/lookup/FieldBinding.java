@@ -321,7 +321,10 @@ public SyntheticMethodBinding getAccessMethod(boolean isReadAccess) {
 public FieldBinding getFieldBindingForLookup() { return this; }
 
 public FieldBinding getVisibleBinding(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
-	if (canBeSeenBy(receiverType, invocationSite, scope)) return this;
+	boolean isVisible = (invocationSite==null?
+            canBeSeenBy(scope.getCurrentPackage()):
+            canBeSeenBy(receiverType,invocationSite,scope));
+	if (isVisible) return this;
 	return findPrivilegedBinding(scope.invocationType(), (ASTNode)invocationSite);
 }
 
