@@ -94,6 +94,7 @@ public class AllocationExpression extends Expression implements InvocationSite {
 		if (syntheticAccessor != null) {
 			allocatedType = syntheticAccessor.declaringClass;
 		} else {
+			if (codegenBinding == null) codegenBinding = binding.original(); // just in case (see pr112783)
 			allocatedType = this.codegenBinding.declaringClass;
 		}
 		// End AspectJ Extension
