@@ -9,7 +9,7 @@
  * Contributors: 
  *   Adrian Colyer			Initial implementation
  * ******************************************************************/
-package org.eclipse.jdt.internal.compiler.parser;
+package org.aspectj.ajdt.internal.compiler.parser;
 
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.parser.Parser;
