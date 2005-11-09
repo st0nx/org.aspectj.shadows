@@ -36,6 +36,7 @@ public class TypeDeclaration
 	public int modifiers = AccDefault;
 	public int modifiersSourceStart;
 	public Annotation[] annotations;
+	public Annotation[] originalAnnotations; // AspectJ Extension
 	public char[] name;
 	public TypeReference superclass;
 	public TypeReference[] superInterfaces;
@@ -592,6 +593,17 @@ public class TypeDeclaration
 	protected void generateAttributes(ClassFile classFile) {
 		// finalize the compiled type result
 		classFile.addAttributes();
+	}
+	
+	// remember the current set of annotations on the type for use when writing the class file out (see pr91859)
+	public void rememberAnnotations() {
+		if (originalAnnotations!=null) return; // remember already called...
+		if (annotations==null) {
+			originalAnnotations = new Annotation[0]; // just so we don't do this again
+		} else {
+			originalAnnotations = new Annotation[annotations.length];
+			System.arraycopy(annotations,0,originalAnnotations,0,annotations.length);
+		}
 	}
 	//	End AspectJ Extension
 

@@ -661,7 +661,11 @@ public class ClassFile
 		if (this.targetJDK >= ClassFileConstants.JDK1_5 && !this.creatingProblemType) {
 			TypeDeclaration typeDeclaration = referenceBinding.scope.referenceContext;
 			if (typeDeclaration != null) {
-				final Annotation[] annotations = typeDeclaration.annotations;
+				// AspectJ Extension - use the original array if its set
+				Annotation[] annotations = typeDeclaration.originalAnnotations;
+				if (annotations == null) annotations = typeDeclaration.annotations;
+				// was 'final Annotation[] annotations = typeDeclaration.annotations;'
+				// End Aspectj Extension
 				if (annotations != null) {
 					attributeNumber += generateRuntimeAnnotations(annotations);
 				}
