@@ -12,6 +12,8 @@
 package org.eclipse.jdt.internal.compiler.parser;
 
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
+import org.eclipse.jdt.internal.compiler.parser.Parser;
+
 
 /**
  * The parser handles pointcut expressions as as stream of pseudo-tokens.
