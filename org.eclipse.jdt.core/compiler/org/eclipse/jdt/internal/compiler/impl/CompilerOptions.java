@@ -253,7 +253,8 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public boolean parseLiteralExpressionsAsConstants = true;
 
 	// max problems per compilation unit
-	public int maxProblemsPerUnit = 100; // no more than 100 problems per default
+	// AspectJ Extension - increased this number from 100 to 5000 (pr58679 etc)
+	public int maxProblemsPerUnit = 5000; // no more than 5000 problems per default
 	
 	// tags used to recognize tasks in comments
 	public char[][] taskTags = null;
