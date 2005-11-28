@@ -43,7 +43,7 @@
         </jar> 
         <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj.jar" update="true">
         	<!-- with the AST code now activated, we need text and jface... -->
-            <zipfileset src="lib/jdtDepends.jar" excludes="org/apache/**,org/w3c/**,org/xml/**,org/xml/**,org/eclipse/osgi/**"/>
+            <zipfileset src="lib/jdtDepends.jar" excludes="org/apache/**,org/w3c/**,org/xml/**,org/xml/**,org/eclipse/jface/**,org/eclipse/osgi/**"/>
         </jar> 
         <delete file="../org.eclipse.jdt.core/jdtcore-for-aspectj-src.zip"/>
         <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj-src.zip">
