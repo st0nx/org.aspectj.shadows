@@ -63,7 +63,7 @@ import org.eclipse.jdt.internal.core.dom.rewrite.RewriteEventStore.CopySourceInf
  */
 public final class ASTRewriteAnalyzer extends ASTVisitor {
 	
-    // AspectJ Extension start
+    // AspectJ Extension start - might not be needed anymore - AJDT may override it with its variant...
 	// We use a factory to build the AST rewrite analyzer, so we can plugin in alternatives...
 	private static final String AJ_ASTREWRITEANALYZER_FACTORY = "org.aspectj.ajdt.core.dom.rewrite.AjASTRewriteAnalyzerFactory"; //$NON-NLS-1$
 	private static IASTRewriteAnalyzerFactory astRewriteAnalyzerFactory;
