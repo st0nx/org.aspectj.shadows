@@ -224,7 +224,7 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo f
 		SourceTypeBinding enclosingSourceType;
 		if (((bits & DepthMASK) != 0) 
 				&& this.codegenBinding.declaringClass.getPackage() 
-					!= (enclosingSourceType = currentScope.enclosingSourceType()).getPackage()){
+					!= (enclosingSourceType = currentScope.invocationType()).getPackage()){ // AspectJ extension - ask for the invocationType(), not the enclosingSourceType()
 
 			SourceTypeBinding currentCompatibleType = (SourceTypeBinding)enclosingSourceType.enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
 			syntheticAccessor = currentCompatibleType.addSyntheticMethod(this.codegenBinding, isSuperAccess());
