@@ -1267,7 +1267,7 @@ public MethodBinding resolveTypesFor(MethodBinding method) {  // AspectJ Extensi
 	if (this.scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5) {
 		if ((method.getAnnotationTagBits() & AnnotationDeprecated) != 0)
 			method.modifiers |= AccDeprecated;
-		else if ((method.modifiers & AccDeprecated) != 0)
+		else if ((method.modifiers & AccDeprecated) != 0 && method.sourceMethod()!=null) // AspectJ extension - second part of if() (might be temporary) - see pr118249
 			this.scope.problemReporter().missingDeprecatedAnnotationForMethod(method.sourceMethod());
 	}
 	if (isViewedAsDeprecated() && !method.isDeprecated())
