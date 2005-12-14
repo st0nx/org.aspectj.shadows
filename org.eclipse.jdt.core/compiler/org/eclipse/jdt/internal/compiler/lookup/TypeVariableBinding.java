@@ -210,7 +210,8 @@ public class TypeVariableBinding extends ReferenceBinding {
 			            }
 			        }
 			        // no free spot found, need to grow
-			        System.arraycopy(constraintSubstitutes, 0, constraintSubstitutes = new TypeBinding[2*length], 0, length);
+			        // AspectJ extension - only grows by 1, rather than doubling - see pr120826
+			        System.arraycopy(constraintSubstitutes, 0, constraintSubstitutes = new TypeBinding[1+length], 0, length);
 		    	}
 		        constraintSubstitutes[length] = otherType;
 		        variableSubstitutes[variableConstraint] = constraintSubstitutes;
