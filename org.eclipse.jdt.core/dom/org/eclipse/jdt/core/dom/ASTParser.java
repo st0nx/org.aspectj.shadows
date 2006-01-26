@@ -74,6 +74,38 @@ import org.eclipse.jdt.internal.core.util.Util;
  */
 public class ASTParser {
 
+    // AspectJ Extension start 
+	// We use a factory to build the AST, so we can plugin in alternatives...
+	private static final String AJ_AST_FACTORY = "org.aspectj.org.eclipse.jdt.core.dom.AjASTFactory";
+	private static IASTFactory astFactory;
+	
+	
+	static {
+		try{
+			astFactory = (IASTFactory) Class.forName(AJ_AST_FACTORY).newInstance();
+		} catch (InstantiationException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (IllegalAccessException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (ClassNotFoundException ex) {
+			System.err.println("Warning: AspectJ type declaration factory class not found on classpath"); //$NON-NLS-1$
+			//throw new ExceptionInInitializerError(ex.getMessage());
+		}
+	}
+
+	public interface IASTFactory {
+		public AST getAST(int level);
+	}
+
+	public static AST getAST(int level) {
+		if (astFactory == null) {
+		  return AST.newAST(level);
+		}
+		return astFactory.getAST(level);
+	}
+	// AspectJ Extension end
+	
+	
 	/**
 	 * Kind constant used to request that the source be parsed
      * as a single expression.
@@ -897,8 +929,10 @@ public class ASTParser {
 		converter.compilationUnitSource = this.rawSource;
 		converter.compilationUnitSourceLength = this.rawSource.length;
 		converter.scanner.setSource(this.rawSource);
-		
-		AST ast = AST.newAST(this.apiLevel);
+		// AspectJ extension start - use the factory
+		AST ast = ASTParser.getAST(this.apiLevel);
+		// original line: AST ast = AST.newAST(this.apiLevel);
+		// AspectJ extension end
 		ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
 		ast.setBindingResolver(new BindingResolver());
 		converter.setAST(ast);

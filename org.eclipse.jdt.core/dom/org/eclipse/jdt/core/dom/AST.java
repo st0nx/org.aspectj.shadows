@@ -83,7 +83,8 @@ import org.eclipse.text.edits.TextEdit;
  * @see ASTNode
  * @since 2.0
  */
-public final class AST {
+// AspectJ Extension - remove 'final'
+public /*final*/ class AST {
 	/**
 	 * Constant for indicating the AST API that handles JLS2.
 	 * This API is capable of handling all constructs
@@ -195,7 +196,8 @@ public final class AST {
  	 * @param level the API level; one of the LEVEL constants
      * @since 3.0
 	 */
-	private AST(int level) {
+	// AspectJ Extension - changing private to protected
+	/*private*/ protected AST(int level) {
 		if ((level != AST.JLS2)
 			&& (level != AST.JLS3)) {
 			throw new IllegalArgumentException();

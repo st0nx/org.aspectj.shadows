@@ -237,7 +237,10 @@ class CompilationUnitResolver extends Compiler {
 	
 	public static CompilationUnit convert(CompilationUnitDeclaration compilationUnitDeclaration, char[] source, int apiLevel, Map options, boolean needToResolveBindings, WorkingCopyOwner owner, DefaultBindingResolver.BindingTables bindingTables, IProgressMonitor monitor) {
 		BindingResolver resolver = null;
-		AST ast = AST.newAST(apiLevel);
+		// AspectJ Extension start - use the factory
+		AST ast = ASTParser.getAST(apiLevel);
+		// original line: AST ast = AST.newAST(apiLevel);
+		// AspectJ Extension end
 		ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
 		CompilationUnit compilationUnit = null;
 		ASTConverter converter = 
@@ -676,7 +679,10 @@ class CompilationUnitResolver extends Compiler {
 							CompilationResult compilationResult = unit.compilationResult;
 							org.eclipse.jdt.internal.compiler.env.ICompilationUnit sourceUnit = compilationResult.compilationUnit;
 							char[] contents = sourceUnit.getContents();
-							AST ast = AST.newAST(apiLevel);
+							// AspectJ Extension start - use the factory
+							AST ast = ASTParser.getAST(apiLevel);
+							// original line: AST ast = AST.newAST(apiLevel);
+							// AspectJ Extension end
 							ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
 							ASTConverter converter = 
 								ASTConverter.getASTConverter(compilerOptions,true/*need to resolve bindings*/, this.monitor); // AspectJ extension - use the factory
