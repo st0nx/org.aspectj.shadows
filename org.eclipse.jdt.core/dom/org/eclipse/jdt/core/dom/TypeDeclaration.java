@@ -352,7 +352,8 @@ public class TypeDeclaration extends AbstractTypeDeclaration {
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
-	final ASTNode internalGetSetChildProperty(ChildPropertyDescriptor property, boolean get, ASTNode child) {
+	// AspectJ extension, made non final so it can be overridden
+	/*final*/ ASTNode internalGetSetChildProperty(ChildPropertyDescriptor property, boolean get, ASTNode child) {
 		if (property == JAVADOC_PROPERTY) {
 			if (get) {
 				return getJavadoc();
