@@ -76,7 +76,7 @@ public class ASTParser {
 
     // AspectJ Extension start 
 	// We use a factory to build the AST, so we can plugin in alternatives...
-	private static final String AJ_AST_FACTORY = "org.aspectj.org.eclipse.jdt.core.dom.AjASTFactory";
+	private static final String AJ_AST_FACTORY = "org.aspectj.ajdt.core.dom.AjASTFactory"; //$NON-NLS-1$
 	private static IASTFactory astFactory;
 	
 	
@@ -88,7 +88,7 @@ public class ASTParser {
 		} catch (IllegalAccessException ex) {
 			throw new ExceptionInInitializerError(ex.getMessage());
 		} catch (ClassNotFoundException ex) {
-			System.err.println("Warning: AspectJ type declaration factory class not found on classpath"); //$NON-NLS-1$
+			System.err.println("Warning: AspectJ AST factory class not found on classpath"); //$NON-NLS-1$
 			//throw new ExceptionInInitializerError(ex.getMessage());
 		}
 	}
