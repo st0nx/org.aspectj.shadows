@@ -78,6 +78,7 @@ public privileged aspect CompilerAdapter {
 			throw e; // rethrow
 		} finally {
 			compiler.reset();
+			this.compilerAdapter = null;
 		}
 	}
 	
