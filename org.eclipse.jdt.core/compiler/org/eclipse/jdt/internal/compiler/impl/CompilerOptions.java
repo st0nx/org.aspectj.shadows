@@ -182,6 +182,8 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final long UnhandledWarningToken = ASTNode.Bit45L;
 
 	// AspectJ Extension
+	public static final String OPTION_ReportSwallowedExceptionInCatchBlock = "org.eclipse.jdt.core.compiler.problem.swallowedExceptionInCatchBlock"; //$NON-NLS-1$
+	public static final long SwallowedExceptionInCatchBlock = ASTNode.Bit46L;
 	// when picking up a later version of this class, if new constants have been added to 
 	// the above list, then AjCompilerOptions will need updating also.
 	// End AspectJ Extension
@@ -624,6 +626,9 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		if ((optionValue = optionsMap.get(OPTION_ReportMissingDeprecatedAnnotation)) != null) updateSeverity(MissingDeprecatedAnnotation, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportIncompleteEnumSwitch)) != null) updateSeverity(IncompleteEnumSwitch, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportUnhandledWarningToken)) != null) updateSeverity(UnhandledWarningToken, optionValue);
+		/* AspectJ Extension */
+		if ((optionValue = optionsMap.get(OPTION_ReportSwallowedExceptionInCatchBlock)) != null) updateSeverity(SwallowedExceptionInCatchBlock, optionValue);
+		/* End AspectJ Extension */
 		
 		// Javadoc options
 		if ((optionValue = optionsMap.get(OPTION_DocCommentSupport)) != null) {

@@ -1312,6 +1312,11 @@ public static long getIrritant(int problemID) {
 		case IProblem.UndocumentedEmptyBlock:
 			return CompilerOptions.UndocumentedEmptyBlock;
 			
+		/* AspectJ Extension */
+		case IProblem.SwallowedExceptionInCatchBlock:
+			return CompilerOptions.SwallowedExceptionInCatchBlock;
+		/* End AspectJ Extension */
+			
 		case IProblem.UnnecessaryCast:
 		case IProblem.UnnecessaryInstanceof:
 			return CompilerOptions.UnnecessaryTypeCheck;
@@ -5111,6 +5116,16 @@ public void undocumentedEmptyBlock(int blockStart, int blockEnd) {
 		blockStart,
 		blockEnd);
 }
+/* AspectJ Extension */
+public void swallowedException(int blockStart, int blockEnd) {
+	this.handle(
+			IProblem.SwallowedExceptionInCatchBlock,
+			NoArgument,
+			NoArgument,
+			blockStart,
+			blockEnd);
+}
+
 public void unexpectedStaticModifierForField(SourceTypeBinding type, FieldDeclaration fieldDecl) {
 	String[] arguments = new String[] {new String(fieldDecl.name)};
 	this.handle(

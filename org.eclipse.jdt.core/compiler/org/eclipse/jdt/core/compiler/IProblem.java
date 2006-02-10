@@ -741,6 +741,10 @@ public interface IProblem {
 	/** @since 3.0 */
 	int UndocumentedEmptyBlock = Internal + 460;
 		
+	/* AspectJ Extension */
+	int SwallowedExceptionInCatchBlock = Internal + 461; 
+	/* End AspectJ Extension */
+	
 	/*
 	 * Javadoc comments
 	 */
