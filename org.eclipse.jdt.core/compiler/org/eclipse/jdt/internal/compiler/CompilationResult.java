@@ -118,7 +118,8 @@ public class CompilationResult {
 		} else {
 			priority += P_OUTSIDE_METHOD;
 		}
-		if (firstErrors.contains(problem)){
+		if (firstErrors!=null && // AspectJ extension - too many routes get us to here with a null firstErrors 
+			firstErrors.contains(problem)){
 			priority += P_FIRST_ERROR;
 		}
 		return priority;
