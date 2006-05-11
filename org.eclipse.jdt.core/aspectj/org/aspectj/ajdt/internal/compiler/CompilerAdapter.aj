@@ -86,7 +86,8 @@ public privileged aspect CompilerAdapter {
 		compilerAdapter.beforeProcessing(unit);
 	}
 	
-	after(CompilationUnitDeclaration unit, int index) returning : processing(unit, index) {
+	// We want this to run even in the erroneous case to ensure 'compiled:' gets out...
+	after(CompilationUnitDeclaration unit, int index) : processing(unit, index) {
 		compilerAdapter.afterProcessing(unit,index);
 	}
 	
