@@ -500,24 +500,36 @@ public class CompilationResult {
 		boolean problemsNeedRemoving = false;
 		for (int i = 0; i < problemCount && !problemsNeedRemoving; i++) {
 			if (pf.accept(problems[i])) problemsNeedRemoving = true;
-}
+        }
 		if (!problemsNeedRemoving) return 0;
 		
 		// Second pass, do the removal - is this expensive?
-		int counter = 0;
+		int removed = 0;
 		for (int i = 0; i < problemCount; i++) {
 			if (pf.accept(problems[i])) {
 			  if (problemsMap!=null) problemsMap.remove(problems[i]);
 			  if (firstErrors!=null) firstErrors.remove(problems[i]);
-			} else { // keep it
-			  problems[counter++]=problems[i];
-			}
+			  problems[i] = null;
+			  removed++;
+			} 
 		}
+		if (removed > 0) {
+			for (int i = 0, index = 0; i < this.problemCount; i++) {
+				IProblem problem;
+				if ((problem = this.problems[i]) != null) {
+					if (i > index) {
+						this.problems[index++] = problem;
+					} else {
+						index++;
+					}
+				}
+			}
+			this.problemCount -= removed;
+		}
+		
 		// Don't adjust the array size as the same deows are likely just to get readded
 		// in the imminent weave...
-		int result = problemCount - counter;
-		problemCount = counter;
-		return result;
+		return removed;
 	}
 	
 	public interface ProblemsForRemovalFilter {
