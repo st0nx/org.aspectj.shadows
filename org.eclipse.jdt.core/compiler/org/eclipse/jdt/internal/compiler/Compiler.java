@@ -386,7 +386,12 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		    result = lookupEnvironment.unitBeingCompleted.compilationResult;
 		}		
 		if ((result == null) && (unitsToProcess != null) && (totalUnits > 0))
-			result = unitsToProcess[totalUnits - 1].compilationResult;
+		// AspectJ extension - extra error checking we need to resolve a bug... pr147481
+		{
+			CompilationUnitDeclaration cud =  unitsToProcess[totalUnits - 1];
+			if (cud!=null) result = cud.compilationResult;
+		}
+		// End AspectJ extension
 		// last unit in beginToCompile ?
 
 		boolean needToPrint = true;
