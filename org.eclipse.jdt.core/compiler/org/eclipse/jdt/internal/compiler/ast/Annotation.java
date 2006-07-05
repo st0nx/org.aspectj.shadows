@@ -96,9 +96,11 @@ public abstract class Annotation extends Expression {
 				if (valueAttribute != null) {
 					Expression expr = valueAttribute.value;
 					if ((expr.bits & Binding.VARIABLE) == Binding.FIELD) {
-						FieldBinding field = ((Reference)expr).fieldBinding();
-						if (field != null && field.declaringClass.id == T_JavaLangAnnotationRetentionPolicy) {
-							tagBits |= getRetentionPolicy(field.name);
+						if (expr instanceof Reference) { // AspectJ Extension (just this if statement) - might be fixed in 3.2 compiler (pr148537)
+							FieldBinding field = ((Reference)expr).fieldBinding();
+							if (field != null && field.declaringClass.id == T_JavaLangAnnotationRetentionPolicy) {
+								tagBits |= getRetentionPolicy(field.name);
+							} 
 						}
 					}
 				}
