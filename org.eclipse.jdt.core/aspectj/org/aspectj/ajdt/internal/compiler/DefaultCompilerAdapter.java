@@ -97,5 +97,10 @@ public class DefaultCompilerAdapter implements ICompilerAdapter {
 		// TODO Auto-generated method stub
 		
 	}
+
+	public void afterDietParsing(CompilationUnitDeclaration[] units) {
+		// TODO Auto-generated method stub
+		
+	}
 }
 // End AspectJ Extension

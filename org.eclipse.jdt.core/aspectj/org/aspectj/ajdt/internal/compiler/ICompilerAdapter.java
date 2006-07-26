@@ -21,6 +21,8 @@ import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
  */
 public interface ICompilerAdapter {
 	
+	void afterDietParsing(CompilationUnitDeclaration[] units);
+	
 	void beforeCompiling(ICompilationUnit[] sourceUnits);
 	void afterCompiling(CompilationUnitDeclaration[] units);
 	

@@ -45,6 +45,9 @@ public privileged aspect CompilerAdapter {
 	 */
 	private ICompilerAdapter compilerAdapter;
  
+	pointcut dietParsing(Compiler compiler): 
+		execution(void Compiler.beginToCompile(ICompilationUnit[])) && this(compiler);
+	
 	pointcut compiling(Compiler compiler, ICompilationUnit[] sourceUnits) :
 		execution(* Compiler.compile(..)) && args(sourceUnits) && this(compiler);
 	
@@ -84,6 +87,10 @@ public privileged aspect CompilerAdapter {
 	
 	before(CompilationUnitDeclaration unit, int index) : processing(unit,index) {
 		compilerAdapter.beforeProcessing(unit);
+	}
+	
+	after(Compiler compiler) returning(): dietParsing(compiler){
+		compilerAdapter.afterDietParsing(compiler.unitsToProcess);
 	}
 	
 	// We want this to run even in the erroneous case to ensure 'compiled:' gets out...
