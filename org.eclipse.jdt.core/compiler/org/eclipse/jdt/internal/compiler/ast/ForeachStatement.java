@@ -261,7 +261,7 @@ public class ForeachStatement extends Statement {
 		this.action.generateCode(scope, codeStream);
 
 		// continuation point
-		int continuationPC = codeStream.position;
+		// AspectJ Extension bug 155763 int continuationPC = codeStream.position;
 		if (this.continueLabel != null) {
 			this.continueLabel.place();
 			// generate the increments for next iteration
@@ -276,6 +276,10 @@ public class ForeachStatement extends Statement {
 		}
 		// generate the condition
 		conditionLabel.place();
+		// AspectJ Extension bug 155763
+		int conditionPC = codeStream.position;
+		// AspectJ Extension end
+		
 		if (this.postCollectionInitStateIndex != -1) {
 			codeStream.removeNotDefinitelyAssignedVariables(currentScope, postCollectionInitStateIndex);
 		}
@@ -292,7 +296,8 @@ public class ForeachStatement extends Statement {
 				codeStream.ifne(actionLabel);
 				break;
 		}
-		codeStream.recordPositionsFrom(continuationPC, this.elementVariable.sourceStart);
+		// AspectJ Extension bug 155763 codeStream.recordPositionsFrom(continuationPC, this.elementVariable.sourceStart);
+		codeStream.recordPositionsFrom(conditionPC, this.elementVariable.sourceStart);
 
 		breakLabel.place();
 		codeStream.exitUserScope(scope);
