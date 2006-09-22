@@ -181,7 +181,12 @@ public class FlowContext implements TypeConstants {
 				for (int j = 0; j < i; j++) {
 					if (raisedExceptions[j] == exception) continue nextReport; // already reported 
 				}
-				scope.problemReporter().unhandledException(exception, location);
+				// AspectJ Extension Begin
+				// was scope.problemReporter().unhandledException(exception, location); see pr151772
+				ProblemReporter problemReporter = scope.referenceCompilationUnit().problemReporter;
+				problemReporter.referenceContext = scope.referenceContext();
+				problemReporter.unhandledException(exception, location);
+				// AspectJ Extension End
 			}
 		}
 	}
@@ -272,7 +277,12 @@ public class FlowContext implements TypeConstants {
 			traversedContext = traversedContext.parent;
 		}
 		// if reaches this point, then there are some remaining unhandled exception types.
-		scope.problemReporter().unhandledException(raisedException, location);
+		// AspectJ Extension Begin
+		// was scope.problemReporter().unhandledException(raisedException, location); see pr151772
+		ProblemReporter problemReporter = scope.referenceCompilationUnit().problemReporter;
+		problemReporter.referenceContext = scope.referenceContext();
+		problemReporter.unhandledException(raisedException, location);
+		// AspectJ Extension End
 	}
 
 	public Label continueLabel() {
