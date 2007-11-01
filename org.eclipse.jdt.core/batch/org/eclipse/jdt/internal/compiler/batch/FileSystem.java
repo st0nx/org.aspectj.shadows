@@ -108,12 +108,22 @@ static Classpath getClasspath(String classpathName, String encoding,
 					classpathDirectoryMode, accessRuleSet);
 		}
 	} else {
-		String lowercaseClasspathName = classpathName.toLowerCase();
-		if (lowercaseClasspathName.endsWith(SUFFIX_STRING_jar)
-				|| lowercaseClasspathName.endsWith(SUFFIX_STRING_zip)) {
+		/* AspectJ Extension */
+		// Check if the file is actually a zip rather than just relying on
+		// the suffix (pr186673)
+//		String lowercaseClasspathName = classpathName.toLowerCase();
+//		if (lowercaseClasspathName.endsWith(SUFFIX_STRING_jar)
+//		|| lowercaseClasspathName.endsWith(SUFFIX_STRING_zip)) {
+		try {
+			ZipFile zf = new ZipFile(file);
+			zf.close();
 			result = new ClasspathJar(file, true, accessRuleSet);
-			// will throw an IOException if file does not exist
+		} catch (Exception e) {
+			// this means it is not a valid Zip 
 		}
+		// will throw an IOException if file does not exist
+		//}
+		/* End AspectJ Extension */
 	}
 	return result;
 }
