@@ -745,6 +745,10 @@ public AbstractMethodDeclaration sourceMethod() {
 		return null;		
 	}
 
+	// AspectJ Extension
+	// guard due to pr154923 - an npe occurs that is probably disguising an underlying problem that will be reported properly
+	if (sourceType.scope==null || sourceType.scope.referenceContext==null || sourceType.scope.referenceContext.methods==null) return null;
+	// End AspectJ Extension
 	AbstractMethodDeclaration[] methods = sourceType.scope.referenceContext.methods;
 	for (int i = methods.length; --i >= 0;)
 		if (this == methods[i].binding)
