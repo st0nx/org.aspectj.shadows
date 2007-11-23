@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,9 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.batch;
 
+import java.io.File;
+
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
 import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
@@ -17,10 +20,26 @@ import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 public abstract class ClasspathLocation implements FileSystem.Classpath,
 		SuffixConstants {
 
-	private AccessRuleSet accessRuleSet;
+	public static final int SOURCE = 1;
+	public static final int BINARY = 2;
+	
+	public AccessRuleSet accessRuleSet;
 
-	public ClasspathLocation(AccessRuleSet accessRuleSet) {
+	public String destinationPath;
+		// destination path for compilation units that are reached through this
+		// classpath location; the coding is consistent with the one of
+		// Main.destinationPath:
+		// == null: unspecified, use whatever value is set by the enclosing 
+		//          context, id est Main;
+		// == Main.NONE: absorbent element, do not output class files;
+		// else: use as the path of the directory into which class files must
+		//       be written.
+		// potentially carried by any entry that contains to be compiled files 
+		
+	protected ClasspathLocation(AccessRuleSet accessRuleSet, 
+			String destinationPath) {
 		this.accessRuleSet = accessRuleSet;
+		this.destinationPath = destinationPath;
 	}
 
 	/**
@@ -29,16 +48,21 @@ public abstract class ClasspathLocation implements FileSystem.Classpath,
 	 * 
 	 * @param qualifiedBinaryFileName
 	 *            tested type specification, formed as:
-	 *            "org/eclipse/jdt/core/JavaCore.class"
+	 *            "org/eclipse/jdt/core/JavaCore.class"; on systems that
+	 *            use \ as File.separator, the 
+	 *            "org\eclipse\jdt\core\JavaCore.class" is accepted as well
 	 * @return the first access rule which is violated when accessing a given
 	 *         type, or null if none applies
 	 */
-	AccessRestriction fetchAccessRestriction(String qualifiedBinaryFileName) {
+	protected AccessRestriction fetchAccessRestriction(String qualifiedBinaryFileName) {
 		if (this.accessRuleSet == null)
 			return null;
-		return this.accessRuleSet
-					.getViolatedRestriction(
-						qualifiedBinaryFileName.substring(0, qualifiedBinaryFileName.length() - SUFFIX_CLASS.length)
-						.toCharArray());
+		char [] qualifiedTypeName = qualifiedBinaryFileName.
+			substring(0, qualifiedBinaryFileName.length() - SUFFIX_CLASS.length)
+			.toCharArray(); 
+		if (File.separatorChar == '\\') {
+			CharOperation.replace(qualifiedTypeName, File.separatorChar, '/');
+		}
+		return this.accessRuleSet.getViolatedRestriction(qualifiedTypeName);
 	}
 }
