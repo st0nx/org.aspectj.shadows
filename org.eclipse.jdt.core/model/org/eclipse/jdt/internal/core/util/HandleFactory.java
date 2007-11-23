@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -69,6 +69,7 @@ public class HandleFactory {
 		this.javaModel = JavaModelManager.getJavaModelManager().getJavaModel();
 	}
 	
+
 	/**
 	 * Creates an Openable handle from the given resource path.
 	 * The resource path can be a path to a file in the workbench (eg. /Proj/com/ibm/jdt/core/HandleFactory.java)
@@ -83,9 +84,12 @@ public class HandleFactory {
 		int separatorIndex;
 		if ((separatorIndex= resourcePath.indexOf(IJavaSearchScope.JAR_FILE_ENTRY_SEPARATOR)) > -1) {
 			// path to a class file inside a jar
-			String jarPath= resourcePath.substring(0, separatorIndex);
 			// Optimization: cache package fragment root handle and package handles
-			if (!jarPath.equals(this.lastPkgFragmentRootPath)) {
+			int rootPathLength;
+			if (this.lastPkgFragmentRootPath == null 
+					|| (rootPathLength = this.lastPkgFragmentRootPath.length()) != resourcePath.length()
+					|| !resourcePath.regionMatches(0, this.lastPkgFragmentRootPath, 0, rootPathLength)) {
+				String jarPath= resourcePath.substring(0, separatorIndex);
 				IPackageFragmentRoot root= this.getJarPkgFragmentRoot(jarPath, scope);
 				if (root == null)
 					return null; // match is outside classpath
@@ -151,7 +155,7 @@ public class HandleFactory {
 				return (Openable) classFile;
 			}
 		}
-	}
+	}	
 	
 	/**
 	 * Returns a handle denoting the class member identified by its scope.
@@ -254,13 +258,10 @@ public class HandleFactory {
 			//        is NOT on the classpath of org.eclipse.swt.win32
 			IFile jarFile = (IFile)target;
 			JavaProject javaProject = (JavaProject) this.javaModel.getJavaProject(jarFile);
-			IClasspathEntry[] classpathEntries;
 			try {
-				classpathEntries = javaProject.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
-				for (int j= 0, entryCount= classpathEntries.length; j < entryCount; j++) {
-					if (classpathEntries[j].getPath().equals(jarPath)) {
-						return javaProject.getPackageFragmentRoot(jarFile);
-					}
+				IClasspathEntry entry = javaProject.getClasspathEntryFor(jarPath);
+				if (entry != null) {
+					return javaProject.getPackageFragmentRoot(jarFile);
 				}
 			} catch (JavaModelException e) {
 				// ignore and try to find another project
@@ -306,16 +307,14 @@ public class HandleFactory {
 		for (int i= 0, projectCount= projects.length; i < projectCount; i++) {
 			try {
 				JavaProject javaProject= (JavaProject)projects[i];
-				IClasspathEntry[] classpathEntries= javaProject.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
-				for (int j= 0, entryCount= classpathEntries.length; j < entryCount; j++) {
-					if (classpathEntries[j].getPath().equals(jarPath)) {
-						if (target instanceof IFile) {
-							// internal jar
-							return javaProject.getPackageFragmentRoot((IFile)target);
-						} else {
-							// external jar
-							return javaProject.getPackageFragmentRoot0(jarPath);
-						}
+				IClasspathEntry classpathEnty = javaProject.getClasspathEntryFor(jarPath);
+				if (classpathEnty != null) {
+					if (target instanceof IFile) {
+						// internal jar
+						return javaProject.getPackageFragmentRoot((IFile)target);
+					} else {
+						// external jar
+						return javaProject.getPackageFragmentRoot0(jarPath);
 					}
 				}
 			} catch (JavaModelException e) {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
-import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 
 /*
  * Part of the source element parser responsible for building the output. It
@@ -39,7 +39,6 @@ import org.eclipse.jdt.core.compiler.IProblem;
 public interface ISourceElementRequestor {
 	
 	public static class TypeInfo {
-		public int kind;
 		public int declarationStart;
 		public int modifiers;
 		public char[] name;
@@ -49,6 +48,9 @@ public interface ISourceElementRequestor {
 		public char[][] superinterfaces;
 		public TypeParameterInfo[] typeParameters;
 		public long[] annotationPositions;
+		public char[][] categories;
+		public boolean secondary;
+		public boolean anonymousMember;
 	}
 	
 	public static class TypeParameterInfo {
@@ -75,6 +77,7 @@ public interface ISourceElementRequestor {
 		public char[][] exceptionTypes;
 		public TypeParameterInfo[] typeParameters;
 		public long[] annotationPositions;
+		public char[][] categories;
 	}
 	
 	public static class FieldInfo {
@@ -85,6 +88,7 @@ public interface ISourceElementRequestor {
 		public int nameSourceStart; 
 		public int nameSourceEnd;
 		public long[] annotationPositions;
+		public char[][] categories;
 	}
 	
 	void acceptConstructorReference(char[] typeName, int argCount, int sourcePosition);
@@ -97,16 +101,15 @@ public interface ISourceElementRequestor {
 	 * @param declarationEnd
 	 *                   This is the position of the ';' ending the import statement or
 	 *                   the end of the comment following the import.
-	 * @param name
-	 *                   This is the name of the import like specified in the source
-	 *                   including the dots. The '.*' is never included in the name.
+	 * @param tokens
+	 *                   This are the tokens of the import like specified in the source.
 	 * @param onDemand
 	 *                   set to true if the import is an import on demand (e.g. import
 	 *                   java.io.*). False otherwise.
 	 * @param modifiers
 	 *                   can be set to static from 1.5 on.
 	 */
-	void acceptImport(int declarationStart, int declarationEnd, char[] name, boolean onDemand, int modifiers);
+	void acceptImport(int declarationStart, int declarationEnd, char[][] tokens, boolean onDemand, int modifiers);
 
 	/*
 	 * Table of line separator position. This table is passed once at the end of
@@ -121,7 +124,7 @@ public interface ISourceElementRequestor {
 	
 	void acceptPackage(int declarationStart, int declarationEnd, char[] name);
 
-	void acceptProblem(IProblem problem);
+	void acceptProblem(CategorizedProblem problem);
 
 	void acceptTypeReference(char[][] typeName, int sourceStart, int sourceEnd);
 

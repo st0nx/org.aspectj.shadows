@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,7 +15,6 @@ import java.util.ArrayList;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IParent;
 import org.eclipse.jdt.core.IRegion;
-
 
 /**
  * @see IRegion
@@ -110,7 +109,7 @@ public boolean remove(IJavaElement element) {
  *
  * <p>Children are all children, not just direct children.
  */
-private void removeAllChildren(IJavaElement element) {
+protected void removeAllChildren(IJavaElement element) {
 	if (element instanceof IParent) {
 		ArrayList newRootElements = new ArrayList();
 		for (int i = 0, size = fRootElements.size(); i < size; i++) {

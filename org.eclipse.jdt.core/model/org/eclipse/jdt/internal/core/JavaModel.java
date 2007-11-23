@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -22,14 +22,11 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.resources.ResourcesPlugin;
+import org.eclipse.core.runtime.Assert;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IJavaModel;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Messages;
 
@@ -72,12 +69,18 @@ protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, 
 
 	// determine my children
 	IProject[] projects = ResourcesPlugin.getWorkspace().getRoot().getProjects();
-	for (int i = 0, max = projects.length; i < max; i++) {
+	int length = projects.length;
+	IJavaElement[] children = new IJavaElement[length];
+	int index = 0;
+	for (int i = 0; i < length; i++) {
 		IProject project = projects[i];
 		if (JavaProject.hasJavaNature(project)) {
-			info.addChild(getJavaProject(project));
+			children[index++] = getJavaProject(project);
 		}
 	}
+	if (index < length)
+		System.arraycopy(children, 0, children = new IJavaElement[index], 0, index);
+	info.setChildren(children);
 
 	newElements.put(this, info);
 	
@@ -137,24 +140,6 @@ public void delete(IJavaElement[] elements, boolean force, IProgressMonitor moni
 public boolean equals(Object o) {
 	if (!(o instanceof JavaModel)) return false;
 	return super.equals(o);
-}
-/**
- * Finds the given project in the list of the java model's children.
- * Returns null if not found.
- */
-public IJavaProject findJavaProject(IProject project) {
-	try {
-		IJavaProject[] projects = this.getOldJavaProjectsList();
-		for (int i = 0, length = projects.length; i < length; i++) {
-			IJavaProject javaProject = projects[i];
-			if (project.equals(javaProject.getProject())) {
-				return javaProject;
-			}
-		}
-	} catch (JavaModelException e) {
-		// java model doesn't exist: cannot find any project
-	}
-	return null;
 }
 /**
  * @see IJavaElement
@@ -240,17 +225,6 @@ public Object[] getNonJavaResources() throws JavaModelException {
 		return ((JavaModelInfo) getElementInfo()).getNonJavaResources();
 }
 
-/**
- * Workaround for bug 15168 circular errors not reported 
- * Returns the list of java projects before resource delta processing
- * has started.
- */
-public IJavaProject[] getOldJavaProjectsList() throws JavaModelException {
-	JavaModelManager manager = JavaModelManager.getJavaModelManager();
-	return manager.deltaState.modelProjectsCache == null ? 
-			this.getJavaProjects() : 
-			manager.deltaState.modelProjectsCache; 
-}
 /*
  * @see IJavaElement
  */
@@ -358,6 +332,9 @@ public static Object getTarget(IContainer container, IPath path, boolean checkRe
 	if (!path.isAbsolute()) return null; 
 
 	// lookup - outside the container
+	return getTargetAsExternalFile(path, checkResourceExistence);	
+}
+private synchronized static Object getTargetAsExternalFile(IPath path, boolean checkResourceExistence) {
 	File externalFile = new File(path.toOSString());
 	if (!checkResourceExistence) {
 		return externalFile;
@@ -373,7 +350,7 @@ public static Object getTarget(IContainer container, IPath path, boolean checkRe
 			return externalFile;
 		}
 	}
-	return null;	
+	return null;
 }
 
 /**
@@ -387,7 +364,7 @@ public static boolean isFile(Object target) {
  * Helper method - returns the file item (ie. which returns true to {@link java.io.File#isFile()},
  * or null if unbound
  */
-public static File getFile(Object target) {
+public static synchronized File getFile(Object target) {
 	if (existingExternalConfirmedFiles.contains(target))
 		return (File) target;
 	if (target instanceof File) {

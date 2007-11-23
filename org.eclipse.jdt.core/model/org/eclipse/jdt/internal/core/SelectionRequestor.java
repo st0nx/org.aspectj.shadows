@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -24,11 +24,10 @@ import org.eclipse.jdt.core.ITypeParameter;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.*;
-import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
 import org.eclipse.jdt.internal.codeassist.SelectionEngine;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
-import org.eclipse.jdt.internal.compiler.env.IConstants;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
 import org.eclipse.jdt.internal.compiler.lookup.LocalTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
@@ -36,6 +35,8 @@ import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
+import org.eclipse.jdt.internal.compiler.lookup.TypeVariableBinding;
 import org.eclipse.jdt.internal.core.util.HandleFactory;
 import org.eclipse.jdt.internal.core.util.Util;
 
@@ -59,7 +60,7 @@ public class SelectionRequestor implements ISelectionRequestor {
 	 */
 	protected IJavaElement[] elements = JavaElement.NO_ELEMENTS;
 	protected int elementIndex = -1;
-	
+
 	protected HandleFactory handleFactory = new HandleFactory();
 
 /**
@@ -73,26 +74,91 @@ public SelectionRequestor(NameLookup nameLookup, Openable openable) {
 	this.nameLookup = nameLookup;
 	this.openable = openable;
 }
+private void acceptBinaryMethod(
+		IType type,
+		IMethod method,
+		char[] uniqueKey,
+		boolean isConstructor) {
+	try {
+		if(!isConstructor || ((JavaElement)method).getSourceMapper() == null) {
+			if (uniqueKey != null) {
+				ResolvedBinaryMethod resolvedMethod = new ResolvedBinaryMethod(
+						(JavaElement)method.getParent(),
+						method.getElementName(),
+						method.getParameterTypes(),
+						new String(uniqueKey));
+				resolvedMethod.occurrenceCount = method.getOccurrenceCount();
+				method = resolvedMethod;
+			}
+
+			addElement(method);
+			if(SelectionEngine.DEBUG){
+				System.out.print("SELECTION - accept method("); //$NON-NLS-1$
+				System.out.print(method.toString());
+				System.out.println(")"); //$NON-NLS-1$
+			}
+		} else {
+			ISourceRange range = method.getSourceRange();
+			if (range.getOffset() != -1 && range.getLength() != 0 ) {
+				if (uniqueKey != null) {
+					ResolvedBinaryMethod resolvedMethod = new ResolvedBinaryMethod(
+							(JavaElement)method.getParent(),
+							method.getElementName(),
+							method.getParameterTypes(),
+							new String(uniqueKey));
+					resolvedMethod.occurrenceCount = method.getOccurrenceCount();
+					method = resolvedMethod;
+				}
+				addElement(method);
+				if(SelectionEngine.DEBUG){
+					System.out.print("SELECTION - accept method("); //$NON-NLS-1$
+					System.out.print(method.toString());
+					System.out.println(")"); //$NON-NLS-1$
+				}
+			} else {
+				// no range was actually found, but a method was originally given -> default constructor
+				addElement(type);
+				if(SelectionEngine.DEBUG){
+					System.out.print("SELECTION - accept type("); //$NON-NLS-1$
+					System.out.print(type.toString());
+					System.out.println(")"); //$NON-NLS-1$
+				}
+			}
+		}
+	} catch (JavaModelException e) {
+		// an exception occurs, return nothing
+	}
+}
 /**
  * Resolve the binary method
  *
  * fix for 1FWFT6Q
  */
-protected void acceptBinaryMethod(IType type, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, String[] parameterSignatures, char[] uniqueKey) {
+protected void acceptBinaryMethod(
+		IType type,
+		char[] selector,
+		char[][] parameterPackageNames,
+		char[][] parameterTypeNames,
+		String[] parameterSignatures,
+		char[][] typeParameterNames,
+		char[][][] typeParameterBoundNames,
+		char[] uniqueKey,
+		boolean isConstructor) {
 	IMethod method= type.getMethod(new String(selector), parameterSignatures);
+
 	if (method.exists()) {
-		if (uniqueKey != null)
-			method = new ResolvedBinaryMethod(
-					(JavaElement)method.getParent(),
-					method.getElementName(),
-					method.getParameterTypes(),
-					new String(uniqueKey));
-		addElement(method);
-		if(SelectionEngine.DEBUG){
-			System.out.print("SELECTION - accept method("); //$NON-NLS-1$
-			System.out.print(method.toString());
-			System.out.println(")"); //$NON-NLS-1$
+		if (typeParameterNames != null && typeParameterNames.length != 0) {
+			IMethod[] methods = type.findMethods(method);
+			if (methods.length > 1) {
+				for (int i = 0; i < methods.length; i++) {
+					if (areTypeParametersCompatible(methods[i], typeParameterNames, typeParameterBoundNames)) {
+						acceptBinaryMethod(type, method, uniqueKey, isConstructor);
+					}
+				}
+				return;
+			}
 		}
+		acceptBinaryMethod(type, method, uniqueKey, isConstructor);
 	}
 }
 /**
@@ -100,16 +166,16 @@ protected void acceptBinaryMethod(IType type, char[] selector, char[][] paramete
  */
 public void acceptType(char[] packageName, char[] typeName, int modifiers, boolean isDeclaration, char[] uniqueKey, int start, int end) {
 	int acceptFlags = 0;
-	int kind = modifiers & (IConstants.AccInterface+IConstants.AccEnum+IConstants.AccAnnotation);
+	int kind = modifiers & (ClassFileConstants.AccInterface|ClassFileConstants.AccEnum|ClassFileConstants.AccAnnotation);
 	switch (kind) {
-		case IConstants.AccAnnotation:
-		case IConstants.AccAnnotation+IConstants.AccInterface:
+		case ClassFileConstants.AccAnnotation:
+		case ClassFileConstants.AccAnnotation|ClassFileConstants.AccInterface:
 			acceptFlags = NameLookup.ACCEPT_ANNOTATIONS;
 			break;
-		case IConstants.AccEnum:
+		case ClassFileConstants.AccEnum:
 			acceptFlags = NameLookup.ACCEPT_ENUMS;
 			break;
-		case IConstants.AccInterface:
+		case ClassFileConstants.AccInterface:
 			acceptFlags = NameLookup.ACCEPT_INTERFACES;
 			break;
 		default:
@@ -124,13 +190,17 @@ public void acceptType(char[] packageName, char[] typeName, int modifiers, boole
 		if(type != null ) {
 			String key = uniqueKey == null ? type.getKey() : new String(uniqueKey);
 			if(type.isBinary()) {
-				type = new ResolvedBinaryType((JavaElement)type.getParent(), type.getElementName(), key);
+				ResolvedBinaryType resolvedType = new ResolvedBinaryType((JavaElement)type.getParent(), type.getElementName(), key);
+				resolvedType.occurrenceCount = type.getOccurrenceCount();
+				type = resolvedType;
 			} else {
-				type = new ResolvedSourceType((JavaElement)type.getParent(), type.getElementName(), key);
+				ResolvedSourceType resolvedType = new ResolvedSourceType((JavaElement)type.getParent(), type.getElementName(), key);
+				resolvedType.occurrenceCount = type.getOccurrenceCount();
+				type = resolvedType;
 			}
 		}
 	}
-	
+
 	if (type != null) {
 		addElement(type);
 		if(SelectionEngine.DEBUG){
@@ -138,12 +208,12 @@ public void acceptType(char[] packageName, char[] typeName, int modifiers, boole
 			System.out.print(type.toString());
 			System.out.println(")"); //$NON-NLS-1$
 		}
-	} 
+	}
 }
 /**
  * @see ISelectionRequestor#acceptError
  */
-public void acceptError(IProblem error) {
+public void acceptError(CategorizedProblem error) {
 	// do nothing
 }
 /**
@@ -173,7 +243,7 @@ public void acceptField(char[] declaringTypePackageName, char[] declaringTypeNam
 					}
 				}
 			} catch (JavaModelException e) {
-				return; 
+				return;
 			}
 		}
 	} else {
@@ -183,15 +253,19 @@ public void acceptField(char[] declaringTypePackageName, char[] declaringTypeNam
 			if (field.exists()) {
 				if (uniqueKey != null) {
 					if(field.isBinary()) {
-						field = new ResolvedBinaryField(
+						ResolvedBinaryField resolvedField = new ResolvedBinaryField(
 								(JavaElement)field.getParent(),
 								field.getElementName(),
 								new String(uniqueKey));
+						resolvedField.occurrenceCount = field.getOccurrenceCount();
+						field = resolvedField;
 					} else {
-						field = new ResolvedSourceField(
+						ResolvedSourceField resolvedField = new ResolvedSourceField(
 								(JavaElement)field.getParent(),
 								field.getElementName(),
 								new String(uniqueKey));
+						resolvedField.occurrenceCount = field.getOccurrenceCount();
+						field = resolvedField;
 					}
 				}
 				addElement(field);
@@ -207,7 +281,7 @@ public void acceptField(char[] declaringTypePackageName, char[] declaringTypeNam
 public void acceptLocalField(FieldBinding fieldBinding) {
 	IJavaElement res;
 	if(fieldBinding.declaringClass instanceof ParameterizedTypeBinding) {
-		LocalTypeBinding localTypeBinding = (LocalTypeBinding)((ParameterizedTypeBinding)fieldBinding.declaringClass).type;
+		LocalTypeBinding localTypeBinding = (LocalTypeBinding)((ParameterizedTypeBinding)fieldBinding.declaringClass).genericType();
 		res = findLocalElement(localTypeBinding.sourceStart());
 	} else {
 		SourceTypeBinding typeBinding = (SourceTypeBinding)fieldBinding.declaringClass;
@@ -219,15 +293,19 @@ public void acceptLocalField(FieldBinding fieldBinding) {
 		if (field.exists()) {
 			char[] uniqueKey = fieldBinding.computeUniqueKey();
 			if(field.isBinary()) {
-				field = new ResolvedBinaryField(
+				ResolvedBinaryField resolvedField = new ResolvedBinaryField(
 						(JavaElement)field.getParent(),
 						field.getElementName(),
 						new String(uniqueKey));
+				resolvedField.occurrenceCount = field.getOccurrenceCount();
+				field = resolvedField;
 			} else {
-				field = new ResolvedSourceField(
+				ResolvedSourceField resolvedField = new ResolvedSourceField(
 						(JavaElement)field.getParent(),
 						field.getElementName(),
 						new String(uniqueKey));
+				resolvedField.occurrenceCount = field.getOccurrenceCount();
+				field = resolvedField;
 			}
 			addElement(field);
 			if(SelectionEngine.DEBUG){
@@ -240,46 +318,100 @@ public void acceptLocalField(FieldBinding fieldBinding) {
 }
 public void acceptLocalMethod(MethodBinding methodBinding) {
 	IJavaElement res = findLocalElement(methodBinding.sourceStart());
-	if(res != null && res.getElementType() == IJavaElement.METHOD) {
-		IMethod method = (IMethod) res;
-		
-		char[] uniqueKey = methodBinding.computeUniqueKey();
-		if(method.isBinary()) {
-			res = new ResolvedBinaryMethod(
-					(JavaElement)res.getParent(),
-					method.getElementName(),
-					method.getParameterTypes(), 
-					new String(uniqueKey));
-		} else {
-			res = new ResolvedSourceMethod(
-					(JavaElement)res.getParent(),
-					method.getElementName(),
-					method.getParameterTypes(), 
-					new String(uniqueKey));
-		}
-		addElement(res);
-		if(SelectionEngine.DEBUG){
-			System.out.print("SELECTION - accept method("); //$NON-NLS-1$
-			System.out.print(res.toString());
-			System.out.println(")"); //$NON-NLS-1$
+	if(res != null) {
+		if(res.getElementType() == IJavaElement.METHOD) {
+			IMethod method = (IMethod) res;
+
+			char[] uniqueKey = methodBinding.computeUniqueKey();
+			if(method.isBinary()) {
+				ResolvedBinaryMethod resolvedRes = new ResolvedBinaryMethod(
+						(JavaElement)res.getParent(),
+						method.getElementName(),
+						method.getParameterTypes(),
+						new String(uniqueKey));
+				resolvedRes.occurrenceCount = method.getOccurrenceCount();
+				res = resolvedRes;
+			} else {
+				ResolvedSourceMethod resolvedRes = new ResolvedSourceMethod(
+						(JavaElement)res.getParent(),
+						method.getElementName(),
+						method.getParameterTypes(),
+						new String(uniqueKey));
+				resolvedRes.occurrenceCount = method.getOccurrenceCount();
+				res = resolvedRes;
+			}
+			addElement(res);
+			if(SelectionEngine.DEBUG){
+				System.out.print("SELECTION - accept method("); //$NON-NLS-1$
+				System.out.print(res.toString());
+				System.out.println(")"); //$NON-NLS-1$
+			}
+		} else if(methodBinding.selector == TypeConstants.INIT && res.getElementType() == IJavaElement.TYPE) {
+			// it's a default constructor
+			res = ((JavaElement)res).resolved(methodBinding.declaringClass);
+			addElement(res);
+			if(SelectionEngine.DEBUG){
+				System.out.print("SELECTION - accept type("); //$NON-NLS-1$
+				System.out.print(res.toString());
+				System.out.println(")"); //$NON-NLS-1$
+			}
 		}
 	}
 }
 public void acceptLocalType(TypeBinding typeBinding) {
 	IJavaElement res =  null;
 	if(typeBinding instanceof ParameterizedTypeBinding) {
-		LocalTypeBinding localTypeBinding = (LocalTypeBinding)((ParameterizedTypeBinding)typeBinding).type;
+		LocalTypeBinding localTypeBinding = (LocalTypeBinding)((ParameterizedTypeBinding)typeBinding).genericType();
 		res = findLocalElement(localTypeBinding.sourceStart());
 	} else if(typeBinding instanceof SourceTypeBinding) {
 		res = findLocalElement(((SourceTypeBinding)typeBinding).sourceStart());
 	}
 	if(res != null && res.getElementType() == IJavaElement.TYPE) {
-		res = new ResolvedSourceType((JavaElement)res.getParent(), res.getElementName(), new String(typeBinding.computeUniqueKey()));
+		res = ((JavaElement)res).resolved(typeBinding);
 		addElement(res);
 		if(SelectionEngine.DEBUG){
 			System.out.print("SELECTION - accept type("); //$NON-NLS-1$
 			System.out.print(res.toString());
 			System.out.println(")"); //$NON-NLS-1$
+		}
+	}
+}
+public void acceptLocalTypeParameter(TypeVariableBinding typeVariableBinding) {
+	IJavaElement res;
+	if(typeVariableBinding.declaringElement instanceof ParameterizedTypeBinding) {
+		LocalTypeBinding localTypeBinding = (LocalTypeBinding)((ParameterizedTypeBinding)typeVariableBinding.declaringElement).genericType();
+		res = findLocalElement(localTypeBinding.sourceStart());
+	} else {
+		SourceTypeBinding typeBinding = (SourceTypeBinding)typeVariableBinding.declaringElement;
+		res = findLocalElement(typeBinding.sourceStart());
+	}
+	if (res != null && res.getElementType() == IJavaElement.TYPE) {
+		IType type = (IType) res;
+		ITypeParameter typeParameter = type.getTypeParameter(new String(typeVariableBinding.sourceName));
+		if (typeParameter.exists()) {
+			addElement(typeParameter);
+			if(SelectionEngine.DEBUG){
+				System.out.print("SELECTION - accept type parameter("); //$NON-NLS-1$
+				System.out.print(typeParameter.toString());
+				System.out.println(")"); //$NON-NLS-1$
+			}
+		}
+	}
+}
+public void acceptLocalMethodTypeParameter(TypeVariableBinding typeVariableBinding) {
+	MethodBinding methodBinding = (MethodBinding)typeVariableBinding.declaringElement;
+	IJavaElement res = findLocalElement(methodBinding.sourceStart());
+	if(res != null && res.getElementType() == IJavaElement.METHOD) {
+		IMethod method = (IMethod) res;
+
+		ITypeParameter typeParameter = method.getTypeParameter(new String(typeVariableBinding.sourceName));
+		if (typeParameter.exists()) {
+			addElement(typeParameter);
+			if(SelectionEngine.DEBUG){
+				System.out.print("SELECTION - accept type parameter("); //$NON-NLS-1$
+				System.out.print(typeParameter.toString());
+				System.out.println(")"); //$NON-NLS-1$
+			}
 		}
 	}
 }
@@ -289,8 +421,8 @@ public void acceptLocalVariable(LocalVariableBinding binding) {
 	IJavaElement localVar = null;
 	if(parent != null) {
 		localVar = new LocalVariable(
-				(JavaElement)parent, 
-				new String(local.name), 
+				(JavaElement)parent,
+				new String(local.name),
 				local.declarationSourceStart,
 				local.declarationSourceEnd,
 				local.sourceStart,
@@ -309,17 +441,31 @@ public void acceptLocalVariable(LocalVariableBinding binding) {
 /**
  * Resolve the method
  */
-public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, String enclosingDeclaringTypeSignature, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, String[] parameterSignatures, boolean isConstructor, boolean isDeclaration, char[] uniqueKey, int start, int end) {
+public void acceptMethod(
+		char[] declaringTypePackageName,
+		char[] declaringTypeName,
+		String enclosingDeclaringTypeSignature,
+		char[] selector,
+		char[][] parameterPackageNames,
+		char[][] parameterTypeNames,
+		String[] parameterSignatures,
+		char[][] typeParameterNames,
+		char[][][] typeParameterBoundNames,
+		boolean isConstructor,
+		boolean isDeclaration,
+		char[] uniqueKey,
+		int start,
+		int end) {
 	IJavaElement[] previousElement = this.elements;
 	int previousElementIndex = this.elementIndex;
 	this.elements = JavaElement.NO_ELEMENTS;
 	this.elementIndex = -1;
-	
+
 	if(isDeclaration) {
 		IType type = resolveTypeByLocation(declaringTypePackageName, declaringTypeName,
 				NameLookup.ACCEPT_ALL,
 				start, end);
-		
+
 		if(type != null) {
 			this.acceptMethodDeclaration(type, selector, start, end);
 		}
@@ -329,35 +475,35 @@ public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeNa
 		// fix for 1FWFT6Q
 		if (type != null) {
 			if (type.isBinary()) {
-				
+
 				// need to add a paramater for constructor in binary type
 				IType declaringDeclaringType = type.getDeclaringType();
-				
+
 				boolean isStatic = false;
 				try {
 					isStatic = Flags.isStatic(type.getFlags());
 				} catch (JavaModelException e) {
 					// isStatic == false
 				}
-				
+
 				if(declaringDeclaringType != null && isConstructor	&& !isStatic) {
 					int length = parameterPackageNames.length;
 					System.arraycopy(parameterPackageNames, 0, parameterPackageNames = new char[length+1][], 1, length);
 					System.arraycopy(parameterTypeNames, 0, parameterTypeNames = new char[length+1][], 1, length);
 					System.arraycopy(parameterSignatures, 0, parameterSignatures = new String[length+1], 1, length);
-					
+
 					parameterPackageNames[0] = declaringDeclaringType.getPackageFragment().getElementName().toCharArray();
 					parameterTypeNames[0] = declaringDeclaringType.getTypeQualifiedName().toCharArray();
-					parameterSignatures[0] = enclosingDeclaringTypeSignature;
+					parameterSignatures[0] = Signature.getTypeErasure(enclosingDeclaringTypeSignature);
 				}
-				
-				acceptBinaryMethod(type, selector, parameterPackageNames, parameterTypeNames, parameterSignatures, uniqueKey);
+
+				acceptBinaryMethod(type, selector, parameterPackageNames, parameterTypeNames, parameterSignatures, typeParameterNames, typeParameterBoundNames, uniqueKey, isConstructor);
 			} else {
-				acceptSourceMethod(type, selector, parameterPackageNames, parameterTypeNames, uniqueKey);
+				acceptSourceMethod(type, selector, parameterPackageNames, parameterTypeNames, parameterSignatures, typeParameterNames, typeParameterBoundNames, uniqueKey);
 			}
 		}
 	}
-	
+
 	if(previousElementIndex > -1) {
 		int elementsLength = this.elementIndex + previousElementIndex + 2;
 		if(elementsLength > this.elements.length) {
@@ -388,7 +534,16 @@ public void acceptPackage(char[] packageName) {
  *
  * fix for 1FWFT6Q
  */
-protected void acceptSourceMethod(IType type, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, char[] uniqueKey) {
+protected void acceptSourceMethod(
+		IType type,
+		char[] selector,
+		char[][] parameterPackageNames,
+		char[][] parameterTypeNames,
+		String[] parameterSignatures,
+		char[][] typeParameterNames,
+		char[][][] typeParameterBoundNames,
+		char[] uniqueKey) {
+
 	String name = new String(selector);
 	IMethod[] methods = null;
 	try {
@@ -397,17 +552,20 @@ protected void acceptSourceMethod(IType type, char[] selector, char[][] paramete
 			if (methods[i].getElementName().equals(name)
 					&& methods[i].getParameterTypes().length == parameterTypeNames.length) {
 				IMethod method = methods[i];
-				if (uniqueKey != null)
-					method = new ResolvedSourceMethod(
+				if (uniqueKey != null) {
+					ResolvedSourceMethod resolvedMethod = new ResolvedSourceMethod(
 						(JavaElement)method.getParent(),
 						method.getElementName(),
 						method.getParameterTypes(),
 						new String(uniqueKey));
+					resolvedMethod.occurrenceCount = method.getOccurrenceCount();
+					method = resolvedMethod;
+				}
 				addElement(method);
 			}
 		}
 	} catch (JavaModelException e) {
-		return; 
+		return;
 	}
 
 	// if no matches, nothing to report
@@ -449,6 +607,11 @@ protected void acceptSourceMethod(IType type, char[] selector, char[][] paramete
 				break;
 			}
 		}
+
+		if (match && !areTypeParametersCompatible(method, typeParameterNames, typeParameterBoundNames)) {
+			match = false;
+		}
+
 		if (match) {
 			addElement(method);
 			if(SelectionEngine.DEBUG){
@@ -458,7 +621,7 @@ protected void acceptSourceMethod(IType type, char[] selector, char[][] paramete
 			}
 		}
 	}
-	
+
 }
 protected void acceptMethodDeclaration(IType type, char[] selector, int start, int end) {
 	String name = new String(selector);
@@ -480,7 +643,7 @@ protected void acceptMethodDeclaration(IType type, char[] selector, int start, i
 			}
 		}
 	} catch (JavaModelException e) {
-		return; 
+		return;
 	}
 
 	// no match was actually found
@@ -502,7 +665,7 @@ public void acceptTypeParameter(char[] declaringTypePackageName, char[] declarin
 		type = resolveType(declaringTypePackageName, declaringTypeName,
 				NameLookup.ACCEPT_ALL);
 	}
-			
+
 	if(type != null) {
 		ITypeParameter typeParameter = type.getTypeParameter(new String(typeParameterName));
 		if(typeParameter == null) {
@@ -526,13 +689,13 @@ public void acceptMethodTypeParameter(char[] declaringTypePackageName, char[] de
 	IType type = resolveTypeByLocation(declaringTypePackageName, declaringTypeName,
 			NameLookup.ACCEPT_ALL,
 			selectorStart, selectorEnd);
-	
+
 	if(type != null) {
 		IMethod method = null;
-		
+
 		String name = new String(selector);
 		IMethod[] methods = null;
-		
+
 		try {
 			methods = type.getMethods();
 			done : for (int i = 0; i < methods.length; i++) {
@@ -585,7 +748,45 @@ protected void addElement(IJavaElement element) {
 	}
 	this.elements[++this.elementIndex] = element;
 }
+private boolean areTypeParametersCompatible(IMethod method, char[][] typeParameterNames, char[][][] typeParameterBoundNames) {
+	try {
+		ITypeParameter[] typeParameters = method.getTypeParameters();
+		int length1 = typeParameters == null ? 0 : typeParameters.length;
+		int length2 = typeParameterNames == null ? 0 : typeParameterNames.length;
+		if (length1 != length2) {
+			return false;
+		} else {
+			for (int j = 0; j < length1; j++) {
+				ITypeParameter typeParameter = typeParameters[j];
+				String typeParameterName = typeParameter.getElementName();
+				if (!typeParameterName.equals(new String(typeParameterNames[j]))) {
+					return false;
+				}
 
+				String[] bounds = typeParameter.getBounds();
+				int boundCount = typeParameterBoundNames[j] == null ? 0 : typeParameterBoundNames[j].length;
+
+				if (bounds.length != boundCount) {
+					return false;
+				} else {
+					for (int k = 0; k < boundCount; k++) {
+						String simpleName = Signature.getSimpleName(bounds[k]);
+						int index = simpleName.indexOf('<');
+						if (index != -1) {
+							simpleName = simpleName.substring(0, index);
+						}
+						if (!simpleName.equals(new String(typeParameterBoundNames[j][k]))) {
+							return false;
+						}
+					}
+				}
+			}
+		}
+	} catch (JavaModelException e) {
+		return false;
+	}
+	return true;
+}
 /*
  * findLocalElement() cannot find local variable
  */
@@ -624,13 +825,13 @@ public IJavaElement[] getElements() {
 protected IType resolveType(char[] packageName, char[] typeName, int acceptFlags) {
 
 	IType type= null;
-	
+
 	if (this.openable instanceof CompilationUnit && ((CompilationUnit)this.openable).isWorkingCopy()) {
 		CompilationUnit wc = (CompilationUnit) this.openable;
 		try {
 			if(((packageName == null || packageName.length == 0) && wc.getPackageDeclarations().length == 0) ||
 				(!(packageName == null || packageName.length == 0) && wc.getPackageDeclaration(new String(packageName)).exists())) {
-					
+
 				char[][] compoundName = CharOperation.splitOn('.', typeName);
 				if(compoundName.length > 0) {
 					type = wc.getType(new String(compoundName[0]));
@@ -638,24 +839,24 @@ protected IType resolveType(char[] packageName, char[] typeName, int acceptFlags
 						type = type.getType(new String(compoundName[i]));
 					}
 				}
-				
+
 				if(type != null && !type.exists()) {
 					type = null;
 				}
 			}
 		}catch (JavaModelException e) {
-			type = null;
+			// type is null
 		}
 	}
 
 	if(type == null) {
 		IPackageFragment[] pkgs = this.nameLookup.findPackageFragments(
-			(packageName == null || packageName.length == 0) ? IPackageFragment.DEFAULT_PACKAGE_NAME : new String(packageName), 
+			(packageName == null || packageName.length == 0) ? IPackageFragment.DEFAULT_PACKAGE_NAME : new String(packageName),
 			false);
 		// iterate type lookup in each package fragment
 		for (int i = 0, length = pkgs == null ? 0 : pkgs.length; i < length; i++) {
-			type= this.nameLookup.findType(new String(typeName), pkgs[i], false, acceptFlags);
-			if (type != null) break;	
+			type= this.nameLookup.findType(new String(typeName), pkgs[i], false, acceptFlags, true/*consider secondary types*/);
+			if (type != null) break;
 		}
 		if (type == null) {
 			String pName= IPackageFragment.DEFAULT_PACKAGE_NAME;
@@ -687,17 +888,17 @@ protected IType resolveType(char[] packageName, char[] typeName, int acceptFlags
 protected IType resolveTypeByLocation(char[] packageName, char[] typeName, int acceptFlags, int start, int end) {
 
 	IType type= null;
-	
+
 	// TODO (david) post 3.0 should remove isOpen check, and investigate reusing ICompilationUnit#getElementAt. may need to optimize #getElementAt to remove recursions
 	if (this.openable instanceof CompilationUnit && ((CompilationUnit)this.openable).isOpen()) {
 		CompilationUnit wc = (CompilationUnit) this.openable;
 		try {
 			if(((packageName == null || packageName.length == 0) && wc.getPackageDeclarations().length == 0) ||
 				(!(packageName == null || packageName.length == 0) && wc.getPackageDeclaration(new String(packageName)).exists())) {
-					
+
 				char[][] compoundName = CharOperation.splitOn('.', typeName);
 				if(compoundName.length > 0) {
-					
+
 					IType[] tTypes = wc.getTypes();
 					int i = 0;
 					int depth = 0;
@@ -718,24 +919,24 @@ protected IType resolveTypeByLocation(char[] packageName, char[] typeName, int a
 						i++;
 					}
 				}
-				
+
 				if(type != null && !type.exists()) {
 					type = null;
 				}
 			}
 		}catch (JavaModelException e) {
-			type = null;
+			// type is null
 		}
 	}
 
 	if(type == null) {
 		IPackageFragment[] pkgs = this.nameLookup.findPackageFragments(
-			(packageName == null || packageName.length == 0) ? IPackageFragment.DEFAULT_PACKAGE_NAME : new String(packageName), 
+			(packageName == null || packageName.length == 0) ? IPackageFragment.DEFAULT_PACKAGE_NAME : new String(packageName),
 			false);
 		// iterate type lookup in each package fragment
 		for (int i = 0, length = pkgs == null ? 0 : pkgs.length; i < length; i++) {
-			type= this.nameLookup.findType(new String(typeName), pkgs[i], false, acceptFlags);
-			if (type != null) break;	
+			type= this.nameLookup.findType(new String(typeName), pkgs[i], false, acceptFlags, true/*consider secondary types*/);
+			if (type != null) break;
 		}
 		if (type == null) {
 			String pName= IPackageFragment.DEFAULT_PACKAGE_NAME;

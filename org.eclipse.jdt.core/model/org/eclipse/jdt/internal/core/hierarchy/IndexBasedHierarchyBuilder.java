@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,8 +12,11 @@ package org.eclipse.jdt.internal.core.hierarchy;
 
 import java.util.*;
 
+import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.NullProgressMonitor;
 import org.eclipse.core.runtime.SubProgressMonitor;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -23,6 +26,7 @@ import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfObject;
+import org.eclipse.jdt.internal.compiler.util.HashtableOfObjectToInt;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.search.IndexQueryRequestor;
@@ -33,6 +37,7 @@ import org.eclipse.jdt.internal.core.search.indexing.IndexManager;
 import org.eclipse.jdt.internal.core.search.matching.MatchLocator;
 import org.eclipse.jdt.internal.core.search.matching.SuperTypeReferencePattern;
 import org.eclipse.jdt.internal.core.util.HandleFactory;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class IndexBasedHierarchyBuilder extends HierarchyBuilder implements SuffixConstants {
 	public static final int MAXTICKS = 800; // heuristic so that there still progress for deep hierachies
@@ -43,10 +48,6 @@ public class IndexBasedHierarchyBuilder extends HierarchyBuilder implements Suff
 	 * the region).
 	 */
 	protected Map cuToHandle;
-	/**
-	 * A map from compilation unit handles to working copies.
-	 */
-	protected Map handleToWorkingCopy;
 
 	/**
 	 * The scope this hierarchy builder should restrain results to.
@@ -61,7 +62,7 @@ public class IndexBasedHierarchyBuilder extends HierarchyBuilder implements Suff
 	/**
 	 * Collection used to queue subtype index queries
 	 */
-	private static class Queue {
+	static class Queue {
 		public char[][] names = new char[10][];
 		public int start = 0;
 		public int end = -1;
@@ -119,7 +120,7 @@ public void build(boolean computeSubtypes) {
 				allPossibleSubtypes = this.determinePossibleSubTypes(localTypes, possibleSubtypesMonitor);
 			} else {
 				// local or anonymous type
-				allPossibleSubtypes = new String[0];
+				allPossibleSubtypes = CharOperation.NO_STRINGS;
 			}
 			if (allPossibleSubtypes != null) {
 				IProgressMonitor buildMonitor = 
@@ -138,13 +139,38 @@ public void build(boolean computeSubtypes) {
 	}
 }
 private void buildForProject(JavaProject project, ArrayList potentialSubtypes, org.eclipse.jdt.core.ICompilationUnit[] workingCopies, HashSet localTypes, IProgressMonitor monitor) throws JavaModelException {
-	// copy vectors into arrays
-	int openablesLength = potentialSubtypes.size();
-	Openable[] openables = new Openable[openablesLength];
-	potentialSubtypes.toArray(openables);
-
 	// resolve
+	int openablesLength = potentialSubtypes.size();
 	if (openablesLength > 0) {
+		// copy vectors into arrays
+		Openable[] openables = new Openable[openablesLength];
+		potentialSubtypes.toArray(openables);
+
+		// sort in the order of roots and in reverse alphabetical order for .class file
+		// since requesting top level types in the process of caching an enclosing type is
+		// not supported by the lookup environment
+		IPackageFragmentRoot[] roots = project.getPackageFragmentRoots();
+		int rootsLength = roots.length;
+		final HashtableOfObjectToInt indexes = new HashtableOfObjectToInt(openablesLength);
+		for (int i = 0; i < openablesLength; i++) {
+			IJavaElement root = openables[i].getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
+			int index;
+			for (index = 0; index < rootsLength; index++) {
+				if (roots[index].equals(root))
+					break;
+			}		
+			indexes.put(openables[i], index);
+		}
+		Arrays.sort(openables, new Comparator() {
+			public int compare(Object a, Object b) {
+				int aIndex = indexes.get(a);
+				int bIndex = indexes.get(b);
+				if (aIndex != bIndex)
+					return aIndex - bIndex;
+				return ((Openable) b).getElementName().compareTo(((Openable) a).getElementName());
+			}
+		});
+		
 		IType focusType = this.getType();
 		boolean inProjectOfFocusType = focusType != null && focusType.getJavaProject().equals(project);
 		org.eclipse.jdt.core.ICompilationUnit[] unitsToLookInside = null;
@@ -175,10 +201,13 @@ private void buildForProject(JavaProject project, ArrayList potentialSubtypes, o
 			Member declaringMember = ((Member)focusType).getOuterMostLocalContext();
 			if (declaringMember == null) {
 				// top level or member type
-				char[] fullyQualifiedName = focusType.getFullyQualifiedName().toCharArray();
-				if (!inProjectOfFocusType && searchableEnvironment.findType(CharOperation.splitOn('.', fullyQualifiedName)) == null) {
-					// focus type is not visible in this project: no need to go further
-					return;
+				if (!inProjectOfFocusType) {
+					char[] typeQualifiedName = focusType.getTypeQualifiedName('.').toCharArray();
+					String[] packageName = ((PackageFragment) focusType.getPackageFragment()).names;
+					if (searchableEnvironment.findType(typeQualifiedName, Util.toCharArrays(packageName)) == null) {
+						// focus type is not visible in this project: no need to go further
+						return;
+					}
 				}
 			} else {
 				// local or anonymous type
@@ -238,17 +267,12 @@ private void buildFromPotentialSubtypes(String[] allPotentialSubTypes, HashSet l
 		length++;
 	}
 	
-	// sort by projects
 	/*
-	 * NOTE: To workaround pb with hierarchy resolver that requests top  
-	 * level types in the process of caching an enclosing type, this needs to
-	 * be sorted in reverse alphabetical order so that top level types are cached
-	 * before their inner types.
+	 * Sort in alphabetical order so that potential subtypes are grouped per project
 	 */
-	org.eclipse.jdt.internal.core.util.Util.sortReverseOrder(allPotentialSubTypes);
-	
-	ArrayList potentialSubtypes = new ArrayList();
+	Arrays.sort(allPotentialSubTypes);
 
+	ArrayList potentialSubtypes = new ArrayList();
 	try {
 		// create element infos for subtypes
 		HandleFactory factory = new HandleFactory();
@@ -330,19 +354,19 @@ private void buildFromPotentialSubtypes(String[] allPotentialSubTypes, HashSet l
 		if (monitor != null) monitor.done();
 	}
 }
-protected ICompilationUnit createCompilationUnitFromPath(Openable handle, String osPath) {
-	ICompilationUnit unit = super.createCompilationUnitFromPath(handle, osPath);
+protected ICompilationUnit createCompilationUnitFromPath(Openable handle, IFile file) {
+	ICompilationUnit unit = super.createCompilationUnitFromPath(handle, file);
 	this.cuToHandle.put(unit, handle);
 	return unit;
 }
-protected IBinaryType createInfoFromClassFile(Openable classFile, String osPath) {
+protected IBinaryType createInfoFromClassFile(Openable classFile, IResource file) {
 	String documentPath = classFile.getPath().toString();
 	IBinaryType binaryType = (IBinaryType)this.binariesFromIndexMatches.get(documentPath);
 	if (binaryType != null) {
 		this.infoToHandle.put(binaryType, classFile);
 		return binaryType;
 	} else {
-		return super.createInfoFromClassFile(classFile, osPath);
+		return super.createInfoFromClassFile(classFile, file);
 	}
 }
 protected IBinaryType createInfoFromClassFileInJar(Openable classFile) {
@@ -421,7 +445,7 @@ public static void searchAllPossibleSubTypes(
 	final Map binariesFromIndexMatches,
 	final IPathRequestor pathRequestor,
 	int waitingPolicy,	// WaitUntilReadyToSearch | ForceImmediateSearch | CancelIfNotReadyToSearch
-	IProgressMonitor progressMonitor) {
+	final IProgressMonitor progressMonitor) {
 
 	/* embed constructs inside arrays so as to pass them to (inner) collector */
 	final Queue queue = new Queue();
@@ -436,7 +460,7 @@ public static void searchAllPossibleSubTypes(
 			boolean isLocalOrAnonymous = record.enclosingTypeName == IIndexConstants.ONE_ZERO;
 			pathRequestor.acceptPath(documentPath, isLocalOrAnonymous);
 			char[] typeName = record.simpleName;
-			int suffix = documentPath.toLowerCase().indexOf(SUFFIX_STRING_class);
+			int suffix = documentPath.toLowerCase().lastIndexOf(SUFFIX_STRING_class);
 			if (suffix != -1){ 
 				HierarchyBinaryType binaryType = (HierarchyBinaryType)binariesFromIndexMatches.get(documentPath);
 				if (binaryType == null){
@@ -468,8 +492,14 @@ public static void searchAllPossibleSubTypes(
 		}		
 	};
 
+	int superRefKind;
+	try {
+		superRefKind = type.isClass() ? SuperTypeReferencePattern.ONLY_SUPER_CLASSES : SuperTypeReferencePattern.ALL_SUPER_TYPES;
+	} catch (JavaModelException e) {
+		superRefKind = SuperTypeReferencePattern.ALL_SUPER_TYPES;
+	}
 	SuperTypeReferencePattern pattern =
-		new SuperTypeReferencePattern(null, null, false, SearchPattern.R_EXACT_MATCH | SearchPattern.R_CASE_SENSITIVE);
+		new SuperTypeReferencePattern(null, null, superRefKind, SearchPattern.R_EXACT_MATCH | SearchPattern.R_CASE_SENSITIVE);
 	MatchLocator.setFocus(pattern, type);
 	SubTypeSearchJob job = new SubTypeSearchJob(
 		pattern, 
@@ -490,7 +520,16 @@ public static void searchAllPossibleSubTypes(
 
 			// search all index references to a given supertype
 			pattern.superSimpleName = currentTypeName;
-			indexManager.performConcurrentJob(job, waitingPolicy, null); // no sub progress monitor since its too costly for deep hierarchies
+			indexManager.performConcurrentJob(job, waitingPolicy, progressMonitor == null ? null : new NullProgressMonitor() { 
+				// don't report progress since this is too costly for deep hierarchies
+				// just handle isCanceled() (seehttps://bugs.eclipse.org/bugs/show_bug.cgi?id=179511)
+				public void setCanceled(boolean value) {
+					progressMonitor.setCanceled(value);
+				}
+				public boolean isCanceled() {
+					return progressMonitor.isCanceled();
+				}
+			});
 			if (progressMonitor != null && ++ticks <= MAXTICKS)
 				progressMonitor.worked(1);
 

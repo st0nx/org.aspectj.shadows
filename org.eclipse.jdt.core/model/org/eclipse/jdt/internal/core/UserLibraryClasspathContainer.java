@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,6 +15,7 @@ import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.IClasspathContainer;
 import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  *
@@ -23,14 +24,10 @@ public class UserLibraryClasspathContainer implements IClasspathContainer {
 	
 	private String name;
 	
-	public UserLibraryClasspathContainer(String libName) {
-		this.name= libName;
+	public UserLibraryClasspathContainer(String name) {
+		this.name = name;
 	}
 	
-	private UserLibrary getUserLibrary() {
-		return UserLibraryManager.getUserLibrary(this.name);
-	}
-
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.core.IClasspathContainer#getClasspathEntries()
 	 */
@@ -40,7 +37,6 @@ public class UserLibraryClasspathContainer implements IClasspathContainer {
 			return library.getEntries();
 		}
 		return new IClasspathEntry[0];
-		
 	}
 
 	/* (non-Javadoc)
@@ -66,5 +62,19 @@ public class UserLibraryClasspathContainer implements IClasspathContainer {
 	 */
 	public IPath getPath() {
 		return new Path(JavaCore.USER_LIBRARY_CONTAINER_ID).append(this.name);
+	}
+	
+	private UserLibrary getUserLibrary() {
+		UserLibrary userLibrary = JavaModelManager.getUserLibraryManager().getUserLibrary(this.name);
+		if (userLibrary == null && JavaModelManager.CP_RESOLVE_VERBOSE) {
+			verbose_no_user_library_found(this.name);
+		}
+		return userLibrary;
+	}
+
+	private void verbose_no_user_library_found(String userLibraryName) {
+		Util.verbose(
+			"UserLibrary INIT - FAILED (no user library found)\n" + //$NON-NLS-1$
+			"	userLibraryName: " + userLibraryName); //$NON-NLS-1$
 	}
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -57,6 +57,26 @@ import org.eclipse.jdt.core.eval.IEvaluationContext;
  */
 public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 
+	/**
+	 * Decodes the classpath entry that has been encoded in the given string
+	 * in the context of this project.
+	 * Returns null if the encoded entry is malformed.
+	 * 
+	 * @param encodedEntry the encoded classpath entry
+	 * @return the decoded classpath entry, or <code>null</code> if unable to decode it
+	 * @since 3.2
+	 */
+	IClasspathEntry decodeClasspathEntry(String encodedEntry);
+	
+	/**
+	 * Encodes the given classpath entry into a string in the context of this project.
+	 * 
+	 * @param classpathEntry the classpath entry to encode
+	 * @return the encoded classpath entry
+	 * @since 3.2
+	 */
+	String encodeClasspathEntry(IClasspathEntry classpathEntry);
+	
 	/**
 	 * Returns the <code>IJavaElement</code> corresponding to the given
 	 * classpath-relative path, or <code>null</code> if no such 
@@ -168,8 +188,7 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * Note that in order to be found, a type name (or its toplevel enclosing
 	 * type name) must match its corresponding compilation unit name. As a 
 	 * consequence, secondary types cannot be found using this functionality.
-	 * Secondary types can however be explicitely accessed through their enclosing
-	 * unit or found by the <code>SearchEngine</code>.
+	 * To find secondary types use {@link #findType(String, IProgressMonitor)} instead.
 	 * 
 	 * @param fullyQualifiedName the given fully qualified name
 	 * @exception JavaModelException if this project does not exist or if an
@@ -180,6 +199,21 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * @since 2.0
 	 */
 	IType findType(String fullyQualifiedName) throws JavaModelException;
+	/**
+	 * Same functionality as {@link #findType(String)} but also look for secondary
+	 * types if given name does not match a compilation unit name.
+	 * 
+	 * @param fullyQualifiedName the given fully qualified name
+	 * @param progressMonitor the progress monitor to report progress to,
+	 * 	or <code>null</code> if no progress monitor is provided
+	 * @exception JavaModelException if this project does not exist or if an
+	 *		exception occurs while accessing its corresponding resource
+	 * @return the first type found following this project's classpath 
+	 * with the given fully qualified name or <code>null</code> if none is found
+	 * @see IType#getFullyQualifiedName(char)
+	 * @since 3.2
+	 */
+	IType findType(String fullyQualifiedName, IProgressMonitor progressMonitor) throws JavaModelException;
 	/**
 	 * Returns the first type found following this project's classpath 
 	 * with the given fully qualified name or <code>null</code> if none is found.
@@ -192,8 +226,8 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * Note that in order to be found, a type name (or its toplevel enclosing
 	 * type name) must match its corresponding compilation unit name. As a 
 	 * consequence, secondary types cannot be found using this functionality.
-	 * Secondary types can however be explicitely accessed through their enclosing
-	 * unit or found by the <code>SearchEngine</code>.
+	 * To find secondary types use {@link #findType(String, WorkingCopyOwner, IProgressMonitor)}
+	 * instead.
 	 * 
 	 * @param fullyQualifiedName the given fully qualified name
 	 * @param owner the owner of the returned type's compilation unit
@@ -206,6 +240,23 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 */
 	IType findType(String fullyQualifiedName, WorkingCopyOwner owner) throws JavaModelException;
 	/**
+	 * Same functionality as {@link #findType(String, WorkingCopyOwner)}
+	 * but also look for secondary types if given name does not match
+	 * a compilation unit name.
+	 * 
+	 * @param fullyQualifiedName the given fully qualified name
+	 * @param owner the owner of the returned type's compilation unit
+	 * @param progressMonitor the progress monitor to report progress to,
+	 * 	or <code>null</code> if no progress monitor is provided
+	 * @exception JavaModelException if this project does not exist or if an
+	 *		exception occurs while accessing its corresponding resource
+	 * @return the first type found following this project's classpath 
+	 * with the given fully qualified name or <code>null</code> if none is found
+	 * @see IType#getFullyQualifiedName(char)
+	 * @since 3.2
+	 */
+	IType findType(String fullyQualifiedName, WorkingCopyOwner owner, IProgressMonitor progressMonitor) throws JavaModelException;
+	/**
 	 * Returns the first type found following this project's classpath 
 	 * with the given package name and type qualified name
 	 * or <code>null</code> if none is found.
@@ -217,8 +268,8 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * Note that in order to be found, a type name (or its toplevel enclosing
 	 * type name) must match its corresponding compilation unit name. As a 
 	 * consequence, secondary types cannot be found using this functionality.
-	 * Secondary types can however be explicitely accessed through their enclosing
-	 * unit or found by the <code>SearchEngine</code>.
+	 * To find secondary types use {@link #findType(String, String, IProgressMonitor)}
+	 * instead.
 	 * 
 	 * @param packageName the given package name
 	 * @param typeQualifiedName the given type qualified name
@@ -232,6 +283,22 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 */
 	IType findType(String packageName, String typeQualifiedName) throws JavaModelException;
 	/**
+	 * Same functionality as {@link #findType(String, String)} but also look for
+	 * secondary types if given name does not match a compilation unit name.
+	 * 
+	 * @param packageName the given package name
+	 * @param typeQualifiedName the given type qualified name
+	 * @param progressMonitor the progress monitor to report progress to,
+	 * 	or <code>null</code> if no progress monitor is provided
+	 * @exception JavaModelException if this project does not exist or if an
+	 *		exception occurs while accessing its corresponding resource
+	 * @return the first type found following this project's classpath 
+	 * with the given fully qualified name or <code>null</code> if none is found
+	 * @see IType#getFullyQualifiedName(char)
+	 * @since 3.2
+	 */
+	IType findType(String packageName, String typeQualifiedName, IProgressMonitor progressMonitor) throws JavaModelException;
+	/**
 	 * Returns the first type found following this project's classpath 
 	 * with the given package name and type qualified name
 	 * or <code>null</code> if none is found.
@@ -245,8 +312,8 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * Note that in order to be found, a type name (or its toplevel enclosing
 	 * type name) must match its corresponding compilation unit name. As a 
 	 * consequence, secondary types cannot be found using this functionality.
-	 * Secondary types can however be explicitely accessed through their enclosing
-	 * unit or found by the <code>SearchEngine</code>.
+	 * To find secondary types use {@link #findType(String, String, WorkingCopyOwner, IProgressMonitor)}
+	 * instead.
 	 * 
 	 * @param packageName the given package name
 	 * @param typeQualifiedName the given type qualified name
@@ -260,6 +327,23 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * @since 3.0
 	 */
 	IType findType(String packageName, String typeQualifiedName, WorkingCopyOwner owner) throws JavaModelException;
+	/**
+	 * Same functionality as {@link #findType(String, String, WorkingCopyOwner)}
+	 * but also look for secondary types if given name does not match a compilation unit name.
+	 * 
+	 * @param packageName the given package name
+	 * @param typeQualifiedName the given type qualified name
+	 * @param owner the owner of the returned type's compilation unit
+	 * @param progressMonitor the progress monitor to report progress to,
+	 * 	or <code>null</code> if no progress monitor is provided
+	 * @exception JavaModelException if this project does not exist or if an
+	 *		exception occurs while accessing its corresponding resource
+	 * @return the first type found following this project's classpath 
+	 * with the given fully qualified name or <code>null</code> if none is found
+	 * @see IType#getFullyQualifiedName(char)
+	 * @since 3.2
+	 */
+	IType findType(String packageName, String typeQualifiedName, WorkingCopyOwner owner, IProgressMonitor progressMonitor) throws JavaModelException;
 	
 	/**
 	 * Returns all of the existing package fragment roots that exist
@@ -400,7 +484,7 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * @param entry the given entry
 	 * @return the existing package fragment roots identified by the given entry
 	 * @see IClasspathContainer
-	 * @deprecated Use IJavaProject#findPackageFragmentRoots instead
+	 * @deprecated Use {@link IJavaProject#findPackageFragmentRoots(IClasspathEntry)} instead
 	 */
 	IPackageFragmentRoot[] getPackageFragmentRoots(IClasspathEntry entry);
 
@@ -785,9 +869,88 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 		throws JavaModelException;
 
 	/**
+	 * Sets both the classpath of this project and its default output
+	 * location at once. The classpath is defined using a list of classpath
+	 * entries. In particular such a classpath may contain classpath variable entries. 
+	 * Classpath variable entries can be resolved individually ({@link JavaCore#getClasspathVariable(String)}),
+	 * or the full classpath can be resolved at once using the helper method {@link #getResolvedClasspath(boolean)}.
+	 * <p>
+	 * A classpath variable provides an indirection level for better sharing a classpath. As an example, it allows
+	 * a classpath to no longer refer directly to external JARs located in some user specific location. The classpath
+	 * can simply refer to some variables defining the proper locations of these external JARs.
+	 * </p><p>
+	 * If it is specified that this operation cannot modify resources, the .classpath file will not be written to disk
+	 * and no error marker will be generated. To synchronize the .classpath with the in-memory classpath,
+	 * one can use <code>setRawClasspath(readRawClasspath(), true, monitor)</code>.
+	 * </p><p>
+	 * Setting the classpath to <code>null</code> specifies a default classpath
+	 * (the project root). Setting the classpath to an empty array specifies an
+	 * empty classpath.
+	 * </p><p>
+	 * If a cycle is detected while setting this classpath (and if resources can be modified), an error marker will be added
+	 * to the project closing the cycle.
+	 * To avoid this problem, use {@link #hasClasspathCycle(IClasspathEntry[])}
+	 * before setting the classpath.
+	 * <p>
+	 * This operation acquires a lock on the workspace's root.
+	 *
+	 * @param entries a list of classpath entries
+	 * @param outputLocation the default output location
+	 * @param canModifyResources whether resources should be written to disk if needed
+	 * @param monitor the given progress monitor
+	 * @exception JavaModelException if the classpath could not be set. Reasons include:
+	 * <ul>
+	 * <li> This Java element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
+	 * <li> The classpath is being modified during resource change event notification (CORE_EXCEPTION)
+	 * <li> The classpath failed the validation check as defined by {@link JavaConventions#validateClasspath(IJavaProject, IClasspathEntry[], IPath)}
+	 * </ul>
+	 * @see IClasspathEntry
+	 * @since 3.2
+	 */
+	void setRawClasspath(IClasspathEntry[] entries, IPath outputLocation, boolean canModifyResources, IProgressMonitor monitor) throws JavaModelException;
+	
+	/**
 	 * Sets the classpath of this project using a list of classpath entries. In particular such a classpath may contain
-	 * classpath variable entries. Classpath variable entries can be resolved individually (see <code>JavaCore#getClasspathVariable</code>),
-	 * or the full classpath can be resolved at once using the helper method <code>getResolvedClasspath</code>.
+	 * classpath variable entries. Classpath variable entries can be resolved individually ({@link JavaCore#getClasspathVariable(String)}),
+	 * or the full classpath can be resolved at once using the helper method {@link #getResolvedClasspath(boolean)}.
+	 * <p>
+	 * A classpath variable provides an indirection level for better sharing a classpath. As an example, it allows
+	 * a classpath to no longer refer directly to external JARs located in some user specific location. The classpath
+	 * can simply refer to some variables defining the proper locations of these external JARs.
+	 * </p><p>
+	 * If it is specified that this operation cannot modify resources, the .classpath file will not be written to disk
+	 * and no error marker will be generated. To synchronize the .classpath with the in-memory classpath,
+	 * one can use <code>setRawClasspath(readRawClasspath(), true, monitor)</code>.
+	 * </p><p>
+	 * Setting the classpath to <code>null</code> specifies a default classpath
+	 * (the project root). Setting the classpath to an empty array specifies an
+	 * empty classpath.
+	 * </p><p>
+	 * If a cycle is detected while setting this classpath (and if resources can be modified), an error marker will be added
+	 * to the project closing the cycle.
+	 * To avoid this problem, use {@link #hasClasspathCycle(IClasspathEntry[])}
+	 * before setting the classpath.
+	 * <p>
+	 * This operation acquires a lock on the workspace's root.
+	 *
+	 * @param entries a list of classpath entries
+	 * @param canModifyResources whether resources should be written to disk if needed
+	 * @param monitor the given progress monitor
+	 * @exception JavaModelException if the classpath could not be set. Reasons include:
+	 * <ul>
+	 * <li> This Java element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
+	 * <li> The classpath is being modified during resource change event notification (CORE_EXCEPTION)
+	 * <li> The classpath failed the validation check as defined by {@link JavaConventions#validateClasspath(IJavaProject, IClasspathEntry[], IPath)}
+	 * </ul>
+	 * @see IClasspathEntry
+	 * @since 3.2
+	 */
+	void setRawClasspath(IClasspathEntry[] entries, boolean canModifyResources, IProgressMonitor monitor) throws JavaModelException;
+	
+	/**
+	 * Sets the classpath of this project using a list of classpath entries. In particular such a classpath may contain
+	 * classpath variable entries. Classpath variable entries can be resolved individually ({@link JavaCore#getClasspathVariable(String)}),
+	 * or the full classpath can be resolved at once using the helper method {@link #getResolvedClasspath(boolean)}.
 	 * <p>
 	 * A classpath variable provides an indirection level for better sharing a classpath. As an example, it allows
 	 * a classpath to no longer refer directly to external JARs located in some user specific location. The classpath
@@ -799,7 +962,7 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * <p>
 	 * If a cycle is detected while setting this classpath, an error marker will be added
 	 * to the project closing the cycle.
-	 * To avoid this problem, use <code>hasClasspathCycle(IClasspathEntry[] entries)</code>
+	 * To avoid this problem, use {@link #hasClasspathCycle(IClasspathEntry[])}
 	 * before setting the classpath.
 	 * <p>
 	 * This operation acquires a lock on the workspace's root.
@@ -810,7 +973,7 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * <ul>
 	 * <li> This Java element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
 	 * <li> The classpath is being modified during resource change event notification (CORE_EXCEPTION)
-	 * <li> The classpath failed the validation check as defined by <code>JavaConventions#validateClasspath</code>
+	 * <li> The classpath failed the validation check as defined by {@link JavaConventions#validateClasspath(IJavaProject, IClasspathEntry[], IPath)}
 	 * </ul>
 	 * @see IClasspathEntry
 	 */
@@ -822,9 +985,9 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * location at once. The classpath is defined using a list of classpath
 	 * entries. In particular, such a classpath may contain classpath variable
 	 * entries. Classpath variable entries can be resolved individually (see
-	 * <code>JavaCore#getClasspathVariable</code>), or the full classpath can be
+	 * ({@link JavaCore#getClasspathVariable(String)}), or the full classpath can be
 	 * resolved at once using the helper method
-	 * <code>getResolvedClasspath</code>.
+	 * {@link #getResolvedClasspath(boolean)}.
 	 * <p>
 	 * A classpath variable provides an indirection level for better sharing a
 	 * classpath. As an example, it allows a classpath to no longer refer
@@ -840,7 +1003,7 @@ public interface IJavaProject extends IParent, IJavaElement, IOpenable {
 	 * <p>
 	 * If a cycle is detected while setting this classpath, an error marker will
 	 * be added to the project closing the cycle. To avoid this problem, use
-	 * <code>hasClasspathCycle(IClasspathEntry[] entries)</code> before setting
+	 * {@link #hasClasspathCycle(IClasspathEntry[])} before setting
 	 * the classpath.
 	 * </p>
 	 * <p>

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
+ * Copyright (c) 2004, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,9 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.util.HashMap;
+
+import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IMember;
 import org.eclipse.jdt.core.ITypeParameter;
@@ -32,6 +35,16 @@ public class TypeParameter extends SourceRefElement implements ITypeParameter {
 		return super.equals(o);
 	}
 
+	/*
+	 * @see JavaElement#generateInfos
+	 */
+	protected void generateInfos(Object info, HashMap newElements, IProgressMonitor pm) throws JavaModelException {
+		Openable openableParent = (Openable)getOpenableParent();
+		if (JavaModelManager.getJavaModelManager().getInfo(openableParent) == null) {
+			openableParent.generateInfos(openableParent.createElementInfo(), newElements, pm);
+		}
+	}	
+	
 	public String[] getBounds() throws JavaModelException {
 		TypeParameterElementInfo info = (TypeParameterElementInfo) getElementInfo();
 		return CharOperation.toStrings(info.bounds);
@@ -54,6 +67,15 @@ public class TypeParameter extends SourceRefElement implements ITypeParameter {
 	}
 	
 	public ISourceRange getNameRange() throws JavaModelException {
+		SourceMapper mapper= getSourceMapper();
+		if (mapper != null) {
+			// ensure the class file's buffer is open so that source ranges are computed
+			ClassFile classFile = (ClassFile)getClassFile();
+			if (classFile != null) {
+				classFile.getBuffer();
+				return mapper.getNameRange(this);
+			}
+		}
 		TypeParameterElementInfo info = (TypeParameterElementInfo) getElementInfo();
 		return new SourceRange(info.nameStart, info.nameEnd - info.nameStart + 1);
 	}

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,17 +11,13 @@
 package org.eclipse.jdt.internal.core;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.Flags;
-import org.eclipse.jdt.core.IClassFile;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IMember;
-import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.ISourceRange;
-import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.core.compiler.IScanner;
+import org.eclipse.jdt.core.compiler.ITerminalSymbols;
+import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
@@ -31,7 +27,7 @@ import org.eclipse.jdt.internal.core.util.MementoTokenizer;
  */
 
 public abstract class Member extends SourceRefElement implements IMember {
-
+	
 protected Member(JavaElement parent) {
 	super(parent);
 }
@@ -104,7 +100,7 @@ public static IMethod[] findMethods(IMethod method, IMethod[] methods) {
 		simpleNames[i] = Signature.getSimpleName(Signature.toString(erasure));
 	}
 	ArrayList list = new ArrayList();
-	next: for (int i = 0, length = methods.length; i < length; i++) {
+	for (int i = 0, length = methods.length; i < length; i++) {
 		IMethod existingMethod = methods[i];
 		if (areSimilarMethods(
 				elementName,
@@ -124,11 +120,32 @@ public static IMethod[] findMethods(IMethod method, IMethod[] methods) {
 		return result;
 	}
 }
+public String[] getCategories() throws JavaModelException {
+	IType type = (IType) getAncestor(IJavaElement.TYPE);
+	if (type == null) return CharOperation.NO_STRINGS;
+	if (type.isBinary()) {
+		return CharOperation.NO_STRINGS;
+	} else {
+		SourceTypeElementInfo info = (SourceTypeElementInfo) ((SourceType) type).getElementInfo();
+		HashMap map = info.getCategories();
+		if (map == null) return CharOperation.NO_STRINGS;
+		String[] categories = (String[]) map.get(this);
+		if (categories == null) return CharOperation.NO_STRINGS;
+		return categories;
+	}
+}
 /**
  * @see IMember
  */
 public IClassFile getClassFile() {
-	return ((JavaElement)getParent()).getClassFile();
+	IJavaElement element = getParent();
+	while (element instanceof IMember) {
+		element= element.getParent();
+	}
+	if (element instanceof IClassFile) {
+		return (IClassFile) element;
+	}
+	return null;
 }
 /**
  * @see IMember
@@ -240,6 +257,53 @@ public Member getOuterMostLocalContext() {
 	} 
 	return lastLocalContext;
 }
+public ISourceRange getJavadocRange() throws JavaModelException {
+	ISourceRange range= this.getSourceRange();
+	if (range == null) return null;
+	IBuffer buf= null;
+	if (this.isBinary()) {
+		buf = this.getClassFile().getBuffer();
+	} else {
+		ICompilationUnit compilationUnit = this.getCompilationUnit();
+		if (!compilationUnit.isConsistent()) {
+			return null;
+		}
+		buf = compilationUnit.getBuffer();
+	}
+	final int start= range.getOffset();
+	final int length= range.getLength();
+	if (length > 0 && buf.getChar(start) == '/') {
+		IScanner scanner= ToolFactory.createScanner(true, false, false, false);
+		scanner.setSource(buf.getText(start, length).toCharArray());
+		try {
+			int docOffset= -1;
+			int docEnd= -1;
+			
+			int terminal= scanner.getNextToken();
+			loop: while (true) {
+				switch(terminal) {
+					case ITerminalSymbols.TokenNameCOMMENT_JAVADOC :
+						docOffset= scanner.getCurrentTokenStartPosition();
+						docEnd= scanner.getCurrentTokenEndPosition() + 1;
+						terminal= scanner.getNextToken();
+						break;
+					case ITerminalSymbols.TokenNameCOMMENT_LINE :
+					case ITerminalSymbols.TokenNameCOMMENT_BLOCK :
+						terminal= scanner.getNextToken();
+						continue loop;
+					default :
+						break loop;
+				}
+			}
+			if (docOffset != -1) {
+				return new SourceRange(docOffset + start, docEnd - docOffset + 1);
+			}
+		} catch (InvalidInputException ex) {
+			// try if there is inherited Javadoc
+		}
+	}
+	return null;
+}
 /**
  * @see IMember
  */
@@ -258,6 +322,16 @@ public IType getType(String typeName, int count) {
 		type.occurrenceCount = count;
 		return type;
 	}
+}
+/**
+ * @see IMember#getTypeRoot()
+ */
+public ITypeRoot getTypeRoot() {
+	IJavaElement element = getParent();
+	while (element instanceof IMember) {
+		element= element.getParent();
+	}
+	return (ITypeRoot) element;
 }
 /**
  * @see IMember

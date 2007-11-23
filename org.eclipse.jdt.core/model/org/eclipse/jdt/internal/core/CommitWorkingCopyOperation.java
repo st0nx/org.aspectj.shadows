@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,12 +18,13 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.jobs.ISchedulingRule;
-//import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IBuffer;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
+import org.eclipse.jdt.core.IJavaProject;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
@@ -69,14 +70,22 @@ public class CommitWorkingCopyOperation extends JavaModelOperation {
 		try {
 			beginTask(Messages.workingCopy_commit, 2); 
 			CompilationUnit workingCopy = getCompilationUnit();
-			IFile resource = (IFile)workingCopy.getResource();
+			
+			if (ExternalJavaProject.EXTERNAL_PROJECT_NAME.equals(workingCopy.getJavaProject().getElementName())) {
+				// case of a working copy without a resource
+				workingCopy.getBuffer().save(this.progressMonitor, this.force);
+				return;
+			}
+			
 			ICompilationUnit primary = workingCopy.getPrimary();
 			boolean isPrimary = workingCopy.isPrimary();
 
 			JavaElementDeltaBuilder deltaBuilder = null;
 			PackageFragmentRoot root = (PackageFragmentRoot)workingCopy.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
 			boolean isIncluded = !Util.isExcluded(workingCopy);
-			if (isPrimary || (root.validateOnClasspath().isOK() && isIncluded && resource.isAccessible() && Util.isValidCompilationUnitName(workingCopy.getElementName()))) {
+			IFile resource = (IFile)workingCopy.getResource();
+			IJavaProject project = root.getJavaProject();
+			if (isPrimary || (root.validateOnClasspath().isOK() && isIncluded && resource.isAccessible() && Util.isValidCompilationUnitName(workingCopy.getElementName(), project.getOption(JavaCore.COMPILER_SOURCE, true), project.getOption(JavaCore.COMPILER_COMPLIANCE, true)))) {
 				
 				// force opening so that the delta builder can get the old info
 				if (!isPrimary && !primary.isOpen()) {
@@ -178,6 +187,7 @@ public class CommitWorkingCopyOperation extends JavaModelOperation {
 	}
 	protected ISchedulingRule getSchedulingRule() {
 		IResource resource = getElementToProcess().getResource();
+		if (resource == null) return null;
 		IWorkspace workspace = resource.getWorkspace();
 		if (resource.exists()) {
 			return workspace.getRuleFactory().modifyRule(resource);

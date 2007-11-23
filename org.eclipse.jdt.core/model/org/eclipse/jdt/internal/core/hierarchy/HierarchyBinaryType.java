@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,17 +12,18 @@ package org.eclipse.jdt.internal.core.hierarchy;
 
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.env.IBinaryAnnotation;
 import org.eclipse.jdt.internal.compiler.env.IBinaryField;
 import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
 import org.eclipse.jdt.internal.compiler.env.IBinaryNestedType;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
-import org.eclipse.jdt.internal.compiler.env.IConstants;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
 public class HierarchyBinaryType implements IBinaryType {
 	private int modifiers;
-	private int kind;
+	private char[] sourceName;
 	private char[] name;
 	private char[] enclosingTypeName;
 	private char[] superclass;
@@ -30,27 +31,14 @@ public class HierarchyBinaryType implements IBinaryType {
 	private char[][] typeParameterSignatures;
 	private char[] genericSignature;
 	
-public HierarchyBinaryType(int modifiers, char[] qualification, char[] typeName, char[] enclosingTypeName, char[][] typeParameterSignatures, char typeSuffix){
+public HierarchyBinaryType(int modifiers, char[] qualification, char[] sourceName, char[] enclosingTypeName, char[][] typeParameterSignatures, char typeSuffix){
 
 	this.modifiers = modifiers;
-	switch(typeSuffix) {
-		case IIndexConstants.CLASS_SUFFIX :
-			this.kind = IGenericType.CLASS_DECL;
-			break;
-		case IIndexConstants.INTERFACE_SUFFIX :
-			this.kind = IGenericType.INTERFACE_DECL;
-			break;
-		case IIndexConstants.ENUM_SUFFIX :
-			this.kind = IGenericType.ENUM_DECL;
-			break;
-		case IIndexConstants.ANNOTATION_TYPE_SUFFIX :
-			this.kind = IGenericType.ANNOTATION_TYPE_DECL;
-			break;
-	}
+	this.sourceName = sourceName;
 	if (enclosingTypeName == null){
-		this.name = CharOperation.concat(qualification, typeName, '/');
+		this.name = CharOperation.concat(qualification, sourceName, '/');
 	} else {
-		this.name = CharOperation.concat(qualification, '/', enclosingTypeName, '$', typeName); //rebuild A$B name
+		this.name = CharOperation.concat(qualification, '/', enclosingTypeName, '$', sourceName); //rebuild A$B name
 		this.enclosingTypeName = CharOperation.concat(qualification, enclosingTypeName,'/');
 		CharOperation.replace(this.enclosingTypeName, '.', '/');
 	}
@@ -100,12 +88,6 @@ public char[] getGenericSignature() {
 	return this.genericSignature;
 }
 /**
- * @see org.eclipse.jdt.internal.compiler.env.IGenericType#getKind()
- */
-public int getKind() {
-	return this.kind;
-}
-/**
  * Answer the resolved names of the receiver's interfaces in the
  * class file format as specified in section 4.2 of the Java 2 VM spec
  * or null if the array is empty.
@@ -146,6 +128,11 @@ public int getModifiers() {
 public char[] getName() {
 	return this.name;
 }
+
+public char[] getSourceName() {
+	return this.sourceName;
+}
+
 /**
  * Answer the resolved name of the receiver's superclass in the
  * class file format as specified in section 4.2 of the Java 2 VM spec
@@ -189,7 +176,7 @@ public void recordSuperType(char[] superTypeName, char[] superQualification, cha
 	if (superClassOrInterface == IIndexConstants.CLASS_SUFFIX){
 		// interfaces are indexed as having superclass references to Object by default,
 		// this is an artifact used for being able to query them only.
-		if (this.kind == IGenericType.INTERFACE_DECL) return; 
+		if (TypeDeclaration.kind(this.modifiers) == TypeDeclaration.INTERFACE_DECL) return; 
 		char[] encodedName = CharOperation.concat(superQualification, superTypeName, '/');
 		CharOperation.replace(encodedName, '.', '/'); 
 		this.superclass = encodedName;
@@ -207,17 +194,17 @@ public void recordSuperType(char[] superTypeName, char[] superQualification, cha
 }
 public String toString() {
 	StringBuffer buffer = new StringBuffer();
-	if (this.modifiers == IConstants.AccPublic) {
+	if (this.modifiers == ClassFileConstants.AccPublic) {
 		buffer.append("public "); //$NON-NLS-1$
 	}
-	switch (this.kind) {
-		case IGenericType.CLASS_DECL :
+	switch (TypeDeclaration.kind(this.modifiers)) {
+		case TypeDeclaration.CLASS_DECL :
 			buffer.append("class "); //$NON-NLS-1$
 			break;		
-		case IGenericType.INTERFACE_DECL :
+		case TypeDeclaration.INTERFACE_DECL :
 			buffer.append("interface "); //$NON-NLS-1$
 			break;		
-		case IGenericType.ENUM_DECL :
+		case TypeDeclaration.ENUM_DECL :
 			buffer.append("enum "); //$NON-NLS-1$
 			break;		
 	}
@@ -239,6 +226,13 @@ public String toString() {
 		}
 	}
 	return buffer.toString();
+}
+
+/**
+ * @see org.eclipse.jdt.internal.compiler.env.IBinaryType
+ */
+public IBinaryAnnotation[] getAnnotations() {
+	return null;
 }
 
 /**

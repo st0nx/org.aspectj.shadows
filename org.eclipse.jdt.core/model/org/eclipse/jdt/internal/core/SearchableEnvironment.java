@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,17 +13,10 @@ package org.eclipse.jdt.internal.core;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
-import org.eclipse.jdt.core.search.IJavaSearchConstants;
-import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.internal.codeassist.ISearchRequestor;
 import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
-import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
@@ -74,6 +67,24 @@ public class SearchableEnvironment
 		this(project, owner == null ? null : JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary WCs*/));
 	}
 
+	private static int convertSearchFilterToModelFilter(int searchFilter) {
+		switch (searchFilter) {
+			case IJavaSearchConstants.CLASS:
+				return NameLookup.ACCEPT_CLASSES;
+			case IJavaSearchConstants.INTERFACE:
+				return NameLookup.ACCEPT_INTERFACES;
+			case IJavaSearchConstants.ENUM:
+				return NameLookup.ACCEPT_ENUMS;
+			case IJavaSearchConstants.ANNOTATION_TYPE:
+				return NameLookup.ACCEPT_ANNOTATIONS;
+			case IJavaSearchConstants.CLASS_AND_ENUM:
+				return NameLookup.ACCEPT_CLASSES | NameLookup.ACCEPT_ENUMS;
+			case IJavaSearchConstants.CLASS_AND_INTERFACE:
+				return NameLookup.ACCEPT_CLASSES | NameLookup.ACCEPT_INTERFACES;
+			default:
+				return NameLookup.ACCEPT_ALL;
+		}
+	}
 	/**
 	 * Returns the given type in the the given package if it exists,
 	 * otherwise <code>null</code>.
@@ -81,43 +92,25 @@ public class SearchableEnvironment
 	protected NameEnvironmentAnswer find(String typeName, String packageName) {
 		if (packageName == null)
 			packageName = IPackageFragment.DEFAULT_PACKAGE_NAME;
-		IType type =
+		NameLookup.Answer answer =
 			this.nameLookup.findType(
 				typeName,
 				packageName,
-				false,
-				NameLookup.ACCEPT_ALL);
-		if (type != null) {
-			boolean isBinary = type instanceof BinaryType;
-			
-			// determine associated access restriction
-			AccessRestriction accessRestriction = null;
-			
-			if (this.checkAccessRestrictions && (isBinary || !type.getJavaProject().equals(this.project))) {
-				PackageFragmentRoot root = (PackageFragmentRoot)type.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
-				ClasspathEntry entry = (ClasspathEntry) this.nameLookup.rootToResolvedEntries.get(root);
-				if (entry != null) { // reverse map always contains resolved CP entry
-					AccessRuleSet accessRuleSet = entry.getAccessRuleSet();
-					if (accessRuleSet != null) {
-						// TODO (philippe) improve char[] <-> String conversions to avoid performing them on the fly
-						char[][] packageChars = CharOperation.splitOn('.', packageName.toCharArray());
-						char[] classFileChars = type.getElementName().toCharArray();
-						accessRestriction = accessRuleSet.getViolatedRestriction(CharOperation.concatWith(packageChars, classFileChars, '/'));
-					}
-				}
-			}
-			
+				false/*exact match*/,
+				NameLookup.ACCEPT_ALL,
+				this.checkAccessRestrictions);
+		if (answer != null) {
 			// construct name env answer
-			if (isBinary) { // BinaryType
+			if (answer.type instanceof BinaryType) { // BinaryType
 				try {
-					return new NameEnvironmentAnswer((IBinaryType) ((BinaryType) type).getElementInfo(), accessRestriction);
+					return new NameEnvironmentAnswer((IBinaryType) ((BinaryType) answer.type).getElementInfo(), answer.restriction);
 				} catch (JavaModelException npe) {
 					return null;
 				}
 			} else { //SourceType
 				try {
 					// retrieve the requested type
-					SourceTypeElementInfo sourceType = (SourceTypeElementInfo)((SourceType)type).getElementInfo();
+					SourceTypeElementInfo sourceType = (SourceTypeElementInfo)((SourceType) answer.type).getElementInfo();
 					ISourceType topLevelType = sourceType;
 					while (topLevelType.getEnclosingType() != null) {
 						topLevelType = topLevelType.getEnclosingType();
@@ -135,7 +128,7 @@ public class SearchableEnvironment
 						if (!otherType.equals(topLevelType) && index < length) // check that the index is in bounds (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=62861)
 							sourceTypes[index++] = otherType;
 					}
-					return new NameEnvironmentAnswer(sourceTypes, accessRestriction);
+					return new NameEnvironmentAnswer(sourceTypes, answer.restriction);
 				} catch (JavaModelException npe) {
 					return null;
 				}
@@ -158,6 +151,107 @@ public class SearchableEnvironment
 			new SearchableEnvironmentRequestor(requestor));
 	}
 
+	/**
+	 * Find the top-level types that are defined
+	 * in the current environment and whose simple name matches the given name.
+	 *
+	 * The types found are passed to one of the following methods (if additional
+	 * information is known about the types):
+	 *    ISearchRequestor.acceptType(char[][] packageName, char[] typeName)
+	 *    ISearchRequestor.acceptClass(char[][] packageName, char[] typeName, int modifiers)
+	 *    ISearchRequestor.acceptInterface(char[][] packageName, char[] typeName, int modifiers)
+	 *
+	 * This method can not be used to find member types... member
+	 * types are found relative to their enclosing type.
+	 */
+	public void findExactTypes(char[] name, final boolean findMembers, int searchFor, final ISearchRequestor storage) {
+
+		try {
+			final String excludePath;
+			if (this.unitToSkip != null) {
+				if (!(this.unitToSkip instanceof IJavaElement)) {
+					// revert to model investigation
+					findExactTypes(
+						new String(name),
+						storage,
+						convertSearchFilterToModelFilter(searchFor));
+					return;
+				}
+				excludePath = ((IJavaElement) this.unitToSkip).getPath().toString();
+			} else {
+				excludePath = null;
+			}
+
+			IProgressMonitor progressMonitor = new IProgressMonitor() {
+				boolean isCanceled = false;
+				public void beginTask(String n, int totalWork) {
+					// implements interface method
+				}
+				public void done() {
+					// implements interface method
+				}
+				public void internalWorked(double work) {
+					// implements interface method
+				}
+				public boolean isCanceled() {
+					return isCanceled;
+				}
+				public void setCanceled(boolean value) {
+					isCanceled = value;
+				}
+				public void setTaskName(String n) {
+					// implements interface method
+				}
+				public void subTask(String n) {
+					// implements interface method
+				}
+				public void worked(int work) {
+					// implements interface method
+				}
+			};
+			IRestrictedAccessTypeRequestor typeRequestor = new IRestrictedAccessTypeRequestor() {
+				public void acceptType(int modifiers, char[] packageName, char[] simpleTypeName, char[][] enclosingTypeNames, String path, AccessRestriction access) {
+					if (excludePath != null && excludePath.equals(path))
+						return;
+					if (!findMembers && enclosingTypeNames != null && enclosingTypeNames.length > 0)
+						return; // accept only top level types
+					storage.acceptType(packageName, simpleTypeName, enclosingTypeNames, modifiers, access);
+				}
+			};
+			try {
+				new BasicSearchEngine(this.workingCopies).searchAllTypeNames(
+					null,
+					SearchPattern.R_EXACT_MATCH,
+					name,
+					SearchPattern.R_EXACT_MATCH,
+					searchFor,
+					this.searchScope,
+					typeRequestor,
+					CANCEL_IF_NOT_READY_TO_SEARCH,
+					progressMonitor);
+			} catch (OperationCanceledException e) {
+				findExactTypes(
+					new String(name),
+					storage,
+					convertSearchFilterToModelFilter(searchFor));
+			}
+		} catch (JavaModelException e) {
+			findExactTypes(
+				new String(name),
+				storage,
+				convertSearchFilterToModelFilter(searchFor));
+		}
+	}
+	
+	/**
+	 * Returns all types whose simple name matches with the given <code>name</code>.
+	 */
+	private void findExactTypes(String name, ISearchRequestor storage, int type) {
+		SearchableEnvironmentRequestor requestor =
+			new SearchableEnvironmentRequestor(storage, this.unitToSkip, this.project, this.nameLookup);
+		this.nameLookup.seekTypes(name, null, false, type, requestor);
+	}
+	
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.env.INameEnvironment#findType(char[][])
 	 */
@@ -191,7 +285,7 @@ public class SearchableEnvironment
 	}
 
 	/**
-	 * Find the top-level types (classes and interfaces) that are defined
+	 * Find the top-level types that are defined
 	 * in the current environment and whose name starts with the
 	 * given prefix. The prefix is a qualified name separated by periods
 	 * or a simple name (ex. java.util.V or V).
@@ -205,7 +299,7 @@ public class SearchableEnvironment
 	 * This method can not be used to find member types... member
 	 * types are found relative to their enclosing type.
 	 */
-	public void findTypes(char[] prefix, final boolean findMembers, final ISearchRequestor storage) {
+	public void findTypes(char[] prefix, final boolean findMembers, boolean camelCaseMatch, int searchFor, final ISearchRequestor storage) {
 
 		/*
 			if (true){
@@ -221,7 +315,7 @@ public class SearchableEnvironment
 					findTypes(
 						new String(prefix),
 						storage,
-						NameLookup.ACCEPT_ALL);
+						convertSearchFilterToModelFilter(searchFor));
 					return;
 				}
 				excludePath = ((IJavaElement) this.unitToSkip).getPath().toString();
@@ -232,12 +326,20 @@ public class SearchableEnvironment
 			char[] qualification, simpleName;
 			if (lastDotIndex < 0) {
 				qualification = null;
-				simpleName = CharOperation.toLowerCase(prefix);
+				if (camelCaseMatch) {
+					simpleName = prefix;
+				} else {
+					simpleName = CharOperation.toLowerCase(prefix);
+				}
 			} else {
 				qualification = CharOperation.subarray(prefix, 0, lastDotIndex);
-				simpleName =
-					CharOperation.toLowerCase(
-						CharOperation.subarray(prefix, lastDotIndex + 1, prefix.length));
+				if (camelCaseMatch) {
+					simpleName = CharOperation.subarray(prefix, lastDotIndex + 1, prefix.length);
+				} else {
+					simpleName =
+						CharOperation.toLowerCase(
+							CharOperation.subarray(prefix, lastDotIndex + 1, prefix.length));
+				}
 			}
 
 			IProgressMonitor progressMonitor = new IProgressMonitor() {
@@ -277,11 +379,14 @@ public class SearchableEnvironment
 				}
 			};
 			try {
+				int matchRule = SearchPattern.R_PREFIX_MATCH;
+				if (camelCaseMatch) matchRule |= SearchPattern.R_CAMELCASE_MATCH;
 				new BasicSearchEngine(this.workingCopies).searchAllTypeNames(
 					qualification,
+					SearchPattern.R_EXACT_MATCH,
 					simpleName,
-					SearchPattern.R_PREFIX_MATCH, // not case sensitive
-					IJavaSearchConstants.TYPE,
+					matchRule, // not case sensitive
+					searchFor,
 					this.searchScope,
 					typeRequestor,
 					CANCEL_IF_NOT_READY_TO_SEARCH,
@@ -290,13 +395,13 @@ public class SearchableEnvironment
 				findTypes(
 					new String(prefix),
 					storage,
-					NameLookup.ACCEPT_ALL);
+					convertSearchFilterToModelFilter(searchFor));
 			}
 		} catch (JavaModelException e) {
 			findTypes(
 				new String(prefix),
 				storage,
-				NameLookup.ACCEPT_ALL);
+				convertSearchFilterToModelFilter(searchFor));
 		}
 	}
 
@@ -307,6 +412,7 @@ public class SearchableEnvironment
 	 * the <code>prefix</code> are returned.
 	 */
 	private void findTypes(String prefix, ISearchRequestor storage, int type) {
+		//TODO (david) should add camel case support
 		SearchableEnvironmentRequestor requestor =
 			new SearchableEnvironmentRequestor(storage, this.unitToSkip, this.project, this.nameLookup);
 		int index = prefix.lastIndexOf('.');
@@ -330,22 +436,17 @@ public class SearchableEnvironment
 	 * @see org.eclipse.jdt.internal.compiler.env.INameEnvironment#isPackage(char[][], char[])
 	 */
 	public boolean isPackage(char[][] parentPackageName, char[] subPackageName) {
-		if (subPackageName == null || CharOperation.contains('.', subPackageName))
-			return false;
-		if (parentPackageName == null || parentPackageName.length == 0)
-			return isTopLevelPackage(subPackageName);
-		for (int i = 0, length = parentPackageName.length; i < length; i++)
-			if (parentPackageName[i] == null || CharOperation.contains('.', parentPackageName[i]))
-				return false;
-
-		String packageName = new String(CharOperation.concatWith(parentPackageName, subPackageName, '.'));
-		return this.nameLookup.findPackageFragments(packageName, false) != null;
-	}
-
-	public boolean isTopLevelPackage(char[] packageName) {
-		return packageName != null &&
-			!CharOperation.contains('.', packageName) &&
-			this.nameLookup.findPackageFragments(new String(packageName), false) != null;
+		String[] pkgName;
+		if (parentPackageName == null)
+			pkgName = new String[] {new String(subPackageName)};
+		else {
+			int length = parentPackageName.length;
+			pkgName = new String[length+1];
+			for (int i = 0; i < length; i++)
+				pkgName[i] = new String(parentPackageName[i]);
+			pkgName[length] = new String(subPackageName);
+		}
+		return this.nameLookup.isPackage(pkgName);
 	}
 
 	/**

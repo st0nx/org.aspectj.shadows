@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,6 +15,7 @@ import java.util.Map;
 
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
@@ -95,12 +96,13 @@ protected JavaModelOperation getNestedOperation(IJavaElement element) {
 			case IJavaElement.PACKAGE_DECLARATION :
 				return new CreatePackageDeclarationOperation(element.getElementName(), (ICompilationUnit) dest);
 			case IJavaElement.IMPORT_DECLARATION :
-				return new CreateImportOperation(element.getElementName(), (ICompilationUnit) dest);
+				IImportDeclaration importDeclaration = (IImportDeclaration) element;
+				return new CreateImportOperation(element.getElementName(), (ICompilationUnit) dest, importDeclaration.getFlags());
 			case IJavaElement.TYPE :
 				if (isRenamingMainType(element, dest)) {
 					IPath path = element.getPath();
 					String extension = path.getFileExtension();
-					return new RenameResourceElementsOperation(new IJavaElement[] {dest}, new IJavaElement[] {dest.getParent()}, new String[]{getNewNameFor(element) + '.' + extension}, this.force); //$NON-NLS-1$
+					return new RenameResourceElementsOperation(new IJavaElement[] {dest}, new IJavaElement[] {dest.getParent()}, new String[]{getNewNameFor(element) + '.' + extension}, this.force);
 				} else {
 					String source = getSourceFor(element);
 					String lineSeparator = org.eclipse.jdt.internal.core.util.Util.getLineSeparator(source, element.getJavaProject());

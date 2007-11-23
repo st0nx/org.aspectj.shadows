@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,27 +13,21 @@ package org.eclipse.jdt.internal.core.hierarchy;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.core.*;
-import org.eclipse.jdt.internal.core.BasicCompilationUnit;
-import org.eclipse.jdt.internal.core.ClassFile;
-import org.eclipse.jdt.internal.core.JarPackageFragmentRoot;
-import org.eclipse.jdt.internal.core.JavaElement;
-import org.eclipse.jdt.internal.core.JavaModelManager;
-import org.eclipse.jdt.internal.core.JavaProject;
-import org.eclipse.jdt.internal.core.NameLookup;
-import org.eclipse.jdt.internal.core.Openable;
-import org.eclipse.jdt.internal.core.SearchableEnvironment;
-import org.eclipse.jdt.internal.core.SourceTypeElementInfo;
+import org.eclipse.jdt.internal.core.util.ResourceCompilationUnit;
 import org.eclipse.jdt.internal.core.util.Util;
 
 public abstract class HierarchyBuilder {
@@ -83,14 +77,16 @@ public abstract class HierarchyBuilder {
 		} else {
 			unitsToLookInside = workingCopies;
 		}
-		SearchableEnvironment searchableEnvironment = project.newSearchableNameEnvironment(unitsToLookInside);
-		this.nameLookup = searchableEnvironment.nameLookup;
-		this.hierarchyResolver =
-			new HierarchyResolver(
-				searchableEnvironment,
-				project.getOptions(true),
-				this,
-				new DefaultProblemFactory());
+		if (project != null) {
+			SearchableEnvironment searchableEnvironment = project.newSearchableNameEnvironment(unitsToLookInside);
+			this.nameLookup = searchableEnvironment.nameLookup;
+			this.hierarchyResolver =
+				new HierarchyResolver(
+					searchableEnvironment,
+					project.getOptions(true),
+					this,
+					new DefaultProblemFactory());
+		}
 		this.infoToHandle = new HashMap(5);
 		this.focusQualifiedName = focusType == null ? null : focusType.getFullyQualifiedName();
 	}
@@ -160,17 +156,17 @@ public abstract class HierarchyBuilder {
 			}
 		}
 		// now do the caching
-		switch (type.getKind()) {
-			case IGenericType.CLASS_DECL :
-			case IGenericType.ENUM_DECL :
+		switch (TypeDeclaration.kind(type.getModifiers())) {
+			case TypeDeclaration.CLASS_DECL :
+			case TypeDeclaration.ENUM_DECL :
 				if (superclassHandle == null) {
 					this.hierarchy.addRootClass(typeHandle);
 				} else {
 					this.hierarchy.cacheSuperclass(typeHandle, superclassHandle);
 				}
 				break;
-			case IGenericType.INTERFACE_DECL :
-			case IGenericType.ANNOTATION_TYPE_DECL :
+			case TypeDeclaration.INTERFACE_DECL :
+			case TypeDeclaration.ANNOTATION_TYPE_DECL :
 				this.hierarchy.addInterface(typeHandle);
 				break;
 		}		
@@ -224,14 +220,14 @@ public abstract class HierarchyBuilder {
 	protected IType lookupBinaryHandle(IBinaryType typeInfo) {
 		int flag;
 		String qualifiedName;
-		switch (typeInfo.getKind()) {
-			case IGenericType.CLASS_DECL :
+		switch (TypeDeclaration.kind(typeInfo.getModifiers())) {
+			case TypeDeclaration.CLASS_DECL :
 				flag = NameLookup.ACCEPT_CLASSES;
 				break;
-			case IGenericType.INTERFACE_DECL :
+			case TypeDeclaration.INTERFACE_DECL :
 				flag = NameLookup.ACCEPT_INTERFACES;
 				break;
-			case IGenericType.ENUM_DECL :
+			case TypeDeclaration.ENUM_DECL :
 				flag = NameLookup.ACCEPT_ENUMS;
 				break;
 			default:
@@ -242,7 +238,15 @@ public abstract class HierarchyBuilder {
 		char[] bName = typeInfo.getName();
 		qualifiedName = new String(ClassFile.translatedName(bName));
 		if (qualifiedName.equals(this.focusQualifiedName)) return getType();
-		return this.nameLookup.findType(qualifiedName, false, flag);
+		NameLookup.Answer answer = this.nameLookup.findType(qualifiedName,
+			false,
+			flag,
+			true/* consider secondary types */,
+			false/* do NOT wait for indexes */,
+			false/*don't check restrictions*/,
+			null);
+		return answer == null || answer.type == null || !answer.type.isBinary() ? null : answer.type;
+		
 	}
 	protected void worked(IProgressMonitor monitor, int work) {
 		if (monitor != null) {
@@ -256,9 +260,9 @@ public abstract class HierarchyBuilder {
 /**
  * Create an ICompilationUnit info from the given compilation unit on disk.
  */
-protected ICompilationUnit createCompilationUnitFromPath(Openable handle, String osPath) {
+protected ICompilationUnit createCompilationUnitFromPath(Openable handle, IFile file) {
 	final char[] elementName = handle.getElementName().toCharArray();
-	return new BasicCompilationUnit(null/* no source*/, null/* no package */, osPath, handle) {
+	return new ResourceCompilationUnit(file, file.getLocationURI()) {
 		public char[] getFileName() {
 			return elementName;
 		}
@@ -268,16 +272,21 @@ protected ICompilationUnit createCompilationUnitFromPath(Openable handle, String
  * Creates the type info from the given class file on disk and
  * adds it to the given list of infos.
  */
-protected IBinaryType createInfoFromClassFile(Openable handle, String osPath) {
+protected IBinaryType createInfoFromClassFile(Openable handle, IResource file) {
 	IBinaryType info = null;
 	try {
-		info = org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader.read(osPath);
+		info = Util.newClassFileReader(file);
 	} catch (org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException e) {
 		if (TypeHierarchy.DEBUG) {
 			e.printStackTrace();
 		}
 		return null;
 	} catch (java.io.IOException e) {
+		if (TypeHierarchy.DEBUG) {
+			e.printStackTrace();
+		}
+		return null;
+	} catch (CoreException e) {
 		if (TypeHierarchy.DEBUG) {
 			e.printStackTrace();
 		}

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -53,39 +53,45 @@ public final class HashtableOfArrayToObject implements Cloneable {
 	}
 
 	public boolean containsKey(Object[] key) {
-
-		int index = hashCode(key) % this.valueTable.length;
+		int length = this.keyTable.length;
+		int index = hashCode(key) % length;
 		int keyLength = key.length;
 		Object[] currentKey;
 		while ((currentKey = this.keyTable[index]) != null) {
 			if (currentKey.length == keyLength && Util.equalArraysOrNull(currentKey, key))
 				return true;
-			index = (index + 1) % this.keyTable.length;
+			if (++index == length) {
+				index = 0;
+			}
 		}
 		return false;
 	}
 
 	public Object get(Object[] key) {
-
-		int index = hashCode(key) % this.valueTable.length;
+		int length = this.keyTable.length;
+		int index = hashCode(key) % length;
 		int keyLength = key.length;
 		Object[] currentKey;
 		while ((currentKey = this.keyTable[index]) != null) {
 			if (currentKey.length == keyLength && Util.equalArraysOrNull(currentKey, key))
 				return this.valueTable[index];
-			index = (index + 1) % keyTable.length;
+			if (++index == length) {
+				index = 0;
+			}
 		}
 		return null;
 	}
 
 	public Object[] getKey(Object[] key, int keyLength) {
-
-		int index = hashCode(key, keyLength) % this.valueTable.length;
+		int length = this.keyTable.length;
+		int index = hashCode(key, keyLength) % length;
 		Object[] currentKey;
 		while ((currentKey = this.keyTable[index]) != null) {
 			if (currentKey.length == keyLength && Util.equalArrays(currentKey, key, keyLength))
 				return currentKey;
-			index = (index + 1) % this.keyTable.length;
+			if (++index == length) {
+				index = 0;
+			}
 		}
 		return null;
 	}
@@ -96,20 +102,22 @@ public final class HashtableOfArrayToObject implements Cloneable {
 	
 	private int hashCode(Object[] element, int length) {
 		int hash = 0;
-		for (int i = 0; i < length; i++)
+		for (int i = length-1; i >= 0; i--)
 			hash = Util.combineHashCodes(hash, element[i].hashCode());
 		return hash & 0x7FFFFFFF;
 	}
 	
 	public Object put(Object[] key, Object value) {
-
-		int index = hashCode(key) % this.valueTable.length;
+		int length = this.keyTable.length;
+		int index = hashCode(key) % length;
 		int keyLength = key.length;
 		Object[] currentKey;
 		while ((currentKey = this.keyTable[index]) != null) {
 			if (currentKey.length == keyLength && Util.equalArraysOrNull(currentKey, key))
 				return this.valueTable[index] = value;
-			index = (index + 1) % keyTable.length;
+			if (++index == length) {
+				index = 0;
+			}
 		}
 		this.keyTable[index] = key;
 		this.valueTable[index] = value;
@@ -121,8 +129,8 @@ public final class HashtableOfArrayToObject implements Cloneable {
 	}
 
 	public Object removeKey(Object[] key) {
-
-		int index = hashCode(key) % this.valueTable.length;
+		int length = this.keyTable.length;
+		int index = hashCode(key) % length;
 		int keyLength = key.length;
 		Object[] currentKey;
 		while ((currentKey = this.keyTable[index]) != null) {
@@ -134,7 +142,9 @@ public final class HashtableOfArrayToObject implements Cloneable {
 				rehash();
 				return value;
 			}
-			index = (index + 1) % this.keyTable.length;
+			if (++index == length) {
+				index = 0;
+			}
 		}
 		return null;
 	}

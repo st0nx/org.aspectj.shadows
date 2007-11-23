@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,6 +13,7 @@ package org.eclipse.jdt.internal.core.hierarchy;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.SubProgressMonitor;
@@ -27,6 +28,7 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.JavaProject;
 import org.eclipse.jdt.internal.core.Openable;
+import org.eclipse.jdt.internal.core.SearchableEnvironment;
 
 public class RegionBasedHierarchyBuilder extends HierarchyBuilder {
 	
@@ -69,26 +71,29 @@ public void build(boolean computeSubtypes) {
  */
 private void createTypeHierarchyBasedOnRegion(HashMap allOpenablesInRegion, IProgressMonitor monitor) {
 	
-	int size = allOpenablesInRegion.size();
-	if (size != 0) {
+	try {
+		int size = allOpenablesInRegion.size();		
+		if (monitor != null) monitor.beginTask("", size * 2/* 1 for build binding, 1 for connect hierarchy*/); //$NON-NLS-1$
 		this.infoToHandle = new HashMap(size);
-	}
+		Iterator javaProjects = allOpenablesInRegion.entrySet().iterator();
+		while (javaProjects.hasNext()) {
+			Map.Entry entry = (Map.Entry) javaProjects.next();  
+			JavaProject project = (JavaProject) entry.getKey();
+			ArrayList allOpenables = (ArrayList) entry.getValue();
+			Openable[] openables = new Openable[allOpenables.size()];
+			allOpenables.toArray(openables);
 	
-	Iterator javaProjects = allOpenablesInRegion.keySet().iterator();
-	while (javaProjects.hasNext()) {
-		ArrayList allOpenables = (ArrayList) allOpenablesInRegion.get(javaProjects.next());
-		Openable[] openables = new Openable[allOpenables.size()];
-		allOpenables.toArray(openables);
-	
-		try {
-			// resolve
-			if (monitor != null) monitor.beginTask("", size * 2/* 1 for build binding, 1 for connect hierarchy*/); //$NON-NLS-1$
-			if (size > 0) {
+			try {
+				// resolve
+				SearchableEnvironment searchableEnvironment = project.newSearchableNameEnvironment(this.hierarchy.workingCopies);
+				this.nameLookup = searchableEnvironment.nameLookup;
 				this.hierarchyResolver.resolve(openables, null, monitor);
-			}
-		} finally {
-			if (monitor != null) monitor.done();
+			} catch (JavaModelException e) {
+				// project doesn't exit: ignore
+			} 
 		}
+	} finally {
+		if (monitor != null) monitor.done();
 	}
 }
 	

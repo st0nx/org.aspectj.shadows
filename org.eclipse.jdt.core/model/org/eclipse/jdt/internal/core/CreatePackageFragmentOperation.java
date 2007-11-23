@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -19,9 +19,11 @@ import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
+import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaConventions;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.core.util.Messages;
@@ -67,43 +69,46 @@ public CreatePackageFragmentOperation(IPackageFragmentRoot parentElement, String
  * @exception JavaModelException if the operation is unable to complete
  */
 protected void executeOperation() throws JavaModelException {
-	JavaElementDelta delta = null;
-	PackageFragmentRoot root = (PackageFragmentRoot) getParentElement();
-	beginTask(Messages.operation_createPackageFragmentProgress, this.pkgName.length); 
-	IContainer parentFolder = (IContainer) root.getResource();
-	String[] sideEffectPackageName = CharOperation.NO_STRINGS; 
-	ArrayList results = new ArrayList(this.pkgName.length);
-	char[][] inclusionPatterns = root.fullInclusionPatternChars();
-	char[][] exclusionPatterns = root.fullExclusionPatternChars();
-	int i;
-	for (i = 0; i < this.pkgName.length; i++) {
-		String subFolderName = this.pkgName[i];
-		sideEffectPackageName = Util.arrayConcat(sideEffectPackageName, subFolderName);
-		IResource subFolder = parentFolder.findMember(subFolderName);
-		if (subFolder == null) {
-			createFolder(parentFolder, subFolderName, force);
-			parentFolder = parentFolder.getFolder(new Path(subFolderName));
-			IPackageFragment addedFrag = root.getPackageFragment(sideEffectPackageName);
-			if (!Util.isExcluded(parentFolder, inclusionPatterns, exclusionPatterns)) {
-				if (delta == null) {
-					delta = newJavaElementDelta();
+	try {
+		JavaElementDelta delta = null;
+		PackageFragmentRoot root = (PackageFragmentRoot) getParentElement();
+		beginTask(Messages.operation_createPackageFragmentProgress, this.pkgName.length); 
+		IContainer parentFolder = (IContainer) root.getResource();
+		String[] sideEffectPackageName = CharOperation.NO_STRINGS; 
+		ArrayList results = new ArrayList(this.pkgName.length);
+		char[][] inclusionPatterns = root.fullInclusionPatternChars();
+		char[][] exclusionPatterns = root.fullExclusionPatternChars();
+		int i;
+		for (i = 0; i < this.pkgName.length; i++) {
+			String subFolderName = this.pkgName[i];
+			sideEffectPackageName = Util.arrayConcat(sideEffectPackageName, subFolderName);
+			IResource subFolder = parentFolder.findMember(subFolderName);
+			if (subFolder == null) {
+				createFolder(parentFolder, subFolderName, force);
+				parentFolder = parentFolder.getFolder(new Path(subFolderName));
+				IPackageFragment addedFrag = root.getPackageFragment(sideEffectPackageName);
+				if (!Util.isExcluded(parentFolder, inclusionPatterns, exclusionPatterns)) {
+					if (delta == null) {
+						delta = newJavaElementDelta();
+					}
+					delta.added(addedFrag);
 				}
-				delta.added(addedFrag);
+				results.add(addedFrag);
+			} else {
+				parentFolder = (IContainer) subFolder;
 			}
-			results.add(addedFrag);
-		} else {
-			parentFolder = (IContainer) subFolder;
+			worked(1);
 		}
-		worked(1);
-	}
-	if (results.size() > 0) {
-		this.resultElements = new IJavaElement[results.size()];
-		results.toArray(this.resultElements);
-		if (delta != null) {
-			addDelta(delta);
+		if (results.size() > 0) {
+			this.resultElements = new IJavaElement[results.size()];
+			results.toArray(this.resultElements);
+			if (delta != null) {
+				addDelta(delta);
+			}
 		}
+	} finally {
+		done();
 	}
-	done();
 }
 /**
  * Possible failures: <ul>
@@ -120,12 +125,14 @@ protected void executeOperation() throws JavaModelException {
  * @see JavaConventions
  */
 public IJavaModelStatus verify() {
-	if (getParentElement() == null) {
+	IJavaElement parentElement = getParentElement();
+	if (parentElement == null) {
 		return new JavaModelStatus(IJavaModelStatusConstants.NO_ELEMENTS_TO_PROCESS);
 	}
 	
 	String packageName = this.pkgName == null ? null : Util.concatWith(this.pkgName, '.');
-	if (this.pkgName == null || (this.pkgName.length > 0 && JavaConventions.validatePackageName(packageName).getSeverity() == IStatus.ERROR)) {
+	IJavaProject project = parentElement.getJavaProject();
+	if (this.pkgName == null || (this.pkgName.length > 0 && JavaConventions.validatePackageName(packageName, project.getOption(JavaCore.COMPILER_SOURCE, true), project.getOption(JavaCore.COMPILER_COMPLIANCE, true)).getSeverity() == IStatus.ERROR)) {
 		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_NAME, packageName);
 	}
 	IPackageFragmentRoot root = (IPackageFragmentRoot) getParentElement();

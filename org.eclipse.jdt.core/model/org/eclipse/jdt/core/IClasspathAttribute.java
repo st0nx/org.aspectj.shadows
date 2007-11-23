@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2005 IBM Corporation and others.
+ * Copyright (c) 2005, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,6 +13,9 @@ package org.eclipse.jdt.core;
 /**
  * A classpath attribute defines a name/value pair that can be persisted with a classpath entry. Such an attribute
  * can be created using the factory method {@link JavaCore#newClasspathAttribute(String, String) newClasspathAttribute(String name, String value)}.
+ * <p>
+ * This interface is not intended to be implemented by clients.
+ * </p>
  * 
  * @see JavaCore#newContainerEntry(
  *			org.eclipse.core.runtime.IPath containerPath, 
@@ -55,6 +58,18 @@ public interface IClasspathAttribute {
 	 * @since 3.1
 	 */
 	String JAVADOC_LOCATION_ATTRIBUTE_NAME = "javadoc_location"; //$NON-NLS-1$
+	
+	/**
+	 * Constant for the name of the optional attribute. The possible values
+	 * for this attribute are <code>"true"</code> or <code>"false"</code>. 
+	 * When not present, <code>"false"</code> is assumed.
+	 * If the value of this attribute is <code>"true"</code>, the classpath entry
+	 * is optional. If the underlying resource or jar file doesn't exist, no error
+	 * is reported and the classpath entry is ignored.
+	 * 
+	 * @since 3.2
+	 */
+	String OPTIONAL = "optional"; //$NON-NLS-1$
 	
 	/**
 	 * Returns the name of this classpath attribute.

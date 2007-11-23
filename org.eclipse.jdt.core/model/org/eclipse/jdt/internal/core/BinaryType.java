@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,18 +11,22 @@
 package org.eclipse.jdt.internal.core;
 
 import java.io.InputStream;
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 
+import org.eclipse.core.runtime.Assert;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.JavaModelManager.PerProjectInfo;
 import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Messages;
@@ -40,11 +44,10 @@ public class BinaryType extends BinaryMember implements IType, SuffixConstants {
 	private static final IMethod[] NO_METHODS = new IMethod[0];
 	private static final IType[] NO_TYPES = new IType[0];
 	private static final IInitializer[] NO_INITIALIZERS = new IInitializer[0];
-	private static final String[] NO_STRINGS = new String[0];
+	public static final String EMPTY_JAVADOC = org.eclipse.jdt.internal.compiler.util.Util.EMPTY_STRING;
 	
 protected BinaryType(JavaElement parent, String name) {
 	super(parent, name);
-	Assert.isTrue(name.indexOf('.') == -1);
 }
 /*
  * Remove my cached children from the Java Model
@@ -158,30 +161,40 @@ public IMethod[] findMethods(IMethod method) {
  * @see IParent#getChildren()
  */
 public IJavaElement[] getChildren() throws JavaModelException {
-	// ensure present
-	// fix for 1FWWVYT
-	if (!exists()) {
-		throw newNotPresentException();
-	}
-	// get children
 	ClassFileInfo cfi = getClassFileInfo();
-	if (cfi.binaryChildren == null) {
-		JavaModelManager manager = JavaModelManager.getJavaModelManager();
-		boolean hadTemporaryCache = manager.hasTemporaryCache();
-		try {
-			Object info = manager.getInfo(this);
-			HashMap newElements = manager.getTemporaryCache();
-			cfi.readBinaryChildren(newElements, (IBinaryType)info);
-			if (!hadTemporaryCache) {
-				manager.putInfos(this, newElements);
-			}
-		} finally {
-			if (!hadTemporaryCache) {
-				manager.resetTemporaryCache();
+	return cfi.binaryChildren;
+}
+public IJavaElement[] getChildrenForCategory(String category) throws JavaModelException {
+	IJavaElement[] children = getChildren();
+	int length = children.length;
+	if (length == 0) return children;
+	SourceMapper mapper= getSourceMapper();
+	if (mapper != null) {
+		// ensure the class file's buffer is open so that categories are computed
+		((ClassFile)getClassFile()).getBuffer();
+		
+		HashMap categories = mapper.categories;
+		IJavaElement[] result = new IJavaElement[length];
+		int index = 0;
+		if (categories != null) {
+			for (int i = 0; i < length; i++) {
+				IJavaElement child = children[i];
+				String[] cats = (String[]) categories.get(child);
+				if (cats != null) {
+					for (int j = 0, length2 = cats.length; j < length2; j++) {
+						if (cats[j].equals(category)) {
+							result[index++] = child;
+							break;
+						}
+					}
+				}
 			}
 		}
+		if (index < length)
+			System.arraycopy(result, 0, result = new IJavaElement[index], 0, index);
+		return result;
 	}
-	return cfi.binaryChildren;
+	return NO_ELEMENTS;	
 }
 protected ClassFileInfo getClassFileInfo() throws JavaModelException {
 	ClassFile cf = (ClassFile)this.parent;
@@ -237,6 +250,12 @@ public IType getDeclaringType() {
 					Util.localTypeName(enclosingName, enclosingName.lastIndexOf('$'), enclosingName.length()));
 		}
 	}
+}
+public Object getElementInfo(IProgressMonitor monitor) throws JavaModelException {
+	JavaModelManager manager = JavaModelManager.getJavaModelManager();
+	Object info = manager.getInfo(this);
+	if (info != null && info != JavaModelCache.NON_EXISTING_JAR_TYPE_INFO) return info;
+	return openWhenClosed(createElementInfo(), monitor);
 }
 /*
  * @see IJavaElement
@@ -341,17 +360,13 @@ public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento,
 			String[] parameters = new String[params.size()];
 			params.toArray(parameters);
 			JavaElement method = (JavaElement)getMethod(selector, parameters);
-			if (token != null) {
-				switch (token.charAt(0)) {
-					case JEM_TYPE:
-					case JEM_TYPE_PARAMETER:
-					case JEM_LOCALVARIABLE:
-						return method.getHandleFromMemento(token, memento, workingCopyOwner);
-					default:
-						return method;
-				}
-			} else {
-				return method;
+			switch (token.charAt(0)) {
+				case JEM_TYPE:
+				case JEM_TYPE_PARAMETER:
+				case JEM_LOCALVARIABLE:
+					return method.getHandleFromMemento(token, memento, workingCopyOwner);
+				default:
+					return method;
 			}
 		case JEM_TYPE:
 			String typeName;
@@ -472,6 +487,24 @@ public String getSuperclassTypeSignature() throws JavaModelException {
 	}
 }
 
+public String getSourceFileName(IBinaryType info) {
+	if (info == null) {
+		try {
+			info = (IBinaryType) getElementInfo();
+		} catch (JavaModelException e) {
+			// default to using the outer most declaring type name
+			IType type = this;
+			IType enclosingType = getDeclaringType();
+			while (enclosingType != null) {
+				type = enclosingType;
+				enclosingType = type.getDeclaringType();
+			}
+			return type.getElementName() + Util.defaultJavaExtension();
+		}
+	}
+	return sourceFileName(info);
+}
+
 /*
  * @see IType#getSuperclassName()
  */
@@ -491,7 +524,7 @@ public String[] getSuperInterfaceNames() throws JavaModelException {
 	char[][] names= info.getInterfaceNames();
 	int length;
 	if (names == null || (length = names.length) == 0) {
-		return NO_STRINGS;
+		return CharOperation.NO_STRINGS;
 	}
 	names= ClassFile.translatedNames(names);
 	String[] strings= new String[length];
@@ -543,7 +576,7 @@ public String[] getSuperInterfaceTypeSignatures() throws JavaModelException {
 		char[][] names= info.getInterfaceNames();
 		int length;
 		if (names == null || (length = names.length) == 0) {
-			return NO_STRINGS;
+			return CharOperation.NO_STRINGS;
 		}
 		names= ClassFile.translatedNames(names);
 		String[] strings= new String[length];
@@ -635,7 +668,7 @@ public boolean isAnonymous() throws JavaModelException {
  */
 public boolean isClass() throws JavaModelException {
 	IBinaryType info = (IBinaryType) getElementInfo();
-	return info.getKind() == IGenericType.CLASS_DECL;
+	return TypeDeclaration.kind(info.getModifiers()) == TypeDeclaration.CLASS_DECL;
 
 }
 
@@ -645,7 +678,7 @@ public boolean isClass() throws JavaModelException {
  */
 public boolean isEnum() throws JavaModelException {
 	IBinaryType info = (IBinaryType) getElementInfo();
-	return info.getKind() == IGenericType.ENUM_DECL;
+	return TypeDeclaration.kind(info.getModifiers()) == TypeDeclaration.ENUM_DECL;
 }
 
 /*
@@ -653,9 +686,9 @@ public boolean isEnum() throws JavaModelException {
  */
 public boolean isInterface() throws JavaModelException {
 	IBinaryType info = (IBinaryType) getElementInfo();
-	switch (info.getKind()) {
-		case IGenericType.INTERFACE_DECL:
-		case IGenericType.ANNOTATION_TYPE_DECL: // annotation is interface too
+	switch (TypeDeclaration.kind(info.getModifiers())) {
+		case TypeDeclaration.INTERFACE_DECL:
+		case TypeDeclaration.ANNOTATION_TYPE_DECL: // annotation is interface too
 			return true;
 	}
 	return false;
@@ -666,7 +699,7 @@ public boolean isInterface() throws JavaModelException {
  */
 public boolean isAnnotation() throws JavaModelException {
 	IBinaryType info = (IBinaryType) getElementInfo();
-	return info.getKind() == IGenericType.ANNOTATION_TYPE_DECL;
+	return TypeDeclaration.kind(info.getModifiers()) == TypeDeclaration.ANNOTATION_TYPE_DECL;
 }
 
 /*
@@ -898,7 +931,8 @@ public String sourceFileName(IBinaryType info) {
 			return getElementName() + Util.defaultJavaExtension();
 		}
 	} else {
-		return  new String(sourceFileName);
+		int index = CharOperation.lastIndexOf('/', sourceFileName);
+		return new String(sourceFileName, index + 1, sourceFileName.length - index - 1);
 	}
 }
 /*
@@ -933,5 +967,100 @@ protected void toStringName(StringBuffer buffer) {
 		super.toStringName(buffer);
 	else
 		buffer.append("<anonymous>"); //$NON-NLS-1$
+}
+public String getAttachedJavadoc(IProgressMonitor monitor) throws JavaModelException {
+	final String contents = getJavadocContents(monitor);
+	if (contents == null) return null;
+	final int indexOfStartOfClassData = contents.indexOf(JavadocConstants.START_OF_CLASS_DATA);
+	if (indexOfStartOfClassData == -1) throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.UNKNOWN_JAVADOC_FORMAT, this));
+	int indexOfNextSummary = contents.indexOf(JavadocConstants.NESTED_CLASS_SUMMARY);
+	if (this.isEnum() && indexOfNextSummary == -1) {
+		// try to find enum constant summary start
+		indexOfNextSummary = contents.indexOf(JavadocConstants.ENUM_CONSTANT_SUMMARY);
+	}
+	if (this.isAnnotation() && indexOfNextSummary == -1) {
+		// try to find required enum constant summary start
+		indexOfNextSummary = contents.indexOf(JavadocConstants.ANNOTATION_TYPE_REQUIRED_MEMBER_SUMMARY);
+		if (indexOfNextSummary == -1) {
+			// try to find optional enum constant summary start
+			indexOfNextSummary = contents.indexOf(JavadocConstants.ANNOTATION_TYPE_OPTIONAL_MEMBER_SUMMARY);
+		}
+	}
+	if (indexOfNextSummary == -1) {
+		// try to find field summary start
+		indexOfNextSummary = contents.indexOf(JavadocConstants.FIELD_SUMMARY);
+	}
+	if (indexOfNextSummary == -1) {
+		// try to find constructor summary start
+		indexOfNextSummary = contents.indexOf(JavadocConstants.CONSTRUCTOR_SUMMARY);
+	}
+	if (indexOfNextSummary == -1) {
+		// try to find method summary start
+		indexOfNextSummary = contents.indexOf(JavadocConstants.METHOD_SUMMARY);
+	}
+	if (indexOfNextSummary == -1) {
+		// we take the end of class data
+		indexOfNextSummary = contents.indexOf(JavadocConstants.END_OF_CLASS_DATA);
+	}
+	if (indexOfNextSummary == -1) {
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.UNKNOWN_JAVADOC_FORMAT, this));
+	}
+	/*
+	 * Check out to cut off the hierarchy see 119844
+	 * We remove what the contents between the start of class data and the first <P>
+	 */
+	int start = indexOfStartOfClassData + JavadocConstants.START_OF_CLASS_DATA_LENGTH;
+	int indexOfFirstParagraph = contents.indexOf("<P>", start); //$NON-NLS-1$
+	if (indexOfFirstParagraph == -1) {
+		indexOfFirstParagraph = contents.indexOf("<p>", start); //$NON-NLS-1$
+	}
+	if (indexOfFirstParagraph != -1 && indexOfFirstParagraph < indexOfNextSummary) {
+		start = indexOfFirstParagraph;
+	}	
+	return contents.substring(start, indexOfNextSummary);
+}
+public String getJavadocContents(IProgressMonitor monitor) throws JavaModelException {
+	PerProjectInfo projectInfo = JavaModelManager.getJavaModelManager().getPerProjectInfoCheckExistence(this.getJavaProject().getProject());
+	String cachedJavadoc = null;
+	synchronized (projectInfo.javadocCache) {
+		cachedJavadoc = (String) projectInfo.javadocCache.get(this);
+	}
+	if (cachedJavadoc != null && cachedJavadoc != EMPTY_JAVADOC) {
+		return cachedJavadoc;
+	}
+	URL baseLocation= getJavadocBaseLocation();
+	if (baseLocation == null) {
+		return null;
+	}
+	StringBuffer pathBuffer = new StringBuffer(baseLocation.toExternalForm());
+
+	if (!(pathBuffer.charAt(pathBuffer.length() - 1) == '/')) {
+		pathBuffer.append('/');
+	}
+	IPackageFragment pack= this.getPackageFragment();
+	String typeQualifiedName = null;
+	if (this.isMember()) {
+		IType currentType = this;
+		StringBuffer typeName = new StringBuffer();
+		while (currentType != null) {
+			typeName.insert(0, currentType.getElementName());
+			currentType = currentType.getDeclaringType();
+			if (currentType != null) {
+				typeName.insert(0, '.');
+			}
+		}
+		typeQualifiedName = new String(typeName.toString());
+	} else {
+		typeQualifiedName = this.getElementName();
+	}
+	
+	pathBuffer.append(pack.getElementName().replace('.', '/')).append('/').append(typeQualifiedName).append(JavadocConstants.HTML_EXTENSION);
+	
+	if (monitor != null && monitor.isCanceled()) throw new OperationCanceledException();
+	final String contents = getURLContents(String.valueOf(pathBuffer));
+	synchronized (projectInfo.javadocCache) {
+		projectInfo.javadocCache.put(this, contents);
+	}
+	return contents;
 }
 }

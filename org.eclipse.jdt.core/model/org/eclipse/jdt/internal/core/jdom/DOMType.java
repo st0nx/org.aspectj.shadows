@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,6 +15,7 @@ import java.util.Enumeration;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
@@ -32,8 +33,6 @@ import org.eclipse.jdt.internal.core.util.Messages;
  */ 
 // TODO (jerome) - add implementation support for 1.5 features
 /* package */ class DOMType extends DOMMember implements IDOMType {
-
-	private static final String[] EMPTY_SUPERINTERFACES = new String[] {};
 	/**
 	 * The 'class' or 'interface' keyword if altered
 	 * from the documents contents, otherwise <code>null</code>.
@@ -114,13 +113,13 @@ import org.eclipse.jdt.internal.core.util.Messages;
 	 * <code>null</code> when this type does not extend
 	 * or implement any interfaces.
 	 */
-	protected String[] fSuperInterfaces= new String[0];
+	protected String[] fSuperInterfaces= CharOperation.NO_STRINGS;
 	
 	/**
 	 * The formal type parameters.
 	 * @since 3.0
 	 */
-	protected String[] fTypeParameters = new String[0];
+	protected String[] fTypeParameters = CharOperation.NO_STRINGS;
 
 	/**
 	 * Indicates this type is an enum class.
@@ -325,6 +324,9 @@ protected void appendMemberDeclarationContents(CharArrayBuffer  buffer) {
 		} else {
 			if (fSuperclassRange[0] < 0) {
 				buffer.append(' ');
+			} else if (fImplementsRange[0] > 0) {
+				buffer.append(fDocument, fSuperclassRange[1] + 1, fImplementsRange[0] - fSuperclassRange[1] - 1);
+				buffer.append(fDocument, fInterfacesRange[1] + 1, fOpenBodyRange[0] - fInterfacesRange[1] - 1);
 			} else {
 				buffer.append(fDocument, fSuperclassRange[1] + 1, fOpenBodyRange[0] - fSuperclassRange[1] - 1);
 			}
@@ -693,7 +695,7 @@ public void setSuperInterfaces(String[] names) {
 	fSuperInterfaces= names;
 	if (names.length == 0) {
 		fInterfaces= null;
-		fSuperInterfaces= EMPTY_SUPERINTERFACES;
+		fSuperInterfaces= CharOperation.NO_STRINGS;
 		setMask(MASK_TYPE_HAS_INTERFACES, false);
 	} else {
 		setMask(MASK_TYPE_HAS_INTERFACES, true);
@@ -785,7 +787,7 @@ public void setAnnotation(boolean b) {
 		// annotation types are always interface with no superclass or superinterfaces
 		setClass(false);
 		setSuperclass(null);
-		setSuperInterfaces(new String[0]);
+		setSuperInterfaces(CharOperation.NO_STRINGS);
 	}
 }
 

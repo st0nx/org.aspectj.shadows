@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -128,8 +128,10 @@ public class ModelUpdater {
 				JavaModelManager.getJavaModelManager().getIndexManager().reset();
 				break;
 			case IJavaElement.JAVA_PROJECT :
-				JavaModelManager.getJavaModelManager().removePerProjectInfo(
-					(JavaProject) element);
+				JavaModelManager manager = JavaModelManager.getJavaModelManager();
+				JavaProject javaProject = (JavaProject) element;
+				manager.removePerProjectInfo(javaProject);
+				manager.containerRemove(javaProject);
 				break;
 			case IJavaElement.PACKAGE_FRAGMENT_ROOT :
 				this.projectsToUpdate.add(element.getJavaProject());
@@ -150,7 +152,7 @@ public class ModelUpdater {
 	public void processJavaDelta(IJavaElementDelta delta) {
 
 //		if (DeltaProcessor.VERBOSE){
-//			System.out.println("UPDATING Model with Delta: ["+Thread.currentThread()+":" + delta + "]:");//$NON-NLS-1$//$NON-NLS-2$ //$NON-NLS-3$
+//			System.out.println("UPDATING Model with Delta: ["+Thread.currentThread()+":" + delta + "]:");
 //		}
 
 		try {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,15 +11,10 @@
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.core.resources.*;
-import org.eclipse.core.resources.IProject;
-import org.eclipse.core.resources.IResource;
-import org.eclipse.core.resources.ResourcesPlugin;
+import org.eclipse.core.runtime.AssertionFailedException;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.IClasspathEntry;
-import org.eclipse.jdt.core.IJavaModelStatus;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.util.Messages;
 
 public class CopyPackageFragmentRootOperation extends JavaModelOperation {
@@ -129,7 +124,7 @@ public class CopyPackageFragmentRootOperation extends JavaModelOperation {
 				throw new JavaModelException(e);
 			}
 		}
-		this.setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
+		setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
 	}
 	protected void addEntryToClasspath(IClasspathEntry rootEntry, IWorkspaceRoot workspaceRoot) throws JavaModelException {
 		
@@ -193,7 +188,7 @@ public class CopyPackageFragmentRootOperation extends JavaModelOperation {
 			case IClasspathEntry.CPE_LIBRARY:
 				try {
 					return JavaCore.newLibraryEntry(this.destination, entry.getSourceAttachmentPath(), entry.getSourceAttachmentRootPath(), entry.getAccessRules(), entry.getExtraAttributes(), entry.isExported());
-				} catch (Assert.AssertionFailedException e) {
+				} catch (AssertionFailedException e) {
 					IJavaModelStatus status = new JavaModelStatus(IJavaModelStatusConstants.INVALID_PATH, e.getMessage());
 					throw new JavaModelException(status);
 				}
@@ -204,7 +199,7 @@ public class CopyPackageFragmentRootOperation extends JavaModelOperation {
 			case IClasspathEntry.CPE_VARIABLE:
 				try {
 					return JavaCore.newVariableEntry(entry.getPath(), entry.getSourceAttachmentPath(), entry.getSourceAttachmentRootPath(), entry.getAccessRules(), entry.getExtraAttributes(), entry.isExported());
-				} catch (Assert.AssertionFailedException e) {
+				} catch (AssertionFailedException e) {
 					IJavaModelStatus status = new JavaModelStatus(IJavaModelStatusConstants.INVALID_PATH, e.getMessage());
 					throw new JavaModelException(status);
 				}
@@ -249,7 +244,7 @@ public class CopyPackageFragmentRootOperation extends JavaModelOperation {
 						}
 					}
 					if (this.sibling != null && !foundSibling) {
-						return new JavaModelStatus(IJavaModelStatusConstants.INVALID_SIBLING, this.sibling == null ? "null" : this.sibling.toString()); //$NON-NLS-1$
+						return new JavaModelStatus(IJavaModelStatusConstants.INVALID_SIBLING, this.sibling.toString());
 					}
 					if (foundExistingEntry && (this.updateModelFlags & IPackageFragmentRoot.REPLACE) == 0) {
 						return new JavaModelStatus(

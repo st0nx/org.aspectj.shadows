@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2002, 2004 IBM Corporation and others.
+ * Copyright (c) 2002, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,7 +13,7 @@ package org.eclipse.jdt.internal.core.util;
 import java.util.Locale;
 import java.util.Map;
 
-import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
@@ -35,16 +35,16 @@ public class CodeSnippetParsingUtil {
 
 	private RecordedParsingInformation getRecordedParsingInformation(CompilationResult compilationResult, CommentRecorderParser parser) {
 		int problemsCount = compilationResult.problemCount;
-		IProblem[] problems = null;
+		CategorizedProblem[] problems = null;
 		if (problemsCount != 0) {
-			final IProblem[] compilationResultProblems = compilationResult.problems;
+			final CategorizedProblem[] compilationResultProblems = compilationResult.problems;
 			if (compilationResultProblems.length == problemsCount) {
 				problems = compilationResultProblems;
 			} else {
-				System.arraycopy(compilationResultProblems, 0, (problems = new IProblem[problemsCount]), 0, problemsCount);
+				System.arraycopy(compilationResultProblems, 0, (problems = new CategorizedProblem[problemsCount]), 0, problemsCount);
 			}
 		}
-		return new RecordedParsingInformation(problems, compilationResult.lineSeparatorPositions, parser.getCommentsPositions());
+		return new RecordedParsingInformation(problems, compilationResult.getLineSeparatorPositions(), parser.getCommentsPositions());
 	}
 
 	public ASTNode[] parseClassBodyDeclarations(char[] source, Map settings, boolean recordParsingInformation) {
@@ -62,7 +62,9 @@ public class CodeSnippetParsingUtil {
 					new DefaultProblemFactory(Locale.getDefault()));
 					
 		CommentRecorderParser parser = new CommentRecorderParser(problemReporter, false);
-
+		parser.setMethodsFullRecovery(false);
+		parser.setStatementsRecovery(false);
+		
 		ICompilationUnit sourceUnit = 
 			new CompilationUnit(
 				source, 
@@ -158,11 +160,11 @@ public class CodeSnippetParsingUtil {
 		return result;
 	}
 
-	public ConstructorDeclaration parseStatements(char[] source, Map settings, boolean recordParsingInformation) {
-		return parseStatements(source, 0, source.length, settings, recordParsingInformation);
+	public ConstructorDeclaration parseStatements(char[] source, Map settings, boolean recordParsingInformation, boolean enabledStatementRecovery) {
+		return parseStatements(source, 0, source.length, settings, recordParsingInformation, enabledStatementRecovery);
 	}
 	
-	public ConstructorDeclaration parseStatements(char[] source, int offset, int length, Map settings, boolean recordParsingInformation) {
+	public ConstructorDeclaration parseStatements(char[] source, int offset, int length, Map settings, boolean recordParsingInformation, boolean enabledStatementRecovery) {
 		if (source == null) {
 			throw new IllegalArgumentException();
 		}
@@ -172,6 +174,8 @@ public class CodeSnippetParsingUtil {
 					compilerOptions, 
 					new DefaultProblemFactory(Locale.getDefault()));
 		CommentRecorderParser parser = new CommentRecorderParser(problemReporter, false);
+		parser.setMethodsFullRecovery(false);
+		parser.setStatementsRecovery(enabledStatementRecovery);
 		
 		ICompilationUnit sourceUnit = 
 			new CompilationUnit(

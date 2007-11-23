@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -54,6 +54,19 @@ public interface IOpenable {
  * @exception JavaModelException if an error occurs closing this element
  */
 public void close() throws JavaModelException;
+/**
+ * Finds and returns the recommended line separator for this element.
+ * The element's buffer is first searched and the first line separator in this buffer is returned if any.
+ * Otherwise the preference {@link org.eclipse.core.runtime.Platform#PREF_LINE_SEPARATOR} 
+ * on this element's project or workspace is returned.
+ * Finally if no such preference is set, the system line separator is returned.
+ * 
+ * @return the recommended line separator for this element
+ * @exception JavaModelException if this element does not exist or if an
+ *		exception occurs while accessing its corresponding resource.
+ * @since 3.2
+ */
+public String findRecommendedLineSeparator() throws JavaModelException;
 /**
  * Returns the buffer opened for this element, or <code>null</code>
  * if this element does not have a buffer.
@@ -110,7 +123,9 @@ boolean isOpen();
  * by updating the element's structure and properties as necessary.
  *<p>
  * Note: Using this functionality on a working copy will interfere with any
- * subsequent reconciling operation. Indeed, the next {@link ICompilationUnit#reconcile}
+ * subsequent reconciling operation. Indeed, the next
+ * {@link ICompilationUnit#reconcile(int, boolean, WorkingCopyOwner, IProgressMonitor)} or
+ * {@link ICompilationUnit#reconcile(int, boolean, boolean, WorkingCopyOwner, IProgressMonitor)}
  * operation will not account for changes which occurred before an
  * explicit use of {@link #makeConsistent(IProgressMonitor)}
  * <p>

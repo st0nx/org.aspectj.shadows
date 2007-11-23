@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -9,22 +9,30 @@
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
-import java.text.NumberFormat;
 import java.util.HashMap;
 import java.util.Map;
 
 import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.internal.core.util.LRUCache;
 
 /**
  * The cache of java elements to their respective info.
  */
 public class JavaModelCache {
-	public static final int BASE_VALUE = 20;
+	public static boolean VERBOSE = false;
+
 	public static final int DEFAULT_PROJECT_SIZE = 5;  // average 25552 bytes per project.
-	public static final int DEFAULT_ROOT_SIZE = BASE_VALUE*10; // average 2590 bytes per root -> maximum size : 25900*BASE_VALUE bytes
-	public static final int DEFAULT_PKG_SIZE = BASE_VALUE*100; // average 1782 bytes per pkg -> maximum size : 178200*BASE_VALUE bytes
-	public static final int DEFAULT_OPENABLE_SIZE = BASE_VALUE*100; // average 6629 bytes per openable (includes children) -> maximum size : 662900*BASE_VALUE bytes
-	public static final int DEFAULT_CHILDREN_SIZE = BASE_VALUE*100*20; // average 20 children per openable
+	public static final int DEFAULT_ROOT_SIZE = 50; // average 2590 bytes per root -> maximum size : 25900*BASE_VALUE bytes
+	public static final int DEFAULT_PKG_SIZE = 500; // average 1782 bytes per pkg -> maximum size : 178200*BASE_VALUE bytes
+	public static final int DEFAULT_OPENABLE_SIZE = 500; // average 6629 bytes per openable (includes children) -> maximum size : 662900*BASE_VALUE bytes
+	public static final int DEFAULT_CHILDREN_SIZE = 500*20; // average 20 children per openable
+	
+	public static final Object NON_EXISTING_JAR_TYPE_INFO = new Object();
+
+	/*
+	 * The memory ratio that should be applied to the above constants.
+	 */
+	protected double memoryRatio = -1;
 	
 	/**
 	 * Active Java Model Info
@@ -56,12 +64,26 @@ public class JavaModelCache {
 	 */
 	protected Map childrenCache;
 	
+	/*
+	 * Cache of open binary type (inside a jar) that have a non-open parent
+	 */
+	protected LRUCache jarTypeCache;
+	
 public JavaModelCache() {
+	// set the size of the caches in function of the maximum amount of memory available
+	double ratio = getMemoryRatio();
 	this.projectCache = new HashMap(DEFAULT_PROJECT_SIZE); // NB: Don't use a LRUCache for projects as they are constantly reopened (e.g. during delta processing)
-	this.rootCache = new ElementCache(DEFAULT_ROOT_SIZE);
-	this.pkgCache = new ElementCache(DEFAULT_PKG_SIZE);
-	this.openableCache = new ElementCache(DEFAULT_OPENABLE_SIZE);
-	this.childrenCache = new HashMap(DEFAULT_CHILDREN_SIZE);
+	if (VERBOSE) {
+		this.rootCache = new VerboseElementCache((int) (DEFAULT_ROOT_SIZE * ratio), "Root cache"); //$NON-NLS-1$
+		this.pkgCache = new VerboseElementCache((int) (DEFAULT_PKG_SIZE * ratio), "Package cache"); //$NON-NLS-1$
+		this.openableCache = new VerboseElementCache((int) (DEFAULT_OPENABLE_SIZE * ratio), "Openable cache"); //$NON-NLS-1$
+	} else {
+		this.rootCache = new ElementCache((int) (DEFAULT_ROOT_SIZE * ratio));
+		this.pkgCache = new ElementCache((int) (DEFAULT_PKG_SIZE * ratio));
+		this.openableCache = new ElementCache((int) (DEFAULT_OPENABLE_SIZE * ratio));
+	}
+	this.childrenCache = new HashMap((int) (DEFAULT_CHILDREN_SIZE * ratio));
+	resetJarTypeCache();
 }
 
 /**
@@ -80,9 +102,25 @@ public Object getInfo(IJavaElement element) {
 		case IJavaElement.COMPILATION_UNIT:
 		case IJavaElement.CLASS_FILE:
 			return this.openableCache.get(element);
+		case IJavaElement.TYPE:
+			Object result = this.jarTypeCache.get(element);
+			if (result != null)
+				return result;
+			else
+				return this.childrenCache.get(element);
 		default:
 			return this.childrenCache.get(element);
 	}
+}
+
+protected double getMemoryRatio() {
+	if (this.memoryRatio == -1) {
+		long maxMemory = Runtime.getRuntime().maxMemory();		
+		// if max memory is infinite, set the ratio to 4d which corresponds to the 256MB that Eclipse defaults to
+		// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=111299)
+		this.memoryRatio = maxMemory == Long.MAX_VALUE ? 4d : ((double) maxMemory) / (64 * 0x100000); // 64MB is the base memory for most JVM	
+	}
+	return this.memoryRatio;
 }
 
 /**
@@ -102,6 +140,12 @@ protected Object peekAtInfo(IJavaElement element) {
 		case IJavaElement.COMPILATION_UNIT:
 		case IJavaElement.CLASS_FILE:
 			return this.openableCache.peek(element);
+		case IJavaElement.TYPE:
+			Object result = this.jarTypeCache.peek(element);
+			if (result != null)
+				return result;
+			else
+				return this.childrenCache.get(element);
 		default:
 			return this.childrenCache.get(element);
 	}
@@ -138,22 +182,22 @@ protected void putInfo(IJavaElement element, Object info) {
 /**
  * Removes the info of the element from the cache.
  */
-protected void removeInfo(IJavaElement element) {
+protected void removeInfo(JavaElement element) {
 	switch (element.getElementType()) {
 		case IJavaElement.JAVA_MODEL:
 			this.modelInfo = null;
 			break;
 		case IJavaElement.JAVA_PROJECT:
 			this.projectCache.remove(element);
-			this.rootCache.resetSpaceLimit(DEFAULT_ROOT_SIZE, element);
+			this.rootCache.resetSpaceLimit((int) (DEFAULT_ROOT_SIZE * getMemoryRatio()), element);
 			break;
 		case IJavaElement.PACKAGE_FRAGMENT_ROOT:
 			this.rootCache.remove(element);
-			this.pkgCache.resetSpaceLimit(DEFAULT_PKG_SIZE, element);
+			this.pkgCache.resetSpaceLimit((int) (DEFAULT_PKG_SIZE * getMemoryRatio()), element);
 			break;
 		case IJavaElement.PACKAGE_FRAGMENT:
 			this.pkgCache.remove(element);
-			this.openableCache.resetSpaceLimit(DEFAULT_OPENABLE_SIZE, element);
+			this.openableCache.resetSpaceLimit((int) (DEFAULT_OPENABLE_SIZE * getMemoryRatio()), element);
 			break;
 		case IJavaElement.COMPILATION_UNIT:
 		case IJavaElement.CLASS_FILE:
@@ -163,6 +207,12 @@ protected void removeInfo(IJavaElement element) {
 			this.childrenCache.remove(element);
 	}
 }
+protected void resetJarTypeCache() {
+	this.jarTypeCache = new LRUCache((int) (DEFAULT_OPENABLE_SIZE * getMemoryRatio()));
+}
+public String toString() {
+	return toStringFillingRation(""); //$NON-NLS-1$
+}
 public String toStringFillingRation(String prefix) {
 	StringBuffer buffer = new StringBuffer();
 	buffer.append(prefix);
@@ -170,23 +220,17 @@ public String toStringFillingRation(String prefix) {
 	buffer.append(this.projectCache.size());
 	buffer.append(" projects\n"); //$NON-NLS-1$
 	buffer.append(prefix);
-	buffer.append("Root cache["); //$NON-NLS-1$
-	buffer.append(this.rootCache.getSpaceLimit());
-	buffer.append("]: "); //$NON-NLS-1$
-	buffer.append(NumberFormat.getInstance().format(this.rootCache.fillingRatio()));
-	buffer.append("%\n"); //$NON-NLS-1$
+	buffer.append(this.rootCache.toStringFillingRation("Root cache")); //$NON-NLS-1$
+	buffer.append('\n');
 	buffer.append(prefix);
-	buffer.append("Package cache["); //$NON-NLS-1$
-	buffer.append(this.pkgCache.getSpaceLimit());
-	buffer.append("]: "); //$NON-NLS-1$
-	buffer.append(NumberFormat.getInstance().format(this.pkgCache.fillingRatio()));
-	buffer.append("%\n"); //$NON-NLS-1$
+	buffer.append(this.pkgCache.toStringFillingRation("Package cache")); //$NON-NLS-1$
+	buffer.append('\n');
 	buffer.append(prefix);
-	buffer.append("Openable cache["); //$NON-NLS-1$
-	buffer.append(this.openableCache.getSpaceLimit());
-	buffer.append("]: "); //$NON-NLS-1$
-	buffer.append(NumberFormat.getInstance().format(this.openableCache.fillingRatio()));
-	buffer.append("%\n"); //$NON-NLS-1$
+	buffer.append(this.openableCache.toStringFillingRation("Openable cache")); //$NON-NLS-1$
+	buffer.append('\n');
+	buffer.append(prefix);
+	buffer.append(this.jarTypeCache.toStringFillingRation("Jar type cache")); //$NON-NLS-1$
+	buffer.append('\n');
 	return buffer.toString();
 }
 }

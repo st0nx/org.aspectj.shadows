@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
+import java.text.NumberFormat;
 import java.util.Enumeration;
 import java.util.Hashtable;
 
@@ -160,6 +161,9 @@ public class LRUCache implements Cloneable {
 		}
 		return newCache;
 	}
+	public double fillingRatio() {
+		return (fCurrentSpace) * 100.0 / fSpaceLimit;
+	}
 	/**
 	 * Flushes all entries from the cache.
 	 */
@@ -170,7 +174,6 @@ public class LRUCache implements Cloneable {
 		fEntryTable = new Hashtable();  // Clear it out
 		fEntryQueue = fEntryQueueTail = null;  
 		while (entry != null) {  // send deletion notifications in LRU order
-			privateNotifyDeletionFromCache(entry);
 			entry = entry._fPrevious;
 		}
 	}
@@ -290,6 +293,20 @@ public class LRUCache implements Cloneable {
 		return new LRUCache(size);
 	}
 	/**
+	 * Answers the value in the cache at the given key.
+	 * If the value is not in the cache, returns null
+	 *
+	 * This function does not modify timestamps.
+	 */
+	public Object peek(Object key) {
+		
+		LRUCacheEntry entry = (LRUCacheEntry) fEntryTable.get(key);
+		if (entry == null) {
+			return null;
+		}
+		return entry._fValue;
+	}
+	/**
 	 * Adds an entry for the given key/value/space.
 	 */
 	protected void privateAdd (Object key, Object value, int space) {
@@ -325,14 +342,6 @@ public class LRUCache implements Cloneable {
 		fEntryQueue = entry;
 	}
 	/**
-	 * An entry has been removed from the cache, for example because it has 
-	 * fallen off the bottom of the LRU queue.  
-	 * Subclasses could over-ride this to implement a persistent cache below the LRU cache.
-	 */
-	protected void privateNotifyDeletionFromCache(LRUCacheEntry entry) {
-		// Default is NOP.
-	}
-	/**
 	 * Removes the entry from the entry queue.  
 	 * @param shuffle indicates whether we are just shuffling the queue 
 	 * (in which case, the entry table is not modified).
@@ -347,7 +356,6 @@ public class LRUCache implements Cloneable {
 		if (!shuffle) {
 			fEntryTable.remove(entry._fKey);
 			fCurrentSpace -= entry._fSpace;
-			privateNotifyDeletionFromCache(entry);
 		}
 
 		/* if this was the first entry */
@@ -443,45 +451,57 @@ public class LRUCache implements Cloneable {
 			return 1;
 		}
 	}
-/**
- * Returns a String that represents the value of this object.  This method
- * is for debugging purposes only.
- */
-public String toString() {
-	return 
-		"LRUCache " + (fCurrentSpace * 100.0 / fSpaceLimit) + "% full\n" + //$NON-NLS-1$ //$NON-NLS-2$
-		this.toStringContents();
-}
-/**
- * Returns a String that represents the contents of this object.  This method
- * is for debugging purposes only.
- */
-protected String toStringContents() {
-	StringBuffer result = new StringBuffer();
-	int length = fEntryTable.size();
-	Object[] unsortedKeys = new Object[length];
-	String[] unsortedToStrings = new String[length];
-	Enumeration e = this.keys();
-	for (int i = 0; i < length; i++) {
-		Object key = e.nextElement();
-		unsortedKeys[i] = key;
-		unsortedToStrings[i] = 
-			(key instanceof org.eclipse.jdt.internal.core.JavaElement) ?
-				((org.eclipse.jdt.internal.core.JavaElement)key).getElementName() :
-				key.toString();
+	/**
+	 * Returns a String that represents the value of this object.  This method
+	 * is for debugging purposes only.
+	 */
+	public String toString() {
+		return 
+			toStringFillingRation("LRUCache") + //$NON-NLS-1$
+			toStringContents();
 	}
-	ToStringSorter sorter = new ToStringSorter();
-	sorter.sort(unsortedKeys, unsortedToStrings);
-	for (int i = 0; i < length; i++) {
-		String toString = sorter.sortedStrings[i];
-		Object value = this.get(sorter.sortedObjects[i]);
-		result.append(toString);		
-		result.append(" -> "); //$NON-NLS-1$
-		result.append(value);
-		result.append("\n"); //$NON-NLS-1$
+	
+	/**
+	 * Returns a String that represents the contents of this object.  This method
+	 * is for debugging purposes only.
+	 */
+	protected String toStringContents() {
+		StringBuffer result = new StringBuffer();
+		int length = fEntryTable.size();
+		Object[] unsortedKeys = new Object[length];
+		String[] unsortedToStrings = new String[length];
+		Enumeration e = this.keys();
+		for (int i = 0; i < length; i++) {
+			Object key = e.nextElement();
+			unsortedKeys[i] = key;
+			unsortedToStrings[i] = 
+				(key instanceof org.eclipse.jdt.internal.core.JavaElement) ?
+					((org.eclipse.jdt.internal.core.JavaElement)key).getElementName() :
+					key.toString();
+		}
+		ToStringSorter sorter = new ToStringSorter();
+		sorter.sort(unsortedKeys, unsortedToStrings);
+		for (int i = 0; i < length; i++) {
+			String toString = sorter.sortedStrings[i];
+			Object value = this.get(sorter.sortedObjects[i]);
+			result.append(toString);		
+			result.append(" -> "); //$NON-NLS-1$
+			result.append(value);
+			result.append("\n"); //$NON-NLS-1$
+		}
+		return result.toString();
 	}
-	return result.toString();
-}
+	
+	public String toStringFillingRation(String cacheName) {
+		StringBuffer buffer = new StringBuffer(cacheName);
+		buffer.append('[');
+		buffer.append(getSpaceLimit());
+		buffer.append("]: "); //$NON-NLS-1$
+		buffer.append(NumberFormat.getInstance().format(fillingRatio()));
+		buffer.append("% full"); //$NON-NLS-1$
+		return buffer.toString();
+	}
+
 	/**
 	 * Updates the timestamp for the given entry, ensuring that the queue is 
 	 * kept in correct order.  The entry must exist

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -77,6 +77,13 @@ protected void ensureSpaceLimit(int childrenSize, IJavaElement parent) {
 }
 
 /*
+ * Returns a new instance of the receiver.
+ */
+protected LRUCache newInstance(int size, int overflow) {
+	return new ElementCache(size, overflow);
+}
+
+/*
  * If the given parent was the one that increased the space limit, reset
  * the space limit to the given default value.
  */
@@ -85,13 +92,6 @@ protected void resetSpaceLimit(int defaultLimit, IJavaElement parent) {
 		setSpaceLimit(defaultLimit);
 		this.spaceLimitParent = null;
 	}
-}
-
-/**
- * Returns a new instance of the reciever.
- */
-protected LRUCache newInstance(int size, int overflow) {
-	return new ElementCache(size, overflow);
 }
 
 }

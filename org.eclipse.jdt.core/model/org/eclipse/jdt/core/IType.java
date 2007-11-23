@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -345,6 +345,17 @@ public interface IType extends IMember {
 	IMethod[] findMethods(IMethod method);
 	
 	/**
+	 * Returns the children of this type that have the given category as a <code>@category</code> tag.
+	 * Returns an empty array if no children with this category exist.
+	 * 
+	 * @return the children for the given category.
+	 * @exception JavaModelException if this element does not exist or if an
+	 *      exception occurs while accessing its corresponding resource.
+	 *  @since 3.2
+	 */
+	IJavaElement[] getChildrenForCategory(String category) throws JavaModelException;
+
+	/**
 	 * Returns the simple name of this type, unqualified by package or enclosing type.
 	 * This is a handle-only method.
 	 * 
@@ -417,7 +428,7 @@ public interface IType extends IMember {
 	
 	/**
 	 * Returns this type's fully qualified name followed by its type parameters between angle brakets if it is a generic type.
-	 * For example, "p.X<T>", "java.util.Map<java.lang.String, p.X>"
+	 * For example, "p.X&lt;T&gt;", "java.util.Map&lt;java.lang.String, p.X&gt;"
 	 * 
 	 * @exception JavaModelException if this element does not exist or if an
 	 *      exception occurs while accessing its corresponding resource.
@@ -481,7 +492,7 @@ public interface IType extends IMember {
 	
 	/**
 	 * Returns the methods and constructors declared by this type.
-	 * For binary types, this may include the special <code>&lt;clinit&gt</code>; method 
+	 * For binary types, this may include the special <code>&lt;clinit&gt;</code>; method 
 	 * and synthetic methods.
 	 * If this is a source type, the results are listed in the order
 	 * in which they appear in the source, otherwise, the results are
@@ -569,7 +580,7 @@ public interface IType extends IMember {
 	/**
 	 * Returns the names of interfaces that this type implements or extends,
 	 * in the order in which they are listed in the source.
-	 * </p>
+	 * <p>
 	 * For classes, this gives the interfaces that this class implements.
 	 * For interfaces, this gives the interfaces that this interface extends.
 	 * An empty collection is returned if this type does not implement or
@@ -668,7 +679,7 @@ public interface IType extends IMember {
 	 * <li>the type qualified name of a class B defined as a member of a class A
 	 *     using the '$' separator is "A$B"</li>
 	 * <li>the type qualified name of a binary type whose class file is A$B.class
-	 *     using the '.' separator is "A.B"</li>
+	 *     using the '.' separator is "A$B"</li>
 	 * <li>the type qualified name of a binary type whose class file is A$B.class
 	 *     using the '$' separator is "A$B"</li>
 	 * <li>the type qualified name of an anonymous binary type whose class file is A$1.class
@@ -776,7 +787,7 @@ public interface IType extends IMember {
 	boolean isMember() throws JavaModelException;
 	/**
 	 * Returns whether this type represents a resolved type.
-	 * If a type is resoved, its key contains resolved information.
+	 * If a type is resolved, its key contains resolved information.
 	 * 
 	 * @return whether this type represents a resolved type.
 	 * @since 3.1
@@ -791,7 +802,7 @@ public interface IType extends IMember {
 	 * <li>IType#newSupertypeHierarchy(IProgressMonitor)</li>
 	 * <li>IType#newTypeHierarchy(IJavaProject, IProgressMonitor)</li>
 	 * <li>IType#newTypeHierarchy(IProgressMonitor)</li>
-	 * </u>
+	 * </ul>
 	 * 
 	 * @param input stream where hierarchy will be read
 	 * @param monitor the given progress monitor
@@ -850,7 +861,7 @@ public interface IType extends IMember {
 	 * @exception JavaModelException if this element does not exist or if an
 	 *		exception occurs while accessing its corresponding resource.
 	 * @since 2.0
-	 * @deprecated use #newSupertypeHierarchy(ICompilationUnit[], IProgressMonitor) instead
+	 * @deprecated Use {@link #newSupertypeHierarchy(ICompilationUnit[], IProgressMonitor)} instead
 	 */
 	ITypeHierarchy newSupertypeHierarchy(IWorkingCopy[] workingCopies, IProgressMonitor monitor)
 		throws JavaModelException;
@@ -962,7 +973,7 @@ public interface IType extends IMember {
 	 * @exception JavaModelException if this element does not exist or if an
 	 *		exception occurs while accessing its corresponding resource.
 	 * @since 2.0
-	 * @deprecated use #newTypeHierarchy(ICompilationUnit[], IProgressMonitor) instead
+	 * @deprecated Use {@link #newTypeHierarchy(ICompilationUnit[], IProgressMonitor)} instead
 	 */
 	ITypeHierarchy newTypeHierarchy(IWorkingCopy[] workingCopies, IProgressMonitor monitor) throws JavaModelException;
 	

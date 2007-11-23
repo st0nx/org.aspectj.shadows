@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * Copyright (c) 2004, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -56,5 +56,11 @@ public class ResolvedSourceType extends SourceType {
 			buffer.append(this.uniqueKey);
 			buffer.append("}"); //$NON-NLS-1$
 		}
+	}
+	
+	public JavaElement unresolved() {
+		SourceRefElement handle = new SourceType(this.parent, this.name);
+		handle.occurrenceCount = this.occurrenceCount;
+		return handle;
 	}
 }

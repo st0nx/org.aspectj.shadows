@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -25,31 +25,11 @@ import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.ISafeRunnable;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.OperationCanceledException;
-import org.eclipse.core.runtime.Platform;
+import org.eclipse.core.runtime.SafeRunner;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.ElementChangedEvent;
-import org.eclipse.jdt.core.IClasspathEntry;
-import org.eclipse.jdt.core.IElementChangedListener;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IJavaElementDelta;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IPackageFragmentRoot;
-import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.ITypeHierarchy;
-import org.eclipse.jdt.core.ITypeHierarchyChangedListener;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.core.*;
-import org.eclipse.jdt.internal.core.CompilationUnit;
-import org.eclipse.jdt.internal.core.JavaElement;
-import org.eclipse.jdt.internal.core.JavaModelStatus;
-import org.eclipse.jdt.internal.core.JavaProject;
-import org.eclipse.jdt.internal.core.Openable;
-import org.eclipse.jdt.internal.core.Region;
-import org.eclipse.jdt.internal.core.TypeVector;
 import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 
@@ -170,7 +150,7 @@ public TypeHierarchy(IType type, ICompilationUnit[] workingCopies, IJavaProject 
  * Creates a TypeHierarchy on the given type.
  */
 public TypeHierarchy(IType type, ICompilationUnit[] workingCopies, IJavaSearchScope scope, boolean computeSubtypes) {
-	this.focusType = type;
+	this.focusType = type == null ? null : (IType) ((JavaElement) type).unresolved(); // unsure the focus type is unresolved (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=92357)
 	this.workingCopies = workingCopies;
 	this.computeSubtypes = computeSubtypes;
 	this.scope = scope;
@@ -378,7 +358,7 @@ public void fireChange() {
 	listeners = (ArrayList)listeners.clone();
 	for (int i= 0; i < listeners.size(); i++) {
 		final ITypeHierarchyChangedListener listener= (ITypeHierarchyChangedListener)listeners.get(i);
-		Platform.run(new ISafeRunnable() {
+		SafeRunner.run(new ISafeRunnable() {
 			public void handleException(Throwable exception) {
 				Util.log(exception, "Exception occurred in listener of Type hierarchy change notification"); //$NON-NLS-1$
 			}
@@ -544,14 +524,15 @@ public IType[] getExtendingInterfaces(IType type) {
  * @see #getExtendingInterfaces
  */
 private IType[] getExtendingInterfaces0(IType extendedInterface) {
-	Iterator iter = this.typeToSuperInterfaces.keySet().iterator();
+	Iterator iter = this.typeToSuperInterfaces.entrySet().iterator();
 	ArrayList interfaceList = new ArrayList();
 	while (iter.hasNext()) {
-		IType type = (IType) iter.next();
+		Map.Entry entry = (Map.Entry) iter.next();
+		IType type = (IType) entry.getKey();
 		if (!this.isInterface(type)) {
 			continue;
 		}
-		IType[] superInterfaces = (IType[]) this.typeToSuperInterfaces.get(type);
+		IType[] superInterfaces = (IType[]) entry.getValue();
 		if (superInterfaces != null) {
 			for (int i = 0; i < superInterfaces.length; i++) {
 				IType superInterface = superInterfaces[i];
@@ -580,14 +561,15 @@ public IType[] getImplementingClasses(IType type) {
  */
 private IType[] getImplementingClasses0(IType interfce) {
 	
-	Iterator iter = this.typeToSuperInterfaces.keySet().iterator();
+	Iterator iter = this.typeToSuperInterfaces.entrySet().iterator();
 	ArrayList iMenters = new ArrayList();
 	while (iter.hasNext()) {
-		IType type = (IType) iter.next();
+		Map.Entry entry = (Map.Entry) iter.next();
+		IType type = (IType) entry.getKey();
 		if (this.isInterface(type)) {
 			continue;
 		}
-		IType[] types = (IType[]) this.typeToSuperInterfaces.get(type);
+		IType[] types = (IType[]) entry.getValue();
 		for (int i = 0; i < types.length; i++) {
 			IType iFace = types[i];
 			if (iFace.equals(interfce)) {
@@ -769,7 +751,7 @@ boolean includesTypeOrSupertype(IType type) {
 		String superclassName = type.getSuperclassName();
 		if (superclassName != null) {
 			int lastSeparator = superclassName.lastIndexOf('.');
-			String simpleName = (lastSeparator > -1) ? superclassName.substring(lastSeparator) : superclassName;
+			String simpleName = superclassName.substring(lastSeparator+1);
 			if (hasTypeNamed(simpleName)) return true;
 		}
 	
@@ -779,7 +761,7 @@ boolean includesTypeOrSupertype(IType type) {
 			for (int i = 0, length = superinterfaceNames.length; i < length; i++) {
 				String superinterfaceName = superinterfaceNames[i];
 				int lastSeparator = superinterfaceName.lastIndexOf('.');
-				String simpleName = (lastSeparator > -1) ? superinterfaceName.substring(lastSeparator) : superinterfaceName;
+				String simpleName = superinterfaceName.substring(lastSeparator+1);
 				if (hasTypeNamed(simpleName)) return true;
 			}
 		}
@@ -873,7 +855,7 @@ private boolean isAffectedByJavaProject(IJavaElementDelta delta, IJavaElement el
 		case IJavaElementDelta.ADDED :
 			try {
 				// if the added project is on the classpath, then the hierarchy has changed
-				IClasspathEntry[] classpath = ((JavaProject)this.javaProject()).getExpandedClasspath(true);
+				IClasspathEntry[] classpath = ((JavaProject)this.javaProject()).getExpandedClasspath();
 				for (int i = 0; i < classpath.length; i++) {
 					if (classpath[i].getEntryKind() == IClasspathEntry.CPE_PROJECT 
 							&& classpath[i].getPath().equals(element.getPath())) {
@@ -882,7 +864,7 @@ private boolean isAffectedByJavaProject(IJavaElementDelta delta, IJavaElement el
 				}
 				if (this.focusType != null) {
 					// if the hierarchy's project is on the added project classpath, then the hierarchy has changed
-					classpath = ((JavaProject)element).getExpandedClasspath(true);
+					classpath = ((JavaProject)element).getExpandedClasspath();
 					IPath hierarchyProject = javaProject().getPath();
 					for (int i = 0; i < classpath.length; i++) {
 						if (classpath[i].getEntryKind() == IClasspathEntry.CPE_PROJECT 
@@ -948,12 +930,9 @@ private boolean isAffectedByPackageFragmentRoot(IJavaElementDelta delta, IJavaEl
 					for (int i = 0; i < elements.length; i++) {
 						JavaProject javaProject = (JavaProject)elements[i];
 						try {
-							IClasspathEntry[] classpath = javaProject.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
-							for (int j = 0; j < classpath.length; j++) {
-								IClasspathEntry entry = classpath[j];
-								if (entry.getPath().equals(rootPath)) {
-									return true;
-								}
+							IClasspathEntry entry = javaProject.getClasspathEntryFor(rootPath);
+							if (entry != null) {
+								return true;
 							}
 						} catch (JavaModelException e) {
 							// igmore this project
@@ -1233,11 +1212,11 @@ public synchronized void refresh(IProgressMonitor monitor) throws JavaModelExcep
 	try {
 		this.progressMonitor = monitor;
 		if (monitor != null) {
-			if (this.focusType != null) {
-				monitor.beginTask(Messages.bind(Messages.hierarchy_creatingOnType, this.focusType.getFullyQualifiedName()), 100); 
-			} else {
-				monitor.beginTask(Messages.hierarchy_creating, 100); 
-			}
+			monitor.beginTask(
+					this.focusType != null ? 
+							Messages.bind(Messages.hierarchy_creatingOnType, this.focusType.getFullyQualifiedName()) : 
+							Messages.hierarchy_creating, 
+					100); 
 		}
 		long start = -1;
 		if (DEBUG) {
@@ -1307,30 +1286,32 @@ public void store(OutputStream output, IProgressMonitor monitor) throws JavaMode
 			hashtable.put(this.focusType, index);
 			hashtable2.put(index, this.focusType);
 		}
-		Object[] types = this.classToSuperclass.keySet().toArray();
+		Object[] types = this.classToSuperclass.entrySet().toArray();
 		for (int i = 0; i < types.length; i++) {
-			Object t = types[i];
+			Map.Entry entry = (Map.Entry) types[i];
+			Object t = entry.getKey();
 			if(hashtable.get(t) == null) {
 				Integer index = new Integer(count++);
 				hashtable.put(t, index);
 				hashtable2.put(index, t);
 			}
-			Object superClass = this.classToSuperclass.get(t);
+			Object superClass = entry.getValue();
 			if(superClass != null && hashtable.get(superClass) == null) {
 				Integer index = new Integer(count++);
 				hashtable.put(superClass, index);
 				hashtable2.put(index, superClass);
 			}
 		}
-		types = this.typeToSuperInterfaces.keySet().toArray();
+		types = this.typeToSuperInterfaces.entrySet().toArray();
 		for (int i = 0; i < types.length; i++) {
-			Object t = types[i];
+			Map.Entry entry = (Map.Entry) types[i];
+			Object t = entry.getKey();
 			if(hashtable.get(t) == null) {
 				Integer index = new Integer(count++);
 				hashtable.put(t, index);
 				hashtable2.put(index, t);
 			}
-			Object[] sp = (Object[])this.typeToSuperInterfaces.get(t);
+			Object[] sp = (Object[]) entry.getValue();
 			if(sp != null) {
 				for (int j = 0; j < sp.length; j++) {
 					Object superInterface = sp[j];
@@ -1392,10 +1373,11 @@ public void store(OutputStream output, IProgressMonitor monitor) throws JavaMode
 		output.write(SEPARATOR1);
 		
 		// save superclasses
-		types = this.classToSuperclass.keySet().toArray();
+		types = this.classToSuperclass.entrySet().toArray();
 		for (int i = 0; i < types.length; i++) {
-			IJavaElement key = (IJavaElement)types[i];
-			IJavaElement value = (IJavaElement)this.classToSuperclass.get(key);
+			Map.Entry entry = (Map.Entry) types[i];
+			IJavaElement key = (IJavaElement) entry.getKey();
+			IJavaElement value = (IJavaElement) entry.getValue();
 			
 			output.write(((Integer)hashtable.get(key)).toString().getBytes());
 			output.write('>');
@@ -1405,10 +1387,11 @@ public void store(OutputStream output, IProgressMonitor monitor) throws JavaMode
 		output.write(SEPARATOR1);
 		
 		// save superinterfaces
-		types = this.typeToSuperInterfaces.keySet().toArray();
+		types = this.typeToSuperInterfaces.entrySet().toArray();
 		for (int i = 0; i < types.length; i++) {
-			IJavaElement key = (IJavaElement)types[i];
-			IJavaElement[] values = (IJavaElement[])this.typeToSuperInterfaces.get(key);
+			Map.Entry entry = (Map.Entry) types[i];
+			IJavaElement key = (IJavaElement) entry.getKey();
+			IJavaElement[] values = (IJavaElement[]) entry.getValue();
 			
 			if(values.length > 0) {
 				output.write(((Integer)hashtable.get(key)).toString().getBytes());
@@ -1491,17 +1474,16 @@ public String toString() {
 			toString(buffer, this.focusType, 1, false);
 		} else {
 			buffer.append("Sub types of root classes:\n"); //$NON-NLS-1$
-			IType[] roots= getRootClasses();
+			IJavaElement[] roots = Util.sortCopy(getRootClasses());
 			for (int i= 0; i < roots.length; i++) {
-				toString(buffer, roots[i], 1, false);
+				toString(buffer, (IType) roots[i], 1, false);
 			}
 		}
 		if (this.rootClasses.size > 1) {
 			buffer.append("Root classes:\n"); //$NON-NLS-1$
-			IType[] roots = this.getRootClasses();
+			IJavaElement[] roots = Util.sortCopy(getRootClasses());
 			for (int i = 0, length = roots.length; i < length; i++) {
-				IType type = roots[i];
-				toString(buffer, type, 1, false);
+				toString(buffer, (IType) roots[i], 1, false);
 			}
 		} else if (this.rootClasses.size == 0) {
 			// see http://bugs.eclipse.org/bugs/show_bug.cgi?id=24691
@@ -1519,11 +1501,12 @@ public String toString() {
  */
 private void toString(StringBuffer buffer, IType type, int indent, boolean ascendant) {
 	IType[] types= ascendant ? getSupertypes(type) : getSubtypes(type);
-	for (int i= 0; i < types.length; i++) {
+	IJavaElement[] sortedTypes = Util.sortCopy(types);
+	for (int i= 0; i < sortedTypes.length; i++) {
 		for (int j= 0; j < indent; j++) {
 			buffer.append("  "); //$NON-NLS-1$
 		}
-		JavaElement element = (JavaElement)types[i];
+		JavaElement element = (JavaElement)sortedTypes[i];
 		buffer.append(element.toStringWithAncestors(false/*don't show key*/));
 		buffer.append('\n');
 		toString(buffer, types[i], indent + 1, ascendant);

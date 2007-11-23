@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
-import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 
 public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 
@@ -32,12 +32,12 @@ public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 	}
 
 	/**
-	 * @see ISourceElementRequestor#acceptImport(int, int, char[], boolean, int)
+	 * @see ISourceElementRequestor#acceptImport(int, int, char[][], boolean, int)
 	 */
 	public void acceptImport(
 		int declarationStart,
 		int declarationEnd,
-		char[] name,
+		char[][] tokens,
 		boolean onDemand,
 		int modifiers) {
 		// default implementation: do nothing
@@ -71,9 +71,9 @@ public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 	}
 
 	/**
-	 * @see ISourceElementRequestor#acceptProblem(IProblem)
+	 * @see ISourceElementRequestor#acceptProblem(CategorizedProblem)
 	 */
-	public void acceptProblem(IProblem problem) {
+	public void acceptProblem(CategorizedProblem problem) {
 		// default implementation: do nothing
 	}
 

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * Copyright (c) 2004, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,6 +21,7 @@ import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.ITypeParameter;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.compiler.CharOperation;
 
 public abstract class NamedMember extends Member {
 
@@ -89,6 +90,28 @@ public abstract class NamedMember extends Member {
 		String selector = method.getElementName();
 		key.append(selector);
 		
+		// type parameters
+		if (forceOpen) {
+			ITypeParameter[] typeParameters = method.getTypeParameters();
+			int length = typeParameters.length;
+			if (length > 0) {
+				key.append('<');
+				for (int i = 0; i < length; i++) {
+					ITypeParameter typeParameter = typeParameters[i];
+					String[] bounds = typeParameter.getBounds();
+					int boundsLength = bounds.length;
+					char[][] boundSignatures = new char[boundsLength][];
+					for (int j = 0; j < boundsLength; j++) {
+						boundSignatures[j] = Signature.createCharArrayTypeSignature(bounds[j].toCharArray(), method.isBinary());
+						CharOperation.replace(boundSignatures[j], '.', '/');
+					}
+					char[] sig = Signature.createTypeParameterSignature(typeParameter.getElementName().toCharArray(), boundSignatures);
+					key.append(sig);
+				}
+				key.append('>');
+			}
+		}
+		
 		// parameters
 		key.append('(');
 		String[] parameters = method.getParameterTypes();
@@ -98,7 +121,7 @@ public abstract class NamedMember extends Member {
 		
 		// return type
 		if (forceOpen)
-			key.append(method.getReturnType());
+			key.append(method.getReturnType().replace('.', '/'));
 		else
 			key.append('V');
 		
@@ -140,7 +163,6 @@ public abstract class NamedMember extends Member {
 		buffer.append('<');
 		for (int i = 0; i < length; i++) {
 			String typeArgument = typeArguments[i];
-			typeArgument.replace('/', '.');
 			buffer.append(Signature.toString(typeArgument));
 			if (i < length-1)
 				buffer.append(',');

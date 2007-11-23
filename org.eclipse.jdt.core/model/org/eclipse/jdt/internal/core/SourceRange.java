@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -23,6 +23,15 @@ public SourceRange(int offset, int length) {
 	this.offset = offset;
 	this.length = length;
 }
+/*
+ * @see Object#equals(Object)
+ */
+public boolean equals(Object obj) {
+	if (!(obj instanceof ISourceRange))
+        return false;
+	ISourceRange sourceRange = (ISourceRange) obj;
+    return sourceRange.getOffset() == this.offset && sourceRange.getLength() == this.length;
+}
 /**
  * @see ISourceRange
  */
@@ -34,6 +43,12 @@ public int getLength() {
  */
 public int getOffset() {
 	return this.offset;
+}
+/*
+ * @see Object#hashCode()
+ */
+public int hashCode() {
+    return this.length ^ this.offset;
 }
 public String toString() {
 	StringBuffer buffer = new StringBuffer();

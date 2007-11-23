@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -247,27 +247,31 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 		org.eclipse.jdt.internal.core.CompilationUnit destCU = new org.eclipse.jdt.internal.core.CompilationUnit(dest, destName, DefaultWorkingCopyOwner.PRIMARY);
 		if (!destFile.equals(sourceResource)) {
 			try {
-				if (destFile.exists()) {
-					if (this.force) {
-						// we can remove it
-						deleteResource(destFile, IResource.KEEP_HISTORY);
-						destCU.close(); // ensure the in-memory buffer for the dest CU is closed
-					} else {
-						// abort
-						throw new JavaModelException(new JavaModelStatus(
-							IJavaModelStatusConstants.NAME_COLLISION, 
-							Messages.bind(Messages.status_nameCollision, destFile.getFullPath().toString()))); 
+				if (!destCU.isWorkingCopy()) {
+					if (destFile.exists()) {
+						if (this.force) {
+							// we can remove it
+							deleteResource(destFile, IResource.KEEP_HISTORY);
+							destCU.close(); // ensure the in-memory buffer for the dest CU is closed
+						} else {
+							// abort
+							throw new JavaModelException(new JavaModelStatus(
+								IJavaModelStatusConstants.NAME_COLLISION, 
+								Messages.bind(Messages.status_nameCollision, destFile.getFullPath().toString()))); 
+						}
 					}
-				}
-				int flags = this.force ? IResource.FORCE : IResource.NONE;
-				if (this.isMove()) {
-					flags |= IResource.KEEP_HISTORY;
-					sourceResource.move(destFile.getFullPath(), flags, getSubProgressMonitor(1));
+					int flags = this.force ? IResource.FORCE : IResource.NONE;
+					if (this.isMove()) {
+						flags |= IResource.KEEP_HISTORY;
+						sourceResource.move(destFile.getFullPath(), flags, getSubProgressMonitor(1));
+					} else {
+						if (rewrite != null) flags |= IResource.KEEP_HISTORY;
+						sourceResource.copy(destFile.getFullPath(), flags, getSubProgressMonitor(1));
+					}
+					setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
 				} else {
-					if (rewrite != null) flags |= IResource.KEEP_HISTORY;
-					sourceResource.copy(destFile.getFullPath(), flags, getSubProgressMonitor(1));
+					destCU.getBuffer().setContents(source.getBuffer().getContents());
 				}
-				this.setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
 			} catch (JavaModelException e) {
 				throw e;
 			} catch (CoreException e) {
@@ -304,13 +308,8 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 			// update new resource content
 			// in case we do a saveas on the same resource we have to simply update the contents
 			// see http://dev.eclipse.org/bugs/show_bug.cgi?id=9351
-			try {
-				if (rewrite != null){
-					saveContent(dest, destName, rewrite, sourceEncoding, destFile);
-				}
-			} catch (CoreException e) {
-				if (e instanceof JavaModelException) throw (JavaModelException) e;
-				throw new JavaModelException(e);
+			if (rewrite != null){
+				saveContent(dest, destName, rewrite, sourceEncoding, destFile);
 			}
 		}
 	}
@@ -405,7 +404,7 @@ public class CopyResourceElementsOperation extends MultiOperation implements Suf
 				if (sourceIsReadOnly) {
 					Util.setReadOnly(srcFolder, true);
 				}
-				this.setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
+				setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
 			} else {
 				// process the leaf resources
 				if (resources.length > 0) {

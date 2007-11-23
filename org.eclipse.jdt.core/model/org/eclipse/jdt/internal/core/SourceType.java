@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,16 +12,17 @@ package org.eclipse.jdt.internal.core;
 
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 
+import org.eclipse.core.runtime.Assert;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.*;
-import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
 import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
 import org.eclipse.jdt.internal.codeassist.SelectionEngine;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
@@ -40,7 +41,6 @@ public class SourceType extends NamedMember implements IType {
 	
 protected SourceType(JavaElement parent, String name) {
 	super(parent, name);
-	Assert.isTrue(name.indexOf('.') == -1, Messages.bind(Messages.sourcetype_invalidName, name)); 
 }
 protected void closing(Object info) throws JavaModelException {
 	super.closing(info);
@@ -168,6 +168,29 @@ public IMethod[] findMethods(IMethod method) {
 		return null;
 	}
 }
+public IJavaElement[] getChildrenForCategory(String category) throws JavaModelException {
+	IJavaElement[] children = getChildren();
+	int length = children.length;
+	if (length == 0) return NO_ELEMENTS;
+	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
+	HashMap categories = info.getCategories();
+	if (categories == null) return NO_ELEMENTS;
+	IJavaElement[] result = new IJavaElement[length];
+	int index = 0;
+	for (int i = 0; i < length; i++) {
+		IJavaElement child = children[i];
+		String[] elementCategories = (String[]) categories.get(child);
+		if (elementCategories != null) 
+			for (int j = 0, length2 = elementCategories.length; j < length2; j++) {
+				if (elementCategories[j].equals(category))
+					result[index++] = child;
+			}
+	}
+	if (index == 0) return NO_ELEMENTS;
+	if (index < length)
+		System.arraycopy(result, 0, result = new IJavaElement[index], 0, index);
+	return result;
+}
 /**
  * @see IMember
  */
@@ -274,17 +297,13 @@ public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento,
 			String[] parameters = new String[params.size()];
 			params.toArray(parameters);
 			JavaElement method = (JavaElement)getMethod(selector, parameters);
-			if (token != null) {
-				switch (token.charAt(0)) {
-					case JEM_TYPE:
-					case JEM_TYPE_PARAMETER:
-					case JEM_LOCALVARIABLE:
-						return method.getHandleFromMemento(token, memento, workingCopyOwner);
-					default:
-						return method;
-				}
-			} else {
-				return method;
+			switch (token.charAt(0)) {
+				case JEM_TYPE:
+				case JEM_TYPE_PARAMETER:
+				case JEM_LOCALVARIABLE:
+					return method.getHandleFromMemento(token, memento, workingCopyOwner);
+				default:
+					return method;
 			}
 		case JEM_TYPE:
 			String typeName;
@@ -524,7 +543,7 @@ public boolean isAnonymous() {
  */
 public boolean isClass() throws JavaModelException {
 	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
-	return info.getKind() == IGenericType.CLASS_DECL;
+	return TypeDeclaration.kind(info.getModifiers()) == TypeDeclaration.CLASS_DECL;
 }
 
 /**
@@ -533,7 +552,7 @@ public boolean isClass() throws JavaModelException {
  */
 public boolean isEnum() throws JavaModelException {
 	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
-	return info.getKind() == IGenericType.ENUM_DECL;
+	return TypeDeclaration.kind(info.getModifiers()) == TypeDeclaration.ENUM_DECL;
 }
 
 /**
@@ -541,9 +560,9 @@ public boolean isEnum() throws JavaModelException {
  */
 public boolean isInterface() throws JavaModelException {
 	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
-	switch (info.getKind()) {
-		case IGenericType.INTERFACE_DECL:
-		case IGenericType.ANNOTATION_TYPE_DECL: // annotation is interface too
+	switch (TypeDeclaration.kind(info.getModifiers())) {
+		case TypeDeclaration.INTERFACE_DECL:
+		case TypeDeclaration.ANNOTATION_TYPE_DECL: // annotation is interface too
 			return true;
 	}
 	return false;
@@ -555,14 +574,21 @@ public boolean isInterface() throws JavaModelException {
  */
 public boolean isAnnotation() throws JavaModelException {
 	SourceTypeElementInfo info = (SourceTypeElementInfo) getElementInfo();
-	return info.getKind() == IGenericType.ANNOTATION_TYPE_DECL;
+	return TypeDeclaration.kind(info.getModifiers()) == TypeDeclaration.ANNOTATION_TYPE_DECL;
 }
 
 /**
  * @see IType#isLocal()
  */
 public boolean isLocal() {
-	return this.parent instanceof IMethod || this.parent instanceof IInitializer;
+	switch (this.parent.getElementType()) {
+		case IJavaElement.METHOD:
+		case IJavaElement.INITIALIZER:
+		case IJavaElement.FIELD:
+			return true;
+		default:
+			return false;
+	}
 }
 /**
  * @see IType#isMember()
@@ -791,13 +817,13 @@ public String[][] resolveType(String typeName, WorkingCopyOwner owner) throws Ja
 				this.answers[length] = answer;
 			}
 		}
-		public void acceptError(IProblem error) {
+		public void acceptError(CategorizedProblem error) {
 			// ignore
 		}
 		public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] fieldName, boolean isDeclaration, char[] uniqueKey, int start, int end) {
 			// ignore
 		}
-		public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, String enclosingDeclaringTypeSignature, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, String[] parameterSignatures, boolean isConstructor, boolean isDeclaration, char[] uniqueKey, int start, int end) {
+		public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, String enclosingDeclaringTypeSignature, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, String[] parameterSignatures, char[][] typeParameterNames, char[][][] typeParameterBoundNames, boolean isConstructor, boolean isDeclaration, char[] uniqueKey, int start, int end) {
 			// ignore
 		}
 		public void acceptPackage(char[] packageName){

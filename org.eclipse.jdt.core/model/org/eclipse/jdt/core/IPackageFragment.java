@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -100,7 +100,7 @@ public interface IPackageFragment extends IParent, IJavaElement, IOpenable, ISou
 	 * 
 	 * @param name the given name
 	 * @return the compilation unit with the specified name in this package
-	 * @see JavaConventions#validateCompilationUnitName(String)
+	 * @see JavaConventions#validateCompilationUnitName(String name, String sourceLevel, String complianceLevel)
 	 */
 	ICompilationUnit getCompilationUnit(String name);
 	/**
@@ -145,7 +145,8 @@ public interface IPackageFragment extends IParent, IJavaElement, IOpenable, ISou
 	String getElementName();
 	/**
 	 * Returns this package fragment's root kind encoded as an integer.
-	 * A package fragment can contain <code>.java</code> source files,
+	 * A package fragment can contain source files (i.e. files with one of 
+	 * the {@link JavaCore#getJavaLikeExtensions() Java-like extensions}),
 	 * or <code>.class</code> files. This is a convenience method.
 	 *
 	 * @exception JavaModelException if this element does not exist or if an
@@ -164,6 +165,11 @@ public interface IPackageFragment extends IParent, IJavaElement, IOpenable, ISou
 	 * inclusion/exclusion patterns on the corresponding source classpath entry
 	 * are considered non-Java resources and will appear in the result
 	 * (possibly in a folder).
+	 * </p><p>
+	 * Since 3.3, if this package fragment is inside an archive, the non-Java resources
+	 * are a tree of {@link IJarEntryResource}s. One can navigate this tree using
+	 * the {@link IJarEntryResource#getChildren()} and 
+	 * {@link IJarEntryResource#getParent()} methods.
 	 * </p>
 	 * 
 	 * @exception JavaModelException if this element does not exist or if an

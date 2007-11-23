@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,14 +12,17 @@ package org.eclipse.jdt.core;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import org.eclipse.core.resources.IFile;
 import org.eclipse.core.runtime.*;
-import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.compiler.IScanner;
 import org.eclipse.jdt.core.formatter.CodeFormatter;
+import org.eclipse.jdt.core.formatter.DefaultCodeFormatterConstants;
 import org.eclipse.jdt.core.util.ClassFileBytesDisassembler;
 import org.eclipse.jdt.core.util.ClassFormatException;
 import org.eclipse.jdt.core.util.IClassFileReader;
@@ -44,6 +47,33 @@ import org.eclipse.jdt.internal.formatter.DefaultCodeFormatter;
  * @since 2.0
  */
 public class ToolFactory {
+	
+	/**
+	 * This mode is used for formatting new code when some formatter options should not be used. 
+	 * In particular, options that preserve the indentation of comments are not used. 
+	 * In the future,  newly added options may be ignored as well.
+	 * <p>Clients that are formatting new code are recommended to use this mode.
+	 * </p>
+	 * 
+	 * @see DefaultCodeFormatterConstants#FORMATTER_NEVER_INDENT_BLOCK_COMMENTS_ON_FIRST_COLUMN
+	 * @see DefaultCodeFormatterConstants#FORMATTER_NEVER_INDENT_LINE_COMMENTS_ON_FIRST_COLUMN
+	 * @see #createCodeFormatter(Map, int)
+	 * @since 3.3
+	 */
+	public static final int M_FORMAT_NEW = new Integer(0).intValue();
+	
+	/**
+	 * This mode is used for formatting existing code when all formatter options should be used. 
+	 * In particular, options that preserve the indentation of comments are used. 
+	 * <p>Clients that are formatting existing code are recommended to use this mode.
+	 * </p>
+	 *
+	 * @see DefaultCodeFormatterConstants#FORMATTER_NEVER_INDENT_BLOCK_COMMENTS_ON_FIRST_COLUMN
+	 * @see DefaultCodeFormatterConstants#FORMATTER_NEVER_INDENT_LINE_COMMENTS_ON_FIRST_COLUMN
+	 * @see #createCodeFormatter(Map, int)
+	 * @since 3.3
+	 */
+	public static final int M_FORMAT_EXISTING = new Integer(1).intValue();
 
 	/**
 	 * Create an instance of a code formatter. A code formatter implementation can be contributed via the 
@@ -53,7 +83,7 @@ public class ToolFactory {
 	 * @return an instance of a code formatter
 	 * @see ICodeFormatter
 	 * @see ToolFactory#createDefaultCodeFormatter(Map)
-	 * @deprecated - should use #createCodeFormatter(Map) instead. Extension point is discontinued
+	 * @deprecated Use {@link #createCodeFormatter(Map)} instead. Extension point is discontinued
 	 */
 	public static ICodeFormatter createCodeFormatter(){
 		
@@ -83,7 +113,15 @@ public class ToolFactory {
 	}
 
 	/**
-	 * Create an instance of the built-in code formatter. 
+	 * Create an instance of the built-in code formatter.
+	 * <p>The given options should at least provide the source level ({@link JavaCore#COMPILER_SOURCE}),
+	 * the  compiler compliance level ({@link JavaCore#COMPILER_COMPLIANCE}) and the target platform
+	 * ({@link JavaCore#COMPILER_CODEGEN_TARGET_PLATFORM}).
+	 * Without these options, it is not possible for the code formatter to know what kind of source it needs to format.
+	 * </p><p>
+	 * Note this is equivalent to <code>createCodeFormatter(options, M_FORMAT_NEW)</code>. Thus some code formatter options
+	 * may be ignored. See @{link {@link #M_FORMAT_NEW} for more details.
+	 * </p>
 	 * @param options - the options map to use for formatting with the default code formatter. Recognized options
 	 * 	are documented on <code>JavaCore#getDefaultOptions()</code>. If set to <code>null</code>, then use 
 	 * 	the current settings from <code>JavaCore#getOptions</code>.
@@ -93,43 +131,41 @@ public class ToolFactory {
 	 * @since 3.0
 	 */
 	public static CodeFormatter createCodeFormatter(Map options){
-		if (options == null) options = JavaCore.getOptions();
-		return new DefaultCodeFormatter(options);
+		return createCodeFormatter(options, M_FORMAT_NEW);
 	}
 
 	/**
-	 * Create an instance of the built-in code formatter. A code formatter implementation can be contributed via the 
-	 * extension point "org.eclipse.jdt.core.codeFormatter". If unable to find a registered extension, the factory will 
-	 * default to using the default code formatter.
+	 * Create an instance of the built-in code formatter.
+	 * <p>The given options should at least provide the source level ({@link JavaCore#COMPILER_SOURCE}),
+	 * the  compiler compliance level ({@link JavaCore#COMPILER_COMPLIANCE}) and the target platform
+	 * ({@link JavaCore#COMPILER_CODEGEN_TARGET_PLATFORM}).
+	 * Without these options, it is not possible for the code formatter to know what kind of source it needs to format.
+	 * </p>
+	 * <p>The given mode determines what options should be enabled when formatting the code. It can have the following
+	 * values: {@link #M_FORMAT_NEW}, {@link #M_FORMAT_EXISTING}, but other values may be added in the future.
+	 * </p>
 	 * 
-	 * @param options - the options map to use for formatting with the default code formatter. Recognized options
+	 * @param options the options map to use for formatting with the default code formatter. Recognized options
 	 * 	are documented on <code>JavaCore#getDefaultOptions()</code>. If set to <code>null</code>, then use 
 	 * 	the current settings from <code>JavaCore#getOptions</code>.
+	 * @param mode the given mode to modify the given options.
+	 *
 	 * @return an instance of the built-in code formatter
-	 * @see ICodeFormatter
-	 * @see ToolFactory#createCodeFormatter()
+	 * @see CodeFormatter
 	 * @see JavaCore#getOptions()
-	 * @deprecated - use #createCodeFormatter(Map) instead
+	 * @since 3.3
 	 */
-	public static ICodeFormatter createDefaultCodeFormatter(Map options){
+	public static CodeFormatter createCodeFormatter(Map options, int mode) {
 		if (options == null) options = JavaCore.getOptions();
-		return new org.eclipse.jdt.internal.formatter.old.CodeFormatter(options);
-	}
-	
-	/**
-	 * Create a classfile bytecode disassembler, able to produce a String representation of a given classfile.
-	 * 
-	 * @return a classfile bytecode disassembler
-	 * @see org.eclipse.jdt.core.util.IClassFileDisassembler
-	 * @deprecated - should use factory method creating ClassFileBytesDisassembler instead 
-	 */
-	public static org.eclipse.jdt.core.util.IClassFileDisassembler createDefaultClassFileDisassembler(){
-		class DeprecatedDisassembler extends Disassembler implements org.eclipse.jdt.core.util.IClassFileDisassembler {
-			// for backward compatibility, defines a disassembler which implements IClassFileDisassembler
+		Map currentOptions = new HashMap(options);
+		if (mode == M_FORMAT_NEW) {
+			// disable the option for not indenting comments starting on first column
+			currentOptions.put(DefaultCodeFormatterConstants.FORMATTER_NEVER_INDENT_BLOCK_COMMENTS_ON_FIRST_COLUMN, DefaultCodeFormatterConstants.FALSE);
+			currentOptions.put(DefaultCodeFormatterConstants.FORMATTER_NEVER_INDENT_LINE_COMMENTS_ON_FIRST_COLUMN, DefaultCodeFormatterConstants.FALSE);
 		}
-		return new DeprecatedDisassembler();
+		return new DefaultCodeFormatter(currentOptions);
 	}
-	
+
 	/**
 	 * Create a classfile bytecode disassembler, able to produce a String representation of a given classfile.
 	 * 
@@ -140,30 +176,20 @@ public class ToolFactory {
 	public static ClassFileBytesDisassembler createDefaultClassFileBytesDisassembler(){
 		return new Disassembler();
 	}
-
+	
 	/**
-	 * Create a default classfile reader, able to expose the internal representation of a given classfile
-	 * according to the decoding flag used to initialize the reader.
-	 * Answer null if the file named fileName doesn't represent a valid .class file.
-	 * The fileName has to be an absolute OS path to the given .class file.
+	 * Create a classfile bytecode disassembler, able to produce a String representation of a given classfile.
 	 * 
-	 * The decoding flags are described in IClassFileReader.
-	 * 
-	 * @param fileName the name of the file to be read
-	 * @param decodingFlag the flag used to decode the class file reader.
-	 * @return a default classfile reader
-	 * 
-	 * @see IClassFileReader
+	 * @return a classfile bytecode disassembler
+	 * @see org.eclipse.jdt.core.util.IClassFileDisassembler
+	 * @deprecated Use {@link #createDefaultClassFileBytesDisassembler()} instead 
 	 */
-	public static IClassFileReader createDefaultClassFileReader(String fileName, int decodingFlag){
-		try {
-			return new ClassFileReader(Util.getFileByteContent(new File(fileName)), decodingFlag);
-		} catch(ClassFormatException e) {
-			return null;
-		} catch(IOException e) {
-			return null;
+	public static org.eclipse.jdt.core.util.IClassFileDisassembler createDefaultClassFileDisassembler(){
+		class DeprecatedDisassembler extends Disassembler implements org.eclipse.jdt.core.util.IClassFileDisassembler {
+			// for backward compatibility, defines a disassembler which implements IClassFileDisassembler
 		}
-	}	
+		return new DeprecatedDisassembler();
+	}
 	
 	/**
 	 * Create a classfile reader onto a classfile Java element.
@@ -198,15 +224,72 @@ public class ToolFactory {
 					String entryName = org.eclipse.jdt.internal.core.util.Util.concatWith(packageFragment.names, classFileName, '/');
 					return createDefaultClassFileReader(archiveName, entryName, decodingFlag);
 				} else {
-					IPath location = classfile.getResource().getLocation();
-					if (location == null) return null;
-					return createDefaultClassFileReader(location.toOSString(), decodingFlag);
+					InputStream in = null;
+					try {
+						in = ((IFile) classfile.getResource()).getContents();
+						return createDefaultClassFileReader(in, decodingFlag);
+					} finally {
+						if (in != null)
+							try {
+								in.close();
+							} catch (IOException e) {
+								// ignore
+							}
+					}
 				}
 			} catch(CoreException e){
 				// unable to read
 			}
 		}
 		return null;
+	}
+
+	/**
+	 * Create a default classfile reader, able to expose the internal representation of a given classfile
+	 * according to the decoding flag used to initialize the reader.
+	 * Answer null if the input stream contents cannot be retrieved
+	 * 
+	 * The decoding flags are described in IClassFileReader.
+	 * 
+	 * @param stream the given input stream to read
+	 * @param decodingFlag the flag used to decode the class file reader.
+	 * @return a default classfile reader
+	 * 
+	 * @see IClassFileReader
+	 * @since 3.2
+	 */
+	public static IClassFileReader createDefaultClassFileReader(InputStream stream, int decodingFlag) {
+		try {
+			return new ClassFileReader(Util.getInputStreamAsByteArray(stream, -1), decodingFlag);
+		} catch(ClassFormatException e) {
+			return null;
+		} catch(IOException e) {
+			return null;
+		}
+	}
+	
+	/**
+	 * Create a default classfile reader, able to expose the internal representation of a given classfile
+	 * according to the decoding flag used to initialize the reader.
+	 * Answer null if the file named fileName doesn't represent a valid .class file.
+	 * The fileName has to be an absolute OS path to the given .class file.
+	 * 
+	 * The decoding flags are described in IClassFileReader.
+	 * 
+	 * @param fileName the name of the file to be read
+	 * @param decodingFlag the flag used to decode the class file reader.
+	 * @return a default classfile reader
+	 * 
+	 * @see IClassFileReader
+	 */
+	public static IClassFileReader createDefaultClassFileReader(String fileName, int decodingFlag){
+		try {
+			return new ClassFileReader(Util.getFileByteContent(new File(fileName)), decodingFlag);
+		} catch(ClassFormatException e) {
+			return null;
+		} catch(IOException e) {
+			return null;
+		}
 	}
 
 	/**
@@ -253,7 +336,26 @@ public class ToolFactory {
 				}
 			}
 		}
-	}	
+	}
+	
+	/**
+	 * Create an instance of the built-in code formatter. A code formatter implementation can be contributed via the 
+	 * extension point "org.eclipse.jdt.core.codeFormatter". If unable to find a registered extension, the factory will 
+	 * default to using the default code formatter.
+	 * 
+	 * @param options - the options map to use for formatting with the default code formatter. Recognized options
+	 * 	are documented on <code>JavaCore#getDefaultOptions()</code>. If set to <code>null</code>, then use 
+	 * 	the current settings from <code>JavaCore#getOptions</code>.
+	 * @return an instance of the built-in code formatter
+	 * @see ICodeFormatter
+	 * @see ToolFactory#createCodeFormatter()
+	 * @see JavaCore#getOptions()
+	 * @deprecated Use {@link #createCodeFormatter(Map)} instead
+	 */
+	public static ICodeFormatter createDefaultCodeFormatter(Map options){
+		if (options == null) options = JavaCore.getOptions();
+		return new org.eclipse.jdt.internal.formatter.old.CodeFormatter(options);
+	}
 	
 	/**
 	 * Create a scanner, indicating the level of detail requested for tokenizing. The scanner can then be

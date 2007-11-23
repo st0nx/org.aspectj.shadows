@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2005 IBM Corporation and others.
+ * Copyright (c) 2005, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -27,7 +27,6 @@ import org.eclipse.jdt.internal.compiler.ast.SingleNameReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Wildcard;
 import org.eclipse.jdt.internal.compiler.lookup.ArrayBinding;
-import org.eclipse.jdt.internal.compiler.lookup.BaseTypes;
 import org.eclipse.jdt.internal.compiler.lookup.BinaryTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
@@ -38,7 +37,6 @@ import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
 import org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
-import org.eclipse.jdt.internal.compiler.lookup.ParameterizedGenericMethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.RawTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
@@ -57,6 +55,7 @@ public class BindingKeyResolver extends BindingKeyParser {
 	ReferenceBinding genericType;
 	MethodBinding methodBinding;
 	
+	char[] secondarySimpleName;
 	CompilationUnitDeclaration parsedUnit;
 	BlockScope scope;
 	TypeBinding typeBinding;
@@ -188,8 +187,12 @@ public class BindingKeyResolver extends BindingKeyParser {
 		this.typeBinding = captureFinder.capture;
 	}
 	
+	public void consumeException() {
+		this.types = new ArrayList();
+	}
+
 	public void consumeField(char[] fieldName) {
-		FieldBinding[] fields = ((ReferenceBinding) this.typeBinding).fields();
+		FieldBinding[] fields = ((ReferenceBinding) this.typeBinding).availableFields(); // resilience
 	 	for (int i = 0, length = fields.length; i < length; i++) {
 			FieldBinding field = fields[i];
 			if (CharOperation.equals(fieldName, field.name)) {
@@ -205,9 +208,9 @@ public class BindingKeyResolver extends BindingKeyParser {
 			return;
 		TypeBinding[] arguments = getTypeBindingArguments();
 		if (arguments.length != this.methodBinding.typeVariables().length)
-			this.methodBinding = new ParameterizedGenericMethodBinding(this.methodBinding, (RawTypeBinding) null, this.environment);
+			this.methodBinding = this.environment.createParameterizedGenericMethod(this.methodBinding, (RawTypeBinding) null);
 		else
-	 		this.methodBinding = new ParameterizedGenericMethodBinding(this.methodBinding, arguments, this.environment);
+	 		this.methodBinding = this.environment.createParameterizedGenericMethod(this.methodBinding, arguments);
 		this.compilerBinding = this.methodBinding;
 	}
 	
@@ -235,7 +238,7 @@ public class BindingKeyResolver extends BindingKeyParser {
 	}
 
 	public void consumeMethod(char[] selector, char[] signature) {
-		MethodBinding[] methods = ((ReferenceBinding) this.typeBinding).methods();
+		MethodBinding[] methods = ((ReferenceBinding) this.typeBinding).availableMethods(); // resilience
 	 	for (int i = 0, methodLength = methods.length; i < methodLength; i++) {
 			MethodBinding method = methods[i];
 			if (CharOperation.equals(selector, method.selector) || (selector.length == 0 && method.isConstructor())) {
@@ -264,8 +267,13 @@ public class BindingKeyResolver extends BindingKeyParser {
 	public void consumeParameterizedType(char[] simpleTypeName, boolean isRaw) {
 		TypeBinding[] arguments = getTypeBindingArguments();
 		if (simpleTypeName != null) {
-			// parameterized member type with parameterized enclosing type
-			this.genericType = this.genericType.getMemberType(simpleTypeName);
+			if (this.genericType == null) {
+				// parameterized member type with raw enclosing type
+				this.genericType = ((ReferenceBinding) this.typeBinding).getMemberType(simpleTypeName);
+			} else {
+				// parameterized member type with parameterized enclosing type
+				this.genericType = this.genericType.getMemberType(simpleTypeName);
+			}
 			if (!isRaw)
 				this.typeBinding = this.environment.createParameterizedType(this.genericType, arguments, (ReferenceBinding) this.typeBinding);
 			else
@@ -298,12 +306,10 @@ public class BindingKeyResolver extends BindingKeyParser {
 	
 	public void consumeRawType() {
 		if (this.typeBinding == null) return;
-		this.typeBinding = this.environment.createRawType((ReferenceBinding) this.typeBinding, this.typeBinding.enclosingType());
+		this.typeBinding = this.environment.convertToRawType(this.typeBinding);
 	}
 	public void consumeSecondaryType(char[] simpleTypeName) {
-		if (this.parsedUnit == null) return;
-		this.typeDeclaration = null; // start from the parsed unit
-		this.typeBinding = getTypeBinding(simpleTypeName);
+		this.secondarySimpleName = simpleTypeName;
 	}
 	
 	public void consumeFullyQualifiedName(char[] fullyQualifiedName) {
@@ -318,7 +324,7 @@ public class BindingKeyResolver extends BindingKeyParser {
 		if (this.parsedUnit == null) {
 			this.typeBinding = getBinaryBinding();
 		} else {
-			char[] typeName = this.compoundName[this.compoundName.length-1];
+			char[] typeName = this.secondarySimpleName == null ? this.compoundName[this.compoundName.length-1] : this.secondarySimpleName;
 			this.typeBinding = getTypeBinding(typeName);
 		}
 	}
@@ -333,7 +339,7 @@ public class BindingKeyResolver extends BindingKeyParser {
 	public void consumeTypeVariable(char[] position, char[] typeVariableName) {
 		if (position.length > 0) {
 			int pos = Integer.parseInt(new String(position));
-			MethodBinding[] methods = ((ReferenceBinding) this.typeBinding).methods();
+			MethodBinding[] methods = ((ReferenceBinding) this.typeBinding).availableMethods(); // resilience
 			if (methods != null && pos < methods.length) {
 				this.methodBinding = methods[pos];
 			}
@@ -380,25 +386,25 @@ public class BindingKeyResolver extends BindingKeyParser {
 	private TypeBinding getBaseTypeBinding(char[] signature) {
 		switch (signature[0]) {
 			case 'I' :
-				return BaseTypes.IntBinding;
+				return TypeBinding.INT;
 			case 'Z' :
-				return BaseTypes.BooleanBinding;
+				return TypeBinding.BOOLEAN;
 			case 'V' :
-				return BaseTypes.VoidBinding;
+				return TypeBinding.VOID;
 			case 'C' :
-				return BaseTypes.CharBinding;
+				return TypeBinding.CHAR;
 			case 'D' :
-				return BaseTypes.DoubleBinding;
+				return TypeBinding.DOUBLE;
 			case 'B' :
-				return BaseTypes.ByteBinding;
+				return TypeBinding.BYTE;
 			case 'F' :
-				return BaseTypes.FloatBinding;
+				return TypeBinding.FLOAT;
 			case 'J' :
-				return BaseTypes.LongBinding;
+				return TypeBinding.LONG;
 			case 'S' :
-				return BaseTypes.ShortBinding;
+				return TypeBinding.SHORT;
 			case 'N':
-				return BaseTypes.NullBinding;
+				return TypeBinding.NULL;
 			default :
 				return null;
 		}
@@ -419,11 +425,21 @@ public class BindingKeyResolver extends BindingKeyParser {
 	 * This key's scanner should be positioned on the package token.
 	 */
 	public CompilationUnitDeclaration getCompilationUnitDeclaration() {
-		char[][] name = compoundName();
+		char[][] name = this.compoundName;
 		if (name.length == 0) return null;
 		if (this.environment == null) return null;
 		ReferenceBinding binding = this.environment.getType(name);
-		if (!(binding instanceof SourceTypeBinding)) return null;
+		if (!(binding instanceof SourceTypeBinding)) {
+			if (this.secondarySimpleName == null) 
+				return null;
+			// case of a secondary type with no primary type (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=177115)
+			int length = name.length;
+			System.arraycopy(name, 0, name = new char[length][], 0, length-1);
+			name[length-1] = this.secondarySimpleName;
+			binding = this.environment.getType(name);
+			if (!(binding instanceof SourceTypeBinding))
+				return null;
+		}
 		SourceTypeBinding sourceTypeBinding = (SourceTypeBinding) binding;
 		if (sourceTypeBinding.scope == null) 
 			return null;
@@ -436,8 +452,13 @@ public class BindingKeyResolver extends BindingKeyParser {
 	 * This key's scanner should be positioned on the package token.
 	 */
 	public Binding getCompilerBinding() {
-		parse();
-		return this.compilerBinding;
+		try {
+			parse();
+			return this.compilerBinding;
+		} catch (RuntimeException e) {
+			Util.log(e, "Could not create binding from binding key: " + getKey()); //$NON-NLS-1$
+			return null;
+		}
 	}
 	
 	private TypeBinding getTypeBinding(char[] simpleTypeName) {
@@ -465,7 +486,11 @@ public class BindingKeyResolver extends BindingKeyParser {
 		TypeBinding[] arguments = new TypeBinding[size];
 		for (int i = 0; i < size; i++) {
 			BindingKeyResolver resolver = (BindingKeyResolver) this.types.get(i);
-			arguments[i] = (TypeBinding) resolver.compilerBinding;
+			TypeBinding compilerBinding2 = (TypeBinding) resolver.compilerBinding;
+			if (compilerBinding2 == null) {
+				throw new IllegalArgumentException();
+			}
+			arguments[i] = compilerBinding2;
 		}
 		this.types = new ArrayList();
 		return arguments;

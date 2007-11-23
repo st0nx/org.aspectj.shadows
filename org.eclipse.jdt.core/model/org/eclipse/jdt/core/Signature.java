@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,14 +14,16 @@ package org.eclipse.jdt.core;
 import java.util.ArrayList;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.core.util.Util;
 
 
 /**
  * Provides methods for encoding and decoding type and method signature strings.
  * <p>
- * Signatures obtained from parsing source (".java") files differ subtly from
- * ones obtained from pre-compiled binary (".class") files in class names are
+ * Signatures obtained from parsing source files (i.e. files with one of the 
+ * {@link JavaCore#getJavaLikeExtensions() Java-like extensions}) differ subtly 
+ * from ones obtained from pre-compiled binary (".class") files in class names are
  * usually left unresolved in the former. For example, the normal resolved form
  * of the type "String" embeds the class's package name ("Ljava.lang.String;"
  * or "Ljava/lang/String;"), whereas the unresolved form contains only what is
@@ -30,10 +32,10 @@ import org.eclipse.jdt.internal.core.util.Util;
  * <p>
  * Generic types introduce to the Java language in J2SE 1.5 add three new
  * facets to signatures: type variables, parameterized types with type arguments,
- * and formal type parameters. <it>Rich</it> signatures containing these facets
+ * and formal type parameters. <i>Rich</i> signatures containing these facets
  * only occur when dealing with code that makes overt use of the new language
  * features. All other code, and certainly all Java code written or compiled
- * with J2SE 1.4 or earlier, involved only <it>simple</it> signatures.
+ * with J2SE 1.4 or earlier, involved only <i>simple</i> signatures.
  * </p>
  * <p>
  * Note that the "Q" and "!" formats are specific to Eclipse; the remainder
@@ -61,10 +63,14 @@ import org.eclipse.jdt.internal.core.util.Util;
  * ResolvedClassTypeSignature ::= // resolved named type (in compiled code)
  *     "L" + Identifier + OptionalTypeArguments
  *           ( ( "." | "/" ) + Identifier + OptionalTypeArguments )* + ";"
+ *     | OptionalTypeParameters + "L" + Identifier +
+ *           ( ( "." | "/" ) + Identifier )* + ";"
  * 
  * UnresolvedClassTypeSignature ::= // unresolved named type (in source code)
  *     "Q" + Identifier + OptionalTypeArguments
  *           ( ( "." | "/" ) + Identifier + OptionalTypeArguments )* + ";"
+ *     | OptionalTypeParameters "Q" + Identifier +
+ *           ( ( "." | "/" ) + Identifier )* + ";"
  * 
  * OptionalTypeArguments ::=
  *     "&lt;" + TypeArgument+ + "&gt;" 
@@ -75,6 +81,10 @@ import org.eclipse.jdt.internal.core.util.Util;
  *   | "*" // wildcard ?
  *   | "+" TypeSignature // wildcard ? extends X
  *   | "-" TypeSignature // wildcard ? super X
+ *   
+ * OptionalTypeParameters ::=
+ *     "&lt;" + FormalTypeParameterSignature+ + "&gt;" 
+ *   |
  * </pre>
  * </p>
  * <p>
@@ -85,14 +95,15 @@ import org.eclipse.jdt.internal.core.util.Util;
  *   <li><code>"QString;"</code> denotes <code>String</code> in source code</li>
  *   <li><code>"Qjava.lang.String;"</code> denotes <code>java.lang.String</code> in source code</li>
  *   <li><code>"[QString;"</code> denotes <code>String[]</code> in source code</li>
- *   <li><code>"QMap&lt;QString;&ast;&gt;;"</code> denotes <code>Map&lt;String,?&gt;</code> in source code</li>
+ *   <li><code>"QMap&lt;QString;*&gt;;"</code> denotes <code>Map&lt;String,?&gt;</code> in source code</li>
  *   <li><code>"Qjava.util.List&ltTV;&gt;;"</code> denotes <code>java.util.List&lt;V&gt;</code> in source code</li>
+ *   <li><code>"&ltE;&gt;Ljava.util.List;"</code> denotes <code>&lt;E&gt;java.util.List</code> in source code</li>
  * </ul>
  * </p>
  * <p>
  * The syntax for a method signature is: 
  * <pre>
- * MethodSignature ::= "(" + ParamTypeSignature* + ")" + ReturnTypeSignature
+ * MethodSignature ::= OptionalTypeParameters + "(" + ParamTypeSignature* + ")" + ReturnTypeSignature
  * ParamTypeSignature ::= TypeSignature
  * ReturnTypeSignature ::= TypeSignature
  * </pre>
@@ -208,7 +219,7 @@ public final class Signature {
 	/**
 	 * Character constant indicating an unbound wildcard type argument 
 	 * in a signature.
-	 * Value is <code>'&ast;'</code>.
+	 * Value is <code>'*'</code>.
 	 * @since 3.0
 	 */
 	public static final char C_STAR	= '*';
@@ -300,7 +311,7 @@ public final class Signature {
 
 	/**
 	 * Character constant indicating a capture of a wildcard type in a 
-	 * signature.Value is <code>'!'</code>.
+	 * signature. Value is <code>'!'</code>.
 	 * @since 3.1
 	 */
 	public static final char C_CAPTURE	= '!';
@@ -413,8 +424,6 @@ public final class Signature {
 	private static final char[] EXTENDS = "extends".toCharArray(); //$NON-NLS-1$
 	private static final char[] SUPER = "super".toCharArray(); //$NON-NLS-1$
 	private static final char[] CAPTURE = "capture-of".toCharArray(); //$NON-NLS-1$
-	
-	private static final String EMPTY = new String(CharOperation.NO_CHAR);
 		
 private Signature() {
 	// Not instantiable
@@ -434,7 +443,7 @@ private static int checkName(char[] name, char[] typeName, int pos, int length) 
             case ',' :
                 return pos;
 			default:
-			    if (Character.isWhitespace(currentChar))
+			    if (ScannerHelper.isWhitespace(currentChar))
 			    	return pos;
 			    
         }
@@ -652,7 +661,7 @@ private static int encodeQualifiedName(char[] typeName, int pos, int length, Str
 			    count++;
 			    break;
 			default:
-			    if (currentChar == ' ' || Character.isWhitespace(currentChar)) {
+			    if (currentChar == ' ' || ScannerHelper.isWhitespace(currentChar)) {
 			        if (lastAppendedChar == C_DOT) { // allow spaces after a dot
 			            pos = consumeWhitespace(typeName, pos, length) - 1; // will be incremented
 			            break; 
@@ -1409,7 +1418,7 @@ public static char[][] getTypeParameters(char[] methodOrTypeSignature) throws Il
 			if (i < 0 || i >= length) 
 				throw new IllegalArgumentException();
 			// iterate over bounds
-			nextBound: while (methodOrTypeSignature[i] == ':') {
+			while (methodOrTypeSignature[i] == ':') {
 				i++; // skip colon
 				switch (methodOrTypeSignature[i]) {
 					case ':':
@@ -1597,9 +1606,9 @@ public static char[] getQualifier(char[] name) {
  * For example:
  * <pre>
  * <code>
- * getQualifier("java.lang.Object") -> "java.lang"
- * getQualifier("Outer.Inner") -> "Outer"
- * getQualifier("java.util.List<java.lang.String>") -> "java.util"
+ * getQualifier("java.lang.Object") -&gt; "java.lang"
+ * getQualifier("Outer.Inner") -&gt; "Outer"
+ * getQualifier("java.util.List&lt;java.lang.String&gt;") -&gt; "java.util"
  * </code>
  * </pre>
  * </p>
@@ -1611,7 +1620,7 @@ public static char[] getQualifier(char[] name) {
  */
 public static String getQualifier(String name) {
 	char[] qualifier = getQualifier(name.toCharArray());
-	if (qualifier.length == 0) return EMPTY;
+	if (qualifier.length == 0) return org.eclipse.jdt.internal.compiler.util.Util.EMPTY_STRING;
 	return new String(qualifier);
 }
 /**
@@ -1840,10 +1849,10 @@ public static char[] getSimpleName(char[] name) {
  * For example:
  * <pre>
  * <code>
- * getSimpleName("java.lang.Object") -> "Object"
+ * getSimpleName("java.lang.Object") -&gt; "Object"
  * </code>
  * <code>
- * getSimpleName("java.util.Map<java.lang.String, java.lang.Object>") -> "Map<String,Object>"
+ * getSimpleName("java.util.Map&lt;java.lang.String, java.lang.Object&gt;") -&gt; "Map&lt;String,Object&gt;"
  * </code>
  * </pre>
  * </p>
@@ -1918,6 +1927,10 @@ private static void appendSimpleName(char[] name, int start, int end, StringBuff
 			case '.':
 				if (depth == 0) {
 					lastDot = i;
+					char c = name[start];
+					if (c == C_EXTENDS || c == C_SUPER) {
+						buffer.append(c);
+					}
 					break lastDotLookup;
 				}
 				break;
@@ -2034,10 +2047,11 @@ public static char[][] getSimpleNames(char[] name) {
  * For example:
  * <pre>
  * <code>
- * getSimpleNames("java.lang.Object") -> {"java", "lang", "Object"}
- * getSimpleNames("Object") -> {"Object"}
- * getSimpleNames("") -> {}
- * getSimpleNames("java.util.List<java.lang.String>") -> {"java", "lang", "List<java.lang.String"}
+ * getSimpleNames("java.lang.Object") -&gt; {"java", "lang", "Object"}
+ * getSimpleNames("Object") -&gt; {"Object"}
+ * getSimpleNames("") -&gt; {}
+ * getSimpleNames("java.util.List&lt;java.lang.String&gt;") -&gt; 
+ *   {"java", "util", "List&lt;java.lang.String&gt;"}
  * </code>
  * </pre>
  *
@@ -2058,8 +2072,8 @@ public static String[] getSimpleNames(String name) {
  * For example (using equivalent string-based method):
  * <pre>
  * <code>
- * removeCapture("LTest<!+Ljava.lang.Throwable;>;")
- * will return: "LTest<+Ljava.lang.Throwable;>;"
+ * removeCapture("LTest&lt;!+Ljava.lang.Throwable;&gt;;")
+ * will return: "LTest&lt;+Ljava.lang.Throwable;&gt;;"
  * </code>
  * </pre>
  * </p>
@@ -2072,25 +2086,7 @@ public static String[] getSimpleNames(String name) {
  * @since 3.1
  */
 public static char[] removeCapture(char[] methodOrTypeSignature) {
-		
-// TODO (frederic) Create remove(char[], char) method on CharOperation and call it from here
-	char[] result = null;
-	int count = 0;
-	for (int i = 0, length = methodOrTypeSignature.length; i < length; i++) {
-		char c = methodOrTypeSignature[i];
-		if (c == C_CAPTURE) {
-			if (result == null) {
-				result = new char[length];
-				System.arraycopy(methodOrTypeSignature, 0, result, 0, i);
-				count = i;
-			}
-		} else if (result != null) {
-			result[count++] = c;
-		}
-	}
-	if (result == null) return methodOrTypeSignature;
-	System.arraycopy(result, 0, result = new char[count], 0, count);
-	return result;
+	return CharOperation.remove(methodOrTypeSignature, C_CAPTURE);
 }
 	
 /**
@@ -2102,8 +2098,8 @@ public static char[] removeCapture(char[] methodOrTypeSignature) {
  * For example:
  * <pre>
  * <code>
- * removeCapture("LTest<!+Ljava.lang.Throwable;>;")
- * will return: "LTest<+Ljava.lang.Throwable;>;"
+ * removeCapture("LTest&lt;!+Ljava.lang.Throwable;&gt;;")
+ * will return: "LTest&lt;+Ljava.lang.Throwable;&gt;;"
  * </code>
  * </pre>
  * </p>
@@ -2411,7 +2407,7 @@ private static int appendCaptureTypeSignature(char[] string, int start, boolean 
 		throw new IllegalArgumentException();
 	}
 	char c = string[start];
-	if (c != C_CAPTURE) { //$NON-NLS-1$
+	if (c != C_CAPTURE) {
 		throw new IllegalArgumentException();
 	}
 	buffer.append(CAPTURE).append(' ');
@@ -2440,7 +2436,7 @@ private static int appendArrayTypeSignature(char[] string, int start, boolean fu
 		throw new IllegalArgumentException();
 	}
 	char c = string[start];
-	if (c != C_ARRAY) { //$NON-NLS-1$
+	if (c != C_ARRAY) {
 		throw new IllegalArgumentException();
 	}
 	
@@ -2499,6 +2495,8 @@ private static int appendClassTypeSignature(char[] string, int start, boolean fu
 	}
 	int p = start + 1;
 	int checkpoint = buffer.length();
+	int innerTypeStart = -1;
+	boolean inAnonymousType = false;
 	while (true) {
 		if (p >= string.length) {
 			throw new IllegalArgumentException();
@@ -2531,6 +2529,8 @@ private static int appendClassTypeSignature(char[] string, int start, boolean fu
 				}
 				break;
 			 case C_DOLLAR :
+			 	innerTypeStart = buffer.length();
+			 	inAnonymousType = false;
 			 	if (resolved) {
 					// once we hit "$" there are no more package prefixes
 					removePackageQualifiers = false;
@@ -2544,7 +2544,15 @@ private static int appendClassTypeSignature(char[] string, int start, boolean fu
 			 	}
 			 	break;
 			 default :
-				buffer.append(c);
+				if (innerTypeStart != -1 && !inAnonymousType && Character.isDigit(c)) {
+					inAnonymousType = true;
+					buffer.setLength(innerTypeStart); // remove '.'
+					buffer.insert(checkpoint, "new "); //$NON-NLS-1$
+					buffer.append("(){}"); //$NON-NLS-1$
+				}
+			 	if (!inAnonymousType)
+					buffer.append(c);
+				innerTypeStart = -1;
 		}
 		p++;
 	}

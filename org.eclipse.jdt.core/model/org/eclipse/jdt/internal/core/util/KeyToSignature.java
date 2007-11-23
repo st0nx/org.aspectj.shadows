@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2005 IBM Corporation and others.
+ * Copyright (c) 2005, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -25,11 +25,13 @@ public class KeyToSignature extends BindingKeyParser {
 	public static final int SIGNATURE = 0;
 	public static final int TYPE_ARGUMENTS = 1;
 	public static final int DECLARING_TYPE = 2;
+	public static final int THROWN_EXCEPTIONS = 3;
 	
 	public StringBuffer signature = new StringBuffer();
 	private int kind;
 	private ArrayList arguments = new ArrayList();
 	private ArrayList typeParameters = new ArrayList();
+	private ArrayList thrownExceptions = new ArrayList();
 	private int mainTypeStart = -1;
 	private int mainTypeEnd;
 	private int typeSigStart = -1;
@@ -68,10 +70,21 @@ public class KeyToSignature extends BindingKeyParser {
 	
 	public void consumeMethod(char[] selector, char[] methodSignature) {
 		this.arguments = new ArrayList();
-		if (this.kind == SIGNATURE) {
-			this.signature = new StringBuffer();
-			CharOperation.replace(methodSignature, '/', '.');
-			this.signature.append(methodSignature);
+		CharOperation.replace(methodSignature, '/', '.');
+		switch(this.kind) {
+			case SIGNATURE:
+				this.signature = new StringBuffer();
+				this.signature.append(methodSignature);
+				break;
+			case THROWN_EXCEPTIONS:
+				if (CharOperation.indexOf('^', methodSignature) > 0) {
+					char[][] types = Signature.getThrownExceptionTypes(methodSignature);
+					int length = types.length;
+					for (int i=0; i<length; i++) {
+						this.thrownExceptions.add(new String(types[i]));
+					}
+				}
+				break;
 		}
 	}
 	
@@ -198,6 +211,16 @@ public class KeyToSignature extends BindingKeyParser {
 		}
 	}
 	
+	public void consumeException() {
+		int size = this.arguments.size();
+		if (size > 0) {
+			for (int i=0; i<size; i++) {
+				this.thrownExceptions.add(((KeyToSignature) this.arguments.get(i)).signature.toString());
+			}
+			this.arguments = new ArrayList();
+		}
+	}
+	
 	public void consumeFullyQualifiedName(char[] fullyQualifiedName) {
 		this.typeSigStart = this.signature.length();
 		this.signature.append('L');
@@ -252,6 +275,7 @@ public class KeyToSignature extends BindingKeyParser {
 		KeyToSignature keyToSignature = (KeyToSignature) this.arguments.get(0);
 		this.signature = keyToSignature.signature;
 		this.arguments = keyToSignature.arguments;
+		this.thrownExceptions = keyToSignature.thrownExceptions;
 	}
 	
 	public void consumeWildCard(int wildCardKind) {
@@ -273,6 +297,15 @@ public class KeyToSignature extends BindingKeyParser {
 				// malformed
 				return;
 		}
+	}
+	
+	public String[] getThrownExceptions() {
+		int length = this.thrownExceptions.size();
+		String[] result = new String[length];
+		for (int i = 0; i < length; i++) {
+			result[i] = (String) this.thrownExceptions.get(i);
+		}
+		return result;
 	}
 	
 	public String[] getTypeArguments() {

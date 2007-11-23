@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,23 +10,20 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.util.HashMap;
 import java.util.Map;
 
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
-import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.internal.compiler.*;
-import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.Compiler;
-import org.eclipse.jdt.internal.compiler.ICompilerRequestor;
-import org.eclipse.jdt.internal.compiler.IErrorHandlingPolicy;
-import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
@@ -59,7 +56,7 @@ public class CompilationUnitProblemFinder extends Compiler {
 	 *      in UI when compiling interactively.
 	 *      @see org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies
 	 * 
-	 *	@param settings The settings to use for the resolution.
+	 *	@param compilerOptions The compiler options to use for the resolution.
 	 *      
 	 *  @param requestor org.eclipse.jdt.internal.compiler.api.ICompilerRequestor
 	 *      Component which will receive and persist all compilation results and is intended
@@ -77,11 +74,16 @@ public class CompilationUnitProblemFinder extends Compiler {
 	protected CompilationUnitProblemFinder(
 		INameEnvironment environment,
 		IErrorHandlingPolicy policy,
-		Map settings,
+		CompilerOptions compilerOptions,
 		ICompilerRequestor requestor,
 		IProblemFactory problemFactory) {
 
-		super(environment, policy, settings, requestor, problemFactory, true);
+		super(environment,
+			policy,
+			compilerOptions,
+			requestor,
+			problemFactory
+		);
 	}
 
 	/**
@@ -111,6 +113,15 @@ public class CompilationUnitProblemFinder extends Compiler {
 		}
 	}
 
+	protected static CompilerOptions getCompilerOptions(Map settings, boolean creatingAST, boolean statementsRecovery) {
+		CompilerOptions compilerOptions = new CompilerOptions(settings);
+		compilerOptions.performMethodsFullRecovery = statementsRecovery;
+		compilerOptions.performStatementsRecovery = statementsRecovery;
+		compilerOptions.parseLiteralExpressionsAsConstants = !creatingAST; /*parse literal expressions as constants only if not creating a DOM AST*/
+		compilerOptions.storeAnnotations = creatingAST; /*store annotations in the bindings if creating a DOM AST*/
+		return compilerOptions;
+	}
+	
 	/*
 	 *  Low-level API performing the actual compilation
 	 */
@@ -135,8 +146,9 @@ public class CompilationUnitProblemFinder extends Compiler {
 		char[] contents,
 		Parser parser,
 		WorkingCopyOwner workingCopyOwner,
-		IProblemRequestor problemRequestor,
-		boolean resetEnvironment,
+		HashMap problems,
+		boolean creatingAST,
+		int reconcileFlags,
 		IProgressMonitor monitor)
 		throws JavaModelException {
 
@@ -150,7 +162,7 @@ public class CompilationUnitProblemFinder extends Compiler {
 			problemFinder = new CompilationUnitProblemFinder(
 				environment,
 				getHandlingPolicy(),
-				project.getOptions(true),
+				getCompilerOptions(project.getOptions(true), creatingAST, ((reconcileFlags & ICompilationUnit.ENABLE_STATEMENTS_RECOVERY) != 0)),
 				getRequestor(),
 				problemFactory);
 			if (parser != null) {
@@ -179,7 +191,21 @@ public class CompilationUnitProblemFinder extends Compiler {
 					true, // analyze code
 					true); // generate code
 			}
-			reportProblems(unit, problemRequestor, monitor);
+			CompilationResult unitResult = unit.compilationResult;
+			CategorizedProblem[] unitProblems = unitResult.getProblems();
+			int length = unitProblems == null ? 0 : unitProblems.length;
+			if (length > 0) {
+				CategorizedProblem[] categorizedProblems = new CategorizedProblem[length];
+				System.arraycopy(unitProblems, 0, categorizedProblems, 0, length);
+				problems.put(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER, categorizedProblems);
+			}
+			unitProblems = unitResult.getTasks();
+			length = unitProblems == null ? 0 : unitProblems.length;
+			if (length > 0) {
+				CategorizedProblem[] categorizedProblems = new CategorizedProblem[length];
+				System.arraycopy(unitProblems, 0, categorizedProblems, 0, length);
+				problems.put(IJavaModelMarker.TASK_MARKER, categorizedProblems);
+			}
 			if (NameLookup.VERBOSE) {
 				System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
 				System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
@@ -189,7 +215,15 @@ public class CompilationUnitProblemFinder extends Compiler {
 			throw e;
 		} catch(RuntimeException e) { 
 			// avoid breaking other tools due to internal compiler failure (40334)
-			Util.log(e, "Exception occurred during problem detection: "); //$NON-NLS-1$ 
+			String lineDelimiter = unitElement.findRecommendedLineSeparator();
+			StringBuffer message = new StringBuffer("Exception occurred during problem detection:");  //$NON-NLS-1$ 
+			message.append(lineDelimiter);
+			message.append("----------------------------------- SOURCE BEGIN -------------------------------------"); //$NON-NLS-1$
+			message.append(lineDelimiter);
+			message.append(contents);
+			message.append(lineDelimiter);
+			message.append("----------------------------------- SOURCE END -------------------------------------"); //$NON-NLS-1$
+			Util.log(e, message.toString());
 			throw new JavaModelException(e, IJavaModelStatusConstants.COMPILER_FAILURE);
 		} finally {
 			if (environment != null)
@@ -197,8 +231,8 @@ public class CompilationUnitProblemFinder extends Compiler {
 			if (problemFactory != null)
 				problemFactory.monitor = null; // don't hold a reference to this external object
 			// NB: unit.cleanUp() is done by caller
-			if (problemFinder != null && resetEnvironment)
-				problemFinder.lookupEnvironment.reset();			
+			if (problemFinder != null && !creatingAST)
+				problemFinder.lookupEnvironment.reset();		
 		}
 	}
 
@@ -206,25 +240,13 @@ public class CompilationUnitProblemFinder extends Compiler {
 		ICompilationUnit unitElement, 
 		char[] contents,
 		WorkingCopyOwner workingCopyOwner,
-		IProblemRequestor problemRequestor,
-		boolean resetEnvironment,
+		HashMap problems,
+		boolean creatingAST,
+		int reconcileFlags,
 		IProgressMonitor monitor)
 		throws JavaModelException {
 			
-		return process(null/*no CompilationUnitDeclaration*/, unitElement, contents, null/*use default Parser*/, workingCopyOwner, problemRequestor, resetEnvironment, monitor);
-	}
-
-	
-	private static void reportProblems(CompilationUnitDeclaration unit, IProblemRequestor problemRequestor, IProgressMonitor monitor) {
-		CompilationResult unitResult = unit.compilationResult;
-		IProblem[] problems = unitResult.getAllProblems();
-		for (int i = 0, problemLength = problems == null ? 0 : problems.length; i < problemLength; i++) {
-			if (JavaModelManager.VERBOSE){
-				System.out.println("PROBLEM FOUND while reconciling : "+problems[i].getMessage());//$NON-NLS-1$
-			}
-			if (monitor != null && monitor.isCanceled()) break;
-			problemRequestor.acceptProblem(problems[i]);				
-		}
+		return process(null/*no CompilationUnitDeclaration*/, unitElement, contents, null/*use default Parser*/, workingCopyOwner, problems, creatingAST, reconcileFlags, monitor);
 	}
 
 	/* (non-Javadoc)

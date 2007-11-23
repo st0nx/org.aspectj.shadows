@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,12 +14,12 @@ import java.util.Map;
 
 import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.JavaConventions;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.codeassist.impl.AssistOptions;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 
 public class InternalNamingConventions {
@@ -36,7 +36,7 @@ public class InternalNamingConventions {
 				null/*taskPriorities*/,
 				true/*taskCaseSensitive*/);
 	}
-	public static void suggestArgumentNames(IJavaProject javaProject, char[] packageName, char[] qualifiedTypeName, int dim, char[][] excludedNames, INamingRequestor requestor) {
+	public static void suggestArgumentNames(IJavaProject javaProject, char[] packageName, char[] qualifiedTypeName, int dim, char[] internalPrefix, char[][] excludedNames, INamingRequestor requestor) {
 		Map options = javaProject.getOptions(true);
 		CompilerOptions compilerOptions = new CompilerOptions(options);
 		AssistOptions assistOptions = new AssistOptions(options);
@@ -45,13 +45,14 @@ public class InternalNamingConventions {
 			packageName,
 			qualifiedTypeName,
 			dim,
+			internalPrefix,
 			assistOptions.argumentPrefixes,
 			assistOptions.argumentSuffixes,
 			excludedNames,
 			getNameScanner(compilerOptions),
 			requestor);
 	}
-	public static void suggestFieldNames(IJavaProject javaProject, char[] packageName, char[] qualifiedTypeName, int dim, int modifiers, char[][] excludedNames, INamingRequestor requestor) {
+	public static void suggestFieldNames(IJavaProject javaProject, char[] packageName, char[] qualifiedTypeName, int dim, int modifiers, char[] internalPrefix, char[][] excludedNames, INamingRequestor requestor) {
 		boolean isStatic = Flags.isStatic(modifiers);
 		
 		Map options = javaProject.getOptions(true);
@@ -62,13 +63,14 @@ public class InternalNamingConventions {
 			packageName,
 			qualifiedTypeName,
 			dim,
+			internalPrefix,
 			isStatic ? assistOptions.staticFieldPrefixes : assistOptions.fieldPrefixes,
 			isStatic ? assistOptions.staticFieldSuffixes : assistOptions.fieldSuffixes,
 			excludedNames,
 			getNameScanner(compilerOptions),
 			requestor);
 	}
-	public static void suggestLocalVariableNames(IJavaProject javaProject, char[] packageName, char[] qualifiedTypeName, int dim, char[][] excludedNames, INamingRequestor requestor) {
+	public static void suggestLocalVariableNames(IJavaProject javaProject, char[] packageName, char[] qualifiedTypeName, int dim, char[] internalPrefix, char[][] excludedNames, INamingRequestor requestor) {
 		Map options = javaProject.getOptions(true);
 		CompilerOptions compilerOptions = new CompilerOptions(options);
 		AssistOptions assistOptions = new AssistOptions(options);
@@ -77,6 +79,7 @@ public class InternalNamingConventions {
 			packageName,
 			qualifiedTypeName,
 			dim,
+			internalPrefix,
 			assistOptions.localPrefixes,
 			assistOptions.localSuffixes,
 			excludedNames,
@@ -88,6 +91,7 @@ public class InternalNamingConventions {
 		char[] packageName,
 		char[] qualifiedTypeName,
 		int dim,
+		char[] internalPrefix,
 		char[][] prefixes,
 		char[][] suffixes,
 		char[][] excludedNames,
@@ -96,6 +100,12 @@ public class InternalNamingConventions {
 		
 		if(qualifiedTypeName == null || qualifiedTypeName.length == 0)
 			return;
+		
+		if(internalPrefix == null) {
+			internalPrefix = CharOperation.NO_CHAR;
+		} else {
+			internalPrefix = removePrefix(internalPrefix, prefixes);
+		}
 		
 		char[] typeName = CharOperation.lastSegment(qualifiedTypeName, '.');
 	
@@ -128,7 +138,10 @@ public class InternalNamingConventions {
 				case TerminalTokens.TokenNamelong :
 				case TerminalTokens.TokenNamefloat :
 				case TerminalTokens.TokenNamedouble :
-				case TerminalTokens.TokenNameboolean :	
+				case TerminalTokens.TokenNameboolean :
+					
+					if (internalPrefix != null && internalPrefix.length > 0) return;
+					
 					char[] name = computeBaseTypeNames(typeName[0], excludedNames);
 					if(name != null) {
 						tempNames =  new char[][]{name};
@@ -146,7 +159,7 @@ public class InternalNamingConventions {
 	
 		boolean acceptDefaultName = true;
 		
-		for (int i = 0; i < tempNames.length; i++) {
+		next : for (int i = 0; i < tempNames.length; i++) {
 			char[] tempName = tempNames[i];
 			if(dim > 0) {
 				int length = tempName.length;
@@ -167,50 +180,72 @@ public class InternalNamingConventions {
 				}
 			}
 		
-			for (int j = 0; j < prefixes.length; j++) {
-				if(prefixes[j].length > 0
-					&& Character.isLetterOrDigit(prefixes[j][prefixes[j].length - 1])) {
-					tempName[0] = Character.toUpperCase(tempName[0]);
-				} else {
-					tempName[0] = Character.toLowerCase(tempName[0]);
-				}
-				char[] prefixName = CharOperation.concat(prefixes[j], tempName);
-				for (int k = 0; k < suffixes.length; k++) {
-					char[] suffixName = CharOperation.concat(prefixName, suffixes[k]);
-					suffixName =
-						excludeNames(
-							suffixName,
-							prefixName,
-							suffixes[k],
-							excludedNames);
-					if(JavaConventions.validateFieldName(new String(suffixName)).isOK()) {
-						acceptName(suffixName, prefixes[j], suffixes[k],  j == 0, k == 0, requestor);
-						acceptDefaultName = false;
-					} else {
-						suffixName = CharOperation.concat(
-							prefixName,
-							String.valueOf(1).toCharArray(),
-							suffixes[k]
-						);
-						suffixName =
-							excludeNames(
-								suffixName,
-								prefixName,
-								suffixes[k],
-								excludedNames);
-						if(JavaConventions.validateFieldName(new String(suffixName)).isOK()) {
-							acceptName(suffixName, prefixes[j], suffixes[k], j == 0, k == 0, requestor);
-							acceptDefaultName = false;
+			char[] unprefixedName = tempName;
+			for (int j = 0; j <= internalPrefix.length; j++) {
+				if(j == internalPrefix.length || CharOperation.prefixEquals(CharOperation.subarray(internalPrefix, j, -1), unprefixedName, false)) {
+					tempName = CharOperation.concat(CharOperation.subarray(internalPrefix, 0, j), unprefixedName);
+					if(j != 0) tempName[j] = ScannerHelper.toUpperCase(tempName[j]);
+					for (int k = 0; k < prefixes.length; k++) {
+						if(prefixes[k].length > 0
+							&& ScannerHelper.isLetterOrDigit(prefixes[k][prefixes[k].length - 1])) {
+							tempName[0] = ScannerHelper.toUpperCase(tempName[0]);
+						} else {
+							tempName[0] = ScannerHelper.toLowerCase(tempName[0]);
+						}
+						char[] prefixName = CharOperation.concat(prefixes[k], tempName);
+						for (int l = 0; l < suffixes.length; l++) {
+							char[] suffixName = CharOperation.concat(prefixName, suffixes[l]);
+							suffixName =
+								excludeNames(
+									suffixName,
+									prefixName,
+									suffixes[l],
+									excludedNames);
+							try{
+								nameScanner.setSource(suffixName);
+								switch (nameScanner.getNextToken()) {
+									case TerminalTokens.TokenNameIdentifier :
+										int token = nameScanner.getNextToken();
+										if (token == TerminalTokens.TokenNameEOF && nameScanner.startPosition == suffixName.length) {
+											acceptName(suffixName, prefixes[k], suffixes[l],  k == 0, l == 0, internalPrefix.length - j, requestor);
+											acceptDefaultName = false;
+										}
+										break;
+									default:
+										suffixName = CharOperation.concat(
+											prefixName,
+											String.valueOf(1).toCharArray(),
+											suffixes[l]
+										);
+										suffixName =
+											excludeNames(
+												suffixName,
+												prefixName,
+												suffixes[l],
+												excludedNames);
+										nameScanner.setSource(suffixName);
+										switch (nameScanner.getNextToken()) {
+											case TerminalTokens.TokenNameIdentifier :
+												token = nameScanner.getNextToken();
+												if (token == TerminalTokens.TokenNameEOF && nameScanner.startPosition == suffixName.length) {
+													acceptName(suffixName, prefixes[k], suffixes[l], k == 0, l == 0, internalPrefix.length - j, requestor);
+													acceptDefaultName = false;
+												}
+										}
+								}
+							} catch(InvalidInputException e){
+								// ignore
+							}
 						}
 					}
+					continue next;
 				}
-			
 			}
 		}
 		// if no names were found
 		if(acceptDefaultName) {
 			char[] name = excludeNames(DEFAULT_NAME, DEFAULT_NAME, CharOperation.NO_CHAR, excludedNames);
-			requestor.acceptNameWithoutPrefixAndSuffix(name);
+			requestor.acceptNameWithoutPrefixAndSuffix(name, 0);
 		}
 	}
 	
@@ -220,15 +255,16 @@ public class InternalNamingConventions {
 		char[] suffix,
 		boolean isFirstPrefix,
 		boolean isFirstSuffix,
+		int reusedCharacters,
 		INamingRequestor requestor) {
 		if(prefix.length > 0 && suffix.length > 0) {
-			requestor.acceptNameWithPrefixAndSuffix(name, isFirstPrefix, isFirstSuffix);
+			requestor.acceptNameWithPrefixAndSuffix(name, isFirstPrefix, isFirstSuffix, reusedCharacters);
 		} else if(prefix.length > 0){
-			requestor.acceptNameWithPrefix(name, isFirstPrefix);
+			requestor.acceptNameWithPrefix(name, isFirstPrefix, reusedCharacters);
 		} else if(suffix.length > 0){
-			requestor.acceptNameWithSuffix(name, isFirstSuffix);
+			requestor.acceptNameWithSuffix(name, isFirstSuffix, reusedCharacters);
 		} else {
-			requestor.acceptNameWithoutPrefixAndSuffix(name);
+			requestor.acceptNameWithoutPrefixAndSuffix(name, reusedCharacters);
 		}
 	}
 	
@@ -255,15 +291,15 @@ public class InternalNamingConventions {
 		boolean previousIsUpperCase = false;
 		boolean previousIsLetter = true;
 		for(int i = sourceName.length - 1 ; i >= 0 ; i--){
-			boolean isUpperCase = Character.isUpperCase(sourceName[i]);
-			boolean isLetter = Character.isLetter(sourceName[i]);
+			boolean isUpperCase = ScannerHelper.isUpperCase(sourceName[i]);
+			boolean isLetter = ScannerHelper.isLetter(sourceName[i]);
 			if(isUpperCase && !previousIsUpperCase && previousIsLetter){
 				char[] name = CharOperation.subarray(sourceName,i,sourceName.length);
 				if(name.length > 1){
 					if(nameCount == names.length) {
 						System.arraycopy(names, 0, names = new char[nameCount * 2][], 0, nameCount);
 					}
-					name[0] = Character.toLowerCase(name[0]);
+					name[0] = ScannerHelper.toLowerCase(name[0]);
 					names[nameCount++] = name;
 				}
 			}
@@ -297,5 +333,91 @@ public class InternalNamingConventions {
 			}
 		}
 		return suffixName;
+	}
+	
+	private static char[] removePrefix(char[] name, char[][] prefixes) {
+		// remove longer prefix
+		char[] withoutPrefixName = name;
+		if (prefixes != null) {
+			int bestLength = 0;
+			int nameLength = name.length;
+			for (int i= 0; i < prefixes.length; i++) {
+				char[] prefix = prefixes[i];
+				
+				int prefixLength = prefix.length;
+				if(prefixLength <= nameLength) {
+					if(CharOperation.prefixEquals(prefix, name, false)) {
+						if (prefixLength > bestLength) {
+							bestLength = prefixLength;
+						}
+					}
+				} else {
+					int currLen = 0;
+					for (; currLen < nameLength; currLen++) {
+						if(ScannerHelper.toLowerCase(prefix[currLen]) != ScannerHelper.toLowerCase(name[currLen])) {
+							if (currLen > bestLength) {
+								bestLength = currLen;
+							}
+							break;
+						}
+					}
+					if(currLen == nameLength && currLen > bestLength) {
+						bestLength = currLen;
+					}
+				}
+			}
+			if(bestLength > 0) {
+				if(bestLength == nameLength) {
+					withoutPrefixName = CharOperation.NO_CHAR;
+				} else {
+					withoutPrefixName = CharOperation.subarray(name, bestLength, nameLength);
+				}
+			}
+		}
+//		
+//		
+//		// remove longer prefix
+//		char[] withoutPrefixName = name;
+//		if (prefixes != null) {
+//			int bestLength = 0;
+//			for (int i= 0; i < prefixes.length; i++) {
+//				char[] prefix = prefixes[i];
+//				int max = prefix.length < name.length ? prefix.length : name.length;
+//				int currLen = 0;
+//				for (; currLen < max; currLen++) {
+//					if(Character.toLowerCase(prefix[currLen]) != Character.toLowerCase(name[currLen])) {
+//						if (currLen > bestLength) {
+//							bestLength = currLen;
+//						}
+//						break;
+//					}
+//				}
+//				if(currLen == max && currLen > bestLength) {
+//					bestLength = max;
+//				}
+//			}
+//			if(bestLength > 0) {
+//				if(bestLength == name.length) {
+//					withoutPrefixName = CharOperation.NO_CHAR;
+//				} else {
+//					withoutPrefixName = CharOperation.subarray(name, bestLength, name.length);
+//				}
+//			}
+//		}
+		
+		return withoutPrefixName;
+	}
+	
+	public static final boolean prefixEquals(char[] prefix, char[] name) {
+
+		int max = prefix.length;
+		if (name.length < max)
+			return false;
+		for (int i = max;
+			--i >= 0;
+			) // assumes the prefix is not larger than the name
+				if (prefix[i] != name[i])
+					return false;
+			return true;
 	}
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,14 +12,17 @@ package org.eclipse.jdt.internal.core;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaElementDelta;
 import org.eclipse.jdt.core.IParent;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * A java element delta biulder creates a java element delta on
@@ -61,7 +64,7 @@ public class JavaElementDeltaBuilder {
 	/**
 	 * Change delta
 	 */
-	JavaElementDelta delta;
+	public JavaElementDelta delta = null;
 
 	/**
 	 * List of added elements
@@ -76,7 +79,7 @@ public class JavaElementDeltaBuilder {
 	/**
 	 * Doubly linked list item
 	 */
-	class ListItem {
+	static class ListItem {
 		public IJavaElement previous;
 		public IJavaElement next;
 
@@ -132,6 +135,12 @@ private void added(IJavaElement element) {
  * unit and its new content.
  */
 public void buildDeltas() {
+	this.delta = new JavaElementDelta(this.javaElement);
+	// if building a delta on a compilation unit or below, 
+	// it's a fine grained delta
+	if (this.javaElement.getElementType() >= IJavaElement.COMPILATION_UNIT) {
+		this.delta.fineGrained();
+	}
 	this.recordNewPositions(this.javaElement, 0);
 	this.findAdditions(this.javaElement, 0);
 	this.findDeletions();
@@ -255,6 +264,32 @@ private void findContentChange(JavaElementInfo oldInfo, JavaElementInfo newInfo,
 				|| !equals(oldSourceTypeInfo.getTypeParameterBounds(), newSourceTypeInfo.getTypeParameterBounds())) {
 			this.delta.changed(newElement, IJavaElementDelta.F_CONTENT);
 		}
+		HashMap oldTypeCategories = oldSourceTypeInfo.categories;
+		HashMap newTypeCategories = newSourceTypeInfo.categories;
+		if (oldTypeCategories != null) {
+			// take the union of old and new categories elements (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=125675)
+			Set elements;
+			if (newTypeCategories != null) {
+				elements = new HashSet(oldTypeCategories.keySet());
+				elements.addAll(newTypeCategories.keySet());
+			} else
+				elements = oldTypeCategories.keySet();
+			Iterator iterator = elements.iterator();
+			while (iterator.hasNext()) {
+				IJavaElement element = (IJavaElement) iterator.next();
+				String[] oldCategories = (String[]) oldTypeCategories.get(element);
+				String[] newCategories = newTypeCategories == null ? null : (String[]) newTypeCategories.get(element);
+				if (!Util.equalArraysOrNull(oldCategories, newCategories)) {
+					this.delta.changed(element, IJavaElementDelta.F_CATEGORIES);
+				}
+			}
+		} else if (newTypeCategories != null) {
+			Iterator elements = newTypeCategories.keySet().iterator();
+			while (elements.hasNext()) {
+				IJavaElement element = (IJavaElement) elements.next();
+				this.delta.changed(element, IJavaElementDelta.F_CATEGORIES); // all categories for this element were removed
+			}
+		}
 	}
 }
 /**
@@ -282,15 +317,7 @@ private void initialize() {
 	this.oldPositions = new HashMap(20);
 	this.newPositions = new HashMap(20);
 	this.putOldPosition(this.javaElement, new ListItem(null, null));
-	this.putNewPosition(this.javaElement, new ListItem(null, null));
-	this.delta = new JavaElementDelta(javaElement);
-	
-	// if building a delta on a compilation unit or below, 
-	// it's a fine grained delta
-	if (javaElement.getElementType() >= IJavaElement.COMPILATION_UNIT) {
-		this.delta.fineGrained();
-	}
-	
+	this.putNewPosition(this.javaElement, new ListItem(null, null));	
 	this.added = new ArrayList(5);
 	this.removed = new ArrayList(5);
 }
@@ -405,7 +432,7 @@ private void removeElementInfo(IJavaElement element) {
 public String toString() {
 	StringBuffer buffer = new StringBuffer();
 	buffer.append("Built delta:\n"); //$NON-NLS-1$
-	buffer.append(this.delta.toString());
+	buffer.append(this.delta == null ? "<null>" : this.delta.toString()); //$NON-NLS-1$
 	return buffer.toString();
 }
 /**

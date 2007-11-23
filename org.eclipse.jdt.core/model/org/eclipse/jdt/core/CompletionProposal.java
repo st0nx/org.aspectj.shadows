@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * Copyright (c) 2004, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -43,8 +43,8 @@ import org.eclipse.jdt.internal.codeassist.InternalCompletionProposal;
  * competing proposals.
  * </p>
  * <p>
- * The completion engine creates instances of this class; it is not
- * intended to be used by other clients.
+ * The completion engine creates instances of this class; it is not intended 
+ * to be instantiated or subclassed by clients.
  * </p>
  * 
  * @see ICodeAssist#codeComplete(int, CompletionRequestor)
@@ -411,6 +411,319 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * @since 3.1
 	 */
 	public static final int ANNOTATION_ATTRIBUTE_REF = 13;
+
+	/**
+	 * Completion is a link reference to a field in a javadoc text.
+	 * This kind of completion might occur in a context like
+	 * <code>"	* blabla System.o^ blabla"</code> and complete it to
+	 * <code>"	* blabla {&#64;link System#out } blabla"</code>.
+	 * <p>
+	 * The following additional context information is available
+	 * for this kind of completion proposal at little extra cost:
+	 * <ul>
+	 * <li>{@link #getDeclarationSignature()} -
+	 * the type signature of the type that declares the field that is referenced
+	 * </li>
+	 * <li>{@link #getFlags()} -
+	 * the modifiers flags (including ACC_ENUM) of the field that is referenced
+	 * </li>
+	 * <li>{@link #getName()} -
+	 * the simple name of the field that is referenced
+	 * </li>
+	 * <li>{@link #getSignature()} -
+	 * the type signature of the field's type (as opposed to the
+	 * signature of the type in which the referenced field
+	 * is declared)
+	 * </li>
+	 * </ul>
+	 * </p>
+	 * 
+	 * @see #getKind()
+	 * @since 3.2
+	 */
+	public static final int JAVADOC_FIELD_REF = 14;
+
+	/**
+	 * Completion is a link reference to a method in a javadoc text.
+	 * This kind of completion might occur in a context like
+	 * <code>"	* blabla Runtime#get^ blabla"</code> and complete it to
+	 * <code>"	* blabla {&#64;link Runtime#getRuntime() }"</code>.
+	 * <p>
+	 * The following additional context information is available
+	 * for this kind of completion proposal at little extra cost:
+	 * <ul>
+	 * <li>{@link #getDeclarationSignature()} -
+	 * the type signature of the type that declares the method that is referenced
+	 * </li>
+	 * <li>{@link #getFlags()} -
+	 * the modifiers flags of the method that is referenced
+	 * </li>
+	 * <li>{@link #getName()} -
+	 * the simple name of the method that is referenced
+	 * </li>
+	 * <li>{@link #getSignature()} -
+	 * the method signature of the method that is referenced
+	 * </li>
+	 * </ul>
+	 * </p>
+	 * 
+	 * @see #getKind()
+	 * @since 3.2
+	 */
+	public static final int JAVADOC_METHOD_REF = 15;
+
+	/**
+	 * Completion is a link reference to a type in a javadoc text.
+	 * Any kind of type is allowed, including primitive types, reference types,
+	 * array types, parameterized types, and type variables.
+	 * This kind of completion might occur in a context like
+	 * <code>"	* blabla Str^ blabla"</code> and complete it to
+	 * <code>"	* blabla {&#64;link String } blabla"</code>.
+	 * <p>
+	 * The following additional context information is available
+	 * for this kind of completion proposal at little extra cost:
+	 * <ul>
+	 * <li>{@link #getDeclarationSignature()} -
+	 * the dot-based package name of the package that contains
+	 * the type that is referenced
+	 * </li>
+	 * <li>{@link #getSignature()} -
+	 * the type signature of the type that is referenced
+	 * </li>
+	 * <li>{@link #getFlags()} -
+	 * the modifiers flags (including Flags.AccInterface, AccEnum,
+	 * and AccAnnotation) of the type that is referenced
+	 * </li>
+	 * </ul>
+	 * </p>
+	 * 
+	 * @see #getKind()
+	 * @since 3.2
+	 */
+	public static final int JAVADOC_TYPE_REF = 16;
+
+	/**
+	 * Completion is a value reference to a static field in a javadoc text.
+	 * This kind of completion might occur in a context like
+	 * <code>"	* blabla System.o^ blabla"</code> and complete it to
+	 * <code>"	* blabla {&#64;value System#out } blabla"</code>.
+	 * <p>
+	 * The following additional context information is available
+	 * for this kind of completion proposal at little extra cost:
+	 * <ul>
+	 * <li>{@link #getDeclarationSignature()} -
+	 * the type signature of the type that declares the field that is referenced
+	 * </li>
+	 * <li>{@link #getFlags()} -
+	 * the modifiers flags (including ACC_ENUM) of the field that is referenced
+	 * </li>
+	 * <li>{@link #getName()} -
+	 * the simple name of the field that is referenced
+	 * </li>
+	 * <li>{@link #getSignature()} -
+	 * the type signature of the field's type (as opposed to the
+	 * signature of the type in which the referenced field
+	 * is declared)
+	 * </li>
+	 * </ul>
+	 * </p>
+	 * 
+	 * @see #getKind()
+	 * @since 3.2
+	 */
+	public static final int JAVADOC_VALUE_REF = 17;
+
+	/**
+	 * Completion is a method argument or a class/method type parameter
+	 * in javadoc param tag.
+	 * This kind of completion might occur in a context like
+	 * <code>"	* @param arg^ blabla"</code> and complete it to
+	 * <code>"	* @param argument blabla"</code>.
+	 * or
+	 * <code>"	* @param &lt;T^ blabla"</code> and complete it to
+	 * <code>"	* @param &lt;TT&gt; blabla"</code>.
+	 * <p>
+	 * The following additional context information is available
+	 * for this kind of completion proposal at little extra cost:
+	 * <ul>
+	 * <li>{@link #getDeclarationSignature()} -
+	 * the type signature of the type that declares the field that is referenced
+	 * </li>
+	 * <li>{@link #getFlags()} -
+	 * the modifiers flags (including ACC_ENUM) of the field that is referenced
+	 * </li>
+	 * <li>{@link #getName()} -
+	 * the simple name of the field that is referenced
+	 * </li>
+	 * <li>{@link #getSignature()} -
+	 * the type signature of the field's type (as opposed to the
+	 * signature of the type in which the referenced field
+	 * is declared)
+	 * </li>
+	 * </ul>
+	 * </p>
+	 * 
+	 * @see #getKind()
+	 * @since 3.2
+	 */
+	public static final int JAVADOC_PARAM_REF = 18;
+
+	/**
+	 * Completion is a javadoc block tag.
+	 * This kind of completion might occur in a context like
+	 * <code>"	* @s^ blabla"</code> and complete it to
+	 * <code>"	* @see blabla"</code>.
+	 * <p>
+	 * The following additional context information is available
+	 * for this kind of completion proposal at little extra cost:
+	 * <ul>
+	 * <li>{@link #getDeclarationSignature()} -
+	 * the type signature of the type that declares the field that is referenced
+	 * </li>
+	 * <li>{@link #getFlags()} -
+	 * the modifiers flags (including ACC_ENUM) of the field that is referenced
+	 * </li>
+	 * <li>{@link #getName()} -
+	 * the simple name of the field that is referenced
+	 * </li>
+	 * <li>{@link #getSignature()} -
+	 * the type signature of the field's type (as opposed to the
+	 * signature of the type in which the referenced field
+	 * is declared)
+	 * </li>
+	 * </ul>
+	 * </p>
+	 * 
+	 * @see #getKind()
+	 * @since 3.2
+	 */
+	public static final int JAVADOC_BLOCK_TAG = 19;
+
+	/**
+	 * Completion is a javadoc inline tag.
+	 * This kind of completion might occur in a context like
+	 * <code>"	* Insert @l^ Object"</code> and complete it to
+	 * <code>"	* Insert {&#64;link Object }"</code>.
+	 * <p>
+	 * The following additional context information is available
+	 * for this kind of completion proposal at little extra cost:
+	 * <ul>
+	 * <li>{@link #getDeclarationSignature()} -
+	 * the type signature of the type that declares the field that is referenced
+	 * </li>
+	 * <li>{@link #getFlags()} -
+	 * the modifiers flags (including ACC_ENUM) of the field that is referenced
+	 * </li>
+	 * <li>{@link #getName()} -
+	 * the simple name of the field that is referenced
+	 * </li>
+	 * <li>{@link #getSignature()} -
+	 * the type signature of the field's type (as opposed to the
+	 * signature of the type in which the referenced field
+	 * is declared)
+	 * </li>
+	 * </ul>
+	 * </p>
+	 * 
+	 * @see #getKind()
+	 * @since 3.2
+	 */
+	public static final int JAVADOC_INLINE_TAG = 20;
+
+	/**
+	 * Completion is an import of reference to a static field.
+	 * <p>
+	 * The following additional context information is available
+	 * for this kind of completion proposal at little extra cost:
+	 * <ul>
+	 * <li>{@link #getDeclarationSignature()} -
+	 * the type signature of the type that declares the field that is imported
+	 * </li>
+	 * <li>{@link #getFlags()} -
+	 * the modifiers flags (including ACC_ENUM) of the field that is imported
+	 * </li>
+	 * <li>{@link #getName()} -
+	 * the simple name of the field that is imported
+	 * </li>
+	 * <li>{@link #getSignature()} -
+	 * the type signature of the field's type (as opposed to the
+	 * signature of the type in which the referenced field
+	 * is declared)
+	 * </li>
+	 * <li>{@link #getAdditionalFlags()} -
+	 * the completion flags (including ComletionFlags.StaticImport)
+	 * of the proposed import
+	 * </li>
+	 * </ul>
+	 * </p>
+	 * 
+	 * @see #getKind()
+	 * 
+	 * @since 3.3
+	 */
+	public static final int FIELD_IMPORT = 21;
+	
+	/**
+	 * Completion is an import of reference to a static method.
+	 * <p>
+	 * The following additional context information is available
+	 * for this kind of completion proposal at little extra cost:
+	 * <ul>
+	 * <li>{@link #getDeclarationSignature()} -
+	 * the type signature of the type that declares the method that is imported
+	 * </li>
+	 * <li>{@link #getFlags()} -
+	 * the modifiers flags of the method that is imported
+	 * </li>
+	 * <li>{@link #getName()} -
+	 * the simple name of the method that is imported
+	 * </li>
+	 * <li>{@link #getSignature()} -
+	 * the method signature of the method that is imported
+	 * </li>
+	 * <li>{@link #getAdditionalFlags()} -
+	 * the completion flags (including ComletionFlags.StaticImport)
+	 * of the proposed import
+	 * </li>
+	 * </ul>
+	 * </p>
+	 * 
+	 * @see #getKind()
+	 * 
+	 * @since 3.3
+	 */
+	public static final int METHOD_IMPORT = 22;
+	
+	/**
+	 * Completion is an import of reference to a type.
+	 * Only reference to reference types are allowed.
+	 * <p>
+	 * The following additional context information is available
+	 * for this kind of completion proposal at little extra cost:
+	 * <ul>
+	 * <li>{@link #getDeclarationSignature()} -
+	 * the dot-based package name of the package that contains
+	 * the type that is imported
+	 * </li>
+	 * <li>{@link #getSignature()} -
+	 * the type signature of the type that is imported
+	 * </li>
+	 * <li>{@link #getFlags()} -
+	 * the modifiers flags (including Flags.AccInterface, AccEnum,
+	 * and AccAnnotation) of the type that is imported
+	 * </li>
+	 * <li>{@link #getAdditionalFlags()} -
+	 * the completion flags (including ComletionFlags.StaticImport)
+	 * of the proposed import
+	 * </li>
+	 * </ul>
+	 * </p>
+	 * 
+	 * @see #getKind()
+	 * 
+	 * @since 3.3
+	 */
+	public static final int TYPE_IMPORT = 23;
 	
 	/**
 	 * First valid completion kind.
@@ -424,7 +737,7 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * 
 	 * @since 3.1
 	 */
-	protected static final int LAST_KIND = ANNOTATION_ATTRIBUTE_REF;
+	protected static final int LAST_KIND = TYPE_IMPORT;
 	
 	/**
 	 * Kind of completion request.
@@ -513,11 +826,25 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	private char[] key = null;
 	
 	/**
+	 * Array of required completion proposals, or <code>null</code> if none.
+	 * The proposal can not be applied if the required proposals aren't applied.
+	 * Defaults to <code>null</code>.
+	 */
+	private CompletionProposal[] requiredProposals;
+	
+	/**
 	 * Modifier flags relevant in the context, or
 	 * <code>Flags.AccDefault</code> if none.
 	 * Defaults to <code>Flags.AccDefault</code>.
 	 */
 	private int flags = Flags.AccDefault;
+	
+	/**
+	 * Completion flags relevant in the context, or
+	 * <code>CompletionFlags.Default</code> if none.
+	 * Defaults to <code>CompletionFlags.Default</code>.
+	 */
+	private int additionalFlags = CompletionFlags.Default;
 	
 	/**
 	 * Parameter names (for method completions), or
@@ -566,10 +893,66 @@ public final class CompletionProposal extends InternalCompletionProposal {
 			throw new IllegalArgumentException();
 		}
 		if (this.completion == null || completionLocation < 0) {
-			throw new IllegalArgumentException();
+			// Work around for bug 132558 (https://bugs.eclipse.org/bugs/show_bug.cgi?id=132558).
+			// completionLocation can be -1 if the completion occur at the start of a file or
+			// the start of a code snippet but this API isn't design to support negative position.
+			if(this.completion == null || completionLocation != -1) {
+				throw new IllegalArgumentException();
+			}
+			completionLocation = 0;
 		}
 		this.completionKind = kind;
 		this.completionLocation = completionLocation;
+	}
+	
+	/**
+	 * Returns the completion flags relevant in the context, or
+	 * <code>CompletionFlags.Default</code> if none.
+	 * <p>
+	 * This field is available for the following kinds of
+	 * completion proposals:
+	 * <ul>
+	 * <li><code>FIELD_IMPORT</code> - completion flags
+	 * of the attribute that is referenced. Completion flags for
+	 * this proposal kind can only include <code>CompletionFlags.StaticImport</code></li>
+	 * <li><code>METHOD_IMPORT</code> - completion flags
+	 * of the attribute that is referenced. Completion flags for
+	 * this proposal kind can only include <code>CompletionFlags.StaticImport</code></li>
+	 * <li><code>TYPE_IMPORT</code> - completion flags
+	 * of the attribute that is referenced. Completion flags for
+	 * this proposal kind can only include <code>CompletionFlags.StaticImport</code></li>
+	 * </ul>
+	 * For other kinds of completion proposals, this method returns
+	 * <code>CompletionFlags.Default</code>.
+	 * </p>
+	 * 
+	 * @return the completion flags, or
+	 * <code>CompletionFlags.Default</code> if none
+	 * @see CompletionFlags
+	 * 
+	 * @since 3.3
+	 */
+	public int getAdditionalFlags() {
+		return this.additionalFlags;
+	}
+
+	/**
+	 * Sets the completion flags relevant in the context.
+	 * <p>
+	 * If not set, defaults to none.
+	 * </p>
+	 * <p>
+	 * The completion engine creates instances of this class and sets
+	 * its properties; this method is not intended to be used by other clients.
+	 * </p>
+	 * 
+	 * @param additionalFlags the completion flags, or
+	 * <code>CompletionFlags.Default</code> if none
+	 * 
+	 * @since 3.3
+	 */
+	public void setAdditionalFlags(int additionalFlags) {
+		this.additionalFlags = additionalFlags;
 	}
 	
 	/**
@@ -593,12 +976,13 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	/**
 	 * Returns the character index in the source file buffer
 	 * where source completion was requested (the 
-	 * <code>offset</code>parameter to
-	 * <code>ICodeAssist.codeComplete</code>.
+	 * <code>offset</code> parameter to
+	 * <code>ICodeAssist.codeComplete</code> minus one).
 	 * 
 	 * @return character index in source file buffer
 	 * @see ICodeAssist#codeComplete(int,CompletionRequestor)
 	 */
+	// TODO (david) https://bugs.eclipse.org/bugs/show_bug.cgi?id=132558
 	public int getCompletionLocation() {
 		return this.completionLocation;
 	}
@@ -825,16 +1209,22 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * of the annotation that declares the attribute that is referenced</li>
 	 * <li><code>ANONYMOUS_CLASS_DECLARATION</code> - type signature
 	 * of the type that is being subclassed or implemented</li>
-	 * 	<li><code>FIELD_REF</code> - type signature
+	 * 	<li><code>FIELD_IMPORT</code> - type signature
+	 * of the type that declares the field that is imported</li>
+	 *  <li><code>FIELD_REF</code> - type signature
 	 * of the type that declares the field that is referenced</li>
-	 * 	<li><code>METHOD_REF</code> - type signature
+	 * 	<li><code>METHOD_IMPORT</code> - type signature
+	 * of the type that declares the method that is imported</li>
+	 *  <li><code>METHOD_REF</code> - type signature
 	 * of the type that declares the method that is referenced</li>
 	 * 	<li><code>METHOD_DECLARATION</code> - type signature
 	 * of the type that declares the method that is being
 	 * implemented or overridden</li>
 	 * 	<li><code>PACKAGE_REF</code> - dot-based package 
 	 * name of the package that is referenced</li>
-	 * 	<li><code>TYPE_REF</code> - dot-based package 
+	 * 	<li><code>TYPE_IMPORT</code> - dot-based package 
+	 * name of the package containing the type that is imported</li>
+	 *  <li><code>TYPE_REF</code> - dot-based package 
 	 * name of the package containing the type that is referenced</li>
 	 *  <li><code>POTENTIAL_METHOD_DECLARATION</code> - type signature
 	 * of the type that declares the method that is being created</li>
@@ -924,11 +1314,13 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * completion proposals:
 	 * <ul>
 	 *  <li><code>ANNOTATION_ATTRIBUT_REF</code> - the name of the attribute</li>
-	 * 	<li><code>FIELD_REF</code> - the name of the field</li>
+	 * 	<li><code>FIELD_IMPORT</code> - the name of the field</li>
+	 *  <li><code>FIELD_REF</code> - the name of the field</li>
 	 * 	<li><code>KEYWORD</code> - the keyword</li>
 	 * 	<li><code>LABEL_REF</code> - the name of the label</li>
 	 * 	<li><code>LOCAL_VARIABLE_REF</code> - the name of the local variable</li>
-	 * 	<li><code>METHOD_REF</code> - the name of the method (the type simple name for constructor)</li>
+	 * 	<li><code>METHOD_IMPORT</code> - the name of the method</li>
+	 *  <li><code>METHOD_REF</code> - the name of the method (the type simple name for constructor)</li>
 	 * 	<li><code>METHOD_DECLARATION</code> - the name of the method (the type simple name for constructor)</li>
 	 * 	<li><code>VARIABLE_DECLARATION</code> - the name of the variable</li>
 	 *  <li><code>POTENTIAL_METHOD_DECLARATION</code> - the name of the method</li>
@@ -976,14 +1368,20 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * of the referenced attribute's type</li>
 	 * <li><code>ANONYMOUS_CLASS_DECLARATION</code> - method signature
 	 * of the constructor that is being invoked</li>
-	 * 	<li><code>FIELD_REF</code> - the type signature
+	 * 	<li><code>FIELD_IMPORT</code> - the type signature
+	 * of the referenced field's type</li>
+	 *  <li><code>FIELD_REF</code> - the type signature
 	 * of the referenced field's type</li>
 	 * 	<li><code>LOCAL_VARIABLE_REF</code> - the type signature
 	 * of the referenced local variable's type</li>
-	 * 	<li><code>METHOD_REF</code> - method signature
+	 * 	<li><code>METHOD_IMPORT</code> - method signature
+	 * of the method that is imported</li>
+	 *  <li><code>METHOD_REF</code> - method signature
 	 * of the method that is referenced</li>
 	 * 	<li><code>METHOD_DECLARATION</code> - method signature
 	 * of the method that is being implemented or overridden</li>
+	 * 	<li><code>TYPE_IMPORT</code> - type signature
+	 * of the type that is imported</li>
 	 * 	<li><code>TYPE_REF</code> - type signature
 	 * of the type that is referenced</li>
 	 * 	<li><code>VARIABLE_DECLARATION</code> - the type signature
@@ -1074,10 +1472,10 @@ public final class CompletionProposal extends InternalCompletionProposal {
 //	 * of the type that is being subclassed or implemented</li>
 //	 * 	<li><code>FIELD_REF</code> - the dot-based type name
 //	 * of the type that declares the field that is referenced
-//	 * or an anonymous type instanciation ("new X(){}") if it is an anonymous type</li>
+//	 * or an anonymous type instantiation ("new X(){}") if it is an anonymous type</li>
 //	 * 	<li><code>METHOD_REF</code> - the dot-based type name
 //	 * of the type that declares the method that is referenced
-//	 * or an anonymous type instanciation ("new X(){}") if it is an anonymous type</li>
+//	 * or an anonymous type instantiation ("new X(){}") if it is an anonymous type</li>
 //	 * 	<li><code>METHOD_DECLARATION</code> - the dot-based type name
 //	 * of the type that declares the method that is being
 //	 * implemented or overridden</li>
@@ -1205,7 +1603,7 @@ public final class CompletionProposal extends InternalCompletionProposal {
 //	}
 //	
 //	/**
-//	 * Returns the parameter type names without teh package fragment of
+//	 * Returns the parameter type names without the package fragment of
 //	 * the method relevant in the context, or <code>null</code> if none.
 //	 * <p>
 //	 * This field is available for the following kinds of
@@ -1280,23 +1678,33 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * of the attribute that is referenced; 
 	 * <li><code>ANONYMOUS_CLASS_DECLARATION</code> - modifier flags
 	 * of the constructor that is referenced</li>
-	 * 	<li><code>FIELD_REF</code> - modifier flags
+	 * 	<li><code>FIELD_IMPORT</code> - modifier flags
+	 * of the field that is imported.</li>
+	 *  <li><code>FIELD_REF</code> - modifier flags
 	 * of the field that is referenced; 
 	 * <code>Flags.AccEnum</code> can be used to recognize
 	 * references to enum constants
 	 * </li>
 	 * 	<li><code>KEYWORD</code> - modifier flag
-	 * corrresponding to the modifier keyword</li>
+	 * corresponding to the modifier keyword</li>
 	 * 	<li><code>LOCAL_VARIABLE_REF</code> - modifier flags
 	 * of the local variable that is referenced</li>
+	 *  <li><code>METHOD_IMPORT</code> - modifier flags
+	 * of the method that is imported;
+	 *  </li>
 	 * 	<li><code>METHOD_REF</code> - modifier flags
 	 * of the method that is referenced;
 	 * <code>Flags.AccAnnotation</code> can be used to recognize
 	 * references to annotation type members
 	 * </li>
-	 * 	<li><code>METHOD_DECLARATION</code> - modifier flags
+	 * <li><code>METHOD_DECLARATION</code> - modifier flags
 	 * for the method that is being implemented or overridden</li>
-	 * 	<li><code>TYPE_REF</code> - modifier flags
+	 * <li><code>TYPE_IMPORT</code> - modifier flags
+	 * of the type that is imported; <code>Flags.AccInterface</code>
+	 * can be used to recognize references to interfaces, 
+	 * <code>Flags.AccEnum</code> enum types,
+	 * and <code>Flags.AccAnnotation</code> annotation types</li>
+	 * <li><code>TYPE_REF</code> - modifier flags
 	 * of the type that is referenced; <code>Flags.AccInterface</code>
 	 * can be used to recognize references to interfaces, 
 	 * <code>Flags.AccEnum</code> enum types,
@@ -1337,6 +1745,69 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	}
 	
 	/**
+	 * Returns the required completion proposals.
+	 * The proposal can be apply only if these required completion proposals are also applied.
+	 * If the required proposal aren't applied the completion could create completion problems.
+	 * 
+	 * <p>
+	 * This field is available for the following kinds of
+	 * completion proposals:
+	 * <ul>
+	 * 	<li><code>FIELD_REF</code> - The allowed required proposals for this kind are:
+	 *   <ul>
+	 *    <li><code>TYPE_REF</code></li>
+	 *    <li><code>TYPE_IMPORT</code></li>
+	 *    <li><code>FIELD_IMPORT</code></li>
+	 *   </ul>
+	 * </li>
+	 * 	<li><code>METHOD_REF</code> - The allowed required proposals for this kind are:
+	 *   <ul>
+	 *    <li><code>TYPE_REF</code></li>
+	 *    <li><code>TYPE_IMPORT</code></li>
+	 *    <li><code>METHOD_IMPORT</code></li>
+	 *   </ul>
+	 *  </li>
+	 * </ul>
+	 * </p>
+	 * <p>
+	 * Other kinds of required proposals will be returned in the future, therefore clients of this
+	 * API must allow with {@link CompletionRequestor#setAllowsRequiredProposals(int, int, boolean)} 
+	 * only kinds which are in this list to avoid unexpected results in the future.
+	 * </p>
+	 * <p>
+	 * A required completion proposal cannot have required completion proposals.
+	 * </p>
+	 * 
+	 * @return the required completion proposals, or <code>null</code> if none.
+	 * 
+	 * @see CompletionRequestor#setAllowsRequiredProposals(int, int,boolean)
+	 * 
+	 * @since 3.3
+	 */
+	public CompletionProposal[] getRequiredProposals() {
+		return this.requiredProposals;
+	}
+	
+	
+	/**
+	 * Sets the list of required completion proposals, or <code>null</code> if none.
+	 * <p>
+	 * If not set, defaults to none.
+	 * </p>
+	 * <p>
+	 * The completion engine creates instances of this class and sets
+	 * its properties; this method is not intended to be used by other clients.
+	 * </p>
+	 * 
+	 * @param proposals the list of required completion proposals, or
+	 * <code>null</code> if none
+     * @since 3.3
+	 */
+	public void setRequiredProposals(CompletionProposal[] proposals) {
+		this.requiredProposals = proposals;
+	}
+	
+	/**
 	 * Finds the method parameter names.
 	 * This information is relevant to method reference (and
 	 * method declaration proposals). Returns <code>null</code>
@@ -1346,7 +1817,7 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 * </p>
 	 * <p>
 	 * <b>Note that this is an expensive thing to compute, which may require
-	 * parsing Java source files, etc. Use sparingly.
+	 * parsing Java source files, etc. Use sparingly.</b>
 	 * </p>
 	 * 
 	 * @param monitor the progress monitor, or <code>null</code> if none
@@ -1474,5 +1945,111 @@ public final class CompletionProposal extends InternalCompletionProposal {
 	 */
 	public boolean isConstructor() {
 		return this.isConstructor;
+	}
+	
+	public String toString() {
+		StringBuffer buffer = new StringBuffer();
+		buffer.append('[');
+		switch(this.completionKind) {
+			case CompletionProposal.ANONYMOUS_CLASS_DECLARATION :
+				buffer.append("ANONYMOUS_CLASS_DECLARATION"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.FIELD_REF :
+				buffer.append("FIELD_REF"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.KEYWORD :
+				buffer.append("KEYWORD"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.LABEL_REF :
+				buffer.append("LABEL_REF"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.LOCAL_VARIABLE_REF :
+				buffer.append("LOCAL_VARIABLE_REF"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.METHOD_DECLARATION :
+				buffer.append("METHOD_DECLARATION"); //$NON-NLS-1$
+				if(this.isConstructor) {
+					buffer.append("<CONSTRUCTOR>"); //$NON-NLS-1$
+				}
+				break;
+			case CompletionProposal.METHOD_REF :
+				buffer.append("METHOD_REF"); //$NON-NLS-1$
+				if(this.isConstructor) {
+					buffer.append("<CONSTRUCTOR>"); //$NON-NLS-1$
+				}
+				break;
+			case CompletionProposal.PACKAGE_REF :
+				buffer.append("PACKAGE_REF"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.TYPE_REF :
+				buffer.append("TYPE_REF"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.VARIABLE_DECLARATION :
+				buffer.append("VARIABLE_DECLARATION"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.POTENTIAL_METHOD_DECLARATION :
+				buffer.append("POTENTIAL_METHOD_DECLARATION"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.METHOD_NAME_REFERENCE :
+				buffer.append("METHOD_IMPORT"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.ANNOTATION_ATTRIBUTE_REF :
+				buffer.append("ANNOTATION_ATTRIBUTE_REF"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.JAVADOC_BLOCK_TAG :
+				buffer.append("JAVADOC_BLOCK_TAG"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.JAVADOC_INLINE_TAG :
+				buffer.append("JAVADOC_INLINE_TAG"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.JAVADOC_FIELD_REF:
+				buffer.append("JAVADOC_FIELD_REF"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.JAVADOC_METHOD_REF :
+				buffer.append("JAVADOC_METHOD_REF"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.JAVADOC_TYPE_REF :
+				buffer.append("JAVADOC_TYPE_REF"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.JAVADOC_PARAM_REF :
+				buffer.append("JAVADOC_PARAM_REF"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.JAVADOC_VALUE_REF :
+				buffer.append("JAVADOC_VALUE_REF"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.FIELD_IMPORT :
+				buffer.append("FIELD_IMPORT"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.METHOD_IMPORT :
+				buffer.append("METHOD_IMPORT"); //$NON-NLS-1$
+				break;
+			case CompletionProposal.TYPE_IMPORT :
+				buffer.append("TYPE_IMPORT"); //$NON-NLS-1$
+				break;
+			default :
+				buffer.append("PROPOSAL"); //$NON-NLS-1$
+				break;
+				
+		}
+		buffer.append("]{completion:"); //$NON-NLS-1$
+		if (this.completion != null) buffer.append(this.completion);
+		buffer.append(", declSign:"); //$NON-NLS-1$
+		if (this.declarationSignature != null) buffer.append(this.declarationSignature);  
+		buffer.append(", sign:"); //$NON-NLS-1$
+		if (this.signature != null) buffer.append(this.signature);
+		buffer.append(", declKey:"); //$NON-NLS-1$
+		if (this.declarationKey != null) buffer.append(this.declarationKey);
+		buffer.append(", key:"); //$NON-NLS-1$
+		if (this.key != null) buffer.append(key);
+		buffer.append(", name:"); //$NON-NLS-1$
+		if (this.name != null) buffer.append(this.name);
+		buffer.append(", ["); //$NON-NLS-1$
+		buffer.append(this.replaceStart);
+		buffer.append(',');
+		buffer.append(this.replaceEnd);
+		buffer.append("], relevance="); //$NON-NLS-1$
+		buffer.append(this.relevance);
+		buffer.append('}');
+		return buffer.toString();
 	}
 }

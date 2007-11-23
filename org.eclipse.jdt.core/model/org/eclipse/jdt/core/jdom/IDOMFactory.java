@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,7 +13,9 @@ package org.eclipse.jdt.core.jdom;
 /**
  * A factory used to create document fragment (DF) nodes. An 
  * <code>IDOMCompilationUnit</code> represents the root of a complete JDOM (that
- * is, a ".java" file). Other node types represent fragments of a compilation
+ * is, a source file with one of the 
+ * {@link org.eclipse.jdt.core.JavaCore#getJavaLikeExtensions() 
+ * Java-like extensions}). Other node types represent fragments of a compilation
  * unit.
  * <p>
  * The factory can be used to create empty DFs or it can create DFs from source

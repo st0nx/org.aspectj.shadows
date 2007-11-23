@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,6 +12,7 @@ package org.eclipse.jdt.core;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.codeassist.impl.AssistOptions;
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.core.INamingRequestor;
 import org.eclipse.jdt.internal.core.InternalNamingConventions;
 
@@ -23,14 +24,14 @@ import org.eclipse.jdt.internal.core.InternalNamingConventions;
  * <p>
  * The possible options are :
  * <ul>
- * <li>CODEASSIST_FIELD_PREFIXES : Define the Prefixes for Field Name.</li>
- * <li>CODEASSIST_STATIC_FIELD_PREFIXES : Define the Prefixes for Static Field Name.</li>
- * <li>CODEASSIST_LOCAL_PREFIXES : Define the Prefixes for Local Variable Name.</li>
- * <li>CODEASSIST_ARGUMENT_PREFIXES : Define the Prefixes for Argument Name.</li>
- * <li>CODEASSIST_FIELD_SUFFIXES : Define the Suffixes for Field Name.</li>
- * <li>CODEASSIST_STATIC_FIELD_SUFFIXES : Define the Suffixes for Static Field Name.</li>
- * <li>CODEASSIST_LOCAL_SUFFIXES : Define the Suffixes for Local Variable Name.</li>
- * <li>CODEASSIST_ARGUMENT_SUFFIXES : Define the Suffixes for Argument Name.</li>
+ * <li> {@link JavaCore#CODEASSIST_FIELD_PREFIXES} : Define the Prefixes for Field Name.</li>
+ * <li> {@link JavaCore#CODEASSIST_STATIC_FIELD_PREFIXES} : Define the Prefixes for Static Field Name.</li>
+ * <li> {@link JavaCore#CODEASSIST_LOCAL_PREFIXES} : Define the Prefixes for Local Variable Name.</li>
+ * <li> {@link JavaCore#CODEASSIST_ARGUMENT_PREFIXES} : Define the Prefixes for Argument Name.</li>
+ * <li> {@link JavaCore#CODEASSIST_FIELD_SUFFIXES} : Define the Suffixes for Field Name.</li>
+ * <li> {@link JavaCore#CODEASSIST_STATIC_FIELD_SUFFIXES} : Define the Suffixes for Static Field Name.</li>
+ * <li> {@link JavaCore#CODEASSIST_LOCAL_SUFFIXES} : Define the Suffixes for Local Variable Name.</li>
+ * <li> {@link JavaCore#CODEASSIST_ARGUMENT_SUFFIXES} : Define the Suffixes for Argument Name.</li>
  * </ul>
  * </p>
  * <p>
@@ -51,7 +52,7 @@ public final class NamingConventions {
 	private static final char[] GETTER_NAME = "get".toCharArray(); //$NON-NLS-1$
 	private static final char[] SETTER_NAME = "set".toCharArray(); //$NON-NLS-1$
 	
-	private static class NamingRequestor implements INamingRequestor {
+	static class NamingRequestor implements INamingRequestor {
 		private final static int SIZE = 10;
 		
 		// for acceptNameWithPrefixAndSuffix
@@ -79,7 +80,7 @@ public final class NamingConventions {
 		// for acceptNameWithoutPrefixAndSuffix
 		private char[][] otherResults = new char[SIZE][];
 		private int otherResultsCount = 0;
-		public void acceptNameWithPrefixAndSuffix(char[] name, boolean isFirstPrefix, boolean isFirstSuffix) {
+		public void acceptNameWithPrefixAndSuffix(char[] name, boolean isFirstPrefix, boolean isFirstSuffix, int reusedCharacters) {
 			if(isFirstPrefix && isFirstSuffix) {
 				int length = this.firstPrefixAndFirstSuffixResults.length;
 				if(length == this.firstPrefixAndFirstSuffixResultsCount) {
@@ -127,7 +128,7 @@ public final class NamingConventions {
 			}
 		}
 
-		public void acceptNameWithPrefix(char[] name, boolean isFirstPrefix) {
+		public void acceptNameWithPrefix(char[] name, boolean isFirstPrefix, int reusedCharacters) {
 			if(isFirstPrefix) {
 				int length = this.firstPrefixResults.length;
 				if(length == this.firstPrefixResultsCount) {
@@ -153,7 +154,7 @@ public final class NamingConventions {
 			}
 		}
 
-		public void acceptNameWithSuffix(char[] name, boolean isFirstSuffix) {
+		public void acceptNameWithSuffix(char[] name, boolean isFirstSuffix, int reusedCharacters) {
 			if(isFirstSuffix) {
 				int length = this.firstSuffixResults.length;
 				if(length == this.firstSuffixResultsCount) {
@@ -179,7 +180,7 @@ public final class NamingConventions {
 			}
 		}
 
-		public void acceptNameWithoutPrefixAndSuffix(char[] name) {
+		public void acceptNameWithoutPrefixAndSuffix(char[] name, int reusedCharacters) {
 			int length = this.otherResults.length;
 			if(length == this.otherResultsCount) {
 				System.arraycopy(
@@ -242,8 +243,8 @@ public final class NamingConventions {
 				char[] prefix = prefixes[i];
 				if (CharOperation.prefixEquals(prefix, name)) {
 					int currLen = prefix.length;
-					boolean lastCharIsLetter = Character.isLetter(prefix[currLen - 1]);
-					if(!lastCharIsLetter || (lastCharIsLetter && name.length > currLen && Character.isUpperCase(name[currLen]))) {
+					boolean lastCharIsLetter = ScannerHelper.isLetter(prefix[currLen - 1]);
+					if(!lastCharIsLetter || (lastCharIsLetter && name.length > currLen && ScannerHelper.isUpperCase(name[currLen]))) {
 						if (bestLength < currLen && name.length != currLen) {
 							withoutPrefixName = CharOperation.subarray(name, currLen, name.length);
 							bestLength = currLen;
@@ -269,7 +270,7 @@ public final class NamingConventions {
 			}
 		}
 		
-		withoutSuffixName[0] = Character.toLowerCase(withoutSuffixName[0]);
+		withoutSuffixName[0] = ScannerHelper.toLowerCase(withoutSuffixName[0]);
 		return withoutSuffixName;
 	}
 
@@ -282,8 +283,8 @@ public final class NamingConventions {
 	 * name <code>preArgsuf</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_ARGUMENT_PREFIXES and
-	 * CODEASSIST_ARGUMENT_SUFFIXES.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_ARGUMENT_PREFIXES} and
+	 *  {@link JavaCore#CODEASSIST_ARGUMENT_SUFFIXES}.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -313,8 +314,8 @@ public final class NamingConventions {
 	 * name <code>preArgsuf</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_ARGUMENT_PREFIXES and
-	 * CODEASSIST_ARGUMENT_SUFFIXES.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_ARGUMENT_PREFIXES} and
+	 *  {@link JavaCore#CODEASSIST_ARGUMENT_SUFFIXES}.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -340,9 +341,9 @@ public final class NamingConventions {
 	 * name <code>preFieldsuf</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_FIELD_PREFIXES, 
-	 * CODEASSIST_FIELD_SUFFIXES for instance field and CODEASSIST_STATIC_FIELD_PREFIXES,
-	 * CODEASSIST_STATIC_FIELD_SUFFIXES for static field.
+	 * This method is affected by the following JavaCore options : {@link JavaCore#CODEASSIST_FIELD_PREFIXES} } , 
+	 *  {@link JavaCore#CODEASSIST_FIELD_SUFFIXES} for instance field and  {@link JavaCore#CODEASSIST_STATIC_FIELD_PREFIXES},
+	 *  {@link JavaCore#CODEASSIST_STATIC_FIELD_SUFFIXES} for static field.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -376,9 +377,9 @@ public final class NamingConventions {
 	 * name <code>preFieldsuf</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_FIELD_PREFIXES, 
-	 * CODEASSIST_FIELD_SUFFIXES for instance field and CODEASSIST_STATIC_FIELD_PREFIXES,
-	 * CODEASSIST_STATIC_FIELD_SUFFIXES for static field.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_FIELD_PREFIXES}, 
+	 *  {@link JavaCore#CODEASSIST_FIELD_SUFFIXES} for instance field and  {@link JavaCore#CODEASSIST_STATIC_FIELD_PREFIXES},
+	 *  {@link JavaCore#CODEASSIST_STATIC_FIELD_SUFFIXES} for static field.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -406,8 +407,8 @@ public final class NamingConventions {
 	 * name <code>preLocalsuf</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_LOCAL_PREFIXES and 
-	 * CODEASSIST_LOCAL_SUFFIXES.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_LOCAL_PREFIXES} and 
+	 *  {@link JavaCore#CODEASSIST_LOCAL_SUFFIXES}.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -437,8 +438,8 @@ public final class NamingConventions {
 	 * name <code>preLocalsuf</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_LOCAL_PREFIXES and 
-	 * CODEASSIST_LOCAL_SUFFIXES.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_LOCAL_PREFIXES} and 
+	 *  {@link JavaCore#CODEASSIST_LOCAL_SUFFIXES}.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -465,8 +466,8 @@ public final class NamingConventions {
 	 * and <code>name</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_ARGUMENT_PREFIXES and 
-	 * CODEASSIST_ARGUMENT_SUFFIXES.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_ARGUMENT_PREFIXES} and 
+	 *  {@link JavaCore#CODEASSIST_ARGUMENT_SUFFIXES}.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -490,6 +491,7 @@ public final class NamingConventions {
 			packageName,
 			qualifiedTypeName,
 			dim,
+			null,
 			excludedNames,
 			requestor);
 
@@ -506,8 +508,8 @@ public final class NamingConventions {
 	 * and <code>name</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_ARGUMENT_PREFIXES and 
-	 * CODEASSIST_ARGUMENT_SUFFIXES.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_ARGUMENT_PREFIXES} and 
+	 *  {@link JavaCore#CODEASSIST_ARGUMENT_SUFFIXES}.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -543,9 +545,9 @@ public final class NamingConventions {
 	 * and <code>name</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_FIELD_PREFIXES, 
-	 * CODEASSIST_FIELD_SUFFIXES and for instance field and CODEASSIST_STATIC_FIELD_PREFIXES,
-	 * CODEASSIST_STATIC_FIELD_SUFFIXES for static field.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_FIELD_PREFIXES}, 
+	 *  {@link JavaCore#CODEASSIST_FIELD_SUFFIXES} and for instance field and  {@link JavaCore#CODEASSIST_STATIC_FIELD_PREFIXES},
+	 *  {@link JavaCore#CODEASSIST_STATIC_FIELD_SUFFIXES} for static field.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -573,6 +575,7 @@ public final class NamingConventions {
 			qualifiedTypeName,
 			dim,
 			modifiers,
+			null,
 			excludedNames,
 			requestor);
 
@@ -589,9 +592,9 @@ public final class NamingConventions {
 	 * and <code>name</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_FIELD_PREFIXES, 
-	 * CODEASSIST_FIELD_SUFFIXES and for instance field and CODEASSIST_STATIC_FIELD_PREFIXES,
-	 * CODEASSIST_STATIC_FIELD_SUFFIXES for static field.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_FIELD_PREFIXES}, 
+	 *  {@link JavaCore#CODEASSIST_FIELD_SUFFIXES} and for instance field and  {@link JavaCore#CODEASSIST_STATIC_FIELD_PREFIXES},
+	 *  {@link JavaCore#CODEASSIST_STATIC_FIELD_SUFFIXES} for static field.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -632,8 +635,8 @@ public final class NamingConventions {
 	 * and <code>name</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_LOCAL_PREFIXES and
-	 * CODEASSIST_LOCAL_SUFFIXES.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_LOCAL_PREFIXES} and
+	 *  {@link JavaCore#CODEASSIST_LOCAL_SUFFIXES}.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -657,6 +660,7 @@ public final class NamingConventions {
 			packageName,
 			qualifiedTypeName,
 			dim,
+			null,
 			excludedNames,
 			requestor);
 
@@ -673,8 +677,8 @@ public final class NamingConventions {
 	 * and <code>name</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_LOCAL_PREFIXES and
-	 * CODEASSIST_LOCAL_SUFFIXES.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_LOCAL_PREFIXES} and
+	 *  {@link JavaCore#CODEASSIST_LOCAL_SUFFIXES}.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -711,9 +715,9 @@ public final class NamingConventions {
 	 * for boolean field or <code>getPreFieldNamesuf</code> for others.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_FIELD_PREFIXES, 
-	 * CODEASSIST_FIELD_SUFFIXES for instance field and CODEASSIST_STATIC_FIELD_PREFIXES,
-	 * CODEASSIST_STATIC_FIELD_SUFFIXES for static field.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_FIELD_PREFIXES}, 
+	 *  {@link JavaCore#CODEASSIST_FIELD_SUFFIXES} for instance field and  {@link JavaCore#CODEASSIST_STATIC_FIELD_PREFIXES},
+	 *  {@link JavaCore#CODEASSIST_STATIC_FIELD_SUFFIXES} for static field.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -737,7 +741,7 @@ public final class NamingConventions {
 			char[] name = removePrefixAndSuffixForFieldName(project, fieldName, modifiers);
 			int prefixLen =  GETTER_BOOL_NAME.length;
 			if (CharOperation.prefixEquals(GETTER_BOOL_NAME, name) 
-				&& name.length > prefixLen && Character.isUpperCase(name[prefixLen])) {
+				&& name.length > prefixLen && ScannerHelper.isUpperCase(name[prefixLen])) {
 				return suggestNewName(name, excludedNames);
 			} else {
 				return suggestNewName(
@@ -763,9 +767,9 @@ public final class NamingConventions {
 	 * for boolean field or <code>getPreFieldNamesuf</code> for others.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_FIELD_PREFIXES, 
-	 * CODEASSIST_FIELD_SUFFIXES for instance field and CODEASSIST_STATIC_FIELD_PREFIXES,
-	 * CODEASSIST_STATIC_FIELD_SUFFIXES for static field.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_FIELD_PREFIXES}, 
+	 *  {@link JavaCore#CODEASSIST_FIELD_SUFFIXES} for instance field and  {@link JavaCore#CODEASSIST_STATIC_FIELD_PREFIXES},
+	 *  {@link JavaCore#CODEASSIST_STATIC_FIELD_SUFFIXES} for static field.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -803,9 +807,9 @@ public final class NamingConventions {
 	 * If there is no prefix and suffix the proposal is <code>setPreFieldNamesuf</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_FIELD_PREFIXES, 
-	 * CODEASSIST_FIELD_SUFFIXES for instance field and CODEASSIST_STATIC_FIELD_PREFIXES,
-	 * CODEASSIST_STATIC_FIELD_SUFFIXES for static field.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_FIELD_PREFIXES}, 
+	 *  {@link JavaCore#CODEASSIST_FIELD_SUFFIXES} for instance field and  {@link JavaCore#CODEASSIST_STATIC_FIELD_PREFIXES},
+	 *  {@link JavaCore#CODEASSIST_STATIC_FIELD_SUFFIXES} for static field.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -830,7 +834,7 @@ public final class NamingConventions {
 			char[] name = removePrefixAndSuffixForFieldName(project, fieldName, modifiers);
 			int prefixLen =  GETTER_BOOL_NAME.length;
 			if (CharOperation.prefixEquals(GETTER_BOOL_NAME, name) 
-				&& name.length > prefixLen && Character.isUpperCase(name[prefixLen])) {
+				&& name.length > prefixLen && ScannerHelper.isUpperCase(name[prefixLen])) {
 				name = CharOperation.subarray(name, prefixLen, name.length);
 				return suggestNewName(
 					CharOperation.concat(SETTER_NAME, suggestAccessorName(project, name, modifiers)),
@@ -859,9 +863,9 @@ public final class NamingConventions {
 	 * If there is no prefix and suffix the proposal is <code>setPreFieldNamesuf</code>.
 	 * </p>
 	 * <p>
-	 * This method is affected by the following JavaCore options : CODEASSIST_FIELD_PREFIXES, 
-	 * CODEASSIST_FIELD_SUFFIXES for instance field and CODEASSIST_STATIC_FIELD_PREFIXES,
-	 * CODEASSIST_STATIC_FIELD_SUFFIXES for static field.
+	 * This method is affected by the following JavaCore options :  {@link JavaCore#CODEASSIST_FIELD_PREFIXES}, 
+	 *  {@link JavaCore#CODEASSIST_FIELD_SUFFIXES} for instance field and  {@link JavaCore#CODEASSIST_STATIC_FIELD_PREFIXES},
+	 *  {@link JavaCore#CODEASSIST_STATIC_FIELD_SUFFIXES} for static field.
 	 * </p>
 	 * <p>
 	 * For a complete description of these configurable options, see <code>getDefaultOptions</code>.
@@ -892,8 +896,8 @@ public final class NamingConventions {
 	
 	private static char[] suggestAccessorName(IJavaProject project, char[] fieldName, int modifiers) {
 		char[] name = removePrefixAndSuffixForFieldName(project, fieldName, modifiers);
-		if (name.length > 0 && Character.isLowerCase(name[0])) {
-			name[0] = Character.toUpperCase(name[0]);
+		if (name.length > 0 && ScannerHelper.isLowerCase(name[0])) {
+			name[0] = ScannerHelper.toUpperCase(name[0]);
 		}
 		return name;
 	}

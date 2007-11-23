@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -36,7 +36,13 @@ public final class Messages extends NLS {
 	public static String element_nullName;
 	public static String element_nullType;
 	public static String element_illegalParent;
-	public static String sourcetype_invalidName;
+	public static String javamodel_initialization;
+	public static String javamodel_building_after_upgrade;
+	public static String javamodel_configuring;
+	public static String javamodel_configuring_classpath_containers;
+	public static String javamodel_configuring_searchengine;
+	public static String javamodel_getting_build_state_number;
+	public static String javamodel_refreshing_external_jars;
 	public static String operation_needElements;
 	public static String operation_needName;
 	public static String operation_needPath;
@@ -98,6 +104,7 @@ public final class Messages extends NLS {
 	public static String build_prereqProjectHasClasspathProblems;
 	public static String build_prereqProjectMustBeRebuilt;
 	public static String build_abortDueToClasspathProblems;
+	public static String status_cannot_retrieve_attached_javadoc;	
 	public static String status_cannotUseDeviceOnPath;
 	public static String status_coreException;
 	public static String status_defaultPackageReadOnly;
@@ -119,9 +126,11 @@ public final class Messages extends NLS {
 	public static String status_OK;
 	public static String status_readOnly;
 	public static String status_targetException;
+	public static String status_unknown_javadoc_format;
 	public static String status_updateConflict;
 	public static String classpath_buildPath;
 	public static String classpath_cannotNestEntryInEntry;
+	public static String classpath_cannotNestEntryInEntryNoExclusion;
 	public static String classpath_cannotNestEntryInLibrary;
 	public static String classpath_cannotNestEntryInOutput;
 	public static String classpath_cannotNestOutputInEntry;
@@ -159,15 +168,21 @@ public final class Messages extends NLS {
 	public static String classpath_disabledMultipleOutputLocations;
 	public static String classpath_incompatibleLibraryJDKLevel;
 	public static String classpath_duplicateEntryExtraAttribute;
+	public static String classpath_deprecated_variable;
 	public static String file_notFound;
 	public static String file_badFormat;
 	public static String path_nullPath;
 	public static String path_mustBeAbsolute;
 	public static String cache_invalidLoadFactor;
 	public static String savedState_jobName;
-	public static String javamodel_initialization;
 	public static String restrictedAccess_project;
 	public static String restrictedAccess_library;
+	public static String restrictedAccess_constructor_project;
+	public static String restrictedAccess_constructor_library;
+	public static String restrictedAccess_field_project;
+	public static String restrictedAccess_field_library;
+	public static String restrictedAccess_method_project;
+	public static String restrictedAccess_method_library;
 	public static String convention_unit_nullName;
 	public static String convention_unit_notJavaName;
 	public static String convention_classFile_nullName;
@@ -204,6 +219,7 @@ public final class Messages extends NLS {
 	public static String dom_addAncestorAsSibling;
 	public static String dom_addNullInterface;
 	public static String dom_nullInterfaces;
+	public static String importRewrite_processDescription;
 	public static String correction_nullRequestor;
 	public static String correction_nullUnit;
 	public static String engine_searching;
@@ -270,6 +286,8 @@ public final class Messages extends NLS {
 	public static String disassembler_runtimevisibleparameterannotationsattributeheader;
 	public static String disassembler_runtimeinvisibleparameterannotationsattributeheader;
 	public static String disassembler_parameterannotationentrystart;
+	public static String disassembler_stackmaptableattributeheader;
+	public static String disassembler_stackmapattributeheader;
 	public static String classfileformat_versiondetails;
 	public static String classfileformat_methoddescriptor;
 	public static String classfileformat_fieldddescriptor;
@@ -312,6 +330,15 @@ public final class Messages extends NLS {
 	public static String classfileformat_exceptiontableentry;
 	public static String classfileformat_linenumbertableentry;
 	public static String classfileformat_localvariabletableentry;
+	public static String classfileformat_versionUnknown;
+	
+	public static String disassembler_frame_same_locals_1_stack_item_extended;
+	public static String disassembler_frame_chop;
+	public static String disassembler_frame_same_frame_extended;
+	public static String disassembler_frame_append;
+	public static String disassembler_frame_full_frame;
+	public static String disassembler_frame_same_frame;
+	public static String disassembler_frame_same_locals_1_stack_item;
 
 	static {
 		NLS.initializeMessages(BUNDLE_NAME, Messages.class);

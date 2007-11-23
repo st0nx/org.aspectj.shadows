@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -19,8 +19,11 @@ import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.jdt.core.compiler.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.*;
@@ -35,10 +38,10 @@ import org.eclipse.jdt.internal.core.util.Messages;
  */
 public final class JavaConventions {
 
-	private final static char DOT= '.';
+	private static final char DOT= '.';
 	private static final String PACKAGE_INFO = new String(TypeConstants.PACKAGE_INFO_NAME);
-	private final static Scanner SCANNER = new Scanner();
-
+	private static final Scanner SCANNER = new Scanner(false /*comment*/, true /*whitespace*/, false /*nls*/, ClassFileConstants.JDK1_3 /*sourceLevel*/, null/*taskTag*/, null/*taskPriorities*/, true /*taskCaseSensitive*/);
+	
 	private JavaConventions() {
 		// Not instantiable
 	}
@@ -72,32 +75,27 @@ public final class JavaConventions {
 
 	/*
 	 * Returns the current identifier extracted by the scanner (without unicode
-	 * escapes) from the given id.
+	 * escapes) from the given id and for the given source and compliance levels.
 	 * Returns <code>null</code> if the id was not valid
 	 */
-	private static synchronized char[] scannedIdentifier(String id) {
+	private static synchronized char[] scannedIdentifier(String id, String sourceLevel, String complianceLevel) {
 		if (id == null) {
 			return null;
 		}
-		String trimmed = id.trim();
-		if (!trimmed.equals(id)) {
-			return null;
-		}
+		// Set scanner for given source and compliance levels
+		SCANNER.sourceLevel = sourceLevel == null ? ClassFileConstants.JDK1_3 : CompilerOptions.versionToJdkLevel(sourceLevel);
+		SCANNER.complianceLevel = complianceLevel == null ? ClassFileConstants.JDK1_3 : CompilerOptions.versionToJdkLevel(complianceLevel);	
+
 		try {
 			SCANNER.setSource(id.toCharArray());
-			int token = SCANNER.getNextToken();
-			char[] currentIdentifier;
-			try {
-				currentIdentifier = SCANNER.getCurrentIdentifierSource();
-			} catch (ArrayIndexOutOfBoundsException e) {
-				return null;
-			}
-			int nextToken= SCANNER.getNextToken();
-			if (token == TerminalTokens.TokenNameIdentifier 
-				&& nextToken == TerminalTokens.TokenNameEOF
-				&& SCANNER.startPosition == SCANNER.source.length) { // to handle case where we had an ArrayIndexOutOfBoundsException 
-																     // while reading the last token
-				return currentIdentifier;
+			int token = SCANNER.scanIdentifier();
+			if (token != TerminalTokens.TokenNameIdentifier) return null; 
+			if (SCANNER.currentPosition == SCANNER.eofPosition) { // to handle case where we had an ArrayIndexOutOfBoundsException 
+				try {
+					return SCANNER.getCurrentIdentifierSource();
+				} catch (ArrayIndexOutOfBoundsException e) {
+					return null;
+				}
 			} else {
 				return null;
 			}
@@ -109,10 +107,12 @@ public final class JavaConventions {
 
 	/**
 	 * Validate the given compilation unit name.
+	 * <p>
 	 * A compilation unit name must obey the following rules:
 	 * <ul>
 	 * <li> it must not be null
-	 * <li> it must include the <code>".java"</code> suffix
+	 * <li> it must be suffixed by a dot ('.') followed by one of the 
+	 *       {@link JavaCore#getJavaLikeExtensions() Java-like extensions}
 	 * <li> its prefix must be a valid identifier
 	 * <li> it must not contain any characters or substrings that are not valid 
 	 *		   on the file system on which workspace root is located.
@@ -122,8 +122,34 @@ public final class JavaConventions {
 	 * @return a status object with code <code>IStatus.OK</code> if
 	 *		the given name is valid as a compilation unit name, otherwise a status 
 	 *		object indicating what is wrong with the name
+	 * @deprecated Use {@link #validateCompilationUnitName(String id, String sourceLevel, String complianceLevel)} instead
 	 */
 	public static IStatus validateCompilationUnitName(String name) {
+		return validateCompilationUnitName(name,CompilerOptions.VERSION_1_3,CompilerOptions.VERSION_1_3);
+	}
+	
+	/**
+	 * Validate the given compilation unit name for the given source and compliance levels.
+	 * <p>
+	 * A compilation unit name must obey the following rules:
+	 * <ul>
+	 * <li> it must not be null
+	 * <li> it must be suffixed by a dot ('.') followed by one of the 
+	 *       {@link JavaCore#getJavaLikeExtensions() Java-like extensions}
+	 * <li> its prefix must be a valid identifier
+	 * <li> it must not contain any characters or substrings that are not valid 
+	 *		   on the file system on which workspace root is located.
+	 * </ul>
+	 * </p>
+	 * @param name the name of a compilation unit
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
+	 * @return a status object with code <code>IStatus.OK</code> if
+	 *		the given name is valid as a compilation unit name, otherwise a status 
+	 *		object indicating what is wrong with the name
+	 * @since 3.3
+	 */
+	public static IStatus validateCompilationUnitName(String name, String sourceLevel, String complianceLevel) {
 		if (name == null) {
 			return new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Messages.convention_unit_nullName, null); 
 		}
@@ -141,7 +167,7 @@ public final class JavaConventions {
 		// file in which to store package annotations and
 		// the package-level spec (replaces package.html)
 		if (!identifier.equals(PACKAGE_INFO)) {
-			IStatus status = validateIdentifier(identifier);
+			IStatus status = validateIdentifier(identifier, sourceLevel, complianceLevel);
 			if (!status.isOK()) {
 				return status;
 			}
@@ -155,6 +181,7 @@ public final class JavaConventions {
 
 	/**
 	 * Validate the given .class file name.
+	 * <p>
 	 * A .class file name must obey the following rules:
 	 * <ul>
 	 * <li> it must not be null
@@ -169,8 +196,33 @@ public final class JavaConventions {
 	 *		the given name is valid as a .class file name, otherwise a status 
 	 *		object indicating what is wrong with the name
 	 * @since 2.0
+	 * @deprecated Use {@link #validateClassFileName(String id, String sourceLevel, String complianceLevel)} instead
 	 */
 	public static IStatus validateClassFileName(String name) {
+		return validateClassFileName(name, CompilerOptions.VERSION_1_3, CompilerOptions.VERSION_1_3);
+	}
+	
+	/**
+	 * Validate the given .class file name for the given source and compliance levels.
+	 * <p>
+	 * A .class file name must obey the following rules:
+	 * <ul>
+	 * <li> it must not be null
+	 * <li> it must include the <code>".class"</code> suffix
+	 * <li> its prefix must be a valid identifier
+	 * <li> it must not contain any characters or substrings that are not valid 
+	 *		   on the file system on which workspace root is located.
+	 * </ul>
+	 * </p>
+	 * @param name the name of a .class file
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
+	 * @return a status object with code <code>IStatus.OK</code> if
+	 *		the given name is valid as a .class file name, otherwise a status 
+	 *		object indicating what is wrong with the name
+	 * @since 3.3
+	 */
+	public static IStatus validateClassFileName(String name, String sourceLevel, String complianceLevel) {
 		if (name == null) {
 			return new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Messages.convention_classFile_nullName, null);		}
 		if (!org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(name)) {
@@ -187,7 +239,7 @@ public final class JavaConventions {
 		// file in which to store package annotations and
 		// the package-level spec (replaces package.html)
 		if (!identifier.equals(PACKAGE_INFO)) {
-			IStatus status = validateIdentifier(identifier);
+			IStatus status = validateIdentifier(identifier, sourceLevel, complianceLevel);
 			if (!status.isOK()) {
 				return status;
 			}
@@ -209,9 +261,28 @@ public final class JavaConventions {
 	 * @return a status object with code <code>IStatus.OK</code> if
 	 *		the given name is valid as a field name, otherwise a status 
 	 *		object indicating what is wrong with the name
+	 * @deprecated Use {@link #validateFieldName(String id, String sourceLevel, String complianceLevel)} instead
 	 */
 	public static IStatus validateFieldName(String name) {
-		return validateIdentifier(name);
+		return validateIdentifier(name, CompilerOptions.VERSION_1_3,CompilerOptions.VERSION_1_3);
+	}
+	
+	/**
+	 * Validate the given field name for the given source and compliance levels.
+	 * <p>
+	 * Syntax of a field name corresponds to VariableDeclaratorId (JLS2 8.3).
+	 * For example, <code>"x"</code>.
+	 *
+	 * @param name the name of a field
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
+	 * @return a status object with code <code>IStatus.OK</code> if
+	 *		the given name is valid as a field name, otherwise a status 
+	 *		object indicating what is wrong with the name
+	 * @since 3.3
+	 */
+	public static IStatus validateFieldName(String name, String sourceLevel, String complianceLevel) {
+		return validateIdentifier(name, sourceLevel, complianceLevel);
 	}
 
 	/**
@@ -225,9 +296,29 @@ public final class JavaConventions {
 	 * @return a status object with code <code>IStatus.OK</code> if
 	 *		the given identifier is a valid Java identifier, otherwise a status 
 	 *		object indicating what is wrong with the identifier
+	 * @deprecated Use {@link #validateIdentifier(String id, String sourceLevel, String complianceLevel)} instead
 	 */
 	public static IStatus validateIdentifier(String id) {
-		if (scannedIdentifier(id) != null) {
+		return validateIdentifier(id,CompilerOptions.VERSION_1_3,CompilerOptions.VERSION_1_3);
+	}
+	
+	/**
+	 * Validate the given Java identifier for the given source and compliance levels
+	 * The identifier must not have the same spelling as a Java keyword,
+	 * boolean literal (<code>"true"</code>, <code>"false"</code>), or null literal (<code>"null"</code>).
+	 * See section 3.8 of the <em>Java Language Specification, Second Edition</em> (JLS2).
+	 * A valid identifier can act as a simple type name, method name or field name.
+	 *
+	 * @param id the Java identifier
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
+	 * @return a status object with code <code>IStatus.OK</code> if
+	 *		the given identifier is a valid Java identifier, otherwise a status 
+	 *		object indicating what is wrong with the identifier
+	 * @since 3.3
+	 */
+	public static IStatus validateIdentifier(String id, String sourceLevel, String complianceLevel) {
+		if (scannedIdentifier(id, sourceLevel, complianceLevel) != null) {
 			return JavaModelStatus.VERIFIED_OK;
 		} else {
 			return new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Messages.bind(Messages.convention_illegalIdentifier, id), null); 
@@ -245,19 +336,39 @@ public final class JavaConventions {
 	 * @return a status object with code <code>IStatus.OK</code> if
 	 *		the given name is valid as an import declaration, otherwise a status 
 	 *		object indicating what is wrong with the name
+	 * @deprecated Use {@link #validateImportDeclaration(String id, String sourceLevel, String complianceLevel)} instead
 	 */
 	public static IStatus validateImportDeclaration(String name) {
+		return validateImportDeclaration(name,CompilerOptions.VERSION_1_3,CompilerOptions.VERSION_1_3);
+	}
+	
+	/**
+	 * Validate the given import declaration name for the given source and compliance levels.
+	 * <p>
+	 * The name of an import corresponds to a fully qualified type name
+	 * or an on-demand package name as defined by ImportDeclaration (JLS2 7.5).
+	 * For example, <code>"java.util.*"</code> or <code>"java.util.Hashtable"</code>.
+	 *
+	 * @param name the import declaration
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
+	 * @return a status object with code <code>IStatus.OK</code> if
+	 *		the given name is valid as an import declaration, otherwise a status 
+	 *		object indicating what is wrong with the name
+	 * @since 3.3
+	 */
+	public static IStatus validateImportDeclaration(String name, String sourceLevel, String complianceLevel) {
 		if (name == null || name.length() == 0) {
 			return new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Messages.convention_import_nullImport, null); 
 		} 
 		if (name.charAt(name.length() - 1) == '*') {
 			if (name.charAt(name.length() - 2) == '.') {
-				return validatePackageName(name.substring(0, name.length() - 2));
+				return validatePackageName(name.substring(0, name.length() - 2), sourceLevel, complianceLevel);
 			} else {
 				return new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Messages.convention_import_unqualifiedImport, null); 
 			}
 		}
-		return validatePackageName(name);
+		return validatePackageName(name, sourceLevel, complianceLevel);
 	}
 
 	/**
@@ -272,8 +383,29 @@ public final class JavaConventions {
 	 *		indicating why the given name is discouraged, 
 	 *      otherwise a status object indicating what is wrong with 
 	 *      the name
+	 * @deprecated Use {@link #validateJavaTypeName(String id, String sourceLevel, String complianceLevel)} instead
 	 */
 	public static IStatus validateJavaTypeName(String name) {
+		return validateJavaTypeName(name, CompilerOptions.VERSION_1_3,CompilerOptions.VERSION_1_3);
+	}
+	
+	/**
+	 * Validate the given Java type name, either simple or qualified, for the given source and compliance levels.
+	 * For example, <code>"java.lang.Object"</code>, or <code>"Object"</code>.
+	 * <p>
+	 *
+	 * @param name the name of a type
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
+	 * @return a status object with code <code>IStatus.OK</code> if
+	 *		the given name is valid as a Java type name, 
+	 *      a status with code <code>IStatus.WARNING</code>
+	 *		indicating why the given name is discouraged, 
+	 *      otherwise a status object indicating what is wrong with 
+	 *      the name
+	 * @since 3.3
+	 */
+	public static IStatus validateJavaTypeName(String name, String sourceLevel, String complianceLevel) {
 		if (name == null) {
 			return new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Messages.convention_type_nullName, null); 
 		}
@@ -285,16 +417,16 @@ public final class JavaConventions {
 		char[] scannedID;
 		if (index == -1) {
 			// simple name
-			scannedID = scannedIdentifier(name);
+			scannedID = scannedIdentifier(name, sourceLevel, complianceLevel);
 		} else {
 			// qualified name
 			String pkg = name.substring(0, index).trim();
-			IStatus status = validatePackageName(pkg);
+			IStatus status = validatePackageName(pkg, sourceLevel, complianceLevel);
 			if (!status.isOK()) {
 				return status;
 			}
 			String type = name.substring(index + 1).trim();
-			scannedID = scannedIdentifier(type);
+			scannedID = scannedIdentifier(type, sourceLevel, complianceLevel);
 		}
 	
 		if (scannedID != null) {
@@ -305,7 +437,7 @@ public final class JavaConventions {
 			if (CharOperation.contains('$', scannedID)) {
 				return new Status(IStatus.WARNING, JavaCore.PLUGIN_ID, -1, Messages.convention_type_dollarName, null); 
 			}
-			if ((scannedID.length > 0 && Character.isLowerCase(scannedID[0]))) {
+			if ((scannedID.length > 0 && ScannerHelper.isLowerCase(scannedID[0]))) {
 				return new Status(IStatus.WARNING, JavaCore.PLUGIN_ID, -1, Messages.convention_type_lowercaseName, null); 
 			}
 			return JavaModelStatus.VERIFIED_OK;
@@ -325,10 +457,29 @@ public final class JavaConventions {
 	 * @return a status object with code <code>IStatus.OK</code> if
 	 *		the given name is valid as a method name, otherwise a status 
 	 *		object indicating what is wrong with the name
+	 * @deprecated Use {@link #validateMethodName(String id, String sourceLevel, String complianceLevel)} instead
 	 */
 	public static IStatus validateMethodName(String name) {
-
-		return validateIdentifier(name);
+		return validateMethodName(name, CompilerOptions.VERSION_1_3,CompilerOptions.VERSION_1_3);
+	}
+	
+	/**
+	 * Validate the given method name for the given source and compliance levels.
+	 * The special names "&lt;init&gt;" and "&lt;clinit&gt;" are not valid.
+	 * <p>
+	 * The syntax for a method  name is defined by Identifier
+	 * of MethodDeclarator (JLS2 8.4). For example "println".
+	 *
+	 * @param name the name of a method
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
+	 * @return a status object with code <code>IStatus.OK</code> if
+	 *		the given name is valid as a method name, otherwise a status 
+	 *		object indicating what is wrong with the name
+	 * @since 3.3
+	 */
+	public static IStatus validateMethodName(String name, String sourceLevel, String complianceLevel) {
+		return validateIdentifier(name, sourceLevel,complianceLevel);
 	}
 
 	/**
@@ -346,8 +497,32 @@ public final class JavaConventions {
 	 * @return a status object with code <code>IStatus.OK</code> if
 	 *		the given name is valid as a package name, otherwise a status 
 	 *		object indicating what is wrong with the name
+	 * @deprecated Use {@link #validatePackageName(String id, String sourceLevel, String complianceLevel)} instead
 	 */
 	public static IStatus validatePackageName(String name) {
+		return validatePackageName(name, CompilerOptions.VERSION_1_3,CompilerOptions.VERSION_1_3);
+	}
+	
+	/**
+	 * Validate the given package name for the given source and compliance levels.
+	 * <p>
+	 * The syntax of a package name corresponds to PackageName as
+	 * defined by PackageDeclaration (JLS2 7.4). For example, <code>"java.lang"</code>.
+	 * <p>
+	 * Note that the given name must be a non-empty package name (that is, attempting to
+	 * validate the default package will return an error status.)
+	 * Also it must not contain any characters or substrings that are not valid 
+	 * on the file system on which workspace root is located.
+	 *
+	 * @param name the name of a package
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
+	 * @return a status object with code <code>IStatus.OK</code> if
+	 *		the given name is valid as a package name, otherwise a status 
+	 *		object indicating what is wrong with the name
+	 * @since 3.3
+	 */
+	public static IStatus validatePackageName(String name, String sourceLevel, String complianceLevel) {
 
 		if (name == null) {
 			return new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Messages.convention_package_nullName, null); 
@@ -375,7 +550,7 @@ public final class JavaConventions {
 		while (st.hasMoreTokens()) {
 			String typeName = st.nextToken();
 			typeName = typeName.trim(); // grammar allows spaces
-			char[] scannedID = scannedIdentifier(typeName);
+			char[] scannedID = scannedIdentifier(typeName, sourceLevel, complianceLevel);
 			if (scannedID == null) {
 				return new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, -1, Messages.bind(Messages.convention_illegalIdentifier, typeName), null); 
 			}
@@ -383,7 +558,7 @@ public final class JavaConventions {
 			if (!status.isOK()) {
 				return status;
 			}
-			if (firstToken && scannedID.length > 0 && Character.isUpperCase(scannedID[0])) {
+			if (firstToken && scannedID.length > 0 && ScannerHelper.isUpperCase(scannedID[0])) {
 				if (warningStatus == null) {
 					warningStatus = new Status(IStatus.WARNING, JavaCore.PLUGIN_ID, -1, Messages.convention_package_uppercaseName, null); 
 				}
@@ -444,7 +619,10 @@ public final class JavaConventions {
 	 * @since 2.0
 	 */
 	public static IJavaModelStatus validateClasspathEntry(IJavaProject project, IClasspathEntry entry, boolean checkSourceAttachment){
-		return ClasspathEntry.validateClasspathEntry(project, entry, checkSourceAttachment, true/*recurse in container*/);
+		IJavaModelStatus status = ClasspathEntry.validateClasspathEntry(project, entry, checkSourceAttachment, true/*recurse in container*/);
+		if (status.getCode() == IJavaModelStatusConstants.INVALID_CLASSPATH && ((ClasspathEntry) entry).isOptional())
+			return JavaModelStatus.VERIFIED_OK;
+		return status;
 	}
 	
 	/**
@@ -458,11 +636,30 @@ public final class JavaConventions {
 	 *		the given name is valid as a type variable name, otherwise a status 
 	 *		object indicating what is wrong with the name
 	 * @since 3.1
+	 * @deprecated Use {@link #validateTypeVariableName(String id, String sourceLevel, String complianceLevel)} instead
 	 */
 	public static IStatus validateTypeVariableName(String name) {
-		return validateIdentifier(name);
+		return validateIdentifier(name, CompilerOptions.VERSION_1_3,CompilerOptions.VERSION_1_3);
 	}
-
+	
+	/**
+	 * Validate the given type variable name for the given source and compliance levels.
+	 * <p>
+	 * Syntax of a type variable name corresponds to a Java identifier (JLS3 4.3).
+	 * For example, <code>"E"</code>.
+	 *
+	 * @param name the name of a type variable
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
+	 * @return a status object with code <code>IStatus.OK</code> if
+	 *		the given name is valid as a type variable name, otherwise a status 
+	 *		object indicating what is wrong with the name
+	 * @since 3.3
+	 */
+	public static IStatus validateTypeVariableName(String name, String sourceLevel, String complianceLevel) {
+		return validateIdentifier(name, sourceLevel, complianceLevel);
+	}
+	
 	/**
 	 * Validate that all compiler options of the given project match keys and values
 	 * described in {@link JavaCore#getDefaultOptions()} method.

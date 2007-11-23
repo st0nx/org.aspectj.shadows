@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,21 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
-/*
- * A document element parser extracts structural information
- * from a piece of source, providing detailed source positions info.
- *
- * also see @IDocumentElementRequestor
- *
- * The structural investigation includes:
- * - the package statement
- * - import statements
- * - top-level types: package member, member types (member types of member types...)
- * - fields
- * - methods
- *
- * Any (parsing) problem encountered is also provided.
- */
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.env.*;
 
 import org.eclipse.jdt.internal.compiler.impl.*;
@@ -48,8 +34,6 @@ public class DocumentElementParser extends Parser {
 	int[][] intArrayStack;
 	int intArrayPtr;
 	
-	CompilerOptions options;
-	
 public DocumentElementParser(
 	final IDocumentElementRequestor requestor, 
 	IProblemFactory problemFactory,
@@ -63,6 +47,9 @@ public DocumentElementParser(
 	intArrayStack = new int[30][];
 	this.options = options;
 	this.javadocParser.checkDocComment = false;
+	
+	this.setMethodsFullRecovery(false);
+	this.setStatementsRecovery(false);
 }
 /*
  * Will clear the comment stack when looking
@@ -95,7 +82,7 @@ public void checkComment() {
 		break nextComment;
 	}
 	if (deprecated) {
-		checkAndSetModifiers(AccDeprecated);
+		checkAndSetModifiers(ClassFileConstants.AccDeprecated);
 	}
 	// modify the modifier source start to point at the first comment
 	if (commentPtr >= 0) {
@@ -210,11 +197,11 @@ protected void consumeClassHeaderName1() {
 	TypeDeclaration typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
 	if (nestedMethod[nestedType] == 0) {
 		if (nestedType != 0) {
-			typeDecl.bits |= ASTNode.IsMemberTypeMASK;
+			typeDecl.bits |= ASTNode.IsMemberType;
 		}
 	} else {
 		// Record that the block has a declaration for local types
-		typeDecl.bits |= ASTNode.IsLocalTypeMASK;
+		typeDecl.bits |= ASTNode.IsLocalType;
 		markEnclosingMemberWithLocalType();
 		blockReal();
 	}
@@ -474,6 +461,11 @@ protected void consumeEnterVariable() {
 		declaration.declarationSourceStart = previousVariable.declarationSourceStart;
 		declaration.modifiers = previousVariable.modifiers;
 		declaration.modifiersSourceStart = previousVariable.modifiersSourceStart;
+		final Annotation[] annotations = previousVariable.annotations;
+		if (annotations != null) {
+			final int annotationsLength = annotations.length;
+			System.arraycopy(annotations, 0, declaration.annotations = new Annotation[annotationsLength], 0, annotationsLength);
+		}
 	}
 
 	localIntPtr = intPtr;
@@ -663,11 +655,11 @@ protected void consumeInterfaceHeaderName1() {
 	TypeDeclaration typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
 	if (nestedMethod[nestedType] == 0) {
 		if (nestedType != 0) {
-			typeDecl.bits |= ASTNode.IsMemberTypeMASK;
+			typeDecl.bits |= ASTNode.IsMemberType;
 		}
 	} else {
 		// Record that the block has a declaration for local types
-		typeDecl.bits |= ASTNode.IsLocalTypeMASK;
+		typeDecl.bits |= ASTNode.IsLocalType;
 		markEnclosingMemberWithLocalType();
 		blockReal();
 	}
@@ -685,7 +677,7 @@ protected void consumeInterfaceHeaderName1() {
 	intPtr--;
 	int declSourceStart = intStack[intPtr--];
 	typeDecl.modifiersSourceStart = intStack[intPtr--];
-	typeDecl.modifiers = this.intStack[this.intPtr--] | AccInterface;
+	typeDecl.modifiers = this.intStack[this.intPtr--] | ClassFileConstants.AccInterface;
 	if (typeDecl.declarationSourceStart > declSourceStart) {
 		typeDecl.declarationSourceStart = declSourceStart;
 	}
@@ -975,7 +967,7 @@ protected void consumeSingleStaticImportDeclarationName() {
 		CharOperation.concatWith(importReference.getImportName(), '.'),
 		importReference.sourceStart,
 		false,
-		AccStatic);
+		ClassFileConstants.AccStatic);
 }
 /*
  *
@@ -996,7 +988,7 @@ protected void consumeSingleTypeImportDeclarationName() {
 		CharOperation.concatWith(importReference.getImportName(), '.'),
 		importReference.sourceStart,
 		false,
-		AccDefault);
+		ClassFileConstants.AccDefault);
 }
 protected void consumeStaticImportOnDemandDeclarationName() {
 	// SingleTypeImportDeclarationName ::= 'import' 'static' Name '.' '*'
@@ -1013,7 +1005,7 @@ protected void consumeStaticImportOnDemandDeclarationName() {
 		CharOperation.concatWith(importReference.getImportName(), '.'),
 		importReference.sourceStart,
 		true,
-		AccStatic);
+		ClassFileConstants.AccStatic);
 }
 /*
  *
@@ -1029,7 +1021,7 @@ protected void consumeStaticInitializer() {
 		initializer.declarationSourceStart,
 		initializer.declarationSourceEnd,
 		intArrayStack[intArrayPtr--],
-		AccStatic, 
+		ClassFileConstants.AccStatic, 
 		intStack[intPtr--], 
 		initializer.block.sourceStart,
 		initializer.declarationSourceEnd);
@@ -1064,7 +1056,7 @@ protected void consumeTypeImportOnDemandDeclarationName() {
 		CharOperation.concatWith(importReference.getImportName(), '.'), 
 		importReference.sourceStart,
 		true,
-		AccDefault);
+		ClassFileConstants.AccDefault);
 }
 /*
  * Flush javadocs defined prior to a given positions.
@@ -1089,7 +1081,12 @@ public CompilationUnitDeclaration endParse(int act) {
 	}
 	return super.endParse(act);
 }
-
+public void initialize(boolean initializeNLS) {
+	//positionning the parser for a new compilation unit
+	//avoiding stack reallocation and all that....
+	super.initialize(initializeNLS);
+	intArrayPtr = -1;
+}
 public void initialize() {
 	//positionning the parser for a new compilation unit
 	//avoiding stack reallocation and all that....
@@ -1120,15 +1117,14 @@ protected void parse() {
 public void parseCompilationUnit(ICompilationUnit unit) {
 	char[] regionSource = unit.getContents();
 	try {
-		initialize();
+		initialize(true);
 		goForCompilationUnit();
 		referenceContext =
 			compilationUnit = 
-				compilationUnit = 
-					new CompilationUnitDeclaration(
-						problemReporter(), 
-						new CompilationResult(unit, 0, 0, this.options.maxProblemsPerUnit), 
-						regionSource.length); 
+				new CompilationUnitDeclaration(
+					problemReporter(), 
+					new CompilationResult(unit, 0, 0, this.options.maxProblemsPerUnit), 
+					regionSource.length); 
 		scanner.resetTo(0, regionSource.length);
 		scanner.setSource(regionSource);
 		parse();
@@ -1145,11 +1141,10 @@ public void parseConstructor(char[] regionSource) {
 		goForClassBodyDeclarations();
 		referenceContext = 
 			compilationUnit = 
-				compilationUnit = 
-					new CompilationUnitDeclaration(
-						problemReporter(), 
-						new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
-						regionSource.length); 
+				new CompilationUnitDeclaration(
+					problemReporter(), 
+					new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
+					regionSource.length); 
 		scanner.resetTo(0, regionSource.length);
 		scanner.setSource(regionSource);
 		parse();
@@ -1166,11 +1161,10 @@ public void parseField(char[] regionSource) {
 		goForFieldDeclaration();
 		referenceContext = 
 			compilationUnit = 
-				compilationUnit = 
-					new CompilationUnitDeclaration(
-						problemReporter(), 
-						new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
-						regionSource.length); 
+				new CompilationUnitDeclaration(
+					problemReporter(), 
+					new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
+					regionSource.length); 
 		scanner.resetTo(0, regionSource.length);
 		scanner.setSource(regionSource);
 		parse();
@@ -1188,11 +1182,10 @@ public void parseImport(char[] regionSource) {
 		goForImportDeclaration();
 		referenceContext = 
 			compilationUnit = 
-				compilationUnit = 
-					new CompilationUnitDeclaration(
-						problemReporter(), 
-						new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
-						regionSource.length); 
+				new CompilationUnitDeclaration(
+					problemReporter(), 
+					new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
+					regionSource.length); 
 		scanner.resetTo(0, regionSource.length);
 		scanner.setSource(regionSource);
 		parse();
@@ -1213,11 +1206,10 @@ public void parseInitializer(char[] regionSource) {
 		goForInitializer();
 		referenceContext = 
 			compilationUnit = 
-				compilationUnit = 
-					new CompilationUnitDeclaration(
-						problemReporter(), 
-						new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
-						regionSource.length); 
+				new CompilationUnitDeclaration(
+					problemReporter(), 
+					new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
+					regionSource.length); 
 		scanner.resetTo(0, regionSource.length);
 		scanner.setSource(regionSource);
 		parse();
@@ -1235,18 +1227,16 @@ public void parseMethod(char[] regionSource) {
 		goForGenericMethodDeclaration();
 		referenceContext = 
 			compilationUnit = 
-				compilationUnit = 
-					new CompilationUnitDeclaration(
-						problemReporter(), 
-						new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
-						regionSource.length); 
+				new CompilationUnitDeclaration(
+					problemReporter(), 
+					new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
+					regionSource.length); 
 		scanner.resetTo(0, regionSource.length);
 		scanner.setSource(regionSource);
 		parse();
 	} catch (AbortCompilation ex) {
 		// ignore this exception
 	}
-
 }
 /*
  * Investigate one package statement declaration.
@@ -1257,11 +1247,10 @@ public void parsePackage(char[] regionSource) {
 		goForPackageDeclaration();
 		referenceContext = 
 			compilationUnit = 
-				compilationUnit = 
-					new CompilationUnitDeclaration(
-						problemReporter(), 
-						new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
-						regionSource.length); 
+				new CompilationUnitDeclaration(
+					problemReporter(), 
+					new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
+					regionSource.length); 
 		scanner.resetTo(0, regionSource.length);
 		scanner.setSource(regionSource);
 		parse();
@@ -1279,11 +1268,10 @@ public void parseType(char[] regionSource) {
 		goForTypeDeclaration();
 		referenceContext = 
 			compilationUnit = 
-				compilationUnit = 
-					new CompilationUnitDeclaration(
-						problemReporter(), 
-						new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
-						regionSource.length); 
+				new CompilationUnitDeclaration(
+					problemReporter(), 
+					new CompilationResult(regionSource, 0, 0, this.options.maxProblemsPerUnit), 
+					regionSource.length); 
 		scanner.resetTo(0, regionSource.length);
 		scanner.setSource(regionSource);
 		parse();

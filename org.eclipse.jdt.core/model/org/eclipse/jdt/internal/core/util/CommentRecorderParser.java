@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,6 +11,7 @@
 package org.eclipse.jdt.internal.core.util;
 
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
@@ -70,7 +71,7 @@ public class CommentRecorderParser extends Parser {
 			break nextComment;
 		}
 		if (deprecated) {
-			checkAndSetModifiers(AccDeprecated);
+			checkAndSetModifiers(ClassFileConstants.AccDeprecated);
 		}
 		// modify the modifier source start to point at the first comment
 		if (lastCommentIndex >= 0 && checkDeprecated) {
@@ -87,13 +88,6 @@ public class CommentRecorderParser extends Parser {
 	protected void consumeClassHeader() {
 		pushOnCommentsStack(0, this.scanner.commentPtr);
 		super.consumeClassHeader();
-	}
-	/* (non-Javadoc)
-	 * @see org.eclipse.jdt.internal.compiler.parser.Parser#consumeEmptyClassMemberDeclaration()
-	 */
-	protected void consumeEmptyClassMemberDeclaration() {
-		pushOnCommentsStack(0, this.scanner.commentPtr);
-		super.consumeEmptyClassMemberDeclaration();
 	}
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.parser.Parser#consumeEmptyTypeDeclaration()
@@ -170,7 +164,8 @@ public class CommentRecorderParser extends Parser {
 			while (index<lastCommentIndex && (immediateCommentEnd = -this.scanner.commentStops[index+1])  > 0){ // only tolerating non-javadoc comments (non-javadoc comment end positions are negative)
 				// is there any line break until the end of the immediate comment ? (thus only tolerating line comment)
 				immediateCommentEnd--; // comment end in one char too far
-				if (this.scanner.getLineNumber(position) != this.scanner.getLineNumber(immediateCommentEnd)) break;
+				if (org.eclipse.jdt.internal.compiler.util.Util.getLineNumber(position, this.scanner.lineEnds, 0, this.scanner.linePtr) 
+						!= org.eclipse.jdt.internal.compiler.util.Util.getLineNumber(immediateCommentEnd, this.scanner.lineEnds, 0, this.scanner.linePtr)) break;
 				position = immediateCommentEnd;
 				validCount--; // flush this comment
 				index++;
@@ -220,6 +215,13 @@ public class CommentRecorderParser extends Parser {
 		return positions;
 	}
 
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.internal.compiler.parser.Parser#initialize()
+	 */
+	public void initialize(boolean initializeNLS) {
+		super.initialize(initializeNLS);
+		this.commentPtr = -1;
+	}
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.parser.Parser#initialize()
 	 */

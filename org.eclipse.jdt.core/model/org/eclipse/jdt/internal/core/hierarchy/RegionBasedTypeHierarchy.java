@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,17 +14,11 @@ import java.util.ArrayList;
 
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IJavaElementDelta;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.IOpenable;
-import org.eclipse.jdt.core.IRegion;
-import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.internal.core.CompilationUnit;
 import org.eclipse.jdt.internal.core.JavaElement;
 import org.eclipse.jdt.internal.core.Openable;
+import org.eclipse.jdt.internal.core.Region;
 import org.eclipse.jdt.internal.core.TypeVector;
 
 public class RegionBasedTypeHierarchy extends TypeHierarchy {
@@ -42,8 +36,37 @@ public class RegionBasedTypeHierarchy extends TypeHierarchy {
  */
 public RegionBasedTypeHierarchy(IRegion region, ICompilationUnit[] workingCopies, IType type, boolean computeSubtypes) {
 	super(type, workingCopies, (IJavaSearchScope)null, computeSubtypes);
-	this.region = region;
+	
+	Region newRegion = new Region() {
+		public void add(IJavaElement element) {
+			if (!contains(element)) {
+				//"new" element added to region
+				removeAllChildren(element);
+				fRootElements.add(element);
+				if (element.getElementType() == IJavaElement.JAVA_PROJECT) {
+					// add jar roots as well so that jars don't rely on their parent to know 
+					// if they are contained in the region
+					// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=146615)
+					try {
+						IPackageFragmentRoot[] roots = ((IJavaProject) element).getPackageFragmentRoots();
+						for (int i = 0, length = roots.length; i < length; i++) {
+							if (roots[i].isArchive() && !fRootElements.contains(roots[i]))
+								fRootElements.add(roots[i]);
+						}
+					} catch (JavaModelException e) {
+						// project doesn't exist
+					}
+				}
+				fRootElements.trimToSize();
+			}
+		}
+	};
 	IJavaElement[] elements = region.getElements();
+	for (int i = 0, length = elements.length; i < length; i++) {
+		newRegion.add(elements[i]);
+		
+	}
+	this.region = newRegion;
 	if (elements.length > 0)
 		this.project = elements[0].getJavaProject();
 }

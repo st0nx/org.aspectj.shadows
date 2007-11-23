@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,7 +26,6 @@ package org.eclipse.jdt.internal.compiler.parser;
 import java.util.ArrayList;
 import java.util.HashMap;
 
-import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.JavaModelException;
@@ -38,13 +37,24 @@ import org.eclipse.jdt.internal.compiler.ast.TypeParameter;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.env.*;
 
-import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
+import org.eclipse.jdt.internal.compiler.lookup.ExtraCompilerModifiers;
+import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.core.*;
+import org.eclipse.jdt.internal.core.util.Util;
 
-public class SourceTypeConverter implements CompilerModifiers {
+public class SourceTypeConverter {
 	
+	/* 
+	 * Exception thrown while converting an anonymous type of a member type
+	 * in this case, we must parse the source as the enclosing instance cannot be recreated
+	 * from the model
+	 */
+	static class AnonymousMemberFound extends RuntimeException {
+		private static final long serialVersionUID = 1L;
+	}
+
 	public static final int FIELD = 0x01;
 	public static final int CONSTRUCTOR = 0x02;
 	public static final int METHOD = 0x04;
@@ -119,38 +129,52 @@ public class SourceTypeConverter implements CompilerModifiers {
 		int end = topLevelTypeInfo.getNameSourceEnd();
 
 		/* convert package and imports */
-		char[] packageName = cuHandle.getParent().getElementName().toCharArray();
+		String[] packageName = ((PackageFragment) cuHandle.getParent()).names;
 		if (packageName.length > 0)
 			// if its null then it is defined in the default package
 			this.unit.currentPackage =
-				createImportReference(packageName, start, end, false, AccDefault);
+				createImportReference(packageName, start, end, false, ClassFileConstants.AccDefault);
 		IImportDeclaration[] importDeclarations = topLevelTypeInfo.getHandle().getCompilationUnit().getImports();
 		int importCount = importDeclarations.length;
 		this.unit.imports = new ImportReference[importCount];
 		for (int i = 0; i < importCount; i++) {
 			ImportDeclaration importDeclaration = (ImportDeclaration) importDeclarations[i];
 			ISourceImport sourceImport = (ISourceImport) importDeclaration.getElementInfo();
+			String nameWithoutStar = importDeclaration.getNameWithoutStar();
 			this.unit.imports[i] = createImportReference(
-				importDeclaration.getNameWithoutStar().toCharArray(), 
+				Util.splitOn('.', nameWithoutStar, 0, nameWithoutStar.length()), 
 				sourceImport.getDeclarationSourceStart(),
 				sourceImport.getDeclarationSourceEnd(),
 				importDeclaration.isOnDemand(),
 				sourceImport.getModifiers());
 		}
 		/* convert type(s) */
-		int typeCount = sourceTypes.length;
-		final TypeDeclaration[] types = new TypeDeclaration[typeCount];
-		/*
-		 * We used a temporary types collection to prevent this.unit.types from being null during a call to
-		 * convert(...) when the source is syntactically incorrect and the parser is flushing the unit's types.
-		 * See https://bugs.eclipse.org/bugs/show_bug.cgi?id=97466
-		 */
-		for (int i = 0; i < typeCount; i++) {
-			SourceTypeElementInfo typeInfo = (SourceTypeElementInfo) sourceTypes[i];
-			types[i] = convert((SourceType) typeInfo.getHandle(), compilationResult);
+		try {
+			int typeCount = sourceTypes.length;
+			final TypeDeclaration[] types = new TypeDeclaration[typeCount];
+			/*
+			 * We used a temporary types collection to prevent this.unit.types from being null during a call to
+			 * convert(...) when the source is syntactically incorrect and the parser is flushing the unit's types.
+			 * See https://bugs.eclipse.org/bugs/show_bug.cgi?id=97466
+			 */
+			for (int i = 0; i < typeCount; i++) {
+				SourceTypeElementInfo typeInfo = (SourceTypeElementInfo) sourceTypes[i];
+				types[i] = convert((SourceType) typeInfo.getHandle(), compilationResult);
+			}
+			this.unit.types = types;
+			return this.unit;
+		} catch (AnonymousMemberFound e) {
+			return new Parser(this.problemReporter, true).parse(this.cu, compilationResult);
 		}
-		this.unit.types = types;
-		return this.unit;
+	}
+	
+	private void addIdentifiers(String typeSignature, int start, int endExclusive, int identCount, ArrayList fragments) {
+		if (identCount == 1) {
+			char[] identifier;
+			typeSignature.getChars(start, endExclusive, identifier = new char[endExclusive-start], 0);
+			fragments.add(identifier);
+		} else
+			fragments.add(extractIdentifiers(typeSignature, start, endExclusive-1, identCount));
 	}
 	
 	/*
@@ -159,7 +183,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 	private Initializer convert(InitializerElementInfo initializerInfo, CompilationResult compilationResult) throws JavaModelException {
 
 		Block block = new Block(0);
-		Initializer initializer = new Initializer(block, IConstants.AccDefault);
+		Initializer initializer = new Initializer(block, ClassFileConstants.AccDefault);
 
 		int start = initializerInfo.getDeclarationSourceStart();
 		int end = initializerInfo.getDeclarationSourceEnd();
@@ -176,7 +200,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 			for (int i = 0; i < typesLength; i++) {
 				SourceType type = (SourceType) children[i];
 				TypeDeclaration localType = convert(type, compilationResult);
-				if ((localType.bits & ASTNode.IsAnonymousTypeMASK) != 0) {
+				if ((localType.bits & ASTNode.IsAnonymousType) != 0) {
 					QualifiedAllocationExpression expression = new QualifiedAllocationExpression(localType);
 					expression.type = localType.superclass;
 					localType.superclass = null;
@@ -210,9 +234,9 @@ public class SourceTypeConverter implements CompilerModifiers {
 		field.declarationSourceStart = fieldInfo.getDeclarationSourceStart();
 		field.declarationSourceEnd = fieldInfo.getDeclarationSourceEnd();
 		int modifiers = fieldInfo.getModifiers();
-		boolean isEnumConstant = (modifiers & AccEnum) != 0;
+		boolean isEnumConstant = (modifiers & ClassFileConstants.AccEnum) != 0;
 		if (isEnumConstant) {
-			field.modifiers = modifiers & ~Flags.AccEnum; // clear AccEnum bit onto AST (binding will add it)
+			field.modifiers = modifiers & ~ClassFileConstants.AccEnum; // clear AccEnum bit onto AST (binding will add it)
 		} else {
 			field.modifiers = modifiers;
 			field.type = createTypeReference(fieldInfo.getTypeName(), start, end);
@@ -239,33 +263,40 @@ public class SourceTypeConverter implements CompilerModifiers {
 		if ((this.flags & LOCAL_TYPE) != 0) {
 			IJavaElement[] children = fieldInfo.getChildren();
 			int childrenLength = children.length;
-			if (childrenLength > 0) {
+			if (childrenLength == 1) {
+				field.initialization = convert(children[0], isEnumConstant ? field : null, compilationResult);
+			} else if (childrenLength > 1) {
 				ArrayInitializer initializer = new ArrayInitializer();
 				field.initialization = initializer;
 				Expression[] expressions = new Expression[childrenLength];
 				initializer.expressions = expressions;
 				for (int i = 0; i < childrenLength; i++) {
-					IJavaElement localType = children[i];
-					TypeDeclaration anonymousLocalTypeDeclaration = convert((SourceType) localType, compilationResult);
-					QualifiedAllocationExpression expression = new QualifiedAllocationExpression(anonymousLocalTypeDeclaration);
-					expression.type = anonymousLocalTypeDeclaration.superclass;
-					anonymousLocalTypeDeclaration.superclass = null;
-					anonymousLocalTypeDeclaration.superInterfaces = null;
-					anonymousLocalTypeDeclaration.allocation = expression;
-					anonymousLocalTypeDeclaration.modifiers &= ~AccEnum; // remove tag in case this is the init of an enum constant
-					expressions[i] = expression;
+					expressions[i] = convert(children[i], isEnumConstant ? field : null, compilationResult);
 				}
 			}
 		}
 		return field;
 	}
 
+	private QualifiedAllocationExpression convert(IJavaElement localType, FieldDeclaration enumConstant, CompilationResult compilationResult) throws JavaModelException {
+		TypeDeclaration anonymousLocalTypeDeclaration = convert((SourceType) localType, compilationResult);
+		QualifiedAllocationExpression expression = new QualifiedAllocationExpression(anonymousLocalTypeDeclaration);
+		expression.type = anonymousLocalTypeDeclaration.superclass;
+		anonymousLocalTypeDeclaration.superclass = null;
+		anonymousLocalTypeDeclaration.superInterfaces = null;
+		anonymousLocalTypeDeclaration.allocation = expression;
+		if (enumConstant != null) {
+			anonymousLocalTypeDeclaration.modifiers &= ~ClassFileConstants.AccEnum;
+			expression.enumConstant = enumConstant;
+			expression.type = null;
+		}
+		return expression;
+	}
+
 	/*
 	 * Convert a method source element into a parsed method/constructor declaration 
 	 */
-	private AbstractMethodDeclaration convert(SourceMethod methodHandle, CompilationResult compilationResult) throws JavaModelException {
-
-		SourceMethodElementInfo methodInfo = (SourceMethodElementInfo) methodHandle.getElementInfo();
+	private AbstractMethodDeclaration convert(SourceMethod methodHandle, SourceMethodElementInfo methodInfo, CompilationResult compilationResult) throws JavaModelException {
 		AbstractMethodDeclaration method;
 
 		/* only source positions available */
@@ -292,7 +323,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 		int modifiers = methodInfo.getModifiers();
 		if (methodInfo.isConstructor()) {
 			ConstructorDeclaration decl = new ConstructorDeclaration(compilationResult);
-			decl.isDefaultConstructor = false;
+			decl.bits &= ~ASTNode.IsDefaultConstructor;
 			method = decl;
 			decl.typeParameters = typeParams;
 		} else {
@@ -301,16 +332,24 @@ public class SourceTypeConverter implements CompilerModifiers {
 				AnnotationMethodDeclaration annotationMethodDeclaration = new AnnotationMethodDeclaration(compilationResult);
 
 				/* conversion of default value */
+				SourceAnnotationMethodInfo annotationMethodInfo = (SourceAnnotationMethodInfo) methodInfo;
+				boolean hasDefaultValue = annotationMethodInfo.defaultValueStart != -1 || annotationMethodInfo.defaultValueEnd != -1;
 				if ((this.flags & FIELD_INITIALIZATION) != 0) {
-					char[] defaultValueSource = ((SourceAnnotationMethodInfo) methodInfo).getDefaultValueSource(getSource());
-					if (defaultValueSource != null) {
-						Expression expression =  parseMemberValue(defaultValueSource);
-						if (expression != null) {
-							annotationMethodDeclaration.defaultValue = expression;
-							modifiers |= AccAnnotationDefault;
+					if (hasDefaultValue) {
+						char[] defaultValueSource = CharOperation.subarray(getSource(), annotationMethodInfo.defaultValueStart, annotationMethodInfo.defaultValueEnd+1);
+						if (defaultValueSource != null) {
+    						Expression expression =  parseMemberValue(defaultValueSource);
+    						if (expression != null) {
+    							annotationMethodDeclaration.defaultValue = expression;
+    						}
+						} else {
+							// could not retrieve the default value
+							hasDefaultValue = false;
 						}
 					}
 				}
+				if (hasDefaultValue)
+					modifiers |= ClassFileConstants.AccAnnotationDefault;
 				decl = annotationMethodDeclaration;
 			} else {
 				decl = new MethodDeclaration(compilationResult);
@@ -325,8 +364,8 @@ public class SourceTypeConverter implements CompilerModifiers {
 			method = decl;
 		}
 		method.selector = methodHandle.getElementName().toCharArray();
-		boolean isVarargs = (modifiers & AccVarargs) != 0;
-		method.modifiers = modifiers & ~AccVarargs;
+		boolean isVarargs = (modifiers & ClassFileConstants.AccVarargs) != 0;
+		method.modifiers = modifiers & ~ClassFileConstants.AccVarargs;
 		method.sourceStart = start;
 		method.sourceEnd = end;
 		method.declarationSourceStart = methodInfo.getDeclarationSourceStart();
@@ -342,30 +381,33 @@ public class SourceTypeConverter implements CompilerModifiers {
 		String[] argumentTypeSignatures = methodHandle.getParameterTypes();
 		char[][] argumentNames = methodInfo.getArgumentNames();
 		int argumentCount = argumentTypeSignatures == null ? 0 : argumentTypeSignatures.length;
-		long position = ((long) start << 32) + end;
-		method.arguments = new Argument[argumentCount];
-		for (int i = 0; i < argumentCount; i++) {
-			char[] typeName = Signature.toCharArray(argumentTypeSignatures[i].toCharArray());
-			TypeReference typeReference = createTypeReference(typeName, start, end);
-			if (isVarargs && i == argumentCount-1) {
-				typeReference.bits |= ASTNode.IsVarArgs;
+		if (argumentCount > 0) {
+			long position = ((long) start << 32) + end;
+			method.arguments = new Argument[argumentCount];
+			for (int i = 0; i < argumentCount; i++) {
+				TypeReference typeReference = createTypeReference(argumentTypeSignatures[i], start, end);
+				if (isVarargs && i == argumentCount-1) {
+					typeReference.bits |= ASTNode.IsVarArgs;
+				}
+				method.arguments[i] =
+					new Argument(
+						argumentNames[i],
+						position,
+						typeReference,
+						ClassFileConstants.AccDefault);
+				// do not care whether was final or not
 			}
-			method.arguments[i] =
-				new Argument(
-					argumentNames[i],
-					position,
-					typeReference,
-					AccDefault);
-			// do not care whether was final or not
 		}
 
 		/* convert thrown exceptions */
 		char[][] exceptionTypeNames = methodInfo.getExceptionTypeNames();
 		int exceptionCount = exceptionTypeNames == null ? 0 : exceptionTypeNames.length;
-		method.thrownExceptions = new TypeReference[exceptionCount];
-		for (int i = 0; i < exceptionCount; i++) {
-			method.thrownExceptions[i] =
-				createTypeReference(exceptionTypeNames[i], start, end);
+		if (exceptionCount > 0) {
+			method.thrownExceptions = new TypeReference[exceptionCount];
+			for (int i = 0; i < exceptionCount; i++) {
+				method.thrownExceptions[i] =
+					createTypeReference(exceptionTypeNames[i], start, end);
+			}
 		}
 		
 		/* convert local and anonymous types */
@@ -377,7 +419,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 				for (int i = 0; i < typesLength; i++) {
 					SourceType type = (SourceType) children[i];
 					TypeDeclaration localType = convert(type, compilationResult);
-					if ((localType.bits & ASTNode.IsAnonymousTypeMASK) != 0) {
+					if ((localType.bits & ASTNode.IsAnonymousType) != 0) {
 						QualifiedAllocationExpression expression = new QualifiedAllocationExpression(localType);
 						expression.type = localType.superclass;
 						localType.superclass = null;
@@ -400,21 +442,23 @@ public class SourceTypeConverter implements CompilerModifiers {
 	 */
 	private TypeDeclaration convert(SourceType typeHandle, CompilationResult compilationResult) throws JavaModelException {
 		SourceTypeElementInfo typeInfo = (SourceTypeElementInfo) typeHandle.getElementInfo();
+		if (typeInfo.isAnonymousMember())
+			throw new AnonymousMemberFound();
 		/* create type declaration - can be member type */
 		TypeDeclaration type = new TypeDeclaration(compilationResult);
 		if (typeInfo.getEnclosingType() == null) {
 			if (typeHandle.isAnonymous()) {
-				type.name = TypeDeclaration.ANONYMOUS_EMPTY_NAME;
-				type.bits |= ASTNode.AnonymousAndLocalMask;
+				type.name = CharOperation.NO_CHAR;
+				type.bits |= (ASTNode.IsAnonymousType|ASTNode.IsLocalType);
 			} else {
 				if (typeHandle.isLocal()) {
-					type.bits |= ASTNode.IsLocalTypeMASK;
+					type.bits |= ASTNode.IsLocalType;
 				}
 			}
 		}  else {
-			type.bits |= ASTNode.IsMemberTypeMASK;
+			type.bits |= ASTNode.IsMemberType;
 		}
-		if ((type.bits & ASTNode.IsAnonymousTypeMASK) == 0) {
+		if ((type.bits & ASTNode.IsAnonymousType) == 0) {
 			type.name = typeInfo.getName();
 		}
 		type.name = typeInfo.getName();
@@ -504,8 +548,8 @@ public class SourceTypeConverter implements CompilerModifiers {
 			/* by default, we assume that one is needed. */
 			int extraConstructor = 0;
 			int methodCount = 0;
-			int kind = type.kind();
-			boolean isAbstract = kind == IGenericType.INTERFACE_DECL || kind == IGenericType.ANNOTATION_TYPE_DECL;
+			int kind = TypeDeclaration.kind(type.modifiers);
+			boolean isAbstract = kind == TypeDeclaration.INTERFACE_DECL || kind == TypeDeclaration.ANNOTATION_TYPE_DECL;
 			if (!isAbstract) {
 				extraConstructor = needConstructor ? 1 : 0;
 				for (int i = 0; i < sourceMethodCount; i++) {
@@ -529,14 +573,15 @@ public class SourceTypeConverter implements CompilerModifiers {
 			boolean hasAbstractMethods = false;
 			for (int i = 0; i < sourceMethodCount; i++) {
 				SourceMethod sourceMethod = sourceMethods[i];
-				boolean isConstructor = sourceMethod.isConstructor();
-				if ((sourceMethod.getFlags() & Flags.AccAbstract) != 0) {
+				SourceMethodElementInfo methodInfo = (SourceMethodElementInfo)sourceMethod.getElementInfo();
+				boolean isConstructor = methodInfo.isConstructor();
+				if ((methodInfo.getModifiers() & ClassFileConstants.AccAbstract) != 0) {
 					hasAbstractMethods = true;
 				}
 				if ((isConstructor && needConstructor) || (!isConstructor && needMethod)) {
-					AbstractMethodDeclaration method = convert(sourceMethod, compilationResult);
+					AbstractMethodDeclaration method = convert(sourceMethod, methodInfo, compilationResult);
 					if (isAbstract || method.isAbstract()) { // fix-up flag 
-						method.modifiers |= AccSemicolonBody;
+						method.modifiers |= ExtraCompilerModifiers.AccSemicolonBody;
 					}
 					type.methods[extraConstructor + index++] = method;
 				}
@@ -560,15 +605,17 @@ public class SourceTypeConverter implements CompilerModifiers {
 			int start = (int) (position >>> 32);
 			int end = (int) position;
 			char[] annotationSource = CharOperation.subarray(cuSource, start, end+1);
-			Expression expression = parseMemberValue(annotationSource);
-			/*
-			 * expression can be null or not an annotation if the source has changed between
-			 * the moment where the annotation source positions have been retrieved and the moment were
-			 * this parsing occured.
-			 * See https://bugs.eclipse.org/bugs/show_bug.cgi?id=90916
-			 */
-			if (expression instanceof Annotation) {
-				annotations[recordedAnnotations++] = (Annotation) expression;
+			if (annotationSource != null) {
+    			Expression expression = parseMemberValue(annotationSource);
+    			/*
+    			 * expression can be null or not an annotation if the source has changed between
+    			 * the moment where the annotation source positions have been retrieved and the moment were
+    			 * this parsing occured.
+    			 * See https://bugs.eclipse.org/bugs/show_bug.cgi?id=90916
+    			 */
+    			if (expression instanceof Annotation) {
+    				annotations[recordedAnnotations++] = (Annotation) expression;
+    			}
 			}
 		}
 		if (length != recordedAnnotations) {
@@ -582,16 +629,18 @@ public class SourceTypeConverter implements CompilerModifiers {
 	 * Build an import reference from an import name, e.g. java.lang.*
 	 */
 	private ImportReference createImportReference(
-		char[] importName,
+		String[] importName,
 		int start,
 		int end, 
 		boolean onDemand,
 		int modifiers) {
 	
-		char[][] qImportName = CharOperation.splitOn('.', importName);
-		long[] positions = new long[qImportName.length];
+		int length = importName.length;
+		long[] positions = new long[length];
 		long position = ((long) start << 32) + end;
-		for (int i = 0; i < qImportName.length; i++) {
+		char[][] qImportName = new char[length][];
+		for (int i = 0; i < length; i++) {
+			qImportName[i] = importName[i].toCharArray();
 			positions[i] = position; // dummy positions
 		}
 		return new ImportReference(
@@ -634,9 +683,242 @@ public class SourceTypeConverter implements CompilerModifiers {
 
 		int length = typeName.length;
 		this.namePos = 0;
-		TypeReference type = decodeType(typeName, length, start, end);
-		return type;
+		return decodeType(typeName, length, start, end);
 	}
+	
+	/*
+	 * Build a type reference from a type signature, e.g. Ljava.lang.Object;
+	 */
+	private TypeReference createTypeReference(
+			String typeSignature,
+			int start,
+			int end) {
+		
+		int length = typeSignature.length();
+		this.namePos = 0;
+		return decodeType(typeSignature, length, start, end);
+	}
+	
+	private TypeReference decodeType(String typeSignature, int length, int start, int end) {
+		int identCount = 1;
+		int dim = 0;
+		int nameFragmentStart = this.namePos, nameFragmentEnd = -1;
+		boolean nameStarted = false;
+		ArrayList fragments = null;
+		typeLoop: while (this.namePos < length) {
+			char currentChar = typeSignature.charAt(this.namePos);
+			switch (currentChar) {
+				case Signature.C_BOOLEAN :
+					if (!nameStarted) {
+						this.namePos++;
+						if (dim == 0)
+							return new SingleTypeReference(TypeBinding.BOOLEAN.simpleName, ((long) start << 32) + end);
+						else
+							return new ArrayTypeReference(TypeBinding.BOOLEAN.simpleName, dim, ((long) start << 32) + end);
+					} 
+					break;
+				case Signature.C_BYTE :
+					if (!nameStarted) {
+						this.namePos++;
+						if (dim == 0)
+							return new SingleTypeReference(TypeBinding.BYTE.simpleName, ((long) start << 32) + end);
+						else
+							return new ArrayTypeReference(TypeBinding.BYTE.simpleName, dim, ((long) start << 32) + end);				
+					}
+					break;
+				case Signature.C_CHAR :
+					if (!nameStarted) {
+						this.namePos++;
+						if (dim == 0)
+							return new SingleTypeReference(TypeBinding.CHAR.simpleName, ((long) start << 32) + end);
+						else
+							return new ArrayTypeReference(TypeBinding.CHAR.simpleName, dim, ((long) start << 32) + end);
+					}
+					break;
+				case Signature.C_DOUBLE :
+					if (!nameStarted) {
+						this.namePos++;
+						if (dim == 0)
+							return new SingleTypeReference(TypeBinding.DOUBLE.simpleName, ((long) start << 32) + end);
+						else
+							return new ArrayTypeReference(TypeBinding.DOUBLE.simpleName, dim, ((long) start << 32) + end);				
+					}
+					break;
+				case Signature.C_FLOAT :
+					if (!nameStarted) {
+						this.namePos++;
+						if (dim == 0)
+							return new SingleTypeReference(TypeBinding.FLOAT.simpleName, ((long) start << 32) + end);
+						else
+							return new ArrayTypeReference(TypeBinding.FLOAT.simpleName, dim, ((long) start << 32) + end);				
+					}
+					break;
+				case Signature.C_INT :
+					if (!nameStarted) {
+						this.namePos++;
+						if (dim == 0)
+							return new SingleTypeReference(TypeBinding.INT.simpleName, ((long) start << 32) + end);
+						else
+							return new ArrayTypeReference(TypeBinding.INT.simpleName, dim, ((long) start << 32) + end);				
+					}
+					break;
+				case Signature.C_LONG :
+					if (!nameStarted) {
+						this.namePos++;
+						if (dim == 0)
+							return new SingleTypeReference(TypeBinding.LONG.simpleName, ((long) start << 32) + end);
+						else
+							return new ArrayTypeReference(TypeBinding.LONG.simpleName, dim, ((long) start << 32) + end);				
+					}
+					break;
+				case Signature.C_SHORT :
+					if (!nameStarted) {
+						this.namePos++;
+						if (dim == 0)
+							return new SingleTypeReference(TypeBinding.SHORT.simpleName, ((long) start << 32) + end);
+						else
+							return new ArrayTypeReference(TypeBinding.SHORT.simpleName, dim, ((long) start << 32) + end);				
+					}
+					break;
+				case Signature.C_VOID :
+					if (!nameStarted) {
+						this.namePos++;
+						new SingleTypeReference(TypeBinding.VOID.simpleName, ((long) start << 32) + end);
+					}
+					break;
+				case Signature.C_RESOLVED :
+				case Signature.C_UNRESOLVED :
+					if (!nameStarted) {
+						nameFragmentStart = this.namePos+1;
+						nameStarted = true;
+					}
+					break;
+				case Signature.C_STAR:
+					this.namePos++;
+					Wildcard result = new Wildcard(Wildcard.UNBOUND);
+					result.sourceStart = start;
+					result.sourceEnd = end;
+					return result;
+				case Signature.C_EXTENDS:
+					this.namePos++;
+					result = new Wildcard(Wildcard.EXTENDS);
+					result.bound = decodeType(typeSignature, length, start, end);
+					result.sourceStart = start;
+					result.sourceEnd = end;
+					return result;
+				case Signature.C_SUPER:
+					this.namePos++;
+					result = new Wildcard(Wildcard.SUPER);
+					result.bound = decodeType(typeSignature, length, start, end);
+					result.sourceStart = start;
+					result.sourceEnd = end;
+					return result;
+				case Signature.C_ARRAY :
+					dim++;
+					break;
+				case Signature.C_GENERIC_END :
+				case Signature.C_SEMICOLON :
+					nameFragmentEnd = this.namePos-1;
+					this.namePos++;
+					break typeLoop;
+				case Signature.C_DOT :
+				case Signature.C_DOLLAR:
+					if (!nameStarted) {
+						nameFragmentStart = this.namePos+1;
+						nameStarted = true;
+					} else if (this.namePos > nameFragmentStart) // handle name starting with a $ (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=91709)
+						identCount ++;
+					break;
+				case Signature.C_GENERIC_START :
+					nameFragmentEnd = this.namePos-1;
+					// convert 1.5 specific constructs only if compliance is 1.5 or above
+					if (!this.has1_5Compliance) 
+						break typeLoop;
+					if (fragments == null) fragments = new ArrayList(2);
+					addIdentifiers(typeSignature, nameFragmentStart, nameFragmentEnd + 1, identCount, fragments);
+					this.namePos++; // skip '<'
+					TypeReference[] arguments = decodeTypeArguments(typeSignature, length, start, end); // positionned on '>' at end
+					fragments.add(arguments);
+					identCount = 1;
+					nameStarted = false;
+					// next increment will skip '>'
+					break;
+			}
+			this.namePos++;
+		}
+		if (fragments == null) { // non parameterized 
+			/* rebuild identifiers and dimensions */
+			if (identCount == 1) { // simple type reference
+				if (dim == 0) {
+					char[] nameFragment = new char[nameFragmentEnd - nameFragmentStart + 1];
+					typeSignature.getChars(nameFragmentStart, nameFragmentEnd +1, nameFragment, 0);
+					return new SingleTypeReference(nameFragment, ((long) start << 32) + end);
+				} else {
+					char[] nameFragment = new char[nameFragmentEnd - nameFragmentStart + 1];
+					typeSignature.getChars(nameFragmentStart, nameFragmentEnd +1, nameFragment, 0);
+					return new ArrayTypeReference(nameFragment, dim, ((long) start << 32) + end);
+				}
+			} else { // qualified type reference
+				long[] positions = new long[identCount];
+				long pos = ((long) start << 32) + end;
+				for (int i = 0; i < identCount; i++) {
+					positions[i] = pos;
+				}
+				char[][] identifiers = extractIdentifiers(typeSignature, nameFragmentStart, nameFragmentEnd, identCount);
+				if (dim == 0) {
+					return new QualifiedTypeReference(identifiers, positions);
+				} else {
+					return new ArrayQualifiedTypeReference(identifiers, dim, positions);
+				}
+			}
+		} else { // parameterized
+			// rebuild type reference from available fragments: char[][], arguments, char[][], arguments...
+			// check trailing qualified name
+			if (nameStarted) {
+				addIdentifiers(typeSignature, nameFragmentStart, nameFragmentEnd + 1, identCount, fragments);
+			}
+			int fragmentLength = fragments.size();
+			if (fragmentLength == 2) {
+				Object firstFragment = fragments.get(0);
+				if (firstFragment instanceof char[]) {
+					// parameterized single type
+					return new ParameterizedSingleTypeReference((char[]) firstFragment, (TypeReference[]) fragments.get(1), dim, ((long) start << 32) + end);
+				}
+			}
+			// parameterized qualified type
+			identCount = 0;
+			for (int i = 0; i < fragmentLength; i ++) {
+				Object element = fragments.get(i);
+				if (element instanceof char[][]) {
+					identCount += ((char[][])element).length;
+				} else if (element instanceof char[])
+					identCount++;
+			}
+			char[][] tokens = new char[identCount][];
+			TypeReference[][] arguments = new TypeReference[identCount][];
+			int index = 0;
+			for (int i = 0; i < fragmentLength; i ++) {
+				Object element = fragments.get(i);
+				if (element instanceof char[][]) {
+					char[][] fragmentTokens = (char[][]) element;
+					int fragmentTokenLength = fragmentTokens.length;
+					System.arraycopy(fragmentTokens, 0, tokens, index, fragmentTokenLength);
+					index += fragmentTokenLength;
+				} else if (element instanceof char[]) {
+					tokens[index++] = (char[]) element;
+				} else {
+					arguments[index-1] = (TypeReference[]) element;
+				}
+			}
+			long[] positions = new long[identCount];
+			long pos = ((long) start << 32) + end;
+			for (int i = 0; i < identCount; i++) {
+				positions[i] = pos;
+			}
+			return new ParameterizedQualifiedTypeReference(tokens, arguments, dim, positions);
+		}
+	}
+	
 	private TypeReference decodeType(char[] typeName, int length, int start, int end) {
 		int identCount = 1;
 		int dim = 0;
@@ -814,6 +1096,38 @@ public class SourceTypeConverter implements CompilerModifiers {
 		return typeArguments;
 	}
 	
+	private TypeReference[] decodeTypeArguments(String typeSignature, int length, int start, int end) {
+		ArrayList argumentList = new ArrayList(1);
+		int count = 0;
+		argumentsLoop: while (this.namePos < length) {
+			TypeReference argument = decodeType(typeSignature, length, start, end);
+			count++;
+			argumentList.add(argument);
+			if (this.namePos >= length) break argumentsLoop;
+			if (typeSignature.charAt(this.namePos) == '>') {
+				break argumentsLoop;
+			}
+		}
+		TypeReference[] typeArguments = new TypeReference[count];
+		argumentList.toArray(typeArguments);
+		return typeArguments;
+	}
+	
+	private char[][] extractIdentifiers(String typeSignature, int start, int endInclusive, int identCount) {
+		char[][] result = new char[identCount][];
+		int charIndex = start;
+		int i = 0;
+		while (charIndex < endInclusive) {
+			if (typeSignature.charAt(charIndex) == '.') {
+				typeSignature.getChars(start, charIndex, result[i++] = new char[charIndex - start], 0); 
+				start = ++charIndex;
+			} else
+				charIndex++;
+		}
+		typeSignature.getChars(start, charIndex + 1, result[i++] = new char[charIndex - start + 1], 0); 
+		return result;
+	}
+	
 	private char[] getSource() {
 		if (this.source == null)
 			this.source = this.cu.getContents();
@@ -821,6 +1135,7 @@ public class SourceTypeConverter implements CompilerModifiers {
 	}
 	
 	private Expression parseMemberValue(char[] memberValue) {
+		// memberValue must not be null
 		if (this.parser == null) {
 			this.parser = new Parser(this.problemReporter, true);
 		}

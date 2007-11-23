@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,7 +10,6 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.text.NumberFormat;
 import java.util.Enumeration;
 import java.util.Iterator;
 
@@ -162,15 +161,13 @@ public double getLoadFactor() {
 	protected boolean makeSpace(int space) {
 	
 		int limit = fSpaceLimit;
-		if (fOverflow == 0) {
+		if (fOverflow == 0 && fCurrentSpace + space <= limit) {
 			/* if space is already available */
-			if (fCurrentSpace + space <= limit) {
-				return true;
-			}
+			return true;
 		}
 	
 		/* Free up space by removing oldest entries */
-		int spaceNeeded = (int)((1 - fLoadFactor) * fSpaceLimit);
+		int spaceNeeded = (int)((1 - fLoadFactor) * limit);
 		spaceNeeded = (spaceNeeded > space) ? spaceNeeded : space;
 		LRUCacheEntry entry = fEntryQueueTail;
 	
@@ -201,20 +198,6 @@ public double getLoadFactor() {
 	 * Returns a new instance of the reciever.
 	 */
 	protected abstract LRUCache newInstance(int size, int overflow);
-	/**
-	 * Answers the value in the cache at the given key.
-	 * If the value is not in the cache, returns null
-	 *
-	 * This function does not modify timestamps.
-	 */
-	public Object peek(Object key) {
-		
-		LRUCacheEntry entry = (LRUCacheEntry) fEntryTable.get(key);
-		if (entry == null) {
-			return null;
-		}
-		return entry._fValue;
-	}
 /**
  * For testing purposes only
  */
@@ -259,8 +242,8 @@ public void printStats() {
 		}
 	}
 
-	for (Iterator iter = h.keySet().iterator(); iter.hasNext();){
-		System.out.println(h.get(iter.next()));
+	for (Iterator iter = h.values().iterator(); iter.hasNext();){
+		System.out.println(iter.next());
 	}
 }
 	/**
@@ -290,7 +273,6 @@ protected void privateRemoveEntry(LRUCacheEntry entry, boolean shuffle, boolean 
 		if (external) {
 			fEntryTable.remove(entry._fKey);			
 			fCurrentSpace -= entry._fSpace;
-			privateNotifyDeletionFromCache(entry);
 		} else {
 			if (!close(entry)) return;
 			// buffer close will recursively call #privateRemoveEntry with external==true
@@ -301,7 +283,6 @@ protected void privateRemoveEntry(LRUCacheEntry entry, boolean shuffle, boolean 
 				// basic removal
 				fEntryTable.remove(entry._fKey);			
 				fCurrentSpace -= entry._fSpace;
-				privateNotifyDeletionFromCache(entry);
 			}
 		}
 	}
@@ -415,8 +396,8 @@ public void setLoadFactor(double newLoadFactor) throws IllegalArgumentException 
  */
 public String toString() {
 	return 
-		"OverflowingLRUCache " + NumberFormat.getInstance().format(this.fillingRatio()) + "% full\n" + //$NON-NLS-1$ //$NON-NLS-2$
-		this.toStringContents();
+		toStringFillingRation("OverflowingLRUCache ") + //$NON-NLS-1$
+		toStringContents();
 }
 /**
  * Updates the timestamp for the given entry, ensuring that the queue is 

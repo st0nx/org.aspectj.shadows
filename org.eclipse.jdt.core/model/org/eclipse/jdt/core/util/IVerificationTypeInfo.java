@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,6 +18,52 @@ package org.eclipse.jdt.core.util;
  * @since 3.0
  */
 public interface IVerificationTypeInfo {
+	/**
+	 * The tag value representing top variable info
+	 * @since 3.2
+	 */
+	public static final int ITEM_TOP = 0;
+	/**
+	 * The tag value representing integer variable info
+	 * @since 3.2
+	 */
+	public static final int ITEM_INTEGER = 1;
+	/**
+	 * The tag value representing float variable info
+	 * @since 3.2
+	 */
+	public static final int ITEM_FLOAT = 2;
+	/**
+	 * The tag value representing double variable info
+	 * @since 3.2
+	 */
+	public static final int ITEM_DOUBLE = 3;
+	/**
+	 * The tag value representing long variable info
+	 * @since 3.2
+	 */
+	public static final int ITEM_LONG = 4;
+	/**
+	 * The tag value representing null variable info
+	 * @since 3.2
+	 */
+	public static final int ITEM_NULL = 5;
+	/**
+	 * The tag value representing uninitialized this variable info
+	 * @since 3.2
+	 */
+	public static final int ITEM_UNINITIALIZED_THIS = 6;
+	/**
+	 * The tag value representing object variable info
+	 * @since 3.2
+	 */
+	public static final int ITEM_OBJECT = 7;
+	/**
+	 * The tag value representing uninitialized variable info
+	 * @since 3.2
+	 */
+	public static final int ITEM_UNINITIALIZED = 8;
+	
 	/**
 	 * Answer back the tag of this verification type info as described in the JVM specifications.
 	 * <ul>

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,11 +11,6 @@
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.Flags;
-import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.core.util.Util;
@@ -35,7 +30,8 @@ public class SourceMethod extends NamedMember implements IMethod {
 
 protected SourceMethod(JavaElement parent, String name, String[] parameterTypes) {
 	super(parent, name);
-	Assert.isTrue(name.indexOf('.') == -1);
+	// Assertion disabled since bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=179011
+	// Assert.isTrue(name.indexOf('.') == -1);
 	if (parameterTypes == null) {
 		this.parameterTypes= CharOperation.NO_STRINGS;
 	} else {
@@ -170,6 +166,9 @@ public IJavaElement getPrimaryElement(boolean checkOwner) {
 	IJavaElement primaryParent = this.parent.getPrimaryElement(false);
 	return ((IType)primaryParent).getMethod(this.name, this.parameterTypes);
 }
+public String[] getRawParameterNames() throws JavaModelException {
+	return getParameterNames();
+}
 /**
  * @see IMethod
  */
@@ -198,6 +197,10 @@ public int hashCode() {
  * @see IMethod
  */
 public boolean isConstructor() throws JavaModelException {
+	if (!this.getElementName().equals(this.parent.getElementName())) {
+		// faster than reaching the info
+		return false;
+	}
 	SourceMethodElementInfo info = (SourceMethodElementInfo) getElementInfo();
 	return info.isConstructor();
 }

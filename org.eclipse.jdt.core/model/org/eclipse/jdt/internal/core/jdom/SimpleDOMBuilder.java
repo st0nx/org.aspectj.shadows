@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,13 +13,13 @@ package org.eclipse.jdt.internal.core.jdom;
 import java.util.Map;
 
 import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.compiler.ISourceElementRequestor;
 import org.eclipse.jdt.internal.compiler.SourceElementParser;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 /**
@@ -33,13 +33,13 @@ public class SimpleDOMBuilder extends AbstractDOMBuilder implements ISourceEleme
 /**
  * Does nothing.
  */
-public void acceptProblem(IProblem problem) {
+public void acceptProblem(CategorizedProblem problem) {
 	// nothing to do
 }
 
-public void acceptImport(int declarationStart, int declarationEnd, char[] name, boolean onDemand, int modifiers) {
+public void acceptImport(int declarationStart, int declarationEnd, char[][] tokens, boolean onDemand, int modifiers) {
 	int[] sourceRange = {declarationStart, declarationEnd};
-	String importName = new String(name);
+	String importName = new String(CharOperation.concatWith(tokens, '.'));
 	/** name is set to contain the '*' */
 	if (onDemand) {
 		importName+=".*"; //$NON-NLS-1$
@@ -130,7 +130,7 @@ public void enterType(TypeInfo typeInfo) {
 		int[] sourceRange = {typeInfo.declarationStart, -1}; // will be fixed in the exit
 		int[] nameRange = new int[] {typeInfo.nameSourceStart, typeInfo.nameSourceEnd};
 		fNode = new DOMType(fDocument, sourceRange, new String(typeInfo.name), nameRange,
-			typeInfo.modifiers, CharOperation.charArrayToStringArray(typeInfo.superinterfaces), typeInfo.kind == IGenericType.CLASS_DECL); // TODO (jerome) should pass in kind
+			typeInfo.modifiers, CharOperation.charArrayToStringArray(typeInfo.superinterfaces), TypeDeclaration.kind(typeInfo.modifiers) == TypeDeclaration.CLASS_DECL); // TODO (jerome) should pass in kind
 		addChild(fNode);
 		fStack.push(fNode);
 		

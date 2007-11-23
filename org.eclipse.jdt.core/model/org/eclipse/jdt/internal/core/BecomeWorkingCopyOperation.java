@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -39,13 +39,13 @@ public class BecomeWorkingCopyOperation extends JavaModelOperation {
 
 		if (!workingCopy.isPrimary()) {
 			// report added java delta for a non-primary working copy
-			JavaElementDelta delta = new JavaElementDelta(this.getJavaModel());
+			JavaElementDelta delta = new JavaElementDelta(getJavaModel());
 			delta.added(workingCopy);
 			addDelta(delta);
 		} else {
 			if (workingCopy.getResource().isAccessible()) {
 				// report a F_PRIMARY_WORKING_COPY change delta for a primary working copy
-				JavaElementDelta delta = new JavaElementDelta(this.getJavaModel());
+				JavaElementDelta delta = new JavaElementDelta(getJavaModel());
 				delta.changed(workingCopy, IJavaElementDelta.F_PRIMARY_WORKING_COPY);
 				addDelta(delta);
 			} else {

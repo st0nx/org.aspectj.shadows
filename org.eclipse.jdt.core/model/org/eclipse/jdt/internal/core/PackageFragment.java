@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,8 +10,9 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.*;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Map;
 
 import org.eclipse.core.resources.IContainer;
@@ -20,15 +21,22 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.core.runtime.Path;
-import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.IJavaModelStatusConstants;
+import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
+import org.eclipse.jdt.core.IParent;
+import org.eclipse.jdt.core.ISourceManipulation;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.WorkingCopyOwner;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.JavaModelManager.PerProjectInfo;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
@@ -59,8 +67,12 @@ protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, 
 
 	// check whether this pkg can be opened
 	if (!underlyingResource.isAccessible()) throw newNotPresentException();
-
+	
+	// check that it is not excluded (https://bugs.eclipse.org/bugs/show_bug.cgi?id=138577)
 	int kind = getKind();
+	if (kind == IPackageFragmentRoot.K_SOURCE && Util.isExcluded(this)) 
+		throw newNotPresentException();
+
 
 	// add compilation units/class files from resources
 	HashSet vChildren = new HashSet();
@@ -69,17 +81,23 @@ protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, 
 		char[][] inclusionPatterns = root.fullInclusionPatternChars();
 		char[][] exclusionPatterns = root.fullExclusionPatternChars();
 		IResource[] members = ((IContainer) underlyingResource).members();
-		for (int i = 0, max = members.length; i < max; i++) {
-			IResource child = members[i];
-			if (child.getType() != IResource.FOLDER
-					&& !Util.isExcluded(child, inclusionPatterns, exclusionPatterns)) {
-				IJavaElement childElement;
-				if (kind == IPackageFragmentRoot.K_SOURCE && Util.isValidCompilationUnitName(child.getName())) {
-					childElement = new CompilationUnit(this, child.getName(), DefaultWorkingCopyOwner.PRIMARY);
-					vChildren.add(childElement);
-				} else if (kind == IPackageFragmentRoot.K_BINARY && Util.isValidClassFileName(child.getName())) {
-					childElement = getClassFile(child.getName());
-					vChildren.add(childElement);
+		int length = members.length;
+		if (length > 0) {
+			IJavaProject project = getJavaProject();
+			String sourceLevel = project.getOption(JavaCore.COMPILER_SOURCE, true);
+			String complianceLevel = project.getOption(JavaCore.COMPILER_COMPLIANCE, true);
+			for (int i = 0; i < length; i++) {
+				IResource child = members[i];
+				if (child.getType() != IResource.FOLDER
+						&& !Util.isExcluded(child, inclusionPatterns, exclusionPatterns)) {
+					IJavaElement childElement;
+					if (kind == IPackageFragmentRoot.K_SOURCE && Util.isValidCompilationUnitName(child.getName(), sourceLevel, complianceLevel)) {
+						childElement = new CompilationUnit(this, child.getName(), DefaultWorkingCopyOwner.PRIMARY);
+						vChildren.add(childElement);
+					} else if (kind == IPackageFragmentRoot.K_BINARY && Util.isValidClassFileName(child.getName(), sourceLevel, complianceLevel)) {
+						childElement = getClassFile(child.getName());
+						vChildren.add(childElement);
+					}
 				}
 			}
 		}
@@ -156,6 +174,11 @@ public boolean equals(Object o) {
 	return Util.equalArraysOrNull(this.names, other.names) &&
 			this.parent.equals(other.parent);
 }
+public boolean exists() {
+	// super.exist() only checks for the parent and the resource existence
+	// so also ensure that the package is not exceluded (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=138577)
+	return super.exists() && !Util.isExcluded(this); 
+}
 /**
  * @see IPackageFragment#getClassFile(String)
  * @exception IllegalArgumentException if the name does not end with ".class"
@@ -164,7 +187,12 @@ public IClassFile getClassFile(String classFileName) {
 	if (!org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(classFileName)) {
 		throw new IllegalArgumentException(Messages.element_invalidClassFileName); 
 	}
-	return new ClassFile(this, classFileName);
+	// don't hold on the .class file extension to save memory
+	// also make sure to not use substring as the resulting String may hold on the underlying char[] which might be much bigger than necessary
+	int length = classFileName.length() - 6;
+	char[] nameWithoutExtension = new char[length];
+	classFileName.getChars(0, length, nameWithoutExtension, 0);
+	return new ClassFile(this, new String(nameWithoutExtension));
 }
 /**
  * Returns a the collection of class files in this - a folder package fragment which has a root
@@ -429,5 +457,38 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean s
 			buffer.append(" (...)"); //$NON-NLS-1$
 		}
 	}
+}
+/*
+ * @see IJavaElement#getAttachedJavadoc(IProgressMonitor)
+ */
+public String getAttachedJavadoc(IProgressMonitor monitor) throws JavaModelException {
+	PerProjectInfo projectInfo = JavaModelManager.getJavaModelManager().getPerProjectInfoCheckExistence(this.getJavaProject().getProject());
+	String cachedJavadoc = null;
+	synchronized (projectInfo.javadocCache) {
+		cachedJavadoc = (String) projectInfo.javadocCache.get(this);
+	}
+	if (cachedJavadoc != null) {
+		return cachedJavadoc;
+	}
+	URL baseLocation= getJavadocBaseLocation();
+	if (baseLocation == null) {
+		return null;
+	}
+	StringBuffer pathBuffer = new StringBuffer(baseLocation.toExternalForm());
+
+	if (!(pathBuffer.charAt(pathBuffer.length() - 1) == '/')) {
+		pathBuffer.append('/');
+	}
+	String packPath= this.getElementName().replace('.', '/');
+	pathBuffer.append(packPath).append('/').append(JavadocConstants.PACKAGE_FILE_NAME);
+	
+	if (monitor != null && monitor.isCanceled()) throw new OperationCanceledException();
+	final String contents = getURLContents(String.valueOf(pathBuffer));
+	if (monitor != null && monitor.isCanceled()) throw new OperationCanceledException();
+	if (contents == null) throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.CANNOT_RETRIEVE_ATTACHED_JAVADOC, this));
+	synchronized (projectInfo.javadocCache) {
+		projectInfo.javadocCache.put(this, contents);
+	}
+	return contents;
 }
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,7 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
-import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 
 /**
  * Part of the source element parser responsible for building the output.
@@ -121,7 +121,7 @@ void acceptPackage(
 /**
  * @param problem - Used to report a problem while running the JDOM
  */
-void acceptProblem(IProblem problem);
+void acceptProblem(CategorizedProblem problem);
 /**
  * @param declarationStart - a source position corresponding to the start
  *  of this class.

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -153,32 +153,35 @@ public abstract class MultiOperation extends JavaModelOperation {
 	 * be completed.
 	 */
 	protected void processElements() throws JavaModelException {
-		beginTask(getMainTaskName(), this.elementsToProcess.length);
-		IJavaModelStatus[] errors = new IJavaModelStatus[3];
-		int errorsCounter = 0;
-		for (int i = 0; i < this.elementsToProcess.length; i++) {
-			try {
-				verify(this.elementsToProcess[i]);
-				processElement(this.elementsToProcess[i]);
-			} catch (JavaModelException jme) {
-				if (errorsCounter == errors.length) {
-					// resize
-					System.arraycopy(errors, 0, (errors = new IJavaModelStatus[errorsCounter*2]), 0, errorsCounter);
+		try {
+			beginTask(getMainTaskName(), this.elementsToProcess.length);
+			IJavaModelStatus[] errors = new IJavaModelStatus[3];
+			int errorsCounter = 0;
+			for (int i = 0; i < this.elementsToProcess.length; i++) {
+				try {
+					verify(this.elementsToProcess[i]);
+					processElement(this.elementsToProcess[i]);
+				} catch (JavaModelException jme) {
+					if (errorsCounter == errors.length) {
+						// resize
+						System.arraycopy(errors, 0, (errors = new IJavaModelStatus[errorsCounter*2]), 0, errorsCounter);
+					}
+					errors[errorsCounter++] = jme.getJavaModelStatus();
+				} finally {
+					worked(1);
 				}
-				errors[errorsCounter++] = jme.getJavaModelStatus();
-			} finally {
-				worked(1);
 			}
-		}
-		done();
-		if (errorsCounter == 1) {
-			throw new JavaModelException(errors[0]);
-		} else if (errorsCounter > 1) {
-			if (errorsCounter != errors.length) {
-				// resize
-				System.arraycopy(errors, 0, (errors = new IJavaModelStatus[errorsCounter]), 0, errorsCounter);
+			if (errorsCounter == 1) {
+				throw new JavaModelException(errors[0]);
+			} else if (errorsCounter > 1) {
+				if (errorsCounter != errors.length) {
+					// resize
+					System.arraycopy(errors, 0, (errors = new IJavaModelStatus[errorsCounter]), 0, errorsCounter);
+				}
+				throw new JavaModelException(JavaModelStatus.newMultiStatus(errors));
 			}
-			throw new JavaModelException(JavaModelStatus.newMultiStatus(errors));
+		} finally {
+			done();
 		}
 	}
 	/**
@@ -266,23 +269,25 @@ public abstract class MultiOperation extends JavaModelOperation {
 	protected void verifyRenaming(IJavaElement element) throws JavaModelException {
 		String newName = getNewNameFor(element);
 		boolean isValid = true;
-	
+	    IJavaProject project = element.getJavaProject();
+	    String sourceLevel = project.getOption(JavaCore.COMPILER_SOURCE, true);
+	    String complianceLevel = project.getOption(JavaCore.COMPILER_COMPLIANCE, true);
 		switch (element.getElementType()) {
 			case IJavaElement.PACKAGE_FRAGMENT :
 				if (((IPackageFragment) element).isDefaultPackage()) {
 					// don't allow renaming of default package (see PR #1G47GUM)
 					throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION, element));
 				}
-				isValid = JavaConventions.validatePackageName(newName).getSeverity() != IStatus.ERROR;
+				isValid = JavaConventions.validatePackageName(newName, sourceLevel, complianceLevel).getSeverity() != IStatus.ERROR;
 				break;
 			case IJavaElement.COMPILATION_UNIT :
-				isValid = JavaConventions.validateCompilationUnitName(newName).getSeverity() != IStatus.ERROR;
+				isValid = JavaConventions.validateCompilationUnitName(newName,sourceLevel, complianceLevel).getSeverity() != IStatus.ERROR;
 				break;
 			case IJavaElement.INITIALIZER :
 				isValid = false; //cannot rename initializers
 				break;
 			default :
-				isValid = JavaConventions.validateIdentifier(newName).getSeverity() != IStatus.ERROR;
+				isValid = JavaConventions.validateIdentifier(newName, sourceLevel, complianceLevel).getSeverity() != IStatus.ERROR;
 				break;
 		}
 	

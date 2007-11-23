@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -291,7 +291,7 @@ void removeTypeHierarchyChangedListener(ITypeHierarchyChangedListener listener);
  * <li>IType#newSupertypeHierarchy(IProgressMonitor)</li>
  * <li>IType#newTypeHierarchy(IJavaProject, IProgressMonitor)</li>
  * <li>IType#newTypeHierarchy(IProgressMonitor)</li>
- * </u>
+ * </ul>
  * 
  * @param outputStream output stream where the hierarchy will be stored
  * @param monitor the given progress monitor

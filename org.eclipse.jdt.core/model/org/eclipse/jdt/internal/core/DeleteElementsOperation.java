@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,6 +16,7 @@ import java.util.Map;
 
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.ResourcesPlugin;
+import org.eclipse.core.runtime.Assert;
 import org.eclipse.core.runtime.jobs.ISchedulingRule;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
@@ -164,7 +165,7 @@ public class DeleteElementsOperation extends MultiOperation {
 			cu.save(getSubProgressMonitor(1), force);
 			if (!cu.isWorkingCopy()) { // if unit is working copy, then save will have already fired the delta
 				addDelta(delta);
-				this.setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE);
+				setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE);
 			}
 		}
 	}

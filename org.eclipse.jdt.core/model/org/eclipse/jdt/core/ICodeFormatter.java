@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,7 +18,7 @@ package org.eclipse.jdt.core;
  * @see ToolFactory#createCodeFormatter()
  * @see ToolFactory#createDefaultCodeFormatter(java.util.Map options)
  * @since 2.0
- * @deprecated - should use org.eclipse.jdt.core.formatter.CodeFormatter instead (note: options have changed)
+ * @deprecated Use {@link org.eclipse.jdt.core.formatter.CodeFormatter} instead (note: options have changed)
  */
 public interface ICodeFormatter {
 

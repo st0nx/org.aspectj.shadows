@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -9,6 +9,9 @@
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
+
+import java.util.HashMap;
+import java.util.Map;
 
 import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.CoreException;
@@ -35,17 +38,22 @@ public class DeletePackageFragmentRootOperation extends JavaModelOperation {
 		IPackageFragmentRoot root = (IPackageFragmentRoot)this.getElementToProcess();
 		IClasspathEntry rootEntry = root.getRawClasspathEntry();
 		
+		// remember olds roots
+		DeltaProcessor deltaProcessor = JavaModelManager.getJavaModelManager().getDeltaProcessor();
+		if (deltaProcessor.oldRoots == null)
+			deltaProcessor.oldRoots = new HashMap();
+		
+		// update classpath if needed
+		if ((updateModelFlags & IPackageFragmentRoot.ORIGINATING_PROJECT_CLASSPATH) != 0) {
+			updateProjectClasspath(rootEntry.getPath(), root.getJavaProject(), deltaProcessor.oldRoots);
+		}
+		if ((updateModelFlags & IPackageFragmentRoot.OTHER_REFERRING_PROJECTS_CLASSPATH) != 0) {
+			updateReferringProjectClasspaths(rootEntry.getPath(), root.getJavaProject(), deltaProcessor.oldRoots);
+		}
+		
 		// delete resource
 		if (!root.isExternal() && (this.updateModelFlags & IPackageFragmentRoot.NO_RESOURCE_MODIFICATION) == 0) {
 			deleteResource(root, rootEntry);
-		}
-
-		// update classpath if needed
-		if ((this.updateModelFlags & IPackageFragmentRoot.ORIGINATING_PROJECT_CLASSPATH) != 0) {
-			updateProjectClasspath(rootEntry.getPath(), root.getJavaProject());
-		}
-		if ((this.updateModelFlags & IPackageFragmentRoot.OTHER_REFERRING_PROJECTS_CLASSPATH) != 0) {
-			updateReferringProjectClasspaths(rootEntry.getPath(), root.getJavaProject());
 		}
 	}
 
@@ -87,28 +95,30 @@ public class DeletePackageFragmentRootOperation extends JavaModelOperation {
 				throw new JavaModelException(e);
 			}
 		}
-		this.setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
+		setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE); 
 	}
 
 
 	/*
 	 * Deletes the classpath entries equals to the given rootPath from all Java projects.
 	 */
-	protected void updateReferringProjectClasspaths(IPath rootPath, IJavaProject projectOfRoot) throws JavaModelException {
+	protected void updateReferringProjectClasspaths(IPath rootPath, IJavaProject projectOfRoot, Map oldRoots) throws JavaModelException {
 		IJavaModel model = this.getJavaModel();
 		IJavaProject[] projects = model.getJavaProjects();
 		for (int i = 0, length = projects.length; i < length; i++) {
 			IJavaProject project = projects[i];
 			if (project.equals(projectOfRoot)) continue;
-			updateProjectClasspath(rootPath, project);
+			updateProjectClasspath(rootPath, project, oldRoots);
 		}
 	}
 
 	/*
 	 * Deletes the classpath entries equals to the given rootPath from the given project.
 	 */
-	protected void updateProjectClasspath(IPath rootPath, IJavaProject project)
-		throws JavaModelException {
+	protected void updateProjectClasspath(IPath rootPath, IJavaProject project, Map oldRoots) throws JavaModelException {
+		// remember old roots
+		oldRoots.put(project, project.getPackageFragmentRoots());
+		
 		IClasspathEntry[] classpath = project.getRawClasspath();
 		IClasspathEntry[] newClasspath = null;
 		int cpLength = classpath.length;

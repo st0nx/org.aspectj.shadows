@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -121,7 +121,7 @@ public class ASTNodeFinder {
 			int count = 0;
 			public boolean visit(TypeDeclaration typeDeclaration, BlockScope scope) {
 				if (result != null) return false;
-				if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0) {
+				if ((typeDeclaration.bits & ASTNode.IsAnonymousType) != 0) {
 					if (findAnonymous && ++count == occurenceCount) {
 						result = typeDeclaration;
 					}

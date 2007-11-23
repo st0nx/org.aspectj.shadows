@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,8 +18,9 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
+import org.eclipse.jdt.internal.compiler.util.SimpleSet;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
-import org.eclipse.jdt.internal.core.util.SimpleSet;
+import org.eclipse.jdt.internal.core.util.Util;
 
 import java.io.*;
 import java.util.*;
@@ -64,9 +65,8 @@ static SimpleSet findPackageSet(ClasspathJar jar) {
 		while (last > 0) {
 			// extract the package name
 			String packageName = fileName.substring(0, last);
-			if (packageSet.includes(packageName))
-				continue nextEntry;
-			packageSet.add(packageName);
+			if (packageSet.addIfNotIncluded(packageName) == null)
+				continue nextEntry; // already existed
 			last = packageName.lastIndexOf('/');
 		}
 	}
@@ -86,8 +86,17 @@ AccessRuleSet accessRuleSet;
 
 ClasspathJar(IFile resource, AccessRuleSet accessRuleSet) {
 	this.resource = resource;
-	IPath location = resource.getLocation();
-	this.zipFilename = location != null ? location.toString() : ""; //$NON-NLS-1$
+	try {
+		java.net.URI location = resource.getLocationURI();
+		if (location == null) {
+			this.zipFilename = ""; //$NON-NLS-1$
+		} else {
+			File localFile = Util.toLocalFile(location, null);
+			this.zipFilename = localFile.getPath();
+		}
+	} catch (CoreException e) {
+		// ignore
+	}	
 	this.zipFile = null;
 	this.knownPackageNames = null;
 	this.accessRuleSet = accessRuleSet;
@@ -185,9 +194,10 @@ public String toString() {
 }
 
 public String debugPathString() {
-	if (this.lastModified == 0)
+	long time = lastModified();
+	if (time == 0)
 		return this.zipFilename;
-	return this.zipFilename + '(' + (new Date(this.lastModified)) + " : " + this.lastModified + ')'; //$NON-NLS-1$
+	return this.zipFilename + '(' + (new Date(time)) + " : " + time + ')'; //$NON-NLS-1$
 }
 
 }

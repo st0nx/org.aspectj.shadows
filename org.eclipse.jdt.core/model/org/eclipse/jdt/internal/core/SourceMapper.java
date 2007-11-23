@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -34,7 +34,11 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.jdt.core.Flags;
+import org.eclipse.jdt.core.IClassFile;
+import org.eclipse.jdt.core.IField;
 import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IMember;
 import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
@@ -42,10 +46,11 @@ import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.ITypeParameter;
 import org.eclipse.jdt.core.JavaConventions;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.ISourceElementRequestor;
 import org.eclipse.jdt.internal.compiler.SourceElementParser;
@@ -102,15 +107,10 @@ public class SourceMapper
 	protected String rootPath = ""; //$NON-NLS-1$
 
 	/**
-	 * Used for efficiency
-	 */
-	protected static String[] fgEmptyStringArray = new String[0];
-
-	/**
 	 * Table that maps a binary method to its parameter names.
 	 * Keys are the method handles, entries are <code>char[][]</code>.
 	 */
-	protected HashMap fParameterNames;
+	protected HashMap parameterNames;
 	
 	/**
 	 * Table that maps a binary element to its <code>SourceRange</code>s.
@@ -118,37 +118,42 @@ public class SourceMapper
 	 * is a two element array; the first being source range, the second
 	 * being name range.
 	 */
-	protected HashMap fSourceRanges;
+	protected HashMap sourceRanges;
+	
+	/*
+	 * A map from IJavaElement to String[]
+	 */
+	protected HashMap categories;
 	
 
 	/**
 	 * The unknown source range {-1, 0}
 	 */
-	public static SourceRange fgUnknownRange = new SourceRange(-1, 0);
+	public static final SourceRange UNKNOWN_RANGE = new SourceRange(-1, 0);
 
 	/**
 	 * The position within the source of the start of the
 	 * current member element, or -1 if we are outside a member.
 	 */
-	protected int[] fMemberDeclarationStart;
+	protected int[] memberDeclarationStart;
 	/**
 	 * The <code>SourceRange</code> of the name of the current member element.
 	 */
-	protected SourceRange[] fMemberNameRange;
+	protected SourceRange[] memberNameRange;
 	/**
 	 * The name of the current member element.
 	 */
-	protected String[] fMemberName;
+	protected String[] memberName;
 	
 	/**
 	 * The parameter names for the current member method element.
 	 */
-	protected char[][][] fMethodParameterNames;
+	protected char[][][] methodParameterNames;
 	
 	/**
 	 * The parameter types for the current member method element.
 	 */
-	protected char[][][] fMethodParameterTypes;
+	protected char[][][] methodParameterTypes;
 	
 
 	/**
@@ -168,6 +173,7 @@ public class SourceMapper
 	IType[] types;
 	int[] typeDeclarationStarts;
 	SourceRange[] typeNameRanges;
+	int[] typeModifiers;
 	int typeDepth;
 	
 	/**
@@ -208,8 +214,8 @@ public class SourceMapper
 			this.rootPaths.add(rootPath);
 		}
 		this.sourcePath = sourcePath;
-		this.fSourceRanges = new HashMap();
-		this.fParameterNames = new HashMap();
+		this.sourceRanges = new HashMap();
+		this.parameterNames = new HashMap();
 		this.importsTable = new HashMap();
 		this.importsCounterTable = new HashMap();
 	}
@@ -220,7 +226,7 @@ public class SourceMapper
 	public void acceptImport(
 			int declarationStart,
 			int declarationEnd,
-			char[] name,
+			char[][] tokens,
 			boolean onDemand,
 			int modifiers) {
 		char[][] imports = (char[][]) this.importsTable.get(this.binaryType);
@@ -239,6 +245,7 @@ public class SourceMapper
 				0,
 				importsCounter);
 		}
+		char[] name = CharOperation.concatWith(tokens, '.');
 		if (onDemand) {
 			int nameLength = name.length;
 			System.arraycopy(name, 0, (name = new char[nameLength + 2]), 0, nameLength);
@@ -270,17 +277,24 @@ public class SourceMapper
 	/**
 	 * @see ISourceElementRequestor
 	 */
-	public void acceptProblem(IProblem problem) {
+	public void acceptProblem(CategorizedProblem problem) {
 		//do nothing
 	}
 	
+	private void addCategories(IJavaElement element, char[][] elementCategories) {
+		if (elementCategories == null) return;
+		if (this.categories == null)
+			this.categories = new HashMap();
+		this.categories.put(element, CharOperation.toStrings(elementCategories));
+	}
+
 	/**
 	 * Closes this <code>SourceMapper</code>'s zip file. Once this is done, this
 	 * <code>SourceMapper</code> cannot be used again.
 	 */
 	public void close() {
-		fSourceRanges = null;
-		fParameterNames = null;
+		this.sourceRanges = null;
+		this.parameterNames = null;
 	}
 
 	/**
@@ -291,26 +305,57 @@ public class SourceMapper
 	 */
 	private String[] convertTypeNamesToSigs(char[][] typeNames) {
 		if (typeNames == null)
-			return fgEmptyStringArray;
+			return CharOperation.NO_STRINGS;
 		int n = typeNames.length;
 		if (n == 0)
-			return fgEmptyStringArray;
+			return CharOperation.NO_STRINGS;
 		String[] typeSigs = new String[n];
 		for (int i = 0; i < n; ++i) {
-			String typeSig = Signature.createTypeSignature(typeNames[i], false);
-			int lastIndex = typeSig.lastIndexOf('.');
-			if (lastIndex == -1) {
-				typeSigs[i] = typeSig;
+			char[] typeSig = Signature.createCharArrayTypeSignature(typeNames[i], false);
+			
+			// transforms signatures that contains a qualification into unqualified signatures
+			// e.g. "QX<+QMap.Entry;>;" becomes "QX<+QEntry;>;"
+			StringBuffer simpleTypeSig = null;
+			int start = 0;
+			int dot = -1;
+			int length = typeSig.length;
+			for (int j = 0; j < length; j++) {
+				switch (typeSig[j]) {
+					case Signature.C_UNRESOLVED:
+						if (simpleTypeSig != null)
+							simpleTypeSig.append(typeSig, start, j-start);
+						start = j;
+						break;
+					case Signature.C_DOT:
+						dot = j;
+						break;
+					case Signature.C_GENERIC_START:
+					case Signature.C_NAME_END:
+						if (dot > start) {
+							if (simpleTypeSig == null)
+								simpleTypeSig = new StringBuffer().append(typeSig, 0, start);
+							simpleTypeSig.append(Signature.C_UNRESOLVED);
+							simpleTypeSig.append(typeSig, dot+1, j-dot-1);
+							start = j;
+						}
+						break;
+				}
+			}
+			if (simpleTypeSig == null) {
+				typeSigs[i] = new String(typeSig);
 			} else {
-				int arrayEnd = 0;
-				while(typeSig.charAt(arrayEnd) == Signature.C_ARRAY) arrayEnd++;
-				typeSigs[i] = typeSig.substring(0, arrayEnd) + Signature.C_UNRESOLVED + typeSig.substring(lastIndex + 1, typeSig.length());
+				simpleTypeSig.append(typeSig, start, length-start);
+				typeSigs[i] = simpleTypeSig.toString();
 			}
 		}
 		return typeSigs;
 	}
 	
-	private void computeAllRootPaths(IPackageFragmentRoot root) {
+	private synchronized void computeAllRootPaths(IType type) {
+		if (this.areRootPathsComputed) {
+			return;
+		}
+		IPackageFragmentRoot root = (IPackageFragmentRoot) type.getPackageFragment().getParent();
 		final HashSet tempRoots = new HashSet();
 		long time = 0;
 		if (VERBOSE) {
@@ -322,6 +367,9 @@ public class SourceMapper
 
 		if (root.isArchive()) {
 			JarPackageFragmentRoot jarPackageFragmentRoot = (JarPackageFragmentRoot) root;
+			IJavaProject project = jarPackageFragmentRoot.getJavaProject();
+			String sourceLevel = null;
+			String complianceLevel = null;
 			JavaModelManager manager = JavaModelManager.getJavaModelManager();
 			ZipFile zip = null;
 			try {
@@ -334,7 +382,11 @@ public class SourceMapper
 						if (index != -1 && Util.isClassFileName(entryName)) {
 							String firstLevelPackageName = entryName.substring(0, index);
 							if (!firstLevelPackageNames.contains(firstLevelPackageName)) {
-								IStatus status = JavaConventions.validatePackageName(firstLevelPackageName);
+								if (sourceLevel == null) {
+									sourceLevel = project.getOption(JavaCore.COMPILER_SOURCE, true);
+									complianceLevel = project.getOption(JavaCore.COMPILER_COMPLIANCE, true);
+								}
+								IStatus status = JavaConventions.validatePackageName(firstLevelPackageName, sourceLevel, complianceLevel);
 								if (status.isOK() || status.getSeverity() == IStatus.WARNING) {
 									firstLevelPackageNames.add(firstLevelPackageName);
 								}
@@ -396,7 +448,7 @@ public class SourceMapper
 						IPath path = new Path(entryName);
 						int segmentCount = path.segmentCount();
 						if (segmentCount > 1) {
-							loop: for (int i = 0, max = path.segmentCount() - 1; i < max; i++) {
+							for (int i = 0, max = path.segmentCount() - 1; i < max; i++) {
 								if (firstLevelPackageNames.contains(path.segment(i))) {
 									tempRoots.add(path.uptoSegment(i));
 									// don't break here as this path could contain other first level package names (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=74014)
@@ -556,35 +608,41 @@ public class SourceMapper
 				0,
 				this.typeDepth);
 			System.arraycopy(
-				this.fMemberName,
+				this.memberName,
 				0,
-				this.fMemberName = new String[this.typeDepth * 2],
+				this.memberName = new String[this.typeDepth * 2],
 				0,
 				this.typeDepth);
 			System.arraycopy(
-				this.fMemberDeclarationStart,
+				this.memberDeclarationStart,
 				0,
-				this.fMemberDeclarationStart = new int[this.typeDepth * 2],
+				this.memberDeclarationStart = new int[this.typeDepth * 2],
 				0,
 				this.typeDepth);							
 			System.arraycopy(
-				this.fMemberNameRange,
+				this.memberNameRange,
 				0,
-				this.fMemberNameRange = new SourceRange[this.typeDepth * 2],
-				0,
-				this.typeDepth);
-			System.arraycopy(
-				this.fMethodParameterTypes,
-				0,
-				this.fMethodParameterTypes = new char[this.typeDepth * 2][][],
+				this.memberNameRange = new SourceRange[this.typeDepth * 2],
 				0,
 				this.typeDepth);
 			System.arraycopy(
-				this.fMethodParameterNames,
+				this.methodParameterTypes,
 				0,
-				this.fMethodParameterNames = new char[this.typeDepth * 2][][],
+				this.methodParameterTypes = new char[this.typeDepth * 2][][],
+				0,
+				this.typeDepth);
+			System.arraycopy(
+				this.methodParameterNames,
+				0,
+				this.methodParameterNames = new char[this.typeDepth * 2][][],
 				0,
 				this.typeDepth);					
+			System.arraycopy(
+				this.typeModifiers,
+				0,
+				this.typeModifiers = new int[this.typeDepth * 2],
+				0,
+				this.typeDepth);
 		}
 		if (typeInfo.name.length == 0) {
 			this.anonymousCounter++;
@@ -600,11 +658,13 @@ public class SourceMapper
 			new SourceRange(typeInfo.nameSourceStart, typeInfo.nameSourceEnd - typeInfo.nameSourceStart + 1);
 		this.typeDeclarationStarts[typeDepth] = typeInfo.declarationStart;
 
+		IType currentType = this.types[typeDepth];
+		
+		// type parameters
 		if (typeInfo.typeParameters != null) {
-			final IType currentType = this.types[typeDepth];
 			for (int i = 0, length = typeInfo.typeParameters.length; i < length; i++) {
-				final TypeParameterInfo typeParameterInfo = typeInfo.typeParameters[i];
-				final ITypeParameter typeParameter = currentType.getTypeParameter(new String(typeParameterInfo.name));
+				TypeParameterInfo typeParameterInfo = typeInfo.typeParameters[i];
+				ITypeParameter typeParameter = currentType.getTypeParameter(new String(typeParameterInfo.name));
 				setSourceRange(
 					typeParameter,
 					new SourceRange(
@@ -615,6 +675,12 @@ public class SourceMapper
 						typeParameterInfo.nameSourceEnd - typeParameterInfo.nameSourceStart + 1));
 			}
 		}
+		
+		// type modifiers
+		this.typeModifiers[typeDepth] = typeInfo.modifiers;
+
+		// categories
+		addCategories(currentType, typeInfo.categories);
 	}
 
 	/**
@@ -636,10 +702,16 @@ public class SourceMapper
 	 */
 	public void enterField(FieldInfo fieldInfo) {
 		if (typeDepth >= 0) {
-			fMemberDeclarationStart[typeDepth] = fieldInfo.declarationStart;
-			fMemberNameRange[typeDepth] =
+			this.memberDeclarationStart[typeDepth] = fieldInfo.declarationStart;
+			this.memberNameRange[typeDepth] =
 				new SourceRange(fieldInfo.nameSourceStart, fieldInfo.nameSourceEnd - fieldInfo.nameSourceStart + 1);
-			fMemberName[typeDepth] = new String(fieldInfo.name);
+			String fieldName = new String(fieldInfo.name);
+			this.memberName[typeDepth] = fieldName;
+			
+			// categories
+			IType currentType = this.types[typeDepth];
+			IField field = currentType.getField(fieldName);
+			addCategories(field, fieldInfo.categories);
 		}
 	}
 	
@@ -660,23 +732,46 @@ public class SourceMapper
 	}
 	private void enterAbstractMethod(MethodInfo methodInfo) {
 		if (typeDepth >= 0) {
-			fMemberName[typeDepth] = new String(methodInfo.name);
-			fMemberNameRange[typeDepth] =
+			this.memberName[typeDepth] = new String(methodInfo.name);
+			this.memberNameRange[typeDepth] =
 				new SourceRange(methodInfo.nameSourceStart, methodInfo.nameSourceEnd - methodInfo.nameSourceStart + 1);
-			fMemberDeclarationStart[typeDepth] = methodInfo.declarationStart;
-			fMethodParameterTypes[typeDepth] = methodInfo.parameterTypes;
-			fMethodParameterNames[typeDepth] = methodInfo. parameterNames;
+			this.memberDeclarationStart[typeDepth] = methodInfo.declarationStart;
+			IType currentType = this.types[typeDepth];
+			int currenTypeModifiers = this.typeModifiers[typeDepth];
+			char[][] parameterTypes = methodInfo.parameterTypes;
+			if (parameterTypes != null && methodInfo.isConstructor && currentType.getDeclaringType() != null && !Flags.isStatic(currenTypeModifiers)) {
+				IType declaringType = currentType.getDeclaringType();
+				String declaringTypeName = declaringType.getElementName();
+				if (declaringTypeName.length() == 0) {
+					IClassFile classFile = declaringType.getClassFile();
+					int length = parameterTypes.length;
+					char[][] newParameterTypes = new char[length+1][];
+					declaringTypeName = classFile.getElementName();
+					declaringTypeName = declaringTypeName.substring(0, declaringTypeName.indexOf('.'));
+					newParameterTypes[0] = declaringTypeName.toCharArray();
+					System.arraycopy(parameterTypes, 0, newParameterTypes, 1, length);
+					this.methodParameterTypes[typeDepth] = newParameterTypes;
+				} else {
+					int length = parameterTypes.length;
+					char[][] newParameterTypes = new char[length+1][];
+					newParameterTypes[0] = declaringTypeName.toCharArray();
+					System.arraycopy(parameterTypes, 0, newParameterTypes, 1, length);
+					this.methodParameterTypes[typeDepth] = newParameterTypes;
+				}
+			} else {
+				this.methodParameterTypes[typeDepth] = parameterTypes;
+			}
+			this.methodParameterNames[typeDepth] = methodInfo.parameterNames;
 			
+			IMethod method = currentType.getMethod(
+					this.memberName[typeDepth],
+					convertTypeNamesToSigs(this.methodParameterTypes[typeDepth]));
+			
+			// type parameters
 			if (methodInfo.typeParameters != null) {
-				final IType currentType = this.types[typeDepth];
-				IMethod method = currentType.getMethod(
-						fMemberName[typeDepth],
-						convertTypeNamesToSigs(fMethodParameterTypes[typeDepth]));
-				if (method == null) return;
-				
 				for (int i = 0, length = methodInfo.typeParameters.length; i < length; i++) {
-					final TypeParameterInfo typeParameterInfo = methodInfo.typeParameters[i];
-					final ITypeParameter typeParameter = method.getTypeParameter(new String(typeParameterInfo.name));
+					TypeParameterInfo typeParameterInfo = methodInfo.typeParameters[i];
+					ITypeParameter typeParameter = method.getTypeParameter(new String(typeParameterInfo.name));
 					setSourceRange(
 						typeParameter,
 						new SourceRange(
@@ -687,6 +782,9 @@ public class SourceMapper
 							typeParameterInfo.nameSourceEnd - typeParameterInfo.nameSourceStart + 1));
 				}
 			}	
+			
+			// categories
+			addCategories(method, methodInfo.categories);
 		}
 	}
 	
@@ -727,11 +825,11 @@ public class SourceMapper
 		if (typeDepth >= 0) {
 			IType currentType = this.types[typeDepth];
 			setSourceRange(
-				currentType.getField(fMemberName[typeDepth]),
+				currentType.getField(this.memberName[typeDepth]),
 				new SourceRange(
-					fMemberDeclarationStart[typeDepth],
-					declarationEnd - fMemberDeclarationStart[typeDepth] + 1),
-				fMemberNameRange[typeDepth]);
+					this.memberDeclarationStart[typeDepth],
+					declarationEnd - this.memberDeclarationStart[typeDepth] + 1),
+				this.memberNameRange[typeDepth]);
 		}
 	}
 	
@@ -753,18 +851,18 @@ public class SourceMapper
 			IType currentType = this.types[typeDepth];
 			SourceRange sourceRange =
 				new SourceRange(
-					fMemberDeclarationStart[typeDepth],
-					declarationEnd - fMemberDeclarationStart[typeDepth] + 1);
+					this.memberDeclarationStart[typeDepth],
+					declarationEnd - this.memberDeclarationStart[typeDepth] + 1);
 			IMethod method = currentType.getMethod(
-					fMemberName[typeDepth],
-					convertTypeNamesToSigs(fMethodParameterTypes[typeDepth]));
+					this.memberName[typeDepth],
+					convertTypeNamesToSigs(this.methodParameterTypes[typeDepth]));
 			setSourceRange(
 				method,
 				sourceRange,
-				fMemberNameRange[typeDepth]);
+				this.memberNameRange[typeDepth]);
 			setMethodParameterNames(
 				method,
-				fMethodParameterNames[typeDepth]);
+				this.methodParameterNames[typeDepth]);
 		}
 	}
 	
@@ -773,23 +871,11 @@ public class SourceMapper
 	 * SourceMapper's ZIP file, or returns <code>null</code> if source
 	 * code cannot be found.
 	 */
-	public char[] findSource(IType type) {
+	public char[] findSource(IType type, IBinaryType info) {
 		if (!type.isBinary()) {
 			return null;
 		}
-		BinaryType parent = (BinaryType) type.getDeclaringType();
-		BinaryType declType = (BinaryType) type;
-		while (parent != null) {
-			declType = parent;
-			parent = (BinaryType) declType.getDeclaringType();
-		}
-		IBinaryType info = null;
-		try {
-			info = (IBinaryType) declType.getElementInfo();
-		} catch (JavaModelException e) {
-			return null;
-		}
-		String simpleSourceFileName = declType.sourceFileName(info);
+		String simpleSourceFileName = ((BinaryType) type).getSourceFileName(info);
 		if (simpleSourceFileName == null) {
 			return null;
 		}
@@ -818,13 +904,7 @@ public class SourceMapper
 		}
 
 		if (source == null) {
-			if (!areRootPathsComputed) {
-				computeAllRootPaths((IPackageFragmentRoot) type.getPackageFragment().getParent());
-			}
-			/*
-			 * We should try all existing root paths. If none works, try to recompute it.
-			 * If it still doesn't work, then return null
-			 */
+			computeAllRootPaths(type);
 			if (this.rootPaths != null) {
 				loop: for (Iterator iterator = this.rootPaths.iterator(); iterator.hasNext(); ) {
 					String currentRootPath = (String) iterator.next();
@@ -919,7 +999,7 @@ public class SourceMapper
 			case IJavaElement.METHOD :
 				if (((IMember) element).isBinary()) {
 					IJavaElement[] el = getUnqualifiedMethodHandle((IMethod) element, false);
-					if(el[1] != null && fSourceRanges.get(el[0]) == null) {
+					if(el[1] != null && this.sourceRanges.get(el[0]) == null) {
 						element = getUnqualifiedMethodHandle((IMethod) element, true)[0];
 					} else {
 						element = el[0];
@@ -932,7 +1012,7 @@ public class SourceMapper
 					IMethod method = (IMethod) parent;
 					if (method.isBinary()) {
 						IJavaElement[] el = getUnqualifiedMethodHandle(method, false);
-						if(el[1] != null && fSourceRanges.get(el[0]) == null) {
+						if(el[1] != null && this.sourceRanges.get(el[0]) == null) {
 							method = (IMethod) getUnqualifiedMethodHandle(method, true)[0];
 						} else {
 							method = (IMethod) el[0];
@@ -941,9 +1021,9 @@ public class SourceMapper
 					}
 				}
 		}
-		SourceRange[] ranges = (SourceRange[]) fSourceRanges.get(element);
+		SourceRange[] ranges = (SourceRange[]) this.sourceRanges.get(element);
 		if (ranges == null) {
-			return fgUnknownRange;
+			return UNKNOWN_RANGE;
 		} else {
 			return ranges[1];
 		}
@@ -956,17 +1036,17 @@ public class SourceMapper
 	public char[][] getMethodParameterNames(IMethod method) {
 		if (method.isBinary()) {
 			IJavaElement[] el = getUnqualifiedMethodHandle(method, false);
-			if(el[1] != null && fParameterNames.get(el[0]) == null) {
+			if(el[1] != null && this.parameterNames.get(el[0]) == null) {
 				method = (IMethod) getUnqualifiedMethodHandle(method, true)[0];
 			} else {
 				method = (IMethod) el[0];
 			}
 		}
-		char[][] parameterNames = (char[][]) fParameterNames.get(method);
-		if (parameterNames == null) {
+		char[][] parameters = (char[][]) this.parameterNames.get(method);
+		if (parameters == null) {
 			return null;
 		} else {
-			return parameterNames;
+			return parameters;
 		}
 	}
 	
@@ -979,7 +1059,7 @@ public class SourceMapper
 			case IJavaElement.METHOD :
 				if (((IMember) element).isBinary()) {
 					IJavaElement[] el = getUnqualifiedMethodHandle((IMethod) element, false);
-					if(el[1] != null && fSourceRanges.get(el[0]) == null) {
+					if(el[1] != null && this.sourceRanges.get(el[0]) == null) {
 						element = getUnqualifiedMethodHandle((IMethod) element, true)[0];
 					} else {
 						element = el[0];
@@ -992,7 +1072,7 @@ public class SourceMapper
 					IMethod method = (IMethod) parent;
 					if (method.isBinary()) {
 						IJavaElement[] el = getUnqualifiedMethodHandle(method, false);
-						if(el[1] != null && fSourceRanges.get(el[0]) == null) {
+						if(el[1] != null && this.sourceRanges.get(el[0]) == null) {
 							method = (IMethod) getUnqualifiedMethodHandle(method, true)[0];
 						} else {
 							method = (IMethod) el[0];
@@ -1001,9 +1081,9 @@ public class SourceMapper
 					}
 				}
 		}
-		SourceRange[] ranges = (SourceRange[]) fSourceRanges.get(element);
+		SourceRange[] ranges = (SourceRange[]) this.sourceRanges.get(element);
 		if (ranges == null) {
-			return fgUnknownRange;
+			return UNKNOWN_RANGE;
 		} else {
 			return ranges[0];
 		}
@@ -1022,7 +1102,6 @@ public class SourceMapper
 			for (int i = 0; i <= lastDollar; i++)
 				newClassFileName.append(classFileName.charAt(i));
 			newClassFileName.append(Integer.toString(this.anonymousCounter));
-			newClassFileName.append(SuffixConstants.SUFFIX_class);
 			PackageFragment pkg = (PackageFragment) classFile.getParent();
 			return new BinaryType(new ClassFile(pkg, newClassFileName.toString()), typeName);
 		} else if (this.binaryType.getElementName().equals(typeName))
@@ -1040,48 +1119,10 @@ public class SourceMapper
 		String[] qualifiedParameterTypes = method.getParameterTypes();
 		String[] unqualifiedParameterTypes = new String[qualifiedParameterTypes.length];
 		for (int i = 0; i < qualifiedParameterTypes.length; i++) {
-			StringBuffer unqualifiedName = new StringBuffer();
-			String qualifiedName = qualifiedParameterTypes[i];
-			int count = 0;
-			while (qualifiedName.charAt(count) == Signature.C_ARRAY) {
-				unqualifiedName.append(Signature.C_ARRAY);
-				++count;
-			}
-			char currentChar = qualifiedName.charAt(count);
-			if (currentChar == Signature.C_RESOLVED || currentChar == Signature.C_TYPE_VARIABLE) {
-				unqualifiedName.append(Signature.C_UNRESOLVED);
-				String simpleName = Signature.getSimpleName(qualifiedName.substring(count+1));
-				int lastDollar = simpleName.lastIndexOf('$');
-				hasDollar |= lastDollar != -1;
-				int start = noDollar ? lastDollar + 1 : 0;
-				boolean sigStart = false;
-				for (int j = start, length = simpleName.length(); j < length; j++) {
-					char current = simpleName.charAt(j);
-					switch (current) {
-						case Signature.C_SUPER:
-						case Signature.C_EXTENDS:
-						case Signature.C_GENERIC_START:
-						case Signature.C_NAME_END:
-							unqualifiedName.append(current);
-							sigStart = true;
-							break;
-						default:
-							if (sigStart) {
-								if (current == Signature.C_TYPE_VARIABLE) {
-									unqualifiedName.append(Signature.C_UNRESOLVED);
-								} else {
-									unqualifiedName.append(current);
-								}
-								sigStart = false;
-							} else {
-								unqualifiedName.append(current);
-							}
-					}
-				}
-			} else {
-				unqualifiedName.append(qualifiedName.substring(count, qualifiedName.length()));
-			}
-			unqualifiedParameterTypes[i] = unqualifiedName.toString();
+			StringBuffer unqualifiedTypeSig = new StringBuffer();
+			getUnqualifiedTypeSignature(qualifiedParameterTypes[i], 0/*start*/, qualifiedParameterTypes[i].length(), unqualifiedTypeSig, noDollar);
+			unqualifiedParameterTypes[i] = unqualifiedTypeSig.toString();
+			hasDollar |= unqualifiedParameterTypes[i].lastIndexOf('$') != -1;
 		}
 		
 		IJavaElement[] result = new IJavaElement[2];
@@ -1093,12 +1134,89 @@ public class SourceMapper
 		}
 		return result;
 	}
+
+	private int getUnqualifiedTypeSignature(String qualifiedTypeSig, int start, int length, StringBuffer unqualifiedTypeSig, boolean noDollar) {
+		char firstChar = qualifiedTypeSig.charAt(start);
+		int end = start + 1;
+		boolean sigStart = false;
+		firstPass: for (int i = start; i < length; i++) {
+			char current = qualifiedTypeSig.charAt(i);
+			switch (current) {
+				case Signature.C_ARRAY :
+				case Signature.C_SUPER:
+				case Signature.C_EXTENDS:
+					unqualifiedTypeSig.append(current);
+					start = i + 1;
+					end = start + 1;
+					firstChar = qualifiedTypeSig.charAt(start);
+					break;
+				case Signature.C_RESOLVED :
+				case Signature.C_UNRESOLVED :
+				case Signature.C_TYPE_VARIABLE :
+					if (!sigStart) {
+						start = ++i;
+						sigStart = true;
+					}
+					break;
+				case Signature.C_NAME_END:
+				case Signature.C_GENERIC_START :
+					end = i;
+					break firstPass;
+				case Signature.C_STAR :
+					unqualifiedTypeSig.append(current);
+					start = i + 1;
+					end = start + 1;
+					firstChar = qualifiedTypeSig.charAt(start);
+					break;
+				case Signature.C_GENERIC_END :
+					return i;
+				case Signature.C_DOT:
+					start = ++i;
+					break;
+			}
+		}
+		switch (firstChar) {
+			case Signature.C_RESOLVED :
+			case Signature.C_UNRESOLVED :
+			case Signature.C_TYPE_VARIABLE :
+				unqualifiedTypeSig.append(Signature.C_UNRESOLVED);
+				if (noDollar) {
+					int lastDollar = qualifiedTypeSig.lastIndexOf('$', end);
+					if (lastDollar > start)
+						start = lastDollar + 1;
+				}
+				for (int i = start; i < length; i++) {
+					char current = qualifiedTypeSig.charAt(i);
+					switch (current) {
+						case Signature.C_GENERIC_START:
+							unqualifiedTypeSig.append(current);
+							i++;
+							do {
+								i = getUnqualifiedTypeSignature(qualifiedTypeSig, i, length, unqualifiedTypeSig, noDollar);
+							} while (qualifiedTypeSig.charAt(i) != Signature.C_GENERIC_END);
+							unqualifiedTypeSig.append(Signature.C_GENERIC_END);
+							break;
+						case Signature.C_NAME_END:
+							unqualifiedTypeSig.append(current);
+							return i + 1;
+						default:
+							unqualifiedTypeSig.append(current);
+							break;
+					}
+				}
+				return length;
+			default :
+				// primitive type or wildcard
+				unqualifiedTypeSig.append(qualifiedTypeSig.substring(start, end));
+				return end;
+		}
+	}
 		
 	/**
 	 * Maps the given source code to the given binary type and its children.
 	 */
-	public void mapSource(IType type, char[] contents) {
-		this.mapSource(type, contents, null);
+	public void mapSource(IType type, char[] contents, IBinaryType info) {
+		this.mapSource(type, contents, info, null);
 	}
 	
 	/**
@@ -1109,12 +1227,13 @@ public class SourceMapper
 	public synchronized ISourceRange mapSource(
 		IType type,
 		char[] contents,
+		IBinaryType info,
 		IJavaElement elementToFind) {
 			
 		this.binaryType = (BinaryType) type;
 		
 		// check whether it is already mapped
-		if (this.fSourceRanges.get(type) != null) return (elementToFind != null) ? this.getNameRange(elementToFind) : null;
+		if (this.sourceRanges.get(type) != null) return (elementToFind != null) ? getNameRange(elementToFind) : null;
 		
 		this.importsTable.remove(this.binaryType);
 		this.importsCounterTable.remove(this.binaryType);
@@ -1122,29 +1241,29 @@ public class SourceMapper
 		this.types = new IType[1];
 		this.typeDeclarationStarts = new int[1];
 		this.typeNameRanges = new SourceRange[1];
+		this.typeModifiers = new int[1];
 		this.typeDepth = -1;
-		this.fMemberDeclarationStart = new int[1];
-		this.fMemberName = new String[1];
-		this.fMemberNameRange = new SourceRange[1];
-		this.fMethodParameterTypes = new char[1][][];
-		this.fMethodParameterNames = new char[1][][];
+		this.memberDeclarationStart = new int[1];
+		this.memberName = new String[1];
+		this.memberNameRange = new SourceRange[1];
+		this.methodParameterTypes = new char[1][][];
+		this.methodParameterNames = new char[1][][];
 		this.anonymousCounter = 0;
 		
-		HashMap oldSourceRanges = (HashMap) fSourceRanges.clone();
+		HashMap oldSourceRanges = (HashMap) this.sourceRanges.clone();
 		try {
 			IProblemFactory factory = new DefaultProblemFactory();
 			SourceElementParser parser = null;
-			boolean isAnonymousClass = false;
-			char[] fullName = null;
 			this.anonymousClassName = 0;
-			IBinaryType info = null;
-			try {
-				info = (IBinaryType) this.binaryType.getElementInfo();
-				isAnonymousClass = info.isAnonymous();
-				fullName = info.getName();
-			} catch(JavaModelException e) {
-				// ignore
+			if (info == null) {
+				try {
+					info = (IBinaryType) this.binaryType.getElementInfo();
+				} catch(JavaModelException e) {
+					return null;
+				}
 			}
+			boolean isAnonymousClass = info.isAnonymous();
+			char[] fullName = info.getName();
 			if (isAnonymousClass) {
 				String eltName = this.binaryType.getParent().getElementName();
 				eltName = eltName.substring(eltName.lastIndexOf('$') + 1, eltName.length());
@@ -1170,7 +1289,7 @@ public class SourceMapper
 			}
 		} finally {
 			if (elementToFind != null) {
-				fSourceRanges = oldSourceRanges;
+				this.sourceRanges = oldSourceRanges;
 			}
 			this.binaryType = null;
 			this.searchedElement = null;
@@ -1195,7 +1314,7 @@ public class SourceMapper
 	/** 
 	 * Sets the mapping for this method to its parameter names.
 	 *
-	 * @see #fParameterNames
+	 * @see #parameterNames
 	 */
 	protected void setMethodParameterNames(
 		IMethod method,
@@ -1203,20 +1322,20 @@ public class SourceMapper
 		if (parameterNames == null) {
 			parameterNames = CharOperation.NO_CHAR_CHAR;
 		}
-		fParameterNames.put(method, parameterNames);
+		this.parameterNames.put(method, parameterNames);
 	}
 	
 	/** 
 	 * Sets the mapping for this element to its source ranges for its source range
 	 * and name range.
 	 *
-	 * @see #fSourceRanges
+	 * @see #sourceRanges
 	 */
 	protected void setSourceRange(
 		IJavaElement element,
 		SourceRange sourceRange,
 		SourceRange nameRange) {
-		fSourceRanges.put(element, new SourceRange[] { sourceRange, nameRange });
+		this.sourceRanges.put(element, new SourceRange[] { sourceRange, nameRange });
 	}
 
 	/**

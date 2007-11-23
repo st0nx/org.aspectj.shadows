@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -84,29 +84,9 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 	
 			for (Enumeration e= jar.entries(); e.hasMoreElements();) {
 				ZipEntry member= (ZipEntry) e.nextElement();
-				String entryName= member.getName();
-	
-				if (member.isDirectory()) {
-					
-					initPackageFragToTypes(packageFragToTypes, entryName, entryName.length()-1);
-				} else {
-					//store the class file / non-java rsc entry name to be cached in the appropriate package fragment
-					//zip entries only use '/'
-					int lastSeparator= entryName.lastIndexOf('/');
-					String fileName= entryName.substring(lastSeparator + 1);
-					String[] pkgName = initPackageFragToTypes(packageFragToTypes, entryName, lastSeparator);
-
-					// add classfile info amongst children
-					ArrayList[] children = (ArrayList[]) packageFragToTypes.get(pkgName);
-					if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(entryName)) {
-						if (children[JAVA] == EMPTY_LIST) children[JAVA] = new ArrayList();
-						children[JAVA].add(fileName);
-					} else {
-						if (children[NON_JAVA] == EMPTY_LIST) children[NON_JAVA] = new ArrayList();
-						children[NON_JAVA].add(fileName);
-					}
-				}
+				initPackageFragToTypes(packageFragToTypes, member.getName(), member.isDirectory());
 			}
+			
 			//loop through all of referenced packages, creating package fragments if necessary
 			// and cache the entry names in the infos created for those package fragments
 			for (int i = 0, length = packageFragToTypes.keyTable.length; i < length; i++) {
@@ -118,11 +98,11 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 				JarPackageFragmentInfo fragInfo= new JarPackageFragmentInfo();
 				int resLength= entries[NON_JAVA].size();
 				if (resLength == 0) {
-					packFrag.computeNonJavaResources(CharOperation.NO_STRINGS, fragInfo, jar.getName());
+					packFrag.computeNonJavaResources(CharOperation.NO_STRINGS, packFrag, fragInfo, jar.getName());
 				} else {
 					String[] resNames= new String[resLength];
 					entries[NON_JAVA].toArray(resNames);
-					packFrag.computeNonJavaResources(resNames, fragInfo, jar.getName());
+					packFrag.computeNonJavaResources(resNames, packFrag, fragInfo, jar.getName());
 				}
 				packFrag.computeChildren(fragInfo, entries[JAVA]);
 				newElements.put(packFrag, fragInfo);
@@ -191,7 +171,16 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 	 */
 	public Object[] getNonJavaResources() throws JavaModelException {
 		// We want to show non java resources of the default package at the root (see PR #1G58NB8)
-		return ((JarPackageFragment) getPackageFragment(CharOperation.NO_STRINGS)).storedNonJavaResources();
+		Object[] defaultPkgResources =  ((JarPackageFragment) getPackageFragment(CharOperation.NO_STRINGS)).storedNonJavaResources();
+		int length = defaultPkgResources.length;
+		if (length == 0)
+			return defaultPkgResources;
+		Object[] nonJavaResources = new Object[length];
+		for (int i = 0; i < length; i++) {
+			JarEntryResource nonJavaResource = (JarEntryResource) defaultPkgResources[i];
+			nonJavaResources[i] = nonJavaResource.clone(this);
+		}
+		return nonJavaResources;
 	}
 	public PackageFragment getPackageFragment(String[] pkgName) {
 		return new JarPackageFragment(this, pkgName);
@@ -233,7 +222,8 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 	public int hashCode() {
 		return this.jarPath.hashCode();
 	}
-	private String[] initPackageFragToTypes(HashtableOfArrayToObject packageFragToTypes, String entryName, int lastSeparator) {
+	private void initPackageFragToTypes(HashtableOfArrayToObject packageFragToTypes, String entryName, boolean isDirectory) {
+		int lastSeparator = isDirectory ? entryName.length()-1 : entryName.lastIndexOf('/');
 		String[] pkgName = Util.splitOn('/', entryName, 0, lastSeparator);
 		String[] existing = null;
 		int length = pkgName.length;
@@ -244,13 +234,36 @@ public class JarPackageFragmentRoot extends PackageFragmentRoot {
 			existingLength--;
 		}
 		JavaModelManager manager = JavaModelManager.getJavaModelManager();
+		IJavaProject project = getJavaProject();
 		for (int i = existingLength; i < length; i++) {
-			System.arraycopy(existing, 0, existing = new String[i+1], 0, i);
-			existing[i] = manager.intern(pkgName[i]);
-			packageFragToTypes.put(existing, new ArrayList[] { EMPTY_LIST, EMPTY_LIST });
+			if (Util.isValidFolderNameForPackage(pkgName[i], project.getOption(JavaCore.COMPILER_SOURCE, true), project.getOption(JavaCore.COMPILER_COMPLIANCE, true))) {
+				System.arraycopy(existing, 0, existing = new String[i+1], 0, i);
+				existing[i] = manager.intern(pkgName[i]);
+				packageFragToTypes.put(existing, new ArrayList[] { EMPTY_LIST, EMPTY_LIST });
+			} else {
+				// non-Java resource folder
+				if (!isDirectory) {
+					ArrayList[] children = (ArrayList[]) packageFragToTypes.get(existing);
+					if (children[1/*NON_JAVA*/] == EMPTY_LIST) children[1/*NON_JAVA*/] = new ArrayList();
+					children[1/*NON_JAVA*/].add(entryName);
+				}
+				return;
+			}
+		}
+		if (isDirectory)
+			return;
+		
+		// add classfile info amongst children
+		ArrayList[] children = (ArrayList[]) packageFragToTypes.get(pkgName);
+		if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(entryName)) {
+			if (children[0/*JAVA*/] == EMPTY_LIST) children[0/*JAVA*/] = new ArrayList();
+			String fileName = entryName.substring(lastSeparator + 1);
+			children[0/*JAVA*/].add(fileName);
+		} else {
+			if (children[1/*NON_JAVA*/] == EMPTY_LIST) children[1/*NON_JAVA*/] = new ArrayList();
+			children[1/*NON_JAVA*/].add(entryName);
 		}
 		
-		return existing;
 	}
 	/**
 	 * @see IPackageFragmentRoot
@@ -284,5 +297,12 @@ protected boolean resourceExists() {
 	} else {
 		return super.resourceExists();
 	}
+}
+protected void toStringAncestors(StringBuffer buffer) {
+	if (isExternal())
+		// don't show project as it is irrelevant for external jar files.
+		// also see https://bugs.eclipse.org/bugs/show_bug.cgi?id=146615
+		return;
+	super.toStringAncestors(buffer);
 }
 }

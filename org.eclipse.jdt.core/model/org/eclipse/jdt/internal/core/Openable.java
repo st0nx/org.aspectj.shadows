@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,21 +10,18 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.*;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.Map;
 
 import org.eclipse.core.resources.*;
-import org.eclipse.core.resources.IContainer;
-import org.eclipse.core.resources.IResource;
-import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.core.runtime.PerformanceStats;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
 import org.eclipse.jdt.internal.codeassist.SelectionEngine;
+import org.eclipse.jdt.internal.core.util.Util;
 
 
 /**
@@ -51,7 +48,7 @@ public void bufferChanged(BufferChangedEvent event) {
 		JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().remove(this);
 		getBufferManager().removeBuffer(event.getBuffer());
 	} else {
-		JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().put(this, this);
+		JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().add(this);
 	}
 }	
 /**
@@ -102,13 +99,11 @@ protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUn
 	if (requestor == null) {
 		throw new IllegalArgumentException("Completion requestor cannot be null"); //$NON-NLS-1$
 	}
-	PerformanceStats stats = null;
-	if(CompletionEngine.PERF) {
-		stats = PerformanceStats.getStats(JavaModelManager.COMPLETION_PERF, this);
-		stats.startRun(
-				new String(cu.getFileName()) +
-				" at " + //$NON-NLS-1$
-				position);
+	PerformanceStats performanceStats = CompletionEngine.PERF
+		? PerformanceStats.getStats(JavaModelManager.COMPLETION_PERF, this)
+		: null;
+	if(performanceStats != null) {
+		performanceStats.startRun(new String(cu.getFileName()) + " at " + position); //$NON-NLS-1$
 	}
 	IBuffer buffer = getBuffer();
 	if (buffer == null) {
@@ -126,8 +121,8 @@ protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUn
 	// code complete
 	CompletionEngine engine = new CompletionEngine(environment, requestor, project.getOptions(true), project);
 	engine.complete(cu, position, 0);
-	if(CompletionEngine.PERF) {
-		stats.endRun();
+	if(performanceStats != null) {
+		performanceStats.endRun();
 	}
 	if (NameLookup.VERBOSE) {
 		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
@@ -135,16 +130,11 @@ protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUn
 	}
 }
 protected IJavaElement[] codeSelect(org.eclipse.jdt.internal.compiler.env.ICompilationUnit cu, int offset, int length, WorkingCopyOwner owner) throws JavaModelException {
-	PerformanceStats stats = null;
-	if(SelectionEngine.PERF) {
-		stats = PerformanceStats.getStats(JavaModelManager.SELECTION_PERF, this);
-		stats.startRun(
-				new String(cu.getFileName()) +
-				" at [" + //$NON-NLS-1$
-				offset +
-				"," + //$NON-NLS-1$
-				length +
-				"]"); //$NON-NLS-1$
+	PerformanceStats performanceStats = SelectionEngine.PERF
+		? PerformanceStats.getStats(JavaModelManager.SELECTION_PERF, this)
+		: null;
+	if(performanceStats != null) {
+		performanceStats.startRun(new String(cu.getFileName()) + " at [" + offset + "," + length + "]"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 	}
 	
 	JavaProject project = (JavaProject)getJavaProject();
@@ -163,8 +153,9 @@ protected IJavaElement[] codeSelect(org.eclipse.jdt.internal.compiler.env.ICompi
 	// fix for 1FVXGDK
 	SelectionEngine engine = new SelectionEngine(environment, requestor, project.getOptions(true));
 	engine.select(cu, offset, offset + length - 1);
-	if(SelectionEngine.PERF) {
-		stats.endRun();
+	
+	if(performanceStats != null) {
+		performanceStats.endRun();
 	}
 	if (NameLookup.VERBOSE) {
 		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
@@ -192,9 +183,14 @@ public boolean exists() {
 	}
 	return super.exists();
 }
+public String findRecommendedLineSeparator() throws JavaModelException {
+	IBuffer buffer = getBuffer();
+	String source = buffer == null ? null : buffer.getContents();
+	return Util.getLineSeparator(source, getJavaProject());
+}
 protected void generateInfos(Object info, HashMap newElements, IProgressMonitor monitor) throws JavaModelException {
 
-	if (JavaModelManager.VERBOSE){
+	if (JavaModelCache.VERBOSE){
 		String element;
 		switch (getElementType()) {
 			case JAVA_PROJECT:
@@ -240,8 +236,8 @@ protected void generateInfos(Object info, HashMap newElements, IProgressMonitor 
 	// remove out of sync buffer for this element
 	JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().remove(this);
 
-	if (JavaModelManager.VERBOSE) {
-		System.out.println(JavaModelManager.getJavaModelManager().cache.toStringFillingRation("-> ")); //$NON-NLS-1$
+	if (JavaModelCache.VERBOSE) {
+		System.out.println(JavaModelManager.getJavaModelManager().cacheToString("-> ")); //$NON-NLS-1$
 	}
 }
 /**
@@ -261,6 +257,9 @@ public IBuffer getBuffer() throws JavaModelException {
 		if (buffer == null) {
 			// try to (re)open a buffer
 			buffer = openBuffer(null, info);
+		}
+		if (buffer instanceof NullBuffer) {
+			return null;
 		}
 		return buffer;
 	} else {
@@ -394,34 +393,8 @@ public boolean isStructureKnown() throws JavaModelException {
  * @see IOpenable
  */
 public void makeConsistent(IProgressMonitor monitor) throws JavaModelException {
-	if (isConsistent()) return;
-	
-	// create a new info and make it the current info
-	// (this will remove the info and its children just before storing the new infos)
-	JavaModelManager manager = JavaModelManager.getJavaModelManager();
-	boolean hadTemporaryCache = manager.hasTemporaryCache();
-	try {
-		HashMap newElements = manager.getTemporaryCache();
-		openWhenClosed(newElements, monitor);
-		if (newElements.get(this) == null) {
-			// close any buffer that was opened for the new elements
-			Iterator iterator = newElements.keySet().iterator();
-			while (iterator.hasNext()) {
-				IJavaElement element = (IJavaElement)iterator.next();
-				if (element instanceof Openable) {
-					((Openable)element).closeBuffer();
-				}
-			}
-			throw newNotPresentException();
-		}
-		if (!hadTemporaryCache) {
-			manager.putInfos(this, newElements);
-		}
-	} finally {
-		if (!hadTemporaryCache) {
-			manager.resetTemporaryCache();
-		}
-	}
+	// only compilation units can be inconsistent
+	// other openables cannot be inconsistent so default is to do nothing
 }
 /**
  * @see IOpenable
@@ -493,12 +466,7 @@ public void save(IProgressMonitor pm, boolean force) throws JavaModelException {
  * Find enclosing package fragment root if any
  */
 public PackageFragmentRoot getPackageFragmentRoot() {
-	IJavaElement current = this;
-	do {
-		if (current instanceof PackageFragmentRoot) return (PackageFragmentRoot)current;
-		current = current.getParent();
-	} while(current != null);
-	return null;
+	return (PackageFragmentRoot) getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
 }
 
 }

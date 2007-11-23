@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -70,6 +70,20 @@ public interface IAccessRule {
 	int K_DISCOURAGED = 2;
 
 	/**
+	 * <p>Flag indicating that whether a type matching this rule should be ignored iff a type with 
+	 * the same qualified name can be found on a later classpath entry with a better 
+	 * accessibility.</p>
+	 * <p>E.g. if a type p.X matches a rule K_NON_ACCESSIBLE | IGNORE_IF_BETTER 
+	 * on a library entry 'lib1' and another type p.X also matches a rule 
+	 * K_DISCOURAGED on library entry 'lib2' ('lib2' being after 'lib1' on the 
+	 * classpath), then p.X from 'lib2' will be used and reported as 
+	 * discouraged.</p>
+	 * 
+	 * @since 3.2
+	 */
+	int IGNORE_IF_BETTER = 0x100;
+
+	/**
 	 * Returns the file pattern for this access rule.
 	 * 
 	 * @return the file pattern for this access rule
@@ -83,5 +97,22 @@ public interface IAccessRule {
 	 * @return the kind of this access rule
 	 */
 	int getKind();
+	
+	/**
+	 * <p>Returns whether a type matching this rule should be ignored iff a type with 
+	 * the same qualified name can be found on a later classpath entry with a better 
+	 * accessibility.</p>
+	 * <p>E.g. if a type p.X matches a rule K_NON_ACCESSIBLE | IGNORE_IF_BETTER 
+	 * on a library entry 'lib1' and another type p.X also matches a rule 
+	 * K_DISCOURAGED on library entry 'lib2' ('lib2' being after 'lib1' on the 
+	 * classpath), then p.X from 'lib2' will be used and reported as 
+	 * discouraged.</p>
+	 * 
+	 * @return whether a type matching this rule should be ignored iff a type 
+	 *              with the same qualified name can be found on a later classpath 
+	 *              entry with a better accessibility
+	 * @since 3.2
+	 */
+	boolean ignoreIfBetter();
 
 }

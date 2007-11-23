@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -82,12 +82,15 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 				this.attributes[attributesIndex++] = this.localVariableAttribute;
 			} else if (equals(attributeName, IAttributeNamesConstants.LOCAL_VARIABLE_TYPE_TABLE)) {
 				this.attributes[attributesIndex++] = new LocalVariableTypeAttribute(classFileBytes, constantPool, offset + readOffset);
+			} else if (equals(attributeName, IAttributeNamesConstants.STACK_MAP_TABLE)) {
+				this.attributes[attributesIndex++] = new StackMapTableAttribute(classFileBytes, constantPool, offset + readOffset);
+			} else if (equals(attributeName, IAttributeNamesConstants.STACK_MAP)) {
+				this.attributes[attributesIndex++] = new StackMapAttribute(classFileBytes, constantPool, offset + readOffset);
 			} else {
 				this.attributes[attributesIndex++] = new ClassFileAttribute(classFileBytes, constantPool, offset + readOffset);
 			}
 			readOffset += (6 + u4At(classFileBytes, readOffset + 2, offset));
 		}
-		
 	}
 	/**
 	 * @see ICodeAttribute#getAttributes()
@@ -906,7 +909,7 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 				case IOpcodeMnemonics.TABLESWITCH :
 					int startpc = pc;
 					pc++;
-					while (((pc - this.codeOffset) % 4) != 0) {
+					while (((pc - this.codeOffset) & 0x03) != 0) { // faster than % 4
 						pc++;
 					}
 					int defaultOffset = i4At(this.classFileBytes, 0, pc);
@@ -926,7 +929,7 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 				case IOpcodeMnemonics.LOOKUPSWITCH :
 					startpc = pc;
 					pc++;
-					while (((pc - this.codeOffset) % 4) != 0) {
+					while (((pc - this.codeOffset) & 0x03) != 0) {
 						pc++;
 					}
 					defaultOffset = i4At(this.classFileBytes, 0, pc);

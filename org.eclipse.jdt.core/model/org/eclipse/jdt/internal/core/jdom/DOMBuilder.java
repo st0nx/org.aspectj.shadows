@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,8 +14,8 @@ import java.util.ArrayList;
 import java.util.Map;
 
 import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.jdom.*;
 import org.eclipse.jdt.internal.compiler.DocumentElementParser;
 import org.eclipse.jdt.internal.compiler.IDocumentElementRequestor;
@@ -121,7 +121,7 @@ public void acceptPackage(int declarationStart, int declarationEnd, int[] javaDo
  *
  * @see IDocumentElementRequestor
  */
-public void acceptProblem(IProblem problem){
+public void acceptProblem(CategorizedProblem problem){
 	if (fBuildingSingleMember && fFinishedSingleMember) {
 		return;
 	}
@@ -268,7 +268,10 @@ public IDOMType createType(char[] sourceCode) {
 		return null;
 	}
 	if (fNode != null) fNode.normalize(this);
-	return (IDOMType)fNode;
+	if (fNode instanceof IDOMType) {
+		return (IDOMType) fNode;
+	}
+	return null;
 }
 /**
  * Creates a new DOMMethod and inizializes.

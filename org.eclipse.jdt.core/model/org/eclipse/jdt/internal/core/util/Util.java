@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,10 +11,13 @@
 package org.eclipse.jdt.internal.core.util;
 
 import java.io.*;
+import java.net.URI;
 import java.util.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import org.eclipse.core.filesystem.EFS;
+import org.eclipse.core.filesystem.IFileStore;
 import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 import org.eclipse.core.runtime.content.IContentType;
@@ -40,8 +43,9 @@ import org.eclipse.jdt.internal.compiler.ast.Argument;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
-import org.eclipse.jdt.internal.core.Assert;
+import org.eclipse.jdt.internal.core.JavaElement;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.PackageFragmentRoot;
 import org.eclipse.jface.text.BadLocationException;
@@ -73,6 +77,7 @@ public class Util {
 	private static final String EMPTY_ARGUMENT = "   "; //$NON-NLS-1$
 	
 	private static char[][] JAVA_LIKE_EXTENSIONS;
+	public static boolean ENABLE_JAVA_LIKE_EXTENSIONS = true;
 
 	private static final char[] BOOLEAN = "boolean".toCharArray(); //$NON-NLS-1$
 	private static final char[] BYTE = "byte".toCharArray(); //$NON-NLS-1$
@@ -84,7 +89,7 @@ public class Util {
 	private static final char[] SHORT = "short".toCharArray(); //$NON-NLS-1$
 	private static final char[] VOID = "void".toCharArray(); //$NON-NLS-1$
 	private static final char[] INIT = "<init>".toCharArray(); //$NON-NLS-1$
-
+	
 	private Util() {
 		// cannot be instantiated
 	}
@@ -434,7 +439,7 @@ public class Util {
 		// return false if any character of the end are
 		// not the same in lower case.
 		for(int i = 1 ; i <= endLength; i++){
-			if(Character.toLowerCase(end.charAt(endLength - i)) != Character.toLowerCase(str.charAt(strLength - i)))
+			if(ScannerHelper.toLowerCase(end.charAt(endLength - i)) != ScannerHelper.toLowerCase(str.charAt(strLength - i)))
 				return false;
 		}
 		
@@ -496,7 +501,9 @@ public class Util {
 
 		int len = a.length;
 		if (len != b.length) return false;
-		for (int i = 0; i < len; ++i) {
+		// walk array from end to beginning as this optimizes package name cases 
+		// where the first part is always the same (e.g. org.eclipse.jdt)
+		for (int i = len-1; i >= 0; i--) {
 			if (a[i] == null) {
 				if (b[i] != null) return false;
 			} else {
@@ -590,9 +597,11 @@ public class Util {
 		char[][] javaLikeExtensions = getJavaLikeExtensions();
 		suffixes: for (int i = 0, length = javaLikeExtensions.length; i < length; i++) {
 			char[] suffix = javaLikeExtensions[i];
-			if (stringLength + suffix.length != fileNameLength) continue;
-			for (int j = stringLength; j < fileNameLength; j++) {
-				if (fileName.charAt(j) != suffix[j-stringLength]) 
+			int extensionStart = stringLength+1;
+			if (extensionStart + suffix.length != fileNameLength) continue;
+			if (fileName.charAt(stringLength) != '.') continue;
+			for (int j = extensionStart; j < fileNameLength; j++) {
+				if (fileName.charAt(j) != suffix[j-extensionStart]) 
 					continue suffixes;
 			}
 			return true;
@@ -733,37 +742,40 @@ public class Util {
 		}
 		return null;
 	}
+	
 	/**
 	 * Returns the registered Java like extensions.
 	 */
 	public static char[][] getJavaLikeExtensions() {
 		if (JAVA_LIKE_EXTENSIONS == null) {
 			// TODO (jerome) reenable once JDT UI supports other file extensions (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=71460)
-			if (true)
-				JAVA_LIKE_EXTENSIONS = new char[][] {SuffixConstants.SUFFIX_java};
+			if (!ENABLE_JAVA_LIKE_EXTENSIONS)
+				JAVA_LIKE_EXTENSIONS = new char[][] {SuffixConstants.EXTENSION_java.toCharArray()};
 			else {
-				IContentType javaContentType = Platform.getContentTypeManager().getContentType(JavaModelManager.JAVA_SOURCE_CONTENT_TYPE);
-				String[] fileExtensions = javaContentType == null ? null : javaContentType.getFileSpecs(IContentType.FILE_EXTENSION_SPEC);
-				// note that file extensions contains "java" as it is defined in JDT Core's plugin.xml
-				int length = fileExtensions == null ? 0 : fileExtensions.length;
-				char[][] extensions = new char[length][];
-				SimpleWordSet knownExtensions = new SimpleWordSet(length); // used to ensure no duplicate extensions
-				extensions[0] = SuffixConstants.SUFFIX_java; // ensure that ".java" is first
-				knownExtensions.add(SuffixConstants.SUFFIX_java);
-				int index = 1;
-				for (int i = 0; i < length; i++) {
-					String fileExtension = fileExtensions[i];
-					int extensionLength = fileExtension.length() + 1;
-					char[] extension = new char[extensionLength];
-					extension[0] = '.';
-					fileExtension.getChars(0, extensionLength-1, extension, 1);
-					if (!knownExtensions.includes(extension)) {
-						extensions[index++] = extension;
-						knownExtensions.add(extension);
+				IContentType javaContentType = Platform.getContentTypeManager().getContentType(JavaCore.JAVA_SOURCE_CONTENT_TYPE);
+				HashSet fileExtensions = new HashSet();
+				// content types derived from java content type should be included (https://bugs.eclipse.org/bugs/show_bug.cgi?id=121715)
+				IContentType[] contentTypes = Platform.getContentTypeManager().getAllContentTypes();
+				for (int i = 0, length = contentTypes.length; i < length; i++) {
+					if (contentTypes[i].isKindOf(javaContentType)) { // note that javaContentType.isKindOf(javaContentType) == true
+						String[] fileExtension = contentTypes[i].getFileSpecs(IContentType.FILE_EXTENSION_SPEC);
+						for (int j = 0, length2 = fileExtension.length; j < length2; j++) {
+							fileExtensions.add(fileExtension[j]);
+						}
 					}
 				}
-				if (index != length)
-					System.arraycopy(extensions, 0, extensions = new char[index][], 0, index);
+				int length = fileExtensions.size();
+				// note that file extensions contains "java" as it is defined in JDT Core's plugin.xml
+				char[][] extensions = new char[length][];
+				extensions[0] = SuffixConstants.EXTENSION_java.toCharArray(); // ensure that "java" is first
+				int index = 1;
+				Iterator iterator = fileExtensions.iterator();
+				while (iterator.hasNext()) {
+					String fileExtension = (String) iterator.next();
+					if (SuffixConstants.EXTENSION_java.equals(fileExtension))
+						continue;
+					extensions[index++] = fileExtension.toCharArray();
+				}
 				JAVA_LIKE_EXTENSIONS = extensions;
 			}
 		}
@@ -780,48 +792,45 @@ public class Util {
 	 */
 	public static long getJdkLevel(Object targetLibrary) {
 		try {
-				ClassFileReader reader = null;
-				if (targetLibrary instanceof IFolder) {
-					IFile classFile = findFirstClassFile((IFolder) targetLibrary); // only internal classfolders are allowed
-					if (classFile != null) {
-						byte[] bytes = Util.getResourceContentsAsByteArray(classFile);
-						IPath location = classFile.getLocation();
-						reader = new ClassFileReader(bytes, location == null ? null : location.toString().toCharArray());
+			ClassFileReader reader = null;
+			if (targetLibrary instanceof IFolder) {
+				IFile classFile = findFirstClassFile((IFolder) targetLibrary); // only internal classfolders are allowed
+				if (classFile != null)
+					reader = Util.newClassFileReader(classFile);
+			} else {
+				// root is a jar file or a zip file
+				ZipFile jar = null;
+				try {
+					IPath path = null;
+					if (targetLibrary instanceof IResource) {
+						path = ((IResource)targetLibrary).getFullPath();
+					} else if (targetLibrary instanceof File){
+						File f = (File) targetLibrary;
+						if (!f.isDirectory()) {
+							path = new Path(((File)targetLibrary).getPath());
+						}
 					}
-				} else {
-					// root is a jar file or a zip file
-					ZipFile jar = null;
-					try {
-						IPath path = null;
-						if (targetLibrary instanceof IResource) {
-							path = ((IResource)targetLibrary).getLocation();
-						} else if (targetLibrary instanceof File){
-							File f = (File) targetLibrary;
-							if (!f.isDirectory()) {
-								path = new Path(((File)targetLibrary).getPath());
+					if (path != null) {
+						jar = JavaModelManager.getJavaModelManager().getZipFile(path);
+						for (Enumeration e= jar.entries(); e.hasMoreElements();) {
+							ZipEntry member= (ZipEntry) e.nextElement();
+							String entryName= member.getName();
+							if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(entryName)) {
+								reader = ClassFileReader.read(jar, entryName);
+								break;
 							}
 						}
-						if (path != null) {
-							jar = JavaModelManager.getJavaModelManager().getZipFile(path);
-							for (Enumeration e= jar.entries(); e.hasMoreElements();) {
-								ZipEntry member= (ZipEntry) e.nextElement();
-								String entryName= member.getName();
-								if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(entryName)) {
-									reader = ClassFileReader.read(jar, entryName);
-									break;
-								}
-							}
-						}
-					} catch (CoreException e) {
-						// ignore
-					} finally {
-						JavaModelManager.getJavaModelManager().closeZipFile(jar);
 					}
+				} catch (CoreException e) {
+					// ignore
+				} finally {
+					JavaModelManager.getJavaModelManager().closeZipFile(jar);
 				}
-				if (reader != null) {
-					return reader.getVersion();
-				}
-		} catch(JavaModelException e) {
+			}
+			if (reader != null) {
+				return reader.getVersion();
+			}
+		} catch (CoreException e) {
 			// ignore
 		} catch(ClassFormatException e) {
 			// ignore
@@ -832,10 +841,14 @@ public class Util {
 	}
 	
 	/**
-	 * Returns the substring of the given file name, ending at the start of a Java like extension.
+	 * Returns the substring of the given file name, ending at the start of a
+	 * Java like extension. The entire file name is returned if it doesn't end
+	 * with a Java like extension.
 	 */
 	public static String getNameWithoutJavaLikeExtension(String fileName) {
 		int index = indexOfJavaLikeExtension(fileName);
+		if (index == -1)
+			return fileName;
 		return fileName.substring(0, index);
 	}
 	
@@ -849,7 +862,7 @@ public class Util {
 		String lineSeparator = null;
 		
 		// line delimiter in given text
-		if (text != null) {
+		if (text != null && text.length() != 0) {
 			lineSeparator = findLineSeparator(text.toCharArray());
 			if (lineSeparator != null)
 				return lineSeparator;
@@ -989,7 +1002,7 @@ public class Util {
 	public static byte[] getResourceContentsAsByteArray(IFile file) throws JavaModelException {
 		InputStream stream= null;
 		try {
-			stream = new BufferedInputStream(file.getContents(true));
+			stream = file.getContents(true);
 		} catch (CoreException e) {
 			throw new JavaModelException(e);
 		}
@@ -1011,26 +1024,42 @@ public class Util {
 	 */
 	public static char[] getResourceContentsAsCharArray(IFile file) throws JavaModelException {
 		// Get encoding from file
-		String encoding = null;
+		String encoding;
 		try {
 			encoding = file.getCharset();
-		}
-		catch(CoreException ce) {
+		} catch(CoreException ce) {
 			// do not use any encoding
+			encoding = null;
 		}
 		return getResourceContentsAsCharArray(file, encoding);
 	}
-
-	public static char[] getResourceContentsAsCharArray(IFile file, String encoding) throws JavaModelException {
+		
+	public static char[] getResourceContentsAsCharArray(IFile file, String encoding) throws JavaModelException {		
+		// Get file length
+		// workaround https://bugs.eclipse.org/bugs/show_bug.cgi?id=130736 by using java.io.File if possible
+		IPath location = file.getLocation();
+		long length;
+		if (location == null) {
+			// non local file
+			try {
+				length = EFS.getStore(file.getLocationURI()).fetchInfo().getLength();
+			} catch (CoreException e) {
+				throw new JavaModelException(e);
+			}
+		} else {
+			// local file
+			length = location.toFile().length();
+		}
+		
 		// Get resource contents
 		InputStream stream= null;
 		try {
-			stream = new BufferedInputStream(file.getContents(true));
+			stream = file.getContents(true);
 		} catch (CoreException e) {
 			throw new JavaModelException(e, IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST);
 		}
 		try {
-			return org.eclipse.jdt.internal.compiler.util.Util.getInputStreamAsCharArray(stream, -1, encoding);
+			return org.eclipse.jdt.internal.compiler.util.Util.getInputStreamAsCharArray(stream, (int) length, encoding);
 		} catch (IOException e) {
 			throw new JavaModelException(e, IJavaModelStatusConstants.IO_EXCEPTION);
 		} finally {
@@ -1041,13 +1070,51 @@ public class Util {
 			}
 		}
 	}
-/*
+	
+	/*
 	 * Returns the signature of the given type.
 	 */
 	public static String getSignature(Type type) {
 		StringBuffer buffer = new StringBuffer();
 		getFullyQualifiedName(type, buffer);
 		return Signature.createTypeSignature(buffer.toString(), false/*not resolved in source*/);
+	}
+	
+	/*
+	 * Returns the source attachment property for this package fragment root's path
+	 */
+	public static String getSourceAttachmentProperty(IPath path) throws JavaModelException {
+		Map rootPathToAttachments = JavaModelManager.getJavaModelManager().rootPathToAttachments;
+		String property = (String) rootPathToAttachments.get(path);
+		if (property == null) {
+			try {
+				property = ResourcesPlugin.getWorkspace().getRoot().getPersistentProperty(getSourceAttachmentPropertyName(path));
+				if (property == null) {
+					rootPathToAttachments.put(path, PackageFragmentRoot.NO_SOURCE_ATTACHMENT);
+					return null;
+				}
+				rootPathToAttachments.put(path, property);
+				return property;
+			} catch (CoreException e)  {
+				throw new JavaModelException(e);
+			}
+		} else if (property.equals(PackageFragmentRoot.NO_SOURCE_ATTACHMENT)) {
+			return null;
+		} else
+			return property;
+	}
+	
+	private static QualifiedName getSourceAttachmentPropertyName(IPath path) {
+		return new QualifiedName(JavaCore.PLUGIN_ID, "sourceattachment: " + path.toOSString()); //$NON-NLS-1$
+	}
+
+	public static void setSourceAttachmentProperty(IPath path, String property) {
+		JavaModelManager.getJavaModelManager().rootPathToAttachments.put(path, property);
+		try {
+			ResourcesPlugin.getWorkspace().getRoot().setPersistentProperty(getSourceAttachmentPropertyName(path), property);
+		} catch (CoreException e) {
+			e.printStackTrace();
+		}
 	}
 	
 	/*
@@ -1148,6 +1215,7 @@ public class Util {
 	/*
 	 * Returns the index of the Java like extension of the given file name
 	 * or -1 if it doesn't end with a known Java like extension. 
+	 * Note this is the index of the '.' even if it is not considered part of the extension.
 	 */
 	public static int indexOfJavaLikeExtension(String fileName) {
 		int fileNameLength = fileName.length();
@@ -1156,12 +1224,14 @@ public class Util {
 			char[] extension = javaLikeExtensions[i];
 			int extensionLength = extension.length;
 			int extensionStart = fileNameLength - extensionLength;
-			if (extensionStart < 0) continue;
+			int dotIndex = extensionStart - 1;
+			if (dotIndex < 0) continue;
+			if (fileName.charAt(dotIndex) != '.') continue;
 			for (int j = 0; j < extensionLength; j++) {
 				if (fileName.charAt(extensionStart + j) != extension[j])
 					continue extensions;
 			}
-			return extensionStart;
+			return dotIndex;
 		}
 		return -1;
 	}
@@ -1188,6 +1258,36 @@ public class Util {
 		}
 		return -1;
 	}
+	/**
+	 * Returns whether the local file system supports accessing and modifying
+	 * the given attribute.
+	 */
+	protected static boolean isAttributeSupported(int attribute) {
+		return (EFS.getLocalFileSystem().attributes() & attribute) != 0;
+	}
+	
+	/**
+	 * Returns whether the given resource is read-only or not.
+	 * @param resource
+	 * @return <code>true</code> if the resource is read-only, <code>false</code> if it is not or
+	 * 	if the file system does not support the read-only attribute.
+	 */
+	public static boolean isReadOnly(IResource resource) {
+		if (isReadOnlySupported()) {
+			ResourceAttributes resourceAttributes = resource.getResourceAttributes();
+			if (resourceAttributes == null) return false; // not supported on this platform for this resource
+			return resourceAttributes.isReadOnly();
+		}
+		return false;
+	}
+
+	/**
+	 * Returns whether the local file system supports accessing and modifying
+	 * the read only flag.
+	 */
+	public static boolean isReadOnlySupported() {
+		return isAttributeSupported(EFS.ATTRIBUTE_READ_ONLY);
+	}
 
 	/*
 	 * Returns whether the given java element is exluded from its root's classpath.
@@ -1209,7 +1309,9 @@ public class Util {
 			case IJavaElement.COMPILATION_UNIT:
 				root = (PackageFragmentRoot)element.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
 				resource = element.getResource();
-				if (resource != null && isExcluded(resource, root.fullInclusionPatternChars(), root.fullExclusionPatternChars()))
+				if (resource == null) 
+					return false;
+				if (isExcluded(resource, root.fullInclusionPatternChars(), root.fullExclusionPatternChars()))
 					return true;
 				return isExcluded(element.getParent());
 				
@@ -1238,8 +1340,10 @@ public class Util {
 	public final static boolean isExcluded(IResource resource, char[][] inclusionPatterns, char[][] exclusionPatterns) {
 		IPath path = resource.getFullPath();
 		// ensure that folders are only excluded if all of their children are excluded
-		return isExcluded(path, inclusionPatterns, exclusionPatterns, resource.getType() == IResource.FOLDER);
+		int resourceType = resource.getType();
+		return isExcluded(path, inclusionPatterns, exclusionPatterns, resourceType == IResource.FOLDER || resourceType == IResource.PROJECT);
 	}
+
 
 	/**
 	 * Validate the given .class file name.
@@ -1251,13 +1355,16 @@ public class Util {
 	 * </ul>
 	 * </p>
 	 * @param name the name of a .class file
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
 	 * @return a status object with code <code>IStatus.OK</code> if
 	 *		the given name is valid as a .class file name, otherwise a status 
 	 *		object indicating what is wrong with the name
 	 */
-	public static boolean isValidClassFileName(String name) {
-		return JavaConventions.validateClassFileName(name).getSeverity() != IStatus.ERROR;
+	public static boolean isValidClassFileName(String name, String sourceLevel, String complianceLevel) {
+		return JavaConventions.validateClassFileName(name, sourceLevel, complianceLevel).getSeverity() != IStatus.ERROR;
 	}
+
 
 	/**
 	 * Validate the given compilation unit name.
@@ -1269,20 +1376,25 @@ public class Util {
 	 * </ul>
 	 * </p>
 	 * @param name the name of a compilation unit
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
 	 * @return a status object with code <code>IStatus.OK</code> if
 	 *		the given name is valid as a compilation unit name, otherwise a status 
 	 *		object indicating what is wrong with the name
 	 */
-	public static boolean isValidCompilationUnitName(String name) {
-		return JavaConventions.validateCompilationUnitName(name).getSeverity() != IStatus.ERROR;
+	public static boolean isValidCompilationUnitName(String name, String sourceLevel, String complianceLevel) {
+		return JavaConventions.validateCompilationUnitName(name, sourceLevel, complianceLevel).getSeverity() != IStatus.ERROR;
 	}
-	
+
 	/**
 	 * Returns true if the given folder name is valid for a package,
 	 * false if it is not.
+	 * @param folderName the name of the folder
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
 	 */
-	public static boolean isValidFolderNameForPackage(String folderName) {
-		return JavaConventions.validateIdentifier(folderName).getSeverity() != IStatus.ERROR;
+	public static boolean isValidFolderNameForPackage(String folderName, String sourceLevel, String complianceLevel) {
+		return JavaConventions.validateIdentifier(folderName, sourceLevel, complianceLevel).getSeverity() != IStatus.ERROR;
 	}	
 
 	/**
@@ -1318,9 +1430,13 @@ public class Util {
 	
 	/*
 	 * Returns the simple name of a local type from the given binary type name.
-	 * The last '$' is at lastDollar. The ;last character of the type name is at end-1.
+	 * The last '$' is at lastDollar. The last character of the type name is at end-1.
 	 */
 	public static String localTypeName(String binaryTypeName, int lastDollar, int end) {
+		if (lastDollar > 0 && binaryTypeName.charAt(lastDollar-1) == '$') 
+			// local name starts with a dollar sign
+			// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=103466)
+			return binaryTypeName;
 		int nameStart = lastDollar+1;
 		while (nameStart < end && Character.isDigit(binaryTypeName.charAt(nameStart)))
 			nameStart++;
@@ -1343,8 +1459,19 @@ public class Util {
 			message, 
 			e); 
 		JavaCore.getPlugin().getLog().log(status);
-	}	
+	}
 	
+	public static ClassFileReader newClassFileReader(IResource resource) throws CoreException, ClassFormatException, IOException {
+		InputStream in = null;
+		try {
+			in = ((IFile) resource).getContents(true);
+			return ClassFileReader.read(in, resource.getFullPath().toString());
+		} finally {
+			if (in != null)
+				in.close();
+		}
+	}
+
 	/**
 	 * Normalizes the cariage returns in the given text.
 	 * They are all changed  to use the given buffer's line separator.
@@ -1416,12 +1543,15 @@ public class Util {
 	/**
 	 * Converts the given relative path into a package name.
 	 * Returns null if the path is not a valid package name.
+	 * @param pkgPath the package path
+	 * @param sourceLevel the source level
+	 * @param complianceLevel the compliance level
 	 */
-	public static String packageName(IPath pkgPath) {
+	public static String packageName(IPath pkgPath, String sourceLevel, String complianceLevel) {
 		StringBuffer pkgName = new StringBuffer(IPackageFragment.DEFAULT_PACKAGE_NAME);
 		for (int j = 0, max = pkgPath.segmentCount(); j < max; j++) {
 			String segment = pkgPath.segment(j);
-			if (!isValidFolderNameForPackage(segment)) {
+			if (!isValidFolderNameForPackage(segment, sourceLevel, complianceLevel)) {
 				return null;
 			}
 			pkgName.append(segment);
@@ -1455,7 +1585,7 @@ public class Util {
 	private static void quickSort(char[][] list, int left, int right) {
 		int original_left= left;
 		int original_right= right;
-		char[] mid= list[(left + right) / 2];
+		char[] mid= list[left + (right - left) / 2];
 		do {
 			while (compare(list[left], mid) < 0) {
 				left++;
@@ -1485,7 +1615,7 @@ public class Util {
 	private static void quickSort(Comparable[] sortedCollection, int left, int right) {
 		int original_left = left;
 		int original_right = right;
-		Comparable mid = sortedCollection[ (left + right) / 2];
+		Comparable mid = sortedCollection[ left + (right - left) / 2];
 		do {
 			while (sortedCollection[left].compareTo(mid) < 0) {
 				left++;
@@ -1511,7 +1641,7 @@ public class Util {
 	private static void quickSort(int[] list, int left, int right) {
 		int original_left= left;
 		int original_right= right;
-		int mid= list[(left + right) / 2];
+		int mid= list[left + (right - left) / 2];
 		do {
 			while (list[left] < mid) {
 				left++;
@@ -1541,7 +1671,7 @@ public class Util {
 	private static void quickSort(Object[] sortedCollection, int left, int right, Comparer comparer) {
 		int original_left = left;
 		int original_right = right;
-		Object mid = sortedCollection[ (left + right) / 2];
+		Object mid = sortedCollection[ left + (right - left) / 2];
 		do {
 			while (comparer.compare(sortedCollection[left], mid) < 0) {
 				left++;
@@ -1566,45 +1696,12 @@ public class Util {
 	}
 
 	/**
-	 * Sort the objects in the given collection using the given sort order.
-	 */
-	private static void quickSort(Object[] sortedCollection, int left, int right, int[] sortOrder) {
-		int original_left = left;
-		int original_right = right;
-		int mid = sortOrder[ (left + right) / 2];
-		do {
-			while (sortOrder[left] < mid) {
-				left++;
-			}
-			while (mid < sortOrder[right]) {
-				right--;
-			}
-			if (left <= right) {
-				Object tmp = sortedCollection[left];
-				sortedCollection[left] = sortedCollection[right];
-				sortedCollection[right] = tmp;
-				int tmp2 = sortOrder[left];
-				sortOrder[left] = sortOrder[right];
-				sortOrder[right] = tmp2;
-				left++;
-				right--;
-			}
-		} while (left <= right);
-		if (original_left < right) {
-			quickSort(sortedCollection, original_left, right, sortOrder);
-		}
-		if (left < original_right) {
-			quickSort(sortedCollection, left, original_right, sortOrder);
-		}
-	}
-
-	/**
 	 * Sort the strings in the given collection.
 	 */
 	private static void quickSort(String[] sortedCollection, int left, int right) {
 		int original_left = left;
 		int original_right = right;
-		String mid = sortedCollection[ (left + right) / 2];
+		String mid = sortedCollection[ left + (right - left) / 2];
 		do {
 			while (sortedCollection[left].compareTo(mid) < 0) {
 				left++;
@@ -1626,112 +1723,6 @@ public class Util {
 		if (left < original_right) {
 			quickSort(sortedCollection, left, original_right);
 		}
-	}
-
-	/**
-	 * Sort the strings in the given collection in reverse alphabetical order.
-	 */
-	private static void quickSortReverse(String[] sortedCollection, int left, int right) {
-		int original_left = left;
-		int original_right = right;
-		String mid = sortedCollection[ (left + right) / 2];
-		do {
-			while (sortedCollection[left].compareTo(mid) > 0) {
-				left++;
-			}
-			while (mid.compareTo(sortedCollection[right]) > 0) {
-				right--;
-			}
-			if (left <= right) {
-				String tmp = sortedCollection[left];
-				sortedCollection[left] = sortedCollection[right];
-				sortedCollection[right] = tmp;
-				left++;
-				right--;
-			}
-		} while (left <= right);
-		if (original_left < right) {
-			quickSortReverse(sortedCollection, original_left, right);
-		}
-		if (left < original_right) {
-			quickSortReverse(sortedCollection, left, original_right);
-		}
-	}
-	/**
-	 * Reads in a string from the specified data input stream. The 
-	 * string has been encoded using a modified UTF-8 format. 
-	 * <p>
-	 * The first two bytes are read as if by 
-	 * <code>readUnsignedShort</code>. This value gives the number of 
-	 * following bytes that are in the encoded string, not
-	 * the length of the resulting string. The following bytes are then 
-	 * interpreted as bytes encoding characters in the UTF-8 format 
-	 * and are converted into characters. 
-	 * <p>
-	 * This method blocks until all the bytes are read, the end of the 
-	 * stream is detected, or an exception is thrown. 
-	 *
-	 * @param      in   a data input stream.
-	 * @return     a Unicode string.
-	 * @exception  EOFException            if the input stream reaches the end
-	 *               before all the bytes.
-	 * @exception  IOException             if an I/O error occurs.
-	 * @exception  UTFDataFormatException  if the bytes do not represent a
-	 *               valid UTF-8 encoding of a Unicode string.
-	 * @see        java.io.DataInputStream#readUnsignedShort()
-	 */
-	public final static char[] readUTF(DataInput in) throws IOException {
-		int utflen= in.readUnsignedShort();
-		char str[]= new char[utflen];
-		int count= 0;
-		int strlen= 0;
-		while (count < utflen) {
-			int c= in.readUnsignedByte();
-			int char2, char3;
-			switch (c >> 4) {
-				case 0 :
-				case 1 :
-				case 2 :
-				case 3 :
-				case 4 :
-				case 5 :
-				case 6 :
-				case 7 :
-					// 0xxxxxxx
-					count++;
-					str[strlen++]= (char) c;
-					break;
-				case 12 :
-				case 13 :
-					// 110x xxxx   10xx xxxx
-					count += 2;
-					if (count > utflen)
-						throw new UTFDataFormatException();
-					char2= in.readUnsignedByte();
-					if ((char2 & 0xC0) != 0x80)
-						throw new UTFDataFormatException();
-					str[strlen++]= (char) (((c & 0x1F) << 6) | (char2 & 0x3F));
-					break;
-				case 14 :
-					// 1110 xxxx  10xx xxxx  10xx xxxx
-					count += 3;
-					if (count > utflen)
-						throw new UTFDataFormatException();
-					char2= in.readUnsignedByte();
-					char3= in.readUnsignedByte();
-					if (((char2 & 0xC0) != 0x80) || ((char3 & 0xC0) != 0x80))
-						throw new UTFDataFormatException();
-					str[strlen++]= (char) (((c & 0x0F) << 12) | ((char2 & 0x3F) << 6) | ((char3 & 0x3F) << 0));
-					break;
-				default :
-					// 10xx xxxx,  1111 xxxx
-					throw new UTFDataFormatException();
-			}
-		}
-		if (strlen < utflen) {
-			System.arraycopy(str, 0, str= new char[strlen], 0, strlen);
-		}
-		return str;
 	}
 
 	/**
@@ -1774,6 +1765,13 @@ public class Util {
 		if (hasTrailingSeparator)
 			result[offset++] = '/';
 		return new String(result);
+	}
+	
+	/*
+	 * Resets the list of Java-like extensions after a change in content-type.
+	 */
+	public static void resetJavaLikeExtensions() {
+		JAVA_LIKE_EXTENSIONS = null;
 	}
 	
 	/**
@@ -1824,19 +1822,24 @@ public class Util {
 		split[currentWord] = string.substring(last, end);
 		return split;
 	}
-	public static boolean isReadOnly(IResource resource) {
-		ResourceAttributes resourceAttributes = resource.getResourceAttributes();
-		if (resourceAttributes == null) return false; // not supported on this platform for this resource
-		return resourceAttributes.isReadOnly();
-	}
+	/**
+	 * Sets or unsets the given resource as read-only in the file system.
+	 * It's a no-op if the file system does not support the read-only attribute.
+	 * 
+	 * @param resource The resource to set as read-only
+	 * @param readOnly <code>true</code> to set it to read-only, 
+	 *		<code>false</code> to unset
+	 */
 	public static void setReadOnly(IResource resource, boolean readOnly) {
-		ResourceAttributes resourceAttributes = resource.getResourceAttributes();
-		if (resourceAttributes == null) return; // not supported on this platform for this resource
-		resourceAttributes.setReadOnly(readOnly);
-		try {
-			resource.setResourceAttributes(resourceAttributes);
-		} catch (CoreException e) {
-			// ignore
+		if (isReadOnlySupported()) {
+			ResourceAttributes resourceAttributes = resource.getResourceAttributes();
+			if (resourceAttributes == null) return; // not supported on this platform for this resource
+			resourceAttributes.setReadOnly(readOnly);
+			try {
+				resource.setResourceAttributes(resourceAttributes);
+			} catch (CoreException e) {
+				// ignore
+			}
 		}
 	}
 	public static void sort(char[][] list) {
@@ -1866,14 +1869,6 @@ public class Util {
 	}
 
 	/**
-	 * Sorts an array of objects in place, using the sort order given for each item.
-	 */
-	public static void sort(Object[] objects, int[] sortOrder) {
-		if (objects.length > 1)
-			quickSort(objects, 0, objects.length - 1, sortOrder);
-	}
-
-	/**
 	 * Sorts an array of strings in place using quicksort.
 	 */
 	public static void sort(String[] strings) {
@@ -1893,6 +1888,23 @@ public class Util {
 		return copy;
 	}
 
+	/**
+	 * Sorts an array of Java elements based on their toStringWithAncestors(), 
+	 * returning a new array with the sorted items. 
+	 * The original array is left untouched.
+	 */
+	public static IJavaElement[] sortCopy(IJavaElement[] elements) {
+		int len = elements.length;
+		IJavaElement[] copy = new IJavaElement[len];
+		System.arraycopy(elements, 0, copy, 0, len);
+		sort(copy, new Comparer() {
+			public int compare(Object a, Object b) {
+				return ((JavaElement) a).toStringWithAncestors().compareTo(((JavaElement) b).toStringWithAncestors());
+			}
+		});
+		return copy;
+	}
+	
 	/**
 	 * Sorts an array of Strings, returning a new array
 	 * with the sorted items.  The original array is left untouched.
@@ -1917,21 +1929,12 @@ public class Util {
 		return copy;
 	}
 
-	/**
-	 * Sorts an array of strings in place using quicksort
-	 * in reverse alphabetical order.
-	 */
-	public static void sortReverseOrder(String[] strings) {
-		if (strings.length > 1)
-			quickSortReverse(strings, 0, strings.length - 1);
-	}
-	
 	/*
 	 * Returns whether the given compound name starts with the given prefix.
 	 * Returns true if the n first elements of the prefix are equals and the last element of the 
 	 * prefix is a prefix of the corresponding element in the compound name.
 	 */
-	public static boolean startsWithIgnoreCase(String[] compoundName, String[] prefix) {
+	public static boolean startsWithIgnoreCase(String[] compoundName, String[] prefix, boolean partialMatch) {
 		int prefixLength = prefix.length;
 		int nameLength = compoundName.length;
 		if (prefixLength > nameLength) return false;
@@ -1939,7 +1942,31 @@ public class Util {
 			if (!compoundName[i].equalsIgnoreCase(prefix[i]))
 				return false;
 		}
-		return compoundName[prefixLength-1].toLowerCase().startsWith(prefix[prefixLength-1].toLowerCase());
+		return (partialMatch || prefixLength == nameLength) && compoundName[prefixLength-1].toLowerCase().startsWith(prefix[prefixLength-1].toLowerCase());
+	}
+
+	/*
+	 * Returns whether the given compound name matches the given pattern.
+	 */
+	public static boolean matchesWithIgnoreCase(String[] compoundName, String pattern) {
+		if (pattern.equals("*")) return true; //$NON-NLS-1$
+		int nameLength = compoundName.length;
+		if (pattern.length() == 0) return nameLength == 0;
+		if (nameLength == 0) return false;
+		int length = nameLength-1;
+		for (int i=0; i<nameLength; i++) {
+			length += compoundName[i].length();
+		}
+		char[] compoundChars = new char[length];
+		int pos = 0;
+		for (int i=0; i<nameLength; i++) {
+			if (pos > 0) compoundChars[pos++] = '.';
+			char[] array = compoundName[i].toCharArray();
+			int size = array.length;
+			System.arraycopy(array, 0, compoundChars, pos, size);
+			pos += size;
+		}
+		return CharOperation.match(pattern.toCharArray(), compoundChars, false);
 	}
 
 	/**
@@ -1947,6 +1974,7 @@ public class Util {
 	 */
 	public static char[][] toCharArrays(String[] a) {
 		int len = a.length;
+		if (len == 0) return CharOperation.NO_CHAR_CHAR;
 		char[][] result = new char[len][];
 		for (int i = 0; i < len; ++i) {
 			result[i] = a[i].toCharArray();
@@ -1976,6 +2004,19 @@ public class Util {
 			start = end + 1;
 		}
 		return segs;
+	}
+	/*
+	 * Converts the given URI to a local file. Use the existing file if the uri is on the local file system.
+	 * Otherwise fetch it.
+	 * Returns null if unable to fetch it.
+	 */
+	public static File toLocalFile(URI uri, IProgressMonitor monitor) throws CoreException {
+		IFileStore fileStore = EFS.getStore(uri);
+		File localFile = fileStore.toLocalFile(EFS.NONE, monitor);
+		if (localFile ==null)
+			// non local file system
+			localFile= fileStore.toLocalFile(EFS.CACHE, monitor);
+		return localFile;
 	}
 	/**
 	 * Converts a char[][] to String, where segments are separated by '.'.
@@ -2021,7 +2062,7 @@ public class Util {
 			throw new IllegalArgumentException();
 		}
 		char c = string[start];
-		if (c != Signature.C_ARRAY) { //$NON-NLS-1$
+		if (c != Signature.C_ARRAY) {
 			throw new IllegalArgumentException();
 		}
 		
@@ -2174,7 +2215,6 @@ public class Util {
 			if (includeReturnType) {
 				char[] rts = Signature.getReturnType(methodSignature);
 				appendTypeSignature(rts, 0 , buffer, compact);
-				buffer.append(' ');
 			}
 		}
 		return String.valueOf(buffer);
@@ -2194,7 +2234,7 @@ public class Util {
 			}
 			return signatures;
 		}
-		return new String[0];
+		return CharOperation.NO_STRINGS;
 	}
 
 	/*
@@ -2235,59 +2275,6 @@ public class Util {
 		} while (start != 0);
 		printStream.println();
 	}
-	/**
-	 * Writes a string to the given output stream using UTF-8 
-	 * encoding in a machine-independent manner. 
-	 * <p>
-	 * First, two bytes are written to the output stream as if by the 
-	 * <code>writeShort</code> method giving the number of bytes to 
-	 * follow. This value is the number of bytes actually written out, 
-	 * not the length of the string. Following the length, each character 
-	 * of the string is output, in sequence, using the UTF-8 encoding 
-	 * for the character. 
-	 *
-	 * @param      str   a string to be written.
-	 * @return     the number of bytes written to the stream.
-	 * @exception  IOException  if an I/O error occurs.
-	 * @since      JDK1.0
-	 */
-	public static int writeUTF(OutputStream out, char[] str) throws IOException {
-		int strlen= str.length;
-		int utflen= 0;
-		for (int i= 0; i < strlen; i++) {
-			int c= str[i];
-			if ((c >= 0x0001) && (c <= 0x007F)) {
-				utflen++;
-			} else if (c > 0x07FF) {
-				utflen += 3;
-			} else {
-				utflen += 2;
-			}
-		}
-		if (utflen > 65535)
-			throw new UTFDataFormatException();
-		out.write((utflen >>> 8) & 0xFF);
-		out.write((utflen >>> 0) & 0xFF);
-		if (strlen == utflen) {
-			for (int i= 0; i < strlen; i++)
-				out.write(str[i]);
-		} else {
-			for (int i= 0; i < strlen; i++) {
-				int c= str[i];
-				if ((c >= 0x0001) && (c <= 0x007F)) {
-					out.write(c);
-				} else if (c > 0x07FF) {
-					out.write(0xE0 | ((c >> 12) & 0x0F));
-					out.write(0x80 | ((c >> 6) & 0x3F));
-					out.write(0x80 | ((c >> 0) & 0x3F));
-				} else {
-					out.write(0xC0 | ((c >> 6) & 0x1F));
-					out.write(0x80 | ((c >> 0) & 0x3F));
-				}
-			}
-		}
-		return utflen + 2; // the number of bytes written to the stream
-	}
 
 	/**
 	 * Returns true if the given name ends with one of the known java like extension.
@@ -2310,7 +2297,8 @@ public class Util {
 			char[] extension = javaLikeExtensions[i];
 			int extensionLength = extension.length;
 			int extensionStart = fileNameLength - extensionLength;
-			if (extensionStart < 0) continue;
+			if (extensionStart-1 < 0) continue;
+			if (fileName[extensionStart-1] != '.') continue;
 			for (int j = 0; j < extensionLength; j++) {
 				if (fileName[extensionStart + j] != extension[j])
 					continue extensions;
@@ -2421,7 +2409,7 @@ public class Util {
 			throw new IllegalArgumentException();
 		}
 		char c = string[start];
-		if (c != Signature.C_ARRAY) { //$NON-NLS-1$
+		if (c != Signature.C_ARRAY) {
 			throw new IllegalArgumentException();
 		}
 		
@@ -2455,7 +2443,7 @@ public class Util {
 			throw new IllegalArgumentException();
 		}
 		char c = string[start];
-		if (c != Signature.C_CAPTURE) { //$NON-NLS-1$
+		if (c != Signature.C_CAPTURE) {
 			throw new IllegalArgumentException();
 		}
 		return scanTypeBoundSignature(string, start + 1);
@@ -2594,8 +2582,8 @@ public class Util {
 				return start;
 			case Signature.C_SUPER :
 			case Signature.C_EXTENDS :
-				// need a minimum 4 chars "+Lx;"
-				if (start >= string.length - 3) {
+				// need a minimum 3 chars "+[I"
+				if (start >= string.length - 2) {
 					throw new IllegalArgumentException();
 				}
 				break;
@@ -2763,7 +2751,7 @@ public class Util {
 		int paramOpening = 0;
 		
 		// Scan each signature character
-		scanUniqueKey: for (int idx=0, ln = source.length; idx < ln; idx++) {
+		for (int idx=0, ln = source.length; idx < ln; idx++) {
 			switch (source[idx]) {
 				case '>':
 					paramOpening--;
@@ -2808,5 +2796,257 @@ public class Util {
 			typeSignatures[i] = signatures[j];
 		}
 		return typeSignatures;
+	}
+	
+	/*
+	 * Can throw IllegalArgumentException or ArrayIndexOutOfBoundsException 
+	 */
+	public static String toAnchor(char[] methodSignature, String methodName, boolean isVarArgs) {
+		try {
+			return new String(toAnchor(methodSignature, methodName.toCharArray(), isVarArgs));
+		} catch(IllegalArgumentException e) {
+			return null;
+		}
+	}
+	private static char[] toAnchor(char[] methodSignature, char[] methodName, boolean isVargArgs) {
+		int firstParen = CharOperation.indexOf(Signature.C_PARAM_START, methodSignature);
+		if (firstParen == -1) {
+			throw new IllegalArgumentException();
+		}
+		
+		StringBuffer buffer = new StringBuffer(methodSignature.length + 10);
+
+		// selector
+		if (methodName != null) {
+			buffer.append(methodName);
+		}
+		
+		// parameters
+		buffer.append('(');
+		char[][] pts = Signature.getParameterTypes(methodSignature);
+		for (int i = 0, max = pts.length; i < max; i++) {
+			if (i == max - 1) {
+				appendTypeSignatureForAnchor(pts[i], 0 , buffer, isVargArgs);
+			} else {
+				appendTypeSignatureForAnchor(pts[i], 0 , buffer, false);
+			}
+			if (i != pts.length - 1) {
+				buffer.append(',');
+				buffer.append(' ');
+			}
+		}
+		buffer.append(')');
+		char[] result = new char[buffer.length()];
+		buffer.getChars(0, buffer.length(), result, 0);
+		return result;
+	}
+
+	private static int appendTypeSignatureForAnchor(char[] string, int start, StringBuffer buffer, boolean isVarArgs) {
+		// need a minimum 1 char
+		if (start >= string.length) {
+			throw new IllegalArgumentException();
+		}
+		char c = string[start];
+		if (isVarArgs) {
+			switch (c) {
+				case Signature.C_ARRAY :
+					return appendArrayTypeSignatureForAnchor(string, start, buffer, true);
+				case Signature.C_RESOLVED :
+				case Signature.C_TYPE_VARIABLE :
+				case Signature.C_BOOLEAN :
+				case Signature.C_BYTE :
+				case Signature.C_CHAR :
+				case Signature.C_DOUBLE :
+				case Signature.C_FLOAT :
+				case Signature.C_INT :
+				case Signature.C_LONG :
+				case Signature.C_SHORT :
+				case Signature.C_VOID :
+				case Signature.C_STAR:
+				case Signature.C_EXTENDS:
+				case Signature.C_SUPER:
+				case Signature.C_CAPTURE:
+				default:
+					throw new IllegalArgumentException(); // a var args is an array type
+			}
+		} else {
+			switch (c) {
+				case Signature.C_ARRAY :
+					return appendArrayTypeSignatureForAnchor(string, start, buffer, false);
+				case Signature.C_RESOLVED :
+					return appendClassTypeSignatureForAnchor(string, start, buffer);
+				case Signature.C_TYPE_VARIABLE :
+					int e = Util.scanTypeVariableSignature(string, start);
+					buffer.append(string, start + 1, e - start - 1);
+					return e;
+				case Signature.C_BOOLEAN :
+					buffer.append(BOOLEAN);
+					return start;
+				case Signature.C_BYTE :
+					buffer.append(BYTE);
+					return start;
+				case Signature.C_CHAR :
+					buffer.append(CHAR);
+					return start;
+				case Signature.C_DOUBLE :
+					buffer.append(DOUBLE);
+					return start;
+				case Signature.C_FLOAT :
+					buffer.append(FLOAT);
+					return start;
+				case Signature.C_INT :
+					buffer.append(INT);
+					return start;
+				case Signature.C_LONG :
+					buffer.append(LONG);
+					return start;
+				case Signature.C_SHORT :
+					buffer.append(SHORT);
+					return start;
+				case Signature.C_VOID :
+					buffer.append(VOID);
+					return start;
+				case Signature.C_CAPTURE :
+					return appendCaptureTypeSignatureForAnchor(string, start, buffer);
+				case Signature.C_STAR:
+				case Signature.C_EXTENDS:
+				case Signature.C_SUPER:
+					return appendTypeArgumentSignatureForAnchor(string, start, buffer);
+				default :
+					throw new IllegalArgumentException();
+			}
+		}
+	}
+	private static int appendTypeArgumentSignatureForAnchor(char[] string, int start, StringBuffer buffer) {
+		// need a minimum 1 char
+		if (start >= string.length) {
+			throw new IllegalArgumentException();
+		}
+		char c = string[start];
+		switch(c) {
+			case Signature.C_STAR :
+				return start;
+			case Signature.C_EXTENDS :
+				return appendTypeSignatureForAnchor(string, start + 1, buffer, false);
+			case Signature.C_SUPER :
+				return appendTypeSignatureForAnchor(string, start + 1, buffer, false);
+			default :
+				return appendTypeSignatureForAnchor(string, start, buffer, false);
+		}
+	}
+	private static int appendCaptureTypeSignatureForAnchor(char[] string, int start, StringBuffer buffer) {
+		// need a minimum 2 char
+		if (start >= string.length - 1) {
+			throw new IllegalArgumentException();
+		}
+		char c = string[start];
+		if (c != Signature.C_CAPTURE) {
+			throw new IllegalArgumentException();
+		}
+		return appendTypeArgumentSignatureForAnchor(string, start + 1, buffer);
+	}
+	private static int appendArrayTypeSignatureForAnchor(char[] string, int start, StringBuffer buffer, boolean isVarArgs) {
+		int length = string.length;
+		// need a minimum 2 char
+		if (start >= length - 1) {
+			throw new IllegalArgumentException();
+		}
+		char c = string[start];
+		if (c != Signature.C_ARRAY) {
+			throw new IllegalArgumentException();
+		}
+		
+		int index = start;
+		c = string[++index];
+		while(c == Signature.C_ARRAY) {
+			// need a minimum 2 char
+			if (index >= length - 1) {
+				throw new IllegalArgumentException();
+			}
+			c = string[++index];
+		}
+		
+		int e = appendTypeSignatureForAnchor(string, index, buffer, false);
+		
+		for(int i = 1, dims = index - start; i < dims; i++) {
+			buffer.append('[').append(']');
+		}
+		
+		if (isVarArgs) {
+			buffer.append('.').append('.').append('.');
+		} else {
+			buffer.append('[').append(']');
+		}
+		return e;
+	}
+	private static int appendClassTypeSignatureForAnchor(char[] string, int start, StringBuffer buffer) {
+		// need a minimum 3 chars "Lx;"
+		if (start >= string.length - 2) { 
+			throw new IllegalArgumentException();
+		}
+		// must start in "L" or "Q"
+		char c = string[start];
+		if (c != Signature.C_RESOLVED && c != Signature.C_UNRESOLVED) {
+			throw new IllegalArgumentException();
+		}
+		int p = start + 1;
+		while (true) {
+			if (p >= string.length) {
+				throw new IllegalArgumentException();
+			}
+			c = string[p];
+			switch(c) {
+				case Signature.C_SEMICOLON :
+					// all done
+					return p;
+				case Signature.C_GENERIC_START :
+					int e = scanGenericEnd(string, p + 1);
+					// once we hit type arguments there are no more package prefixes
+					p = e;
+					break;
+				case Signature.C_DOT :
+					buffer.append('.');
+					break;
+				 case '/' :
+					buffer.append('/');
+					break;
+				 case Signature.C_DOLLAR :
+					// once we hit "$" there are no more package prefixes
+					/**
+					 * Convert '$' in resolved type signatures into '.'.
+					 * NOTE: This assumes that the type signature is an inner type
+					 * signature. This is true in most cases, but someone can define a
+					 * non-inner type name containing a '$'.
+					 */
+					buffer.append('.');
+				 	break;
+				 default :
+					buffer.append(c);
+			}
+			p++;
+		}
+	}
+	private static int scanGenericEnd(char[] string, int start) {
+		if (string[start] == Signature.C_GENERIC_END) {
+			return start;
+		}
+		int length = string.length;
+		int balance = 1;
+		start++;
+		while (start <= length) {
+			switch(string[start]) {
+				case Signature.C_GENERIC_END :
+					balance--;
+					if (balance == 0) {
+						return start;
+					}
+					break;
+				case Signature.C_GENERIC_START :
+					balance++;
+					break;
+			}
+			start++;
+		}
+		return start;
 	}
 }

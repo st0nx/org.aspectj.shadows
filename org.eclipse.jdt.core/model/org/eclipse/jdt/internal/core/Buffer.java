@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,6 +7,7 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Tim Hanson (thanson@bea.com) - patch for https://bugs.eclipse.org/bugs/show_bug.cgi?id=126673
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
@@ -19,7 +20,8 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.ISafeRunnable;
-import org.eclipse.core.runtime.Platform;
+import org.eclipse.core.runtime.SafeRunner;
+import org.eclipse.core.runtime.content.IContentDescription;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.internal.core.util.Util;
 
@@ -105,7 +107,9 @@ public void close() {
 		this.flags |= F_IS_CLOSED;
 	}
 	notifyChanged(event); // notify outside of synchronized block
-	this.changeListeners = null;
+	synchronized(this) { // ensure that no other thread is adding/removing a listener at the same time (https://bugs.eclipse.org/bugs/show_bug.cgi?id=126673)
+		this.changeListeners = null;
+	}
 }
 /**
  * @see IBuffer
@@ -253,7 +257,7 @@ protected void notifyChanged(final BufferChangedEvent event) {
 	if (listeners != null) {
 		for (int i = 0, size = listeners.size(); i < size; ++i) {
 			final IBufferChangedListener listener = (IBufferChangedListener) listeners.get(i);
-			Platform.run(new ISafeRunnable() {
+			SafeRunner.run(new ISafeRunnable() {
 				public void handleException(Throwable exception) {
 					Util.log(exception, "Exception occurred in listener of buffer change notification"); //$NON-NLS-1$
 				}
@@ -334,6 +338,10 @@ public void save(IProgressMonitor progress, boolean force) throws JavaModelExcep
 		
 	// use a platform operation to update the resource contents
 	try {
+		String stringContents = this.getContents();
+		if (stringContents == null) return;
+
+		// Get encoding
 		String encoding = null;
 		try {
 			encoding = this.file.getCharset();
@@ -341,13 +349,27 @@ public void save(IProgressMonitor progress, boolean force) throws JavaModelExcep
 		catch (CoreException ce) {
 			// use no encoding
 		}
-		String stringContents = this.getContents();
-		if (stringContents == null) return;
+		
+		// Create bytes array
 		byte[] bytes = encoding == null 
 			? stringContents.getBytes() 
 			: stringContents.getBytes(encoding);
-		ByteArrayInputStream stream = new ByteArrayInputStream(bytes);
 
+		// Special case for UTF-8 BOM files
+		// see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=110576
+		if (encoding != null && encoding.equals(org.eclipse.jdt.internal.compiler.util.Util.UTF_8)) {
+			IContentDescription description = this.file.getContentDescription();
+			if (description != null && description.getProperty(IContentDescription.BYTE_ORDER_MARK) != null) {
+				int bomLength= IContentDescription.BOM_UTF_8.length;
+				byte[] bytesWithBOM= new byte[bytes.length + bomLength];
+				System.arraycopy(IContentDescription.BOM_UTF_8, 0, bytesWithBOM, 0, bomLength);
+				System.arraycopy(bytes, 0, bytesWithBOM, bomLength, bytes.length);
+				bytes= bytesWithBOM;
+			}
+		}
+		
+		// Set file contents
+		ByteArrayInputStream stream = new ByteArrayInputStream(bytes);
 		if (this.file.exists()) {
 			this.file.setContents(
 				stream, 

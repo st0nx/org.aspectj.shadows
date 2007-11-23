@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -65,7 +65,7 @@ String[] getExceptionTypes() throws JavaModelException;
  * in the order declared in the source, an empty array if none
  * @see Signature
  * @since 3.0
- * @deprecated Use #getTypeParameters() instead
+ * @deprecated Use {@link #getTypeParameters()} instead
  */
 String[] getTypeParameterSignatures() throws JavaModelException;
 /**
@@ -99,8 +99,8 @@ int getNumberOfParameters();
 String getKey();
 /**
  * Returns the names of parameters in this method.
- * For binary types, these names are invented as "arg"+i, where i starts at 1 
- * (even if source is associated with the binary).
+ * For binary types, associated source or attached Javadoc are used to retrieve the names.
+ * If none can be retrieved, then these names are invented as "arg"+i, where i starts at 0.
  * Returns an empty array if this method has no parameters.
  *
  * <p>For example, a method declared as <code>public void foo(String text, int length)</code>
@@ -130,6 +130,23 @@ String[] getParameterNames() throws JavaModelException;
  * @see Signature
  */
 String[] getParameterTypes();
+/**
+ * Returns the names of parameters in this method.
+ * For binary types, these names are invented as "arg"+i, where i starts at 0 
+ * (even if source is associated with the binary or if Javdoc is attached to the binary).
+ * Returns an empty array if this method has no parameters.
+ *
+ * <p>For example, a method declared as <code>public void foo(String text, int length)</code>
+ * would return the array <code>{"text","length"}</code>. For the same method in a
+ * binary, this would return <code>{"arg0", "arg1"}</code>.
+ * </p>
+ *
+ * @exception JavaModelException if this element does not exist or if an
+ *      exception occurs while accessing its corresponding resource.
+ * @return the names of parameters in this method, an empty array if this method has no parameters
+ * @since 3.2
+ */
+String[] getRawParameterNames() throws JavaModelException;
 /**
  * Returns the type signature of the return value of this method.
  * For constructors, this returns the signature for void.
@@ -196,7 +213,7 @@ boolean isConstructor() throws JavaModelException;
  * <li>its name is equal to <code>"main"</code></li>
  * <li>its return type is <code>void</code></li>
  * <li>it is <code>static</code> and <code>public</code></li>
- * <li>it defines one parameter whose type's simple name is </code>String[]</code></li>
+ * <li>it defines one parameter whose type's simple name is <code>String[]</code></li>
  * </ul>
  * 
  * @exception JavaModelException if this element does not exist or if an

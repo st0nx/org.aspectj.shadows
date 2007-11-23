@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -20,10 +20,7 @@ import org.eclipse.jdt.core.util.IExceptionAttribute;
 /**
  * Default implementation of IExceptionAttribute.
  */
-public class ExceptionAttribute extends ClassFileAttribute implements IExceptionAttribute {
-	private static final int[] NO_EXCEPTION_INDEXES = new int[0];
-	private static final char[][] NO_EXCEPTION_NAMES = CharOperation.NO_CHAR_CHAR;
-	
+public class ExceptionAttribute extends ClassFileAttribute implements IExceptionAttribute {	
 	private int exceptionsNumber;
 	private char[][] exceptionNames;
 	private int[] exceptionIndexes;
@@ -32,8 +29,8 @@ public class ExceptionAttribute extends ClassFileAttribute implements IException
 		super(classFileBytes, constantPool, offset);
 		this.exceptionsNumber = u2At(classFileBytes, 6, offset);
 		int exceptionLength = this.exceptionsNumber;
-		this.exceptionNames = NO_EXCEPTION_NAMES;
-		this.exceptionIndexes = NO_EXCEPTION_INDEXES;
+		this.exceptionNames = CharOperation.NO_CHAR_CHAR;
+		this.exceptionIndexes = org.eclipse.jdt.internal.compiler.util.Util.EMPTY_INT_ARRAY;
 		if (exceptionLength != 0) {
 			this.exceptionNames = new char[exceptionLength][];
 			this.exceptionIndexes = new int[exceptionLength];

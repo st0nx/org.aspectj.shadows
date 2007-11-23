@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
+ * Copyright (c) 2004, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,6 +21,9 @@ package org.eclipse.jdt.core;
  * Note that type parameters are not children of their declaring type or method. To get a list
  * of the type parameters use {@link IType#getTypeParameters()} for a type and use
  * {@link IMethod#getTypeParameters()} for a method.
+ * </p>
+ * <p>
+ * This interface is not intended to be implemented by clients.
  * </p>
  *
  * @since 3.1

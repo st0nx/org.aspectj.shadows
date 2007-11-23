@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,9 +16,6 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.IPackageFragmentRoot;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -60,39 +57,43 @@ static Object[] computeFolderNonJavaResources(JavaProject project, IContainer fo
 	Object[] nonJavaResources = new IResource[5];
 	int nonJavaResourcesCounter = 0;
 	try {
-		IClasspathEntry[] classpath = project.getResolvedClasspath(true/*ignoreUnresolvedEntry*/, false/*don't generateMarkerOnError*/, false/*don't returnResolutionInProgress*/);
+		IClasspathEntry[] classpath = project.getResolvedClasspath();
 		IResource[] members = folder.members();
-		nextResource: for (int i = 0, max = members.length; i < max; i++) {
-			IResource member = members[i];
-			switch (member.getType()) {
-				case IResource.FILE :
-					String fileName = member.getName();
+		int length = members.length;
+		if (length > 0) {
+			String sourceLevel = project.getOption(JavaCore.COMPILER_SOURCE, true);
+			String complianceLevel = project.getOption(JavaCore.COMPILER_COMPLIANCE, true);
+			nextResource: for (int i = 0; i < length; i++) {
+				IResource member = members[i];
+				switch (member.getType()) {
+					case IResource.FILE :
+						String fileName = member.getName();
 					
-					// ignore .java files that are not excluded
-					if (Util.isValidCompilationUnitName(fileName) && !Util.isExcluded(member, inclusionPatterns, exclusionPatterns)) 
-						continue nextResource;
-					// ignore .class files
-					if (Util.isValidClassFileName(fileName)) 
-						continue nextResource;
-					// ignore .zip or .jar file on classpath
-					if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(fileName) && isClasspathEntry(member.getFullPath(), classpath)) 
-						continue nextResource;
-					break;
+						// ignore .java files that are not excluded
+						if (Util.isValidCompilationUnitName(fileName, sourceLevel, complianceLevel) && !Util.isExcluded(member, inclusionPatterns, exclusionPatterns)) 
+							continue nextResource;
+						// ignore .class files
+						if (Util.isValidClassFileName(fileName, sourceLevel, complianceLevel)) 
+							continue nextResource;
+						// ignore .zip or .jar file on classpath
+						if (org.eclipse.jdt.internal.compiler.util.Util.isArchiveFileName(fileName) && isClasspathEntry(member.getFullPath(), classpath)) 
+							continue nextResource;
+						break;
 
-				case IResource.FOLDER :
-					// ignore valid packages or excluded folders that correspond to a nested pkg fragment root
-					if (Util.isValidFolderNameForPackage(member.getName())
-							&& (!Util.isExcluded(member, inclusionPatterns, exclusionPatterns) 
-								|| isClasspathEntry(member.getFullPath(), classpath)))
-						continue nextResource;
-					break;
-			}
-			if (nonJavaResources.length == nonJavaResourcesCounter) {
-				// resize
-				System.arraycopy(nonJavaResources, 0, (nonJavaResources = new IResource[nonJavaResourcesCounter * 2]), 0, nonJavaResourcesCounter);
-			}
-			nonJavaResources[nonJavaResourcesCounter++] = member;
-
+					case IResource.FOLDER :
+						// ignore valid packages or excluded folders that correspond to a nested pkg fragment root
+						if (Util.isValidFolderNameForPackage(member.getName(), sourceLevel, complianceLevel)
+								&& (!Util.isExcluded(member, inclusionPatterns, exclusionPatterns) 
+										|| isClasspathEntry(member.getFullPath(), classpath)))
+							continue nextResource;
+						break;
+				}
+				if (nonJavaResources.length == nonJavaResourcesCounter) {
+					// resize
+					System.arraycopy(nonJavaResources, 0, (nonJavaResources = new IResource[nonJavaResourcesCounter * 2]), 0, nonJavaResourcesCounter);
+				}
+				nonJavaResources[nonJavaResourcesCounter++] = member;
+			}	
 		}
 		if (nonJavaResources.length != nonJavaResourcesCounter) {
 			System.arraycopy(nonJavaResources, 0, (nonJavaResources = new IResource[nonJavaResourcesCounter]), 0, nonJavaResourcesCounter);

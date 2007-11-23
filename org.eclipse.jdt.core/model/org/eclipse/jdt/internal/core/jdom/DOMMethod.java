@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -118,7 +118,7 @@ class DOMMethod extends DOMMember implements IDOMMethod {
 	 * The formal type parameters.
 	 * @since 3.0
 	 */
-	protected String[] fTypeParameters = new String[0];
+	protected String[] fTypeParameters = CharOperation.NO_STRINGS;
 
 	/**
 	 * Default value for this attotation type member (only),

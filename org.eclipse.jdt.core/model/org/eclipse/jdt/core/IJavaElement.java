@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,6 +13,7 @@ package org.eclipse.jdt.core;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IAdaptable;
 import org.eclipse.core.runtime.IPath;
+import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.jobs.ISchedulingRule;
 
 /**
@@ -21,7 +22,7 @@ import org.eclipse.core.runtime.jobs.ISchedulingRule;
  * The Java model may hand out any number of handles for each element. Handles
  * that refer to the same element are guaranteed to be equal, but not necessarily identical.
  * <p>
- * Methods annotated as "handle-only" do not require underlying elements to exist. 
+ * Methods annotated as "handle-only" do not require underlying elements to exist.
  * Methods that require underlying elements to exist throw
  * a <code>JavaModelException</code> when an underlying element is missing.
  * <code>JavaModelException.isDoesNotExist</code> can be used to recognize
@@ -35,92 +36,92 @@ public interface IJavaElement extends IAdaptable {
 
 	/**
 	 * Constant representing a Java model (workspace level object).
-	 * A Java element with this type can be safely cast to <code>IJavaModel</code>.
+	 * A Java element with this type can be safely cast to {@link IJavaModel}.
 	 */
 	int JAVA_MODEL = 1;
 
 	/**
 	 * Constant representing a Java project.
-	 * A Java element with this type can be safely cast to <code>IJavaProject</code>.
+	 * A Java element with this type can be safely cast to {@link IJavaProject}.
 	 */
 	int JAVA_PROJECT = 2;
 
 	/**
 	 * Constant representing a package fragment root.
-	 * A Java element with this type can be safely cast to <code>IPackageFragmentRoot</code>.
+	 * A Java element with this type can be safely cast to {@link IPackageFragmentRoot}.
 	 */
 	int PACKAGE_FRAGMENT_ROOT = 3;
 
 	/**
 	 * Constant representing a package fragment.
-	 * A Java element with this type can be safely cast to <code>IPackageFragment</code>.
+	 * A Java element with this type can be safely cast to {@link IPackageFragment}.
 	 */
 	int PACKAGE_FRAGMENT = 4;
 
 	/**
 	 * Constant representing a Java compilation unit.
-	 * A Java element with this type can be safely cast to <code>ICompilationUnit</code>.
+	 * A Java element with this type can be safely cast to {@link ICompilationUnit}.
 	 */
 	int COMPILATION_UNIT = 5;
 
 	/**
 	 * Constant representing a class file.
-	 * A Java element with this type can be safely cast to <code>IClassFile</code>.
+	 * A Java element with this type can be safely cast to {@link IClassFile}.
 	 */
 	int CLASS_FILE = 6;
 
 	/**
 	 * Constant representing a type (a class or interface).
-	 * A Java element with this type can be safely cast to <code>IType</code>.
+	 * A Java element with this type can be safely cast to {@link IType}.
 	 */
 	int TYPE = 7;
 
 	/**
 	 * Constant representing a field.
-	 * A Java element with this type can be safely cast to <code>IField</code>.
+	 * A Java element with this type can be safely cast to {@link IField}.
 	 */
 	int FIELD = 8;
 
 	/**
 	 * Constant representing a method or constructor.
-	 * A Java element with this type can be safely cast to <code>IMethod</code>.
+	 * A Java element with this type can be safely cast to {@link IMethod}.
 	 */
 	int METHOD = 9;
 
 	/**
 	 * Constant representing a stand-alone instance or class initializer.
-	 * A Java element with this type can be safely cast to <code>IInitializer</code>.
+	 * A Java element with this type can be safely cast to {@link IInitializer}.
 	 */
 	int INITIALIZER = 10;
 
 	/**
 	 * Constant representing a package declaration within a compilation unit.
-	 * A Java element with this type can be safely cast to <code>IPackageDeclaration</code>.
+	 * A Java element with this type can be safely cast to {@link IPackageDeclaration}.
 	 */
 	int PACKAGE_DECLARATION = 11;
 
 	/**
 	 * Constant representing all import declarations within a compilation unit.
-	 * A Java element with this type can be safely cast to <code>IImportContainer</code>.
+	 * A Java element with this type can be safely cast to {@link IImportContainer}.
 	 */
 	int IMPORT_CONTAINER = 12;
 
 	/**
 	 * Constant representing an import declaration within a compilation unit.
-	 * A Java element with this type can be safely cast to <code>IImportDeclaration</code>.
+	 * A Java element with this type can be safely cast to {@link IImportDeclaration}.
 	 */
 	int IMPORT_DECLARATION = 13;
-	
+
 	/**
 	 * Constant representing a local variable declaration.
-	 * A Java element with this type can be safely cast to <code>ILocalVariable</code>.
+	 * A Java element with this type can be safely cast to {@link ILocalVariable}.
 	 * @since 3.0
 	 */
 	int LOCAL_VARIABLE = 14;
-	
+
 	/**
 	 * Constant representing a type parameter declaration.
-	 * A Java element with this type can be safely cast to <code>ITypeParameter</code>.
+	 * A Java element with this type can be safely cast to {@link ITypeParameter}.
 	 * @since 3.1
 	 */
 	int TYPE_PARAMETER = 15;
@@ -146,17 +147,41 @@ public interface IJavaElement extends IAdaptable {
 	 * <code>false</code> if this element does not exist
 	 */
 	boolean exists();
-	
+
 	/**
 	 * Returns the first ancestor of this Java element that has the given type.
 	 * Returns <code>null</code> if no such an ancestor can be found.
 	 * This is a handle-only method.
-	 * 
+	 *
 	 * @param ancestorType the given type
 	 * @return the first ancestor of this Java element that has the given type, null if no such an ancestor can be found
 	 * @since 2.0
 	 */
 	IJavaElement getAncestor(int ancestorType);
+
+	/**
+	 * <p>Returns the Javadoc as an html source if this element has an attached javadoc,
+	 * null otherwise.</p>
+	 * <p>This should be used only for binary elements. Source elements will always return null.</p>
+	 * <p>The encoding used to read the javadoc is the one defined by the content type of the
+	 * file. If none is defined, then the project's encoding of this java element is used. If the project's
+	 * encoding cannot be retrieved, then the platform encoding is used.</p>
+	 * <p>In case of the javadoc doesn't exist for this element, null is returned.</p>
+	 *
+	 * <p>The html is extracted from the attached javadoc and provided as is. No
+	 * transformation or validation is done.</p>
+	 *
+	 * @param monitor the given progress monitor
+	 * @exception JavaModelException if:<ul>
+	 *  <li>this element does not exist</li>
+	 *  <li>retrieving the attached javadoc fails (timed-out, invalid URL, ...)</li>
+	 *  <li>the format of the javadoc doesn't match expected standards (different anchors,...)</li>
+	 *  </ul>
+	 * @return the extracted javadoc from the attached javadoc, null if none
+	 * @see IClasspathAttribute#JAVADOC_LOCATION_ATTRIBUTE_NAME
+	 * @since 3.2
+	 */
+	String getAttachedJavadoc(IProgressMonitor monitor) throws JavaModelException;
 
 	/**
 	 * Returns the resource that corresponds directly to this element,
@@ -165,7 +190,7 @@ public interface IJavaElement extends IAdaptable {
 	 * <p>
 	 * For example, the corresponding resource for an <code>ICompilationUnit</code>
 	 * is its underlying <code>IFile</code>. The corresponding resource for
-	 * an <code>IPackageFragment</code> that is not contained in an archive 
+	 * an <code>IPackageFragment</code> that is not contained in an archive
 	 * is its underlying <code>IFolder</code>. An <code>IPackageFragment</code>
 	 * contained in an archive has no corresponding resource. Similarly, there
 	 * are no corresponding resources for <code>IMethods</code>,
@@ -198,7 +223,7 @@ public interface IJavaElement extends IAdaptable {
 	/**
 	 * Returns a string representation of this element handle. The format of
 	 * the string is not specified; however, the identifier is stable across
-	 * workspace sessions, and can be used to recreate this handle via the 
+	 * workspace sessions, and can be used to recreate this handle via the
 	 * <code>JavaCore.create(String)</code> method.
 	 *
 	 * @return the string handle identifier
@@ -217,7 +242,7 @@ public interface IJavaElement extends IAdaptable {
 	/**
 	 * Returns the Java project this element is contained in,
 	 * or <code>null</code> if this element is not contained in any Java project
-	 * (for instance, the <code>IJavaModel</code> is not contained in any Java 
+	 * (for instance, the <code>IJavaModel</code> is not contained in any Java
 	 * project).
 	 * This is a handle-only method.
 	 *
@@ -231,7 +256,7 @@ public interface IJavaElement extends IAdaptable {
 	 * itself is returned. Returns <code>null</code> if this element doesn't have
 	 * an openable parent.
 	 * This is a handle-only method.
-	 * 
+	 *
 	 * @return the first openable parent or <code>null</code> if this element doesn't have
 	 * an openable parent.
 	 * @since 2.0
@@ -248,26 +273,26 @@ public interface IJavaElement extends IAdaptable {
 	IJavaElement getParent();
 
 	/**
-	 * Returns the path to the innermost resource enclosing this element. 
-	 * If this element is not included in an external archive, 
-	 * the path returned is the full, absolute path to the underlying resource, 
-	 * relative to the workbench. 
-	 * If this element is included in an external archive, 
+	 * Returns the path to the innermost resource enclosing this element.
+	 * If this element is not included in an external archive,
+	 * the path returned is the full, absolute path to the underlying resource,
+	 * relative to the workbench.
+	 * If this element is included in an external archive,
 	 * the path returned is the absolute path to the archive in the file system.
 	 * This is a handle-only method.
-	 * 
+	 *
 	 * @return the path to the innermost resource enclosing this element
 	 * @since 2.0
 	 */
 	IPath getPath();
-	
+
 	/**
 	 * Returns the primary element (whose compilation unit is the primary compilation unit)
 	 * this working copy element was created from, or this element if it is a descendant of a
 	 * primary compilation unit or if it is not a descendant of a working copy (e.g. it is a
 	 * binary member).
 	 * The returned element may or may not exist.
-	 * 
+	 *
 	 * @return the primary element this working copy element was created from, or this
 	 * 			element.
 	 * @since 3.0
@@ -275,23 +300,23 @@ public interface IJavaElement extends IAdaptable {
 	IJavaElement getPrimaryElement();
 
 	/**
-	 * Returns the innermost resource enclosing this element. 
-	 * If this element is included in an archive and this archive is not external, 
-	 * this is the underlying resource corresponding to the archive. 
+	 * Returns the innermost resource enclosing this element.
+	 * If this element is included in an archive and this archive is not external,
+	 * this is the underlying resource corresponding to the archive.
 	 * If this element is included in an external archive, <code>null</code>
 	 * is returned.
 	 * This is a handle-only method.
-	 * 
-	 * @return the innermost resource enclosing this element, <code>null</code> if this 
+	 *
+	 * @return the innermost resource enclosing this element, <code>null</code> if this
 	 * element is included in an external archive
 	 * @since 2.0
 	 */
 	IResource getResource();
-	
+
 	/**
 	 * Returns the scheduling rule associated with this Java element.
 	 * This is a handle-only method.
-	 * 
+	 *
 	 * @return the scheduling rule associated with this Java element
 	 * @since 3.0
 	 */
@@ -310,10 +335,10 @@ public interface IJavaElement extends IAdaptable {
 
 	/**
 	 * Returns whether this Java element is read-only. An element is read-only
-	 * if its structure cannot be modified by the java model. 
+	 * if its structure cannot be modified by the java model.
 	 * <p>
 	 * Note this is different from IResource.isReadOnly(). For example, .jar
-	 * files are read-only as the java model doesn't know how to add/remove 
+	 * files are read-only as the java model doesn't know how to add/remove
 	 * elements in this file, but the underlying IFile can be writable.
 	 * <p>
 	 * This is a handle-only method.

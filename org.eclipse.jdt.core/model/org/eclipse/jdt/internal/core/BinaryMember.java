@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -17,6 +17,7 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.compiler.CharOperation;
 
 /**
  * Common functionality for Binary member handles.
@@ -38,16 +39,24 @@ public void copy(IJavaElement container, IJavaElement sibling, String rename, bo
  * @see JavaElement#generateInfos
  */
 protected void generateInfos(Object info, HashMap newElements, IProgressMonitor pm) throws JavaModelException {
-	Openable openableParent = (Openable)getOpenableParent();
-	if (openableParent == null) return;
-	
-	ClassFileInfo openableParentInfo = (ClassFileInfo) JavaModelManager.getJavaModelManager().getInfo(openableParent);
-	if (openableParentInfo == null) {
+	Openable openableParent = (Openable) getOpenableParent();
+	if (JavaModelManager.getJavaModelManager().getInfo(openableParent) == null) {
 		openableParent.generateInfos(openableParent.createElementInfo(), newElements, pm);
-		openableParentInfo = (ClassFileInfo)newElements.get(openableParent);
 	}
-	if (openableParentInfo == null) return;
-	openableParentInfo.getBinaryChildren(newElements); // forces the initialization
+}
+public String[] getCategories() throws JavaModelException {
+	SourceMapper mapper= getSourceMapper();
+	if (mapper != null) {
+		// ensure the class file's buffer is open so that categories are computed
+		((ClassFile)getClassFile()).getBuffer();
+		
+		if (mapper.categories != null) {
+			String[] categories = (String[]) mapper.categories.get(this);
+			if (categories != null)
+				return categories;
+		}
+	}
+	return CharOperation.NO_STRINGS;	
 }
 public String getKey() {
 	try {
@@ -72,7 +81,7 @@ public ISourceRange getNameRange() throws JavaModelException {
 		
 		return mapper.getNameRange(this);
 	} else {
-		return SourceMapper.fgUnknownRange;
+		return SourceMapper.UNKNOWN_RANGE;
 	}
 }
 /*
@@ -86,7 +95,7 @@ public ISourceRange getSourceRange() throws JavaModelException {
 
 		return mapper.getSourceRange(this);
 	} else {
-		return SourceMapper.fgUnknownRange;
+		return SourceMapper.UNKNOWN_RANGE;
 	}
 }
 /*

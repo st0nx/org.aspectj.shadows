@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2005 IBM Corporation and others.
+ * Copyright (c) 2005, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -67,8 +67,13 @@ public final class BindingKey {
 	 * For example:
 	 * <pre>
 	 * <code>
-	 * createParameterizedTypeBindingKey("Ljava/util/Map<TK;TV;>;", new String[] {"Ljava/lang/String;", "Ljava/lang/Object;"}) -> "Ljava/util/Map<Ljava/lang/String;Ljava/lang/Object;>;"
-	 * createParameterizedTypeBindingKey("Ljava/util/List<TE;>;", new String[] {}) -> "Ljava/util/List<>;"
+	 * createParameterizedTypeBindingKey(
+	 *     "Ljava/util/Map&lt;TK;TV;&gt;;", 
+	 *     new String[] {"Ljava/lang/String;", "Ljava/lang/Object;"}) -&gt; 
+	 *       "Ljava/util/Map&lt;Ljava/lang/String;Ljava/lang/Object;&gt;;"
+	 * createParameterizedTypeBindingKey(
+	 *     "Ljava/util/List&lt;TE;&gt;;", new String[] {}) -&gt; 
+	 *       "Ljava/util/List&lt;&gt;;"
 	 * </code>
 	 * </pre>
 	 * </p>
@@ -121,8 +126,10 @@ public final class BindingKey {
 	 * For example:
 	 * <pre>
 	 * <code>
-	 * createTypeVariableBindingKey("T", "Ljava/util/List<TE;>;") -> "Ljava/util/List<TE;>;:TT;"
-	 * createTypeVariableBindingKey("SomeTypeVariable", "Lp/X;.foo()V") -> "Lp/X;.foo()V:TSomeTypeVariable;"
+	 * createTypeVariableBindingKey("T", "Ljava/util/List&lt;TE;&gt;;") -&gt; 
+	 *   "Ljava/util/List&lt;TE;&gt;;:TT;"
+	 * createTypeVariableBindingKey("SomeTypeVariable", "Lp/X;.foo()V") -&gt; 
+	 *   "Lp/X;.foo()V:TSomeTypeVariable;"
 	 * </code>
 	 * </pre>
 	 * </p>
@@ -150,9 +157,11 @@ public final class BindingKey {
 	 * For example:
 	 * <pre>
 	 * <code>
-	 * createWilcardTypeBindingKey(null, Signature.C_STAR) -> "*"
-	 * createWilcardTypeBindingKey("Ljava/util/List<TE;>;", Signature.C_SUPER) -> "-Ljava/util/List<TE;>;"
-	 * createWilcardTypeBindingKey("Ljava/util/ArrayList;", Signature.C_EXTENDS) -> "+Ljava/util/ArrayList;"
+	 * createWilcardTypeBindingKey(null, Signature.C_STAR) -&gt; "*"
+	 * createWilcardTypeBindingKey("Ljava/util/List&lt;TE;&gt;;",
+	 *    Signature.C_SUPER) -&gt; "-Ljava/util/List&lt;TE;&gt;;"
+	 * createWilcardTypeBindingKey("Ljava/util/ArrayList;", Signature.C_EXTENDS) -&gt;
+	 *    "+Ljava/util/ArrayList;"
 	 * </code>
 	 * </pre>
 	 * </p>
@@ -173,7 +182,21 @@ public final class BindingKey {
 		}
 		return null;
 	}
-	
+
+	/**
+	 * Returns the thrown exception signatures of the element represented by this binding key.
+	 * If this binding key does not  represent a method or does not throw any exception,
+	 * returns an empty array.
+	 * 
+	 * @return the thrown exceptions signatures
+	 * @since 3.3
+	 */
+	public String[] getThrownExceptions() {
+		KeyToSignature keyToSignature = new KeyToSignature(this.key, KeyToSignature.THROWN_EXCEPTIONS);
+		keyToSignature.parse();
+		return keyToSignature.getThrownExceptions();
+	}
+
 	/**
 	 * Returns the type argument signatures of the element represented by this binding key.
 	 * If this binding key doesn't represent a parameterized type or a parameterized method,
@@ -221,15 +244,15 @@ public final class BindingKey {
 	}
 	
 	/**
-	 * Internal method.
-	 * <p>
-	 * This method transforms this binding key into a signature. 
-	 * This method is not intended to be called by clients.
-	 * </p>
+	 * Transforms this binding key into a resolved signature.
+	 * If this binding key represents a field, the returned signature is
+	 * the declaring type's signature.
 	 * 
-	 * @return the signature for this binding key
+	 * @return the resolved signature for this binding key
+	 * @see Signature
+	 * @since 3.2
 	 */
-	public String internalToSignature() {
+	public String toSignature() {
 		KeyToSignature keyToSignature = new KeyToSignature(this.key, KeyToSignature.SIGNATURE);
 		keyToSignature.parse();
 		return keyToSignature.signature.toString();
