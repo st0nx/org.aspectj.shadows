@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,6 +14,7 @@ import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchDocument;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
+import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.search.matching.*;
 
 public abstract class AbstractIndexer implements IIndexConstants {
@@ -23,9 +24,9 @@ public abstract class AbstractIndexer implements IIndexConstants {
 	public AbstractIndexer(SearchDocument document) {
 		this.document = document;
 	}
-	public void addAnnotationTypeDeclaration(int modifiers, char[] packageName, char[] name, char[][] enclosingTypeNames) {
-		addIndexEntry(TYPE_DECL, TypeDeclarationPattern.createIndexKey(modifiers, name, packageName, enclosingTypeNames));
-		
+	public void addAnnotationTypeDeclaration(int modifiers, char[] packageName, char[] name, char[][] enclosingTypeNames, boolean secondary) {
+		addTypeDeclaration(modifiers, packageName, name, enclosingTypeNames, secondary);
+
 		addIndexEntry(
 			SUPER_REF, 
 			SuperTypeReferencePattern.createIndexKey(
@@ -38,8 +39,9 @@ public abstract class AbstractIndexer implements IIndexConstants {
 			char[][] enclosingTypeNames, 
 			char[] superclass, 
 			char[][] superinterfaces,
-			char[][] typeParameterSignatures) {
-		addIndexEntry(TYPE_DECL, TypeDeclarationPattern.createIndexKey(modifiers, name, packageName, enclosingTypeNames));
+			char[][] typeParameterSignatures,
+			boolean secondary) {
+		addTypeDeclaration(modifiers, packageName, name, enclosingTypeNames, secondary);
 
 		if (superclass != null) {
 			superclass = erasure(superclass);
@@ -70,8 +72,10 @@ public abstract class AbstractIndexer implements IIndexConstants {
 		int argCount = parameterTypes == null ? 0 : parameterTypes.length;
 		addIndexEntry(CONSTRUCTOR_DECL, ConstructorPattern.createIndexKey(CharOperation.lastSegment(typeName,'.'), argCount));
 	
-		for (int i = 0; i < argCount; i++)
-			addTypeReference(parameterTypes[i]);
+		if (parameterTypes != null) {
+			for (int i = 0; i < argCount; i++)
+				addTypeReference(parameterTypes[i]);
+		}
 		if (exceptionTypes != null)
 			for (int i = 0, max = exceptionTypes.length; i < max; i++)
 				addTypeReference(exceptionTypes[i]);
@@ -84,13 +88,13 @@ public abstract class AbstractIndexer implements IIndexConstants {
 		if (innermostTypeName != simpleTypeName)
 			addIndexEntry(CONSTRUCTOR_REF, ConstructorPattern.createIndexKey(innermostTypeName, argCount));
 	}
-	public void addEnumDeclaration(int modifiers, char[] packageName, char[] name, char[][] enclosingTypeNames, char[][] superinterfaces) {
-		addIndexEntry(TYPE_DECL, TypeDeclarationPattern.createIndexKey(modifiers, name, packageName, enclosingTypeNames));
-		
+	public void addEnumDeclaration(int modifiers, char[] packageName, char[] name, char[][] enclosingTypeNames, char[] superclass, char[][] superinterfaces, boolean secondary) {
+		addTypeDeclaration(modifiers, packageName, name, enclosingTypeNames, secondary);
+
 		addIndexEntry(
 			SUPER_REF, 
 			SuperTypeReferencePattern.createIndexKey(
-				modifiers, packageName, name, enclosingTypeNames, null, ENUM_SUFFIX, CharOperation.concatWith(TypeConstants.JAVA_LANG_ENUM, '.'), CLASS_SUFFIX));
+				modifiers, packageName, name, enclosingTypeNames, null, ENUM_SUFFIX, superclass, CLASS_SUFFIX));
 		if (superinterfaces != null) {
 			for (int i = 0, max = superinterfaces.length; i < max; i++) {
 				char[] superinterface = erasure(superinterfaces[i]);
@@ -112,8 +116,8 @@ public abstract class AbstractIndexer implements IIndexConstants {
 	protected void addIndexEntry(char[] category, char[] key) {
 		this.document.addIndexEntry(category, key);
 	}
-	public void addInterfaceDeclaration(int modifiers, char[] packageName, char[] name, char[][] enclosingTypeNames, char[][] superinterfaces, char[][] typeParameterSignatures) {
-		addIndexEntry(TYPE_DECL, TypeDeclarationPattern.createIndexKey(modifiers, name, packageName, enclosingTypeNames));
+	public void addInterfaceDeclaration(int modifiers, char[] packageName, char[] name, char[][] enclosingTypeNames, char[][] superinterfaces, char[][] typeParameterSignatures, boolean secondary) {
+		addTypeDeclaration(modifiers, packageName, name, enclosingTypeNames, secondary);
 
 		if (superinterfaces != null) {
 			for (int i = 0, max = superinterfaces.length; i < max; i++) {
@@ -130,8 +134,10 @@ public abstract class AbstractIndexer implements IIndexConstants {
 		int argCount = parameterTypes == null ? 0 : parameterTypes.length;
 		addIndexEntry(METHOD_DECL, MethodPattern.createIndexKey(methodName, argCount));
 	
-		for (int i = 0; i < argCount; i++)
-			addTypeReference(parameterTypes[i]);
+		if (parameterTypes != null) {
+			for (int i = 0; i < argCount; i++)
+				addTypeReference(parameterTypes[i]);
+		}
 		if (exceptionTypes != null)
 			for (int i = 0, max = exceptionTypes.length; i < max; i++)
 				addTypeReference(exceptionTypes[i]);
@@ -143,6 +149,16 @@ public abstract class AbstractIndexer implements IIndexConstants {
 	}
 	public void addNameReference(char[] name) {
 		addIndexEntry(REF, name);
+	}
+	protected void addTypeDeclaration(int modifiers, char[] packageName, char[] name, char[][] enclosingTypeNames, boolean secondary) {
+		char[] indexKey = TypeDeclarationPattern.createIndexKey(modifiers, name, packageName, enclosingTypeNames, secondary);
+		if (secondary)
+			JavaModelManager.getJavaModelManager().secondaryTypeAdding(
+				this.document.getPath(),
+				name == null ? CharOperation.NO_CHAR : name,
+				packageName == null ? CharOperation.NO_CHAR : packageName);
+
+		addIndexEntry(TYPE_DECL, indexKey);
 	}
 	public void addTypeReference(char[] typeName) {
 		addNameReference(CharOperation.lastSegment(typeName, '.'));

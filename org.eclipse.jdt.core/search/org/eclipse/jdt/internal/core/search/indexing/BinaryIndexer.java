@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,13 +13,20 @@ package org.eclipse.jdt.internal.core.search.indexing;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchDocument;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.compiler.classfmt.FieldInfo;
 import org.eclipse.jdt.internal.compiler.classfmt.MethodInfo;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
+import org.eclipse.jdt.internal.compiler.env.ClassSignature;
+import org.eclipse.jdt.internal.compiler.env.EnumConstantSignature;
+import org.eclipse.jdt.internal.compiler.env.IBinaryAnnotation;
+import org.eclipse.jdt.internal.compiler.env.IBinaryElementValuePair;
+import org.eclipse.jdt.internal.compiler.lookup.TagBits;
+import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 	private static final char[] BYTE = "byte".toCharArray(); //$NON-NLS-1$
@@ -35,6 +42,137 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 
 	public BinaryIndexer(SearchDocument document) {
 		super(document);
+	}
+	private void addBinaryStandardAnnotations(long annotationTagBits) {
+		if ((annotationTagBits & TagBits.AnnotationTargetMASK) != 0) {
+			char[][] compoundName = TypeConstants.JAVA_LANG_ANNOTATION_TARGET;
+			addTypeReference(compoundName[compoundName.length-1]);
+			addBinaryTargetAnnotation(annotationTagBits);
+		}
+		if ((annotationTagBits & TagBits.AnnotationRetentionMASK) != 0) {
+			char[][] compoundName = TypeConstants.JAVA_LANG_ANNOTATION_RETENTION;
+			addTypeReference(compoundName[compoundName.length-1]);
+			addBinaryRetentionAnnotation(annotationTagBits);
+		}
+		if ((annotationTagBits & TagBits.AnnotationDeprecated) != 0) {
+			char[][] compoundName = TypeConstants.JAVA_LANG_DEPRECATED;
+			addTypeReference(compoundName[compoundName.length-1]);
+		}
+		if ((annotationTagBits & TagBits.AnnotationDocumented) != 0) {
+			char[][] compoundName = TypeConstants.JAVA_LANG_ANNOTATION_DOCUMENTED;
+			addTypeReference(compoundName[compoundName.length-1]);
+		}
+		if ((annotationTagBits & TagBits.AnnotationInherited) != 0) {
+			char[][] compoundName = TypeConstants.JAVA_LANG_ANNOTATION_INHERITED;
+			addTypeReference(compoundName[compoundName.length-1]);
+		}
+		if ((annotationTagBits & TagBits.AnnotationOverride) != 0) {
+			char[][] compoundName = TypeConstants.JAVA_LANG_OVERRIDE;
+			addTypeReference(compoundName[compoundName.length-1]);
+		}
+		if ((annotationTagBits & TagBits.AnnotationSuppressWarnings) != 0) {
+			char[][] compoundName = TypeConstants.JAVA_LANG_SUPPRESSWARNINGS;
+			addTypeReference(compoundName[compoundName.length-1]);
+		}
+	}
+	private void addBinaryTargetAnnotation(long bits) {
+		char[][] compoundName = null;
+		if ((bits & TagBits.AnnotationForAnnotationType) != 0) {
+			compoundName = TypeConstants.JAVA_LANG_ANNOTATION_ELEMENTTYPE;
+			addTypeReference(compoundName[compoundName.length-1]);
+			addFieldReference(TypeConstants.UPPER_ANNOTATION_TYPE);
+		}
+		if ((bits & TagBits.AnnotationForConstructor) != 0) {
+			if (compoundName == null) {
+				compoundName = TypeConstants.JAVA_LANG_ANNOTATION_ELEMENTTYPE;
+				addTypeReference(compoundName[compoundName.length-1]);
+			}
+			addFieldReference(TypeConstants.UPPER_CONSTRUCTOR);
+		}
+		if ((bits & TagBits.AnnotationForField) != 0) {
+			if (compoundName == null) {
+				compoundName = TypeConstants.JAVA_LANG_ANNOTATION_ELEMENTTYPE;
+				addTypeReference(compoundName[compoundName.length-1]);
+			}
+			addFieldReference(TypeConstants.UPPER_FIELD);
+		}
+		if ((bits & TagBits.AnnotationForLocalVariable) != 0) {
+			if (compoundName == null) {
+				compoundName = TypeConstants.JAVA_LANG_ANNOTATION_ELEMENTTYPE;
+				addTypeReference(compoundName[compoundName.length-1]);
+			}
+			addFieldReference(TypeConstants.UPPER_LOCAL_VARIABLE);
+		}
+		if ((bits & TagBits.AnnotationForMethod) != 0) {
+			if (compoundName == null) {
+				compoundName = TypeConstants.JAVA_LANG_ANNOTATION_ELEMENTTYPE;
+				addTypeReference(compoundName[compoundName.length-1]);
+			}
+			addFieldReference(TypeConstants.UPPER_METHOD);
+		}
+		if ((bits & TagBits.AnnotationForPackage) != 0) {
+			if (compoundName == null) {
+				compoundName = TypeConstants.JAVA_LANG_ANNOTATION_ELEMENTTYPE;
+				addTypeReference(compoundName[compoundName.length-1]);
+			}
+			addFieldReference(TypeConstants.UPPER_PACKAGE);
+		}
+		if ((bits & TagBits.AnnotationForParameter) != 0) {
+			if (compoundName == null) {
+				compoundName = TypeConstants.JAVA_LANG_ANNOTATION_ELEMENTTYPE;
+				addTypeReference(compoundName[compoundName.length-1]);
+			}
+			addFieldReference(TypeConstants.UPPER_PARAMETER);
+		}
+		if ((bits & TagBits.AnnotationForType) != 0) {
+			if (compoundName == null) {
+				compoundName = TypeConstants.JAVA_LANG_ANNOTATION_ELEMENTTYPE;
+				addTypeReference(compoundName[compoundName.length-1]);
+			}
+			addFieldReference(TypeConstants.TYPE);
+		}
+	}
+	private void addBinaryRetentionAnnotation(long bits) {
+		char[][] compoundName = TypeConstants.JAVA_LANG_ANNOTATION_RETENTIONPOLICY;
+		addTypeReference(compoundName[compoundName.length-1]);
+		if ((bits & TagBits.AnnotationRuntimeRetention) != 0) {
+			addFieldReference(TypeConstants.UPPER_RUNTIME);
+		}
+		else if ((bits & TagBits.AnnotationClassRetention) != 0) {
+			addFieldReference(TypeConstants.UPPER_CLASS);
+		}
+		else if ((bits & TagBits.AnnotationSourceRetention) != 0) {
+			addFieldReference(TypeConstants.UPPER_SOURCE);
+		}
+	}
+	private void addBinaryAnnotation(IBinaryAnnotation annotation) {
+		addTypeReference(replace('/', '.', Signature.toCharArray(annotation.getTypeName())));
+		IBinaryElementValuePair[] valuePairs = annotation.getElementValuePairs();
+		if (valuePairs != null) {
+			for (int j=0, vpLength=valuePairs.length; j<vpLength; j++) {
+				IBinaryElementValuePair valuePair = valuePairs[j];
+				addMethodReference(valuePair.getName(), 0);
+				Object pairValue = valuePair.getValue();
+				addPairValue(pairValue);
+			}
+		}
+	}
+	private void addPairValue(Object pairValue) {
+		if (pairValue instanceof EnumConstantSignature) {
+			EnumConstantSignature enumConstant = (EnumConstantSignature) pairValue;
+			addTypeReference(replace('/', '.', Signature.toCharArray(enumConstant.getTypeName())));
+			addNameReference(enumConstant.getEnumConstantName());
+		} else if (pairValue instanceof ClassSignature) {
+			ClassSignature classConstant = (ClassSignature) pairValue;
+			addTypeReference(replace('/', '.', Signature.toCharArray(classConstant.getTypeName())));
+		} else if (pairValue instanceof IBinaryAnnotation) {
+			addBinaryAnnotation((IBinaryAnnotation) pairValue);
+		} else if (pairValue instanceof Object[]) {
+			Object[] objects = (Object[]) pairValue;
+			for (int i=0,l=objects.length; i<l; i++) {
+				addPairValue(objects[i]);
+			}
+		}
 	}
 	public void addTypeReference(char[] typeName) {
 		int length = typeName.length;
@@ -161,7 +299,7 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 	 *   - int foo(String[]) is ([Ljava/lang/String;)I => java.lang.String[] in a char[][]
 	 *   - void foo(int) is (I)V ==> int
 	 */
-	private char[][] decodeParameterTypes(char[] signature) throws ClassFormatException {
+	private char[][] decodeParameterTypes(char[] signature, boolean firstIsSynthetic) throws ClassFormatException {
 		if (signature == null) return null;
 		int indexOfClosingParen = CharOperation.lastIndexOf(')', signature);
 		if (indexOfClosingParen == 1) {
@@ -225,9 +363,14 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 				case 'L':
 					int indexOfSemiColon = CharOperation.indexOf(';', signature, i+1);
 					if (indexOfSemiColon == -1) throw new ClassFormatException(ClassFormatException.ErrInvalidMethodSignature);
-					parameterTypes[parameterTypesCounter++] = replace('/','.',CharOperation.subarray(signature, i + 1, indexOfSemiColon));
-					if (arrayDim > 0)
-						convertToArrayType(parameterTypes, parameterTypesCounter-1, arrayDim);
+					if (firstIsSynthetic && parameterTypesCounter == 0) {
+						// skip first synthetic parameter
+						firstIsSynthetic = false;
+					} else {
+						parameterTypes[parameterTypesCounter++] = replace('/','.',CharOperation.subarray(signature, i + 1, indexOfSemiColon));
+						if (arrayDim > 0)
+							convertToArrayType(parameterTypes, parameterTypesCounter-1, arrayDim);
+					}
 					i = indexOfSemiColon;
 					arrayDim = 0;
 					break;
@@ -327,7 +470,7 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 		}
 		return null;
 	}
-	private int extractArgCount(char[] signature) throws ClassFormatException {
+	private int extractArgCount(char[] signature, char[] className) throws ClassFormatException {
 		int indexOfClosingParen = CharOperation.lastIndexOf(')', signature);
 		if (indexOfClosingParen == 1) {
 			// there is no parameter
@@ -352,7 +495,25 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 				case 'L':
 					int indexOfSemiColon = CharOperation.indexOf(';', signature, i+1);
 					if (indexOfSemiColon == -1) throw new ClassFormatException(ClassFormatException.ErrInvalidMethodSignature);
-					parameterTypesCounter++;
+					// verify if first parameter is synthetic
+					if (className != null && parameterTypesCounter == 0) {
+						char[] classSignature = Signature.createCharArrayTypeSignature(className, true);
+						int length = indexOfSemiColon-i+1;
+						if (classSignature.length > (length+1)) {
+							// synthetic means that parameter type has same signature than given class
+							for (int j=i, k=0; j<indexOfSemiColon; j++, k++) {
+								if (!(signature[j] == classSignature[k] || (signature[j] == '/' && classSignature[k] == '.' ))) {
+									parameterTypesCounter++;
+									break;
+								}
+							}
+						} else {
+							parameterTypesCounter++;
+						}
+						className = null; // do not verify following parameters
+					} else {
+						parameterTypesCounter++;
+					}
 					i = indexOfSemiColon;
 					break;
 				case '[':
@@ -407,12 +568,26 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 					name = extractName(constantPoolOffsets, reader, i);
 					type = extractType(constantPoolOffsets, reader, i);
 					if (CharOperation.equals(INIT, name)) {
-						// add a constructor reference
-						char[] className = replace('/', '.', extractClassName(constantPoolOffsets, reader, i)); // so that it looks like java.lang.String
-						addConstructorReference(className, extractArgCount(type));
+						// get class name and see if it's a local type or not
+						char[] className = extractClassName(constantPoolOffsets, reader, i);
+						boolean localType = false;
+						if (className !=  null) {
+							for (int c = 0, max = className.length; c < max; c++) {
+								switch (className[c]) {
+									case '/':
+										className[c] = '.';
+										break;
+									case '$':
+										localType = true;
+										break;
+								}
+							}
+						}
+						// add a constructor reference, use class name to extract arg count if it's a local type to remove synthetic parameter
+						addConstructorReference(className, extractArgCount(type, localType?className:null));
 					} else {
 						// add a method reference
-						addMethodReference(name, extractArgCount(type));
+						addMethodReference(name, extractArgCount(type, null));
 					}
 					break;
 				case ClassFileConstants.ClassTag :
@@ -439,8 +614,12 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 	}
 	public void indexDocument() {
 		try {
-			byte[] contents = this.document.getByteContents();
-			ClassFileReader reader = new ClassFileReader(contents, this.document.getPath().toCharArray());
+			final byte[] contents = this.document.getByteContents();
+			// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=107124
+			// contents can potentially be null if a IOException occurs while retrieving the contents
+			if (contents == null) return;
+			final String path = this.document.getPath();
+			ClassFileReader reader = new ClassFileReader(contents, path == null ? null : path.toCharArray());
 	
 			// first add type references
 			char[] className = replace('/', '.', reader.getName()); // looks like java/lang/String
@@ -456,13 +635,15 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 				name = className;
 			}
 			char[] enclosingTypeName = null;
-			if (reader.isNestedType()) {
+			boolean isNestedType = reader.isNestedType();
+			if (isNestedType) {
 				if (reader.isAnonymous()) {
 					name = CharOperation.NO_CHAR;
 				} else {
 					name = reader.getInnerSourceName();
 				}
 				if (reader.isLocal() || reader.isAnonymous()) {
+					// set specific ['0'] value for local and anonymous to be able to filter them
 					enclosingTypeName = ONE_ZERO;
 				} else {
 					char[] fullEnclosingName = reader.getEnclosingTypeName();
@@ -488,36 +669,60 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 			
 			char[][] superinterfaces = replace('/', '.', reader.getInterfaceNames());
 			char[][] enclosingTypeNames = enclosingTypeName == null ? null : new char[][] {enclosingTypeName};
-			switch (reader.getKind()) {
-				case IGenericType.CLASS_DECL :
+			int modifiers = reader.getModifiers();
+			switch (TypeDeclaration.kind(modifiers)) {
+				case TypeDeclaration.CLASS_DECL :
 					char[] superclass = replace('/', '.', reader.getSuperclassName());
-					addClassDeclaration(reader.getModifiers(), packageName, name, enclosingTypeNames, superclass, superinterfaces, typeParameterSignatures);
+					addClassDeclaration(modifiers, packageName, name, enclosingTypeNames, superclass, superinterfaces, typeParameterSignatures, false);
 					break;
-				case IGenericType.INTERFACE_DECL :
-					addInterfaceDeclaration(reader.getModifiers(), packageName, name, enclosingTypeNames, superinterfaces, typeParameterSignatures);
+				case TypeDeclaration.INTERFACE_DECL :
+					addInterfaceDeclaration(modifiers, packageName, name, enclosingTypeNames, superinterfaces, typeParameterSignatures, false);
 					break;
-				case IGenericType.ENUM_DECL :
-					addEnumDeclaration(reader.getModifiers(), packageName, name, enclosingTypeNames, superinterfaces);
+				case TypeDeclaration.ENUM_DECL :
+					superclass = replace('/', '.', reader.getSuperclassName());
+					addEnumDeclaration(modifiers, packageName, name, enclosingTypeNames, superclass, superinterfaces, false);
 					break;
-				case IGenericType.ANNOTATION_TYPE_DECL :
-					addAnnotationTypeDeclaration(reader.getModifiers(), packageName, name, enclosingTypeNames);
+				case TypeDeclaration.ANNOTATION_TYPE_DECL :
+					addAnnotationTypeDeclaration(modifiers, packageName, name, enclosingTypeNames, false);
 					break;
 			}			
-	
+
+			// Look for references in class annotations
+			IBinaryAnnotation[] annotations = reader.getAnnotations();
+			if (annotations != null) {
+				for (int a=0, length=annotations.length; a<length; a++) {
+					IBinaryAnnotation annotation = annotations[a];
+					addBinaryAnnotation(annotation);
+				}
+			}
+			long tagBits = reader.getTagBits() & TagBits.AllStandardAnnotationsMask;
+			if (tagBits != 0) {
+				addBinaryStandardAnnotations(tagBits);
+			}
+
 			// first reference all methods declarations and field declarations
 			MethodInfo[] methods = (MethodInfo[]) reader.getMethods();
 			if (methods != null) {
 				for (int i = 0, max = methods.length; i < max; i++) {
 					MethodInfo method = methods[i];
+					boolean isConstructor = method.isConstructor();
 					char[] descriptor = method.getMethodDescriptor();
-					char[][] parameterTypes = decodeParameterTypes(descriptor);
+					char[][] parameterTypes = decodeParameterTypes(descriptor, isConstructor && isNestedType);
 					char[] returnType = decodeReturnType(descriptor);
 					char[][] exceptionTypes = replace('/', '.', method.getExceptionTypeNames());
-					if (method.isConstructor()) {
+					if (isConstructor) {
 						addConstructorDeclaration(className, parameterTypes, exceptionTypes);
 					} else {
 						if (!method.isClinit()) {
 							addMethodDeclaration(method.getSelector(), parameterTypes, returnType, exceptionTypes);
+						}
+					}
+					// look for references in method annotations
+					annotations = method.getAnnotations();
+					if (annotations != null) {
+						for (int a=0, length=annotations.length; a<length; a++) {
+							IBinaryAnnotation annotation = annotations[a];
+							addBinaryAnnotation(annotation);
 						}
 					}
 				}
@@ -529,13 +734,28 @@ public class BinaryIndexer extends AbstractIndexer implements SuffixConstants {
 					char[] fieldName = field.getName();
 					char[] fieldType = decodeFieldType(replace('/', '.', field.getTypeName()));
 					addFieldDeclaration(fieldType, fieldName);
+					// look for references in field annotations
+					annotations = field.getAnnotations();
+					if (annotations != null) {
+						for (int a=0, length=annotations.length; a<length; a++) {
+							IBinaryAnnotation annotation = annotations[a];
+							addBinaryAnnotation(annotation);
+						}
+					}
 				}
 			}
-	
 			// record all references found inside the .class file
 			extractReferenceFromConstantPool(contents, reader);
 		} catch (ClassFormatException e) {
 			// ignore
+			this.document.removeAllIndexEntries();
+			Util.log(e, "ClassFormatException in " + this.document.getPath() + ". Please report this issue to JDT/Core including the problematic document"); //$NON-NLS-1$ //$NON-NLS-2$
+		} catch (RuntimeException e) {
+			// https://bugs.eclipse.org/bugs/show_bug.cgi?id=182154
+			// logging the entry that could not be indexed and continue with the next one
+			// we remove all entries relative to the boggus document
+			this.document.removeAllIndexEntries();
+			Util.log(e, "Indexer crashed on document " + this.document.getPath() + ". Please report this issue to JDT/Core including the problematic document"); //$NON-NLS-1$ //$NON-NLS-2$
 		}
 	}
 	/*

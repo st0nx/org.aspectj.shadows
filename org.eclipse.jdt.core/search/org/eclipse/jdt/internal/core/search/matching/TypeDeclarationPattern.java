@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,11 +14,10 @@ import java.io.IOException;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
-import org.eclipse.jdt.internal.compiler.env.IConstants;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.core.index.*;
-import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
-public class TypeDeclarationPattern extends JavaSearchPattern implements IIndexConstants {
+public class TypeDeclarationPattern extends JavaSearchPattern {
 
 public char[] simpleName;
 public char[] pkg;
@@ -31,6 +30,7 @@ public char[][] enclosingTypeNames;
 // set to TYPE_SUFFIX for matching both classes and interfaces
 public char typeSuffix; 
 public int modifiers;
+public boolean secondary = false;
 
 protected static char[][] CATEGORIES = { TYPE_DECL };
 
@@ -81,9 +81,11 @@ void rehash() {
 
 /*
  * Create index key for type declaration pattern:
- *		key = typeName / packageName / enclosingTypeName / typeSuffix modifiers
+ *		key = typeName / packageName / enclosingTypeName / modifiers
+ * or for secondary types
+ *		key = typeName / packageName / enclosingTypeName / modifiers / 'S'
  */
-public static char[] createIndexKey(int modifiers, char[] typeName, char[] packageName, char[][] enclosingTypeNames) { //, char typeSuffix) {
+public static char[] createIndexKey(int modifiers, char[] typeName, char[] packageName, char[][] enclosingTypeNames, boolean secondary) { //, char typeSuffix) {
 	int typeNameLength = typeName == null ? 0 : typeName.length;
 	int packageLength = packageName == null ? 0 : packageName.length;
 	int enclosingNamesLength = 0;
@@ -95,7 +97,9 @@ public static char[] createIndexKey(int modifiers, char[] typeName, char[] packa
 		}
 	}
 
-	char[] result = new char[typeNameLength + packageLength + enclosingNamesLength + 4];
+	int resultLength = typeNameLength + packageLength + enclosingNamesLength + 5;
+	if (secondary) resultLength += 2;
+	char[] result = new char[resultLength];
 	int pos = 0;
 	if (typeNameLength > 0) {
 		System.arraycopy(typeName, 0, result, pos, typeNameLength);
@@ -107,7 +111,7 @@ public static char[] createIndexKey(int modifiers, char[] typeName, char[] packa
 		pos += packageLength;
 	}
 	result[pos++] = SEPARATOR;
-	if (enclosingNamesLength > 0) {
+	if (enclosingTypeNames != null && enclosingNamesLength > 0) {
 		for (int i = 0, length = enclosingTypeNames.length; i < length;) {
 			char[] enclosingName = enclosingTypeNames[i];
 			int itsLength = enclosingName.length;
@@ -118,7 +122,12 @@ public static char[] createIndexKey(int modifiers, char[] typeName, char[] packa
 		}
 	}
 	result[pos++] = SEPARATOR;
-	result[pos] = (char) modifiers;
+	result[pos++] = (char) modifiers;
+	result[pos] = (char) (modifiers>>16);
+	if (secondary) {
+		result[++pos] = SEPARATOR;
+		result[++pos] = 'S';
+	}
 	return result;
 }
 
@@ -140,7 +149,7 @@ public TypeDeclarationPattern(
 		for (int i = 0; i < length; i++)
 			this.enclosingTypeNames[i] = CharOperation.toLowerCase(enclosingTypeNames[i]);
 	}
-	this.simpleName = isCaseSensitive() ? simpleName : CharOperation.toLowerCase(simpleName);
+	this.simpleName = (isCaseSensitive() || isCamelCase())  ? simpleName : CharOperation.toLowerCase(simpleName);
 	this.typeSuffix = typeSuffix;
 
 	((InternalSearchPattern)this).mustResolve = (this.pkg != null && this.enclosingTypeNames != null) || typeSuffix != TYPE_SUFFIX;
@@ -149,43 +158,60 @@ TypeDeclarationPattern(int matchRule) {
 	super(TYPE_DECL_PATTERN, matchRule);
 }
 /*
- * Type entries are encoded as simpleTypeName / packageName / enclosingTypeName / modifiers
- * e.g. Object/java.lang//0
- * e.g. Cloneable/java.lang//512
- * e.g. LazyValue/javax.swing/UIDefaults/0
+ * Type entries are encoded as:
+ * 	simpleTypeName / packageName / enclosingTypeName / modifiers
+ *			e.g. Object/java.lang//0
+ * 		e.g. Cloneable/java.lang//512
+ * 		e.g. LazyValue/javax.swing/UIDefaults/0
+ * or for secondary types as:
+ * 	simpleTypeName / packageName / enclosingTypeName / modifiers / S
  */
 public void decodeIndexKey(char[] key) {
 	int slash = CharOperation.indexOf(SEPARATOR, key, 0);
 	this.simpleName = CharOperation.subarray(key, 0, slash);
 
-	int start = slash + 1;
-	slash = CharOperation.indexOf(SEPARATOR, key, start);
-	this.pkg = slash == start ? CharOperation.NO_CHAR : internedPackageNames.add(CharOperation.subarray(key, start, slash));
-
-	slash = CharOperation.indexOf(SEPARATOR, key, start = slash + 1);
-	if (slash == start) {
-		this.enclosingTypeNames = CharOperation.NO_CHAR_CHAR;
+	int start = ++slash;
+	if (key[start] == SEPARATOR) {
+		this.pkg = CharOperation.NO_CHAR;
 	} else {
-		char[] names = CharOperation.subarray(key, start, slash);
-		this.enclosingTypeNames = CharOperation.equals(ONE_ZERO, names) ? ONE_ZERO_CHAR : CharOperation.splitOn('.', names);
+		slash = CharOperation.indexOf(SEPARATOR, key, start);
+		this.pkg = internedPackageNames.add(CharOperation.subarray(key, start, slash));
 	}
 
-	decodeModifiers(key[key.length - 1]);
+	// Continue key read by the end to decode modifiers
+	int last = key.length-1;
+	this.secondary = key[last] == 'S';
+	if (this.secondary) {
+		last -= 2;
+	}
+	this.modifiers = key[last-1] + (key[last]<<16);
+	decodeModifiers();
+
+	// Retrieve enclosing type names
+	start = slash + 1;
+	last -= 2; // position of ending slash
+	if (start == last) {
+		this.enclosingTypeNames = CharOperation.NO_CHAR_CHAR;
+	} else {
+		if (last == (start+1) && key[start] == ZERO_CHAR) {
+			this.enclosingTypeNames = ONE_ZERO_CHAR;
+		} else {
+			this.enclosingTypeNames = CharOperation.splitOn('.', key, start, last);
+		}
+	}
 }
-protected void decodeModifiers(char value) {
-	this.modifiers = value; // implicit cast to int type
+protected void decodeModifiers() {
 
 	// Extract suffix from modifiers instead of index key
-	int kind = this.modifiers & (IConstants.AccInterface+IConstants.AccEnum+IConstants.AccAnnotation);
-	switch (kind) {
-		case IConstants.AccAnnotation:
-		case IConstants.AccAnnotation+IConstants.AccInterface:
+	switch (this.modifiers & (ClassFileConstants.AccInterface|ClassFileConstants.AccEnum|ClassFileConstants.AccAnnotation)) {
+		case ClassFileConstants.AccAnnotation:
+		case ClassFileConstants.AccAnnotation+ClassFileConstants.AccInterface:
 			this.typeSuffix = ANNOTATION_TYPE_SUFFIX;
 			break;
-		case IConstants.AccEnum:
+		case ClassFileConstants.AccEnum:
 			this.typeSuffix = ENUM_SUFFIX;
 			break;
-		case IConstants.AccInterface:
+		case ClassFileConstants.AccInterface:
 			this.typeSuffix = INTERFACE_SUFFIX;
 			break;
 		default:
@@ -201,60 +227,15 @@ public char[][] getIndexCategories() {
 }
 public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 	TypeDeclarationPattern pattern = (TypeDeclarationPattern) decodedPattern;
-	switch(this.typeSuffix) {
-		case CLASS_SUFFIX :
-			switch (pattern.typeSuffix) {
-				case CLASS_SUFFIX :
-				case CLASS_AND_INTERFACE_SUFFIX :
-				case CLASS_AND_ENUM_SUFFIX :
-					break;
-				default:
-					return false;
-			}
-			break;
-		case INTERFACE_SUFFIX :
-			switch (pattern.typeSuffix) {
-				case INTERFACE_SUFFIX :
-				case CLASS_AND_INTERFACE_SUFFIX :
-					break;
-				default:
-					return false;
-			}
-			break;
-		case ENUM_SUFFIX :
-			switch (pattern.typeSuffix) {
-				case ENUM_SUFFIX :
-				case CLASS_AND_ENUM_SUFFIX :
-					break;
-				default:
-					return false;
-			}
-			break;
-		case ANNOTATION_TYPE_SUFFIX :
-			if (this.typeSuffix != pattern.typeSuffix) return false;
-			break;
-		case CLASS_AND_INTERFACE_SUFFIX :
-			switch (pattern.typeSuffix) {
-				case CLASS_SUFFIX :
-				case INTERFACE_SUFFIX :
-				case CLASS_AND_INTERFACE_SUFFIX :
-					break;
-				default:
-					return false;
-			}
-			break;
-		case CLASS_AND_ENUM_SUFFIX :
-			switch (pattern.typeSuffix) {
-				case CLASS_SUFFIX :
-				case ENUM_SUFFIX :
-				case CLASS_AND_ENUM_SUFFIX :
-					break;
-				default:
-					return false;
-			}
-			break;
+	
+	// check type suffix
+	if (this.typeSuffix != pattern.typeSuffix && typeSuffix != TYPE_SUFFIX) {
+		if (!matchDifferentTypeSuffixes(this.typeSuffix, pattern.typeSuffix)) {
+			return false;
+		}
 	}
 
+	// check name
 	if (!matchesName(this.simpleName, pattern.simpleName))
 		return false;
 
@@ -283,14 +264,16 @@ EntryResult[] queryIn(Index index) throws IOException {
 			// do a prefix query with the simpleName
 			break;
 		case R_EXACT_MATCH :
+			if (this.isCamelCase) break;
+			matchRule &= ~R_EXACT_MATCH;
 			if (this.simpleName != null) {
-				matchRule = matchRule - R_EXACT_MATCH + R_PREFIX_MATCH;
+				matchRule |= R_PREFIX_MATCH;
 				key = this.pkg == null
 					? CharOperation.append(this.simpleName, SEPARATOR)
 					: CharOperation.concat(this.simpleName, SEPARATOR, this.pkg, SEPARATOR, CharOperation.NO_CHAR);
 				break; // do a prefix query with the simpleName and possibly the pkg
 			}
-			matchRule = matchRule - R_EXACT_MATCH + R_PATTERN_MATCH;
+			matchRule |= R_PATTERN_MATCH;
 			// fall thru to encode the key and do a pattern query
 		case R_PATTERN_MATCH :
 			if (this.pkg == null) {
@@ -302,7 +285,9 @@ EntryResult[] queryIn(Index index) throws IOException {
 						case ANNOTATION_TYPE_SUFFIX :
 						case CLASS_AND_INTERFACE_SUFFIX :
 						case CLASS_AND_ENUM_SUFFIX :
-							key = new char[] {ONE_STAR[0],  SEPARATOR, ONE_STAR[0]};
+						case INTERFACE_AND_ANNOTATION_SUFFIX :
+							// null key already returns all types
+							// key = new char[] {ONE_STAR[0],  SEPARATOR, ONE_STAR[0]};
 							break;
 					}
 				} else if (this.simpleName[this.simpleName.length - 1] != '*') {
@@ -313,6 +298,9 @@ EntryResult[] queryIn(Index index) throws IOException {
 			// must decode to check enclosingTypeNames due to the encoding of local types
 			key = CharOperation.concat(
 				this.simpleName == null ? ONE_STAR : this.simpleName, SEPARATOR, this.pkg, SEPARATOR, ONE_STAR);
+			break;
+		case R_REGEXP_MATCH :
+			// TODO (frederic) implement regular expression match
 			break;
 	}
 
@@ -331,6 +319,9 @@ protected StringBuffer print(StringBuffer output) {
 			break;
 		case INTERFACE_SUFFIX :
 			output.append("InterfaceDeclarationPattern: pkg<"); //$NON-NLS-1$
+			break;
+		case INTERFACE_AND_ANNOTATION_SUFFIX:
+			output.append("InterfaceAndAnnotationDeclarationPattern: pkg<"); //$NON-NLS-1$
 			break;
 		case ENUM_SUFFIX :
 			output.append("EnumDeclarationPattern: pkg<"); //$NON-NLS-1$

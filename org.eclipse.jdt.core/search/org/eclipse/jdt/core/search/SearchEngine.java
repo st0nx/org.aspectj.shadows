@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -50,7 +50,7 @@ public class SearchEngine {
 	 * Internal adapter class.
 	 * @deprecated marking deprecated as it uses deprecated IJavaSearchResultCollector
 	 */
-	class ResultCollectorAdapter extends SearchRequestor {
+	static class ResultCollectorAdapter extends SearchRequestor {
 		IJavaSearchResultCollector resultCollector;
 		ResultCollectorAdapter(IJavaSearchResultCollector resultCollector) {
 			this.resultCollector = resultCollector;
@@ -85,7 +85,7 @@ public class SearchEngine {
 	 * Internal adapter class.
 	 * @deprecated marking deprecated as it uses deprecated ITypeNameRequestor
 	 */
-	class TypeNameRequestorAdapter implements IRestrictedAccessTypeRequestor {
+	static class TypeNameRequestorAdapter implements IRestrictedAccessTypeRequestor {
 		ITypeNameRequestor nameRequestor;
 		TypeNameRequestorAdapter(ITypeNameRequestor requestor) {
 			this.nameRequestor = requestor;
@@ -343,7 +343,11 @@ public class SearchEngine {
 	 *		 <li>{@link IJavaSearchConstants#ALL_OCCURRENCES}: will search for either declarations or references as specified
 	 *  		above.</li>
 	 *
-	 *		 <li>{@link IJavaSearchConstants#IMPLEMENTORS}: for interface, will find all types which implements a given interface.</li>
+	 *		 <li>{@link IJavaSearchConstants#IMPLEMENTORS}: for types, will find all types
+	 *				which directly implement/extend a given interface.
+	 *				Note that types may be only classes or only interfaces if {@link IJavaSearchConstants#CLASS } or
+	 *				{@link IJavaSearchConstants#INTERFACE} is respectively used instead of {@link IJavaSearchConstants#TYPE}.
+	 *		</li>
 	 *	</ul>
 	 *
 	 * @param isCaseSensitive indicates whether the search is case sensitive or not.
@@ -374,13 +378,26 @@ public class SearchEngine {
 	 *		 <li>{@link IJavaSearchConstants#ALL_OCCURRENCES}: will search for either declarations or references as specified
 	 *  		above.</li>
 	 *
-	 *		 <li>{@link IJavaSearchConstants#IMPLEMENTORS}: for interface, will find all types which implements a given interface.</li>
+	 *		 <li>{@link IJavaSearchConstants#IMPLEMENTORS}: for types, will find all types
+	 *				which directly implement/extend a given interface.</li>
 	 *	</ul>
 	 * @return a search pattern for a Java element or <code>null</code> if the given element is ill-formed
 	 * @deprecated Use {@link SearchPattern#createPattern(IJavaElement, int)} instead.
 	 */
 	public static ISearchPattern createSearchPattern(IJavaElement element, int limitTo) {
 		return new SearchPatternAdapter(SearchPattern.createPattern(element, limitTo));
+	}
+
+	/**
+	 * Create a type name match on a given type with specific modifiers.
+	 * 
+	 * @param type The java model handle of the type
+	 * @param modifiers Modifiers of the type
+	 * @return A non-null match on the given type.
+	 * @since 3.3
+	 */
+	public static TypeNameMatch createTypeNameMatch(IType type, int modifiers) {
+		return BasicSearchEngine.createTypeNameMatch(type, modifiers);
 	}
 
 	/**
@@ -422,10 +439,12 @@ public class SearchEngine {
 	 *		  for all references </li>
 	 *	  <li>{@link IJavaSearchConstants#ALL_OCCURRENCES}: search 
 	 *		  for both declarations and all references </li>
-	 *	  <li>{@link IJavaSearchConstants#IMPLEMENTORS}: search for
-	 *		  all implementors of an interface; the value is only valid if
-	 *		  the Java element represents an interface</li>
-	 * 	</ul>
+	 *	  <li>{@link IJavaSearchConstants#IMPLEMENTORS}: for types, will find all types
+	 *			which directly implement/extend a given interface.<br>
+	 *			Note that types may be only classes or only interfaces if respectively {@link IJavaSearchConstants#CLASS} or
+	 *			{@link IJavaSearchConstants#INTERFACE} is used for searchFor parameter instead of {@link IJavaSearchConstants#TYPE}.
+	 *	  </li>
+	 * </ul>
 	 * @param scope the search result has to be limited to the given scope
 	 * @param resultCollector a callback object to which each match is reported	 
 	 * @exception JavaModelException if the search failed. Reasons include:
@@ -465,9 +484,8 @@ public class SearchEngine {
 	 *		  for all references </li>
 	 *	  <li>{@link IJavaSearchConstants#ALL_OCCURRENCES}: search 
 	 *		  for both declarations and all references </li>
-	 *	  <li>{@link IJavaSearchConstants#IMPLEMENTORS}: search for
-	 *		  all implementors of an interface; the value is only valid if
-	 *		  the Java element represents an interface</li>
+	 *	  <li>{@link IJavaSearchConstants#IMPLEMENTORS}: for types, will find all types
+	 *				which directly implement/extend a given interface.</li>
 	 * 	</ul>
 	 * @param scope the search result has to be limited to the given scope
 	 * @param resultCollector a callback object to which each match is reported
@@ -534,21 +552,25 @@ public class SearchEngine {
 
 	/**
 	 * Searches for all top-level types and member types in the given scope.
-	 * The search can be selecting specific types (given a package or a type name
-	 * prefix and match modes). 
+	 * The search can be selecting specific types (given a package exact full name or
+	 * a type name with specific match mode). 
 	 * 
-	 * @param packageName the full name of the package of the searched types, or a prefix for this
-	 *						package, or a wild-carded string for this package.
+	 * @param packageExactName the exact package full name of the searched types.<br>
+	 * 					If you want to use a prefix or a wild-carded string for package, you need to use
+	 * 					{@link #searchAllTypeNames(char[], int, char[], int, int, IJavaSearchScope, TypeNameRequestor, int, IProgressMonitor)}
+	 * 					method  instead. May be <code>null</code>, then any package name is accepted.
 	 * @param typeName the dot-separated qualified name of the searched type (the qualification include
 	 *					the enclosing types if the searched type is a member type), or a prefix
 	 *					for this type, or a wild-carded string for this type.
-	 * @param matchRule one of
+	 *					May be <code>null</code>, then any type name is accepted.
+	 * @param matchRule type name match rule one of
 	 * <ul>
 	 *		<li>{@link SearchPattern#R_EXACT_MATCH} if the package name and type name are the full names
 	 *			of the searched types.</li>
 	 *		<li>{@link SearchPattern#R_PREFIX_MATCH} if the package name and type name are prefixes of the names
 	 *			of the searched types.</li>
 	 *		<li>{@link SearchPattern#R_PATTERN_MATCH} if the package name and type name contain wild-cards.</li>
+	 *		<li>{@link SearchPattern#R_CAMELCASE_MATCH} if type name are camel case of the names of the searched types.</li>
 	 * </ul>
 	 * combined with {@link SearchPattern#R_CASE_SENSITIVE},
 	 *   e.g. {@link SearchPattern#R_EXACT_MATCH} | {@link SearchPattern#R_CASE_SENSITIVE} if an exact and case sensitive match is requested, 
@@ -580,9 +602,11 @@ public class SearchEngine {
 	 *		<li>the classpath is incorrectly set</li>
 	 *	</ul>
 	 * @since 3.1
+	 * @deprecated Use {@link #searchAllTypeNames(char[], int, char[], int, int, IJavaSearchScope, TypeNameRequestor, int, IProgressMonitor)}
+	 * 	instead
 	 */
 	public void searchAllTypeNames(
-		final char[] packageName, 
+		final char[] packageExactName, 
 		final char[] typeName,
 		final int matchRule, 
 		int searchFor, 
@@ -591,16 +615,180 @@ public class SearchEngine {
 		int waitingPolicy,
 		IProgressMonitor progressMonitor)  throws JavaModelException {
 		
+		searchAllTypeNames(packageExactName, SearchPattern.R_EXACT_MATCH, typeName, matchRule, searchFor, scope, nameRequestor, waitingPolicy, progressMonitor);
+	}
+
+	/**
+	 * Searches for all top-level types and member types in the given scope.
+	 * The search can be selecting specific types (given a package name using specific match mode
+	 * and/or a type name using another specific match mode). 
+	 * 
+	 * @param packageName the full name of the package of the searched types, or a prefix for this
+	 *						package, or a wild-carded string for this package.
+	 *						May be <code>null</code>, then any package name is accepted.
+	 * @param typeName the dot-separated qualified name of the searched type (the qualification include
+	 *					the enclosing types if the searched type is a member type), or a prefix
+	 *					for this type, or a wild-carded string for this type.
+	 *					May be <code>null</code>, then any type name is accepted.
+	 * @param packageMatchRule one of
+	 * <ul>
+	 *		<li>{@link SearchPattern#R_EXACT_MATCH} if the package name and type name are the full names
+	 *			of the searched types.</li>
+	 *		<li>{@link SearchPattern#R_PREFIX_MATCH} if the package name and type name are prefixes of the names
+	 *			of the searched types.</li>
+	 *		<li>{@link SearchPattern#R_PATTERN_MATCH} if the package name and type name contain wild-cards.</li>
+	 *		<li>{@link SearchPattern#R_CAMELCASE_MATCH} if type name are camel case of the names of the searched types.</li>
+	 * </ul>
+	 * combined with {@link SearchPattern#R_CASE_SENSITIVE},
+	 *   e.g. {@link SearchPattern#R_EXACT_MATCH} | {@link SearchPattern#R_CASE_SENSITIVE} if an exact and case sensitive match is requested, 
+	 *   or {@link SearchPattern#R_PREFIX_MATCH} if a prefix non case sensitive match is requested.
+	 * @param typeMatchRule one of
+	 * <ul>
+	 *		<li>{@link SearchPattern#R_EXACT_MATCH} if the package name and type name are the full names
+	 *			of the searched types.</li>
+	 *		<li>{@link SearchPattern#R_PREFIX_MATCH} if the package name and type name are prefixes of the names
+	 *			of the searched types.</li>
+	 *		<li>{@link SearchPattern#R_PATTERN_MATCH} if the package name and type name contain wild-cards.</li>
+	 *		<li>{@link SearchPattern#R_CAMELCASE_MATCH} if type name are camel case of the names of the searched types.</li>
+	 * </ul>
+	 * combined with {@link SearchPattern#R_CASE_SENSITIVE},
+	 *   e.g. {@link SearchPattern#R_EXACT_MATCH} | {@link SearchPattern#R_CASE_SENSITIVE} if an exact and case sensitive match is requested, 
+	 *   or {@link SearchPattern#R_PREFIX_MATCH} if a prefix non case sensitive match is requested.
+	 * @param searchFor determines the nature of the searched elements
+	 *	<ul>
+	 * 	<li>{@link IJavaSearchConstants#CLASS}: only look for classes</li>
+	 *		<li>{@link IJavaSearchConstants#INTERFACE}: only look for interfaces</li>
+	 * 	<li>{@link IJavaSearchConstants#ENUM}: only look for enumeration</li>
+	 *		<li>{@link IJavaSearchConstants#ANNOTATION_TYPE}: only look for annotation type</li>
+	 * 	<li>{@link IJavaSearchConstants#CLASS_AND_ENUM}: only look for classes and enumerations</li>
+	 *		<li>{@link IJavaSearchConstants#CLASS_AND_INTERFACE}: only look for classes and interfaces</li>
+	 * 	<li>{@link IJavaSearchConstants#TYPE}: look for all types (ie. classes, interfaces, enum and annotation types)</li>
+	 *	</ul>
+	 * @param scope the scope to search in
+	 * @param nameRequestor the requestor that collects the results of the search
+	 * @param waitingPolicy one of
+	 * <ul>
+	 *		<li>{@link IJavaSearchConstants#FORCE_IMMEDIATE_SEARCH} if the search should start immediately</li>
+	 *		<li>{@link IJavaSearchConstants#CANCEL_IF_NOT_READY_TO_SEARCH} if the search should be cancelled if the
+	 *			underlying indexer has not finished indexing the workspace</li>
+	 *		<li>{@link IJavaSearchConstants#WAIT_UNTIL_READY_TO_SEARCH} if the search should wait for the
+	 *			underlying indexer to finish indexing the workspace</li>
+	 * </ul>
+	 * @param progressMonitor the progress monitor to report progress to, or <code>null</code> if no progress
+	 *							monitor is provided
+	 * @exception JavaModelException if the search failed. Reasons include:
+	 *	<ul>
+	 *		<li>the classpath is incorrectly set</li>
+	 *	</ul>
+	 * @since 3.3
+	 */
+	public void searchAllTypeNames(
+		final char[] packageName, 
+		final int packageMatchRule, 
+		final char[] typeName,
+		final int typeMatchRule, 
+		int searchFor, 
+		IJavaSearchScope scope, 
+		final TypeNameRequestor nameRequestor,
+		int waitingPolicy,
+		IProgressMonitor progressMonitor)  throws JavaModelException {
+		
 		TypeNameRequestorWrapper requestorWrapper = new TypeNameRequestorWrapper(nameRequestor);
-		this.basicEngine.searchAllTypeNames(packageName, typeName, matchRule, searchFor, scope, requestorWrapper, waitingPolicy, progressMonitor);
+		this.basicEngine.searchAllTypeNames(packageName, packageMatchRule, typeName, typeMatchRule, searchFor, scope, requestorWrapper, waitingPolicy, progressMonitor);
+	}
+
+	/**
+	 * Searches for all top-level types and member types in the given scope.
+	 * The search can be selecting specific types (given a package name using specific match mode
+	 * and/or a type name using another specific match mode).
+	 * <p>
+	 * Provided {@link TypeNameMatchRequestor} requestor will collect {@link TypeNameMatch}
+	 * matches found during the search.
+	 * </p>
+	 * 
+	 * @param packageName the full name of the package of the searched types, or a prefix for this
+	 *						package, or a wild-carded string for this package.
+	 *						May be <code>null</code>, then any package name is accepted.
+	 * @param packageMatchRule one of
+	 * <ul>
+	 *		<li>{@link SearchPattern#R_EXACT_MATCH} if the package name and type name are the full names
+	 *			of the searched types.</li>
+	 *		<li>{@link SearchPattern#R_PREFIX_MATCH} if the package name and type name are prefixes of the names
+	 *			of the searched types.</li>
+	 *		<li>{@link SearchPattern#R_PATTERN_MATCH} if the package name and type name contain wild-cards.</li>
+	 *		<li>{@link SearchPattern#R_CAMELCASE_MATCH} if type name are camel case of the names of the searched types.</li>
+	 * </ul>
+	 * combined with {@link SearchPattern#R_CASE_SENSITIVE},
+	 *   e.g. {@link SearchPattern#R_EXACT_MATCH} | {@link SearchPattern#R_CASE_SENSITIVE} if an exact and case sensitive match is requested, 
+	 *   or {@link SearchPattern#R_PREFIX_MATCH} if a prefix non case sensitive match is requested.
+	 * @param typeName the dot-separated qualified name of the searched type (the qualification include
+	 *					the enclosing types if the searched type is a member type), or a prefix
+	 *					for this type, or a wild-carded string for this type.
+	 *					May be <code>null</code>, then any type name is accepted.
+	 * @param typeMatchRule one of
+	 * <ul>
+	 *		<li>{@link SearchPattern#R_EXACT_MATCH} if the package name and type name are the full names
+	 *			of the searched types.</li>
+	 *		<li>{@link SearchPattern#R_PREFIX_MATCH} if the package name and type name are prefixes of the names
+	 *			of the searched types.</li>
+	 *		<li>{@link SearchPattern#R_PATTERN_MATCH} if the package name and type name contain wild-cards.</li>
+	 *		<li>{@link SearchPattern#R_CAMELCASE_MATCH} if type name are camel case of the names of the searched types.</li>
+	 * </ul>
+	 * combined with {@link SearchPattern#R_CASE_SENSITIVE},
+	 *   e.g. {@link SearchPattern#R_EXACT_MATCH} | {@link SearchPattern#R_CASE_SENSITIVE} if an exact and case sensitive match is requested, 
+	 *   or {@link SearchPattern#R_PREFIX_MATCH} if a prefix non case sensitive match is requested.
+	 * @param searchFor determines the nature of the searched elements
+	 *	<ul>
+	 * 	<li>{@link IJavaSearchConstants#CLASS}: only look for classes</li>
+	 *		<li>{@link IJavaSearchConstants#INTERFACE}: only look for interfaces</li>
+	 * 	<li>{@link IJavaSearchConstants#ENUM}: only look for enumeration</li>
+	 *		<li>{@link IJavaSearchConstants#ANNOTATION_TYPE}: only look for annotation type</li>
+	 * 	<li>{@link IJavaSearchConstants#CLASS_AND_ENUM}: only look for classes and enumerations</li>
+	 *		<li>{@link IJavaSearchConstants#CLASS_AND_INTERFACE}: only look for classes and interfaces</li>
+	 * 	<li>{@link IJavaSearchConstants#TYPE}: look for all types (ie. classes, interfaces, enum and annotation types)</li>
+	 *	</ul>
+	 * @param scope the scope to search in
+	 * @param nameMatchRequestor the {@link TypeNameMatchRequestor requestor} that collects
+	 * 				{@link TypeNameMatch matches} of the search.
+	 * @param waitingPolicy one of
+	 * <ul>
+	 *		<li>{@link IJavaSearchConstants#FORCE_IMMEDIATE_SEARCH} if the search should start immediately</li>
+	 *		<li>{@link IJavaSearchConstants#CANCEL_IF_NOT_READY_TO_SEARCH} if the search should be cancelled if the
+	 *			underlying indexer has not finished indexing the workspace</li>
+	 *		<li>{@link IJavaSearchConstants#WAIT_UNTIL_READY_TO_SEARCH} if the search should wait for the
+	 *			underlying indexer to finish indexing the workspace</li>
+	 * </ul>
+	 * @param progressMonitor the progress monitor to report progress to, or <code>null</code> if no progress
+	 *							monitor is provided
+	 * @exception JavaModelException if the search failed. Reasons include:
+	 *	<ul>
+	 *		<li>the classpath is incorrectly set</li>
+	 *	</ul>
+	 * @since 3.3
+	 */
+	public void searchAllTypeNames(
+		final char[] packageName, 
+		final int packageMatchRule, 
+		final char[] typeName,
+		final int typeMatchRule, 
+		int searchFor, 
+		IJavaSearchScope scope, 
+		final TypeNameMatchRequestor nameMatchRequestor,
+		int waitingPolicy,
+		IProgressMonitor progressMonitor)  throws JavaModelException {
+		
+		TypeNameMatchRequestorWrapper requestorWrapper = new TypeNameMatchRequestorWrapper(nameMatchRequestor, scope);
+		this.basicEngine.searchAllTypeNames(packageName, packageMatchRule, typeName, typeMatchRule, searchFor, scope, requestorWrapper, waitingPolicy, progressMonitor);
 	}
 
 	/**
 	 * Searches for all top-level types and member types in the given scope matching any of the given qualifications
 	 * and type names in a case sensitive way.
 	 * 
-	 * @param qualifications the qualified name of the package/enclosing type of the searched types
-	 * @param typeNames the simple names of the searched types
+	 * @param qualifications the qualified name of the package/enclosing type of the searched types.
+	 *					May be <code>null</code>, then any package name is accepted.
+	 * @param typeNames the simple names of the searched types.
+	 *					If this parameter is <code>null</code>, then no type will be found.
 	 * @param scope the scope to search in
 	 * @param nameRequestor the requestor that collects the results of the search
 	 * @param waitingPolicy one of
@@ -628,6 +816,57 @@ public class SearchEngine {
 		IProgressMonitor progressMonitor)  throws JavaModelException {
 
 		TypeNameRequestorWrapper requestorWrapper = new TypeNameRequestorWrapper(nameRequestor);
+		this.basicEngine.searchAllTypeNames(
+			qualifications,
+			typeNames,
+			SearchPattern.R_EXACT_MATCH | SearchPattern.R_CASE_SENSITIVE,
+			IJavaSearchConstants.TYPE,
+			scope,
+			requestorWrapper,
+			waitingPolicy,
+			progressMonitor);
+	}
+
+	/**
+	 * Searches for all top-level types and member types in the given scope matching any of the given qualifications
+	 * and type names in a case sensitive way.
+	 * <p>
+	 * Provided {@link TypeNameMatchRequestor} requestor will collect {@link TypeNameMatch}
+	 * matches found during the search.
+	 * </p>
+	 * 
+	 * @param qualifications the qualified name of the package/enclosing type of the searched types.
+	 *					May be <code>null</code>, then any package name is accepted.
+	 * @param typeNames the simple names of the searched types.
+	 *					If this parameter is <code>null</code>, then no type will be found.
+	 * @param scope the scope to search in
+	 * @param nameMatchRequestor the {@link TypeNameMatchRequestor requestor} that collects
+	 * 				{@link TypeNameMatch matches} of the search.
+	 * @param waitingPolicy one of
+	 * <ul>
+	 *		<li>{@link IJavaSearchConstants#FORCE_IMMEDIATE_SEARCH} if the search should start immediately</li>
+	 *		<li>{@link IJavaSearchConstants#CANCEL_IF_NOT_READY_TO_SEARCH} if the search should be cancelled if the
+	 *			underlying indexer has not finished indexing the workspace</li>
+	 *		<li>{@link IJavaSearchConstants#WAIT_UNTIL_READY_TO_SEARCH} if the search should wait for the
+	 *			underlying indexer to finish indexing the workspace</li>
+	 * </ul>
+	 * @param progressMonitor the progress monitor to report progress to, or <code>null</code> if no progress
+	 *							monitor is provided
+	 * @exception JavaModelException if the search failed. Reasons include:
+	 *	<ul>
+	 *		<li>the classpath is incorrectly set</li>
+	 *	</ul>
+	 * @since 3.3
+	 */
+	public void searchAllTypeNames(
+		final char[][] qualifications, 
+		final char[][] typeNames,
+		IJavaSearchScope scope, 
+		final TypeNameMatchRequestor nameMatchRequestor,
+		int waitingPolicy,
+		IProgressMonitor progressMonitor)  throws JavaModelException {
+
+		TypeNameMatchRequestorWrapper requestorWrapper = new TypeNameMatchRequestorWrapper(nameMatchRequestor, scope);
 		this.basicEngine.searchAllTypeNames(
 			qualifications,
 			typeNames,
@@ -695,7 +934,8 @@ public class SearchEngine {
 		int waitingPolicy,
 		IProgressMonitor progressMonitor)  throws JavaModelException {
 		
-		this.basicEngine.searchAllTypeNames(packageName, typeName, matchRule, searchFor, scope, new TypeNameRequestorAdapter(nameRequestor), waitingPolicy, progressMonitor);
+		TypeNameRequestorAdapter requestorAdapter = new TypeNameRequestorAdapter(nameRequestor);
+		this.basicEngine.searchAllTypeNames(packageName, SearchPattern.R_EXACT_MATCH, typeName, matchRule, searchFor, scope, requestorAdapter, waitingPolicy, progressMonitor);
 	}
 
 	/**

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -35,13 +35,16 @@ public interface IIndexConstants {
 	char TYPE_SUFFIX = 0;
 	char CLASS_AND_ENUM_SUFFIX = IJavaSearchConstants.CLASS_AND_ENUM;
 	char CLASS_AND_INTERFACE_SUFFIX = IJavaSearchConstants.CLASS_AND_INTERFACE;
+	char INTERFACE_AND_ANNOTATION_SUFFIX = IJavaSearchConstants.INTERFACE_AND_ANNOTATION;
 	char SEPARATOR= '/';
+	char SECONDARY_SUFFIX = 'S';
 
 	char[] ONE_STAR = new char[] {'*'};
 	char[][] ONE_STAR_CHAR = new char[][] {ONE_STAR};
 
 	// used as special marker for enclosing type name of local and anonymous classes
-	char[] ONE_ZERO = new char[] {'0'}; 
+	char ZERO_CHAR = '0'; 
+	char[] ONE_ZERO = new char[] { ZERO_CHAR }; 
 	char[][] ONE_ZERO_CHAR = new char[][] {ONE_ZERO};
 
 	int PKG_REF_PATTERN = 0x0001;

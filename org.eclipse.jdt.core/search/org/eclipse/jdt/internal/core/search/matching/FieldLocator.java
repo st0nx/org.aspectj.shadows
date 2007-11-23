@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,12 +15,11 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
-import org.eclipse.jdt.core.search.SearchMatch;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.util.SimpleSet;
 import org.eclipse.jdt.internal.core.JavaElement;
-import org.eclipse.jdt.internal.core.util.SimpleSet;
 
 public class FieldLocator extends VariableLocator {
 
@@ -38,7 +37,7 @@ public int match(ASTNode node, MatchingNodeSet nodeSet) {
 			// With static import, we can have static field reference in import reference
 			ImportReference importRef = (ImportReference) node;
 			int length = importRef.tokens.length-1;
-			if (importRef.isStatic() && !importRef.onDemand && matchesName(this.pattern.name, importRef.tokens[length])) {
+			if (importRef.isStatic() && ((importRef.bits & ASTNode.OnDemand) == 0) && matchesName(this.pattern.name, importRef.tokens[length])) {
 				char[][] compoundName = new char[length][];
 				System.arraycopy(importRef.tokens, 0, compoundName, 0, length);
 				FieldPattern fieldPattern = (FieldPattern) this.pattern;
@@ -196,7 +195,7 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 						break;
 					case INACCURATE_MATCH:
 						match = locator.newFieldReferenceMatch(element, elementBinding, SearchMatch.A_INACCURATE, -1, -1, reference);
-						if (fieldBinding.type.isParameterizedType() && this.pattern.hasTypeArguments()) {
+						if (fieldBinding.type != null && fieldBinding.type.isParameterizedType() && this.pattern.hasTypeArguments()) {
 							updateMatch((ParameterizedTypeBinding) fieldBinding.type, this.pattern.getTypeArguments(), locator);
 						}
 						matches[indexOfFirstFieldBinding] = match;
@@ -219,10 +218,10 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 							break;
 						case INACCURATE_MATCH:
 							match = locator.newFieldReferenceMatch(element, elementBinding, SearchMatch.A_INACCURATE, -1, -1, reference);
-							if (otherBinding.type.isParameterizedType() && this.pattern.hasTypeArguments()) {
+							if (otherBinding.type != null && otherBinding.type.isParameterizedType() && this.pattern.hasTypeArguments()) {
 								updateMatch((ParameterizedTypeBinding) otherBinding.type, this.pattern.getTypeArguments(), locator);
 							}
-							matches[indexOfFirstFieldBinding] = match;
+							matches[i] = match;
 							break;
 					}
 				}
@@ -255,9 +254,8 @@ protected void reportDeclaration(FieldBinding fieldBinding, MatchLocator locator
 
 	char[] bindingName = fieldBinding.name;
 	IField field = type.getField(new String(bindingName));
-	if (knownFields.includes(field)) return;
+	if (knownFields.addIfNotIncluded(field) == null) return;
 
-	knownFields.add(field);
 	IResource resource = type.getResource();
 	boolean isBinary = type.isBinary();
 	IBinaryType info = null;
@@ -268,7 +266,7 @@ protected void reportDeclaration(FieldBinding fieldBinding, MatchLocator locator
 		locator.reportBinaryMemberDeclaration(resource, field, fieldBinding, info, SearchMatch.A_ACCURATE);
 	} else {
 		if (declaringClass instanceof ParameterizedTypeBinding)
-			declaringClass = ((ParameterizedTypeBinding) declaringClass).type;
+			declaringClass = ((ParameterizedTypeBinding) declaringClass).genericType();
 		ClassScope scope = ((SourceTypeBinding) declaringClass).scope;
 		if (scope != null) {
 			TypeDeclaration typeDecl = scope.referenceContext;

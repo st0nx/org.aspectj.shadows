@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,9 +15,8 @@ import java.io.IOException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.internal.core.index.*;
-import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
-public class MultiTypeDeclarationPattern extends JavaSearchPattern implements IIndexConstants {
+public class MultiTypeDeclarationPattern extends JavaSearchPattern {
 
 public char[][] simpleNames;
 public char[][] qualifications;
@@ -47,15 +46,16 @@ public MultiTypeDeclarationPattern(
 		for (int i = 0; i < length; i++)
 			this.qualifications[i] = CharOperation.toLowerCase(qualifications[i]);
 	}
-	if (simpleNames == null) {
-		this.simpleNames = CharOperation.NO_CHAR_CHAR;
-	} else if (isCaseSensitive()) {
-		this.simpleNames = simpleNames;
-	} else {
-		int length = simpleNames.length;
-		this.simpleNames = new char[length][];
-		for (int i = 0; i < length; i++)
-			this.simpleNames[i] = CharOperation.toLowerCase(simpleNames[i]);
+	// null simple names are allowed (should return all names)
+	if (simpleNames != null) {
+		if ((isCaseSensitive() || isCamelCase()) ) {
+			this.simpleNames = simpleNames;
+		} else {
+			int length = simpleNames.length;
+			this.simpleNames = new char[length][];
+			for (int i = 0; i < length; i++)
+				this.simpleNames[i] = CharOperation.toLowerCase(simpleNames[i]);
+		}
 	}
 	this.typeSuffix = typeSuffix;
 
@@ -72,69 +72,31 @@ public char[][] getIndexCategories() {
 }
 public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 	QualifiedTypeDeclarationPattern pattern = (QualifiedTypeDeclarationPattern) decodedPattern;
-	switch(this.typeSuffix) {
-		case CLASS_SUFFIX :
-			switch (pattern.typeSuffix) {
-				case CLASS_SUFFIX :
-				case CLASS_AND_INTERFACE_SUFFIX :
-				case CLASS_AND_ENUM_SUFFIX :
-					break;
-				default:
-					return false;
-			}
-			break;
-		case INTERFACE_SUFFIX :
-			switch (pattern.typeSuffix) {
-				case INTERFACE_SUFFIX :
-				case CLASS_AND_INTERFACE_SUFFIX :
-					break;
-				default:
-					return false;
-			}
-			break;
-		case ENUM_SUFFIX :
-			switch (pattern.typeSuffix) {
-				case ENUM_SUFFIX :
-				case CLASS_AND_ENUM_SUFFIX :
-					break;
-				default:
-					return false;
-			}
-			break;
-		case ANNOTATION_TYPE_SUFFIX :
-			if (this.typeSuffix != pattern.typeSuffix) return false;
-			break;
-		case CLASS_AND_INTERFACE_SUFFIX :
-			switch (pattern.typeSuffix) {
-				case CLASS_SUFFIX :
-				case INTERFACE_SUFFIX :
-				case CLASS_AND_INTERFACE_SUFFIX :
-					break;
-				default:
-					return false;
-			}
-			break;
-		case CLASS_AND_ENUM_SUFFIX :
-			switch (pattern.typeSuffix) {
-				case CLASS_SUFFIX :
-				case ENUM_SUFFIX :
-				case CLASS_AND_ENUM_SUFFIX :
-					break;
-				default:
-					return false;
-			}
-			break;
+	
+	// check type suffix
+	if (this.typeSuffix != pattern.typeSuffix && typeSuffix != TYPE_SUFFIX) {
+		if (!matchDifferentTypeSuffixes(this.typeSuffix, pattern.typeSuffix)) {
+			return false;
+		}
 	}
 
+	// check qualified name
 	if (this.qualifications != null) {
 		int count = 0;
 		int max = this.qualifications.length;
-		for (; count < max; count++)
-			if (matchesName(this.qualifications[count], pattern.qualification))
-				break;
-		if (count == max) return false;
+		if (max == 0 && pattern.qualification.length > 0) {
+			return false;
+		}
+		if (max > 0) {
+			for (; count < max; count++)
+				if (matchesName(this.qualifications[count], pattern.qualification))
+					break;
+			if (count == max) return false;
+		}
 	}
 
+	// check simple name (null are allowed)
+	if (this.simpleNames == null) return true;
 	int count = 0;
 	int max = this.simpleNames.length;
 	for (; count < max; count++)
@@ -143,6 +105,11 @@ public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 	return count < max;
 }
 EntryResult[] queryIn(Index index) throws IOException {
+	if (this.simpleNames == null) {
+		// if no simple names then return all possible ones from index
+		return index.query(getIndexCategories(), null, -1); // match rule is irrelevant when the key is null
+	}
+
 	int count = -1;
 	int numOfNames = this.simpleNames.length;
 	EntryResult[][] allResults = numOfNames > 1 ? new EntryResult[numOfNames][] : null;
@@ -155,12 +122,19 @@ EntryResult[] queryIn(Index index) throws IOException {
 				// do a prefix query with the simpleName
 				break;
 			case R_EXACT_MATCH :
-				matchRule = matchRule - R_EXACT_MATCH + R_PREFIX_MATCH;
-				key = CharOperation.append(key, SEPARATOR);
-				break; // do a prefix query with the simpleName
+				if (!this.isCamelCase) {
+					// do a prefix query with the simpleName
+					matchRule &= ~R_EXACT_MATCH;
+					matchRule |= R_PREFIX_MATCH;
+					key = CharOperation.append(key, SEPARATOR);
+				}
+				break;
 			case R_PATTERN_MATCH :
 				if (key[key.length - 1] != '*')
 					key = CharOperation.concat(key, ONE_STAR, SEPARATOR);
+				break;
+			case R_REGEXP_MATCH :
+				// TODO (frederic) implement regular expression match
 				break;
 		}
 
@@ -197,6 +171,9 @@ protected StringBuffer print(StringBuffer output) {
 			break;
 		case INTERFACE_SUFFIX :
 			output.append("MultiInterfaceDeclarationPattern: "); //$NON-NLS-1$
+			break;
+		case INTERFACE_AND_ANNOTATION_SUFFIX :
+			output.append("MultiInterfaceAndAnnotationDeclarationPattern: "); //$NON-NLS-1$
 			break;
 		case ENUM_SUFFIX :
 			output.append("MultiEnumDeclarationPattern: "); //$NON-NLS-1$

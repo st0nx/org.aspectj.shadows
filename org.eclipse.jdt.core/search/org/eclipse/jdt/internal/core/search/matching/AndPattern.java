@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,9 +15,9 @@ import java.io.IOException;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.jdt.core.search.*;
+import org.eclipse.jdt.internal.compiler.util.SimpleSet;
 import org.eclipse.jdt.internal.core.index.*;
 import org.eclipse.jdt.internal.core.search.IndexQueryRequestor;
-import org.eclipse.jdt.internal.core.util.SimpleSet;
 
 /**
  * Query the index multiple times and do an 'and' on the results.
@@ -65,7 +65,6 @@ public void findIndexMatches(Index index, IndexQueryRequestor requestor, SearchP
 	} finally {
 		index.stopQuery();
 	}
-	if (intersectedNames == null) return;
 
 	String containerPath = index.containerPath;
 	Object[] names = intersectedNames.values;

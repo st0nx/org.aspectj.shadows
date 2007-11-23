@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -115,7 +115,9 @@ public abstract class SearchParticipant {
 	 * participant, it should use the original index location (and not the
 	 * delegatee's one). In the particular case of delegating to the default
 	 * search participant (see {@link SearchEngine#getDefaultSearchParticipant()}),
-	 * the provided document's path must be a path ending with '.java' or a '.class'.
+	 * the provided document's path must be a path ending with one of the 
+	 * {@link org.eclipse.jdt.core.JavaCore#getJavaLikeExtensions() Java-like extensions} 
+	 * or with '.class'.
 	 * <p>
 	 * The given index location must represent a path in the file system to a file that
 	 * either already exists or is going to be created. If it exists, it must be an index file,
@@ -158,6 +160,24 @@ public abstract class SearchParticipant {
 	public abstract void locateMatches(SearchDocument[] documents, SearchPattern pattern, IJavaSearchScope scope, SearchRequestor requestor, IProgressMonitor monitor) throws CoreException;
 
 	/**
+	 * Removes the index for a given path. 
+	 * <p>
+	 * The given index location must represent a path in the file system to a file that
+	 * already exists and must be an index file, otherwise nothing will be done.
+	 * </p><p>
+	 * It is strongly recommended to use this method instead of deleting file directly
+	 * otherwise cached index will not be removed.
+	 * </p>
+	 * 
+	 * @param indexLocation the location in the file system to the index
+	 * @since 3.2
+	 */
+	public void removeIndex(IPath indexLocation){
+		IndexManager manager = JavaModelManager.getJavaModelManager().getIndexManager();
+		manager.removeIndexPath(indexLocation);
+	}
+
+	/**
 	 * Schedules the indexing of the given document.
 	 * Once the document is ready to be indexed, 
 	 * {@link #indexDocument(SearchDocument, IPath) indexDocument(document, indexPath)}
@@ -166,6 +186,9 @@ public abstract class SearchParticipant {
 	 * The given index location must represent a path in the file system to a file that
 	 * either already exists or is going to be created. If it exists, it must be an index file,
 	 * otherwise its data might be overwritten.
+	 * </p><p>
+	 * When the index is no longer needed, clients should use {@link #removeIndex(IPath) }
+	 * to discard it.
 	 * </p>
 	 * 
 	 * @param document the document to index
@@ -182,10 +205,9 @@ public abstract class SearchParticipant {
 			containerPath = documentPath.removeLastSegments(documentPath.segmentCount()-1);
 		}
 		IndexManager manager = JavaModelManager.getJavaModelManager().getIndexManager();
-		String osIndexLocation = indexLocation.toOSString();
-		// TODO (jerome) should not have to create index manually, should expose API that recreates index instead
-		manager.ensureIndexExists(osIndexLocation, containerPath);
-		manager.scheduleDocumentIndexing(document, containerPath, osIndexLocation, this);
+		// TODO (frederic) should not have to create index manually, should expose API that recreates index instead
+		manager.ensureIndexExists(indexLocation, containerPath);
+		manager.scheduleDocumentIndexing(document, containerPath, indexLocation, this);
 	}
 
 	/**

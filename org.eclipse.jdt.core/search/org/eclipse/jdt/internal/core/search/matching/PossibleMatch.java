@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -63,7 +63,7 @@ public char[] getContents() {
 
 	if (this.openable instanceof ClassFile) {
 		String fileName = getSourceFileName();
-		if (fileName == NO_SOURCE_FILE_NAME) return null;
+		if (fileName == NO_SOURCE_FILE_NAME) return CharOperation.NO_CHAR;
 
 		SourceMapper sourceMapper = this.openable.getSourceMapper();
 		IType type = ((ClassFile) this.openable).getType();
@@ -96,7 +96,7 @@ public char[][] getPackageName() {
 private char[] getQualifiedName() {
 	if (this.openable instanceof CompilationUnit) {
 		// get file name
-		String fileName = this.resource.getFullPath().lastSegment();
+		String fileName = this.openable.getElementName(); // working copy on a .class file may not have a resource, so use the element name
 		// get main type name
 		char[] mainTypeName = Util.getNameWithoutJavaLikeExtension(fileName).toCharArray();
 		CompilationUnit cu = (CompilationUnit) this.openable;
@@ -125,8 +125,10 @@ private String getSourceFileName() {
 	if (this.openable.getSourceMapper() != null) {
 		BinaryType type = (BinaryType) ((ClassFile) this.openable).getType();
 		ClassFileReader reader = MatchLocator.classFileReader(type);
-		if (reader != null)
-			this.sourceFileName = type.sourceFileName(reader);
+		if (reader != null) {
+			String fileName = type.sourceFileName(reader);
+			this.sourceFileName = fileName == null ? NO_SOURCE_FILE_NAME : fileName;
+		}
 	}
 	return this.sourceFileName;
 }	

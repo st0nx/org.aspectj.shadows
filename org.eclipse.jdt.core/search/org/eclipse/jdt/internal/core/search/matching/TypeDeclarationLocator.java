@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -62,6 +62,9 @@ public int resolveLevel(Binding binding) {
 			break;
 		case INTERFACE_SUFFIX:
 			if (!type.isInterface() || type.isAnnotationType()) return IMPOSSIBLE_MATCH;
+			break;
+		case INTERFACE_AND_ANNOTATION_SUFFIX:
+			if (!(type.isInterface() || type.isAnnotationType())) return IMPOSSIBLE_MATCH;
 			break;
 		case ENUM_SUFFIX:
 			if (!type.isEnum()) return IMPOSSIBLE_MATCH;

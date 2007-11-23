@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,14 +11,15 @@
 package org.eclipse.jdt.internal.core.search.indexing;
 
 import java.io.IOException;
+import java.net.URI;
 
+import org.eclipse.core.filesystem.EFS;
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IResourceProxy;
 import org.eclipse.core.resources.IResourceProxyVisitor;
 import org.eclipse.core.runtime.CoreException;
-import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.core.index.Index;
@@ -57,20 +58,18 @@ public class IndexBinaryFolder extends IndexRequest {
 
 			String[] paths = index.queryDocumentNames(""); // all file names //$NON-NLS-1$
 			int max = paths == null ? 0 : paths.length;
-			final SimpleLookupTable indexedFileNames = new SimpleLookupTable(max == 0 ? 33 : max + 11);
+			final SimpleLookupTable indexedFileNames = new SimpleLookupTable(max==0 ? 33 : max+11);
 			final String OK = "OK"; //$NON-NLS-1$
 			final String DELETED = "DELETED"; //$NON-NLS-1$
-			if (max == 0) {
+			if (paths == null) {
 				this.folder.accept(new IResourceProxyVisitor() {
 					public boolean visit(IResourceProxy proxy) {
 						if (isCancelled) return false;
 						if (proxy.getType() == IResource.FILE) {
 							if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(proxy.getName())) {
 								IFile file = (IFile) proxy.requestResource();
-								if (file.getLocation() != null) {
-									String containerRelativePath = Util.relativePath(file.getFullPath(), containerPath.segmentCount());
-									indexedFileNames.put(containerRelativePath, file);
-								}
+								String containerRelativePath = Util.relativePath(file.getFullPath(), containerPath.segmentCount());
+								indexedFileNames.put(containerRelativePath, file);
 							}
 							return false;
 						}
@@ -78,22 +77,24 @@ public class IndexBinaryFolder extends IndexRequest {
 					}
 				}, IResource.NONE);
 			} else {
-				for (int i = 0; i < max; i++)
+				for (int i = 0; i < max; i++) {
 					indexedFileNames.put(paths[i], DELETED);
-
+				}
 				final long indexLastModified = index.getIndexFile().lastModified();
 				this.folder.accept(
 					new IResourceProxyVisitor() {
-						public boolean visit(IResourceProxy proxy) {
+						public boolean visit(IResourceProxy proxy) throws CoreException {
 							if (isCancelled) return false;
 							if (proxy.getType() == IResource.FILE) {
 								if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(proxy.getName())) {
 									IFile file = (IFile) proxy.requestResource();
-									IPath location = file.getLocation();
+									URI location = file.getLocationURI();
 									if (location != null) {
 										String containerRelativePath = Util.relativePath(file.getFullPath(), containerPath.segmentCount());
 										indexedFileNames.put(containerRelativePath,
-											indexedFileNames.get(containerRelativePath) == null || indexLastModified < location.toFile().lastModified()
+											indexedFileNames.get(containerRelativePath) == null 
+													|| indexLastModified < 
+													EFS.getStore(location).fetchInfo().getLastModified()
 												? (Object) file
 												: (Object) OK);
 									}

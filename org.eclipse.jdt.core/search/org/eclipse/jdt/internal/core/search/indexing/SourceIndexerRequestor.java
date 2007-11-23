@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,9 +12,9 @@ package org.eclipse.jdt.internal.core.search.indexing;
 
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.*;
-import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.ISourceElementRequestor;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
+import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
 
 /**
@@ -55,13 +55,10 @@ public void acceptFieldReference(char[] fieldName, int sourcePosition) {
 	this.indexer.addFieldReference(fieldName);
 }
 /**
- * @see ISourceElementRequestor#acceptImport(int, int, char[], boolean, int)
+ * @see ISourceElementRequestor#acceptImport(int, int, char[][], boolean, int)
  */
-public void acceptImport(int declarationStart, int declarationEnd, char[] name, boolean onDemand, int modifiers) {
-	char[][] qualification = CharOperation.splitOn('.', CharOperation.subarray(name, 0, CharOperation.lastIndexOf('.', name)));
-	for (int i = 0, length = qualification.length; i < length; i++) {
-		this.indexer.addNameReference(qualification[i]);
-	}
+public void acceptImport(int declarationStart, int declarationEnd, char[][] tokens, boolean onDemand, int modifiers) {
+	// imports have already been reported while creating the ImportRef node (see SourceElementParser#comsume*ImportDeclarationName() methods)
 }
 /**
  * @see ISourceElementRequestor#acceptLineSeparatorPositions(int[])
@@ -82,9 +79,9 @@ public void acceptPackage(int declarationStart, int declarationEnd, char[] name)
 	this.packageName = name;
 }
 /**
- * @see ISourceElementRequestor#acceptProblem(IProblem)
+ * @see ISourceElementRequestor#acceptProblem(CategorizedProblem)
  */
-public void acceptProblem(IProblem problem) {
+public void acceptProblem(CategorizedProblem problem) {
 	// implements interface method
 }
 /**
@@ -138,7 +135,7 @@ private void enterAnnotationType(TypeInfo typeInfo) {
 	} else {
 		typeNames = this.enclosingTypeNames();
 	}
-	this.indexer.addAnnotationTypeDeclaration(typeInfo.modifiers, packageName, typeInfo.name, typeNames);
+	this.indexer.addAnnotationTypeDeclaration(typeInfo.modifiers, packageName, typeInfo.name, typeNames, typeInfo.secondary);
 	this.pushTypeName(typeInfo.name);	
 }
 
@@ -158,6 +155,7 @@ private void enterClass(TypeInfo typeInfo) {
 	}
 	char[][] typeNames;
 	if (this.methodDepth > 0) {
+		// set specific ['0'] value for local and anonymous to be able to filter them
 		typeNames = ONE_ZERO_CHAR;
 	} else {
 		typeNames = this.enclosingTypeNames();
@@ -171,7 +169,7 @@ private void enterClass(TypeInfo typeInfo) {
 			typeParameterSignatures[i] = Signature.createTypeParameterSignature(typeParameterInfo.name, typeParameterInfo.bounds == null ? CharOperation.NO_CHAR_CHAR : typeParameterInfo.bounds);
 		}
 	}
-	this.indexer.addClassDeclaration(typeInfo.modifiers, this.packageName, typeInfo.name, typeNames, typeInfo.superclass, typeInfo.superinterfaces, typeParameterSignatures);
+	this.indexer.addClassDeclaration(typeInfo.modifiers, this.packageName, typeInfo.name, typeNames, typeInfo.superclass, typeInfo.superinterfaces, typeParameterSignatures, typeInfo.secondary);
 	this.pushTypeName(typeInfo.name);
 }
 /**
@@ -200,7 +198,8 @@ private void enterEnum(TypeInfo typeInfo) {
 	} else {
 		typeNames = this.enclosingTypeNames();
 	}
-	this.indexer.addEnumDeclaration(typeInfo.modifiers, packageName, typeInfo.name, typeNames, typeInfo.superinterfaces);
+	char[] superclass = typeInfo.superclass == null ? CharOperation.concatWith(TypeConstants.JAVA_LANG_ENUM, '.'): typeInfo.superclass;
+	this.indexer.addEnumDeclaration(typeInfo.modifiers, packageName, typeInfo.name, typeNames, superclass, typeInfo.superinterfaces, typeInfo.secondary);
 	this.pushTypeName(typeInfo.name);	
 }
 /**
@@ -238,7 +237,7 @@ private void enterInterface(TypeInfo typeInfo) {
 			typeParameterSignatures[i] = Signature.createTypeParameterSignature(typeParameterInfo.name, typeParameterInfo.bounds);
 		}
 	}
-	this.indexer.addInterfaceDeclaration(typeInfo.modifiers, packageName, typeInfo.name, typeNames, typeInfo.superinterfaces, typeParameterSignatures);
+	this.indexer.addInterfaceDeclaration(typeInfo.modifiers, packageName, typeInfo.name, typeNames, typeInfo.superinterfaces, typeParameterSignatures, typeInfo.secondary);
 	this.pushTypeName(typeInfo.name);	
 }
 /**
@@ -253,17 +252,17 @@ public void enterMethod(MethodInfo methodInfo) {
  */
 public void enterType(TypeInfo typeInfo) {
 	// TODO (jerome) might want to merge the 4 methods
-	switch (typeInfo.kind) {
-		case IGenericType.CLASS_DECL:
+	switch (TypeDeclaration.kind(typeInfo.modifiers)) {
+		case TypeDeclaration.CLASS_DECL:
 			enterClass(typeInfo);
 			break;
-		case IGenericType.ANNOTATION_TYPE_DECL: 
+		case TypeDeclaration.ANNOTATION_TYPE_DECL: 
 			enterAnnotationType(typeInfo);
 			break;
-		case IGenericType.INTERFACE_DECL:
+		case TypeDeclaration.INTERFACE_DECL:
 			enterInterface(typeInfo);
 			break;
-		case IGenericType.ENUM_DECL: 
+		case TypeDeclaration.ENUM_DECL: 
 			enterEnum(typeInfo);
 			break;
 	}

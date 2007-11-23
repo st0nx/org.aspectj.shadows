@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -29,7 +29,7 @@ public VariablePattern(int patternKind, boolean findDeclarations, boolean readAc
 	this.writeAccess = writeAccess; // set to find any reference, write only references & all occurences
 	this.findReferences = readAccess || writeAccess;
 
-	this.name = isCaseSensitive() ? name : CharOperation.toLowerCase(name);
+	this.name = (isCaseSensitive() || isCamelCase())  ? name : CharOperation.toLowerCase(name);
 }
 /*
  * Returns whether a method declaration or message send will need to be resolved to 

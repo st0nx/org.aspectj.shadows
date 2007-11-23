@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -17,7 +17,7 @@ import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfLong;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
-import org.eclipse.jdt.internal.core.util.SimpleSet;
+import org.eclipse.jdt.internal.compiler.util.SimpleSet;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -54,18 +54,32 @@ public MatchingNodeSet(boolean mustResolvePattern) {
 }
 
 public int addMatch(ASTNode node, int matchLevel) {
-	switch (matchLevel) {
+	int maskedLevel = matchLevel & PatternLocator.MATCH_LEVEL_MASK;
+	switch (maskedLevel) {
 		case PatternLocator.INACCURATE_MATCH:
-			addTrustedMatch(node, POTENTIAL_MATCH);
+			if (matchLevel != maskedLevel) {
+				addTrustedMatch(node, new Integer(SearchMatch.A_INACCURATE+(matchLevel & PatternLocator.FLAVORS_MASK)));
+			} else {
+				addTrustedMatch(node, POTENTIAL_MATCH);
+			}
 			break;
 		case PatternLocator.POSSIBLE_MATCH:
 			addPossibleMatch(node);
 			break;
 		case PatternLocator.ERASURE_MATCH:
-			addTrustedMatch(node, ERASURE_MATCH);
+			if (matchLevel != maskedLevel) {
+				addTrustedMatch(node, new Integer(SearchPattern.R_ERASURE_MATCH+(matchLevel & PatternLocator.FLAVORS_MASK)));
+			} else {
+				addTrustedMatch(node, ERASURE_MATCH);
+			}
 			break;
 		case PatternLocator.ACCURATE_MATCH:
-			addTrustedMatch(node, EXACT_MATCH);
+			if (matchLevel != maskedLevel) {
+				addTrustedMatch(node, new Integer(SearchMatch.A_ACCURATE+(matchLevel & PatternLocator.FLAVORS_MASK)));
+			} else {
+				addTrustedMatch(node, EXACT_MATCH);
+			}
+			break;
 	}
 	return matchLevel;
 }

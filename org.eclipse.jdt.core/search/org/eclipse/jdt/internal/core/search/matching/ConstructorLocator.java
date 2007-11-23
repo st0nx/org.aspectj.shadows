@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -36,12 +36,7 @@ public int match(ASTNode node, MatchingNodeSet nodeSet) { // interested in Expli
 	if (!this.pattern.findReferences) return IMPOSSIBLE_MATCH;
 	if (!(node instanceof ExplicitConstructorCall)) return IMPOSSIBLE_MATCH;
 
-	if (this.pattern.parameterSimpleNames != null && (this.pattern.shouldCountParameter() || ((node.bits & ASTNode.InsideJavadoc) != 0))) {
-		int length = this.pattern.parameterSimpleNames.length;
-		Expression[] args = ((ExplicitConstructorCall) node).arguments;
-		int argsLength = args == null ? 0 : args.length;
-		if (length != argsLength) return IMPOSSIBLE_MATCH;
-	}
+	if (!matchParametersCount(node, ((ExplicitConstructorCall) node).arguments)) return IMPOSSIBLE_MATCH;
 
 	return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 }
@@ -61,12 +56,7 @@ public int match(Expression node, MatchingNodeSet nodeSet) { // interested in Al
 	if (this.pattern.declaringSimpleName != null && !matchesName(this.pattern.declaringSimpleName, typeName[typeName.length-1]))
 		return IMPOSSIBLE_MATCH;
 
-	if (this.pattern.parameterSimpleNames != null && (this.pattern.shouldCountParameter() || ((node.bits & ASTNode.InsideJavadoc) != 0))) {
-		int length = this.pattern.parameterSimpleNames.length;
-		Expression[] args = allocation.arguments;
-		int argsLength = args == null ? 0 : args.length;
-		if (length != argsLength) return IMPOSSIBLE_MATCH;
-	}
+	if (!matchParametersCount(node, allocation.arguments)) return IMPOSSIBLE_MATCH;
 
 	return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 }
@@ -81,12 +71,7 @@ public int match(FieldDeclaration field, MatchingNodeSet nodeSet) {
 			return IMPOSSIBLE_MATCH;
 	}
 
-	if (this.pattern.parameterSimpleNames != null && this.pattern.shouldCountParameter()) {
-		int length = this.pattern.parameterSimpleNames.length;
-		Expression[] args = allocation.arguments;
-		int argsLength = args == null ? 0 : args.length;
-		if (length != argsLength) return IMPOSSIBLE_MATCH;
-	}
+	if (!matchParametersCount(field, allocation.arguments)) return IMPOSSIBLE_MATCH;
 
 	return nodeSet.addMatch(field, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 }
@@ -119,7 +104,7 @@ protected int matchConstructor(MethodBinding constructor) {
 	if (level == IMPOSSIBLE_MATCH) return IMPOSSIBLE_MATCH;
 
 	// parameter types
-	int parameterCount = this.pattern.parameterSimpleNames == null ? -1 : this.pattern.parameterSimpleNames.length;
+	int parameterCount = this.pattern.parameterCount;
 	if (parameterCount > -1) {
 		if (constructor.parameters == null) return INACCURATE_MATCH;
 		if (parameterCount != constructor.parameters.length) return IMPOSSIBLE_MATCH;
@@ -182,6 +167,17 @@ protected int matchLevelForDeclarations(ConstructorDeclaration constructor) {
 
 	return ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
 }
+boolean matchParametersCount(ASTNode node, Expression[] args) {
+	if (this.pattern.parameterSimpleNames != null && (!this.pattern.varargs || ((node.bits & ASTNode.InsideJavadoc) != 0))) {
+		int length = this.pattern.parameterCount;
+		if (length < 0) length = this.pattern.parameterSimpleNames.length;
+		int argsLength = args == null ? 0 : args.length;
+		if (length != argsLength) {
+			return false;
+		}
+	}
+	return true;
+}
 protected void matchReportReference(ASTNode reference, IJavaElement element, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
 
 	MethodBinding constructorBinding = null;
@@ -212,7 +208,7 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 		// Update match regarding declaring class type arguments
 		if (constructorBinding.declaringClass.isParameterizedType() || constructorBinding.declaringClass.isRawType()) {
 			ParameterizedTypeBinding parameterizedBinding = (ParameterizedTypeBinding)constructorBinding.declaringClass;
-			if (!this.pattern.hasTypeArguments() && this.pattern.hasConstructorArguments()) {
+			if (!this.pattern.hasTypeArguments() && this.pattern.hasConstructorArguments() || parameterizedBinding.isParameterizedWithOwnVariables()) {
 				// special case for constructor pattern which defines arguments but no type
 				// in this case, we only use refined accuracy for constructor
 			} else if (this.pattern.hasTypeArguments() && !this.pattern.hasConstructorArguments()) {
@@ -235,7 +231,7 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 			if (!this.pattern.hasTypeArguments() && this.pattern.hasConstructorArguments()) {
 				// special case for constructor pattern which defines arguments but no type
 				updateMatch(parameterizedBinding, new char[][][] {this.pattern.constructorArguments}, this.pattern.hasTypeParameters(), 0, locator);
-			} else {
+			} else if (!parameterizedBinding.isParameterizedWithOwnVariables()) {
 				updateMatch(parameterizedBinding, this.pattern.getTypeArguments(), this.pattern.hasTypeParameters(), 0, locator);
 			}
 		} else if (this.pattern.hasTypeArguments()) {
@@ -257,6 +253,13 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 	int offset = reference.sourceStart;
 	match.setOffset(offset);
 	match.setLength(reference.sourceEnd - offset + 1);
+	if (reference instanceof FieldDeclaration) { // enum declaration
+		FieldDeclaration enumConstant  = (FieldDeclaration) reference;
+		if (enumConstant.initialization instanceof QualifiedAllocationExpression) {
+			locator.reportAccurateEnumConstructorReference(match, enumConstant, (QualifiedAllocationExpression) enumConstant.initialization);
+			return;
+		}
+	}
 	locator.report(match);
 }
 public SearchMatch newDeclarationMatch(ASTNode reference, IJavaElement element, Binding binding, int accuracy, int length, MatchLocator locator) {

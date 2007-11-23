@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -54,14 +54,16 @@ public JavaSearchNameEnvironment(IJavaProject javaProject, org.eclipse.jdt.core.
 	try {
 		int length = copies == null ? 0 : copies.length;
 		this.workingCopies = new HashMap(length);
-		for (int i = 0; i < length; i++) {
-			org.eclipse.jdt.core.ICompilationUnit workingCopy = copies[i];
-			IPackageDeclaration[] pkgs = workingCopy.getPackageDeclarations();
-			String pkg = pkgs.length > 0 ? pkgs[0].getElementName() : ""; //$NON-NLS-1$
-			String cuName = workingCopy.getElementName();
-			String mainTypeName = Util.getNameWithoutJavaLikeExtension(cuName);
-			String qualifiedMainTypeName = pkg.length() == 0 ? mainTypeName : pkg.replace('.', '/') + '/' + mainTypeName;
-			this.workingCopies.put(qualifiedMainTypeName, workingCopy);
+		if (copies != null) {
+			for (int i = 0; i < length; i++) {
+				org.eclipse.jdt.core.ICompilationUnit workingCopy = copies[i];
+				IPackageDeclaration[] pkgs = workingCopy.getPackageDeclarations();
+				String pkg = pkgs.length > 0 ? pkgs[0].getElementName() : ""; //$NON-NLS-1$
+				String cuName = workingCopy.getElementName();
+				String mainTypeName = Util.getNameWithoutJavaLikeExtension(cuName);
+				String qualifiedMainTypeName = pkg.length() == 0 ? mainTypeName : pkg.replace('.', '/') + '/' + mainTypeName;
+				this.workingCopies.put(qualifiedMainTypeName, workingCopy);
+			}
 		}
 	} catch (JavaModelException e) {
 		// working copy doesn't exist: cannot happen
@@ -122,6 +124,7 @@ private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeNam
 		binaryFileName = null, qBinaryFileName = null, 
 		sourceFileName = null, qSourceFileName = null, 
 		qPackageName = null;
+	NameEnvironmentAnswer suggestedAnswer = null;
 	for (int i = 0, length = this.locations.length; i < length; i++) {
 		ClasspathLocation location = this.locations[i];
 		NameEnvironmentAnswer answer;
@@ -162,8 +165,18 @@ private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeNam
 					qPackageName, 
 					qBinaryFileName);
 		}
-		if (answer != null) return answer;
+		if (answer != null) {
+			if (!answer.ignoreIfBetter()) {
+				if (answer.isBetter(suggestedAnswer))
+					return answer;
+			} else if (answer.isBetter(suggestedAnswer))
+				// remember suggestion and keep looking
+				suggestedAnswer = answer;
+		}
 	}
+	if (suggestedAnswer != null)
+		// no better answer was found
+		return suggestedAnswer;
 	return null;
 }
 

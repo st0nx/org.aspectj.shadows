@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,10 +16,9 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.internal.core.index.*;
-import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 import org.eclipse.jdt.internal.core.util.Util;
 
-public class MethodPattern extends JavaSearchPattern implements IIndexConstants {
+public class MethodPattern extends JavaSearchPattern {
 
 protected boolean findDeclarations;
 protected boolean findReferences;
@@ -35,7 +34,7 @@ public char[] returnSimpleName;
 public char[][] parameterQualifications;
 public char[][] parameterSimpleNames;
 public int parameterCount;
-public int flags = 0;
+public boolean varargs = false;
 
 // extra reference info
 protected IType declaringType;
@@ -84,7 +83,7 @@ public MethodPattern(
 	this.findDeclarations = findDeclarations;
 	this.findReferences = findReferences;
 
-	this.selector = isCaseSensitive() ? selector : CharOperation.toLowerCase(selector);
+	this.selector = (isCaseSensitive() || isCamelCase())  ? selector : CharOperation.toLowerCase(selector);
 	this.declaringQualification = isCaseSensitive() ? declaringQualification : CharOperation.toLowerCase(declaringQualification);
 	this.declaringSimpleName = isCaseSensitive() ? declaringSimpleName : CharOperation.toLowerCase(declaringSimpleName);
 	this.returnQualification = isCaseSensitive() ? returnQualification : CharOperation.toLowerCase(returnQualification);
@@ -135,7 +134,7 @@ public MethodPattern(
 	
 	// Set flags
 	try {
-		this.flags = method.getFlags();
+		this.varargs = (method.getFlags() & Flags.AccVarargs) != 0;
 	} catch (JavaModelException e) {
 		// do nothing
 	}
@@ -242,11 +241,22 @@ public MethodPattern(
 	if (hasMethodArguments())  ((InternalSearchPattern)this).mustResolve = true;
 }
 public void decodeIndexKey(char[] key) {
-	int size = key.length;
-	int lastSeparatorIndex = CharOperation.lastIndexOf(SEPARATOR, key);	
-
-	this.parameterCount = Integer.parseInt(new String(key, lastSeparatorIndex + 1, size - lastSeparatorIndex - 1));
-	this.selector = CharOperation.subarray(key, 0, lastSeparatorIndex);
+	int last = key.length - 1;
+	this.parameterCount = 0;
+	this.selector = null;
+	int power = 1;
+	for (int i=last; i>=0; i--) {
+		if (key[i] == SEPARATOR) {
+			System.arraycopy(key, 0, this.selector = new char[i], 0, i);
+			break;
+		}
+		if (i == last) {
+			this.parameterCount = key[i] - '0';
+		} else {
+			power *= 10;
+			this.parameterCount += power * (key[i] - '0');
+		}
+	}
 }
 public SearchPattern getBlankPattern() {
 	return new MethodPattern(R_EXACT_MATCH | R_CASE_SENSITIVE);
@@ -270,7 +280,7 @@ boolean isPolymorphicSearch() {
 public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 	MethodPattern pattern = (MethodPattern) decodedPattern;
 
-	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1 || !shouldCountParameter())
+	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1 || this.varargs)
 		&& matchesName(this.selector, pattern.selector);
 }
 /**
@@ -298,20 +308,26 @@ EntryResult[] queryIn(Index index) throws IOException {
 
 	switch(getMatchMode()) {
 		case R_EXACT_MATCH :
-			if (shouldCountParameter() && this.selector != null && this.parameterCount >= 0)
+			if (this.isCamelCase) break;
+			if (this.selector != null && this.parameterCount >= 0 && !this.varargs)
 				key = createIndexKey(this.selector, this.parameterCount);
-			else // do a prefix query with the selector
-				matchRule = matchRule - R_EXACT_MATCH + R_PREFIX_MATCH;
+			else { // do a prefix query with the selector
+				matchRule &= ~R_EXACT_MATCH;
+				matchRule |= R_PREFIX_MATCH;
+			}
 			break;
 		case R_PREFIX_MATCH :
 			// do a prefix query with the selector
 			break;
 		case R_PATTERN_MATCH :
-			if (shouldCountParameter() && this.parameterCount >= 0)
+			if (this.parameterCount >= 0 && !this.varargs)
 				key = createIndexKey(this.selector == null ? ONE_STAR : this.selector, this.parameterCount);
 			else if (this.selector != null && this.selector[this.selector.length - 1] != '*')
 				key = CharOperation.concat(this.selector, ONE_STAR, SEPARATOR);
 			// else do a pattern query with just the selector
+			break;
+		case R_REGEXP_MATCH :
+			// TODO (frederic) implement regular expression match
 			break;
 	}
 
@@ -356,8 +372,5 @@ protected StringBuffer print(StringBuffer output) {
 	else if (returnQualification != null)
 		output.append("*"); //$NON-NLS-1$
 	return super.print(output);
-}
-boolean shouldCountParameter() {
-	return (this.flags & Flags.AccStatic) == 0 && (this.flags & Flags.AccVarargs) == 0;
 }
 }

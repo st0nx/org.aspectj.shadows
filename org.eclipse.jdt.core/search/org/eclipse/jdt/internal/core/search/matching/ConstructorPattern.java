@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -20,10 +20,9 @@ import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.internal.core.index.EntryResult;
 import org.eclipse.jdt.internal.core.index.Index;
-import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 import org.eclipse.jdt.internal.core.util.Util;
 
-public class ConstructorPattern extends JavaSearchPattern implements IIndexConstants {
+public class ConstructorPattern extends JavaSearchPattern {
 
 protected boolean findDeclarations;
 protected boolean findReferences;
@@ -34,7 +33,7 @@ public char[] declaringSimpleName;
 public char[][] parameterQualifications;
 public char[][] parameterSimpleNames;
 public int parameterCount;
-public int flags = 0;
+public boolean varargs = false;
 
 // Signatures and arguments for generic search
 char[][][] parametersTypeSignatures;
@@ -75,14 +74,21 @@ public ConstructorPattern(
 	this.findReferences = findReferences;
 
 	this.declaringQualification = isCaseSensitive() ? declaringQualification : CharOperation.toLowerCase(declaringQualification);
-	this.declaringSimpleName = isCaseSensitive() ? declaringSimpleName : CharOperation.toLowerCase(declaringSimpleName);
+	this.declaringSimpleName = (isCaseSensitive() || isCamelCase()) ? declaringSimpleName : CharOperation.toLowerCase(declaringSimpleName);
 	if (parameterSimpleNames != null) {
 		this.parameterCount = parameterSimpleNames.length;
+		boolean synthetic = this.parameterCount>0 && declaringQualification != null && CharOperation.equals(CharOperation.concat(parameterQualifications[0], parameterSimpleNames[0], '.'), declaringQualification);
+		int offset = 0;
+		if (synthetic) {
+			// skip first synthetic parameter
+			this.parameterCount--;
+			offset++;
+		}
 		this.parameterQualifications = new char[this.parameterCount][];
 		this.parameterSimpleNames = new char[this.parameterCount][];
 		for (int i = 0; i < this.parameterCount; i++) {
-			this.parameterQualifications[i] = isCaseSensitive() ? parameterQualifications[i] : CharOperation.toLowerCase(parameterQualifications[i]);
-			this.parameterSimpleNames[i] = isCaseSensitive() ? parameterSimpleNames[i] : CharOperation.toLowerCase(parameterSimpleNames[i]);
+			this.parameterQualifications[i] = isCaseSensitive() ? parameterQualifications[i+offset] : CharOperation.toLowerCase(parameterQualifications[i+offset]);
+			this.parameterSimpleNames[i] = isCaseSensitive() ? parameterSimpleNames[i+offset] : CharOperation.toLowerCase(parameterSimpleNames[i+offset]);
 		}
 	} else {
 		this.parameterCount = -1;
@@ -114,7 +120,7 @@ public ConstructorPattern(
 
 	// Set flags
 	try {
-		this.flags = method.getFlags();
+		this.varargs = (method.getFlags() & Flags.AccVarargs) != 0;
 	} catch (JavaModelException e) {
 		// do nothing
 	}
@@ -205,11 +211,22 @@ public ConstructorPattern(
 	if (hasConstructorArguments())  ((InternalSearchPattern)this).mustResolve = true;
 }
 public void decodeIndexKey(char[] key) {
-	int size = key.length;
-	int lastSeparatorIndex = CharOperation.lastIndexOf(SEPARATOR, key);	
-
-	this.parameterCount = Integer.parseInt(new String(key, lastSeparatorIndex + 1, size - lastSeparatorIndex - 1));
-	this.declaringSimpleName = CharOperation.subarray(key, 0, lastSeparatorIndex);
+	int last = key.length - 1;
+	this.parameterCount = 0;
+	this.declaringSimpleName = null;
+	int power = 1;
+	for (int i=last; i>=0; i--) {
+		if (key[i] == SEPARATOR) {
+			System.arraycopy(key, 0, this.declaringSimpleName = new char[i], 0, i);
+			break;
+		}
+		if (i == last) {
+			this.parameterCount = key[i] - '0';
+		} else {
+			power *= 10;
+			this.parameterCount += power * (key[i] - '0');
+		}
+	}
 }
 public SearchPattern getBlankPattern() {
 	return new ConstructorPattern(R_EXACT_MATCH | R_CASE_SENSITIVE);
@@ -230,7 +247,7 @@ boolean hasConstructorParameters() {
 public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 	ConstructorPattern pattern = (ConstructorPattern) decodedPattern;
 
-	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1 || !shouldCountParameter())
+	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1 || this.varargs)
 		&& matchesName(this.declaringSimpleName, pattern.declaringSimpleName);
 }
 protected boolean mustResolve() {
@@ -248,20 +265,26 @@ EntryResult[] queryIn(Index index) throws IOException {
 
 	switch(getMatchMode()) {
 		case R_EXACT_MATCH :
-			if (shouldCountParameter() && this.declaringSimpleName != null && this.parameterCount >= 0)
+			if (this.isCamelCase) break;
+			if (this.declaringSimpleName != null && this.parameterCount >= 0 && !this.varargs)
 				key = createIndexKey(this.declaringSimpleName, this.parameterCount);
-			else // do a prefix query with the declaringSimpleName
-				matchRule = matchRule - R_EXACT_MATCH + R_PREFIX_MATCH;
+			else { // do a prefix query with the declaringSimpleName
+				matchRule &= ~R_EXACT_MATCH;
+				matchRule |= R_PREFIX_MATCH;
+			}
 			break;
 		case R_PREFIX_MATCH :
 			// do a prefix query with the declaringSimpleName
 			break;
 		case R_PATTERN_MATCH :
-			if (shouldCountParameter() && this.parameterCount >= 0)
+			if (this.parameterCount >= 0 && !this.varargs)
 				key = createIndexKey(this.declaringSimpleName == null ? ONE_STAR : this.declaringSimpleName, this.parameterCount);
 			else if (this.declaringSimpleName != null && this.declaringSimpleName[this.declaringSimpleName.length - 1] != '*')
 				key = CharOperation.concat(this.declaringSimpleName, ONE_STAR, SEPARATOR);
 			// else do a pattern query with just the declaringSimpleName
+			break;
+		case R_REGEXP_MATCH :
+			// TODO (frederic) implement regular expression match
 			break;
 	}
 
@@ -294,8 +317,5 @@ protected StringBuffer print(StringBuffer output) {
 	}
 	output.append(')');
 	return super.print(output);
-}
-boolean shouldCountParameter() {
-	return (this.flags & Flags.AccStatic) == 0 && (this.flags & Flags.AccVarargs) == 0;
 }
 }

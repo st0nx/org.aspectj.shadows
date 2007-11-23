@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,8 +18,8 @@ import org.eclipse.jdt.core.search.*;
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.util.SimpleSet;
 import org.eclipse.jdt.internal.core.JavaElement;
-import org.eclipse.jdt.internal.core.util.SimpleSet;
 
 public class TypeReferenceLocator extends PatternLocator {
 
@@ -103,13 +103,34 @@ protected int matchLevel(ImportReference importRef) {
 			? this.pattern.qualification
 			: CharOperation.concat(this.pattern.qualification, this.pattern.simpleName, '.');
 		char[] qualifiedTypeName = CharOperation.concatWith(tokens, '.');
+		if (qualifiedPattern == null) return ACCURATE_MATCH; // null is as if it was "*"
+		if (qualifiedTypeName == null) return IMPOSSIBLE_MATCH; // cannot match null name
+		if (qualifiedTypeName.length == 0) { // empty name
+			if (qualifiedPattern.length == 0) { // can only matches empty pattern
+				return ACCURATE_MATCH;
+			}
+			return IMPOSSIBLE_MATCH;
+		}
+		boolean matchFirstChar = !this.isCaseSensitive || (qualifiedPattern[0] == qualifiedTypeName[0]);
+		if (this.isCamelCase && matchFirstChar && CharOperation.camelCaseMatch(qualifiedPattern, qualifiedTypeName)) {
+			return POSSIBLE_MATCH;
+		}
 		switch (this.matchMode) {
-			case SearchPattern.R_EXACT_MATCH :
-			case SearchPattern.R_PREFIX_MATCH :
-				if (CharOperation.prefixEquals(qualifiedPattern, qualifiedTypeName, this.isCaseSensitive)) return POSSIBLE_MATCH;
+			case SearchPattern.R_EXACT_MATCH:
+			case SearchPattern.R_PREFIX_MATCH:
+				if (CharOperation.prefixEquals(qualifiedPattern, qualifiedTypeName, this.isCaseSensitive)) {
+					return POSSIBLE_MATCH;
+				}
 				break;
+
 			case SearchPattern.R_PATTERN_MATCH:
-				if (CharOperation.match(qualifiedPattern, qualifiedTypeName, this.isCaseSensitive)) return POSSIBLE_MATCH;
+				if (CharOperation.match(qualifiedPattern, qualifiedTypeName, this.isCaseSensitive)) {
+					return POSSIBLE_MATCH;
+				}
+				break;
+
+			case SearchPattern.R_REGEXP_MATCH :
+				// TODO (frederic) implement regular expression match
 				break;
 		}
 	}
@@ -186,10 +207,10 @@ protected void matchReportImportRef(ImportReference importRef, Binding binding, 
 		typeBinding = (ReferenceBinding) binding;
 	} else if (binding instanceof FieldBinding) { // may happen for static import
 		typeBinding = ((FieldBinding)binding).declaringClass;
-		lastButOne = importRef.isStatic() && !importRef.onDemand;
+		lastButOne = importRef.isStatic() && ((importRef.bits & ASTNode.OnDemand) == 0);
 	} else if (binding instanceof MethodBinding) { // may happen for static import
 		typeBinding = ((MethodBinding)binding).declaringClass;
-		lastButOne = importRef.isStatic() && !importRef.onDemand;
+		lastButOne = importRef.isStatic() && ((importRef.bits & ASTNode.OnDemand) == 0);
 	}
 	if (typeBinding != null) {
 		int lastIndex = importRef.tokens.length - 1;
@@ -199,7 +220,7 @@ protected void matchReportImportRef(ImportReference importRef, Binding binding, 
 		}
 		if (typeBinding instanceof ProblemReferenceBinding) {
 			ProblemReferenceBinding pbBinding = (ProblemReferenceBinding) typeBinding;
-			typeBinding = pbBinding.closestMatch;
+			typeBinding = pbBinding.closestMatch();
 			lastIndex = pbBinding.compoundName.length - 1;
 		}
 		// try to match all enclosing types for which the token matches as well.
@@ -233,7 +254,13 @@ protected void matchReportReference(ArrayTypeReference arrayRef, IJavaElement el
 		// TODO (frederic) need to add a test for this case while searching generic types...
 		if (locator.encloses(element)) {
 			int offset = arrayRef.sourceStart;
-			match = locator.newTypeReferenceMatch(element, elementBinding, accuracy, offset, arrayRef.sourceEnd-offset+1, arrayRef);
+			int length = arrayRef.sourceEnd-offset+1;
+			if (this.match == null) {
+				this.match = locator.newTypeReferenceMatch(element, elementBinding, accuracy, offset, length, arrayRef);
+			} else {
+				this.match.setOffset(offset);
+				this.match.setLength(length);
+			}
 			locator.report(match);
 			return;
 		}
@@ -245,7 +272,16 @@ protected void matchReportReference(ArrayTypeReference arrayRef, IJavaElement el
 	}
 	locator.reportAccurateTypeReference(match, arrayRef, this.pattern.simpleName);
 }
+/**
+ * Reports the match of the given reference.
+ */
 protected void matchReportReference(ASTNode reference, IJavaElement element, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
+	matchReportReference(reference, element, null, null, elementBinding, accuracy, locator);
+}
+/**
+ * Reports the match of the given reference. Also provide a local and other elements to eventually report in match.
+ */
+protected void matchReportReference(ASTNode reference, IJavaElement element, IJavaElement localElement, IJavaElement[] otherElements, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
 	if (this.isDeclarationOfReferencedTypesPattern) {
 		if ((element = findElement(element, accuracy)) != null)
 			reportDeclaration(reference, element, locator, ((DeclarationOfReferencedTypesPattern) this.pattern).knownTypes);
@@ -253,7 +289,10 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 	}
 	
 	// Create search match
-	match = locator.newTypeReferenceMatch(element, elementBinding, accuracy, reference);
+	TypeReferenceMatch refMatch = locator.newTypeReferenceMatch(element, elementBinding, accuracy, reference);
+	refMatch.setLocalElement(localElement);
+	refMatch.setOtherElements(otherElements);
+	this.match = refMatch;
 
 	// Report match depending on reference type
 	if (reference instanceof QualifiedNameReference)
@@ -270,6 +309,63 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 		}
 		locator.report(match);
 	}
+}
+/**
+ * Reports the match of the given reference. Also provide a scope to look for possible local and other elements.
+ */
+protected void matchReportReference(ASTNode reference, IJavaElement element, Binding elementBinding, Scope scope, int accuracy, MatchLocator locator) throws CoreException {
+	if (scope == null || (scope.kind != Scope.BLOCK_SCOPE && scope.kind != Scope.METHOD_SCOPE)) {
+		matchReportReference(reference, element, elementBinding, accuracy, locator);
+		return;
+	}
+	
+	// Look if some block scope local variable declarations include reference start position
+	BlockScope blockScope = (BlockScope) scope;
+	LocalDeclaration[] localDeclarations = blockScope.findLocalVariableDeclarations(reference.sourceStart);
+	IJavaElement localElement = null;
+	IJavaElement[] otherElements = null;
+
+	// Some local variable declaration are matching
+	if (localDeclarations != null) {
+		int length = localDeclarations.length;
+
+		// Set local element to first matching local declaration
+		int idx = 0;
+		for (; idx<length; idx++) {
+			if (localDeclarations[idx] == null) break;
+			if (reference.sourceStart == localDeclarations[idx].declarationSourceStart) {
+				localElement = locator.createHandle(localDeclarations[idx], element);
+				break;
+			}
+			if (idx>0 && localDeclarations[idx].sourceStart > reference.sourceStart) {
+				localElement = locator.createHandle(localDeclarations[idx-1], element);
+				break;
+			}
+		}
+		if (localElement == null && idx > 0) {
+			if (reference.sourceEnd < localDeclarations[idx-1].declarationEnd) {
+				localElement = locator.createHandle(localDeclarations[idx-1], element);
+			}
+		}
+		
+		// Store other local variable declarations in other elements
+		int size = 0;
+		for (int j=1; j<length; j++) {
+			if (localDeclarations[j] == null) break;
+			if (reference.sourceStart == localDeclarations[j].declarationSourceStart) {
+				if (otherElements == null) {
+					otherElements = new IJavaElement[length-j];
+				}
+				otherElements[size++] = locator.createHandle(localDeclarations[j], element);
+			}
+		}
+		if (size > 0 && size != (length-1)) {
+			System.arraycopy(otherElements, 0, otherElements = new IJavaElement[size], 0, size);
+		}
+	}
+	
+	// Report match with local and other elements if any
+	matchReportReference(reference, element, localElement, otherElements, elementBinding, accuracy, locator);
 }
 protected void matchReportReference(QualifiedNameReference qNameRef, IJavaElement element, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
 	Binding binding = qNameRef.binding;
@@ -298,12 +394,14 @@ protected void matchReportReference(QualifiedNameReference qNameRef, IJavaElemen
 	}
 	if (typeBinding instanceof ProblemReferenceBinding) {
 		ProblemReferenceBinding pbBinding = (ProblemReferenceBinding) typeBinding;
-		typeBinding = pbBinding.closestMatch;
+		typeBinding = pbBinding.closestMatch();
 		lastIndex = pbBinding.compoundName.length - 1;
 	}
 
 	// Create search match to report
-	match = locator.newTypeReferenceMatch(element, elementBinding, accuracy, qNameRef);
+	if (this.match == null) {
+		this.match = locator.newTypeReferenceMatch(element, elementBinding, accuracy, qNameRef);
+	}
 
 	// try to match all enclosing types for which the token matches as well.
 	if (typeBinding instanceof ReferenceBinding) {
@@ -341,12 +439,14 @@ protected void matchReportReference(QualifiedTypeReference qTypeRef, IJavaElemen
 		typeBinding = ((ArrayBinding) typeBinding).leafComponentType;
 	if (typeBinding instanceof ProblemReferenceBinding) {
 		ProblemReferenceBinding pbBinding = (ProblemReferenceBinding) typeBinding;
-		typeBinding = pbBinding.closestMatch;
+		typeBinding = pbBinding.closestMatch();
 		lastIndex = pbBinding.compoundName.length - 1;
 	}
 
 	// Create search match to report
-	match = locator.newTypeReferenceMatch(element, elementBinding, accuracy, qTypeRef);
+	if (this.match == null) {
+		this.match = locator.newTypeReferenceMatch(element, elementBinding, accuracy, qTypeRef);
+	}
 
 	// try to match all enclosing types for which the token matches as well
 	if (typeBinding instanceof ReferenceBinding) {
@@ -475,7 +575,7 @@ protected void reportDeclaration(ASTNode reference, IJavaElement element, MatchL
 		typeBinding = ((ArrayBinding) typeBinding).leafComponentType;
 	if (typeBinding == null || typeBinding instanceof BaseTypeBinding) return;
 	if (typeBinding instanceof ProblemReferenceBinding) {
-		ReferenceBinding original = ((ProblemReferenceBinding) typeBinding).closestMatch;
+		ReferenceBinding original = ((ProblemReferenceBinding) typeBinding).closestMatch();
 		if (original == null) return; // original may not be set (bug 71279)
 		typeBinding = original;
 	}
@@ -500,7 +600,7 @@ protected void reportDeclaration(ReferenceBinding typeBinding, int maxType, Matc
 				locator.reportBinaryMemberDeclaration(resource, type, typeBinding, info, SearchMatch.A_ACCURATE);
 			} else {
 				if (typeBinding instanceof ParameterizedTypeBinding)
-					typeBinding = ((ParameterizedTypeBinding) typeBinding).type;
+					typeBinding = ((ParameterizedTypeBinding) typeBinding).genericType();
 				ClassScope scope = ((SourceTypeBinding) typeBinding).scope;
 				if (scope != null) {
 					TypeDeclaration typeDecl = scope.referenceContext;
@@ -537,7 +637,7 @@ public int resolveLevel(Binding binding) {
 	if (typeBinding instanceof ArrayBinding)
 		typeBinding = ((ArrayBinding) typeBinding).leafComponentType;
 	if (typeBinding instanceof ProblemReferenceBinding)
-		typeBinding = ((ProblemReferenceBinding) typeBinding).closestMatch;
+		typeBinding = ((ProblemReferenceBinding) typeBinding).closestMatch();
 
 	if (((InternalSearchPattern) this.pattern).focus instanceof IType && typeBinding instanceof ReferenceBinding) {
 		IPackageFragment pkg = ((IType) ((InternalSearchPattern) this.pattern).focus).getPackageFragment();
@@ -553,7 +653,7 @@ protected int resolveLevel(NameReference nameRef) {
 
 	if (nameRef instanceof SingleNameReference) {
 		if (binding instanceof ProblemReferenceBinding)
-			binding = ((ProblemReferenceBinding) binding).closestMatch;
+			binding = ((ProblemReferenceBinding) binding).closestMatch();
 		if (binding instanceof ReferenceBinding)
 			return resolveLevelForType((ReferenceBinding) binding);
 		return binding == null || binding instanceof ProblemBinding ? INACCURATE_MATCH : IMPOSSIBLE_MATCH;
@@ -600,7 +700,7 @@ protected int resolveLevel(TypeReference typeRef) {
 	if (typeBinding instanceof ArrayBinding)
 		typeBinding = ((ArrayBinding) typeBinding).leafComponentType;
 	if (typeBinding instanceof ProblemReferenceBinding)
-		typeBinding = ((ProblemReferenceBinding) typeBinding).closestMatch;
+		typeBinding = ((ProblemReferenceBinding) typeBinding).closestMatch();
 
 	if (typeRef instanceof SingleTypeReference) {
 		return resolveLevelForType(typeBinding);

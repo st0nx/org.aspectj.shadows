@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,8 +11,10 @@
 package org.eclipse.jdt.internal.core.search.indexing;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.HashSet;
 
+import org.eclipse.core.filesystem.EFS;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
@@ -24,6 +26,7 @@ import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.internal.compiler.SourceElementParser;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.core.ClasspathEntry;
 import org.eclipse.jdt.internal.core.JavaProject;
@@ -57,8 +60,8 @@ public class IndexAllProject extends IndexRequest {
 		try {
 			// Get source folder entries. Libraries are done as a separate job
 			JavaProject javaProject = (JavaProject)JavaCore.create(this.project);
-			// Do not create marker nor log problems while getting raw classpath (see bug 41859)
-			IClasspathEntry[] entries = javaProject.getRawClasspath(false, false);
+			// Do not create marker while getting raw classpath (see bug 41859)
+			IClasspathEntry[] entries = javaProject.getRawClasspath();
 			int length = entries.length;
 			IClasspathEntry[] sourceEntries = new IClasspathEntry[length];
 			int sourceEntriesNumber = 0;
@@ -100,8 +103,10 @@ public class IndexAllProject extends IndexRequest {
 			final SimpleLookupTable indexedFileNames = new SimpleLookupTable(max == 0 ? 33 : max + 11);
 			final String OK = "OK"; //$NON-NLS-1$
 			final String DELETED = "DELETED"; //$NON-NLS-1$
-			for (int i = 0; i < max; i++)
-				indexedFileNames.put(paths[i], DELETED);
+			if (paths != null) {
+				for (int i = 0; i < max; i++)
+					indexedFileNames.put(paths[i], DELETED);
+			}
 			final long indexLastModified = max == 0 ? 0L : index.getIndexFile().lastModified();
 
 			IWorkspaceRoot root = this.project.getWorkspace().getRoot();
@@ -115,8 +120,8 @@ public class IndexAllProject extends IndexRequest {
 					// collect output locations if source is project (see http://bugs.eclipse.org/bugs/show_bug.cgi?id=32041)
 					final HashSet outputs = new HashSet();
 					if (sourceFolder.getType() == IResource.PROJECT) {
-						// Do not create marker nor log problems while getting output location (see bug 41859)
-						outputs.add(javaProject.getOutputLocation(false, false));
+						// Do not create marker while getting output location (see bug 41859)
+						outputs.add(javaProject.getOutputLocation());
 						for (int j = 0; j < sourceEntriesNumber; j++) {
 							IPath output = sourceEntries[j].getOutputLocation();
 							if (output != null) {
@@ -137,7 +142,6 @@ public class IndexAllProject extends IndexRequest {
 										case IResource.FILE :
 											if (org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(proxy.getName())) {
 												IFile file = (IFile) proxy.requestResource();
-												if (file.getLocation() == null) return false;
 												if (exclusionPatterns != null || inclusionPatterns != null)
 													if (Util.isExcluded(file, inclusionPatterns, exclusionPatterns))
 														return false;
@@ -161,20 +165,21 @@ public class IndexAllProject extends IndexRequest {
 					} else {
 						sourceFolder.accept(
 							new IResourceProxyVisitor() {
-								public boolean visit(IResourceProxy proxy) {
+								public boolean visit(IResourceProxy proxy) throws CoreException {
 									if (isCancelled) return false;
 									switch(proxy.getType()) {
 										case IResource.FILE :
 											if (org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(proxy.getName())) {
 												IFile file = (IFile) proxy.requestResource();
-												IPath location = file.getLocation();
+												URI location = file.getLocationURI();
 												if (location == null) return false;
 												if (exclusionPatterns != null || inclusionPatterns != null)
 													if (Util.isExcluded(file, inclusionPatterns, exclusionPatterns))
 														return false;
 												String relativePathString = Util.relativePath(file.getFullPath(), 1/*remove project segment*/);
 												indexedFileNames.put(relativePathString,
-													indexedFileNames.get(relativePathString) == null || indexLastModified < location.toFile().lastModified()
+													indexedFileNames.get(relativePathString) == null 
+															|| indexLastModified < EFS.getStore(location).fetchInfo().getLastModified()
 														? (Object) file
 														: (Object) OK);
 											}
@@ -194,7 +199,8 @@ public class IndexAllProject extends IndexRequest {
 					}
 				}
 			}
-
+			
+			SourceElementParser parser = this.manager.getSourceElementParser(javaProject, null/*requestor will be set by indexer*/);
 			Object[] names = indexedFileNames.keyTable;
 			Object[] values = indexedFileNames.valueTable;
 			for (int i = 0, namesLength = names.length; i < namesLength; i++) {
@@ -207,7 +213,7 @@ public class IndexAllProject extends IndexRequest {
 						if (value == DELETED)
 							this.manager.remove(name, this.containerPath);
 						else
-							this.manager.addSource((IFile) value, this.containerPath);
+							this.manager.addSource((IFile) value, this.containerPath, parser);
 					}
 				}
 			}

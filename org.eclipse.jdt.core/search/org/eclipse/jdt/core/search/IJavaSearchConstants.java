@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -96,6 +96,13 @@ public interface IJavaSearchConstants {
 	 * @since 3.1
 	 */
 	int CLASS_AND_INTERFACE= 10;
+	
+	/**
+	 * The searched element is an interface or annotation type.
+	 * More selective than using {@link #TYPE}.
+	 * @since 3.3
+	 */
+	int INTERFACE_AND_ANNOTATION= 11;
 
 	/* Nature of match */
 
@@ -107,11 +114,11 @@ public interface IJavaSearchConstants {
 	int DECLARATIONS= 0;
 
 	/**
-	 * The search result is a type that implements an interface. 
+	 * The search result is a type that implements an interface or extends a class. 
 	 * Used in conjunction with either TYPE or CLASS or INTERFACE, it will
-	 * respectively search for any type implementing/extending an interface, or
-	 * rather exclusively search for classes implementing an interface, or interfaces 
-	 * extending an interface.
+	 * respectively search for any type implementing/extending a type,
+	 * or rather exclusively search for classes implementing/extending the type, or
+	 * interfaces extending the type.
 	 */
 	int IMPLEMENTORS= 1;
 

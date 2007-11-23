@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,9 +12,8 @@ package org.eclipse.jdt.internal.core.search.matching;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
-import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
-public class PackageReferencePattern extends AndPattern implements IIndexConstants {
+public class PackageReferencePattern extends AndPattern {
 
 protected char[] pkgName;
 
@@ -31,7 +30,7 @@ public PackageReferencePattern(char[] pkgName, int matchRule) {
 		this.segments = new char[][] {CharOperation.NO_CHAR};
 		((InternalSearchPattern)this).mustResolve = false;
 	} else {
-		this.pkgName = isCaseSensitive() ? pkgName : CharOperation.toLowerCase(pkgName);
+		this.pkgName = (isCaseSensitive() || isCamelCase())  ? pkgName : CharOperation.toLowerCase(pkgName);
 		this.segments = CharOperation.splitOn('.', this.pkgName);
 		((InternalSearchPattern)this).mustResolve = true;
 	}

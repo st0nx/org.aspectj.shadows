@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -36,16 +36,16 @@ public static MatchLocatorParser createParser(ProblemReporter problemReporter, M
  */
 public class NoClassNoMethodDeclarationVisitor extends ASTVisitor {
 	public boolean visit(ConstructorDeclaration constructorDeclaration, ClassScope scope) {
-		return (constructorDeclaration.bits & ASTNode.HasLocalTypeMASK) != 0; // continue only if it has local type
+		return (constructorDeclaration.bits & ASTNode.HasLocalType) != 0; // continue only if it has local type
 	}
 	public boolean visit(FieldDeclaration fieldDeclaration, MethodScope scope) {
-		return (fieldDeclaration.bits & ASTNode.HasLocalTypeMASK) != 0; // continue only if it has local type;
+		return (fieldDeclaration.bits & ASTNode.HasLocalType) != 0; // continue only if it has local type;
 	}
 	public boolean visit(Initializer initializer, MethodScope scope) {
-		return (initializer.bits & ASTNode.HasLocalTypeMASK) != 0; // continue only if it has local type
+		return (initializer.bits & ASTNode.HasLocalType) != 0; // continue only if it has local type
 	}
 	public boolean visit(MethodDeclaration methodDeclaration, ClassScope scope) {
-		return (methodDeclaration.bits & ASTNode.HasLocalTypeMASK) != 0; // continue only if it has local type
+		return (methodDeclaration.bits & ASTNode.HasLocalType) != 0; // continue only if it has local type
 	}
 }
 public class MethodButNoClassDeclarationVisitor extends NoClassNoMethodDeclarationVisitor {
@@ -57,15 +57,15 @@ public class MethodButNoClassDeclarationVisitor extends NoClassNoMethodDeclarati
 public class ClassButNoMethodDeclarationVisitor extends ASTVisitor {
 	public boolean visit(ConstructorDeclaration constructorDeclaration, ClassScope scope) {
 		patternLocator.match(constructorDeclaration, nodeSet);
-		return (constructorDeclaration.bits & ASTNode.HasLocalTypeMASK) != 0; // continue only if it has local type
+		return (constructorDeclaration.bits & ASTNode.HasLocalType) != 0; // continue only if it has local type
 	}
 	public boolean visit(FieldDeclaration fieldDeclaration, MethodScope scope) {
 		patternLocator.match(fieldDeclaration, nodeSet);
-		return (fieldDeclaration.bits & ASTNode.HasLocalTypeMASK) != 0; // continue only if it has local type;
+		return (fieldDeclaration.bits & ASTNode.HasLocalType) != 0; // continue only if it has local type;
 	}
 	public boolean visit(Initializer initializer, MethodScope scope) {
 		patternLocator.match(initializer, nodeSet);
-		return (initializer.bits & ASTNode.HasLocalTypeMASK) != 0; // continue only if it has local type
+		return (initializer.bits & ASTNode.HasLocalType) != 0; // continue only if it has local type
 	}
 	public boolean visit(TypeDeclaration memberTypeDeclaration, ClassScope scope) {
 		patternLocator.match(memberTypeDeclaration, nodeSet);
@@ -73,7 +73,7 @@ public class ClassButNoMethodDeclarationVisitor extends ASTVisitor {
 	}
 	public boolean visit(MethodDeclaration methodDeclaration, ClassScope scope) {
 		patternLocator.match(methodDeclaration, nodeSet);
-		return (methodDeclaration.bits & ASTNode.HasLocalTypeMASK) != 0; // continue only if it has local type
+		return (methodDeclaration.bits & ASTNode.HasLocalType) != 0; // continue only if it has local type
 	}
 	public boolean visit(AnnotationMethodDeclaration methodDeclaration, ClassScope scope) {
 		patternLocator.match(methodDeclaration, nodeSet);
@@ -107,67 +107,71 @@ public void checkComment() {
 
 		// Search for pattern locator matches in javadoc comment parameters @param tags
 		JavadocSingleNameReference[] paramReferences = this.javadoc.paramReferences;
-		int length = paramReferences == null ? 0 : paramReferences.length;
-		for (int i = 0; i < length; i++) {
-			this.patternLocator.match(paramReferences[i], this.nodeSet);
+		if (paramReferences != null) {
+			for (int i=0, length=paramReferences.length; i < length; i++) {
+				this.patternLocator.match(paramReferences[i], this.nodeSet);
+			}
 		}
 
 		// Search for pattern locator matches in javadoc comment type parameters @param tags
 		JavadocSingleTypeReference[] paramTypeParameters = this.javadoc.paramTypeParameters;
-		length = paramTypeParameters == null ? 0 : paramTypeParameters.length;
-		for (int i = 0; i < length; i++) {
-			this.patternLocator.match(paramTypeParameters[i], this.nodeSet);
+		if (paramTypeParameters != null) {
+			for (int i=0, length=paramTypeParameters.length; i < length; i++) {
+				this.patternLocator.match(paramTypeParameters[i], this.nodeSet);
+			}
 		}
 
 		// Search for pattern locator matches in javadoc comment @throws/@exception tags
 		TypeReference[] thrownExceptions = this.javadoc.exceptionReferences;
-		length = thrownExceptions == null ? 0 : thrownExceptions.length;
-		for (int i = 0; i < length; i++) {
-			this.patternLocator.match(thrownExceptions[i], this.nodeSet);
+		if (thrownExceptions != null) {
+			for (int i=0, length=thrownExceptions.length; i < length; i++) {
+				this.patternLocator.match(thrownExceptions[i], this.nodeSet);
+			}
 		}
 
 		// Search for pattern locator matches in javadoc comment @see tags
 		Expression[] references = this.javadoc.seeReferences;
-		length = references == null ? 0 : references.length;
-		for (int i = 0; i < length; i++) {
-			Expression reference = references[i];
-			if (reference instanceof TypeReference) {
-				TypeReference typeRef = (TypeReference) reference;
-				this.patternLocator.match(typeRef, this.nodeSet);
-			} else if (reference instanceof JavadocFieldReference) {
-				JavadocFieldReference fieldRef = (JavadocFieldReference) reference;
-				this.patternLocator.match(fieldRef, this.nodeSet);
-				if (fieldRef.receiver instanceof TypeReference && !fieldRef.receiver.isThis()) {
-					TypeReference typeRef = (TypeReference) fieldRef.receiver;
+		if (references != null) {
+			for (int i=0, length=references.length; i < length; i++) {
+				Expression reference = references[i];
+				if (reference instanceof TypeReference) {
+					TypeReference typeRef = (TypeReference) reference;
 					this.patternLocator.match(typeRef, this.nodeSet);
-				}
-			} else if (reference instanceof JavadocMessageSend) {
-				JavadocMessageSend messageSend = (JavadocMessageSend) reference;
-				this.patternLocator.match(messageSend, this.nodeSet);
-				if (messageSend.receiver instanceof TypeReference && !messageSend.receiver.isThis()) {
-					TypeReference typeRef = (TypeReference) messageSend.receiver;
-					this.patternLocator.match(typeRef, this.nodeSet);
-				}
-				if (messageSend.arguments != null) {
-					for (int a=0,al=messageSend.arguments.length; a<al; a++) {
-						JavadocArgumentExpression argument = (JavadocArgumentExpression) messageSend.arguments[a];
-						if (argument.argument != null && argument.argument.type != null) {
-							this.patternLocator.match(argument.argument.type, this.nodeSet);
+				} else if (reference instanceof JavadocFieldReference) {
+					JavadocFieldReference fieldRef = (JavadocFieldReference) reference;
+					this.patternLocator.match(fieldRef, this.nodeSet);
+					if (fieldRef.receiver instanceof TypeReference && !fieldRef.receiver.isThis()) {
+						TypeReference typeRef = (TypeReference) fieldRef.receiver;
+						this.patternLocator.match(typeRef, this.nodeSet);
+					}
+				} else if (reference instanceof JavadocMessageSend) {
+					JavadocMessageSend messageSend = (JavadocMessageSend) reference;
+					this.patternLocator.match(messageSend, this.nodeSet);
+					if (messageSend.receiver instanceof TypeReference && !messageSend.receiver.isThis()) {
+						TypeReference typeRef = (TypeReference) messageSend.receiver;
+						this.patternLocator.match(typeRef, this.nodeSet);
+					}
+					if (messageSend.arguments != null) {
+						for (int a=0,al=messageSend.arguments.length; a<al; a++) {
+							JavadocArgumentExpression argument = (JavadocArgumentExpression) messageSend.arguments[a];
+							if (argument.argument != null && argument.argument.type != null) {
+								this.patternLocator.match(argument.argument.type, this.nodeSet);
+							}
 						}
 					}
-				}
-			} else if (reference instanceof JavadocAllocationExpression) {
-				JavadocAllocationExpression constructor = (JavadocAllocationExpression) reference;
-				this.patternLocator.match(constructor, this.nodeSet);
-				if (constructor.type != null && !constructor.type.isThis()) {
-					this.patternLocator.match(constructor.type, this.nodeSet);
-				}
-				if (constructor.arguments != null) {
-					for (int a=0,al=constructor.arguments.length; a<al; a++) {
-						this.patternLocator.match(constructor.arguments[a], this.nodeSet);
-						JavadocArgumentExpression argument = (JavadocArgumentExpression) constructor.arguments[a];
-						if (argument.argument != null && argument.argument.type != null) {
-							this.patternLocator.match(argument.argument.type, this.nodeSet);
+				} else if (reference instanceof JavadocAllocationExpression) {
+					JavadocAllocationExpression constructor = (JavadocAllocationExpression) reference;
+					this.patternLocator.match(constructor, this.nodeSet);
+					if (constructor.type != null && !constructor.type.isThis()) {
+						this.patternLocator.match(constructor.type, this.nodeSet);
+					}
+					if (constructor.arguments != null) {
+						for (int a=0,al=constructor.arguments.length; a<al; a++) {
+							this.patternLocator.match(constructor.arguments[a], this.nodeSet);
+							JavadocArgumentExpression argument = (JavadocArgumentExpression) constructor.arguments[a];
+							if (argument.argument != null && argument.argument.type != null) {
+								this.patternLocator.match(argument.argument.type, this.nodeSet);
+							}
 						}
 					}
 				}
@@ -204,6 +208,12 @@ protected void consumeFieldAccess(boolean isSuperAccess) {
 
 	// this is always a Reference
 	this.patternLocator.match((Reference) this.expressionStack[this.expressionPtr], this.nodeSet);
+}
+protected void consumeFormalParameter(boolean isVarArgs) {
+	super.consumeFormalParameter(isVarArgs);
+
+	// this is always a LocalDeclaration
+	this.patternLocator.match((LocalDeclaration) this.astStack[this.astPtr], this.nodeSet);
 }
 protected void consumeLocalVariableDeclaration() {
 	super.consumeLocalVariableDeclaration();
@@ -382,25 +392,3 @@ protected void parseBodies(TypeDeclaration type, CompilationUnitDeclaration unit
 }
 }
 
-class ImportMatchLocatorParser extends MatchLocatorParser {
-
-protected ImportMatchLocatorParser(ProblemReporter problemReporter, MatchLocator locator) {
-	super(problemReporter, locator);
-}
-protected void consumeStaticImportOnDemandDeclarationName() {
-	super.consumeStaticImportOnDemandDeclarationName();
-	this.patternLocator.match(this.astStack[this.astPtr], this.nodeSet);
-}
-protected void consumeSingleStaticImportDeclarationName() {
-	super.consumeSingleStaticImportDeclarationName();
-	this.patternLocator.match(this.astStack[this.astPtr], this.nodeSet);
-}
-protected void consumeSingleTypeImportDeclarationName() {
-	super.consumeSingleTypeImportDeclarationName();
-	this.patternLocator.match(this.astStack[this.astPtr], this.nodeSet);
-}
-protected void consumeTypeImportOnDemandDeclarationName() {
-	super.consumeTypeImportOnDemandDeclarationName();
-	this.patternLocator.match(this.astStack[this.astPtr], this.nodeSet);
-}
-}

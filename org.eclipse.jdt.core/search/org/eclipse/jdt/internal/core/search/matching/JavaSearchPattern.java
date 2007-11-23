@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * Copyright (c) 2004, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -19,10 +19,11 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
+import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 import org.eclipse.jdt.internal.core.util.Util;
 
 
-public class JavaSearchPattern extends SearchPattern {
+public class JavaSearchPattern extends SearchPattern implements IIndexConstants {
 	
 	/*
 	 * Whether this pattern is case sensitive.
@@ -30,12 +31,19 @@ public class JavaSearchPattern extends SearchPattern {
 	boolean isCaseSensitive;
 
 	/*
-	 * Whether this pattern is erasure match.
+	 * Whether this pattern is camel case.
 	 */
-//	boolean isErasureMatch;
+	boolean isCamelCase;
 
 	/**
-	 * One of {@link #R_EXACT_MATCH}, {@link #R_PREFIX_MATCH}, {@link #R_PATTERN_MATCH}, {@link #R_REGEXP_MATCH}.
+	 * One of following pattern value:
+	 * <ul>
+	 * 	<li>{@link #R_EXACT_MATCH}</li>
+	 *		<li>{@link #R_PREFIX_MATCH}</li>
+	 *		<li>{@link #R_PATTERN_MATCH}</li>
+	 *		<li>{@link #R_REGEXP_MATCH}</li>
+	 *		<li>{@link #R_CAMELCASE_MATCH}</li>
+	 * </ul>
 	 */
 	int matchMode;
 
@@ -47,12 +55,12 @@ public class JavaSearchPattern extends SearchPattern {
 	/**
 	 * Mask used on match rule for match mode.
 	 */
-	public static final int MATCH_MODE_MASK = R_EXACT_MATCH + R_PREFIX_MATCH + R_PATTERN_MATCH + R_REGEXP_MATCH;
+	public static final int MATCH_MODE_MASK = R_EXACT_MATCH | R_PREFIX_MATCH | R_PATTERN_MATCH | R_REGEXP_MATCH;
 
 	/**
 	 * Mask used on match rule for generic relevance.
 	 */
-	public static final int MATCH_COMPATIBILITY_MASK = R_ERASURE_MATCH + R_EQUIVALENT_MATCH + R_FULL_MATCH;
+	public static final int MATCH_COMPATIBILITY_MASK = R_ERASURE_MATCH | R_EQUIVALENT_MATCH | R_FULL_MATCH;
 
 	// Signatures and arguments for parameterized types search
 	char[][] typeSignatures;
@@ -67,6 +75,7 @@ public class JavaSearchPattern extends SearchPattern {
 		// see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=81377
 		int rule = getMatchRule();
 		this.isCaseSensitive = (rule & R_CASE_SENSITIVE) != 0;
+		this.isCamelCase = (rule & R_CAMELCASE_MATCH) != 0;
 		this.matchCompatibility = rule & MATCH_COMPATIBILITY_MASK;
 		this.matchMode = rule & MATCH_MODE_MASK;
 	}
@@ -77,6 +86,10 @@ public class JavaSearchPattern extends SearchPattern {
 
 	int getMatchMode() {
 		return this.matchMode;
+	}
+
+	boolean isCamelCase() {
+		return this.isCamelCase;
 	}
 
 	boolean isCaseSensitive () {
@@ -103,13 +116,15 @@ public class JavaSearchPattern extends SearchPattern {
 		} else {
 			try {
 				ITypeParameter[] parameters = method.getTypeParameters();
-				int length = parameters==null ? 0 : parameters.length;
-				if (length > 0) {
-					char[][] arguments = new char[length][];
-					for (int i=0; i<length; i++) {
-						arguments[i] = Signature.createTypeSignature(parameters[i].getElementName(), false).toCharArray();
+				if (parameters != null) {
+					int length = parameters.length;
+					if (length > 0) {
+						char[][] arguments = new char[length][];
+						for (int i=0; i<length; i++) {
+							arguments[i] = Signature.createTypeSignature(parameters[i].getElementName(), false).toCharArray();
+						}
+						return arguments;
 					}
-					return arguments;
 				}
 			}
 			catch (JavaModelException jme) {
@@ -119,14 +134,16 @@ public class JavaSearchPattern extends SearchPattern {
 		}
 
 		// Parameterized method
-		int length = argumentsSignatures==null ? 0 : argumentsSignatures.length;
-		if (length > 0) {
-			char[][] methodArguments = new char[length][];
-			for (int i=0; i<length; i++) {
-				methodArguments[i] = argumentsSignatures[i].toCharArray();
-				CharOperation.replace(methodArguments[i], new char[] { '$', '/' }, '.');
+		if (argumentsSignatures != null) {
+			int length = argumentsSignatures.length;
+			if (length > 0) {
+				char[][] methodArguments = new char[length][];
+				for (int i=0; i<length; i++) {
+					methodArguments[i] = argumentsSignatures[i].toCharArray();
+					CharOperation.replace(methodArguments[i], new char[] { '$', '/' }, '.');
+				}
+				return methodArguments;
 			}
-			return methodArguments;
 		}
 		return null;
 	}
@@ -165,35 +182,78 @@ public class JavaSearchPattern extends SearchPattern {
 		return !hasSignatures() && hasTypeArguments();
 	}
 	
-	/*
-	 * Optimization of implementation above (uses cached matchMode and isCaseSenistive)
+	/**
+	 * Return whether two suffixes are compatible.
+	 * 
+	 * Note that obvious compatibility values as equals and {@link IIndexConstants#TYPE_SUFFIX}
+	 * has to be tested by caller to avoid unnecessary method call...
+	 * 
+	 * @param typeSuffix
+	 * @param patternSuffix
+	 * @return true if suffixes are compatible, false otherwise
 	 */
-	public boolean matchesName(char[] pattern, char[] name) {
-		if (pattern == null) return true; // null is as if it was "*"
-		if (name != null) {
-			switch (this.matchMode) {
-				case R_EXACT_MATCH :
-					return CharOperation.equals(pattern, name, this.isCaseSensitive);
-				case R_PREFIX_MATCH :
-					return CharOperation.prefixEquals(pattern, name, this.isCaseSensitive);
-				case R_PATTERN_MATCH :
-					if (!this.isCaseSensitive)
-						 // TODO do we really need to this? should we add a 'fast' method when we know its already been done?
-						pattern = CharOperation.toLowerCase(pattern);
-					return CharOperation.match(pattern, name, this.isCaseSensitive);
-				case R_REGEXP_MATCH :
-					// TODO (frederic) implement regular expression match
-					return true;
-			}
+	boolean matchDifferentTypeSuffixes(int typeSuffix, int patternSuffix) {
+		switch(typeSuffix) {
+			case CLASS_SUFFIX :
+				switch (patternSuffix) {
+					case CLASS_AND_INTERFACE_SUFFIX :
+					case CLASS_AND_ENUM_SUFFIX :
+						return true;
+				}
+				return false;
+
+			case INTERFACE_SUFFIX :
+				switch (patternSuffix) {
+					case CLASS_AND_INTERFACE_SUFFIX :
+					case INTERFACE_AND_ANNOTATION_SUFFIX:
+						return true;
+				}
+				return false;
+
+			case ENUM_SUFFIX :
+				return patternSuffix == CLASS_AND_ENUM_SUFFIX;
+
+			case ANNOTATION_TYPE_SUFFIX :
+				return patternSuffix == INTERFACE_AND_ANNOTATION_SUFFIX;
+
+			case CLASS_AND_INTERFACE_SUFFIX :
+				switch (patternSuffix) {
+					case CLASS_SUFFIX :
+					case INTERFACE_SUFFIX :
+						return true;
+				}
+				return false;
+
+			case CLASS_AND_ENUM_SUFFIX :
+				switch (patternSuffix) {
+					case CLASS_SUFFIX :
+					case ENUM_SUFFIX :
+						return true;
+				}
+				return false;
+
+			case INTERFACE_AND_ANNOTATION_SUFFIX :
+				switch (patternSuffix) {
+					case INTERFACE_SUFFIX :
+					case ANNOTATION_TYPE_SUFFIX :
+						return true;
+				}
+				return false;
 		}
-		return false;
+		
+		// Default behavior is to match suffixes
+		return true;
 	}
+
 	protected StringBuffer print(StringBuffer output) {
 		output.append(", "); //$NON-NLS-1$
 		if (hasTypeArguments() && hasSignatures()) {
 			output.append("signature:\""); //$NON-NLS-1$
 			output.append(this.typeSignatures[0]);
 			output.append("\", "); //$NON-NLS-1$
+		}
+		if (this.isCamelCase) {
+			output.append("camel case + "); //$NON-NLS-1$
 		}
 		switch(getMatchMode()) {
 			case R_EXACT_MATCH : 
@@ -204,6 +264,9 @@ public class JavaSearchPattern extends SearchPattern {
 				break;
 			case R_PATTERN_MATCH :
 				output.append("pattern match,"); //$NON-NLS-1$
+				break;
+			case R_REGEXP_MATCH :
+				output.append("regexp match, "); //$NON-NLS-1$
 				break;
 		}
 		if (isCaseSensitive())
@@ -242,7 +305,7 @@ public class JavaSearchPattern extends SearchPattern {
 	void storeTypeSignaturesAndArguments(IType type) {
 		BindingKey key;
 		if (type.isResolved() && (key = new BindingKey(type.getKey())).isParameterizedType()) {
-			String signature = key.internalToSignature();
+			String signature = key.toSignature();
 			this.typeSignatures = Util.splitTypeLevelsSignature(signature);
 			setTypeArguments(Util.getAllTypeArguments(this.typeSignatures));
 		} else {
@@ -259,12 +322,14 @@ public class JavaSearchPattern extends SearchPattern {
 					}
 					IType parentType = (IType) parent;
 					parameters = parentType.getTypeParameters();
-					int length = parameters==null ? 0 : parameters.length;
-					if (length > 0) {
-						hasParameters = true;
-						typeParameters[ptr] = new char[length][];
-						for (int i=0; i<length; i++)
-							typeParameters[ptr][i] = Signature.createTypeSignature(parameters[i].getElementName(), false).toCharArray();
+					if (parameters !=null) {
+						int length = parameters.length;
+						if (length > 0) {
+							hasParameters = true;
+							typeParameters[ptr] = new char[length][];
+							for (int i=0; i<length; i++)
+								typeParameters[ptr][i] = Signature.createTypeSignature(parameters[i].getElementName(), false).toCharArray();
+						}
 					}
 					parent = parent.getParent();
 				}

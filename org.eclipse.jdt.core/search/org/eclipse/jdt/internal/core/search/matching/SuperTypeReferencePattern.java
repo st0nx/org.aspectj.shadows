@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,15 +14,18 @@ import java.io.IOException;
 
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.search.*;
-import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 import org.eclipse.jdt.internal.core.index.*;
 
-public class SuperTypeReferencePattern extends JavaSearchPattern implements IIndexConstants {
+public class SuperTypeReferencePattern extends JavaSearchPattern {
 
 public char[] superQualification;
 public char[] superSimpleName;
 public char superClassOrInterface;
 
+// set to CLASS_SUFFIX for only matching classes 
+// set to INTERFACE_SUFFIX for only matching interfaces
+// set to TYPE_SUFFIX for matching both classes and interfaces
+public char typeSuffix; 
 public char[] pkgName;
 public char[] simpleName;
 public char[] enclosingTypeName;
@@ -30,7 +33,10 @@ public char classOrInterface;
 public int modifiers;
 public char[][] typeParameterSignatures;
 
-protected boolean checkOnlySuperinterfaces; // used for IMPLEMENTORS
+protected int superRefKind;
+public static final int ALL_SUPER_TYPES = 0;
+public static final int ONLY_SUPER_INTERFACES = 1; // used for IMPLEMENTORS
+public static final int ONLY_SUPER_CLASSES = 2; // used for hierarchy with a class focus
 
 protected static char[][] CATEGORIES = { SUPER_REF };
 
@@ -139,15 +145,26 @@ public static char[] createIndexKey(
 public SuperTypeReferencePattern(
 	char[] superQualification,
 	char[] superSimpleName,
-	boolean checkOnlySuperinterfaces,
+	int superRefKind,
 	int matchRule) {
 
 	this(matchRule);
 
 	this.superQualification = isCaseSensitive() ? superQualification : CharOperation.toLowerCase(superQualification);
-	this.superSimpleName = isCaseSensitive() ? superSimpleName : CharOperation.toLowerCase(superSimpleName);
+	this.superSimpleName = (isCaseSensitive() || isCamelCase())  ? superSimpleName : CharOperation.toLowerCase(superSimpleName);
 	((InternalSearchPattern)this).mustResolve = superQualification != null;
-	this.checkOnlySuperinterfaces = checkOnlySuperinterfaces; // ie. skip the superclass
+	this.superRefKind = superRefKind;
+}
+public SuperTypeReferencePattern(
+	char[] superQualification,
+	char[] superSimpleName,
+	int superRefKind,
+	char typeSuffix,
+	int matchRule) {
+
+	this(superQualification, superSimpleName, superRefKind, matchRule);
+	this.typeSuffix = typeSuffix;
+	((InternalSearchPattern)this).mustResolve = superQualification != null || typeSuffix != TYPE_SUFFIX;
 }
 SuperTypeReferencePattern(int matchRule) {
 	super(SUPER_REF_PATTERN, matchRule);
@@ -167,28 +184,38 @@ public void decodeIndexKey(char[] key) {
 	slash = CharOperation.indexOf(SEPARATOR, key, start = slash + 1);
 	this.simpleName = CharOperation.subarray(key, start, slash);
 
-	slash = CharOperation.indexOf(SEPARATOR, key, start = slash + 1);
-	if (slash == start) {
+	start = ++slash;
+	if (key[start] == SEPARATOR) {
 		this.enclosingTypeName = null;
 	} else {
-		char[] names = CharOperation.subarray(key, start, slash);
-		this.enclosingTypeName = CharOperation.equals(ONE_ZERO, names) ? ONE_ZERO : names;
+		slash = CharOperation.indexOf(SEPARATOR, key, start);
+		if (slash == (start+1) && key[start] == ZERO_CHAR) {
+			this.enclosingTypeName = ONE_ZERO;
+		} else {
+			char[] names = CharOperation.subarray(key, start, slash);
+			this.enclosingTypeName = names;
+		}
 	}
 
-	slash = CharOperation.indexOf(SEPARATOR, key, start = slash + 1);
-	if (slash == start) {
+	start = ++slash;
+	if (key[start] == SEPARATOR) {
 		this.typeParameterSignatures = null;
 	} else {
-		char[] names = CharOperation.subarray(key, start, slash);
-		this.typeParameterSignatures = CharOperation.splitOn(',', names);
+		slash = CharOperation.indexOf(SEPARATOR, key, start);
+		this.typeParameterSignatures = CharOperation.splitOn(',', key, start, slash);
 	}
 
-	slash = CharOperation.indexOf(SEPARATOR, key, start = slash + 1);
-	if (slash == start) {
+	start = ++slash;
+	if (key[start] == SEPARATOR) {
 		this.pkgName = null;
 	} else {
-		char[] names = CharOperation.subarray(key, start, slash);
-		this.pkgName = CharOperation.equals(ONE_ZERO, names) ? this.superQualification : names;
+		slash = CharOperation.indexOf(SEPARATOR, key, start);
+		if (slash == (start+1) && key[start] == ZERO_CHAR) {
+			this.pkgName = this.superQualification;
+		} else {
+			char[] names = CharOperation.subarray(key, start, slash);
+			this.pkgName = names;
+		}
 	}
 
 	this.superClassOrInterface = key[slash + 1];
@@ -203,8 +230,11 @@ public char[][] getIndexCategories() {
 }
 public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 	SuperTypeReferencePattern pattern = (SuperTypeReferencePattern) decodedPattern;
-	if (this.checkOnlySuperinterfaces)
-		if (pattern.superClassOrInterface != IIndexConstants.INTERFACE_SUFFIX) return false;
+	if (this.superRefKind == ONLY_SUPER_CLASSES && pattern.enclosingTypeName != ONE_ZERO/*not an anonymous*/) 
+		// consider enumerations as classes, reject interfaces and annotations
+		if (pattern.superClassOrInterface == INTERFACE_SUFFIX 
+			|| pattern.superClassOrInterface == ANNOTATION_TYPE_SUFFIX) 
+			return false;
 
 	if (pattern.superQualification != null)
 		if (!matchesName(this.superQualification, pattern.superQualification)) return false;
@@ -218,8 +248,10 @@ EntryResult[] queryIn(Index index) throws IOException {
 	// cannot include the superQualification since it may not exist in the index
 	switch(getMatchMode()) {
 		case R_EXACT_MATCH :
+			if (this.isCamelCase) break;
 			// do a prefix query with the superSimpleName
-			matchRule = matchRule - R_EXACT_MATCH + R_PREFIX_MATCH;
+			matchRule &= ~R_EXACT_MATCH;
+			matchRule |= R_PREFIX_MATCH;
 			if (this.superSimpleName != null)
 				key = CharOperation.append(this.superSimpleName, SEPARATOR);
 			break;
@@ -229,15 +261,25 @@ EntryResult[] queryIn(Index index) throws IOException {
 		case R_PATTERN_MATCH :
 			// do a pattern query with the superSimpleName
 			break;
+		case R_REGEXP_MATCH :
+			// TODO (frederic) implement regular expression match
+			break;
 	}
 
 	return index.query(getIndexCategories(), key, matchRule); // match rule is irrelevant when the key is null
 }
 protected StringBuffer print(StringBuffer output) {
-	output.append(
-		this.checkOnlySuperinterfaces
-			? "SuperInterfaceReferencePattern: <" //$NON-NLS-1$
-			: "SuperTypeReferencePattern: <"); //$NON-NLS-1$
+	switch (this.superRefKind) {
+		case ALL_SUPER_TYPES:
+			output.append("SuperTypeReferencePattern: <"); //$NON-NLS-1$
+			break;
+		case ONLY_SUPER_INTERFACES:
+			output.append("SuperInterfaceReferencePattern: <"); //$NON-NLS-1$
+			break;
+		case ONLY_SUPER_CLASSES:
+			output.append("SuperClassReferencePattern: <"); //$NON-NLS-1$
+			break;
+	}
 	if (superSimpleName != null) 
 		output.append(superSimpleName);
 	else

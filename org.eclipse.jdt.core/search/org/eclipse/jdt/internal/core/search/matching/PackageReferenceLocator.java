@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -31,7 +31,7 @@ public static boolean isDeclaringPackageFragment(IPackageFragment packageFragmen
 	char[] fileName = typeBinding.getFileName();
 	if (fileName != null) {
 		// retrieve the actual file name from the full path (sources are generally only containing it already)
-		CharOperation.replace(fileName, '/', '\\');
+		fileName = CharOperation.replaceOnCopy(fileName, '/', '\\'); // ensure to not do any side effect on file name (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=136016)
 		fileName = CharOperation.lastSegment(fileName, '\\');
 		
 		try { 
@@ -95,18 +95,32 @@ protected int matchLevel(ImportReference importRef) {
 protected int matchLevelForTokens(char[][] tokens) {
 	if (this.pattern.pkgName == null) return ACCURATE_MATCH;
 
+	char[] packageName = null;
+	if (this.isCamelCase) {
+		packageName = CharOperation.concatWith(tokens, '.');
+		if (CharOperation.camelCaseMatch(this.pattern.pkgName, packageName)) {
+			return POSSIBLE_MATCH;
+		}
+	}
 	switch (this.matchMode) {
 		case SearchPattern.R_EXACT_MATCH:
 		case SearchPattern.R_PREFIX_MATCH:
-			if (CharOperation.prefixEquals(this.pattern.pkgName, CharOperation.concatWith(tokens, '.'), this.isCaseSensitive))
+			if (packageName==null) packageName = CharOperation.concatWith(tokens, '.');
+			if (CharOperation.prefixEquals(this.pattern.pkgName, packageName, this.isCaseSensitive)) {
 				return POSSIBLE_MATCH;
+			}
 			break;
 		case SearchPattern.R_PATTERN_MATCH:
 			char[] patternName = this.pattern.pkgName[this.pattern.pkgName.length - 1] == '*'
 				? this.pattern.pkgName
 				: CharOperation.concat(this.pattern.pkgName, ".*".toCharArray()); //$NON-NLS-1$
-			if (CharOperation.match(patternName, CharOperation.concatWith(tokens, '.'), this.isCaseSensitive))
+			if (packageName==null) packageName = CharOperation.concatWith(tokens, '.');
+			if (CharOperation.match(patternName, packageName, this.isCaseSensitive)) {
 				return POSSIBLE_MATCH;
+			}
+			break;
+		case SearchPattern.R_REGEXP_MATCH :
+			// TODO (frederic) implement regular expression match
 			break;
 	}
 	return IMPOSSIBLE_MATCH;
@@ -142,7 +156,7 @@ protected void matchReportImportRef(ImportReference importRef, Binding binding, 
 			long[] positions = importRef.sourcePositions;
 			int last = positions.length - 1;
 			if (binding instanceof ProblemReferenceBinding)
-				binding = ((ProblemReferenceBinding) binding).closestMatch;
+				binding = ((ProblemReferenceBinding) binding).closestMatch();
 			if (binding instanceof ReferenceBinding) {
 				PackageBinding pkgBinding = ((ReferenceBinding) binding).fPackage;
 				if (pkgBinding != null)
@@ -163,7 +177,7 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 	if (reference instanceof ImportReference) {
 		ImportReference importRef = (ImportReference) reference;
 		positions = importRef.sourcePositions;
-		last = importRef.onDemand ? positions.length : positions.length - 1;
+		last = (importRef.bits & ASTNode.OnDemand) != 0 ? positions.length : positions.length - 1;
 	} else {
 		TypeBinding typeBinding = null;
 		if (reference instanceof QualifiedNameReference) {
@@ -202,10 +216,11 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 			positions[0] = (((long)jsTypeRef.sourceStart) << 32) + jsTypeRef.sourceEnd;
 			typeBinding = jsTypeRef.resolvedType;
 		}
+		if (positions == null) return;
 		if (typeBinding instanceof ArrayBinding)
 			typeBinding = ((ArrayBinding) typeBinding).leafComponentType;
 		if (typeBinding instanceof ProblemReferenceBinding)
-			typeBinding = ((ProblemReferenceBinding) typeBinding).closestMatch;
+			typeBinding = ((ProblemReferenceBinding) typeBinding).closestMatch();
 		if (typeBinding instanceof ReferenceBinding) {
 			PackageBinding pkgBinding = ((ReferenceBinding) typeBinding).fPackage;
 			if (pkgBinding != null)
@@ -268,7 +283,7 @@ public int resolveLevel(Binding binding) {
 		if (binding instanceof ArrayBinding)
 			binding = ((ArrayBinding) binding).leafComponentType;
 		if (binding instanceof ProblemReferenceBinding)
-			binding = ((ProblemReferenceBinding) binding).closestMatch;
+			binding = ((ProblemReferenceBinding) binding).closestMatch();
 		if (binding == null) return INACCURATE_MATCH;
 
 		if (binding instanceof ReferenceBinding) {
