@@ -6,7 +6,7 @@ org.eclipse.jdt.core/debug/buffermanager=false
 
 # Reports incremental builder activity : nature of build, built state reading, indictment process
 org.eclipse.jdt.core/debug/builder=false
-
+ 
 # Reports compiler activity
 org.eclipse.jdt.core/debug/compiler=false
 
@@ -15,6 +15,9 @@ org.eclipse.jdt.core/debug/completion=false
 
 # Reports classpath variable initialization, and classpath container resolution
 org.eclipse.jdt.core/debug/cpresolution=false
+
+# Reports internals of classpath variable initialization, and classpath container resolution (to be used on the JDT/Core team request only)
+org.eclipse.jdt.core/debug/cpresolution/advanced=false
 
 # Report type hierarchy connections, refreshes and deltas
 org.eclipse.jdt.core/debug/hierarchy=false
@@ -26,8 +29,11 @@ org.eclipse.jdt.core/debug/indexmanager=false
 org.eclipse.jdt.core/debug/javadelta=false
 org.eclipse.jdt.core/debug/javadelta/verbose=false
 
-# Reports Java model elements opening/closing
+# Reports various Java model activities
 org.eclipse.jdt.core/debug/javamodel=false
+
+# Reports Java model elements opening/closing
+org.eclipse.jdt.core/debug/javamodel/cache=false
 
 # Reports post actions addition/run
 org.eclipse.jdt.core/debug/postaction=false
@@ -37,6 +43,9 @@ org.eclipse.jdt.core/debug/resolution=false
 
 # Reports java search activity
 org.eclipse.jdt.core/debug/search=false
+
+# Reports source mapper activity
+org.eclipse.jdt.core/debug/sourcemapper=false
 
 # Reports open on selection activity : recovered unit, inferred selection
 org.eclipse.jdt.core/debug/selection=false
