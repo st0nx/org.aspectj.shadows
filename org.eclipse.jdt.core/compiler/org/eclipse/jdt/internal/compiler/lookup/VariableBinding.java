@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 
 public abstract class VariableBinding extends Binding {
@@ -17,7 +18,7 @@ public abstract class VariableBinding extends Binding {
 	public int modifiers;
 	public TypeBinding type;
 	public char[] name;
-	private Constant constant;
+	protected Constant constant;
 	public int id; // for flow-analysis (position in flowInfo bit vector)
 	public long tagBits;
 
@@ -31,19 +32,17 @@ public abstract class VariableBinding extends Binding {
 	public Constant constant() {
 		return this.constant;
 	}
-	
+
+	public abstract AnnotationBinding[] getAnnotations();
+
 	public final boolean isBlankFinal(){
-		return (modifiers & AccBlankFinal) != 0;
+		return (modifiers & ExtraCompilerModifiers.AccBlankFinal) != 0;
 	}
 	/* Answer true if the receiver is final and cannot be changed
 	*/
 	
-	public boolean isConstantValue() {
-		return constant != Constant.NotAConstant;
-	}
-	
 	public final boolean isFinal() {
-		return (modifiers & AccFinal) != 0;
+		return (modifiers & ClassFileConstants.AccFinal) != 0;
 	}
 	public char[] readableName() {
 		return name;

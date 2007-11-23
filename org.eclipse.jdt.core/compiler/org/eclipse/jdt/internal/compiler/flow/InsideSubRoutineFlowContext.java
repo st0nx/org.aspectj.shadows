@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,39 +21,38 @@ public class InsideSubRoutineFlowContext extends FlowContext {
 
 	public UnconditionalFlowInfo initsOnReturn;
 	
-	public InsideSubRoutineFlowContext(
-		FlowContext parent,
-		ASTNode associatedNode) {
-		super(parent, associatedNode);
-		this.initsOnReturn = FlowInfo.DEAD_END;				
-	}
+public InsideSubRoutineFlowContext(
+	FlowContext parent,
+	ASTNode associatedNode) {
+	super(parent, associatedNode);
+	this.initsOnReturn = FlowInfo.DEAD_END;
+}
 
-	public String individualToString() {
-		
-		StringBuffer buffer = new StringBuffer("Inside SubRoutine flow context"); //$NON-NLS-1$
-		buffer.append("[initsOnReturn -").append(initsOnReturn.toString()).append(']'); //$NON-NLS-1$
-		return buffer.toString();
-	}
-		
-	public UnconditionalFlowInfo initsOnReturn(){
-		return this.initsOnReturn;
-	}
-		
-	public boolean isNonReturningContext() {
-		return subRoutine().isSubRoutineEscaping();
-	}
-	
-	public SubRoutineStatement subRoutine() {
-		return (SubRoutineStatement)associatedNode;
-	}
-	
-	public void recordReturnFrom(FlowInfo flowInfo) {
+public String individualToString() {
+	StringBuffer buffer = new StringBuffer("Inside SubRoutine flow context"); //$NON-NLS-1$
+	buffer.append("[initsOnReturn -").append(this.initsOnReturn.toString()).append(']'); //$NON-NLS-1$
+	return buffer.toString();
+}
 
-		if (!flowInfo.isReachable()) return; 
-		if (initsOnReturn == FlowInfo.DEAD_END) {
-			initsOnReturn = flowInfo.copy().unconditionalInits();
-		} else {
-			initsOnReturn = initsOnReturn.mergedWith(flowInfo.copy().unconditionalInits());
-		}
+public UnconditionalFlowInfo initsOnReturn(){
+	return this.initsOnReturn;
+}
+	
+public boolean isNonReturningContext() {
+	return ((SubRoutineStatement) this.associatedNode).isSubRoutineEscaping();
+}
+	
+public void recordReturnFrom(UnconditionalFlowInfo flowInfo) {
+	if ((flowInfo.tagBits & FlowInfo.UNREACHABLE) == 0)	{
+	if (this.initsOnReturn == FlowInfo.DEAD_END) {
+		this.initsOnReturn = (UnconditionalFlowInfo) flowInfo.copy();
+	} else {
+		this.initsOnReturn = this.initsOnReturn.mergedWith(flowInfo);
 	}
+	}
+}
+
+public SubRoutineStatement subroutine() {
+	return (SubRoutineStatement) this.associatedNode;
+}
 }

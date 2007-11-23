@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,6 +14,7 @@ import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.FlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class ThisReference extends Reference {
@@ -21,7 +22,7 @@ public class ThisReference extends Reference {
 	public static ThisReference implicitThis(){
 
 		ThisReference implicitThis = new ThisReference(0, 0); 
-		implicitThis.bits |= IsImplicitThisMask;
+		implicitThis.bits |= IsImplicitThis;
 		return implicitThis;
 	}
 		
@@ -68,7 +69,7 @@ public class ThisReference extends Reference {
 		int pc = codeStream.position;
 		if (valueRequired)
 			codeStream.aload_0();
-		if ((this.bits & IsImplicitThisMask) == 0) codeStream.recordPositionsFrom(pc, this.sourceStart);
+		if ((this.bits & IsImplicitThis) == 0) codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
 	/* 
@@ -89,7 +90,7 @@ public class ThisReference extends Reference {
 	
 	public boolean isImplicitThis() {
 		
-		return (this.bits & IsImplicitThisMask) != 0;
+		return (this.bits & IsImplicitThis) != 0;
 	}
 
 	public boolean isThis() {
@@ -109,14 +110,19 @@ public class ThisReference extends Reference {
 
 	public TypeBinding resolveType(BlockScope scope) {
 	
-		constant = NotAConstant;
+		constant = Constant.NotAConstant;
 		if (!this.isImplicitThis() &&!checkAccess(scope.methodScope())) {
 			return null;
 		}
-		return this.resolvedType = scope.enclosingSourceType();
+		return this.resolvedType = scope.enclosingReceiverType();
 	}
 
 	public void traverse(ASTVisitor visitor, BlockScope blockScope) {
+
+		visitor.visit(this, blockScope);
+		visitor.endVisit(this, blockScope);
+	}
+	public void traverse(ASTVisitor visitor, ClassScope blockScope) {
 
 		visitor.visit(this, blockScope);
 		visitor.endVisit(this, blockScope);

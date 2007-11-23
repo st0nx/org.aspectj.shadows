@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
@@ -20,10 +21,10 @@ import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
 public class SingleNameReference extends NameReference implements OperatorIds {
     
-	public char[] token;
-	public MethodBinding[] syntheticAccessors; // [0]=read accessor [1]=write accessor
 	public static final int READ = 0;
 	public static final int WRITE = 1;
+	public char[] token;
+	public MethodBinding[] syntheticAccessors; // [0]=read accessor [1]=write accessor
 	public TypeBinding genericCast;
 	
 	public SingleNameReference(char[] source, long pos) {
@@ -34,14 +35,14 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 	}
 	public FlowInfo analyseAssignment(BlockScope currentScope, FlowContext flowContext, FlowInfo flowInfo, Assignment assignment, boolean isCompound) {
 	
-		boolean isReachable = flowInfo.isReachable();
+		boolean isReachable = (flowInfo.tagBits & FlowInfo.UNREACHABLE) == 0;
 		// compound assignment extra work
 		if (isCompound) { // check the variable part is initialized if blank final
 			switch (bits & RestrictiveFlagMASK) {
 				case Binding.FIELD : // reading a field
 					FieldBinding fieldBinding;
 					if ((fieldBinding = (FieldBinding) binding).isBlankFinal() 
-							&& currentScope.allowBlankFinalFieldAssignment(fieldBinding)) {
+							&& currentScope.needBlankFinalFieldInitializationCheck(fieldBinding)) {
 						if (!flowInfo.isDefinitelyAssigned(fieldBinding)) {
 							currentScope.problemReporter().uninitializedBlankFinalField(fieldBinding, this);
 						}
@@ -76,7 +77,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 					MethodScope methodScope = currentScope.methodScope();
 					SourceTypeBinding sourceType = currentScope.enclosingSourceType();
 					if (fieldBinding.isStatic()
-							&& this.constant == NotAConstant
+							&& this.constant == Constant.NotAConstant
 							&& !methodScope.isStatic
 							&& (sourceType == declaringClass || sourceType.superclass == declaringClass) // enum constant body
 							&& methodScope.isInsideInitializerOrConstructor()) {
@@ -101,9 +102,9 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 			case Binding.LOCAL : // assigning to a local variable 
 				LocalVariableBinding localBinding = (LocalVariableBinding) binding;
 				if (!flowInfo.isDefinitelyAssigned(localBinding)){// for local variable debug attributes
-					bits |= FirstAssignmentToLocalMASK;
+					bits |= FirstAssignmentToLocal;
 				} else {
-					bits &= ~FirstAssignmentToLocalMASK;
+					bits &= ~FirstAssignmentToLocal;
 				}
 				if (localBinding.isFinal()) {
 					if ((bits & DepthMASK) == 0) {
@@ -119,6 +120,9 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 						currentScope.problemReporter().cannotAssignToFinalOuterLocal(localBinding, this);
 					}
 				}
+				else /* avoid double diagnostic */ if ((localBinding.tagBits & TagBits.IsArgument) != 0) {
+					currentScope.problemReporter().parameterAssignment(localBinding, this);
+				}
 				flowInfo.markAsDefinitelyAssigned(localBinding);
 		}
 		manageEnclosingInstanceAccessIfNecessary(currentScope, flowInfo);
@@ -131,7 +135,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 	
 		switch (bits & RestrictiveFlagMASK) {
 			case Binding.FIELD : // reading a field
-				if (valueRequired) {
+				if (valueRequired || currentScope.compilerOptions().complianceLevel >= ClassFileConstants.JDK1_4) {
 					manageSyntheticAccessIfNecessary(currentScope, flowInfo, true /*read-access*/);
 				}
 				FieldBinding fieldBinding = (FieldBinding) binding;
@@ -141,7 +145,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 					MethodScope methodScope = currentScope.methodScope();
 					SourceTypeBinding sourceType = currentScope.enclosingSourceType();
 					if (fieldBinding.isStatic()
-							&& this.constant == NotAConstant
+							&& this.constant == Constant.NotAConstant
 							&& !methodScope.isStatic
 							&& (sourceType == declaringClass || sourceType.superclass == declaringClass) // enum constant body
 							&& methodScope.isInsideInitializerOrConstructor()) {
@@ -149,7 +153,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 					}
 				}				
 				// check if reading a final blank field
-				if (fieldBinding.isBlankFinal() && currentScope.allowBlankFinalFieldAssignment(fieldBinding)) {
+				if (fieldBinding.isBlankFinal() && currentScope.needBlankFinalFieldInitializationCheck(fieldBinding)) {
 					if (!flowInfo.isDefinitelyAssigned(fieldBinding)) {
 						currentScope.problemReporter().uninitializedBlankFinalField(fieldBinding, this);
 					}
@@ -160,7 +164,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 				if (!flowInfo.isDefinitelyAssigned(localBinding = (LocalVariableBinding) binding)) {
 					currentScope.problemReporter().uninitializedLocalVariable(localBinding, this);
 				}
-				if (flowInfo.isReachable()) {
+				if ((flowInfo.tagBits & FlowInfo.UNREACHABLE) == 0)	{
 					localBinding.useFlag = LocalVariableBinding.USED;
 				} else if (localBinding.useFlag == LocalVariableBinding.UNUSED) {
 					localBinding.useFlag = LocalVariableBinding.FAKE_USED;
@@ -184,25 +188,23 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 			// must check for the static status....
 			if (methodScope.isStatic) {
 				scope.problemReporter().staticFieldAccessToNonStaticVariable(this, fieldBinding);
-				this.constant = NotAConstant;
+				this.constant = Constant.NotAConstant;
 				return fieldBinding.type;
 			}
 		}
-		this.constant = FieldReference.getConstantFor(fieldBinding, this, true, scope);
+		this.constant = fieldBinding.constant();
 	
-		if (isFieldUseDeprecated(fieldBinding, scope, (this.bits & IsStrictlyAssignedMASK) !=0))
+		if (isFieldUseDeprecated(fieldBinding, scope, (this.bits & IsStrictlyAssigned) !=0))
 			scope.problemReporter().deprecatedField(fieldBinding, this);
 	
-		if ((this.bits & IsStrictlyAssignedMASK) == 0
-			&& methodScope.enclosingSourceType() == fieldBinding.declaringClass
-			&& methodScope.lastVisibleFieldID >= 0
-			&& fieldBinding.id >= methodScope.lastVisibleFieldID) {
-			//if the field is static and ms is not .... then it is valid
-			if (!fieldBinding.isStatic() || methodScope.isStatic)
-				scope.problemReporter().forwardReference(this, 0, methodScope.enclosingSourceType());
+		if ((this.bits & IsStrictlyAssigned) == 0
+				&& methodScope.enclosingSourceType() == fieldBinding.original().declaringClass
+				&& methodScope.lastVisibleFieldID >= 0
+				&& fieldBinding.id >= methodScope.lastVisibleFieldID
+				&& (!fieldBinding.isStatic() || methodScope.isStatic)) {
+			scope.problemReporter().forwardReference(this, 0, methodScope.enclosingSourceType());
+			this.bits |= ASTNode.IgnoreNoEffectAssignCheck;
 		}
-		//====================================================
-	
 		return fieldBinding.type;
 	
 	}
@@ -215,15 +217,28 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 			return;				
 		if ((bits & Binding.FIELD) != 0 && this.binding != null && this.binding.isValidBinding()) {
 			// set the generic cast after the fact, once the type expectation is fully known (no need for strict cast)
-			FieldBinding originalBinding = ((FieldBinding)this.binding).original();
-			if (originalBinding != this.binding) {
-			    // extra cast needed if method return type has type variable
-			    if ((originalBinding.type.tagBits & TagBits.HasTypeVariable) != 0 && runtimeTimeType.id != T_JavaLangObject) {
-			    	TypeBinding targetType = (!compileTimeType.isBaseType() && runtimeTimeType.isBaseType()) 
-			    		? compileTimeType  // unboxing: checkcast before conversion
-			    		: runtimeTimeType;
-			        this.genericCast = originalBinding.type.genericCast(scope.boxing(targetType));
-			    }
+			FieldBinding field = (FieldBinding) this.binding;
+			FieldBinding originalBinding = field.original();
+			TypeBinding originalType = originalBinding.type;
+		    // extra cast needed if method return type is type variable
+			if (originalBinding != field 
+					&& originalType != field.type
+					&& runtimeTimeType.id != T_JavaLangObject
+					&& (originalType.tagBits & TagBits.HasTypeVariable) != 0) {
+		    	TypeBinding targetType = (!compileTimeType.isBaseType() && runtimeTimeType.isBaseType()) 
+		    		? compileTimeType  // unboxing: checkcast before conversion
+		    		: runtimeTimeType;
+		        this.genericCast = originalType.genericCast(scope.boxing(targetType));
+		        if (this.genericCast instanceof ReferenceBinding) {
+					ReferenceBinding referenceCast = (ReferenceBinding) this.genericCast;
+					if (!referenceCast.canBeSeenBy(scope)) {
+			        	scope.problemReporter().invalidType(this, 
+			        			new ProblemReferenceBinding(
+									CharOperation.splitOn('.', referenceCast.shortReadableName()),
+									referenceCast,
+									ProblemReasons.NotVisible));
+					}
+		        }				        
 			} 	
 		}
 		super.computeConversion(scope, runtimeTimeType, compileTimeType);
@@ -247,7 +262,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 			if ((operation.right instanceof SingleNameReference)
 					&& ((operator == PLUS) || (operator == MULTIPLY)) // only commutative operations
 					&& ((variableReference = (SingleNameReference) operation.right).binding == binding)
-					&& (operation.left.constant != NotAConstant) // exclude non constant expressions, since could have side-effect
+					&& (operation.left.constant != Constant.NotAConstant) // exclude non constant expressions, since could have side-effect
 					&& (((operation.left.implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4) != T_JavaLangString) // exclude string concatenation which would occur backwards
 					&& (((operation.right.implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4) != T_JavaLangString)) { // exclude string concatenation which would occur backwards
 				// i = value + i, then use the variable on the right hand side, since it has the correct implicit conversion
@@ -284,7 +299,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 				if (localBinding.resolvedPosition != -1) {
 					assignment.expression.generateCode(currentScope, codeStream, true);
 				} else {
-					if (assignment.expression.constant != NotAConstant) {
+					if (assignment.expression.constant != Constant.NotAConstant) {
 						// assigning an unused local to a constant value = no actual assignment is necessary
 						if (valueRequired) {
 							codeStream.generateConstant(assignment.expression.constant, assignment.implicitConversion);
@@ -296,7 +311,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 						if (valueRequired) {
 							codeStream.generateImplicitConversion(assignment.implicitConversion); // implicit conversion
 						} else {
-							if ((localBinding.type == LongBinding) || (localBinding.type == DoubleBinding)) {
+							if ((localBinding.type == TypeBinding.LONG) || (localBinding.type == TypeBinding.DOUBLE)) {
 								codeStream.pop2();
 							} else {
 								codeStream.pop();
@@ -307,15 +322,15 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 				}
 				// 26903, need extra cast to store null in array local var	
 				if (localBinding.type.isArrayType() 
-					&& (assignment.expression.resolvedType == NullBinding	// arrayLoc = null
+					&& (assignment.expression.resolvedType == TypeBinding.NULL	// arrayLoc = null
 						|| ((assignment.expression instanceof CastExpression)	// arrayLoc = (type[])null
-							&& (((CastExpression)assignment.expression).innermostCastedExpression().resolvedType == NullBinding)))){
+							&& (((CastExpression)assignment.expression).innermostCastedExpression().resolvedType == TypeBinding.NULL)))){
 					codeStream.checkcast(localBinding.type); 
 				}
 				
 				// normal local assignment (since cannot store in outer local which are final locations)
 				codeStream.store(localBinding, valueRequired);
-				if ((bits & FirstAssignmentToLocalMASK) != 0) { // for local variable debug attributes
+				if ((bits & FirstAssignmentToLocal) != 0) { // for local variable debug attributes
 					localBinding.recordInitializationStartPC(codeStream.position);
 				}
 				// implicit conversion
@@ -326,74 +341,104 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 	}
 	public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean valueRequired) {
 		int pc = codeStream.position;
-		if (constant != NotAConstant) {
+		if (constant != Constant.NotAConstant) {
 			if (valueRequired) {
 				codeStream.generateConstant(constant, implicitConversion);
 			}
+			codeStream.recordPositionsFrom(pc, this.sourceStart);
+			return;
 		} else {
 			switch (bits & RestrictiveFlagMASK) {
 				case Binding.FIELD : // reading a field
 					FieldBinding fieldBinding = (FieldBinding) this.codegenBinding;
-					if (fieldBinding.isConstantValue()) {
+					Constant fieldConstant = fieldBinding.constant();
+					if (fieldConstant != Constant.NotAConstant) {
 						// directly use inlined value for constant fields
 						if (valueRequired) {
-							codeStream.generateConstant(fieldBinding.constant(), implicitConversion);
+							codeStream.generateConstant(fieldConstant, implicitConversion);
+						}
+						codeStream.recordPositionsFrom(pc, this.sourceStart);
+						return;
+					}
+					if (fieldBinding.isStatic()) {
+						if (!valueRequired
+								// if no valueRequired, still need possible side-effects of <clinit> invocation, if field belongs to different class
+								&& ((FieldBinding)binding).original().declaringClass == this.actualReceiverType.erasure()
+								&& ((implicitConversion & TypeIds.UNBOXING) == 0)
+								&& this.genericCast == null) {
+							// if no valueRequired, optimize out entire gen
+							codeStream.recordPositionsFrom(pc, this.sourceStart);
+							return;
+						}
+						// managing private access							
+						if ((syntheticAccessors == null) || (syntheticAccessors[READ] == null)) {
+							codeStream.getstatic(fieldBinding);
+						} else {
+							codeStream.invokestatic(syntheticAccessors[READ]);
 						}
 					} else {
-						if (valueRequired || currentScope.compilerOptions().complianceLevel >= ClassFileConstants.JDK1_4) {
-							boolean isStatic = fieldBinding.isStatic();
-							if (!isStatic) {
-								if ((bits & DepthMASK) != 0) {
-									ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
-									Object[] emulationPath = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
-									codeStream.generateOuterAccess(emulationPath, this, targetType, currentScope);
-								} else {
-									generateReceiver(codeStream);
-								}
-							}
-							// managing private access							
-							if ((syntheticAccessors == null) || (syntheticAccessors[READ] == null)) {
-								if (isStatic) {
-									codeStream.getstatic(fieldBinding);
-								} else {
-									codeStream.getfield(fieldBinding);
-								}
-							} else {
-								codeStream.invokestatic(syntheticAccessors[READ]);
-							}
-							if (valueRequired) {
-								if (this.genericCast != null) codeStream.checkcast(this.genericCast);			
-								codeStream.generateImplicitConversion(implicitConversion);
-							} else {
-								// could occur if !valueRequired but compliance >= 1.4
-								switch (fieldBinding.type.id) {
-									case T_long :
-									case T_double :
-										codeStream.pop2();
-										break;
-									default :
-										codeStream.pop();
-								}
-							}							
+						if (!valueRequired
+								&& (implicitConversion & TypeIds.UNBOXING) == 0 
+								&& this.genericCast == null) {
+							// if no valueRequired, optimize out entire gen
+							codeStream.recordPositionsFrom(pc, this.sourceStart);
+							return;
+						}
+						// managing enclosing instance access
+						if ((bits & DepthMASK) != 0) {
+							ReferenceBinding targetType = currentScope.enclosingSourceType().enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT);
+							Object[] emulationPath = currentScope.getEmulationPath(targetType, true /*only exact match*/, false/*consider enclosing arg*/);
+							codeStream.generateOuterAccess(emulationPath, this, targetType, currentScope);
+						} else {
+							generateReceiver(codeStream);
+						}
+						// managing private access							
+						if ((syntheticAccessors == null) || (syntheticAccessors[READ] == null)) {
+							codeStream.getfield(fieldBinding);
+						} else {
+							codeStream.invokestatic(syntheticAccessors[READ]);
 						}
 					}
 					break;
 				case Binding.LOCAL : // reading a local
 					LocalVariableBinding localBinding = (LocalVariableBinding) this.codegenBinding;
-					if (valueRequired) {
-						// outer local?
-						if ((bits & DepthMASK) != 0) {
-							// outer local can be reached either through a synthetic arg or a synthetic field
-							VariableBinding[] path = currentScope.getEmulationPath(localBinding);
-							codeStream.generateOuterAccess(path, this, localBinding, currentScope);
-						} else {
-							// regular local variable read
-							codeStream.load(localBinding);
-						}
-						codeStream.generateImplicitConversion(implicitConversion);
+					if (!valueRequired && (implicitConversion & TypeIds.UNBOXING) == 0) {
+						// if no valueRequired, optimize out entire gen
+						codeStream.recordPositionsFrom(pc, this.sourceStart);
+						return;
 					}
+					// outer local?
+					if ((bits & DepthMASK) != 0) {
+						// outer local can be reached either through a synthetic arg or a synthetic field
+						VariableBinding[] path = currentScope.getEmulationPath(localBinding);
+						codeStream.generateOuterAccess(path, this, localBinding, currentScope);
+					} else {
+						// regular local variable read
+						codeStream.load(localBinding);
+					}
+					break;
+				default: // type
+					codeStream.recordPositionsFrom(pc, this.sourceStart);
+					return;					
 			}
 		}
+		// required cast must occur even if no value is required
+		if (this.genericCast != null) codeStream.checkcast(this.genericCast);
+		if (valueRequired) {
+			codeStream.generateImplicitConversion(implicitConversion);
+		} else {
+			boolean isUnboxing = (implicitConversion & TypeIds.UNBOXING) != 0;
+			// conversion only generated if unboxing
+			if (isUnboxing) codeStream.generateImplicitConversion(implicitConversion);
+			switch (isUnboxing ? postConversionType(currentScope).id : this.resolvedType.id) {
+				case T_long :
+				case T_double :
+					codeStream.pop2();
+					break;
+				default :
+					codeStream.pop();
+			}
+		}							
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 	/*
@@ -457,7 +502,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 						codeStream.store(localBinding, false);
 						return;
 					case T_int :
-						if (((assignConstant = expression.constant) != NotAConstant) 
+						if (((assignConstant = expression.constant) != Constant.NotAConstant) 
 							&& (assignConstant.typeID() != T_float) // only for integral types
 							&& (assignConstant.typeID() != T_double)
 							&& ((increment = assignConstant.intValue()) == (short) increment)) { // 16 bits value
@@ -517,7 +562,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 			case Binding.LOCAL : // assigning to a local variable
 				LocalVariableBinding localBinding = (LocalVariableBinding) this.codegenBinding;
 				if (valueRequired) {
-					if ((localBinding.type == LongBinding) || (localBinding.type == DoubleBinding)) {
+					if ((localBinding.type == TypeBinding.LONG) || (localBinding.type == TypeBinding.DOUBLE)) {
 						codeStream.dup2();
 					} else {
 						codeStream.dup();
@@ -554,13 +599,13 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 				}
 				if (valueRequired) {
 					if (fieldBinding.isStatic()) {
-						if ((fieldBinding.type == LongBinding) || (fieldBinding.type == DoubleBinding)) {
+						if ((fieldBinding.type == TypeBinding.LONG) || (fieldBinding.type == TypeBinding.DOUBLE)) {
 							codeStream.dup2();
 						} else {
 							codeStream.dup();
 						}
 					} else { // Stack:  [owner][old field value]  ---> [old field value][owner][old field value]
-						if ((fieldBinding.type == LongBinding) || (fieldBinding.type == DoubleBinding)) {
+						if ((fieldBinding.type == TypeBinding.LONG) || (fieldBinding.type == TypeBinding.DOUBLE)) {
 							codeStream.dup2_x1();
 						} else {
 							codeStream.dup_x1();
@@ -579,7 +624,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 			case Binding.LOCAL : // assigning to a local variable
 				LocalVariableBinding localBinding = (LocalVariableBinding) this.codegenBinding;
 				// using incr bytecode if possible
-				if (localBinding.type == IntBinding) {
+				if (localBinding.type == TypeBinding.INT) {
 					if (valueRequired) {
 						codeStream.load(localBinding);
 					}
@@ -591,7 +636,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 				} else {
 					codeStream.load(localBinding);
 					if (valueRequired){
-						if ((localBinding.type == LongBinding) || (localBinding.type == DoubleBinding)) {
+						if ((localBinding.type == TypeBinding.LONG) || (localBinding.type == TypeBinding.DOUBLE)) {
 							codeStream.dup2();
 						} else {
 							codeStream.dup();
@@ -605,35 +650,50 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 					codeStream.store(localBinding, false);
 				}
 		}
-	}
+	}	
 	
 	public void generateReceiver(CodeStream codeStream) {
 		codeStream.aload_0();
 	}
-
+	
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.lookup.InvocationSite#genericTypeArguments()
 	 */
 	public TypeBinding[] genericTypeArguments() {
 		return null;
 	}
+
+	/**
+	 * Returns the local variable referenced by this node. Can be a direct reference (SingleNameReference)
+	 * or thru a cast expression etc...
+	 */
+	public LocalVariableBinding localVariableBinding() {
+		switch (bits & RestrictiveFlagMASK) {
+			case Binding.FIELD : // reading a field
+				break;
+			case Binding.LOCAL : // reading a local variable
+				return (LocalVariableBinding) this.binding;
+		}
+		return null;
+	}
 	
 	public void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 	
-		if (!flowInfo.isReachable()) return;
+		if ((flowInfo.tagBits & FlowInfo.UNREACHABLE) == 0)	{
 		//If inlinable field, forget the access emulation, the code gen will directly target it
-		if (((bits & DepthMASK) == 0) || (constant != NotAConstant)) return;
+		if (((bits & DepthMASK) == 0) || (constant != Constant.NotAConstant)) return;
 	
 		if ((bits & RestrictiveFlagMASK) == Binding.LOCAL) {
 			currentScope.emulateOuterAccess((LocalVariableBinding) binding);
 		}
+		}
 	}
 	public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo, boolean isReadAccess) {
 	
-		if (!flowInfo.isReachable()) return;
+		if ((flowInfo.tagBits & FlowInfo.UNREACHABLE) != 0)	return;
 	
 		//If inlinable field, forget the access emulation, the code gen will directly target it
-		if (constant != NotAConstant)
+		if (constant != Constant.NotAConstant)
 			return;
 	
 		if ((bits & Binding.FIELD) != 0) {
@@ -659,7 +719,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 			if (fieldBinding.declaringClass != this.actualReceiverType
 					&& !this.actualReceiverType.isArrayType()
 					&& fieldBinding.declaringClass != null // array.length
-					&& !fieldBinding.isConstantValue()) {
+					&& fieldBinding.constant() == Constant.NotAConstant) {
 				CompilerOptions options = currentScope.compilerOptions();
 				if ((options.targetJDK >= ClassFileConstants.JDK1_2
 						&& (options.complianceLevel >= ClassFileConstants.JDK1_4 || !fieldBinding.isStatic())
@@ -674,11 +734,72 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 			}					
 		}
 	}
+
+public int nullStatus(FlowInfo flowInfo) {
+	if (this.constant != null && this.constant != Constant.NotAConstant) {
+		return FlowInfo.NON_NULL; // constant expression cannot be null
+	}
+	switch (bits & RestrictiveFlagMASK) {
+		case Binding.FIELD : // reading a field
+			return FlowInfo.UNKNOWN;
+		case Binding.LOCAL : // reading a local variable
+			LocalVariableBinding local = (LocalVariableBinding) this.binding;
+			if (local != null) {
+				if (flowInfo.isDefinitelyNull(local))
+					return FlowInfo.NULL;
+				if (flowInfo.isDefinitelyNonNull(local))
+					return FlowInfo.NON_NULL;
+				return FlowInfo.UNKNOWN;
+			}
+	}
+	return FlowInfo.NON_NULL; // never get there 
+}
+
+	/**
+	 * @see org.eclipse.jdt.internal.compiler.ast.Expression#postConversionType(Scope)
+	 */
+	public TypeBinding postConversionType(Scope scope) {
+		TypeBinding convertedType = this.resolvedType;
+		if (this.genericCast != null) 
+			convertedType = this.genericCast;
+		int runtimeType = (this.implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4;
+		switch (runtimeType) {
+			case T_boolean :
+				convertedType = TypeBinding.BOOLEAN;
+				break;
+			case T_byte :
+				convertedType = TypeBinding.BYTE;
+				break;
+			case T_short :
+				convertedType = TypeBinding.SHORT;
+				break;
+			case T_char :
+				convertedType = TypeBinding.CHAR;
+				break;
+			case T_int :
+				convertedType = TypeBinding.INT;
+				break;
+			case T_float :
+				convertedType = TypeBinding.FLOAT;
+				break;
+			case T_long :
+				convertedType = TypeBinding.LONG;
+				break;
+			case T_double :
+				convertedType = TypeBinding.DOUBLE;
+				break;
+			default :
+		}		
+		if ((this.implicitConversion & BOXING) != 0) {
+			convertedType = scope.environment().computeBoxingType(convertedType);
+		}
+		return convertedType;
+	}
+	
 	public StringBuffer printExpression(int indent, StringBuffer output){
 	
 		return output.append(token);
 	}
-	
 	public TypeBinding reportError(BlockScope scope) {
 		
 		//=====error cases=======
@@ -692,6 +813,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 		}
 		return null;
 	}
+		
 	public TypeBinding resolveType(BlockScope scope) {
 		// for code gen, harm the restrictiveFlag 	
 	
@@ -715,12 +837,12 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 								scope.problemReporter().cannotReferToNonFinalOuterLocal((LocalVariableBinding)variable, this);
 							}
 							TypeBinding fieldType = variable.type;
-							if ((this.bits & IsStrictlyAssignedMASK) == 0) {
+							if ((this.bits & IsStrictlyAssigned) == 0) {
 								constant = variable.constant();
 								if (fieldType != null) 
 									fieldType = fieldType.capture(scope, this.sourceEnd); // perform capture conversion if read access
 							} else {
-								constant = NotAConstant;
+								constant = Constant.NotAConstant;
 							}
 							return this.resolvedType = fieldType;
 						}
@@ -732,7 +854,7 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 						// perform capture conversion if read access
 						TypeBinding fieldType = checkFieldAccess(scope);
 						return this.resolvedType = 
-							(((this.bits & IsStrictlyAssignedMASK) == 0) 
+							(((this.bits & IsStrictlyAssigned) == 0) 
 								? fieldType.capture(scope, this.sourceEnd)
 								: fieldType);
 					}
@@ -746,36 +868,27 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 					TypeBinding type = (TypeBinding)binding;
 					if (isTypeUseDeprecated(type, scope))
 						scope.problemReporter().deprecatedType(type, this);
-					return this.resolvedType = scope.environment().convertToRawType(type);
+					type = scope.environment().convertToRawType(type);
+					return this.resolvedType = type;
 			}
 		}
 	
 		// error scenarii
 		return this.resolvedType = this.reportError(scope);
 	}
-		
+	
 	public void traverse(ASTVisitor visitor, BlockScope scope) {
-		
 		visitor.visit(this, scope);
 		visitor.endVisit(this, scope);
 	}
 	
+	public void traverse(ASTVisitor visitor, ClassScope scope) {
+		visitor.visit(this, scope);
+		visitor.endVisit(this, scope);
+	}
+
 	public String unboundReferenceErrorName(){
 	
 		return new String(token);
-	}
-	
-	/**
-	 * Returns the local variable referenced by this node. Can be a direct reference (SingleNameReference)
-	 * or thru a cast expression etc...
-	 */
-	public LocalVariableBinding localVariableBinding() {
-		switch (bits & RestrictiveFlagMASK) {
-			case Binding.FIELD : // reading a field
-				break;
-			case Binding.LOCAL : // reading a local variable
-				return (LocalVariableBinding) this.binding;
-		}
-		return null;
 	}	
 }

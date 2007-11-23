@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,8 +26,8 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
      */
 	public RawTypeBinding(ReferenceBinding type, ReferenceBinding enclosingType, LookupEnvironment environment){
 		super(type, null, enclosingType, environment);
-		if (enclosingType == null || (enclosingType.modifiers & AccGenericSignature) == 0)
-			this.modifiers &= ~AccGenericSignature; // only need signature if enclosing needs one
+		if (enclosingType == null || (enclosingType.modifiers & ExtraCompilerModifiers.AccGenericSignature) == 0)
+			this.modifiers &= ~ExtraCompilerModifiers.AccGenericSignature; // only need signature if enclosing needs one
 	}    
 	
 	public char[] computeUniqueKey(boolean isLeaf) {
@@ -37,7 +37,7 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 		    for (int i = 0; i < typeSig.length-1; i++) sig.append(typeSig[i]); // copy all but trailing semicolon
 		    sig.append('.').append(sourceName()).append('<').append('>').append(';');
 		} else {
-		     sig.append(this.type.computeUniqueKey(false/*not a leaf*/));
+		     sig.append(genericType().computeUniqueKey(false/*not a leaf*/));
 		     sig.insert(sig.length()-1, "<>"); //$NON-NLS-1$
 		}
 
@@ -51,10 +51,10 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 	 * @see org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding#createParameterizedMethod(org.eclipse.jdt.internal.compiler.lookup.MethodBinding)
 	 */
 	public ParameterizedMethodBinding createParameterizedMethod(MethodBinding originalMethod) {
-		if (originalMethod.typeVariables == NoTypeVariables || originalMethod.isStatic()) {
+		if (originalMethod.typeVariables == Binding.NO_TYPE_VARIABLES || originalMethod.isStatic()) {
 			return super.createParameterizedMethod(originalMethod);
 		}
-		return new ParameterizedGenericMethodBinding(originalMethod, this, this.environment);
+		return this.environment.createParameterizedGenericMethod(originalMethod, this);
 	}
 	
 	public int kind() {
@@ -66,7 +66,7 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 	 */
 	public String debugName() {
 	    StringBuffer nameBuffer = new StringBuffer(10);
-		nameBuffer.append(this.type.sourceName()).append("#RAW"); //$NON-NLS-1$
+		nameBuffer.append(actualType().sourceName()).append("#RAW"); //$NON-NLS-1$
 	    return nameBuffer.toString();		
 	}	
 
@@ -75,21 +75,33 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 	 * LY<TT;>;
 	 */
 	public char[] genericTypeSignature() {
-
-	    if (this.genericTypeSignature == null) {
-		    StringBuffer sig = new StringBuffer(10);
-			if (this.isMemberType() && this.enclosingType().isParameterizedType()) {
-			    char[] typeSig = this.enclosingType().genericTypeSignature();
-			    for (int i = 0; i < typeSig.length-1; i++) sig.append(typeSig[i]); // copy all but trailing semicolon
-			    sig.append('.').append(this.sourceName()).append(';');
+		if (this.genericTypeSignature == null) {
+			if ((this.modifiers & ExtraCompilerModifiers.AccGenericSignature) == 0) {
+		    	this.genericTypeSignature = genericType().signature();
+			} else {
+			    StringBuffer sig = new StringBuffer(10);
+			    if (this.isMemberType()) {
+			    	ReferenceBinding enclosing = enclosingType();
+			    	boolean hasParameterizedEnclosing = enclosing.isParameterizedType();
+					char[] typeSig = hasParameterizedEnclosing ? enclosing.genericTypeSignature() : enclosing.signature();
+					sig.append(typeSig, 0, typeSig.length-1);// copy all but trailing semicolon
+			    	if (hasParameterizedEnclosing && (enclosing.modifiers & ExtraCompilerModifiers.AccGenericSignature) != 0) {
+			    		sig.append('.');
+			    	} else {
+			    		sig.append('$');
+			    	}
+			    	sig.append(this.sourceName());
+			    } else {
+			    	char[] typeSig = genericType().signature();
+					sig.append(typeSig, 0, typeSig.length-1);// copy all but trailing semicolon
+		    	}
+				sig.append(';');
 				int sigLength = sig.length();
 				this.genericTypeSignature = new char[sigLength];
-				sig.getChars(0, sigLength, this.genericTypeSignature, 0);						    
-			} else {
-			     this.genericTypeSignature = this.type.signature(); // erasure
+				sig.getChars(0, sigLength, this.genericTypeSignature, 0);						
 			}
-	    }
-	   return this.genericTypeSignature;
+		}
+		return this.genericTypeSignature;
 	}		
 	
     public boolean isEquivalentTo(TypeBinding otherType) {
@@ -137,7 +149,7 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 	}	
 	
 	protected void initializeArguments() {
-		TypeVariableBinding[] typeVariables = this.type.typeVariables();
+		TypeVariableBinding[] typeVariables = genericType().typeVariables();
 		int length = typeVariables.length;
 		TypeBinding[] typeArguments = new TypeBinding[length];
 		for (int i = 0; i < length; i++) {
@@ -154,7 +166,7 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 		if (isMemberType()) {
 			readableName = CharOperation.concat(enclosingType().readableName(), sourceName, '.');
 		} else {
-			readableName = CharOperation.concatWith(this.type.compoundName, '.');
+			readableName = CharOperation.concatWith(actualType().compoundName, '.');
 		}
 		return readableName;
 	}
@@ -167,7 +179,7 @@ public class RawTypeBinding extends ParameterizedTypeBinding {
 		if (isMemberType()) {
 			shortReadableName = CharOperation.concat(enclosingType().shortReadableName(), sourceName, '.');
 		} else {
-			shortReadableName = this.type.sourceName;
+			shortReadableName = actualType().sourceName;
 		}
 		return shortReadableName;
 	}

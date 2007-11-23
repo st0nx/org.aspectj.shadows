@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -30,20 +30,20 @@ public IntegerCache() {
  *  the initial number of buckets
  */
 public IntegerCache(int initialCapacity) {
-	elementSize = 0;
-	threshold = (int) (initialCapacity * 0.66);
-	keyTable = new int[initialCapacity];
-	valueTable = new int[initialCapacity];
+	this.elementSize = 0;
+	this.threshold = (int) (initialCapacity * 0.66);
+	this.keyTable = new int[initialCapacity];
+	this.valueTable = new int[initialCapacity];
 }
 /**
  * Clears the hash table so that it has no more elements in it.
  */
 public void clear() {
-	for (int i = keyTable.length; --i >= 0;) {
-		keyTable[i] = 0;
-		valueTable[i] = 0;
+	for (int i = this.keyTable.length; --i >= 0;) {
+		this.keyTable[i] = 0;
+		this.valueTable[i] = 0;
 	}
-	elementSize = 0;
+	this.elementSize = 0;
 }
 /** Returns true if the collection contains an element for the key.
  *
@@ -51,28 +51,15 @@ public void clear() {
  * @return boolean
  */
 public boolean containsKey(int key) {
-	int index = hash(key);
-	while ((keyTable[index] != 0) || ((keyTable[index] == 0) &&(valueTable[index] != 0))) {
-		if (keyTable[index] == key)
+	int index = hash(key), length = this.keyTable.length;
+	while ((this.keyTable[index] != 0) || ((this.keyTable[index] == 0) &&(this.valueTable[index] != 0))) {
+		if (this.keyTable[index] == key)
 			return true;
-		index = (index + 1) % keyTable.length;
+		if (++index == length) {
+			index = 0;
+		}
 	}
 	return false;
-}
-/** Gets the object associated with the specified key in the
- * hashtable.
- * @param key <CODE>double</CODE> the specified key
- * @return int the element for the key or -1 if the key is not
- *  defined in the hash table.
- */
-public int get(int key) {
-	int index = hash(key);
-	while ((keyTable[index] != 0) || ((keyTable[index] == 0) &&(valueTable[index] != 0))) {
-		if (keyTable[index] == key)
-			return valueTable[index];
-		index = (index + 1) % keyTable.length;
-	}
-	return -1;
 }
 /**
  * Return a hashcode for the value of the key parameter.
@@ -80,7 +67,7 @@ public int get(int key) {
  * @return int the hash code corresponding to the key value
  */
 public int hash(int key) {
-	return (key & 0x7FFFFFFF) % keyTable.length;
+	return (key & 0x7FFFFFFF) % this.keyTable.length;
 }
 /**
  * Puts the specified element into the hashtable, using the specified
@@ -91,20 +78,48 @@ public int hash(int key) {
  * @return int value
  */
 public int put(int key, int value) {
-	int index = hash(key);
-	while ((keyTable[index] != 0) || ((keyTable[index] == 0) && (valueTable[index] != 0))) {
-		if (keyTable[index] == key)
-			return valueTable[index] = value;
-		index = (index + 1) % keyTable.length;
+	int index = hash(key), length = this.keyTable.length;
+	while ((this.keyTable[index] != 0) || ((this.keyTable[index] == 0) && (this.valueTable[index] != 0))) {
+		if (this.keyTable[index] == key)
+			return this.valueTable[index] = value;
+		if (++index == length) {
+			index = 0;
+		}
 	}
-	keyTable[index] = key;
-	valueTable[index] = value;
+	this.keyTable[index] = key;
+	this.valueTable[index] = value;
 
 	// assumes the threshold is never equal to the size of the table
-	if (++elementSize > threshold) {
+	if (++this.elementSize > this.threshold) {
 		rehash();
 	}
 	return value;
+}
+/**
+ * Puts the specified element into the hashtable if absent, using the specified
+ * key.  The element may be retrieved by doing a get() with the same key.
+ * 
+ * @param key <CODE>int</CODE> the specified key in the hashtable
+ * @param value <CODE>int</CODE> the specified element
+ * @return int value
+ */
+public int putIfAbsent(int key, int value) {
+	int index = hash(key), length = this.keyTable.length;
+	while ((this.keyTable[index] != 0) || ((this.keyTable[index] == 0) && (this.valueTable[index] != 0))) {
+		if (this.keyTable[index] == key)
+			return this.valueTable[index];
+		if (++index == length) {
+			index = 0;
+		}
+	}
+	this.keyTable[index] = key;
+	this.valueTable[index] = value;
+
+	// assumes the threshold is never equal to the size of the table
+	if (++this.elementSize > this.threshold) {
+		rehash();
+	}
+	return -value; // negative when added, assumes value is > 0
 }
 /**
  * Rehashes the content of the table into a bigger table.
@@ -112,10 +127,10 @@ public int put(int key, int value) {
  * size exceeds the threshold.
  */
 private void rehash() {
-	IntegerCache newHashtable = new IntegerCache(keyTable.length * 2);
-	for (int i = keyTable.length; --i >= 0;) {
-		int key = keyTable[i];
-		int value = valueTable[i];
+	IntegerCache newHashtable = new IntegerCache(this.keyTable.length * 2);
+	for (int i = this.keyTable.length; --i >= 0;) {
+		int key = this.keyTable[i];
+		int value = this.valueTable[i];
 		if ((key != 0) || ((key == 0) && (value != 0))) {
 			newHashtable.put(key, value);
 		}
@@ -130,7 +145,7 @@ private void rehash() {
  * @return <CODE>int</CODE> The size of the table
  */
 public int size() {
-	return elementSize;
+	return this.elementSize;
 }
 /**
  * Converts to a rather lengthy String.
@@ -142,8 +157,8 @@ public String toString() {
 	StringBuffer buf = new StringBuffer();
 	buf.append("{"); //$NON-NLS-1$
 	for (int i = 0; i < max; ++i) {
-		if ((keyTable[i] != 0) || ((keyTable[i] == 0) && (valueTable[i] != 0))) {
-			buf.append(keyTable[i]).append("->").append(valueTable[i]); //$NON-NLS-1$
+		if ((this.keyTable[i] != 0) || ((this.keyTable[i] == 0) && (this.valueTable[i] != 0))) {
+			buf.append(this.keyTable[i]).append("->").append(this.valueTable[i]); //$NON-NLS-1$
 		}
 		if (i < max) {
 			buf.append(", "); //$NON-NLS-1$

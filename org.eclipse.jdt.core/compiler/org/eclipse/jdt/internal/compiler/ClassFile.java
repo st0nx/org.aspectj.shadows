@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,20 +10,66 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
-import java.io.*;
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.StringTokenizer;
 
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.IProblem;
-import org.eclipse.jdt.internal.compiler.ast.*;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
+import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.Annotation;
+import org.eclipse.jdt.internal.compiler.ast.AnnotationMethodDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.Argument;
+import org.eclipse.jdt.internal.compiler.ast.ArrayInitializer;
+import org.eclipse.jdt.internal.compiler.ast.ClassLiteralAccess;
+import org.eclipse.jdt.internal.compiler.ast.Expression;
+import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.MemberValuePair;
+import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.NormalAnnotation;
+import org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference;
+import org.eclipse.jdt.internal.compiler.ast.SingleMemberAnnotation;
+import org.eclipse.jdt.internal.compiler.ast.SingleNameReference;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
-import org.eclipse.jdt.internal.compiler.codegen.*;
+import org.eclipse.jdt.internal.compiler.codegen.AttributeNamesConstants;
+import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
+import org.eclipse.jdt.internal.compiler.codegen.ConstantPool;
+import org.eclipse.jdt.internal.compiler.codegen.ExceptionLabel;
+import org.eclipse.jdt.internal.compiler.codegen.VerificationTypeInfo;
+import org.eclipse.jdt.internal.compiler.codegen.StackMapFrame;
+import org.eclipse.jdt.internal.compiler.codegen.StackMapFrameCodeStream;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.impl.StringConstant;
-import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
+import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
+import org.eclipse.jdt.internal.compiler.lookup.LocalTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
+import org.eclipse.jdt.internal.compiler.lookup.LookupEnvironment;
+import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
+import org.eclipse.jdt.internal.compiler.lookup.NestedTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
+import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.SyntheticArgumentBinding;
+import org.eclipse.jdt.internal.compiler.lookup.SyntheticMethodBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TagBits;
+import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
+import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 import org.eclipse.jdt.internal.compiler.util.Messages;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 /**
  * Represents a class file wrapper on bytes, it is aware of its actual
@@ -44,11 +90,39 @@ import org.eclipse.jdt.internal.compiler.util.Messages;
  *      such as DietClassFileReader
  */
 public class ClassFile
-	implements AttributeNamesConstants, CompilerModifiers, TypeConstants, TypeIds {
+	implements TypeConstants, TypeIds {
+
+	private byte[] bytes;
+	public CodeStream codeStream;
+	public ConstantPool constantPool;
+
+	public int constantPoolOffset;
+
+	// the header contains all the bytes till the end of the constant pool
+	public byte[] contents;
+
+	public int contentsOffset;
+
+	protected boolean creatingProblemType;
+	
+	public ClassFile enclosingClassFile;
+	public byte[] header;
+	// that collection contains all the remaining bytes of the .class file
+	public int headerOffset;
+	public Set innerClassesBindings;
+	public int methodCount;
+	public int methodCountOffset;
+	// pool managment
+	public boolean isShared = false;
+	// used to generate private access methods
+	// debug and stack map attributes
+	public int produceAttributes;
+	public SourceTypeBinding referenceBinding;
+	public long targetJDK;
 	public static final int INITIAL_CONTENTS_SIZE = 400;
 	public static final int INITIAL_HEADER_SIZE = 1500;
 	public static final int INNER_CLASSES_SIZE = 5;
-
+	
 	/**
 	 * INTERNAL USE-ONLY
 	 * Build all the directories and subdirectories corresponding to the packages names
@@ -70,48 +144,103 @@ public class ClassFile
 		char fileSeparatorChar = File.separatorChar;
 		String fileSeparator = File.separator;
 		File f;
-		// First we ensure that the outputPath exists
 		outputPath = outputPath.replace('/', fileSeparatorChar);
-		// To be able to pass the mkdirs() method we need to remove the extra file separator at the end of the outDir name
-		if (outputPath.endsWith(fileSeparator)) {
-			outputPath = outputPath.substring(0, outputPath.length() - 1);
-		}
-		f = new File(outputPath);
-		if (f.exists()) {
-			if (!f.isDirectory()) {
-				System.out.println(Messages.bind(Messages.output_isFile, f.getAbsolutePath()));
-				throw new IOException(Messages.output_isFileNotDirectory);
+			// these could be optimized out if we normalized paths once and for
+			// all
+		relativeFileName = relativeFileName.replace('/', fileSeparatorChar);
+		String outputDirPath, fileName;
+		int separatorIndex = relativeFileName.lastIndexOf(fileSeparatorChar);
+		if (separatorIndex == -1) {
+			if (outputPath.endsWith(fileSeparator)) {
+				outputDirPath = outputPath.substring(0, outputPath.length() - 1);
+				fileName = outputPath + relativeFileName;
+			} else {
+				outputDirPath = outputPath;
+				fileName = outputPath + fileSeparator + relativeFileName;
 			}
 		} else {
-			// we have to create that directory
-			if (!f.mkdirs()) {
-				System.out.println(Messages.bind(Messages.output_dirName, f.getAbsolutePath()));
-				throw new IOException(Messages.output_notValidAll);
+			if (outputPath.endsWith(fileSeparator)) {
+				outputDirPath = outputPath + 
+					relativeFileName.substring(0, separatorIndex);
+				fileName = outputPath + relativeFileName;
+			} else {
+				outputDirPath = outputPath + fileSeparator +
+					relativeFileName.substring(0, separatorIndex);
+				fileName = outputPath + fileSeparator + relativeFileName;
 			}
 		}
-		StringBuffer outDir = new StringBuffer(outputPath);
-		outDir.append(fileSeparator);
-		StringTokenizer tokenizer =
-			new StringTokenizer(relativeFileName, fileSeparator);
-		String token = tokenizer.nextToken();
-		while (tokenizer.hasMoreTokens()) {
-			f = new File(outDir.append(token).append(fileSeparator).toString());
+		f = new File(outputDirPath);
+		f.mkdirs();
+		if (f.isDirectory()) {
+			return fileName;
+		} else {
+			// the directory creation failed for some reason - retry using
+			// a slower algorithm so as to refine the diagnostic
+			if (outputPath.endsWith(fileSeparator)) {
+				outputPath = outputPath.substring(0, outputPath.length() - 1);
+			}
+			f = new File(outputPath);
+			boolean checkFileType = false;
 			if (f.exists()) {
-				// The outDir already exists, so we proceed the next entry
-				// System.out.println("outDir: " + outDir + " already exists.");
+			  	checkFileType = true; // pre-existed
 			} else {
-				// Need to add the outDir
-				if (!f.mkdir()) {
-					System.out.println(Messages.bind(Messages.output_fileName, f.getName()));
-					throw new IOException(Messages.output_notValid);
+				// we have to create that directory
+				if (!f.mkdirs()) {
+				  	if (f.exists()) {
+				  	  	// someone else created f -- need to check its type
+				  	  	checkFileType = true;
+				  	} else {
+				  	  	// no one could create f -- complain
+	    				throw new IOException(Messages.bind(
+	    					Messages.output_notValidAll, f.getAbsolutePath()));
+				  	}
 				}
 			}
-			token = tokenizer.nextToken();
+			if (checkFileType) {
+			  	if (!f.isDirectory()) {
+	    			throw new IOException(Messages.bind(
+	    				Messages.output_isFile, f.getAbsolutePath()));
+			  	}
+			}
+			StringBuffer outDir = new StringBuffer(outputPath);
+			outDir.append(fileSeparator);
+			StringTokenizer tokenizer =
+				new StringTokenizer(relativeFileName, fileSeparator);
+			String token = tokenizer.nextToken();
+			while (tokenizer.hasMoreTokens()) {
+				f = new File(outDir.append(token).append(fileSeparator).toString());
+			  	checkFileType = false; // reset
+				if (f.exists()) {
+				  	checkFileType = true; // this is suboptimal, but it catches corner cases
+				  						  // in which a regular file pre-exists
+				} else {
+				// we have to create that directory
+	    			if (!f.mkdir()) {
+	    			  	if (f.exists()) {
+	    			  	  	// someone else created f -- need to check its type
+	    			  	  	checkFileType = true;
+	    			  	} else {
+	    			  	  	// no one could create f -- complain
+	        				throw new IOException(Messages.bind(
+	        					Messages.output_notValid, 
+	        						outDir.substring(outputPath.length() + 1, 
+	        							outDir.length() - 1),
+	        						outputPath));
+	    			  	}
+	    			}
+				}
+	    		if (checkFileType) {
+	    		  	if (!f.isDirectory()) {
+	        			throw new IOException(Messages.bind(
+	        				Messages.output_isFile, f.getAbsolutePath()));
+	    		  	}
+	    		}
+				token = tokenizer.nextToken();
+			}
+			// token contains the last one
+			return outDir.append(token).toString();
 		}
-		// token contains the last one
-		return outDir.append(token).toString();
 	}
-
 	/**
 	 * INTERNAL USE-ONLY
 	 * Request the creation of a ClassFile compatible representation of a problematic type
@@ -123,22 +252,25 @@ public class ClassFile
 		TypeDeclaration typeDeclaration,
 		CompilationResult unitResult) {
 		SourceTypeBinding typeBinding = typeDeclaration.binding;
-		ClassFile classFile = new ClassFile(typeBinding, null, true);
+		ClassFile classFile = ClassFile.getNewInstance(typeBinding);
+		classFile.initialize(typeBinding, null, true);
 	
+		if (typeBinding.hasMemberTypes()) {
+			// see bug 180109
+			ReferenceBinding[] members = typeBinding.memberTypes;
+			for (int i = 0, l = members.length; i < l; i++)
+				classFile.recordInnerClasses(members[i]);
+		}
 		// TODO (olivier) handle cases where a field cannot be generated (name too long)
 		// TODO (olivier) handle too many methods
 		// inner attributes
-		if (typeBinding.isMemberType())
-			classFile.recordEnclosingTypeAttributes(typeBinding);
-	
+		if (typeBinding.isNestedType()) {
+			classFile.recordInnerClasses(typeBinding);
+		}
+
 		// add its fields
-		FieldBinding[] fields = typeBinding.fields;
-		if ((fields != null) && (fields != NoFields)) {
-			for (int i = 0, max = fields.length; i < max; i++) {
-				if (fields[i].constant() == null) {
-					FieldReference.getConstantFor(fields[i], null, false, null);
-				}
-			}
+		FieldBinding[] fields = typeBinding.fields();
+		if ((fields != null) && (fields != Binding.NO_FIELDS)) {
 			classFile.addFieldInfos();
 		} else {
 			// we have to set the number of fields to be equals to 0
@@ -148,65 +280,47 @@ public class ClassFile
 		// leave some space for the methodCount
 		classFile.setForMethodInfos();
 		// add its user defined methods
-		MethodBinding[] methods = typeBinding.methods;
-		AbstractMethodDeclaration[] methodDeclarations = typeDeclaration.methods;
-		int maxMethodDecl = methodDeclarations == null ? 0 : methodDeclarations.length;
 		int problemsLength;
-		IProblem[] problems = unitResult.getErrors();
+		CategorizedProblem[] problems = unitResult.getErrors();
 		if (problems == null) {
-			problems = new IProblem[0];
+			problems = new CategorizedProblem[0];
 		}
-		IProblem[] problemsCopy = new IProblem[problemsLength = problems.length];
+		CategorizedProblem[] problemsCopy = new CategorizedProblem[problemsLength = problems.length];
 		System.arraycopy(problems, 0, problemsCopy, 0, problemsLength);
-		if (methods != null) {
+		
+		AbstractMethodDeclaration[] methodDecls = typeDeclaration.methods;
+		if (methodDecls != null) {
 			if (typeBinding.isInterface()) {
 				// we cannot create problem methods for an interface. So we have to generate a clinit
 				// which should contain all the problem
 				classFile.addProblemClinit(problemsCopy);
-				for (int i = 0, max = methods.length; i < max; i++) {
-					MethodBinding methodBinding;
-					if ((methodBinding = methods[i]) != null) {
-						// find the corresponding method declaration
-						for (int j = 0; j < maxMethodDecl; j++) {
-							if ((methodDeclarations[j] != null)
-								&& (methodDeclarations[j].binding == methods[i])) {
-								if (!methodBinding.isConstructor()) {
-									classFile.addAbstractMethod(methodDeclarations[j], methodBinding);
-								}
-								break;
-							}
-						}
-					}
-				}
+				for (int i = 0, length = methodDecls.length; i < length; i++) {
+					AbstractMethodDeclaration methodDecl = methodDecls[i];
+					MethodBinding method = methodDecl.binding;
+					if (method == null || method.isConstructor()) continue;
+					classFile.addAbstractMethod(methodDecl, method);
+				}		
 			} else {
-				for (int i = 0, max = methods.length; i < max; i++) {
-					MethodBinding methodBinding;
-					if ((methodBinding = methods[i]) != null) {
-						// find the corresponding method declaration
-						for (int j = 0; j < maxMethodDecl; j++) {
-							if ((methodDeclarations[j] != null)
-								&& (methodDeclarations[j].binding == methods[i])) {
-								AbstractMethodDeclaration methodDecl;
-								if ((methodDecl = methodDeclarations[j]).isConstructor()) {
-									classFile.addProblemConstructor(methodDecl, methodBinding, problemsCopy);
-								} else {
-									classFile.addProblemMethod(methodDecl, methodBinding, problemsCopy);
-								}
-								break;
-							}
-						}
+				for (int i = 0, length = methodDecls.length; i < length; i++) {
+					AbstractMethodDeclaration methodDecl = methodDecls[i];
+					MethodBinding method = methodDecl.binding;
+					if (method == null) continue;
+					if (method.isConstructor()) {
+						classFile.addProblemConstructor(methodDecl, method, problemsCopy);
+					} else {
+						classFile.addProblemMethod(methodDecl, method, problemsCopy);
 					}
 				}
 			}
 			// add abstract methods
 			classFile.addDefaultAbstractMethods();
-		}
+		}		
+		
 		// propagate generation of (problem) member types
 		if (typeDeclaration.memberTypes != null) {
 			for (int i = 0, max = typeDeclaration.memberTypes.length; i < max; i++) {
 				TypeDeclaration memberType = typeDeclaration.memberTypes[i];
 				if (memberType.binding != null) {
-					classFile.recordNestedMemberAttribute(memberType.binding);
 					ClassFile.createProblemType(memberType, unitResult);
 				}
 			}
@@ -214,40 +328,11 @@ public class ClassFile
 		classFile.addAttributes();
 		unitResult.record(typeBinding.constantPoolName(), classFile);
 	}
-
-	/**
-	 * INTERNAL USE-ONLY
-	 * Search the line number corresponding to a specific position
-	 */
-	public static final int searchLineNumber(
-		int[] startLineIndexes,
-		int position) {
-		// this code is completely useless, but it is the same implementation than
-		// org.eclipse.jdt.internal.compiler.problem.ProblemHandler.searchLineNumber(int[], int)
-		// if (startLineIndexes == null)
-		//	return 1;
-		int length = startLineIndexes.length;
-		if (length == 0)
-			return 1;
-		int g = 0, d = length - 1;
-		int m = 0;
-		while (g <= d) {
-			m = (g + d) / 2;
-			if (position < startLineIndexes[m]) {
-				d = m - 1;
-			} else
-				if (position > startLineIndexes[m]) {
-					g = m + 1;
-				} else {
-					return m + 1;
-				}
-		}
-		if (position < startLineIndexes[m]) {
-			return m + 1;
-		}
-		return m + 2;
+	public static ClassFile getNewInstance(SourceTypeBinding typeBinding) {
+		LookupEnvironment env = typeBinding.scope.environment();
+		return env.classFilePool.acquire(typeBinding);
 	}
-
+	
 	/**
 	 * INTERNAL USE-ONLY
 	 * outputPath is formed like:
@@ -255,181 +340,82 @@ public class ClassFile
 	 * relativeFileName is formed like:
 	 *     java\lang\String.class
 	 * @param generatePackagesStructure a flag to know if the packages structure has to be generated.
-	 * @param outputPath the output directory
-	 * @param relativeFileName java.lang.String
-	 * @param contents byte[]
+	 * @param outputPath the given output directory
+	 * @param relativeFileName the given relative file name
+	 * @param classFile the given classFile to write
 	 * 
 	 */
 	public static void writeToDisk(
 		boolean generatePackagesStructure,
 		String outputPath,
 		String relativeFileName,
-		byte[] contents)
-		throws IOException {
+		ClassFile classFile) throws IOException {
 			
 		BufferedOutputStream output = null;
-		if (generatePackagesStructure) {
-			output = new BufferedOutputStream(
-				new FileOutputStream(
-						new File(buildAllDirectoriesInto(outputPath, relativeFileName))));
-		} else {
-			String fileName = null;
-			char fileSeparatorChar = File.separatorChar;
-			String fileSeparator = File.separator;
-			// First we ensure that the outputPath exists
-			outputPath = outputPath.replace('/', fileSeparatorChar);
-			// To be able to pass the mkdirs() method we need to remove the extra file separator at the end of the outDir name
-			int indexOfPackageSeparator = relativeFileName.lastIndexOf(fileSeparatorChar);
-			if (indexOfPackageSeparator == -1) {
-				if (outputPath.endsWith(fileSeparator)) {
-					fileName = outputPath + relativeFileName;
-				} else {
-					fileName = outputPath + fileSeparator + relativeFileName;
-				}
-			} else {
-				int length = relativeFileName.length();
-				if (outputPath.endsWith(fileSeparator)) {
-					fileName = outputPath + relativeFileName.substring(indexOfPackageSeparator + 1, length);
-				} else {
-					fileName = outputPath + fileSeparator + relativeFileName.substring(indexOfPackageSeparator + 1, length);
-				}
-			}
-			output = new BufferedOutputStream(
-				new FileOutputStream(
-						new File(fileName)));
-		}
+    	if (generatePackagesStructure) {
+    		output = new BufferedOutputStream(
+    			new FileOutputStream(
+    				new File(buildAllDirectoriesInto(outputPath, relativeFileName))));
+    	} else {
+    		String fileName = null;
+    		char fileSeparatorChar = File.separatorChar;
+    		String fileSeparator = File.separator;
+    		// First we ensure that the outputPath exists
+    		outputPath = outputPath.replace('/', fileSeparatorChar);
+    		// To be able to pass the mkdirs() method we need to remove the extra file separator at the end of the outDir name
+    		int indexOfPackageSeparator = relativeFileName.lastIndexOf(fileSeparatorChar);
+    		if (indexOfPackageSeparator == -1) {
+    			if (outputPath.endsWith(fileSeparator)) {
+    				fileName = outputPath + relativeFileName;
+    			} else {
+    				fileName = outputPath + fileSeparator + relativeFileName;
+    			}
+    		} else {
+    			int length = relativeFileName.length();
+    			if (outputPath.endsWith(fileSeparator)) {
+    				fileName = outputPath + relativeFileName.substring(indexOfPackageSeparator + 1, length);
+    			} else {
+    				fileName = outputPath + fileSeparator + relativeFileName.substring(indexOfPackageSeparator + 1, length);
+    			}
+    		}
+    		output = new BufferedOutputStream(
+    			new FileOutputStream(
+    					new File(fileName)));
+    	}
 		try {
-			output.write(contents);
-		} finally {
+			// if no IOException occured, output cannot be null
+			output.write(classFile.header, 0, classFile.headerOffset);
+			output.write(classFile.contents, 0, classFile.contentsOffset);
 			output.flush();
+		} catch(IOException e) {
+			throw e;
+		} finally {
 			output.close();
 		}
 	}
-	public CodeStream codeStream;
-	public ConstantPool constantPool;
-	public int constantPoolOffset;
-	// the header contains all the bytes till the end of the constant pool
-	public byte[] contents;
-	public int contentsOffset;
-	protected boolean creatingProblemType;
-	public ClassFile enclosingClassFile;
-	public byte[] header;
-	// that collection contains all the remaining bytes of the .class file
-	public int headerOffset;
-	public ReferenceBinding[] innerClassesBindings;
-	public int methodCount;
-	public int methodCountOffset;
-	public int numberOfInnerClasses;
-	public boolean ownSharedArrays = false; // flag set when header/contents are set to shared arrays
-	// used to generate private access methods
-	public int produceDebugAttributes;
-	public SourceTypeBinding referenceBinding;
-	public long targetJDK;
 	
 	/**
 	 * INTERNAL USE-ONLY
 	 * This methods creates a new instance of the receiver.
 	 */
-	public ClassFile() {
+	protected ClassFile() {
 		// default constructor for subclasses
 	}
-
-	/**
-	 * INTERNAL USE-ONLY
-	 * This methods creates a new instance of the receiver.
-	 *
-	 * @param aType org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding
-	 * @param enclosingClassFile org.eclipse.jdt.internal.compiler.ClassFile
-	 * @param creatingProblemType <CODE>boolean</CODE>
-	 */
-	public ClassFile(
-		SourceTypeBinding aType,
-		ClassFile enclosingClassFile,
-		boolean creatingProblemType) {
-	    
-		this.referenceBinding = aType;
-		initByteArrays();
-
-		// generate the magic numbers inside the header
-		header[headerOffset++] = (byte) (0xCAFEBABEL >> 24);
-		header[headerOffset++] = (byte) (0xCAFEBABEL >> 16);
-		header[headerOffset++] = (byte) (0xCAFEBABEL >> 8);
-		header[headerOffset++] = (byte) (0xCAFEBABEL >> 0);
-		
-		final CompilerOptions options = aType.scope.compilerOptions();
+	
+	public ClassFile(SourceTypeBinding typeBinding) {
+		// default constructor for subclasses
+		this.constantPool = new ConstantPool(this);
+		final CompilerOptions options = typeBinding.scope.compilerOptions();
 		this.targetJDK = options.targetJDK;
-		header[headerOffset++] = (byte) (this.targetJDK >> 8); // minor high
-		header[headerOffset++] = (byte) (this.targetJDK >> 0); // minor low
-		header[headerOffset++] = (byte) (this.targetJDK >> 24); // major high
-		header[headerOffset++] = (byte) (this.targetJDK >> 16); // major low
-
-		constantPoolOffset = headerOffset;
-		headerOffset += 2;
-		constantPool = new ConstantPool(this);
-		
-		// Modifier manipulations for classfile
-		int accessFlags = aType.getAccessFlags();
-		if (aType.isPrivate()) { // rewrite private to non-public
-			accessFlags &= ~AccPublic;
-		}
-		if (aType.isProtected()) { // rewrite protected into public
-			accessFlags |= AccPublic;
-		}
-		// clear all bits that are illegal for a class or an interface
-		accessFlags
-			&= ~(
-				AccStrictfp
-					| AccProtected
-					| AccPrivate
-					| AccStatic
-					| AccSynchronized
-					| AccNative);
-					
-		// set the AccSuper flag (has to be done after clearing AccSynchronized - since same value)
-		if (!aType.isInterface()) { // class or enum
-			accessFlags |= AccSuper;
-		}
-		
-		this.enclosingClassFile = enclosingClassFile;
-		// innerclasses get their names computed at code gen time
-
-		// now we continue to generate the bytes inside the contents array
-		contents[contentsOffset++] = (byte) (accessFlags >> 8);
-		contents[contentsOffset++] = (byte) accessFlags;
-		int classNameIndex = constantPool.literalIndexForType(aType.constantPoolName());
-		contents[contentsOffset++] = (byte) (classNameIndex >> 8);
-		contents[contentsOffset++] = (byte) classNameIndex;
-		int superclassNameIndex;
-		if (aType.isInterface()) {
-			superclassNameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangObjectConstantPoolName);
+		this.produceAttributes = options.produceDebugAttributes;
+		this.referenceBinding = typeBinding;
+		if (this.targetJDK >= ClassFileConstants.JDK1_6) {
+			this.produceAttributes |= ClassFileConstants.ATTR_STACK_MAP;
+			this.codeStream = new StackMapFrameCodeStream(this);
 		} else {
-			superclassNameIndex =
-				(aType.superclass == null ? 0 : constantPool.literalIndexForType(aType.superclass.constantPoolName()));
+			this.codeStream = new CodeStream(this);
 		}
-		contents[contentsOffset++] = (byte) (superclassNameIndex >> 8);
-		contents[contentsOffset++] = (byte) superclassNameIndex;
-		ReferenceBinding[] superInterfacesBinding = aType.superInterfaces();
-		int interfacesCount = superInterfacesBinding.length;
-		contents[contentsOffset++] = (byte) (interfacesCount >> 8);
-		contents[contentsOffset++] = (byte) interfacesCount;
-		for (int i = 0; i < interfacesCount; i++) {
-			int interfaceIndex = constantPool.literalIndexForType(superInterfacesBinding[i].constantPoolName());
-			contents[contentsOffset++] = (byte) (interfaceIndex >> 8);
-			contents[contentsOffset++] = (byte) interfaceIndex;
-		}
-		produceDebugAttributes = options.produceDebugAttributes;
-		innerClassesBindings = new ReferenceBinding[INNER_CLASSES_SIZE];
-		this.creatingProblemType = creatingProblemType;
-		codeStream = new CodeStream(this, this.targetJDK);
-
-		// retrieve the enclosing one guaranteed to be the one matching the propagated flow info
-		// 1FF9ZBU: LFCOM:ALL - Local variable attributes busted (Sanity check)
-		ClassFile outermostClassFile = this.outerMostEnclosingClassFile();
-		if (this == outermostClassFile) {
-			codeStream.maxFieldCount = aType.scope.referenceType().maxFieldCount;
-		} else {
-			codeStream.maxFieldCount = outermostClassFile.codeStream.maxFieldCount;
-		}
+		this.initByteArrays();
 	}
 
 	/**
@@ -444,7 +430,7 @@ public class ClassFile
 		MethodBinding methodBinding) {
 
 		// force the modifiers to be public and abstract
-		methodBinding.modifiers = AccPublic | AccAbstract;
+		methodBinding.modifiers = ClassFileConstants.AccPublic | ClassFileConstants.AccAbstract;
 
 		this.generateMethodInfoHeader(methodBinding);
 		int methodAttributeOffset = this.contentsOffset;
@@ -471,7 +457,7 @@ public class ClassFile
 		contentsOffset += 2;
 
 		// source attribute
-		if ((produceDebugAttributes & CompilerOptions.Source) != 0) {
+		if ((produceAttributes & ClassFileConstants.ATTR_SOURCE) != 0) {
 			String fullFileName =
 				new String(referenceBinding.scope.referenceCompilationUnit().getFileName());
 			fullFileName = fullFileName.replace('\\', '/');
@@ -516,67 +502,6 @@ public class ClassFile
 			contents[contentsOffset++] = 0;
 			contents[contentsOffset++] = 0;
 			contents[contentsOffset++] = 0;
-			attributeNumber++;
-		}
-		// Inner class attribute
-		if (numberOfInnerClasses != 0) {
-			// Generate the inner class attribute
-			int exSize = 8 * numberOfInnerClasses + 8;
-			if (exSize + contentsOffset >= this.contents.length) {
-				resizeContents(exSize);
-			}
-			// Now we now the size of the attribute and the number of entries
-			// attribute name
-			int attributeNameIndex =
-				constantPool.literalIndex(AttributeNamesConstants.InnerClassName);
-			contents[contentsOffset++] = (byte) (attributeNameIndex >> 8);
-			contents[contentsOffset++] = (byte) attributeNameIndex;
-			int value = (numberOfInnerClasses << 3) + 2;
-			contents[contentsOffset++] = (byte) (value >> 24);
-			contents[contentsOffset++] = (byte) (value >> 16);
-			contents[contentsOffset++] = (byte) (value >> 8);
-			contents[contentsOffset++] = (byte) value;
-			contents[contentsOffset++] = (byte) (numberOfInnerClasses >> 8);
-			contents[contentsOffset++] = (byte) numberOfInnerClasses;
-			for (int i = 0; i < numberOfInnerClasses; i++) {
-				ReferenceBinding innerClass = innerClassesBindings[i];
-				int accessFlags = innerClass.getAccessFlags();
-				int innerClassIndex = constantPool.literalIndexForType(innerClass.constantPoolName());
-				// inner class index
-				contents[contentsOffset++] = (byte) (innerClassIndex >> 8);
-				contents[contentsOffset++] = (byte) innerClassIndex;
-				// outer class index: anonymous and local have no outer class index
-				if (innerClass.isMemberType()) {
-					// member or member of local
-					int outerClassIndex = constantPool.literalIndexForType(innerClass.enclosingType().constantPoolName());
-					contents[contentsOffset++] = (byte) (outerClassIndex >> 8);
-					contents[contentsOffset++] = (byte) outerClassIndex;
-				} else {
-					// equals to 0 if the innerClass is not a member type
-					contents[contentsOffset++] = 0;
-					contents[contentsOffset++] = 0;
-				}
-				// name index
-				if (!innerClass.isAnonymousType()) {
-					int nameIndex = constantPool.literalIndex(innerClass.sourceName());
-					contents[contentsOffset++] = (byte) (nameIndex >> 8);
-					contents[contentsOffset++] = (byte) nameIndex;
-				} else {
-					// equals to 0 if the innerClass is an anonymous type
-					contents[contentsOffset++] = 0;
-					contents[contentsOffset++] = 0;
-				}
-				// access flag
-				if (innerClass.isAnonymousType()) {
-					accessFlags |= AccPrivate;
-				} else if (innerClass.isLocalType() && !innerClass.isMemberType()) {
-					accessFlags |= AccPrivate;
-				} else if (innerClass.isMemberType() && innerClass.isInterface()) {
-					accessFlags |= AccStatic; // implicitely static
-				}
-				contents[contentsOffset++] = (byte) (accessFlags >> 8);
-				contents[contentsOffset++] = (byte) accessFlags;
-			}
 			attributeNumber++;
 		}
 		// add signature attribute
@@ -627,7 +552,7 @@ public class ClassFile
 			if (this.referenceBinding instanceof LocalTypeBinding) {
 				MethodBinding methodBinding = ((LocalTypeBinding) this.referenceBinding).enclosingMethod;
 				if (methodBinding != null) {
-					int enclosingMethodIndex = constantPool.literalIndexForMethod(methodBinding.selector, methodBinding.signature());
+					int enclosingMethodIndex = constantPool.literalIndexForNameAndType(methodBinding.selector, methodBinding.signature(this));
 					methodIndexByte1 = (byte) (enclosingMethodIndex >> 8);
 					methodIndexByte2 = (byte) enclosingMethodIndex;
 				}
@@ -645,6 +570,92 @@ public class ClassFile
 				}
 			}
 		}
+		
+		if (this.referenceBinding.isHierarchyInconsistent()) {
+			// add an attribute for inconsistent hierarchy
+			if (contentsOffset + 6 >= contents.length) {
+				resizeContents(6);
+			}
+			int inconsistentHierarchyNameIndex =
+				constantPool.literalIndex(AttributeNamesConstants.InconsistentHierarchy);
+			contents[contentsOffset++] = (byte) (inconsistentHierarchyNameIndex >> 8);
+			contents[contentsOffset++] = (byte) inconsistentHierarchyNameIndex;
+			// the length of an inconsistent hierarchy attribute is equals to 0
+			contents[contentsOffset++] = 0;
+			contents[contentsOffset++] = 0;
+			contents[contentsOffset++] = 0;
+			contents[contentsOffset++] = 0;
+			attributeNumber++;
+		}
+		// Inner class attribute
+		int numberOfInnerClasses = this.innerClassesBindings == null ? 0 : this.innerClassesBindings.size();
+		if (numberOfInnerClasses != 0) {
+			ReferenceBinding[] innerClasses = new ReferenceBinding[numberOfInnerClasses];
+			this.innerClassesBindings.toArray(innerClasses);
+			Arrays.sort(innerClasses, new Comparator() {
+				public int compare(Object o1, Object o2) {
+					TypeBinding binding1 = (TypeBinding) o1;
+					TypeBinding binding2 = (TypeBinding) o2;
+					return CharOperation.compareTo(binding1.constantPoolName(), binding2.constantPoolName());
+				}
+			});
+			// Generate the inner class attribute
+			int exSize = 8 * numberOfInnerClasses + 8;
+			if (exSize + contentsOffset >= this.contents.length) {
+				resizeContents(exSize);
+			}
+			// Now we now the size of the attribute and the number of entries
+			// attribute name
+			int attributeNameIndex =
+				constantPool.literalIndex(AttributeNamesConstants.InnerClassName);
+			contents[contentsOffset++] = (byte) (attributeNameIndex >> 8);
+			contents[contentsOffset++] = (byte) attributeNameIndex;
+			int value = (numberOfInnerClasses << 3) + 2;
+			contents[contentsOffset++] = (byte) (value >> 24);
+			contents[contentsOffset++] = (byte) (value >> 16);
+			contents[contentsOffset++] = (byte) (value >> 8);
+			contents[contentsOffset++] = (byte) value;
+			contents[contentsOffset++] = (byte) (numberOfInnerClasses >> 8);
+			contents[contentsOffset++] = (byte) numberOfInnerClasses;
+			for (int i = 0; i < numberOfInnerClasses; i++) {
+				ReferenceBinding innerClass = innerClasses[i];
+				int accessFlags = innerClass.getAccessFlags();
+				int innerClassIndex = constantPool.literalIndexForType(innerClass.constantPoolName());
+				// inner class index
+				contents[contentsOffset++] = (byte) (innerClassIndex >> 8);
+				contents[contentsOffset++] = (byte) innerClassIndex;
+				// outer class index: anonymous and local have no outer class index
+				if (innerClass.isMemberType()) {
+					// member or member of local
+					int outerClassIndex = constantPool.literalIndexForType(innerClass.enclosingType().constantPoolName());
+					contents[contentsOffset++] = (byte) (outerClassIndex >> 8);
+					contents[contentsOffset++] = (byte) outerClassIndex;
+				} else {
+					// equals to 0 if the innerClass is not a member type
+					contents[contentsOffset++] = 0;
+					contents[contentsOffset++] = 0;
+				}
+				// name index
+				if (!innerClass.isAnonymousType()) {
+					int nameIndex = constantPool.literalIndex(innerClass.sourceName());
+					contents[contentsOffset++] = (byte) (nameIndex >> 8);
+					contents[contentsOffset++] = (byte) nameIndex;
+				} else {
+					// equals to 0 if the innerClass is an anonymous type
+					contents[contentsOffset++] = 0;
+					contents[contentsOffset++] = 0;
+				}
+				// access flag
+				if (innerClass.isAnonymousType()) {
+					accessFlags &= ~ClassFileConstants.AccFinal;
+				} else if (innerClass.isMemberType() && innerClass.isInterface()) {
+					accessFlags |= ClassFileConstants.AccStatic; // implicitely static
+				}
+				contents[contentsOffset++] = (byte) (accessFlags >> 8);
+				contents[contentsOffset++] = (byte) accessFlags;
+			}
+			attributeNumber++;
+		}
 		// update the number of attributes
 		if (attributeOffset + 2 >= this.contents.length) {
 			resizeContents(2);
@@ -659,7 +670,7 @@ public class ClassFile
 		header[constantPoolOffset++] = (byte) (constantPoolCount >> 8);
 		header[constantPoolOffset] = (byte) constantPoolCount;
 	}
-	
+
 	/**
 	 * INTERNAL USE-ONLY
 	 * This methods generate all the default abstract method infos that correpond to
@@ -675,12 +686,13 @@ public class ClassFile
 			completeMethodInfo(methodAttributeOffset, attributeNumber);
 		}
 	}
-
+	
 	private int addFieldAttributes(FieldBinding fieldBinding, int fieldAttributeOffset) {
 		int attributesNumber = 0;
 		// 4.7.2 only static constant fields get a ConstantAttribute
 		// Generate the constantValueAttribute
-		if (fieldBinding.isConstantValue()){
+		Constant fieldConstant = fieldBinding.constant();
+		if (fieldConstant != Constant.NotAConstant){
 			if (contentsOffset + 8 >= contents.length) {
 				resizeContents(8);
 			}
@@ -696,7 +708,6 @@ public class ClassFile
 			contents[contentsOffset++] = 2;
 			attributesNumber++;
 			// Need to add the constant_value_index
-			Constant fieldConstant = fieldBinding.constant();
 			switch (fieldConstant.typeID()) {
 				case T_boolean :
 					int booleanValueIndex =
@@ -821,6 +832,7 @@ public class ClassFile
 		}
 		return attributesNumber;
 	}
+
 	/**
 	 * INTERNAL USE-ONLY
 	 * This methods generates the bytes for the given field binding
@@ -837,7 +849,7 @@ public class ClassFile
 		int accessFlags = fieldBinding.getAccessFlags();
 		if (targetJDK < ClassFileConstants.JDK1_5) {
 		    // pre 1.5, synthetic was an attribute, not a modifier
-		    accessFlags &= ~AccSynthetic;
+		    accessFlags &= ~ClassFileConstants.AccSynthetic;
 		}		
 		contents[contentsOffset++] = (byte) (accessFlags >> 8);
 		contents[contentsOffset++] = (byte) accessFlags;
@@ -846,7 +858,7 @@ public class ClassFile
 		contents[contentsOffset++] = (byte) (nameIndex >> 8);
 		contents[contentsOffset++] = (byte) nameIndex;
 		// Then the descriptorIndex
-		int descriptorIndex = constantPool.literalIndex(fieldBinding.type.signature());
+		int descriptorIndex = constantPool.literalIndex(fieldBinding.type);
 		contents[contentsOffset++] = (byte) (descriptorIndex >> 8);
 		contents[contentsOffset++] = (byte) descriptorIndex;
 		int fieldAttributeOffset = contentsOffset;
@@ -854,10 +866,12 @@ public class ClassFile
 		// leave some space for the number of attributes
 		contentsOffset += 2;
 		attributeNumber += addFieldAttributes(fieldBinding, fieldAttributeOffset);
+		if (contentsOffset + 2 >= contents.length) {
+			resizeContents(2);
+		}
 		contents[fieldAttributeOffset++] = (byte) (attributeNumber >> 8);
 		contents[fieldAttributeOffset] = (byte) attributeNumber;
 	}
-
 	/**
 	 * INTERNAL USE-ONLY
 	 * This methods generate all the fields infos for the receiver.
@@ -886,44 +900,23 @@ public class ClassFile
 		contents[contentsOffset++] = (byte) (fieldCount >> 8);
 		contents[contentsOffset++] = (byte) fieldCount;
 
-		FieldBinding[] fieldBindings = currentBinding.fields();
-		for (int i = 0, max = fieldBindings.length; i < max; i++) {
-			addFieldInfo(fieldBindings[i]);
+		FieldDeclaration[] fieldDecls = currentBinding.scope.referenceContext.fields;
+		for (int i = 0, max = fieldDecls == null ? 0 : fieldDecls.length; i < max; i++) {
+			FieldDeclaration fieldDecl = fieldDecls[i];
+			if (fieldDecl.binding != null) {
+				addFieldInfo(fieldDecl.binding);
+			}
 		}
+
 		if (syntheticFields != null) {
 			for (int i = 0, max = syntheticFields.length; i < max; i++) {
 				addFieldInfo(syntheticFields[i]);
 			}
 		}
 	}
-
-	/**
-	 * INTERNAL USE-ONLY
-	 * This methods stores the bindings for each inner class. They will be used to know which entries
-	 * have to be generated for the inner classes attributes.
-	 * @param refBinding org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding 
-	 */
-	private void addInnerClasses(ReferenceBinding refBinding) {
-		// check first if that reference binding is there
-		for (int i = 0; i < numberOfInnerClasses; i++) {
-			if (innerClassesBindings[i] == refBinding)
-				return;
-		}
-		int length = innerClassesBindings.length;
-		if (numberOfInnerClasses == length) {
-			System.arraycopy(
-				innerClassesBindings,
-				0,
-				innerClassesBindings = new ReferenceBinding[length * 2],
-				0,
-				length);
-		}
-		innerClassesBindings[numberOfInnerClasses++] = refBinding;
-	}
-	
-	private void addMissingAbstractProblemMethod(MethodDeclaration methodDeclaration, MethodBinding methodBinding, IProblem problem, CompilationResult compilationResult) {
+	private void addMissingAbstractProblemMethod(MethodDeclaration methodDeclaration, MethodBinding methodBinding, CategorizedProblem problem, CompilationResult compilationResult) {
 		// always clear the strictfp/native/abstract bit for a problem method
-		generateMethodInfoHeader(methodBinding, methodBinding.modifiers & ~(AccStrictfp | AccNative | AccAbstract));
+		generateMethodInfoHeader(methodBinding, methodBinding.modifiers & ~(ClassFileConstants.AccStrictfp | ClassFileConstants.AccNative | ClassFileConstants.AccAbstract));
 		int methodAttributeOffset = contentsOffset;
 		int attributeNumber = generateMethodInfoAttribute(methodBinding);
 		
@@ -947,19 +940,19 @@ public class ClassFile
 		completeCodeAttributeForMissingAbstractProblemMethod(
 			methodBinding,
 			codeAttributeOffset,
-			compilationResult.lineSeparatorPositions,
+			compilationResult.getLineSeparatorPositions(),
 			problem.getSourceLineNumber());
 			
 		completeMethodInfo(methodAttributeOffset, attributeNumber);
 	}
-
+	
 	/**
 	 * INTERNAL USE-ONLY
 	 * Generate the byte for a problem clinit method info that correspond to a boggus method.
 	 *
 	 * @param problems org.eclipse.jdt.internal.compiler.problem.Problem[]
 	 */
-	public void addProblemClinit(IProblem[] problems) {
+	public void addProblemClinit(CategorizedProblem[] problems) {
 		generateMethodInfoHeaderForClinit();
 		// leave two spaces for the number of attributes
 		contentsOffset -= 2;
@@ -977,7 +970,7 @@ public class ClassFile
 			StringBuffer buffer = new StringBuffer(25);
 			int count = 0;
 			for (int i = 0; i < max; i++) {
-				IProblem problem = problems[i];
+				CategorizedProblem problem = problems[i];
 				if ((problem != null) && (problem.isError())) {
 					buffer.append("\t"  +problem.getMessage() + "\n" ); //$NON-NLS-1$ //$NON-NLS-2$
 					count++;
@@ -1000,12 +993,10 @@ public class ClassFile
 		attributeNumber++; // code attribute
 		completeCodeAttributeForClinit(
 			codeAttributeOffset,
-			referenceBinding
-				.scope
-				.referenceCompilationUnit()
-				.compilationResult
-				.lineSeparatorPositions,
 			problemLine);
+		if (contentsOffset + 2 >= contents.length) {
+			resizeContents(2);
+		}
 		contents[attributeOffset++] = (byte) (attributeNumber >> 8);
 		contents[attributeOffset] = (byte) attributeNumber;
 	}
@@ -1021,10 +1012,10 @@ public class ClassFile
 	public void addProblemConstructor(
 		AbstractMethodDeclaration method,
 		MethodBinding methodBinding,
-		IProblem[] problems) {
+		CategorizedProblem[] problems) {
 
 		// always clear the strictfp/native/abstract bit for a problem method
-		generateMethodInfoHeader(methodBinding, methodBinding.modifiers & ~(AccStrictfp | AccNative | AccAbstract));
+		generateMethodInfoHeader(methodBinding, methodBinding.modifiers & ~(ClassFileConstants.AccStrictfp | ClassFileConstants.AccNative | ClassFileConstants.AccAbstract));
 		int methodAttributeOffset = contentsOffset;
 		int attributeNumber = generateMethodInfoAttribute(methodBinding, true);
 		
@@ -1040,7 +1031,7 @@ public class ClassFile
 			StringBuffer buffer = new StringBuffer(25);
 			int count = 0;
 			for (int i = 0; i < max; i++) {
-				IProblem problem = problems[i];
+				CategorizedProblem problem = problems[i];
 				if ((problem != null) && (problem.isError())) {
 					buffer.append("\t"  +problem.getMessage() + "\n" ); //$NON-NLS-1$ //$NON-NLS-2$
 					count++;
@@ -1067,7 +1058,7 @@ public class ClassFile
 				.scope
 				.referenceCompilationUnit()
 				.compilationResult
-				.lineSeparatorPositions,
+				.getLineSeparatorPositions(),
 			problemLine);
 		completeMethodInfo(methodAttributeOffset, attributeNumber);
 	}
@@ -1085,7 +1076,7 @@ public class ClassFile
 	public void addProblemConstructor(
 		AbstractMethodDeclaration method,
 		MethodBinding methodBinding,
-		IProblem[] problems,
+		CategorizedProblem[] problems,
 		int savedOffset) {
 		// we need to move back the contentsOffset to the value at the beginning of the method
 		contentsOffset = savedOffset;
@@ -1104,12 +1095,12 @@ public class ClassFile
 	public void addProblemMethod(
 		AbstractMethodDeclaration method,
 		MethodBinding methodBinding,
-		IProblem[] problems) {
+		CategorizedProblem[] problems) {
 		if (methodBinding.isAbstract() && methodBinding.declaringClass.isInterface()) {
 			method.abort(ProblemSeverities.AbortType, null);
 		}
 		// always clear the strictfp/native/abstract bit for a problem method
-		generateMethodInfoHeader(methodBinding, methodBinding.modifiers & ~(AccStrictfp | AccNative | AccAbstract));
+		generateMethodInfoHeader(methodBinding, methodBinding.modifiers & ~(ClassFileConstants.AccStrictfp | ClassFileConstants.AccNative | ClassFileConstants.AccAbstract));
 		int methodAttributeOffset = contentsOffset;
 		int attributeNumber = generateMethodInfoAttribute(methodBinding, true);
 		
@@ -1126,7 +1117,7 @@ public class ClassFile
 			StringBuffer buffer = new StringBuffer(25);
 			int count = 0;
 			for (int i = 0; i < max; i++) {
-				IProblem problem = problems[i];
+				CategorizedProblem problem = problems[i];
 				if ((problem != null)
 					&& (problem.isError())
 					&& (problem.getSourceStart() >= method.declarationSourceStart)
@@ -1157,7 +1148,7 @@ public class ClassFile
 				.scope
 				.referenceCompilationUnit()
 				.compilationResult
-				.lineSeparatorPositions,
+				.getLineSeparatorPositions(),
 			problemLine);
 		completeMethodInfo(methodAttributeOffset, attributeNumber);
 	}
@@ -1175,7 +1166,7 @@ public class ClassFile
 	public void addProblemMethod(
 		AbstractMethodDeclaration method,
 		MethodBinding methodBinding,
-		IProblem[] problems,
+		CategorizedProblem[] problems,
 		int savedOffset) {
 		// we need to move back the contentsOffset to the value at the beginning of the method
 		contentsOffset = savedOffset;
@@ -1245,7 +1236,7 @@ public class ClassFile
 			}
 		}
 	}
-		
+
 	/**
 	 * INTERNAL USE-ONLY
 	 * Generate the bytes for a synthetic method that provides an access to a private constructor.
@@ -1270,12 +1261,12 @@ public class ClassFile
 				.scope
 				.referenceCompilationUnit()
 				.compilationResult
-				.lineSeparatorPositions);
+				.getLineSeparatorPositions());
 		// update the number of attributes
 		contents[methodAttributeOffset++] = (byte) (attributeNumber >> 8);
 		contents[methodAttributeOffset] = (byte) attributeNumber;
 	}
-
+		
 	/**
 	 * INTERNAL USE-ONLY
 	 *  Generate the bytes for a synthetic method that implements Enum#valueOf(String) for a given enum type
@@ -1300,36 +1291,12 @@ public class ClassFile
 				.scope
 				.referenceCompilationUnit()
 				.compilationResult
-				.lineSeparatorPositions);
+				.getLineSeparatorPositions());
 		// update the number of attributes
 		contents[methodAttributeOffset++] = (byte) (attributeNumber >> 8);
 		contents[methodAttributeOffset] = (byte) attributeNumber;			
 	}
 
-	public void addSyntheticSwitchTable(SyntheticMethodBinding methodBinding) {
-		generateMethodInfoHeader(methodBinding);
-		int methodAttributeOffset = this.contentsOffset;
-		// this will add exception attribute, synthetic attribute, deprecated attribute,...
-		int attributeNumber = generateMethodInfoAttribute(methodBinding);
-		// Code attribute
-		int codeAttributeOffset = contentsOffset;
-		attributeNumber++; // add code attribute
-		generateCodeAttributeHeader();
-		codeStream.init(this);
-		codeStream.generateSyntheticBodyForSwitchTable(methodBinding);
-		completeCodeAttributeForSyntheticMethod(
-			true,
-			methodBinding,
-			codeAttributeOffset,
-			((SourceTypeBinding) methodBinding.declaringClass)
-				.scope
-				.referenceCompilationUnit()
-				.compilationResult
-				.lineSeparatorPositions);
-		// update the number of attributes
-		contents[methodAttributeOffset++] = (byte) (attributeNumber >> 8);
-		contents[methodAttributeOffset] = (byte) attributeNumber;
-	}
 	/**
 	 * INTERNAL USE-ONLY
 	 *  Generate the bytes for a synthetic method that implements Enum#values() for a given enum type
@@ -1354,7 +1321,7 @@ public class ClassFile
 				.scope
 				.referenceCompilationUnit()
 				.compilationResult
-				.lineSeparatorPositions);
+				.getLineSeparatorPositions());
 		// update the number of attributes
 		contents[methodAttributeOffset++] = (byte) (attributeNumber >> 8);
 		contents[methodAttributeOffset] = (byte) attributeNumber;		
@@ -1385,12 +1352,11 @@ public class ClassFile
 				.scope
 				.referenceCompilationUnit()
 				.compilationResult
-				.lineSeparatorPositions);
+				.getLineSeparatorPositions());
 		// update the number of attributes
 		contents[methodAttributeOffset++] = (byte) (attributeNumber >> 8);
 		contents[methodAttributeOffset] = (byte) attributeNumber;
 	}
-
 	/**
 	 * INTERNAL USE-ONLY
 	 * Generate the byte for a problem method info that correspond to a synthetic method that
@@ -1416,7 +1382,7 @@ public class ClassFile
 				.scope
 				.referenceCompilationUnit()
 				.compilationResult
-				.lineSeparatorPositions);
+				.getLineSeparatorPositions());
 		// update the number of attributes
 		contents[methodAttributeOffset++] = (byte) (attributeNumber >> 8);
 		contents[methodAttributeOffset] = (byte) attributeNumber;
@@ -1446,7 +1412,32 @@ public class ClassFile
 				.scope
 				.referenceCompilationUnit()
 				.compilationResult
-				.lineSeparatorPositions);
+				.getLineSeparatorPositions());
+		// update the number of attributes
+		contents[methodAttributeOffset++] = (byte) (attributeNumber >> 8);
+		contents[methodAttributeOffset] = (byte) attributeNumber;
+	}
+
+	public void addSyntheticSwitchTable(SyntheticMethodBinding methodBinding) {
+		generateMethodInfoHeader(methodBinding);
+		int methodAttributeOffset = this.contentsOffset;
+		// this will add exception attribute, synthetic attribute, deprecated attribute,...
+		int attributeNumber = generateMethodInfoAttribute(methodBinding);
+		// Code attribute
+		int codeAttributeOffset = contentsOffset;
+		attributeNumber++; // add code attribute
+		generateCodeAttributeHeader();
+		codeStream.init(this);
+		codeStream.generateSyntheticBodyForSwitchTable(methodBinding);
+		completeCodeAttributeForSyntheticMethod(
+			true,
+			methodBinding,
+			codeAttributeOffset,
+			((SourceTypeBinding) methodBinding.declaringClass)
+				.scope
+				.referenceCompilationUnit()
+				.compilationResult
+				.getLineSeparatorPositions());
 		// update the number of attributes
 		contents[methodAttributeOffset++] = (byte) (attributeNumber >> 8);
 		contents[methodAttributeOffset] = (byte) attributeNumber;
@@ -1492,42 +1483,53 @@ public class ClassFile
 		this.contents[codeAttributeOffset + 13] = (byte) code_length;
 
 		// write the exception table
-		int exceptionHandlersNumber = codeStream.exceptionHandlersCounter;
-		ExceptionLabel[] exceptionHandlers = codeStream.exceptionHandlers;
-		int exSize = exceptionHandlersNumber * 8 + 2;
+		ExceptionLabel[] exceptionLabels = codeStream.exceptionLabels;
+		int exceptionHandlersCount = 0; // each label holds one handler per range (start/end contiguous)
+		for (int i = 0, length = codeStream.exceptionLabelsCounter; i < length; i++) {
+			exceptionHandlersCount += codeStream.exceptionLabels[i].count / 2; 
+		}
+		int exSize = exceptionHandlersCount * 8 + 2;
 		if (exSize + localContentsOffset >= this.contents.length) {
 			resizeContents(exSize);
 		}
 		// there is no exception table, so we need to offset by 2 the current offset and move 
 		// on the attribute generation
-		this.contents[localContentsOffset++] = (byte) (exceptionHandlersNumber >> 8);
-		this.contents[localContentsOffset++] = (byte) exceptionHandlersNumber;
-		for (int i = 0, max = codeStream.exceptionHandlersIndex; i < max; i++) {
-			ExceptionLabel exceptionHandler = exceptionHandlers[i];
-			if (exceptionHandler != null) {
-				int start = exceptionHandler.start;
-				this.contents[localContentsOffset++] = (byte) (start >> 8);
-				this.contents[localContentsOffset++] = (byte) start;
-				int end = exceptionHandler.end;
-				this.contents[localContentsOffset++] = (byte) (end >> 8);
-				this.contents[localContentsOffset++] = (byte) end;
-				int handlerPC = exceptionHandler.position;
-				this.contents[localContentsOffset++] = (byte) (handlerPC >> 8);
-				this.contents[localContentsOffset++] = (byte) handlerPC;
-				if (exceptionHandler.exceptionType == null) {
-					// any exception handler
-					this.contents[localContentsOffset++] = 0;
-					this.contents[localContentsOffset++] = 0;
-				} else {
-					int nameIndex;
-					if (exceptionHandler.exceptionType == BaseTypes.NullBinding) {
-						/* represents ClassNotFoundException, see class literal access*/
-						nameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangClassNotFoundExceptionConstantPoolName);
+		this.contents[localContentsOffset++] = (byte) (exceptionHandlersCount >> 8);
+		this.contents[localContentsOffset++] = (byte) exceptionHandlersCount;
+		for (int i = 0, max = codeStream.exceptionLabelsCounter; i < max; i++) {
+			ExceptionLabel exceptionLabel = exceptionLabels[i];
+			if (exceptionLabel != null) {
+				int iRange = 0, maxRange = exceptionLabel.count;
+				if ((maxRange & 1) != 0) {
+					codeStream.methodDeclaration.scope.problemReporter().abortDueToInternalError(
+							Messages.bind(Messages.abort_invalidExceptionAttribute, new String(codeStream.methodDeclaration.selector)), 
+							codeStream.methodDeclaration);
+				}
+				while  (iRange < maxRange) {
+					int start = exceptionLabel.ranges[iRange++]; // even ranges are start positions
+					this.contents[localContentsOffset++] = (byte) (start >> 8);
+					this.contents[localContentsOffset++] = (byte) start;
+					int end = exceptionLabel.ranges[iRange++]; // odd ranges are end positions
+					this.contents[localContentsOffset++] = (byte) (end >> 8);
+					this.contents[localContentsOffset++] = (byte) end;
+					int handlerPC = exceptionLabel.position;
+					this.contents[localContentsOffset++] = (byte) (handlerPC >> 8);
+					this.contents[localContentsOffset++] = (byte) handlerPC;
+					if (exceptionLabel.exceptionType == null) {
+						// any exception handler
+						this.contents[localContentsOffset++] = 0;
+						this.contents[localContentsOffset++] = 0;
 					} else {
-						nameIndex = constantPool.literalIndexForType(exceptionHandler.exceptionType.constantPoolName());
+						int nameIndex;
+						if (exceptionLabel.exceptionType == TypeBinding.NULL) {
+							/* represents ClassNotFoundException, see class literal access*/
+							nameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangClassNotFoundExceptionConstantPoolName);
+						} else {
+							nameIndex = constantPool.literalIndexForType(exceptionLabel.exceptionType);
+						}
+						this.contents[localContentsOffset++] = (byte) (nameIndex >> 8);
+						this.contents[localContentsOffset++] = (byte) nameIndex;
 					}
-					this.contents[localContentsOffset++] = (byte) (nameIndex >> 8);
-					this.contents[localContentsOffset++] = (byte) nameIndex;
 				}
 			}
 		}
@@ -1536,9 +1538,12 @@ public class ClassFile
 		int attributeNumber = 0;
 		// leave two bytes for the attribute_length
 		localContentsOffset += 2;
+		if (localContentsOffset + 2 >= this.contents.length) {
+			resizeContents(2);
+		}
 
 		// first we handle the linenumber attribute
-		if (codeStream.generateLineNumberAttributes) {
+		if ((this.produceAttributes & ClassFileConstants.ATTR_LINES) != 0) {
 			/* Create and add the line number attribute (used for debugging) 
 			 * Build the pairs of:
 			 * 	(bytecodePC lineNumber)
@@ -1585,8 +1590,7 @@ public class ClassFile
 			}
 		}
 		// then we do the local variable attribute
-		if (codeStream.generateLocalVariableTableAttributes) {
-			int localVariableTableOffset = localContentsOffset;
+		if ((this.produceAttributes & ClassFileConstants.ATTR_VARS) != 0) {
 			int numberOfEntries = 0;
 			int localVariableNameIndex =
 				constantPool.literalIndex(AttributeNamesConstants.LocalVariableTableName);
@@ -1601,8 +1605,9 @@ public class ClassFile
 			}
 			this.contents[localContentsOffset++] = (byte) (localVariableNameIndex >> 8);
 			this.contents[localContentsOffset++] = (byte) localVariableNameIndex;
-			localContentsOffset += 6;
+			int localVariableTableOffset = localContentsOffset;
 			// leave space for attribute_length and local_variable_table_length
+			localContentsOffset += 6;
 			int nameIndex;
 			int descriptorIndex;
 			SourceTypeBinding declaringClassBinding = null;
@@ -1672,7 +1677,6 @@ public class ClassFile
 				}
 			}
 			int value = numberOfEntries * 10 + 2;
-			localVariableTableOffset += 2;
 			this.contents[localVariableTableOffset++] = (byte) (value >> 24);
 			this.contents[localVariableTableOffset++] = (byte) (value >> 16);
 			this.contents[localVariableTableOffset++] = (byte) (value >> 8);
@@ -1684,7 +1688,7 @@ public class ClassFile
 			final boolean currentInstanceIsGeneric = 
 				!methodDeclarationIsStatic
 				&& declaringClassBinding != null 
-				&& declaringClassBinding.typeVariables != NoTypeVariables;
+				&& declaringClassBinding.typeVariables != Binding.NO_TYPE_VARIABLES;
 			if (genericLocalVariablesCounter != 0 || currentInstanceIsGeneric) {
 				// add the local variable type table attribute
 				numberOfGenericEntries += (currentInstanceIsGeneric ? 1 : 0);
@@ -1747,11 +1751,366 @@ public class ClassFile
 				attributeNumber++;
 			}
 		}
-		// update the number of attributes
-		// ensure first that there is enough space available inside the localContents array
-		if (codeAttributeAttributeOffset + 2 >= this.contents.length) {
-			resizeContents(2);
+
+		if ((this.produceAttributes & ClassFileConstants.ATTR_STACK_MAP) != 0) {
+			final Set framesPositions = ((StackMapFrameCodeStream) codeStream).framePositions;
+			final int framesPositionsSize = framesPositions.size();
+			int numberOfFrames = framesPositionsSize - 1; // -1 because last return doesn't count
+			if (numberOfFrames > 0) {
+				ArrayList framePositions = new ArrayList(framesPositionsSize);
+				framePositions.addAll(framesPositions);
+				Collections.sort(framePositions);
+				int stackMapTableAttributeOffset = localContentsOffset;
+				// add the stack map table attribute
+				if (localContentsOffset + 8 >= this.contents.length) {
+					resizeContents(8);
+				}
+				int stackMapTableAttributeNameIndex =
+					constantPool.literalIndex(AttributeNamesConstants.StackMapTableName);
+				this.contents[localContentsOffset++] = (byte) (stackMapTableAttributeNameIndex >> 8);
+				this.contents[localContentsOffset++] = (byte) stackMapTableAttributeNameIndex;
+				
+				int stackMapTableAttributeLengthOffset = localContentsOffset;
+				// generate the attribute
+				localContentsOffset += 4;
+				if (localContentsOffset + 4 >= this.contents.length) {
+					resizeContents(4);
+				}
+				numberOfFrames = 0;
+				int numberOfFramesOffset = localContentsOffset;
+				localContentsOffset += 2;
+				if (localContentsOffset + 2 >= this.contents.length) {
+					resizeContents(2);
+				}
+				ArrayList frames = ((StackMapFrameCodeStream) codeStream).frames;
+				StackMapFrame currentFrame = (StackMapFrame) frames.get(0);
+				StackMapFrame prevFrame = null;
+				int framesSize = frames.size();
+				int frameIndex = 0;
+				for (int j = 0; j < framesPositionsSize && ((Integer) framePositions.get(j)).intValue() < code_length; j++) {
+					// select next frame
+					prevFrame = currentFrame;
+					currentFrame = null;
+					for (; frameIndex < framesSize; frameIndex++) {
+						currentFrame = (StackMapFrame) frames.get(frameIndex);
+						if (currentFrame.pc == ((Integer) framePositions.get(j)).intValue()) {
+							break;
+						}
+					}
+					if (currentFrame == null) break;
+					// generate current frame
+					// need to find differences between the current frame and the previous frame
+					numberOfFrames++;
+					int offsetDelta = currentFrame.getOffsetDelta(prevFrame);
+					switch (currentFrame.getFrameType(prevFrame)) {
+						case StackMapFrame.APPEND_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							int numberOfDifferentLocals = currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 + numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int index = currentFrame.getIndexOfDifferentLocals(numberOfDifferentLocals);
+							int numberOfLocals = currentFrame.getNumberOfLocals();
+							for (int i = index; i < currentFrame.locals.length && numberOfDifferentLocals > 0; i++) {
+								if (localContentsOffset + 6 >= this.contents.length) {
+									resizeContents(6);
+								}
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfDifferentLocals--;
+								}
+							}
+							break;
+						case StackMapFrame.SAME_FRAME :
+							if (localContentsOffset + 1 >= this.contents.length) {
+								resizeContents(1);
+							}							
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.SAME_FRAME_EXTENDED :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							this.contents[localContentsOffset++] = (byte) 251;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.CHOP_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							numberOfDifferentLocals = -currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 - numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;							
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS :
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[localContentsOffset++] = (byte) (offsetDelta + 64);
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										byte tag = (byte) info.tag;
+										this.contents[localContentsOffset++] = tag;
+										switch (tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS_EXTENDED :
+							if (localContentsOffset + 6 >= this.contents.length) {
+								resizeContents(6);
+							}							
+							this.contents[localContentsOffset++] = (byte) 247;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										byte tag = (byte) info.tag;
+										this.contents[localContentsOffset++] = tag;
+										switch (tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						default :
+							// FULL_FRAME
+							if (localContentsOffset + 5 >= this.contents.length) {
+								resizeContents(5);
+							}							
+							this.contents[localContentsOffset++] = (byte) 255;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int numberOfLocalOffset = localContentsOffset;
+							localContentsOffset += 2; // leave two spots for number of locals
+							int numberOfLocalEntries = 0;
+							numberOfLocals = currentFrame.getNumberOfLocals();
+							int numberOfEntries = 0;
+							int localsLength = currentFrame.locals == null ? 0 : currentFrame.locals.length;
+							for (int i = 0; i < localsLength && numberOfLocalEntries < numberOfLocals; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}							
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfLocalEntries++;
+								}
+								numberOfEntries++;
+							}
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[numberOfLocalOffset++] = (byte) (numberOfEntries >> 8);
+							this.contents[numberOfLocalOffset] = (byte) numberOfEntries;
+							int numberOfStackItems = currentFrame.numberOfStackItems;
+							this.contents[localContentsOffset++] = (byte) (numberOfStackItems >> 8);
+							this.contents[localContentsOffset++] = (byte) numberOfStackItems;
+							for (int i = 0; i < numberOfStackItems; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}
+								VerificationTypeInfo info = currentFrame.stackItems[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+								}
+							}
+					}
+				}
+				
+				if (numberOfFrames != 0) {
+					this.contents[numberOfFramesOffset++] = (byte) (numberOfFrames >> 8);
+					this.contents[numberOfFramesOffset] = (byte) numberOfFrames;
+	
+					int attributeLength = localContentsOffset - stackMapTableAttributeLengthOffset - 4;
+					this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 24);
+					this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 16);
+					this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 8);
+					this.contents[stackMapTableAttributeLengthOffset] = (byte) attributeLength;
+					attributeNumber++;
+				} else {
+					localContentsOffset = stackMapTableAttributeOffset;
+				}
+			}
 		}
+
 		this.contents[codeAttributeAttributeOffset++] = (byte) (attributeNumber >> 8);
 		this.contents[codeAttributeAttributeOffset] = (byte) attributeNumber;
 
@@ -1804,42 +2163,53 @@ public class ClassFile
 		this.contents[codeAttributeOffset + 13] = (byte) code_length;
 
 		// write the exception table
-		int exceptionHandlersNumber = codeStream.exceptionHandlersCounter;
-		ExceptionLabel[] exceptionHandlers = codeStream.exceptionHandlers;
-		int exSize = exceptionHandlersNumber * 8 + 2;
+		ExceptionLabel[] exceptionLabels = codeStream.exceptionLabels;
+		int exceptionHandlersCount = 0; // each label holds one handler per range (start/end contiguous)
+		for (int i = 0, length = codeStream.exceptionLabelsCounter; i < length; i++) {
+			exceptionHandlersCount += codeStream.exceptionLabels[i].count / 2; 
+		}
+		int exSize = exceptionHandlersCount * 8 + 2;
 		if (exSize + localContentsOffset >= this.contents.length) {
 			resizeContents(exSize);
 		}
 		// there is no exception table, so we need to offset by 2 the current offset and move 
 		// on the attribute generation
-		this.contents[localContentsOffset++] = (byte) (exceptionHandlersNumber >> 8);
-		this.contents[localContentsOffset++] = (byte) exceptionHandlersNumber;
-		for (int i = 0, max = codeStream.exceptionHandlersIndex; i < max; i++) {
-			ExceptionLabel exceptionHandler = exceptionHandlers[i];
-			if (exceptionHandler != null) {
-				int start = exceptionHandler.start;
-				this.contents[localContentsOffset++] = (byte) (start >> 8);
-				this.contents[localContentsOffset++] = (byte) start;
-				int end = exceptionHandler.end;
-				this.contents[localContentsOffset++] = (byte) (end >> 8);
-				this.contents[localContentsOffset++] = (byte) end;
-				int handlerPC = exceptionHandler.position;
-				this.contents[localContentsOffset++] = (byte) (handlerPC >> 8);
-				this.contents[localContentsOffset++] = (byte) handlerPC;
-				if (exceptionHandler.exceptionType == null) {
-					// any exception handler
-					this.contents[localContentsOffset++] = 0;
-					this.contents[localContentsOffset++] = 0;
-				} else {
-					int nameIndex;
-					if (exceptionHandler.exceptionType == BaseTypes.NullBinding) {
-						/* represents denote ClassNotFoundException, see class literal access*/
-						nameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangClassNotFoundExceptionConstantPoolName);
+		this.contents[localContentsOffset++] = (byte) (exceptionHandlersCount >> 8);
+		this.contents[localContentsOffset++] = (byte) exceptionHandlersCount;
+		for (int i = 0, max = codeStream.exceptionLabelsCounter; i < max; i++) {
+			ExceptionLabel exceptionLabel = exceptionLabels[i];
+			if (exceptionLabel != null) {
+				int iRange = 0, maxRange = exceptionLabel.count;
+				if ((maxRange & 1) != 0) {
+					codeStream.methodDeclaration.scope.problemReporter().abortDueToInternalError(
+							Messages.bind(Messages.abort_invalidExceptionAttribute, new String(codeStream.methodDeclaration.selector)), 
+							codeStream.methodDeclaration);
+				}				
+				while  (iRange < maxRange) {
+					int start = exceptionLabel.ranges[iRange++]; // even ranges are start positions
+					this.contents[localContentsOffset++] = (byte) (start >> 8);
+					this.contents[localContentsOffset++] = (byte) start;
+					int end = exceptionLabel.ranges[iRange++]; // odd ranges are end positions
+					this.contents[localContentsOffset++] = (byte) (end >> 8);
+					this.contents[localContentsOffset++] = (byte) end;
+					int handlerPC = exceptionLabel.position;
+					this.contents[localContentsOffset++] = (byte) (handlerPC >> 8);
+					this.contents[localContentsOffset++] = (byte) handlerPC;
+					if (exceptionLabel.exceptionType == null) {
+						// any exception handler
+						this.contents[localContentsOffset++] = 0;
+						this.contents[localContentsOffset++] = 0;
 					} else {
-						nameIndex = constantPool.literalIndexForType(exceptionHandler.exceptionType.constantPoolName());
+						int nameIndex;
+						if (exceptionLabel.exceptionType == TypeBinding.NULL) {
+							/* represents denote ClassNotFoundException, see class literal access*/
+							nameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangClassNotFoundExceptionConstantPoolName);
+						} else {
+							nameIndex = constantPool.literalIndexForType(exceptionLabel.exceptionType);
+						}
+						this.contents[localContentsOffset++] = (byte) (nameIndex >> 8);
+						this.contents[localContentsOffset++] = (byte) nameIndex;
 					}
-					this.contents[localContentsOffset++] = (byte) (nameIndex >> 8);
-					this.contents[localContentsOffset++] = (byte) nameIndex;
 				}
 			}
 		}
@@ -1848,9 +2218,12 @@ public class ClassFile
 		int attributeNumber = 0;
 		// leave two bytes for the attribute_length
 		localContentsOffset += 2;
+		if (localContentsOffset + 2 >= this.contents.length) {
+			resizeContents(2);
+		}
 
 		// first we handle the linenumber attribute
-		if (codeStream.generateLineNumberAttributes) {
+		if ((this.produceAttributes & ClassFileConstants.ATTR_LINES) != 0) {
 			/* Create and add the line number attribute (used for debugging) 
 			 * Build the pairs of:
 			 * 	(bytecodePC lineNumber)
@@ -1897,8 +2270,7 @@ public class ClassFile
 			}
 		}
 		// then we do the local variable attribute
-		if (codeStream.generateLocalVariableTableAttributes) {
-			int localVariableTableOffset = localContentsOffset;
+		if ((this.produceAttributes & ClassFileConstants.ATTR_VARS) != 0) {
 			int numberOfEntries = 0;
 			//		codeAttribute.addLocalVariableTableAttribute(this);
 			if ((codeStream.pcToSourceMap != null)
@@ -1910,6 +2282,7 @@ public class ClassFile
 				}
 				this.contents[localContentsOffset++] = (byte) (localVariableNameIndex >> 8);
 				this.contents[localContentsOffset++] = (byte) localVariableNameIndex;
+				int localVariableTableOffset = localContentsOffset;
 				localContentsOffset += 6;
 
 				// leave space for attribute_length and local_variable_table_length
@@ -1967,7 +2340,6 @@ public class ClassFile
 					}
 				}
 				int value = numberOfEntries * 10 + 2;
-				localVariableTableOffset += 2;
 				this.contents[localVariableTableOffset++] = (byte) (value >> 24);
 				this.contents[localVariableTableOffset++] = (byte) (value >> 16);
 				this.contents[localVariableTableOffset++] = (byte) (value >> 8);
@@ -2023,6 +2395,352 @@ public class ClassFile
 				}
 			}
 		}
+		
+		if ((this.produceAttributes & ClassFileConstants.ATTR_STACK_MAP) != 0) {
+			final Set framesPositions = ((StackMapFrameCodeStream) codeStream).framePositions;
+			final int framesPositionsSize = framesPositions.size();
+			int numberOfFrames = framesPositionsSize - 1; // -1 because last return doesn't count
+			if (numberOfFrames > 0) {
+				ArrayList framePositions = new ArrayList(framesPositionsSize);
+				framePositions.addAll(framesPositions);
+				Collections.sort(framePositions);
+				// add the stack map table attribute
+				if (localContentsOffset + 8 >= this.contents.length) {
+					resizeContents(8);
+				}
+				int stackMapTableAttributeNameIndex =
+					constantPool.literalIndex(AttributeNamesConstants.StackMapTableName);
+				this.contents[localContentsOffset++] = (byte) (stackMapTableAttributeNameIndex >> 8);
+				this.contents[localContentsOffset++] = (byte) stackMapTableAttributeNameIndex;
+				
+				int stackMapTableAttributeLengthOffset = localContentsOffset;
+				// generate the attribute
+				localContentsOffset += 4;
+				numberOfFrames = 0;
+				int numberOfFramesOffset = localContentsOffset;
+				localContentsOffset += 2;
+				// generate all frames
+				ArrayList frames = ((StackMapFrameCodeStream) codeStream).frames;
+				StackMapFrame currentFrame = (StackMapFrame) frames.get(0);
+				StackMapFrame prevFrame = null;
+				int framesSize = frames.size();
+				int frameIndex = 0;
+				for (int j = 0; j < framesPositionsSize && ((Integer) framePositions.get(j)).intValue() < code_length; j++) {
+					// select next frame
+					prevFrame = currentFrame;
+					currentFrame = null;
+					for (; frameIndex < framesSize; frameIndex++) {
+						currentFrame = (StackMapFrame) frames.get(frameIndex);
+						if (currentFrame.pc == ((Integer) framePositions.get(j)).intValue()) {
+							break;
+						}
+					}
+					if (currentFrame == null) break;
+					numberOfFrames++;
+					int offsetDelta = currentFrame.getOffsetDelta(prevFrame);
+					switch (currentFrame.getFrameType(prevFrame)) {
+						case StackMapFrame.APPEND_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							int numberOfDifferentLocals = currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 + numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int index = currentFrame.getIndexOfDifferentLocals(numberOfDifferentLocals);
+							int numberOfLocals = currentFrame.getNumberOfLocals();
+							for (int i = index; i < currentFrame.locals.length && numberOfDifferentLocals > 0; i++) {
+								if (localContentsOffset + 6 >= this.contents.length) {
+									resizeContents(6);
+								}
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfDifferentLocals--;
+								}
+							}
+							break;
+						case StackMapFrame.SAME_FRAME :
+							if (localContentsOffset + 1 >= this.contents.length) {
+								resizeContents(1);
+							}							
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.SAME_FRAME_EXTENDED :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							this.contents[localContentsOffset++] = (byte) 251;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.CHOP_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							numberOfDifferentLocals = -currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 - numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;							
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS :
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[localContentsOffset++] = (byte) (offsetDelta + 64);
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										this.contents[localContentsOffset++] = (byte) info.tag;
+										switch (info.tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS_EXTENDED :
+							if (localContentsOffset + 6 >= this.contents.length) {
+								resizeContents(6);
+							}							
+							this.contents[localContentsOffset++] = (byte) 247;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										this.contents[localContentsOffset++] = (byte) info.tag;
+										switch (info.tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						default :
+							// FULL_FRAME
+							if (localContentsOffset + 5 >= this.contents.length) {
+								resizeContents(5);
+							}							
+							this.contents[localContentsOffset++] = (byte) 255;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int numberOfLocalOffset = localContentsOffset;
+							localContentsOffset += 2; // leave two spots for number of locals
+							int numberOfLocalEntries = 0;
+							numberOfLocals = currentFrame.getNumberOfLocals();
+							int numberOfEntries = 0;
+							int localsLength = currentFrame.locals == null ? 0 : currentFrame.locals.length;
+							for (int i = 0; i < localsLength && numberOfLocalEntries < numberOfLocals; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}							
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfLocalEntries++;
+								}
+								numberOfEntries++;
+							}
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[numberOfLocalOffset++] = (byte) (numberOfEntries >> 8);
+							this.contents[numberOfLocalOffset] = (byte) numberOfEntries;
+							int numberOfStackItems = currentFrame.numberOfStackItems;
+							this.contents[localContentsOffset++] = (byte) (numberOfStackItems >> 8);
+							this.contents[localContentsOffset++] = (byte) numberOfStackItems;
+							for (int i = 0; i < numberOfStackItems; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}
+								VerificationTypeInfo info = currentFrame.stackItems[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+								}
+							}
+					}
+				}
+				
+				this.contents[numberOfFramesOffset++] = (byte) (numberOfFrames >> 8);
+				this.contents[numberOfFramesOffset] = (byte) numberOfFrames;
+
+				int attributeLength = localContentsOffset - stackMapTableAttributeLengthOffset - 4;
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 24);
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 16);
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 8);
+				this.contents[stackMapTableAttributeLengthOffset] = (byte) attributeLength;
+				attributeNumber++;
+			}
+		}
+		
 		// update the number of attributes
 		// ensure first that there is enough space available inside the contents array
 		if (codeAttributeAttributeOffset + 2 >= this.contents.length) {
@@ -2048,13 +2766,9 @@ public class ClassFile
 	 * - code_length
 	 * - exception table
 	 * - and debug attributes if necessary.
-	 *
-	 * @param codeAttributeOffset <CODE>int</CODE>
-	 * @param startLineIndexes int[]
 	 */
 	public void completeCodeAttributeForClinit(
 		int codeAttributeOffset,
-		int[] startLineIndexes,
 		int problemLine) {
 		// reinitialize the contents with the byte modified by the code stream
 		this.contents = codeStream.bCodeStream;
@@ -2090,9 +2804,12 @@ public class ClassFile
 		int codeAttributeAttributeOffset = localContentsOffset;
 		int attributeNumber = 0; // leave two bytes for the attribute_length
 		localContentsOffset += 2; // first we handle the linenumber attribute
+		if (localContentsOffset + 2 >= this.contents.length) {
+			resizeContents(2);
+		}
 
 		// first we handle the linenumber attribute
-		if (codeStream.generateLineNumberAttributes) {
+		if ((this.produceAttributes & ClassFileConstants.ATTR_LINES) != 0) {
 			if (localContentsOffset + 20 >= this.contents.length) {
 				resizeContents(20);
 			}			
@@ -2121,7 +2838,7 @@ public class ClassFile
 			attributeNumber++;
 		}
 		// then we do the local variable attribute
-		if (codeStream.generateLocalVariableTableAttributes) {
+		if ((this.produceAttributes & ClassFileConstants.ATTR_VARS) != 0) {
 			int localVariableNameIndex =
 				constantPool.literalIndex(AttributeNamesConstants.LocalVariableTableName);
 			if (localContentsOffset + 8 >= this.contents.length) {
@@ -2137,6 +2854,354 @@ public class ClassFile
 			this.contents[localContentsOffset++] = 0;
 			attributeNumber++;
 		}
+		
+		if ((this.produceAttributes & ClassFileConstants.ATTR_STACK_MAP) != 0) {
+			final Set framesPositions = ((StackMapFrameCodeStream) codeStream).framePositions;
+			final int framesPositionsSize = framesPositions.size();
+			int numberOfFrames = framesPositionsSize - 1; // -1 because last return doesn't count
+			if (numberOfFrames > 0) {
+				ArrayList framePositions = new ArrayList(framesPositionsSize);
+				framePositions.addAll(framesPositions);
+				Collections.sort(framePositions);
+				// add the stack map table attribute
+				if (localContentsOffset + 8 >= this.contents.length) {
+					resizeContents(8);
+				}
+				int stackMapTableAttributeNameIndex =
+					constantPool.literalIndex(AttributeNamesConstants.StackMapTableName);
+				this.contents[localContentsOffset++] = (byte) (stackMapTableAttributeNameIndex >> 8);
+				this.contents[localContentsOffset++] = (byte) stackMapTableAttributeNameIndex;
+				
+				int stackMapTableAttributeLengthOffset = localContentsOffset;
+				// generate the attribute
+				localContentsOffset += 4;
+				numberOfFrames = 0;
+				int numberOfFramesOffset = localContentsOffset;
+				localContentsOffset += 2;
+				// generate all frames
+				ArrayList frames = ((StackMapFrameCodeStream) codeStream).frames;
+				StackMapFrame currentFrame = (StackMapFrame) frames.get(0);
+				StackMapFrame prevFrame = null;
+				int framesSize = frames.size();
+				int frameIndex = 0;
+				for (int j = 0; j < framesPositionsSize && ((Integer) framePositions.get(j)).intValue() < code_length; j++) {
+					// select next frame
+					prevFrame = currentFrame;
+					currentFrame = null;
+					for (; frameIndex < framesSize; frameIndex++) {
+						currentFrame = (StackMapFrame) frames.get(frameIndex);
+						if (currentFrame.pc == ((Integer) framePositions.get(j)).intValue()) {
+							break;
+						}
+					}
+					if (currentFrame == null) break;
+					// generate current frame
+					// need to find differences between the current frame and the previous frame
+					numberOfFrames++;
+					int offsetDelta = currentFrame.getOffsetDelta(prevFrame);
+					switch (currentFrame.getFrameType(prevFrame)) {
+						case StackMapFrame.APPEND_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							int numberOfDifferentLocals = currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 + numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int index = currentFrame.getIndexOfDifferentLocals(numberOfDifferentLocals);
+							int numberOfLocals = currentFrame.getNumberOfLocals();
+							for (int i = index; i < currentFrame.locals.length && numberOfDifferentLocals > 0; i++) {
+								if (localContentsOffset + 6 >= this.contents.length) {
+									resizeContents(6);
+								}
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfDifferentLocals--;
+								}
+							}
+							break;
+						case StackMapFrame.SAME_FRAME :
+							if (localContentsOffset + 1 >= this.contents.length) {
+								resizeContents(1);
+							}							
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.SAME_FRAME_EXTENDED :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							this.contents[localContentsOffset++] = (byte) 251;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.CHOP_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							numberOfDifferentLocals = -currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 - numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;							
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS :
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[localContentsOffset++] = (byte) (offsetDelta + 64);
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										this.contents[localContentsOffset++] = (byte) info.tag;
+										switch (info.tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS_EXTENDED :
+							if (localContentsOffset + 6 >= this.contents.length) {
+								resizeContents(6);
+							}							
+							this.contents[localContentsOffset++] = (byte) 247;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										this.contents[localContentsOffset++] = (byte) info.tag;
+										switch (info.tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						default :
+							// FULL_FRAME
+							if (localContentsOffset + 5 >= this.contents.length) {
+								resizeContents(5);
+							}							
+							this.contents[localContentsOffset++] = (byte) 255;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int numberOfLocalOffset = localContentsOffset;
+							localContentsOffset += 2; // leave two spots for number of locals
+							int numberOfLocalEntries = 0;
+							numberOfLocals = currentFrame.getNumberOfLocals();
+							int numberOfEntries = 0;
+							int localsLength = currentFrame.locals == null ? 0 : currentFrame.locals.length;
+							for (int i = 0; i < localsLength && numberOfLocalEntries < numberOfLocals; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}							
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfLocalEntries++;
+								}
+								numberOfEntries++;
+							}
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[numberOfLocalOffset++] = (byte) (numberOfEntries >> 8);
+							this.contents[numberOfLocalOffset] = (byte) numberOfEntries;
+							int numberOfStackItems = currentFrame.numberOfStackItems;
+							this.contents[localContentsOffset++] = (byte) (numberOfStackItems >> 8);
+							this.contents[localContentsOffset++] = (byte) numberOfStackItems;
+							for (int i = 0; i < numberOfStackItems; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}
+								VerificationTypeInfo info = currentFrame.stackItems[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+								}
+							}
+					}
+				}
+				
+				this.contents[numberOfFramesOffset++] = (byte) (numberOfFrames >> 8);
+				this.contents[numberOfFramesOffset] = (byte) numberOfFrames;
+
+				int attributeLength = localContentsOffset - stackMapTableAttributeLengthOffset - 4;
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 24);
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 16);
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 8);
+				this.contents[stackMapTableAttributeLengthOffset] = (byte) attributeLength;
+				attributeNumber++;
+			}
+		}
+		
 		// update the number of attributes
 		// ensure first that there is enough space available inside the contents array
 		if (codeAttributeAttributeOffset + 2 >= this.contents.length) {
@@ -2186,8 +3251,11 @@ public class ClassFile
 		int codeAttributeAttributeOffset = localContentsOffset;
 		int attributeNumber = 0; // leave two bytes for the attribute_length
 		localContentsOffset += 2; // first we handle the linenumber attribute
+		if (localContentsOffset + 2 >= this.contents.length) {
+			resizeContents(2);
+		}
 
-		if (codeStream.generateLineNumberAttributes) {
+		if ((this.produceAttributes & ClassFileConstants.ATTR_LINES) != 0) {
 			if (localContentsOffset + 12 >= this.contents.length) {
 				resizeContents(12);
 			}
@@ -2208,7 +3276,7 @@ public class ClassFile
 			this.contents[localContentsOffset++] = 0;
 			this.contents[localContentsOffset++] = 1;
 			if (problemLine == 0) {
-				problemLine = searchLineNumber(startLineIndexes, binding.sourceStart());
+				problemLine = Util.getLineNumber(binding.sourceStart(), startLineIndexes, 0, startLineIndexes.length-1);
 			}
 			// first entry at pc = 0
 			this.contents[localContentsOffset++] = 0;
@@ -2217,6 +3285,351 @@ public class ClassFile
 			this.contents[localContentsOffset++] = (byte) problemLine;
 			// now we change the size of the line number attribute
 			attributeNumber++;
+		}
+
+		if ((this.produceAttributes & ClassFileConstants.ATTR_STACK_MAP) != 0) {
+			final Set framesPositions = ((StackMapFrameCodeStream) codeStream).framePositions;
+			final int framesPositionsSize = framesPositions.size();
+			int numberOfFrames = framesPositionsSize - 1; // -1 because last return doesn't count
+			if (numberOfFrames > 0) {
+				ArrayList framePositions = new ArrayList(framesPositionsSize);
+				framePositions.addAll(framesPositions);
+				Collections.sort(framePositions);
+				// add the stack map table attribute
+				if (localContentsOffset + 8 >= this.contents.length) {
+					resizeContents(8);
+				}
+				int stackMapTableAttributeNameIndex =
+					constantPool.literalIndex(AttributeNamesConstants.StackMapTableName);
+				this.contents[localContentsOffset++] = (byte) (stackMapTableAttributeNameIndex >> 8);
+				this.contents[localContentsOffset++] = (byte) stackMapTableAttributeNameIndex;
+				
+				int stackMapTableAttributeLengthOffset = localContentsOffset;
+				// generate the attribute
+				localContentsOffset += 4;
+				numberOfFrames = 0;
+				int numberOfFramesOffset = localContentsOffset;
+				localContentsOffset += 2;
+				// generate all frames
+				ArrayList frames = ((StackMapFrameCodeStream) codeStream).frames;
+				StackMapFrame currentFrame = (StackMapFrame) frames.get(0);
+				StackMapFrame prevFrame = null;
+				int framesSize = frames.size();
+				int frameIndex = 0;
+				for (int j = 0; j < framesPositionsSize && ((Integer) framePositions.get(j)).intValue() < code_length; j++) {
+					// select next frame
+					prevFrame = currentFrame;
+					currentFrame = null;
+					for (; frameIndex < framesSize; frameIndex++) {
+						currentFrame = (StackMapFrame) frames.get(frameIndex);
+						if (currentFrame.pc == ((Integer) framePositions.get(j)).intValue()) {
+							break;
+						}
+					}
+					if (currentFrame == null) break;
+					numberOfFrames++;
+					int offsetDelta = currentFrame.getOffsetDelta(prevFrame);
+					switch (currentFrame.getFrameType(prevFrame)) {
+						case StackMapFrame.APPEND_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							int numberOfDifferentLocals = currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 + numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int index = currentFrame.getIndexOfDifferentLocals(numberOfDifferentLocals);
+							int numberOfLocals = currentFrame.getNumberOfLocals();
+							for (int i = index; i < currentFrame.locals.length && numberOfDifferentLocals > 0; i++) {
+								if (localContentsOffset + 6 >= this.contents.length) {
+									resizeContents(6);
+								}
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfDifferentLocals--;
+								}
+							}
+							break;
+						case StackMapFrame.SAME_FRAME :
+							if (localContentsOffset + 1 >= this.contents.length) {
+								resizeContents(1);
+							}							
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.SAME_FRAME_EXTENDED :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							this.contents[localContentsOffset++] = (byte) 251;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.CHOP_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							numberOfDifferentLocals = -currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 - numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;							
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS :
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[localContentsOffset++] = (byte) (offsetDelta + 64);
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										this.contents[localContentsOffset++] = (byte) info.tag;
+										switch (info.tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS_EXTENDED :
+							if (localContentsOffset + 6 >= this.contents.length) {
+								resizeContents(6);
+							}							
+							this.contents[localContentsOffset++] = (byte) 247;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										this.contents[localContentsOffset++] = (byte) info.tag;
+										switch (info.tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						default :
+							// FULL_FRAME
+							if (localContentsOffset + 5 >= this.contents.length) {
+								resizeContents(5);
+							}							
+							this.contents[localContentsOffset++] = (byte) 255;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int numberOfLocalOffset = localContentsOffset;
+							localContentsOffset += 2; // leave two spots for number of locals
+							int numberOfLocalEntries = 0;
+							numberOfLocals = currentFrame.getNumberOfLocals();
+							int numberOfEntries = 0;
+							int localsLength = currentFrame.locals == null ? 0 : currentFrame.locals.length;
+							for (int i = 0; i < localsLength && numberOfLocalEntries < numberOfLocals; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}							
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfLocalEntries++;
+								}
+								numberOfEntries++;
+							}
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[numberOfLocalOffset++] = (byte) (numberOfEntries >> 8);
+							this.contents[numberOfLocalOffset] = (byte) numberOfEntries;
+							int numberOfStackItems = currentFrame.numberOfStackItems;
+							this.contents[localContentsOffset++] = (byte) (numberOfStackItems >> 8);
+							this.contents[localContentsOffset++] = (byte) numberOfStackItems;
+							for (int i = 0; i < numberOfStackItems; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}
+								VerificationTypeInfo info = currentFrame.stackItems[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+								}
+							}
+					}
+				}
+				
+				this.contents[numberOfFramesOffset++] = (byte) (numberOfFrames >> 8);
+				this.contents[numberOfFramesOffset] = (byte) numberOfFrames;
+
+				int attributeLength = localContentsOffset - stackMapTableAttributeLengthOffset - 4;
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 24);
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 16);
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 8);
+				this.contents[stackMapTableAttributeLengthOffset] = (byte) attributeLength;
+				attributeNumber++;
+			}
 		}
 		
 		// then we do the local variable attribute
@@ -2280,8 +3693,11 @@ public class ClassFile
 		int codeAttributeAttributeOffset = localContentsOffset;
 		int attributeNumber = 0; // leave two bytes for the attribute_length
 		localContentsOffset += 2; // first we handle the linenumber attribute
+		if (localContentsOffset + 2 >= this.contents.length) {
+			resizeContents(2);
+		}
 
-		if (codeStream.generateLineNumberAttributes) {
+		if ((this.produceAttributes & ClassFileConstants.ATTR_LINES) != 0) {
 			if (localContentsOffset + 20 >= this.contents.length) {
 				resizeContents(20);
 			}
@@ -2302,7 +3718,7 @@ public class ClassFile
 			this.contents[localContentsOffset++] = 0;
 			this.contents[localContentsOffset++] = 1;
 			if (problemLine == 0) {
-				problemLine = searchLineNumber(startLineIndexes, binding.sourceStart());
+				problemLine = Util.getLineNumber(binding.sourceStart(), startLineIndexes, 0, startLineIndexes.length-1);
 			}
 			// first entry at pc = 0
 			this.contents[localContentsOffset++] = 0;
@@ -2313,10 +3729,9 @@ public class ClassFile
 			attributeNumber++;
 		}
 		// then we do the local variable attribute
-		if (codeStream.generateLocalVariableTableAttributes) {
+		if ((this.produceAttributes & ClassFileConstants.ATTR_VARS) != 0) {
 			// compute the resolved position for the arguments of the method
 			int argSize;
-			int localVariableTableOffset = localContentsOffset;
 			int numberOfEntries = 0;
 			//		codeAttribute.addLocalVariableTableAttribute(this);
 			int localVariableNameIndex =
@@ -2326,6 +3741,7 @@ public class ClassFile
 			}
 			this.contents[localContentsOffset++] = (byte) (localVariableNameIndex >> 8);
 			this.contents[localContentsOffset++] = (byte) localVariableNameIndex;
+			int localVariableTableOffset = localContentsOffset;
 			localContentsOffset += 6;
 			// leave space for attribute_length and local_variable_table_length
 			int descriptorIndex;
@@ -2441,8 +3857,8 @@ public class ClassFile
 						descriptorIndex = constantPool.literalIndex(argumentBinding.signature());
 						this.contents[localContentsOffset++] = (byte) (descriptorIndex >> 8);
 						this.contents[localContentsOffset++] = (byte) descriptorIndex;
-						if ((argumentBinding == BaseTypes.LongBinding)
-							|| (argumentBinding == BaseTypes.DoubleBinding))
+						if ((argumentBinding == TypeBinding.LONG)
+							|| (argumentBinding == TypeBinding.DOUBLE))
 							argSize += 2;
 						else
 							argSize++;
@@ -2452,7 +3868,6 @@ public class ClassFile
 				}
 			}
 			int value = numberOfEntries * 10 + 2;
-			localVariableTableOffset += 2;
 			this.contents[localVariableTableOffset++] = (byte) (value >> 24);
 			this.contents[localVariableTableOffset++] = (byte) (value >> 16);
 			this.contents[localVariableTableOffset++] = (byte) (value >> 8);
@@ -2464,7 +3879,7 @@ public class ClassFile
 			final boolean currentInstanceIsGeneric = 
 				!methodDeclarationIsStatic
 				&& declaringClassBinding != null
-				&& declaringClassBinding.typeVariables != NoTypeVariables;
+				&& declaringClassBinding.typeVariables != Binding.NO_TYPE_VARIABLES;
 			if (genericLocalVariablesCounter != 0 || genericArgumentsCounter != 0 || currentInstanceIsGeneric) {
 				// add the local variable type table attribute
 				numberOfEntries = numberOfGenericEntries + genericArgumentsCounter + (currentInstanceIsGeneric ? 1 : 0);
@@ -2534,6 +3949,352 @@ public class ClassFile
 				attributeNumber++;
 			}			
 		}
+		
+		if ((this.produceAttributes & ClassFileConstants.ATTR_STACK_MAP) != 0) {
+			final Set framesPositions = ((StackMapFrameCodeStream) codeStream).framePositions;
+			final int framesPositionsSize = framesPositions.size();
+			int numberOfFrames = framesPositionsSize - 1; // -1 because last return doesn't count
+			if (numberOfFrames > 0) {
+				ArrayList framePositions = new ArrayList(framesPositionsSize);
+				framePositions.addAll(framesPositions);
+				Collections.sort(framePositions);
+				// add the stack map table attribute
+				if (localContentsOffset + 8 >= this.contents.length) {
+					resizeContents(8);
+				}
+				int stackMapTableAttributeNameIndex =
+					constantPool.literalIndex(AttributeNamesConstants.StackMapTableName);
+				this.contents[localContentsOffset++] = (byte) (stackMapTableAttributeNameIndex >> 8);
+				this.contents[localContentsOffset++] = (byte) stackMapTableAttributeNameIndex;
+				
+				int stackMapTableAttributeLengthOffset = localContentsOffset;
+				// generate the attribute
+				localContentsOffset += 4;
+				numberOfFrames = 0;
+				int numberOfFramesOffset = localContentsOffset;
+				localContentsOffset += 2;
+				// generate all frames
+				ArrayList frames = ((StackMapFrameCodeStream) codeStream).frames;
+				StackMapFrame currentFrame = (StackMapFrame) frames.get(0);
+				StackMapFrame prevFrame = null;
+				int framesSize = frames.size();
+				int frameIndex = 0;
+				for (int j = 0; j < framesPositionsSize && ((Integer) framePositions.get(j)).intValue() < code_length; j++) {
+					// select next frame
+					prevFrame = currentFrame;
+					currentFrame = null;
+					for (; frameIndex < framesSize; frameIndex++) {
+						currentFrame = (StackMapFrame) frames.get(frameIndex);
+						if (currentFrame.pc == ((Integer) framePositions.get(j)).intValue()) {
+							break;
+						}
+					}
+					if (currentFrame == null) break;
+					numberOfFrames++;
+					int offsetDelta = currentFrame.getOffsetDelta(prevFrame);
+					switch (currentFrame.getFrameType(prevFrame)) {
+						case StackMapFrame.APPEND_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							int numberOfDifferentLocals = currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 + numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int index = currentFrame.getIndexOfDifferentLocals(numberOfDifferentLocals);
+							int numberOfLocals = currentFrame.getNumberOfLocals();
+							for (int i = index; i < currentFrame.locals.length && numberOfDifferentLocals > 0; i++) {
+								if (localContentsOffset + 6 >= this.contents.length) {
+									resizeContents(6);
+								}
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfDifferentLocals--;
+								}
+							}
+							break;
+						case StackMapFrame.SAME_FRAME :
+							if (localContentsOffset + 1 >= this.contents.length) {
+								resizeContents(1);
+							}							
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.SAME_FRAME_EXTENDED :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							this.contents[localContentsOffset++] = (byte) 251;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.CHOP_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							numberOfDifferentLocals = -currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 - numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;							
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS :
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[localContentsOffset++] = (byte) (offsetDelta + 64);
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										this.contents[localContentsOffset++] = (byte) info.tag;
+										switch (info.tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS_EXTENDED :
+							if (localContentsOffset + 6 >= this.contents.length) {
+								resizeContents(6);
+							}							
+							this.contents[localContentsOffset++] = (byte) 247;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										this.contents[localContentsOffset++] = (byte) info.tag;
+										switch (info.tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						default :
+							// FULL_FRAME
+							if (localContentsOffset + 5 >= this.contents.length) {
+								resizeContents(5);
+							}							
+							this.contents[localContentsOffset++] = (byte) 255;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int numberOfLocalOffset = localContentsOffset;
+							localContentsOffset += 2; // leave two spots for number of locals
+							int numberOfLocalEntries = 0;
+							numberOfLocals = currentFrame.getNumberOfLocals();
+							int numberOfEntries = 0;
+							int localsLength = currentFrame.locals == null ? 0 : currentFrame.locals.length;
+							for (int i = 0; i < localsLength && numberOfLocalEntries < numberOfLocals; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}							
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfLocalEntries++;
+								}
+								numberOfEntries++;
+							}
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[numberOfLocalOffset++] = (byte) (numberOfEntries >> 8);
+							this.contents[numberOfLocalOffset] = (byte) numberOfEntries;
+							int numberOfStackItems = currentFrame.numberOfStackItems;
+							this.contents[localContentsOffset++] = (byte) (numberOfStackItems >> 8);
+							this.contents[localContentsOffset++] = (byte) numberOfStackItems;
+							for (int i = 0; i < numberOfStackItems; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}
+								VerificationTypeInfo info = currentFrame.stackItems[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+								}
+							}
+					}
+				}
+				
+				this.contents[numberOfFramesOffset++] = (byte) (numberOfFrames >> 8);
+				this.contents[numberOfFramesOffset] = (byte) numberOfFrames;
+
+				int attributeLength = localContentsOffset - stackMapTableAttributeLengthOffset - 4;
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 24);
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 16);
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 8);
+				this.contents[stackMapTableAttributeLengthOffset] = (byte) attributeLength;
+				attributeNumber++;
+			}
+		}
+		
 		// update the number of attributes// ensure first that there is enough space available inside the localContents array
 		if (codeAttributeAttributeOffset + 2 >= this.contents.length) {
 			resizeContents(2);
@@ -2547,31 +4308,6 @@ public class ClassFile
 		this.contents[codeAttributeOffset + 4] = (byte) (codeAttributeLength >> 8);
 		this.contents[codeAttributeOffset + 5] = (byte) codeAttributeLength;
 		contentsOffset = localContentsOffset;
-	}
-
-	/**
-	 * INTERNAL USE-ONLY
-	 * That method completes the creation of the code attribute by setting
-	 * - the attribute_length
-	 * - max_stack
-	 * - max_locals
-	 * - code_length
-	 * - exception table
-	 * - and debug attributes if necessary.
-	 *
-	 * @param binding org.eclipse.jdt.internal.compiler.lookup.SyntheticAccessMethodBinding
-	 * @param codeAttributeOffset <CODE>int</CODE>
-	 */
-	public void completeCodeAttributeForSyntheticMethod(
-		SyntheticMethodBinding binding,
-		int codeAttributeOffset,
-		int[] startLineIndexes) {
-		
-		this.completeCodeAttributeForSyntheticMethod(
-				false,
-				binding,
-				codeAttributeOffset,
-				startLineIndexes);
 	}
 
 	/**
@@ -2616,48 +4352,59 @@ public class ClassFile
 		
 		if (hasExceptionHandlers) {
 			// write the exception table
-			int exceptionHandlersNumber = codeStream.exceptionHandlersCounter;
-			ExceptionLabel[] exceptionHandlers = codeStream.exceptionHandlers;
-			int exSize = exceptionHandlersNumber * 8 + 2;
+			ExceptionLabel[] exceptionLabels = codeStream.exceptionLabels;
+			int exceptionHandlersCount = 0; // each label holds one handler per range (start/end contiguous)
+			for (int i = 0, length = codeStream.exceptionLabelsCounter; i < length; i++) {
+				exceptionHandlersCount += codeStream.exceptionLabels[i].count / 2; 
+			}
+			int exSize = exceptionHandlersCount * 8 + 2;
 			if (exSize + localContentsOffset >= this.contents.length) {
 				resizeContents(exSize);
 			}
 			// there is no exception table, so we need to offset by 2 the current offset and move 
 			// on the attribute generation
-			this.contents[localContentsOffset++] = (byte) (exceptionHandlersNumber >> 8);
-			this.contents[localContentsOffset++] = (byte) exceptionHandlersNumber;
-			for (int i = 0, max = codeStream.exceptionHandlersIndex; i < max; i++) {
-				ExceptionLabel exceptionHandler = exceptionHandlers[i];
-				if (exceptionHandler != null) {
-					int start = exceptionHandler.start;
-					this.contents[localContentsOffset++] = (byte) (start >> 8);
-					this.contents[localContentsOffset++] = (byte) start;
-					int end = exceptionHandler.end;
-					this.contents[localContentsOffset++] = (byte) (end >> 8);
-					this.contents[localContentsOffset++] = (byte) end;
-					int handlerPC = exceptionHandler.position;
-					this.contents[localContentsOffset++] = (byte) (handlerPC >> 8);
-					this.contents[localContentsOffset++] = (byte) handlerPC;
-					if (exceptionHandler.exceptionType == null) {
-						// any exception handler
-						this.contents[localContentsOffset++] = 0;
-						this.contents[localContentsOffset++] = 0;
-					} else {
-						int nameIndex;
-						switch(exceptionHandler.exceptionType.id) {
-							case T_null :
-								/* represents ClassNotFoundException, see class literal access*/
-								nameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangClassNotFoundExceptionConstantPoolName);
-								break;
-							case T_long :
-								/* represents NoSuchFieldError, see switch table generation*/
-								nameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangNoSuchFieldErrorConstantPoolName);
-								break;
-							default:
-								nameIndex = constantPool.literalIndexForType(exceptionHandler.exceptionType.constantPoolName());
+			this.contents[localContentsOffset++] = (byte) (exceptionHandlersCount >> 8);
+			this.contents[localContentsOffset++] = (byte) exceptionHandlersCount;
+			for (int i = 0, max = codeStream.exceptionLabelsCounter; i < max; i++) {
+				ExceptionLabel exceptionLabel = exceptionLabels[i];
+				if (exceptionLabel != null) {
+					int iRange = 0, maxRange = exceptionLabel.count;
+					if ((maxRange & 1) != 0) {
+						referenceBinding.scope.problemReporter().abortDueToInternalError(
+								Messages.bind(Messages.abort_invalidExceptionAttribute, new String(binding.selector), 
+										referenceBinding.scope.problemReporter().referenceContext));
+					}
+					while  (iRange < maxRange) {
+						int start = exceptionLabel.ranges[iRange++]; // even ranges are start positions
+						this.contents[localContentsOffset++] = (byte) (start >> 8);
+						this.contents[localContentsOffset++] = (byte) start;
+						int end = exceptionLabel.ranges[iRange++]; // odd ranges are end positions
+						this.contents[localContentsOffset++] = (byte) (end >> 8);
+						this.contents[localContentsOffset++] = (byte) end;
+						int handlerPC = exceptionLabel.position;
+						this.contents[localContentsOffset++] = (byte) (handlerPC >> 8);
+						this.contents[localContentsOffset++] = (byte) handlerPC;
+						if (exceptionLabel.exceptionType == null) {
+							// any exception handler
+							this.contents[localContentsOffset++] = 0;
+							this.contents[localContentsOffset++] = 0;
+						} else {
+							int nameIndex;
+							switch(exceptionLabel.exceptionType.id) {
+								case T_null :
+									/* represents ClassNotFoundException, see class literal access*/
+									nameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangClassNotFoundExceptionConstantPoolName);
+									break;
+								case T_long :
+									/* represents NoSuchFieldError, see switch table generation*/
+									nameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangNoSuchFieldErrorConstantPoolName);
+									break;
+								default:
+									nameIndex = constantPool.literalIndexForType(exceptionLabel.exceptionType);
+							}
+							this.contents[localContentsOffset++] = (byte) (nameIndex >> 8);
+							this.contents[localContentsOffset++] = (byte) nameIndex;
 						}
-						this.contents[localContentsOffset++] = (byte) (nameIndex >> 8);
-						this.contents[localContentsOffset++] = (byte) nameIndex;
 					}
 				}
 			}
@@ -2672,9 +4419,12 @@ public class ClassFile
 		int attributeNumber = 0;
 		// leave two bytes for the attribute_length
 		localContentsOffset += 2;
+		if (localContentsOffset + 2 >= this.contents.length) {
+			resizeContents(2);
+		}
 
 		// first we handle the linenumber attribute
-		if (codeStream.generateLineNumberAttributes) {
+		if ((this.produceAttributes & ClassFileConstants.ATTR_LINES) != 0) {
 			if (localContentsOffset + 12 >= this.contents.length) {
 				resizeContents(12);
 			}		
@@ -2687,7 +4437,7 @@ public class ClassFile
 			localContentsOffset += 6;
 			// leave space for attribute_length and line_number_table_length
 			// Seems like do would be better, but this preserves the existing behavior.
-			index = searchLineNumber(startLineIndexes, binding.sourceStart);
+			index = Util.getLineNumber(binding.sourceStart, startLineIndexes, 0, startLineIndexes.length-1);
 			contents[localContentsOffset++] = 0;
 			contents[localContentsOffset++] = 0;
 			contents[localContentsOffset++] = (byte) (index >> 8);
@@ -2702,8 +4452,7 @@ public class ClassFile
 			attributeNumber++;
 		}
 		// then we do the local variable attribute
-		if (codeStream.generateLocalVariableTableAttributes) {
-			int localVariableTableOffset = localContentsOffset;
+		if ((this.produceAttributes & ClassFileConstants.ATTR_VARS) != 0) {
 			int numberOfEntries = 0;
 			int localVariableNameIndex =
 				constantPool.literalIndex(AttributeNamesConstants.LocalVariableTableName);
@@ -2712,6 +4461,7 @@ public class ClassFile
 			}
 			contents[localContentsOffset++] = (byte) (localVariableNameIndex >> 8);
 			contents[localContentsOffset++] = (byte) localVariableNameIndex;
+			int localVariableTableOffset = localContentsOffset;
 			localContentsOffset += 6;
 			// leave space for attribute_length and local_variable_table_length
 			int nameIndex;
@@ -2768,7 +4518,6 @@ public class ClassFile
 				}
 			}
 			int value = numberOfEntries * 10 + 2;
-			localVariableTableOffset += 2;
 			contents[localVariableTableOffset++] = (byte) (value >> 24);
 			contents[localVariableTableOffset++] = (byte) (value >> 16);
 			contents[localVariableTableOffset++] = (byte) (value >> 8);
@@ -2823,6 +4572,352 @@ public class ClassFile
 				attributeNumber++;
 			}
 		}
+		
+		if ((this.produceAttributes & ClassFileConstants.ATTR_STACK_MAP) != 0) {
+			final Set framesPositions = ((StackMapFrameCodeStream) codeStream).framePositions;
+			final int framesPositionsSize = framesPositions.size();
+			int numberOfFrames = framesPositionsSize - 1; // -1 because last return doesn't count
+			if (numberOfFrames > 0) {
+				ArrayList framePositions = new ArrayList(framesPositionsSize);
+				framePositions.addAll(framesPositions);
+				Collections.sort(framePositions);
+				// add the stack map table attribute
+				if (localContentsOffset + 8 >= this.contents.length) {
+					resizeContents(8);
+				}
+				int stackMapTableAttributeNameIndex =
+					constantPool.literalIndex(AttributeNamesConstants.StackMapTableName);
+				this.contents[localContentsOffset++] = (byte) (stackMapTableAttributeNameIndex >> 8);
+				this.contents[localContentsOffset++] = (byte) stackMapTableAttributeNameIndex;
+				
+				int stackMapTableAttributeLengthOffset = localContentsOffset;
+				// generate the attribute
+				localContentsOffset += 4;
+				numberOfFrames = 0;
+				int numberOfFramesOffset = localContentsOffset;
+				localContentsOffset += 2;
+				// generate all frames
+				ArrayList frames = ((StackMapFrameCodeStream) codeStream).frames;
+				StackMapFrame currentFrame = (StackMapFrame) frames.get(0);
+				StackMapFrame prevFrame = null;
+				int framesSize = frames.size();
+				int frameIndex = 0;
+				for (int j = 0; j < framesPositionsSize && ((Integer) framePositions.get(j)).intValue() < code_length; j++) {
+					// select next frame
+					prevFrame = currentFrame;
+					currentFrame = null;
+					for (; frameIndex < framesSize; frameIndex++) {
+						currentFrame = (StackMapFrame) frames.get(frameIndex);
+						if (currentFrame.pc == ((Integer) framePositions.get(j)).intValue()) {
+							break;
+						}
+					}
+					if (currentFrame == null) break;
+					numberOfFrames++;
+					int offsetDelta = currentFrame.getOffsetDelta(prevFrame);
+					switch (currentFrame.getFrameType(prevFrame)) {
+						case StackMapFrame.APPEND_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							int numberOfDifferentLocals = currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 + numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int index = currentFrame.getIndexOfDifferentLocals(numberOfDifferentLocals);
+							int numberOfLocals = currentFrame.getNumberOfLocals();
+							for (int i = index; i < currentFrame.locals.length && numberOfDifferentLocals > 0; i++) {
+								if (localContentsOffset + 6 >= this.contents.length) {
+									resizeContents(6);
+								}
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfDifferentLocals--;
+								}
+							}
+							break;
+						case StackMapFrame.SAME_FRAME :
+							if (localContentsOffset + 1 >= this.contents.length) {
+								resizeContents(1);
+							}							
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.SAME_FRAME_EXTENDED :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							this.contents[localContentsOffset++] = (byte) 251;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							break;
+						case StackMapFrame.CHOP_FRAME :
+							if (localContentsOffset + 3 >= this.contents.length) {
+								resizeContents(3);
+							}							
+							numberOfDifferentLocals = -currentFrame.numberOfDifferentLocals(prevFrame);
+							this.contents[localContentsOffset++] = (byte) (251 - numberOfDifferentLocals);
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;							
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS :
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[localContentsOffset++] = (byte) (offsetDelta + 64);
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										this.contents[localContentsOffset++] = (byte) info.tag;
+										switch (info.tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						case StackMapFrame.SAME_LOCALS_1_STACK_ITEMS_EXTENDED :
+							if (localContentsOffset + 6 >= this.contents.length) {
+								resizeContents(6);
+							}							
+							this.contents[localContentsOffset++] = (byte) 247;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							if (currentFrame.stackItems[0] == null) {
+								this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+							} else {
+								switch(currentFrame.stackItems[0].id()) {
+									case T_boolean :
+									case T_byte :
+									case T_char :
+									case T_int :
+									case T_short :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+										break;
+									case T_float :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+										break;
+									case T_long :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+										break;
+									case T_double :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+										break;
+									case T_null :
+										this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+										break;
+									default:
+										VerificationTypeInfo info = currentFrame.stackItems[0];
+										this.contents[localContentsOffset++] = (byte) info.tag;
+										switch (info.tag) {
+											case VerificationTypeInfo.ITEM_UNINITIALIZED :
+												int offset = info.offset;
+												this.contents[localContentsOffset++] = (byte) (offset >> 8);
+												this.contents[localContentsOffset++] = (byte) offset;
+												break;
+											case VerificationTypeInfo.ITEM_OBJECT :
+												int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+												this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+												this.contents[localContentsOffset++] = (byte) indexForType;
+										}
+								}
+							}
+							break;
+						default :
+							// FULL_FRAME
+							if (localContentsOffset + 5 >= this.contents.length) {
+								resizeContents(5);
+							}							
+							this.contents[localContentsOffset++] = (byte) 255;
+							this.contents[localContentsOffset++] = (byte) (offsetDelta >> 8);
+							this.contents[localContentsOffset++] = (byte) offsetDelta;
+							int numberOfLocalOffset = localContentsOffset;
+							localContentsOffset += 2; // leave two spots for number of locals
+							int numberOfLocalEntries = 0;
+							numberOfLocals = currentFrame.getNumberOfLocals();
+							int numberOfEntries = 0;
+							int localsLength = currentFrame.locals == null ? 0 : currentFrame.locals.length;
+							for (int i = 0; i < localsLength && numberOfLocalEntries < numberOfLocals; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}							
+								VerificationTypeInfo info = currentFrame.locals[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											i++;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											i++;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+									numberOfLocalEntries++;
+								}
+								numberOfEntries++;
+							}
+							if (localContentsOffset + 4 >= this.contents.length) {
+								resizeContents(4);
+							}							
+							this.contents[numberOfLocalOffset++] = (byte) (numberOfEntries >> 8);
+							this.contents[numberOfLocalOffset] = (byte) numberOfEntries;
+							int numberOfStackItems = currentFrame.numberOfStackItems;
+							this.contents[localContentsOffset++] = (byte) (numberOfStackItems >> 8);
+							this.contents[localContentsOffset++] = (byte) numberOfStackItems;
+							for (int i = 0; i < numberOfStackItems; i++) {
+								if (localContentsOffset + 3 >= this.contents.length) {
+									resizeContents(3);
+								}
+								VerificationTypeInfo info = currentFrame.stackItems[i];
+								if (info == null) {
+									this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_TOP;
+								} else {
+									switch(info.id()) {
+										case T_boolean :
+										case T_byte :
+										case T_char :
+										case T_int :
+										case T_short :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_INTEGER;
+											break;
+										case T_float :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_FLOAT;
+											break;
+										case T_long :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_LONG;
+											break;
+										case T_double :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_DOUBLE;
+											break;
+										case T_null :
+											this.contents[localContentsOffset++] = (byte) VerificationTypeInfo.ITEM_NULL;
+											break;
+										default:
+											this.contents[localContentsOffset++] = (byte) info.tag;
+											switch (info.tag) {
+												case VerificationTypeInfo.ITEM_UNINITIALIZED :
+													int offset = info.offset;
+													this.contents[localContentsOffset++] = (byte) (offset >> 8);
+													this.contents[localContentsOffset++] = (byte) offset;
+													break;
+												case VerificationTypeInfo.ITEM_OBJECT :
+													int indexForType = constantPool.literalIndexForType(info.constantPoolName());
+													this.contents[localContentsOffset++] = (byte) (indexForType >> 8);
+													this.contents[localContentsOffset++] = (byte) indexForType;
+											}
+									}
+								}
+							}
+					}
+				}
+				
+				this.contents[numberOfFramesOffset++] = (byte) (numberOfFrames >> 8);
+				this.contents[numberOfFramesOffset] = (byte) numberOfFrames;
+
+				int attributeLength = localContentsOffset - stackMapTableAttributeLengthOffset - 4;
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 24);
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 16);
+				this.contents[stackMapTableAttributeLengthOffset++] = (byte) (attributeLength >> 8);
+				this.contents[stackMapTableAttributeLengthOffset] = (byte) attributeLength;
+				attributeNumber++;
+			}
+		}
+		
 		// update the number of attributes
 		// ensure first that there is enough space available inside the contents array
 		if (codeAttributeAttributeOffset + 2 >= this.contents.length) {
@@ -2839,7 +4934,32 @@ public class ClassFile
 		contents[codeAttributeOffset + 5] = (byte) codeAttributeLength;
 		contentsOffset = localContentsOffset;
 	}
-	
+
+	/**
+	 * INTERNAL USE-ONLY
+	 * That method completes the creation of the code attribute by setting
+	 * - the attribute_length
+	 * - max_stack
+	 * - max_locals
+	 * - code_length
+	 * - exception table
+	 * - and debug attributes if necessary.
+	 *
+	 * @param binding org.eclipse.jdt.internal.compiler.lookup.SyntheticAccessMethodBinding
+	 * @param codeAttributeOffset <CODE>int</CODE>
+	 */
+	public void completeCodeAttributeForSyntheticMethod(
+		SyntheticMethodBinding binding,
+		int codeAttributeOffset,
+		int[] startLineIndexes) {
+		
+		this.completeCodeAttributeForSyntheticMethod(
+				false,
+				binding,
+				codeAttributeOffset,
+				startLineIndexes);
+	}
+
 	/**
 	 * INTERNAL USE-ONLY
 	 * Complete the creation of a method info by setting up the number of attributes at the right offset.
@@ -2854,7 +4974,7 @@ public class ClassFile
 		contents[methodAttributeOffset++] = (byte) (attributeNumber >> 8);
 		contents[methodAttributeOffset] = (byte) attributeNumber;
 	}
-
+	
 	/**
 	 * INTERNAL USE-ONLY
 	 * This methods returns a char[] representing the file name of the receiver
@@ -2862,7 +4982,7 @@ public class ClassFile
 	 * @return char[]
 	 */
 	public char[] fileName() {
-		return constantPool.UTF8Cache.returnKeyFor(1);
+		return constantPool.UTF8Cache.returnKeyFor(2);
 	}
 
 	private void generateAnnotation(Annotation annotation, int attributeOffset) {
@@ -3054,7 +5174,7 @@ public class ClassFile
 				}
 		}
 	}
-	
+
 	private void generateElementValueForNonConstantExpression(Expression defaultValue, int attributeOffset, TypeBinding defaultValueBinding) {
 		if (defaultValueBinding != null) {
 			if (defaultValueBinding.isEnum()) {
@@ -3122,9 +5242,36 @@ public class ClassFile
 			contentsOffset = attributeOffset;
 		}
 	}
-
+	
 	public int generateMethodInfoAttribute(MethodBinding methodBinding) {
 		return generateMethodInfoAttribute(methodBinding, false);
+	}
+
+	public int generateMethodInfoAttribute(MethodBinding methodBinding, AnnotationMethodDeclaration declaration) {
+		int attributesNumber = generateMethodInfoAttribute(methodBinding);
+		int attributeOffset = contentsOffset;
+		if ((declaration.modifiers & ClassFileConstants.AccAnnotationDefault) != 0) {
+			// add an annotation default attribute
+			int annotationDefaultNameIndex =
+				constantPool.literalIndex(AttributeNamesConstants.AnnotationDefaultName);
+			contents[contentsOffset++] = (byte) (annotationDefaultNameIndex >> 8);
+			contents[contentsOffset++] = (byte) annotationDefaultNameIndex;
+			int attributeLengthOffset = contentsOffset;
+			contentsOffset += 4;
+			if (contentsOffset + 4 >= this.contents.length) {
+				resizeContents(4);
+			}
+			generateElementValue(declaration.defaultValue, declaration.binding.returnType, attributeOffset);
+			if (contentsOffset != attributeOffset) {
+				int attributeLength = contentsOffset - attributeLengthOffset - 4;
+				contents[attributeLengthOffset++] = (byte) (attributeLength >> 24);
+				contents[attributeLengthOffset++] = (byte) (attributeLength >> 16);
+				contents[attributeLengthOffset++] = (byte) (attributeLength >> 8);
+				contents[attributeLengthOffset++] = (byte) attributeLength;			
+				attributesNumber++;
+			}
+		}
+		return attributesNumber;
 	}
 	/**
 	 * INTERNAL USE-ONLY
@@ -3142,6 +5289,9 @@ public class ClassFile
 	public int generateMethodInfoAttribute(MethodBinding methodBinding, boolean createProblemMethod) {
 		// leave two bytes for the attribute_number
 		contentsOffset += 2;
+		if (contentsOffset + 2 >= this.contents.length) {
+			resizeContents(2);
+		}
 		// now we can handle all the attribute for that method info:
 		// it could be:
 		// - a CodeAttribute
@@ -3152,7 +5302,7 @@ public class ClassFile
 		// Exception attribute
 		ReferenceBinding[] thrownsExceptions;
 		int attributeNumber = 0;
-		if ((thrownsExceptions = methodBinding.thrownExceptions) != NoExceptions) {
+		if ((thrownsExceptions = methodBinding.thrownExceptions) != Binding.NO_EXCEPTIONS) {
 			// The method has a throw clause. So we need to add an exception attribute
 			// check that there is enough space to write all the bytes for the exception attribute
 			int length = thrownsExceptions.length;
@@ -3173,7 +5323,7 @@ public class ClassFile
 			contents[contentsOffset++] = (byte) (length >> 8);
 			contents[contentsOffset++] = (byte) length;
 			for (int i = 0; i < length; i++) {
-				int exceptionIndex = constantPool.literalIndexForType(thrownsExceptions[i].constantPoolName());
+				int exceptionIndex = constantPool.literalIndexForType(thrownsExceptions[i]);
 				contents[contentsOffset++] = (byte) (exceptionIndex >> 8);
 				contents[contentsOffset++] = (byte) exceptionIndex;
 			}
@@ -3197,23 +5347,46 @@ public class ClassFile
 
 			attributeNumber++;
 		}
-		if (this.targetJDK < ClassFileConstants.JDK1_5 && methodBinding.isSynthetic()) {
-			// Synthetic attribute
-			// Check that there is enough space to write the deprecated attribute
-			if (contentsOffset + 6 >= this.contents.length) {
-				resizeContents(6);
+		if (this.targetJDK < ClassFileConstants.JDK1_5) {
+			if (methodBinding.isSynthetic()) {
+				// Synthetic attribute
+				// Check that there is enough space to write the deprecated attribute
+				if (contentsOffset + 6 >= this.contents.length) {
+					resizeContents(6);
+				}
+				int syntheticAttributeNameIndex =
+					constantPool.literalIndex(AttributeNamesConstants.SyntheticName);
+				contents[contentsOffset++] = (byte) (syntheticAttributeNameIndex >> 8);
+				contents[contentsOffset++] = (byte) syntheticAttributeNameIndex;
+				// the length of a synthetic attribute is equals to 0
+				contents[contentsOffset++] = 0;
+				contents[contentsOffset++] = 0;
+				contents[contentsOffset++] = 0;
+				contents[contentsOffset++] = 0;
+	
+				attributeNumber++;
 			}
-			int syntheticAttributeNameIndex =
-				constantPool.literalIndex(AttributeNamesConstants.SyntheticName);
-			contents[contentsOffset++] = (byte) (syntheticAttributeNameIndex >> 8);
-			contents[contentsOffset++] = (byte) syntheticAttributeNameIndex;
-			// the length of a synthetic attribute is equals to 0
-			contents[contentsOffset++] = 0;
-			contents[contentsOffset++] = 0;
-			contents[contentsOffset++] = 0;
-			contents[contentsOffset++] = 0;
-
-			attributeNumber++;
+			if (methodBinding.isVarargs()) {
+				/*
+				 * handle of the target jsr14 for varargs in the source
+				 * Varargs attribute
+				 * Check that there is enough space to write the deprecated attribute
+				 */
+				if (contentsOffset + 6 >= this.contents.length) {
+					resizeContents(6);
+				}
+				int varargsAttributeNameIndex =
+					constantPool.literalIndex(AttributeNamesConstants.VarargsName);
+				contents[contentsOffset++] = (byte) (varargsAttributeNameIndex >> 8);
+				contents[contentsOffset++] = (byte) varargsAttributeNameIndex;
+				// the length of a varargs attribute is equals to 0
+				contents[contentsOffset++] = 0;
+				contents[contentsOffset++] = 0;
+				contents[contentsOffset++] = 0;
+				contents[contentsOffset++] = 0;
+	
+				attributeNumber++;
+			}
 		}
 		// add signature attribute
 		char[] genericSignature = methodBinding.genericSignature();
@@ -3256,31 +5429,6 @@ public class ClassFile
 		return attributeNumber;
 	}
 
-	public int generateMethodInfoAttribute(MethodBinding methodBinding, AnnotationMethodDeclaration declaration) {
-		int attributesNumber = generateMethodInfoAttribute(methodBinding);
-		int attributeOffset = contentsOffset;
-		if ((declaration.modifiers & AccAnnotationDefault) != 0) {
-			// add an annotation default attribute
-			int annotationDefaultNameIndex =
-				constantPool.literalIndex(AttributeNamesConstants.AnnotationDefaultName);
-			contents[contentsOffset++] = (byte) (annotationDefaultNameIndex >> 8);
-			contents[contentsOffset++] = (byte) annotationDefaultNameIndex;
-			int attributeLengthOffset = contentsOffset;
-			contentsOffset += 4;
-
-			generateElementValue(declaration.defaultValue, declaration.binding.returnType, attributeOffset);
-			if (contentsOffset != attributeOffset) {
-				int attributeLength = contentsOffset - attributeLengthOffset - 4;
-				contents[attributeLengthOffset++] = (byte) (attributeLength >> 24);
-				contents[attributeLengthOffset++] = (byte) (attributeLength >> 16);
-				contents[attributeLengthOffset++] = (byte) (attributeLength >> 8);
-				contents[attributeLengthOffset++] = (byte) attributeLength;			
-				attributesNumber++;
-			}
-		}
-		return attributesNumber;
-	}
-
 	/**
 	 * INTERNAL USE-ONLY
 	 * That method generates the header of a method info:
@@ -3294,6 +5442,7 @@ public class ClassFile
 	public void generateMethodInfoHeader(MethodBinding methodBinding) {
 		generateMethodInfoHeader(methodBinding, methodBinding.modifiers);
 	}
+
 	/**
 	 * INTERNAL USE-ONLY
 	 * That method generates the header of a method info:
@@ -3313,22 +5462,22 @@ public class ClassFile
 			resizeContents(10);
 		}
 		if (targetJDK < ClassFileConstants.JDK1_5) {
-		    // pre 1.5, synthetic was an attribute, not a modifier
-		    accessFlags &= ~AccSynthetic;
+			// pre 1.5, synthetic is an attribute, not a modifier
+			// pre 1.5, varargs is an attribute, not a modifier (-target jsr14 mode)
+			accessFlags &= ~(ClassFileConstants.AccSynthetic | ClassFileConstants.AccVarargs);
 		}
-		if (methodBinding.isRequiredToClearPrivateModifier()) {
-			accessFlags &= ~AccPrivate;
+		if ((methodBinding.tagBits & TagBits.ClearPrivateModifier) != 0) {
+			accessFlags &= ~ClassFileConstants.AccPrivate;
 		}
 		contents[contentsOffset++] = (byte) (accessFlags >> 8);
 		contents[contentsOffset++] = (byte) accessFlags;
 		int nameIndex = constantPool.literalIndex(methodBinding.selector);
 		contents[contentsOffset++] = (byte) (nameIndex >> 8);
 		contents[contentsOffset++] = (byte) nameIndex;
-		int descriptorIndex = constantPool.literalIndex(methodBinding.signature());
+		int descriptorIndex = constantPool.literalIndex(methodBinding.signature(this));
 		contents[contentsOffset++] = (byte) (descriptorIndex >> 8);
 		contents[contentsOffset++] = (byte) descriptorIndex;
 	}
-
 	/**
 	 * INTERNAL USE-ONLY
 	 * That method generates the method info header of a clinit:
@@ -3344,8 +5493,8 @@ public class ClassFile
 		if (contentsOffset + 10 >= this.contents.length) {
 			resizeContents(10);
 		}
-		contents[contentsOffset++] = (byte) ((AccDefault | AccStatic) >> 8);
-		contents[contentsOffset++] = (byte) (AccDefault | AccStatic);
+		contents[contentsOffset++] = (byte) ((ClassFileConstants.AccDefault | ClassFileConstants.AccStatic) >> 8);
+		contents[contentsOffset++] = (byte) (ClassFileConstants.AccDefault | ClassFileConstants.AccStatic);
 		int nameIndex = constantPool.literalIndex(ConstantPool.Clinit);
 		contents[contentsOffset++] = (byte) (nameIndex >> 8);
 		contents[contentsOffset++] = (byte) nameIndex;
@@ -3367,20 +5516,25 @@ public class ClassFile
 	 */
 	public void generateMissingAbstractMethods(MethodDeclaration[] methodDeclarations, CompilationResult compilationResult) {
 		if (methodDeclarations != null) {
+			TypeDeclaration currentDeclaration = this.referenceBinding.scope.referenceContext;
+			int typeDeclarationSourceStart = currentDeclaration.sourceStart();
+			int typeDeclarationSourceEnd = currentDeclaration.sourceEnd();
 			for (int i = 0, max = methodDeclarations.length; i < max; i++) {
 				MethodDeclaration methodDeclaration = methodDeclarations[i];
 				MethodBinding methodBinding = methodDeclaration.binding;
 		 		String readableName = new String(methodBinding.readableName());
-		 		IProblem[] problems = compilationResult.problems;
+		 		CategorizedProblem[] problems = compilationResult.problems;
 		 		int problemsCount = compilationResult.problemCount;
 				for (int j = 0; j < problemsCount; j++) {
-					IProblem problem = problems[j];
+					CategorizedProblem problem = problems[j];
 					if (problem != null
-						&& problem.getID() == IProblem.AbstractMethodMustBeImplemented
-						&& problem.getMessage().indexOf(readableName) != -1) {
-							// we found a match
-							addMissingAbstractProblemMethod(methodDeclaration, methodBinding, problem, compilationResult);
-						}
+    						&& problem.getID() == IProblem.AbstractMethodMustBeImplemented
+    						&& problem.getMessage().indexOf(readableName) != -1
+    						&& problem.getSourceStart() >= typeDeclarationSourceStart
+    						&& problem.getSourceEnd() <= typeDeclarationSourceEnd) {
+						// we found a match
+						addMissingAbstractProblemMethod(methodDeclaration, methodBinding, problem, compilationResult);
+					}
 				}
 			}
 		}
@@ -3488,7 +5642,7 @@ public class ClassFile
 		}
 		return attributesNumber;
 	}
-	
+
 	private int generateRuntimeAnnotationsForParameters(Argument[] arguments) {
 		final int argumentsLength = arguments.length;
 		final int VISIBLE_INDEX = 0;
@@ -3616,6 +5770,7 @@ public class ClassFile
 		}
 		return attributesNumber;
 	}
+	
 	/**
 	 * EXTERNAL API
 	 * Answer the actual bytes of the class file
@@ -3626,12 +5781,13 @@ public class ClassFile
 	 * @return byte[]
 	 */
 	public byte[] getBytes() {
-		byte[] fullContents = new byte[headerOffset + contentsOffset];
-		System.arraycopy(header, 0, fullContents, 0, headerOffset);
-		System.arraycopy(contents, 0, fullContents, headerOffset, contentsOffset);
-		return fullContents;
+		if (this.bytes == null) {
+			this.bytes = new byte[this.headerOffset + this.contentsOffset];
+			System.arraycopy(this.header, 0, this.bytes, 0, this.headerOffset);
+			System.arraycopy(this.contents, 0, this.bytes, this.headerOffset, this.contentsOffset);
+		}
+		return this.bytes;
 	}
-
 	/**
 	 * EXTERNAL API
 	 * Answer the compound name of the class file.
@@ -3643,18 +5799,86 @@ public class ClassFile
 	}
 
 	protected void initByteArrays() {
-		LookupEnvironment env = this.referenceBinding.scope.environment();
-		synchronized (env) {
-			if (env.sharedArraysUsed) {
-				this.ownSharedArrays = false;
-				int members = referenceBinding.methods().length + referenceBinding.fields().length;
-				this.header = new byte[INITIAL_HEADER_SIZE];
-				this.contents = new byte[members < 15 ? INITIAL_CONTENTS_SIZE : INITIAL_HEADER_SIZE];
-			} else {
-				this.ownSharedArrays = env.sharedArraysUsed = true;
-				this.header = env.sharedClassFileHeader;
-				this.contents = env.sharedClassFileContents;
-			}
+		int members = referenceBinding.methods().length + referenceBinding.fields().length;
+		this.header = new byte[INITIAL_HEADER_SIZE];
+		this.contents = new byte[members < 15 ? INITIAL_CONTENTS_SIZE : INITIAL_HEADER_SIZE];
+	}
+
+	public void initialize(SourceTypeBinding aType, ClassFile parentClassFile, boolean createProblemType) {
+		// generate the magic numbers inside the header
+		header[headerOffset++] = (byte) (0xCAFEBABEL >> 24);
+		header[headerOffset++] = (byte) (0xCAFEBABEL >> 16);
+		header[headerOffset++] = (byte) (0xCAFEBABEL >> 8);
+		header[headerOffset++] = (byte) (0xCAFEBABEL >> 0);
+		
+		header[headerOffset++] = (byte) (this.targetJDK >> 8); // minor high
+		header[headerOffset++] = (byte) (this.targetJDK >> 0); // minor low
+		header[headerOffset++] = (byte) (this.targetJDK >> 24); // major high
+		header[headerOffset++] = (byte) (this.targetJDK >> 16); // major low
+
+		constantPoolOffset = headerOffset;
+		headerOffset += 2;
+		this.constantPool.initialize(this);
+		
+		// Modifier manipulations for classfile
+		int accessFlags = aType.getAccessFlags();
+		if (aType.isPrivate()) { // rewrite private to non-public
+			accessFlags &= ~ClassFileConstants.AccPublic;
+		}
+		if (aType.isProtected()) { // rewrite protected into public
+			accessFlags |= ClassFileConstants.AccPublic;
+		}
+		// clear all bits that are illegal for a class or an interface
+		accessFlags
+			&= ~(
+				ClassFileConstants.AccStrictfp
+					| ClassFileConstants.AccProtected
+					| ClassFileConstants.AccPrivate
+					| ClassFileConstants.AccStatic
+					| ClassFileConstants.AccSynchronized
+					| ClassFileConstants.AccNative);
+					
+		// set the AccSuper flag (has to be done after clearing AccSynchronized - since same value)
+		if (!aType.isInterface()) { // class or enum
+			accessFlags |= ClassFileConstants.AccSuper;
+		}
+		
+		this.enclosingClassFile = parentClassFile;
+		// innerclasses get their names computed at code gen time
+
+		// now we continue to generate the bytes inside the contents array
+		contents[contentsOffset++] = (byte) (accessFlags >> 8);
+		contents[contentsOffset++] = (byte) accessFlags;
+		int classNameIndex = constantPool.literalIndexForType(aType);
+		contents[contentsOffset++] = (byte) (classNameIndex >> 8);
+		contents[contentsOffset++] = (byte) classNameIndex;
+		int superclassNameIndex;
+		if (aType.isInterface()) {
+			superclassNameIndex = constantPool.literalIndexForType(ConstantPool.JavaLangObjectConstantPoolName);
+		} else {
+			superclassNameIndex =
+				(aType.superclass == null ? 0 : constantPool.literalIndexForType(aType.superclass));
+		}
+		contents[contentsOffset++] = (byte) (superclassNameIndex >> 8);
+		contents[contentsOffset++] = (byte) superclassNameIndex;
+		ReferenceBinding[] superInterfacesBinding = aType.superInterfaces();
+		int interfacesCount = superInterfacesBinding.length;
+		contents[contentsOffset++] = (byte) (interfacesCount >> 8);
+		contents[contentsOffset++] = (byte) interfacesCount;
+		for (int i = 0; i < interfacesCount; i++) {
+			int interfaceIndex = constantPool.literalIndexForType(superInterfacesBinding[i]);
+			contents[contentsOffset++] = (byte) (interfaceIndex >> 8);
+			contents[contentsOffset++] = (byte) interfaceIndex;
+		}
+		this.creatingProblemType = createProblemType;
+
+		// retrieve the enclosing one guaranteed to be the one matching the propagated flow info
+		// 1FF9ZBU: LFCOM:ALL - Local variable attributes busted (Sanity check)
+		if (this.enclosingClassFile == null) {
+			this.codeStream.maxFieldCount = aType.scope.referenceType().maxFieldCount;
+		} else {
+			ClassFile outermostClassFile = this.outerMostEnclosingClassFile();
+			this.codeStream.maxFieldCount = outermostClassFile.codeStream.maxFieldCount;
 		}
 	}
 
@@ -3696,78 +5920,44 @@ public class ClassFile
 		return current;
 	}
 
-	/**
-	 * INTERNAL USE-ONLY
-	 * This is used to store a new inner class. It checks that the binding @binding doesn't already exist inside the
-	 * collection of inner classes. Add all the necessary classes in the right order to fit to the specifications.
-	 *
-	 * @param binding org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding
-	 */
-	public void recordEnclosingTypeAttributes(ReferenceBinding binding) {
-		// add all the enclosing types
-		ReferenceBinding enclosingType = referenceBinding.enclosingType();
-		int depth = 0;
-		while (enclosingType != null) {
-			depth++;
-			enclosingType = enclosingType.enclosingType();
+	public void recordInnerClasses(TypeBinding binding) {
+		if (this.innerClassesBindings == null) {
+			this.innerClassesBindings = new HashSet(INNER_CLASSES_SIZE);
 		}
-		enclosingType = referenceBinding;
-		ReferenceBinding enclosingTypes[];
-		if (depth >= 2) {
-			enclosingTypes = new ReferenceBinding[depth];
-			for (int i = depth - 1; i >= 0; i--) {
-				enclosingTypes[i] = enclosingType;
-				enclosingType = enclosingType.enclosingType();
-			}
-			for (int i = 0; i < depth; i++) {
-				addInnerClasses(enclosingTypes[i]);
-			}
-		} else {
-			addInnerClasses(referenceBinding);
+		ReferenceBinding innerClass = (ReferenceBinding) binding;
+		this.innerClassesBindings.add(innerClass.erasure());
+		ReferenceBinding enclosingType = innerClass.enclosingType();
+		while (enclosingType != null
+				&& enclosingType.isNestedType()) {
+			this.innerClassesBindings.add(enclosingType.erasure());
+			enclosingType = enclosingType.enclosingType();
 		}
 	}
 
-	/**
-	 * INTERNAL USE-ONLY
-	 * This is used to store a new inner class. It checks that the binding @binding doesn't already exist inside the
-	 * collection of inner classes. Add all the necessary classes in the right order to fit to the specifications.
-	 *
-	 * @param binding org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding
-	 */
-	public void recordNestedLocalAttribute(ReferenceBinding binding) {
-		// add all the enclosing types
-		ReferenceBinding enclosingType = referenceBinding.enclosingType();
-		int depth = 0;
-		while (enclosingType != null) {
-			depth++;
-			enclosingType = enclosingType.enclosingType();
+	public void reset(SourceTypeBinding typeBinding) {
+		// the code stream is reinitialized for each method
+		final CompilerOptions options = typeBinding.scope.compilerOptions();
+		this.referenceBinding = typeBinding;
+		this.targetJDK = options.targetJDK;
+		this.produceAttributes = options.produceDebugAttributes;
+		if (this.targetJDK >= ClassFileConstants.JDK1_6) {
+			this.produceAttributes |= ClassFileConstants.ATTR_STACK_MAP;
 		}
-		enclosingType = referenceBinding;
-		ReferenceBinding enclosingTypes[];
-		if (depth >= 2) {
-			enclosingTypes = new ReferenceBinding[depth];
-			for (int i = depth - 1; i >= 0; i--) {
-				enclosingTypes[i] = enclosingType;
-				enclosingType = enclosingType.enclosingType();
-			}
-			for (int i = 0; i < depth; i++)
-				addInnerClasses(enclosingTypes[i]);
-		} else {
-			addInnerClasses(binding);
+		this.bytes = null;
+		this.constantPool.reset();
+		this.codeStream.reset(this);
+		this.constantPoolOffset = 0;
+		this.contentsOffset = 0;
+		this.creatingProblemType = false;
+		this.enclosingClassFile = null;
+		this.headerOffset = 0;
+		this.methodCount = 0;
+		this.methodCountOffset = 0;
+		if (this.innerClassesBindings != null) {
+			this.innerClassesBindings.clear();
 		}
 	}
 
-	/**
-	 * INTERNAL USE-ONLY
-	 * This is used to store a new inner class. It checks that the binding @binding doesn't already exist inside the
-	 * collection of inner classes. Add all the necessary classes in the right order to fit to the specifications.
-	 *
-	 * @param binding org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding
-	 */
-	public void recordNestedMemberAttribute(ReferenceBinding binding) {
-		addInnerClasses(binding);
-	}
-	
 	/**
 	 * Resize the pool contents
 	 */

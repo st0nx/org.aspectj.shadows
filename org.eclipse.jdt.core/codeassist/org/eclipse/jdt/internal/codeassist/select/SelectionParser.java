@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,6 +21,7 @@ package org.eclipse.jdt.internal.codeassist.select;
  */
  
 import org.eclipse.jdt.internal.compiler.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.env.*;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -30,6 +31,7 @@ import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class SelectionParser extends AssistParser {
 	// OWNER
@@ -50,7 +52,6 @@ public class SelectionParser extends AssistParser {
 	
 public SelectionParser(ProblemReporter problemReporter) {
 	super(problemReporter);
-	this.javadocParser = new SelectionJavadocParser(this);
 	this.javadocParser.checkDocComment = true;
 }
 public char[] assistIdentifier(){
@@ -90,7 +91,7 @@ private void buildMoreCompletionContext(Expression expression) {
 	int kind = topKnownElementKind(SELECTION_OR_ASSIST_PARSER);
 	if(kind != 0) {
 //		int info = topKnownElementInfo(SELECTION_OR_ASSIST_PARSER);
-		nextElement : switch (kind) {
+		switch (kind) {
 			case K_BETWEEN_CASE_AND_COLON :
 				if(this.expressionPtr > 0) {
 					SwitchStatement switchStatement = new SwitchStatement();
@@ -125,6 +126,9 @@ private void buildMoreCompletionContext(Expression expression) {
 		currentElement = currentElement.add((Statement)parentNode, 0);
 	} else {
 		currentElement = currentElement.add((Statement)wrapWithExplicitConstructorCallIfNeeded(expression), 0);
+		if(lastCheckPoint < expression.sourceEnd) {
+			lastCheckPoint = expression.sourceEnd + 1;
+		}
 	}
 }
 private boolean checkRecoveredType() {
@@ -371,8 +375,8 @@ protected void consumeEnterAnonymousClassBody() {
 	this.setAssistIdentifier(oldIdent);		
 
 	TypeDeclaration anonymousType = new TypeDeclaration(this.compilationUnit.compilationResult); 
-	anonymousType.name = TypeDeclaration.ANONYMOUS_EMPTY_NAME;
-	anonymousType.bits |= ASTNode.AnonymousAndLocalMask;
+	anonymousType.name = CharOperation.NO_CHAR;
+	anonymousType.bits |= (ASTNode.IsAnonymousType|ASTNode.IsLocalType);
 	QualifiedAllocationExpression alloc = new SelectionOnQualifiedAllocationExpression(anonymousType); 
 	markEnclosingMemberWithLocalType();
 	pushOnAstStack(anonymousType);
@@ -514,7 +518,7 @@ protected void consumeFormalParameter(boolean isVarArgs) {
 				identifierName, 
 				namePositions, 
 				type, 
-				intStack[intPtr + 1] & ~AccDeprecated); // modifiers
+				intStack[intPtr + 1] & ~ClassFileConstants.AccDeprecated); // modifiers
 		arg.declarationSourceStart = modifierPositions;
 		pushOnAstStack(arg);
 		
@@ -532,9 +536,9 @@ protected void consumeFormalParameter(boolean isVarArgs) {
 		listLength++;
 	} 	
 }
-protected void consumeInstanceOfExpression(int op) {
+protected void consumeInstanceOfExpression() {
 	if (indexOfAssistIdentifier() < 0) {
-		super.consumeInstanceOfExpression(op);
+		super.consumeInstanceOfExpression();
 	} else {
 		getTypeReference(intStack[intPtr--]);
 		this.isOrphanCompletionNode = true;
@@ -542,9 +546,9 @@ protected void consumeInstanceOfExpression(int op) {
 		this.lastIgnoredToken = -1;
 	}
 }
-protected void consumeInstanceOfExpressionWithName(int op) {
+protected void consumeInstanceOfExpressionWithName() {
 	if (indexOfAssistIdentifier() < 0) {
-		super.consumeInstanceOfExpressionWithName(op);
+		super.consumeInstanceOfExpressionWithName();
 	} else {
 		getTypeReference(intStack[intPtr--]);
 		this.isOrphanCompletionNode = true;
@@ -863,8 +867,8 @@ protected void consumeStaticImportOnDemandDeclarationName() {
 		length); 
 
 	/* build specific assist node on import statement */
-	ImportReference reference = this.createAssistImportReference(subset, positions, AccStatic);
-	reference.onDemand = true;
+	ImportReference reference = this.createAssistImportReference(subset, positions, ClassFileConstants.AccStatic);
+	reference.bits |= ASTNode.OnDemand;
 	assistNode = reference;
 	this.lastCheckPoint = reference.sourceEnd + 1;
 	
@@ -932,8 +936,8 @@ protected void consumeTypeImportOnDemandDeclarationName() {
 		length); 
 
 	/* build specific assist node on import statement */
-	ImportReference reference = this.createAssistImportReference(subset, positions, AccDefault);
-	reference.onDemand = true;
+	ImportReference reference = this.createAssistImportReference(subset, positions, ClassFileConstants.AccDefault);
+	reference.bits |= ASTNode.OnDemand;
 	assistNode = reference;
 	this.lastCheckPoint = reference.sourceEnd + 1;
 	
@@ -962,6 +966,9 @@ public ImportReference createAssistImportReference(char[][] tokens, long[] posit
 }
 public ImportReference createAssistPackageReference(char[][] tokens, long[] positions){
 	return new SelectionOnPackageReference(tokens, positions);
+}
+protected JavadocParser createJavadocParser() {
+	return new SelectionJavadocParser(this);
 }
 protected LocalDeclaration createLocalDeclaration(char[] assistName,int sourceStart,int sourceEnd) {
 	if (this.indexOfAssistIdentifier() < 0) {
@@ -1228,15 +1235,15 @@ protected void updateRecoveryState() {
 }
 
 public  String toString() {
-	String s = ""; //$NON-NLS-1$
+	String s = Util.EMPTY_STRING;
 	s = s + "elementKindStack : int[] = {"; //$NON-NLS-1$
 	for (int i = 0; i <= elementPtr; i++) {
-		s = s + String.valueOf(elementKindStack[i]) + ","; //$NON-NLS-1$ //$NON-NLS-2$
+		s = s + String.valueOf(elementKindStack[i]) + ","; //$NON-NLS-1$
 	}
 	s = s + "}\n"; //$NON-NLS-1$
 	s = s + "elementInfoStack : int[] = {"; //$NON-NLS-1$
 	for (int i = 0; i <= elementPtr; i++) {
-		s = s + String.valueOf(elementInfoStack[i]) + ","; //$NON-NLS-1$ //$NON-NLS-2$
+		s = s + String.valueOf(elementInfoStack[i]) + ","; //$NON-NLS-1$
 	}
 	s = s + "}\n"; //$NON-NLS-1$
 	return s + super.toString();

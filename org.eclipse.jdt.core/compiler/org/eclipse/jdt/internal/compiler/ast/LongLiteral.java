@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,18 +14,13 @@ import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 
 public class LongLiteral extends NumberLiteral {
-	long value;
-	
-	static final Constant FORMAT_ERROR = new DoubleConstant(1.0/0.0); // NaN;	
+	static final Constant FORMAT_ERROR = DoubleConstant.fromValue(1.0/0.0); // NaN;	
 		
 public LongLiteral(char[] token, int s,int e) {
 	super(token, s,e);
-}
-public LongLiteral(char[] token, int s,int e, long value) {
-	this(token, s,e);
-	this.value = value;
 }
 public void computeConstant() {
 	//the overflow (when radix=10) is tested using the fact that
@@ -35,7 +30,7 @@ public void computeConstant() {
 	long computedValue ;
 	if (source[0] == '0') {
 		if (length == 1) {
-			constant = Constant.fromValue(0L);
+			constant = LongConstant.fromValue(0L);
 			return;
 		}
 		final int shift,radix;
@@ -50,13 +45,13 @@ public void computeConstant() {
 			j++; //jump over redondant zero
 			if ( j == length) {
 				//watch for 0000000000000L
-				constant = Constant.fromValue(value = 0L);
+				constant = LongConstant.fromValue(0L);
 				return ;
 			}
 		}
 				
 		int digitValue ;
-		if ((digitValue = Character.digit(source[j++],radix)) < 0 ) {
+		if ((digitValue = ScannerHelper.digit(source[j++],radix)) < 0 ) {
 			constant = FORMAT_ERROR; return ;
 		}
 		if (digitValue >= 8)
@@ -69,7 +64,7 @@ public void computeConstant() {
 			nbDigit = 1; //digitValue is not 0
 		computedValue = digitValue ;
 		while (j<length) {
-			if ((digitValue = Character.digit(source[j++],radix)) < 0) {
+			if ((digitValue = ScannerHelper.digit(source[j++],radix)) < 0) {
 				constant = FORMAT_ERROR; return ;
 			}
 			if ((nbDigit += shift) > 64)
@@ -83,7 +78,7 @@ public void computeConstant() {
 		final long limit = Long.MAX_VALUE / 10; // needed to check prior to the multiplication
 		for (int i = 0 ; i < length; i++) {
 			int digitValue ;	
-			if ((digitValue = Character.digit(source[i], 10)) < 0 ) return /*constant stays null*/;
+			if ((digitValue = ScannerHelper.digit(source[i], 10)) < 0 ) return /*constant stays null*/;
 			previous = computedValue;
 			if (computedValue > limit)
 				return /*constant stays null*/;
@@ -95,7 +90,7 @@ public void computeConstant() {
 				return /*constant stays null*/;
 		}
 	}
-	constant = Constant.fromValue(value = computedValue);
+	constant = LongConstant.fromValue(computedValue);
 }
 /**
  * Code generation for long literal
@@ -112,7 +107,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 	codeStream.recordPositionsFrom(pc, this.sourceStart);
 }
 public TypeBinding literalType(BlockScope scope) {
-	return LongBinding;
+	return TypeBinding.LONG;
 }
 public final boolean mayRepresentMIN_VALUE(){
 	//a special autorized int literral is 9223372036854775808L
@@ -139,7 +134,8 @@ public final boolean mayRepresentMIN_VALUE(){
 			(source[15] == '5') &&
 			(source[16] == '8') &&			
 			(source[17] == '0') &&
-			(source[18] == '8'));
+			(source[18] == '8') &&
+			(((this.bits & ASTNode.ParenthesizedMASK) >> ASTNode.ParenthesizedSHIFT) == 0));
 }
 public TypeBinding resolveType(BlockScope scope) {
 	// the format may be incorrect while the scanner could detect
@@ -147,7 +143,7 @@ public TypeBinding resolveType(BlockScope scope) {
 
 	TypeBinding tb = super.resolveType(scope);
 	if (constant == FORMAT_ERROR) {
-		constant = NotAConstant;
+		constant = Constant.NotAConstant;
 		scope.problemReporter().constantOutOfFormat(this);
 		this.resolvedType = null;
 		return null;

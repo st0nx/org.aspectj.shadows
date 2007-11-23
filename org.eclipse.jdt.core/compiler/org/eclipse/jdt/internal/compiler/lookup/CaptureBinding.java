@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,23 +12,26 @@ package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.Wildcard;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 
 public class CaptureBinding extends TypeVariableBinding {
 	
 	public TypeBinding lowerBound;
 	public WildcardBinding wildcard;
+	public int captureID;
 	
 	/* information to compute unique binding key */
 	public ReferenceBinding sourceType;
 	public int position;
 	
-	public CaptureBinding(WildcardBinding wildcard, ReferenceBinding sourceType, int position) {
-		super(WILDCARD_CAPTURE_NAME, null, 0);
+	public CaptureBinding(WildcardBinding wildcard, ReferenceBinding sourceType, int position, int captureID) {
+		super(TypeConstants.WILDCARD_CAPTURE_NAME_PREFIX, null, 0);
 		this.wildcard = wildcard;
-		this.modifiers = AccPublic | AccGenericSignature; // treat capture as public
+		this.modifiers = ClassFileConstants.AccPublic | ExtraCompilerModifiers.AccGenericSignature; // treat capture as public
 		this.fPackage = wildcard.fPackage;
 		this.sourceType = sourceType;
 		this.position = position;
+		this.captureID = captureID;
 	}
 
 	/*
@@ -42,7 +45,7 @@ public class CaptureBinding extends TypeVariableBinding {
 			buffer.append(this.sourceType.computeUniqueKey(false/*not a leaf*/));
 			buffer.append('&');
 		}
-		buffer.append(WILDCARD_CAPTURE);
+		buffer.append(TypeConstants.WILDCARD_CAPTURE);
 		buffer.append(this.wildcard.computeUniqueKey(false/*not a leaf*/));
 		buffer.append(this.position);
 		buffer.append(';');
@@ -53,15 +56,22 @@ public class CaptureBinding extends TypeVariableBinding {
 	}	
 
 	public String debugName() {
+
 		if (this.wildcard != null) {
-			return String.valueOf(TypeConstants.WILDCARD_CAPTURE_NAME) + this.wildcard.debugName(); //$NON-NLS-1$
+			StringBuffer buffer = new StringBuffer(10);
+			buffer
+				.append(TypeConstants.WILDCARD_CAPTURE_NAME_PREFIX)
+				.append(this.captureID)
+				.append(TypeConstants.WILDCARD_CAPTURE_NAME_SUFFIX)
+				.append(this.wildcard.debugName());
+			return buffer.toString();
 		}
 		return super.debugName();
 	}
 	
 	public char[] genericTypeSignature() {
 		if (this.genericTypeSignature == null) {
-			this.genericTypeSignature = CharOperation.concat(WILDCARD_CAPTURE, this.wildcard.genericTypeSignature());
+			this.genericTypeSignature = CharOperation.concat(TypeConstants.WILDCARD_CAPTURE, this.wildcard.genericTypeSignature());
 		}
 		return this.genericTypeSignature;
 	}
@@ -70,7 +80,7 @@ public class CaptureBinding extends TypeVariableBinding {
 	 * Initialize capture bounds using substituted supertypes
 	 * e.g. given X<U, V extends X<U, V>>,     capture(X<E,?>) = X<E,capture>, where capture extends X<E,capture>
 	 */
-	public void initializeBounds(ParameterizedTypeBinding capturedParameterizedType) {
+	public void initializeBounds(Scope scope, ParameterizedTypeBinding capturedParameterizedType) {
 		TypeVariableBinding wildcardVariable = wildcard.typeVariable();
 		ReferenceBinding originalVariableSuperclass = wildcardVariable.superclass;
 		ReferenceBinding substitutedVariableSuperclass = (ReferenceBinding) Scope.substitute(capturedParameterizedType, originalVariableSuperclass);
@@ -87,36 +97,43 @@ public class CaptureBinding extends TypeVariableBinding {
 		}
 		// no substitution for wildcard bound (only formal bounds from type variables are to be substituted: 104082)
 		TypeBinding originalWildcardBound = wildcard.bound;
-		// prevent cyclic capture: given X<T>, capture(X<? extends T> could yield a circular type
-//		TypeBinding substitutedWildcardBound = originalWildcardBound == null ? null : Scope.substitute(capturedParameterizedType, originalWildcardBound);
-//		if (substitutedWildcardBound == this) substitutedWildcardBound = originalWildcardBound;
 		
 		switch (wildcard.boundKind) {
 			case Wildcard.EXTENDS :
+				// still need to capture bound supertype as well so as not to expose wildcards to the outside (111208)
+				TypeBinding capturedWildcardBound = originalWildcardBound.capture(scope, this.position);
 				if (wildcard.bound.isInterface()) {
 					this.superclass = substitutedVariableSuperclass;
 					// merge wildcard bound into variable superinterfaces using glb
-					if (substitutedVariableInterfaces == NoSuperInterfaces) {
-						this.superInterfaces = new ReferenceBinding[] { (ReferenceBinding) originalWildcardBound };
+					if (substitutedVariableInterfaces == Binding.NO_SUPERINTERFACES) {
+						this.superInterfaces = new ReferenceBinding[] { (ReferenceBinding) capturedWildcardBound };
 					} else {
 						int length = substitutedVariableInterfaces.length;
 						System.arraycopy(substitutedVariableInterfaces, 0, substitutedVariableInterfaces = new ReferenceBinding[length+1], 1, length);
-						substitutedVariableInterfaces[0] =  (ReferenceBinding) originalWildcardBound;
+						substitutedVariableInterfaces[0] =  (ReferenceBinding) capturedWildcardBound;
 						this.superInterfaces = Scope.greaterLowerBound(substitutedVariableInterfaces);
 					}
 				} else {
-					// per construction the wildcard bound is a subtype of variable superclass
-					this.superclass = wildcard.bound.isArrayType() ? substitutedVariableSuperclass : (ReferenceBinding)originalWildcardBound;
+					// the wildcard bound should be a subtype of variable superclass
+					// it may occur that the bound is less specific, then consider glb (202404)
+					if (capturedWildcardBound.isArrayType() || capturedWildcardBound == this) {
+						this.superclass = substitutedVariableSuperclass;
+					} else {
+						this.superclass = (ReferenceBinding) capturedWildcardBound;
+						if (this.superclass.isSuperclassOf(substitutedVariableSuperclass)) {
+							this.superclass = substitutedVariableSuperclass;
+						}
+					}
 					this.superInterfaces = substitutedVariableInterfaces;
 				}
-				this.firstBound =  originalWildcardBound;
-				if ((originalWildcardBound.tagBits & HasTypeVariable) == 0)
-					this.tagBits &= ~HasTypeVariable;
+				this.firstBound =  capturedWildcardBound;
+				if ((capturedWildcardBound.tagBits & TagBits.HasTypeVariable) == 0)
+					this.tagBits &= ~TagBits.HasTypeVariable;
 				break;
 			case Wildcard.UNBOUND :
 				this.superclass = substitutedVariableSuperclass;
 				this.superInterfaces = substitutedVariableInterfaces;
-				this.tagBits &= ~HasTypeVariable;
+				this.tagBits &= ~TagBits.HasTypeVariable;
 				break;
 			case Wildcard.SUPER :
 				this.superclass = substitutedVariableSuperclass;
@@ -125,8 +142,8 @@ public class CaptureBinding extends TypeVariableBinding {
 				}
 				this.superInterfaces = substitutedVariableInterfaces;
 				this.lowerBound = originalWildcardBound;
-				if ((originalWildcardBound.tagBits & HasTypeVariable) == 0)
-					this.tagBits &= ~HasTypeVariable;
+				if ((originalWildcardBound.tagBits & TagBits.HasTypeVariable) == 0)
+					this.tagBits &= ~TagBits.HasTypeVariable;
 				break;
 		}		
 	}
@@ -156,21 +173,45 @@ public class CaptureBinding extends TypeVariableBinding {
 
 	public char[] readableName() {
 		if (this.wildcard != null) {
-			return CharOperation.concat(TypeConstants.WILDCARD_CAPTURE_NAME, this.wildcard.readableName());
+			StringBuffer buffer = new StringBuffer(10);
+			buffer
+				.append(TypeConstants.WILDCARD_CAPTURE_NAME_PREFIX)
+				.append(this.captureID)
+				.append(TypeConstants.WILDCARD_CAPTURE_NAME_SUFFIX)
+				.append(this.wildcard.readableName());
+			int length = buffer.length();
+			char[] name = new char[length];
+			buffer.getChars(0, length, name, 0);
+			return name;
 		}
 		return super.readableName();
 	}
 	
 	public char[] shortReadableName() {
 		if (this.wildcard != null) {
-			return CharOperation.concat(TypeConstants.WILDCARD_CAPTURE_NAME, this.wildcard.shortReadableName());
+			StringBuffer buffer = new StringBuffer(10);
+			buffer
+				.append(TypeConstants.WILDCARD_CAPTURE_NAME_PREFIX)
+				.append(this.captureID)
+				.append(TypeConstants.WILDCARD_CAPTURE_NAME_SUFFIX)
+				.append(this.wildcard.shortReadableName());
+			int length = buffer.length();
+			char[] name = new char[length];
+			buffer.getChars(0, length, name, 0);
+			return name;
 		}
-		return super.shortReadableName();
+		return super.shortReadableName();		
 	}
 	
 	public String toString() {
 		if (this.wildcard != null) {
-			return String.valueOf(TypeConstants.WILDCARD_CAPTURE_NAME) + this.wildcard.toString();
+			StringBuffer buffer = new StringBuffer(10);
+			buffer
+				.append(TypeConstants.WILDCARD_CAPTURE_NAME_PREFIX)
+				.append(this.captureID)
+				.append(TypeConstants.WILDCARD_CAPTURE_NAME_SUFFIX)
+				.append(this.wildcard);
+			return buffer.toString();
 		}
 		return super.toString();
 	}		

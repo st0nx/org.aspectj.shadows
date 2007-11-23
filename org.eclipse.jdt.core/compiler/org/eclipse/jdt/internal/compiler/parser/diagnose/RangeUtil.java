@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,11 +10,12 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.parser.diagnose;
 
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Initializer;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
-import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
+import org.eclipse.jdt.internal.compiler.lookup.ExtraCompilerModifiers;
 
 public class RangeUtil {
 	
@@ -71,7 +72,7 @@ public class RangeUtil {
 		private void quickSort(int[] list, int[] list2, int[] list3, int left, int right) {
 			int original_left= left;
 			int original_right= right;
-			int mid= list[(left + right) / 2];
+			int mid= list[left + (right - left) / 2];
 			do {
 				while (compare(list[left], mid) < 0) {
 					left++;
@@ -141,7 +142,7 @@ public class RangeUtil {
 					AbstractMethodDeclaration method = methods[i];
 					if(containsIgnoredBody(method)) {
 						if(containsErrorInSignature(method)) {
-							method.errorInSignature = true;
+							method.bits |= ASTNode.ErrorInSignature;
 							result.addInterval(method.declarationSourceStart, method.declarationSourceEnd, IGNORE);
 						} else {
 							int flags = method.sourceEnd + 1 == method.bodyStart ? LBRACE_MISSING : NO_FLAG;
@@ -159,7 +160,7 @@ public class RangeUtil {
 					if (fields[i] instanceof Initializer) {
 						Initializer initializer = (Initializer)fields[i];
 						if(initializer.declarationSourceEnd == initializer.bodyEnd && initializer.declarationSourceStart != initializer.declarationSourceEnd){
-							initializer.errorInSignature = true;
+							initializer.bits |= ASTNode.ErrorInSignature;
 							result.addInterval(initializer.declarationSourceStart, initializer.declarationSourceEnd, IGNORE);
 						} else {
 							result.addInterval(initializer.bodyStart, initializer.bodyEnd);
@@ -169,32 +170,10 @@ public class RangeUtil {
 			}
 		}
 	}
-	
-	public static boolean isInInterval(int start, int end, int[] intervalStart, int[] intervalEnd) {
-		int length = intervalStart.length;
-		for (int i = 0; i < length; i++) {
-			if(intervalStart[i] <= start && intervalEnd[i] >= end) {
-				return true;
-			} else if(intervalStart[i] > end) {
-				return false;
-			}
-		}
-		return false;
-	}
-	
-	public static int getPreviousInterval(int start, int end, int[] intervalStart, int[] intervalEnd) {
-		int length = intervalStart.length;
-		for (int i = 0; i < length; i++) {
-			if(intervalStart[i] > end) {
-				return i - 1;
-			}
-		}
-		return length - 1;
-	}
-	
+		
 	public static boolean containsIgnoredBody(AbstractMethodDeclaration method){
 		return !method.isDefaultConstructor()
 			&& !method.isClinit()
-			&& (method.modifiers & CompilerModifiers.AccSemicolonBody) == 0;
+			&& (method.modifiers & ExtraCompilerModifiers.AccSemicolonBody) == 0;
 	}
 }

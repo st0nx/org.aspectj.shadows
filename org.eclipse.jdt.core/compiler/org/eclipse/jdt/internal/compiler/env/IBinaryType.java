@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -19,6 +19,11 @@ public interface IBinaryType extends IGenericType {
 	IBinaryField[] NoField = new IBinaryField[0];
 	IBinaryMethod[] NoMethod = new IBinaryMethod[0];
 /**
+ * Answer the runtime visible and invisible annotations for this type or null if none.
+ */
+
+IBinaryAnnotation[] getAnnotations();
+/**
  * Answer the resolved name of the enclosing type in the
  * class file format as specified in section 4.2 of the Java 2 VM spec
  * or null if the receiver is a top level type.
@@ -32,6 +37,14 @@ char[] getEnclosingTypeName();
  */
 
 IBinaryField[] getFields();
+/**
+ * Answer the receiver's signature which describes the parameter &
+ * return types as specified in section 4.4.4 of the Java 2 VM spec 3rd edition.
+ * Returns null if none.
+ * 
+ * @return the receiver's signature, null if none
+ */
+char[] getGenericSignature();
 /**
  * Answer the resolved names of the receiver's interfaces in the
  * class file format as specified in section 4.2 of the Java 2 VM spec
@@ -57,23 +70,21 @@ IBinaryNestedType[] getMemberTypes();
  */
 
 IBinaryMethod[] getMethods();
+
 /**
  * Answer the resolved name of the type in the
  * class file format as specified in section 4.2 of the Java 2 VM spec.
  *
  * For example, java.lang.String is java/lang/String.
  */
-
 char[] getName();
 
 /**
- * Answer the receiver's signature which describes the parameter &
- * return types as specified in section 4.4.4 of the Java 2 VM spec 3rd edition.
- * Returns null if none.
- * 
- * @return the receiver's signature, null if none
+ * Answer the simple name of the type in the class file.
+ * For member A$B, will answer B.
+ * For anonymous will answer null.
  */
-char[] getGenericSignature();
+char[] getSourceName();
 
 /**
  * Answer the resolved name of the receiver's superclass in the

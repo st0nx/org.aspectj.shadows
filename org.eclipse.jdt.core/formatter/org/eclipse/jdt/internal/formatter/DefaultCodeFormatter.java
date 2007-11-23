@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,11 +13,11 @@ package org.eclipse.jdt.internal.formatter;
 import java.util.HashMap;
 import java.util.Map;
 
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.compiler.ITerminalSymbols;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.core.formatter.CodeFormatter;
 import org.eclipse.jdt.core.formatter.DefaultCodeFormatterConstants;
-import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
@@ -25,6 +25,7 @@ import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
+import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.util.CodeSnippetParsingUtil;
 import org.eclipse.jdt.internal.formatter.comment.CommentRegion;
 import org.eclipse.jdt.internal.formatter.comment.JavaDocRegion;
@@ -37,8 +38,8 @@ import org.eclipse.text.edits.TextEdit;
 
 public class DefaultCodeFormatter extends CodeFormatter {
 
-	private static Scanner ProbingScanner;
 	public static final boolean DEBUG = false;
+	private static Scanner ProbingScanner;
 
 	/**
 	 * Creates a comment region for a specific document partition type.
@@ -61,6 +62,7 @@ public class DefaultCodeFormatter extends CodeFormatter {
 		}
 		return null;
 	}
+
 	private CodeSnippetParsingUtil codeSnippetParsingUtil;
 	private Map defaultCompilerOptions;
 	
@@ -93,6 +95,42 @@ public class DefaultCodeFormatter extends CodeFormatter {
 
 	public DefaultCodeFormatter(Map options) {
 		this(null, options);
+	}
+	
+	public String createIndentationString(final int indentationLevel) {
+		if (indentationLevel < 0) {
+			throw new IllegalArgumentException();
+		}
+		
+		int tabs = 0;
+		int spaces = 0;
+		switch(this.preferences.tab_char) {
+			case DefaultCodeFormatterOptions.SPACE :
+				spaces = indentationLevel * this.preferences.tab_size;
+				break;
+			case DefaultCodeFormatterOptions.TAB :
+				tabs = indentationLevel;
+				break;
+			case DefaultCodeFormatterOptions.MIXED :
+				int tabSize = this.preferences.tab_size;
+				int spaceEquivalents = indentationLevel * this.preferences.indentation_size;
+				tabs = spaceEquivalents / tabSize;
+				spaces = spaceEquivalents % tabSize;
+				break;
+			default:
+				return Util.EMPTY_STRING;
+		}
+		if (tabs == 0 && spaces == 0) {
+			return Util.EMPTY_STRING;
+		}
+		StringBuffer buffer = new StringBuffer(tabs + spaces);
+		for(int i = 0; i < tabs; i++) {
+			buffer.append('\t');
+		}
+		for(int i = 0; i < spaces; i++) {
+			buffer.append(' ');
+		}
+		return buffer.toString();
 	}
 	
 	/**
@@ -128,7 +166,7 @@ public class DefaultCodeFormatter extends CodeFormatter {
 		}
 		return null;
 	}
-	
+
 	private TextEdit formatClassBodyDeclarations(String source, int indentationLevel, String lineSeparator, int offset, int length) {
 		ASTNode[] bodyDeclarations = this.codeSnippetParsingUtil.parseClassBodyDeclarations(source.toCharArray(), getDefaultCompilerOptions(), true);
 		
@@ -139,13 +177,40 @@ public class DefaultCodeFormatter extends CodeFormatter {
 		return internalFormatClassBodyDeclarations(source, indentationLevel, lineSeparator, bodyDeclarations, offset, length);
 	}
 
+	/**
+	 * Returns the resulting text edit after formatting the given comment.
+	 * 
+	 * @param kind the given kind
+	 * @param source the given source
+	 * @param indentationLevel the given indentation level
+	 * @param lineSeparator the given line separator
+	 * @param offset the given offset
+	 * @param length the given length
+	 * @return the resulting text edit
+	 * @deprecated
+	 */
 	private TextEdit formatComment(int kind, String source, int indentationLevel, String lineSeparator, int offset, int length) {
-		final boolean isFormattingComments = DefaultCodeFormatterConstants.TRUE.equals(this.options.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT));
+		Object oldOption = this.options.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT);
+		boolean isFormattingComments = false;
+		if (oldOption == null) {
+			switch (kind) {
+				case CodeFormatter.K_SINGLE_LINE_COMMENT:
+					isFormattingComments = DefaultCodeFormatterConstants.TRUE.equals(this.options.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT_LINE_COMMENT));
+					break;
+				case CodeFormatter.K_MULTI_LINE_COMMENT:
+					isFormattingComments = DefaultCodeFormatterConstants.TRUE.equals(this.options.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT_BLOCK_COMMENT));
+					break;
+				case CodeFormatter.K_JAVA_DOC:
+					isFormattingComments = DefaultCodeFormatterConstants.TRUE.equals(this.options.get(DefaultCodeFormatterConstants.FORMATTER_COMMENT_FORMAT_JAVADOC_COMMENT));
+			}
+		} else {
+			isFormattingComments = DefaultCodeFormatterConstants.TRUE.equals(oldOption);
+		}
 		if (isFormattingComments) {
 			if (lineSeparator != null) {
 				this.preferences.line_separator = lineSeparator;
 			} else {
-				this.preferences.line_separator = System.getProperty("line.separator"); //$NON-NLS-1$
+				this.preferences.line_separator = Util.LINE_SEPARATOR;
 			}
 			this.preferences.initial_indentation_level = indentationLevel;
 			this.newCodeFormatter = new CodeFormatterVisitor(this.preferences, this.options, offset, length, null);
@@ -163,7 +228,7 @@ public class DefaultCodeFormatter extends CodeFormatter {
 		if (lineSeparator != null) {
 			this.preferences.line_separator = lineSeparator;
 		} else {
-			this.preferences.line_separator = System.getProperty("line.separator"); //$NON-NLS-1$
+			this.preferences.line_separator = Util.LINE_SEPARATOR;
 		}
 		this.preferences.initial_indentation_level = indentationLevel;
 
@@ -183,7 +248,7 @@ public class DefaultCodeFormatter extends CodeFormatter {
 	}
 
 	private TextEdit formatStatements(String source, int indentationLevel, String lineSeparator, int offset, int length) {
-		ConstructorDeclaration constructorDeclaration = this.codeSnippetParsingUtil.parseStatements(source.toCharArray(), getDefaultCompilerOptions(), true);
+		ConstructorDeclaration constructorDeclaration = this.codeSnippetParsingUtil.parseStatements(source.toCharArray(), getDefaultCompilerOptions(), true, false);
 		
 		if (constructorDeclaration.statements == null) {
 			// a problem occured while parsing the source
@@ -206,6 +271,7 @@ public class DefaultCodeFormatter extends CodeFormatter {
 			optionsMap.put(CompilerOptions.OPTION_DocCommentSupport, CompilerOptions.DISABLED); 
 			optionsMap.put(CompilerOptions.OPTION_ReportMethodWithConstructorName, CompilerOptions.IGNORE); 
 			optionsMap.put(CompilerOptions.OPTION_ReportOverridingPackageDefaultMethod, CompilerOptions.IGNORE);
+			optionsMap.put(CompilerOptions.OPTION_ReportOverridingMethodWithoutSuperInvocation, CompilerOptions.IGNORE);
 			optionsMap.put(CompilerOptions.OPTION_ReportDeprecation, CompilerOptions.IGNORE);
 			optionsMap.put(CompilerOptions.OPTION_ReportDeprecationInDeprecatedCode, CompilerOptions.DISABLED); 
 			optionsMap.put(CompilerOptions.OPTION_ReportDeprecationWhenOverridingDeprecatedMethod, CompilerOptions.DISABLED); 
@@ -269,19 +335,19 @@ public class DefaultCodeFormatter extends CodeFormatter {
 		if (lineSeparator != null) {
 			this.preferences.line_separator = lineSeparator;
 		} else {
-			this.preferences.line_separator = System.getProperty("line.separator"); //$NON-NLS-1$
+			this.preferences.line_separator = Util.LINE_SEPARATOR;
 		}
 		this.preferences.initial_indentation_level = indentationLevel;
 
 		this.newCodeFormatter = new CodeFormatterVisitor(this.preferences, this.options, offset, length, this.codeSnippetParsingUtil);
 		return this.newCodeFormatter.format(source, bodyDeclarations);
 	}
-
+	
 	private TextEdit internalFormatExpression(String source, int indentationLevel, String lineSeparator, Expression expression, int offset, int length) {
 		if (lineSeparator != null) {
 			this.preferences.line_separator = lineSeparator;
 		} else {
-			this.preferences.line_separator = System.getProperty("line.separator"); //$NON-NLS-1$
+			this.preferences.line_separator = Util.LINE_SEPARATOR;
 		}
 		this.preferences.initial_indentation_level = indentationLevel;
 
@@ -290,12 +356,12 @@ public class DefaultCodeFormatter extends CodeFormatter {
 		TextEdit textEdit = this.newCodeFormatter.format(source, expression);
 		return textEdit;
 	}
-	
+
 	private TextEdit internalFormatStatements(String source, int indentationLevel, String lineSeparator, ConstructorDeclaration constructorDeclaration, int offset, int length) {
 		if (lineSeparator != null) {
 			this.preferences.line_separator = lineSeparator;
 		} else {
-			this.preferences.line_separator = System.getProperty("line.separator"); //$NON-NLS-1$
+			this.preferences.line_separator = Util.LINE_SEPARATOR;
 		}
 		this.preferences.initial_indentation_level = indentationLevel;
 
@@ -346,7 +412,7 @@ public class DefaultCodeFormatter extends CodeFormatter {
 		}
 
 		// probe for statements
-		ConstructorDeclaration constructorDeclaration = this.codeSnippetParsingUtil.parseStatements(source.toCharArray(), getDefaultCompilerOptions(), true);
+		ConstructorDeclaration constructorDeclaration = this.codeSnippetParsingUtil.parseStatements(source.toCharArray(), getDefaultCompilerOptions(), true, false);
 		if (constructorDeclaration.statements != null) {
 			return internalFormatStatements(source, indentationLevel, lineSeparator, constructorDeclaration, offset, length);
 		}

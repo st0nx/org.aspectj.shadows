@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,6 +12,7 @@ package org.eclipse.jdt.internal.eval;
 
 import org.eclipse.jdt.internal.compiler.ast.ThisReference;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
 import org.eclipse.jdt.internal.compiler.lookup.InvocationSite;
@@ -86,17 +87,22 @@ public class CodeSnippetThisReference extends ThisReference implements Evaluatio
 	public TypeBinding resolveType(BlockScope scope) {
 	
 		// implicit this
-		this.constant = NotAConstant;
+		this.constant = Constant.NotAConstant;
 		TypeBinding snippetType = null;
-		if (this.isImplicit || checkAccess(scope.methodScope())){
-			snippetType = scope.enclosingSourceType();
+		MethodScope methodScope = scope.methodScope();
+		if (!this.isImplicit && !checkAccess(methodScope)) {
+			return null;
 		}
-		if (snippetType == null) return null;
+		snippetType = scope.enclosingSourceType();
 		
 		this.delegateThis = scope.getField(snippetType, DELEGATE_THIS, this);
-		if (this.delegateThis == null) return null; // internal error, field should have been found
-		if (this.delegateThis.isValidBinding()) return this.resolvedType = this.delegateThis.type;
-		return this.resolvedType = snippetType;
+		if (this.delegateThis == null || !this.delegateThis.isValidBinding()) {
+			// should not happen
+			// if this happen we should report illegal access to this in a static context
+			methodScope.problemReporter().errorThisSuperInStatic(this);
+			return null;
+		}
+		return this.resolvedType = this.delegateThis.type;
 	}
 	public void setActualReceiverType(ReferenceBinding receiverType) {
 		// ignored

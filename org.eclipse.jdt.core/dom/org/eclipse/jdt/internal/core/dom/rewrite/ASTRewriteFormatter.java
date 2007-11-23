@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,29 +14,27 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Map;
 
-import org.eclipse.text.edits.DeleteEdit;
-import org.eclipse.text.edits.InsertEdit;
-import org.eclipse.text.edits.MultiTextEdit;
-import org.eclipse.text.edits.ReplaceEdit;
-import org.eclipse.text.edits.TextEdit;
-
-import org.eclipse.jface.text.Assert;
-import org.eclipse.jface.text.BadLocationException;
-import org.eclipse.jface.text.BadPositionCategoryException;
-import org.eclipse.jface.text.DefaultPositionUpdater;
-import org.eclipse.jface.text.Document;
-import org.eclipse.jface.text.Position;
+import org.eclipse.core.runtime.Assert;
 
 import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.ToolFactory;
-import org.eclipse.jdt.core.formatter.CodeFormatter;
-import org.eclipse.jdt.core.formatter.DefaultCodeFormatterConstants;
-
 import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.Block;
 import org.eclipse.jdt.core.dom.BodyDeclaration;
 import org.eclipse.jdt.core.dom.Expression;
 import org.eclipse.jdt.core.dom.Statement;
+import org.eclipse.jdt.core.formatter.CodeFormatter;
+import org.eclipse.jdt.core.formatter.IndentManipulation;
+import org.eclipse.jface.text.BadLocationException;
+import org.eclipse.jface.text.BadPositionCategoryException;
+import org.eclipse.jface.text.DefaultPositionUpdater;
+import org.eclipse.jface.text.Document;
+import org.eclipse.jface.text.Position;
+import org.eclipse.text.edits.DeleteEdit;
+import org.eclipse.text.edits.InsertEdit;
+import org.eclipse.text.edits.MultiTextEdit;
+import org.eclipse.text.edits.ReplaceEdit;
+import org.eclipse.text.edits.TextEdit;
 
 /* package */ final class ASTRewriteFormatter {
 
@@ -116,14 +114,14 @@ import org.eclipse.jdt.core.dom.Statement;
 		}
 	}
 	
-	final String lineDelimiter;
-	final int tabWidth;
-	final int indentWidth;
+	private final String lineDelimiter;
+	private final int tabWidth;
+	private final int indentWidth;
 	
-	final NodeInfoStore placeholders;
-	final RewriteEventStore eventStore;
+	private final NodeInfoStore placeholders;
+	private final RewriteEventStore eventStore;
 
-	final Map options;
+	private final Map options;
 
 	
 	public ASTRewriteFormatter(NodeInfoStore placeholders, RewriteEventStore eventStore, Map options, String lineDelimiter) {
@@ -133,13 +131,13 @@ import org.eclipse.jdt.core.dom.Statement;
 		if (options == null) {
 			options= JavaCore.getOptions();
 		}
-		options.put(DefaultCodeFormatterConstants.FORMATTER_LINE_SPLIT, String.valueOf(9999));
+		//options.put(DefaultCodeFormatterConstants.FORMATTER_LINE_SPLIT, String.valueOf(9999));
 
 		this.options= options;
 		this.lineDelimiter= lineDelimiter;
 		
-		this.tabWidth= Indents.getTabWidth(options);
-		this.indentWidth= Indents.getIndentWidth(options, this.tabWidth);
+		this.tabWidth= IndentManipulation.getTabWidth(options);
+		this.indentWidth= IndentManipulation.getIndentWidth(options);
 	}
 	
 
@@ -152,10 +150,18 @@ import org.eclipse.jdt.core.dom.Statement;
 		return this.eventStore;
 	}
 	
-	public Map getOptions() {
-		return this.options;
+	public int getTabWidth() {
+		return this.tabWidth;
 	}
 	
+	public int getIndentWidth() {
+		return this.indentWidth;
+	}
+	
+	public String getLineDelimiter() {
+		return this.lineDelimiter;
+	}
+		
 	/**
 	 * Returns the string accumulated in the visit formatted using the default formatter.
 	 * Updates the existing node's positions.
@@ -176,12 +182,12 @@ import org.eclipse.jdt.core.dom.Statement;
 		}		
 		
 		String unformatted= flattener.getResult();
-		TextEdit edit= formatNode(node, unformatted, initialIndentationLevel, this.lineDelimiter, this.options);
+		TextEdit edit= formatNode(node, unformatted, initialIndentationLevel);
 		if (edit == null) {
 		    if (initialIndentationLevel > 0) {
 		        // at least correct the indent
 		        String indentString = createIndentString(initialIndentationLevel);
-				ReplaceEdit[] edits = Indents.getChangeIndentEdits(unformatted, 0, this.tabWidth, this.indentWidth, indentString);
+				ReplaceEdit[] edits = IndentManipulation.getChangeIndentEdits(unformatted, 0, this.tabWidth, this.indentWidth, indentString);
 				edit= new MultiTextEdit();
 				edit.addChild(new InsertEdit(0, indentString));
 				edit.addChildren(edits);
@@ -192,56 +198,20 @@ import org.eclipse.jdt.core.dom.Statement;
 		return evaluateFormatterEdit(unformatted, edit, markers);
 	}
 	
-    /**
-     * Creates a string that represents the given number of indents (can be spaces or tabs..)
-     * @param indentationUnits the indent to represent
-     * @return Returns the created indent
-     */
     public String createIndentString(int indentationUnits) {
-		final String tabChar= (String) options.get(DefaultCodeFormatterConstants.FORMATTER_TAB_CHAR);
-		final int tabs, spaces;
-		if (JavaCore.SPACE.equals(tabChar)) {
-			tabs= 0;
-			spaces= indentationUnits * this.indentWidth;
-		} else if (JavaCore.TAB.equals(tabChar)) {
-			// indentWidth == tabWidth
-			tabs= indentationUnits;
-			spaces= 0;
-		} else if (DefaultCodeFormatterConstants.MIXED.equals(tabChar)){
-			int spaceEquivalents= indentationUnits * this.indentWidth;
-			if (this.tabWidth > 0) {
-				tabs= spaceEquivalents / this.tabWidth;
-				spaces= spaceEquivalents % this.tabWidth;
-			} else {
-				tabs= 0;
-				spaces= spaceEquivalents;
-			}
-		} else {
-			// new indent type not yet handled
-			//Assert.isTrue(false); bug 90580
-			tabs= 0;
-			spaces= indentationUnits * this.indentWidth;
-		}
-		
-		StringBuffer buffer= new StringBuffer(tabs + spaces);
-		for(int i= 0; i < tabs; i++)
-			buffer.append('\t');
-		for(int i= 0; i < spaces; i++)
-			buffer.append(' ');
-		return buffer.toString();
-
+    	return ToolFactory.createCodeFormatter(this.options).createIndentationString(indentationUnits);
     }
 	
 	public String getIndentString(String currentLine) {
-		return Indents.getIndentString(currentLine, this.tabWidth, this.indentWidth);
+		return IndentManipulation.extractIndentString(currentLine, this.tabWidth, this.indentWidth);
 	}
 	
 	public String changeIndent(String code, int codeIndentLevel, String newIndent) {
-		return Indents.changeIndent(code, codeIndentLevel, this.tabWidth, this.indentWidth, newIndent, this.lineDelimiter);
+		return IndentManipulation.changeIndent(code, codeIndentLevel, this.tabWidth, this.indentWidth, newIndent, this.lineDelimiter);
 	}
 	
 	public int computeIndentUnits(String line) {
-		return Indents.computeIndentUnits(line, this.tabWidth, this.indentWidth);
+		return IndentManipulation.measureIndentUnits(line, this.tabWidth, this.indentWidth);
 	}
 	
 	/**
@@ -270,8 +240,8 @@ import org.eclipse.jdt.core.dom.Statement;
 		return null;
 	}
 		
-	public static TextEdit formatString(int kind, String string, int indentationLevel, String lineSeparator, Map options) {
-		return ToolFactory.createCodeFormatter(options).format(kind, string, 0, string.length(), indentationLevel, lineSeparator);
+	public TextEdit formatString(int kind, String string, int offset, int length, int indentationLevel) {
+		return ToolFactory.createCodeFormatter(this.options).format(kind, string, offset, length, indentationLevel, this.lineDelimiter);
 	}
 	
 	/**
@@ -279,13 +249,11 @@ import org.eclipse.jdt.core.dom.Statement;
 	 * @param node Node describing the type of the string
 	 * @param str The unformatted string
 	 * @param indentationLevel 
-	 * @param lineSeparator
-	 * @param options
 	 * @return Returns the edit representing the result of the formatter
 	 * @throws IllegalArgumentException If the offset and length are not inside the string, a
 	 *  IllegalArgumentException is thrown.
 	 */
-	private static TextEdit formatNode(ASTNode node, String str, int indentationLevel, String lineSeparator, Map options) {
+	private TextEdit formatNode(ASTNode node, String str, int indentationLevel) {
 		int code;
 		String prefix= ""; //$NON-NLS-1$
 		String suffix= ""; //$NON-NLS-1$
@@ -371,29 +339,29 @@ import org.eclipse.jdt.core.dom.Statement;
 //				wiat for bug 93644 
 //				case ASTNode.MEMBER_REF:
 //				case ASTNode.METHOD_REF:
-//					prefix= "/**\n * @see "; //$NON-NLS-1$
-//					suffix= "\n*/"; //$NON-NLS-1$
+//					prefix= "/**\n * @see ";
+//					suffix= "\n*/";
 //					code= CodeFormatter.K_JAVA_DOC;
 //					break;
 //				case ASTNode.METHOD_REF_PARAMETER:
-//					prefix= "/**\n * @see A#foo("; //$NON-NLS-1$
-//					suffix= ")\n*/"; //$NON-NLS-1$
+//					prefix= "/**\n * @see A#foo(";
+//					suffix= ")\n*/";
 //					code= CodeFormatter.K_JAVA_DOC;
 //					break;
 //				case ASTNode.TAG_ELEMENT:
 //				case ASTNode.TEXT_ELEMENT:
-//					prefix= "/**\n * "; //$NON-NLS-1$
-//					suffix= "\n*/"; //$NON-NLS-1$
+//					prefix= "/**\n * ";
+//					suffix= "\n*/";
 //					code= CodeFormatter.K_JAVA_DOC;
 //					break;
 				default:
-					//Assert.isTrue(false, "Node type not covered: " + node.getClass().getName()); //$NON-NLS-1$
+					//Assert.isTrue(false, "Node type not covered: " + node.getClass().getName());
 					return null;
 			}
 		}
 		
 		String concatStr= prefix + str + suffix;
-		TextEdit edit= ToolFactory.createCodeFormatter(options).format(code, concatStr, prefix.length(), str.length(), indentationLevel, lineSeparator);
+		TextEdit edit= formatString(code, concatStr, prefix.length(), str.length(), indentationLevel);
 		
 		if (prefix.length() > 0) {
 			edit= shifEdit(edit, prefix.length());
@@ -497,7 +465,7 @@ import org.eclipse.jdt.core.dom.Statement;
 		public String getPrefix(int indent) {
 			Position pos= new Position(this.start, this.length);
 			String str= this.string;
-			TextEdit res= formatString(this.kind, str, indent, lineDelimiter, getOptions());
+			TextEdit res= formatString(this.kind, str, 0, str.length(), indent);
 			if (res != null) {
 				str= evaluateFormatterEdit(str, res, new Position[] { pos });
 			}
@@ -519,7 +487,7 @@ import org.eclipse.jdt.core.dom.Statement;
 			String str= this.prefix + nodeString;
 			Position pos= new Position(this.start, this.prefix.length() + 1 - this.start);
 
-			TextEdit res= formatString(CodeFormatter.K_STATEMENTS, str, indent, lineDelimiter, getOptions());
+			TextEdit res= formatString(CodeFormatter.K_STATEMENTS, str, 0, str.length(), indent);
 			if (res != null) {
 				str= evaluateFormatterEdit(str, res, new Position[] { pos });
 			}
@@ -548,7 +516,7 @@ import org.eclipse.jdt.core.dom.Statement;
 			Position pos1= new Position(this.start, nodeStart + 1 - this.start);
 			Position pos2= new Position(nodeEnd, 2);
 
-			TextEdit res= formatString(CodeFormatter.K_STATEMENTS, str, indent, lineDelimiter, getOptions());
+			TextEdit res= formatString(CodeFormatter.K_STATEMENTS, str, 0, str.length(), indent);
 			if (res != null) {
 				str= evaluateFormatterEdit(str, res, new Position[] { pos1, pos2 });
 			}
@@ -577,12 +545,12 @@ import org.eclipse.jdt.core.dom.Statement;
 	public final Prefix ANNOTATION_SEPARATION= new FormattingPrefix("@A @B class C {}", "A @" , CodeFormatter.K_COMPILATION_UNIT); //$NON-NLS-1$ //$NON-NLS-2$
 
 	public final BlockContext IF_BLOCK_WITH_ELSE= new BlockFormattingPrefixSuffix("if (true)", "else{}", 8); //$NON-NLS-1$ //$NON-NLS-2$
-	public final BlockContext IF_BLOCK_NO_ELSE= new BlockFormattingPrefix("if (true)", 8); //$NON-NLS-1$ //$NON-NLS-2$
-	public final BlockContext ELSE_AFTER_STATEMENT= new BlockFormattingPrefix("if (true) foo(); else ", 15); //$NON-NLS-1$ //$NON-NLS-2$
-	public final BlockContext ELSE_AFTER_BLOCK= new BlockFormattingPrefix("if (true) {} else ", 11); //$NON-NLS-1$ //$NON-NLS-2$
+	public final BlockContext IF_BLOCK_NO_ELSE= new BlockFormattingPrefix("if (true)", 8); //$NON-NLS-1$
+	public final BlockContext ELSE_AFTER_STATEMENT= new BlockFormattingPrefix("if (true) foo(); else ", 15); //$NON-NLS-1$
+	public final BlockContext ELSE_AFTER_BLOCK= new BlockFormattingPrefix("if (true) {} else ", 11); //$NON-NLS-1$
 
-	public final BlockContext FOR_BLOCK= new BlockFormattingPrefix("for (;;) ", 7); //$NON-NLS-1$ //$NON-NLS-2$
-	public final BlockContext WHILE_BLOCK= new BlockFormattingPrefix("while (true)", 11); //$NON-NLS-1$ //$NON-NLS-2$
+	public final BlockContext FOR_BLOCK= new BlockFormattingPrefix("for (;;) ", 7); //$NON-NLS-1$
+	public final BlockContext WHILE_BLOCK= new BlockFormattingPrefix("while (true)", 11); //$NON-NLS-1$
 	public final BlockContext DO_BLOCK= new BlockFormattingPrefixSuffix("do ", "while (true);", 1); //$NON-NLS-1$ //$NON-NLS-2$
 
 }

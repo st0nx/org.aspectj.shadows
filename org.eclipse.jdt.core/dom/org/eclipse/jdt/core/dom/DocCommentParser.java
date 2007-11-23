@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * Copyright (c) 2004, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,8 +15,10 @@ import java.util.List;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 
 /**
@@ -26,9 +28,6 @@ import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
  */
 class DocCommentParser extends AbstractCommentParser {
 
-	// Public fields
-	
-	// Private fields
 	private Javadoc docComment;
 	private AST ast;
 
@@ -36,9 +35,9 @@ class DocCommentParser extends AbstractCommentParser {
 		super(null);
 		this.ast = ast;
 		this.scanner = scanner;
-		this.jdk15 = this.ast.apiLevel() >= AST.JLS3;
+		this.sourceLevel = this.ast.apiLevel() >= AST.JLS3 ? ClassFileConstants.JDK1_5 : ClassFileConstants.JDK1_3;
 		this.checkDocComment = check;
-		this.kind = DOM_PARSER;
+		this.kind = DOM_PARSER | TEXT_PARSE;
 	}
 
 	/* (non-Javadoc)
@@ -87,7 +86,7 @@ class DocCommentParser extends AbstractCommentParser {
 		buffer.append(super.toString());
 		return buffer.toString();
 	}
-	
+
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#createArgumentReference(char[], java.lang.Object, int)
 	 */
@@ -168,13 +167,13 @@ class DocCommentParser extends AbstractCommentParser {
 			// Create method ref
 			MethodRef methodRef = this.ast.newMethodRef();
 			SimpleName methodName = new SimpleName(this.ast);
-			methodName.internalSetIdentifier(new String(this.identifierStack[0]));
+			int length = this.identifierLengthStack[0] - 1; // may be > 0 for member class constructor reference
+			methodName.internalSetIdentifier(new String(this.identifierStack[length]));
 			methodRef.setName(methodName);
-			int start = (int) (this.identifierPositionStack[0] >>> 32);
-			int end = (int) this.identifierPositionStack[0];
+			int start = (int) (this.identifierPositionStack[length] >>> 32);
+			int end = (int) this.identifierPositionStack[length];
 			methodName.setSourceRange(start, end - start + 1);
 			// Set qualifier
-//			int end = methodName.getStartPosition()+methodName.getLength()-1;
 			if (receiver == null) {
 				start = this.memberStart;
 				methodRef.setSourceRange(start, end - start + 1);
@@ -189,10 +188,8 @@ class DocCommentParser extends AbstractCommentParser {
 				while (parameters.hasNext()) {
 					MethodRefParameter param = (MethodRefParameter) parameters.next();
 					methodRef.parameters().add(param);
-//					end = param.getStartPosition()+param.getLength()-1;
 				}
 			}
-//			methodRef.setSourceRange(start, end-start+1);
 			methodRef.setSourceRange(start, this.scanner.getCurrentTokenEndPosition()-start+1);
 			return methodRef;
 		}
@@ -206,40 +203,16 @@ class DocCommentParser extends AbstractCommentParser {
 	 */
 	protected void createTag() {
 		TagElement tagElement = this.ast.newTagElement();
+		int position = this.scanner.currentPosition;
+		this.scanner.resetTo(this.tagSourceStart, this.tagSourceEnd);
+		StringBuffer tagName = new StringBuffer();
 		int start = this.tagSourceStart;
-		String tagName = new String(this.source, start, this.tagSourceEnd-start+1);
-		switch (tagName.charAt(0)) {
-			case 'a':
-				if (tagName.equals(TagElement.TAG_AUTHOR)) {
-					tagName = TagElement.TAG_AUTHOR;
-				}
-				break;
-			case 'd':
-				if (tagName.equals(TagElement.TAG_DOCROOT)) {
-					tagName = TagElement.TAG_DOCROOT;
-				}
-				break;
-			case 'r':
-				if (tagName.equals(TagElement.TAG_RETURN)) {
-					tagName = TagElement.TAG_RETURN;
-				}
-				break;
-			case 's':
-				if (tagName.equals(TagElement.TAG_SERIAL)) {
-					tagName = TagElement.TAG_SERIAL;
-				} else  if (tagName.equals(TagElement.TAG_SERIALDATA)) {
-					tagName = TagElement.TAG_SERIALDATA;
-				} else if (tagName.equals(TagElement.TAG_SERIALFIELD)) {
-					tagName = TagElement.TAG_SERIALFIELD;
-				}
-				break;
-			case 'v':
-				if (tagName.equals(TagElement.TAG_VERSION)) {
-					tagName = TagElement.TAG_VERSION;
-				}
-				break;
+		this.scanner.getNextChar();
+		while (this.scanner.currentPosition <= (this.tagSourceEnd+1)) {
+			tagName.append(this.scanner.currentCharacter);
+			this.scanner.getNextChar();
 		}
-		tagElement.setTagName(tagName);
+		tagElement.setTagName(tagName.toString());
 		if (this.inlineTagStarted) {
 			start = this.inlineTagStart;
 			TagElement previousTag = null;
@@ -257,14 +230,14 @@ class DocCommentParser extends AbstractCommentParser {
 			pushOnAstStack(tagElement, true);
 		}
 		tagElement.setSourceRange(start, this.tagSourceEnd-start+1);
-//		return true;
+		this.scanner.resetTo(position, this.javadocEnd);
 	}
 
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#createTypeReference()
 	 */
 	protected Object createTypeReference(int primitiveToken) {
-		int size = this.identifierLengthStack[this.identifierLengthPtr--];
+		int size = this.identifierLengthStack[this.identifierLengthPtr];
 		String[] identifiers = new String[size];
 		int pos = this.identifierPtr - size + 1;
 		for (int i = 0; i < size; i++) {
@@ -332,8 +305,20 @@ class DocCommentParser extends AbstractCommentParser {
 			int end = (int) this.identifierPositionStack[pos];
 			typeRef.setSourceRange(start, end-start+1);
 		}
-		this.identifierPtr -= size;
 		return typeRef;
+	}
+
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#parseIdentifierTag(boolean)
+	 */
+	protected boolean parseIdentifierTag(boolean report) {
+		if (super.parseIdentifierTag(report)) {
+			createTag();
+			this.index = this.tagSourceEnd+1;
+			this.scanner.resetTo(this.index, this.javadocEnd);
+			return true;
+		}
+		return false;
 	}
 
 	/*
@@ -350,53 +335,82 @@ class DocCommentParser extends AbstractCommentParser {
 	protected boolean parseTag(int previousPosition) throws InvalidInputException {
 		
 		// Read tag name
+		int currentPosition = this.index;
 		int token = readTokenAndConsume();
-		this.tagSourceStart = this.scanner.getCurrentTokenStartPosition();
-		this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
+		char[] tagName = CharOperation.NO_CHAR;
+		if (currentPosition == this.scanner.startPosition) {
+			this.tagSourceStart = this.scanner.getCurrentTokenStartPosition();
+			this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
+			tagName = this.scanner.getCurrentIdentifierSource();
+		} else {
+			this.tagSourceEnd = currentPosition-1;
+		}
 
 		// Try to get tag name other than java identifier
 		// (see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=51660)
-		int tk = token;
-		char pc = peekChar();
-		tagNameToken: while (tk != TerminalTokens.TokenNameEOF) {
-			this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
-			token = tk;
-			// !, ", #, %, &, ', -, :, <, >, * chars and spaces are not allowed in tag names
-			switch (pc) {
-				case '}':
-				case '!':
-				case '#':
-				case '%':
-				case '&':
-				case '\'':
-				case '"':
-				case ':':
-				// case '-': allowed in tag names as this character is often used in doclets (bug 68087)
-				case '<':
-				case '>':
-				case '*': // break for '*' as this is perhaps the end of comment (bug 65288)
-					break tagNameToken;
-				default:
-					if (pc == ' ' || Character.isWhitespace(pc)) break tagNameToken;
+		if (this.scanner.currentCharacter != ' ' && !ScannerHelper.isWhitespace(this.scanner.currentCharacter)) {
+			tagNameToken: while (token != TerminalTokens.TokenNameEOF && this.index < this.scanner.eofPosition) {
+				int length = tagName.length;
+				// !, ", #, %, &, ', -, :, <, >, * chars and spaces are not allowed in tag names
+				switch (this.scanner.currentCharacter) {
+					case '}':
+					case '*': // break for '*' as this is perhaps the end of comment (bug 65288)
+					case '!':
+					case '#':
+					case '%':
+					case '&':
+					case '\'':
+					case '"':
+					case ':':
+					case '<':
+					case '>':
+						break tagNameToken;
+					case '-': // allowed in tag names as this character is often used in doclets (bug 68087)
+						System.arraycopy(tagName, 0, tagName = new char[length+1], 0, length);
+						tagName[length] = this.scanner.currentCharacter;
+						break;
+					default:
+						if (this.scanner.currentCharacter == ' ' || ScannerHelper.isWhitespace(this.scanner.currentCharacter)) {
+							break tagNameToken;
+						}
+						token = readTokenAndConsume();
+						char[] ident = this.scanner.getCurrentIdentifierSource();
+						System.arraycopy(tagName, 0, tagName = new char[length+ident.length], 0, length);
+						System.arraycopy(ident, 0, tagName, length, ident.length);
+						break;
+				}
+				this.tagSourceEnd = this.scanner.getCurrentTokenEndPosition();
+				this.scanner.getNextChar();
+				this.index = this.scanner.currentPosition;
 			}
-			tk = readTokenAndConsume();
-			pc = peekChar();
 		}
-		int length = this.tagSourceEnd-this.tagSourceStart+1;
-		char[] tag = new char[length];
-		System.arraycopy(this.source, this.tagSourceStart, tag, 0, length);
+		int length = tagName.length;
 		this.index = this.tagSourceEnd+1;
 		this.scanner.currentPosition = this.tagSourceEnd+1;
 		this.tagSourceStart = previousPosition;
+
+		// tage name may be empty (see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=125903)
+		if (tagName.length == 0) {
+			return false;
+		}
 
 		// Decide which parse to perform depending on tag name
 		this.tagValue = NO_TAG_VALUE;
 		boolean valid = true;
 		switch (token) {
 			case TerminalTokens.TokenNameIdentifier :
-				switch (tag[0]) {
+				switch (tagName[0]) {
+					case 'c':
+						if (length == TAG_CATEGORY_LENGTH && CharOperation.equals(TAG_CATEGORY, tagName)) {
+							this.tagValue = TAG_CATEGORY_VALUE;
+							valid = parseIdentifierTag(false); // TODO (frederic) reconsider parameter value when @category will be significant in spec
+						} else {
+							this.tagValue = TAG_OTHERS_VALUE;
+							createTag();
+						}
+						break;
 					case 'd':
-						if (CharOperation.equals(tag, TAG_DEPRECATED)) {
+						if (length == TAG_DEPRECATED_LENGTH && CharOperation.equals(TAG_DEPRECATED, tagName)) {
 							this.deprecated = true;
 							this.tagValue = TAG_DEPRECATED_VALUE;
 						} else {
@@ -405,7 +419,7 @@ class DocCommentParser extends AbstractCommentParser {
 						createTag();
 					break;
 					case 'i':
-						if (CharOperation.equals(tag, TAG_INHERITDOC)) {
+						if (length == TAG_INHERITDOC_LENGTH && CharOperation.equals(TAG_INHERITDOC, tagName)) {
 							// inhibits inherited flag when tags have been already stored
 							// see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=51606
 							// Note that for DOM_PARSER, nodes stack may be not empty even no '@' tag
@@ -421,7 +435,7 @@ class DocCommentParser extends AbstractCommentParser {
 						createTag();
 					break;
 					case 'p':
-						if (CharOperation.equals(tag, TAG_PARAM)) {
+						if (length == TAG_PARAM_LENGTH && CharOperation.equals(TAG_PARAM, tagName)) {
 							this.tagValue = TAG_PARAM_VALUE;
 							valid = parseParam();
 						} else {
@@ -430,7 +444,7 @@ class DocCommentParser extends AbstractCommentParser {
 						}
 					break;
 					case 'e':
-						if (CharOperation.equals(tag, TAG_EXCEPTION)) {
+						if (length == TAG_EXCEPTION_LENGTH && CharOperation.equals(TAG_EXCEPTION, tagName)) {
 							this.tagValue = TAG_EXCEPTION_VALUE;
 							valid = parseThrows();
 						} else {
@@ -439,7 +453,7 @@ class DocCommentParser extends AbstractCommentParser {
 						}
 					break;
 					case 's':
-						if (CharOperation.equals(tag, TAG_SEE)) {
+						if (length == TAG_SEE_LENGTH && CharOperation.equals(TAG_SEE, tagName)) {
 							this.tagValue = TAG_SEE_VALUE;
 							if (this.inlineTagStarted) {
 								// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=53290
@@ -454,9 +468,9 @@ class DocCommentParser extends AbstractCommentParser {
 						}
 					break;
 					case 'l':
-						if (CharOperation.equals(tag, TAG_LINK)) {
+						if (length == TAG_LINK_LENGTH && CharOperation.equals(TAG_LINK, tagName)) {
 							this.tagValue = TAG_LINK_VALUE;
-						} else if (CharOperation.equals(tag, TAG_LINKPLAIN)) {
+						} else if (length == TAG_LINKPLAIN_LENGTH && CharOperation.equals(TAG_LINKPLAIN, tagName)) {
 							this.tagValue = TAG_LINKPLAIN_VALUE;
 						}
 						if (this.tagValue != NO_TAG_VALUE)  {
@@ -473,7 +487,7 @@ class DocCommentParser extends AbstractCommentParser {
 						}
 					break;
 					case 'v':
-						if (this.jdk15 && CharOperation.equals(tag, TAG_VALUE)) {
+						if (this.sourceLevel >= ClassFileConstants.JDK1_5 && length == TAG_VALUE_LENGTH && CharOperation.equals(TAG_VALUE, tagName)) {
 							this.tagValue = TAG_VALUE_VALUE;
 							if (this.inlineTagStarted) {
 								valid = parseReference();

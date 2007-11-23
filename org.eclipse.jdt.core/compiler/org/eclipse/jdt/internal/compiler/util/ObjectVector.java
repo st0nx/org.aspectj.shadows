@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -19,8 +19,11 @@ public final class ObjectVector {
 	Object[] elements;
 	
 	public ObjectVector() {
-
-		this.maxSize = INITIAL_SIZE;
+		this(INITIAL_SIZE);
+	}
+	
+	public ObjectVector(int initialSize) {
+		this.maxSize = initialSize > 0 ? initialSize : INITIAL_SIZE;
 		this.size = 0;
 		this.elements = new Object[this.maxSize];
 	}

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -39,6 +39,14 @@ public final class HashtableOfObject implements Cloneable {
 		this.valueTable = new Object[extraRoom];
 	}
 
+	public void clear() {
+		for (int i = this.keyTable.length; --i >= 0;) {
+			this.keyTable[i] = null;
+			this.valueTable[i] = null;
+		}
+		this.elementSize = 0;
+	}
+
 	public Object clone() throws CloneNotSupportedException {
 		HashtableOfObject result = (HashtableOfObject) super.clone();
 		result.elementSize = this.elementSize;
@@ -55,40 +63,46 @@ public final class HashtableOfObject implements Cloneable {
 	}
 
 	public boolean containsKey(char[] key) {
-
-		int index = CharOperation.hashCode(key) % valueTable.length;
+		int length = keyTable.length, 
+			index = CharOperation.hashCode(key) % length;
 		int keyLength = key.length;
 		char[] currentKey;
 		while ((currentKey = keyTable[index]) != null) {
 			if (currentKey.length == keyLength && CharOperation.equals(currentKey, key))
 				return true;
-			index = (index + 1) % keyTable.length;
+			if (++index == length) {
+				index = 0;
+			}
 		}
 		return false;
 	}
 
 	public Object get(char[] key) {
-
-		int index = CharOperation.hashCode(key) % valueTable.length;
+		int length = keyTable.length, 
+			index = CharOperation.hashCode(key) % length;
 		int keyLength = key.length;
 		char[] currentKey;
 		while ((currentKey = keyTable[index]) != null) {
 			if (currentKey.length == keyLength && CharOperation.equals(currentKey, key))
 				return valueTable[index];
-			index = (index + 1) % keyTable.length;
+			if (++index == length) {
+				index = 0;
+			}
 		}
 		return null;
 	}
 
 	public Object put(char[] key, Object value) {
-
-		int index = CharOperation.hashCode(key) % valueTable.length;
+		int length = keyTable.length, 
+			index = CharOperation.hashCode(key) % length;
 		int keyLength = key.length;
 		char[] currentKey;
 		while ((currentKey = keyTable[index]) != null) {
 			if (currentKey.length == keyLength && CharOperation.equals(currentKey, key))
 				return valueTable[index] = value;
-			index = (index + 1) % keyTable.length;
+			if (++index == length) {
+				index = 0;
+			}
 		}
 		keyTable[index] = key;
 		valueTable[index] = value;
@@ -100,8 +114,8 @@ public final class HashtableOfObject implements Cloneable {
 	}
 
 	public Object removeKey(char[] key) {
-
-		int index = CharOperation.hashCode(key) % valueTable.length;
+		int length = keyTable.length, 
+			index = CharOperation.hashCode(key) % length;
 		int keyLength = key.length;
 		char[] currentKey;
 		while ((currentKey = keyTable[index]) != null) {
@@ -113,7 +127,9 @@ public final class HashtableOfObject implements Cloneable {
 				rehash();
 				return value;
 			}
-			index = (index + 1) % keyTable.length;
+			if (++index == length) {
+				index = 0;
+			}
 		}
 		return null;
 	}

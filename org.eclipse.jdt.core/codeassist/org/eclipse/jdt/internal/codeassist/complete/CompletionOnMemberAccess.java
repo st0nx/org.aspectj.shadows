@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -37,9 +37,12 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class CompletionOnMemberAccess extends FieldReference {
 	
-	public CompletionOnMemberAccess(char[] source, long pos) {
+	public boolean isInsideAnnotation;
+	
+	public CompletionOnMemberAccess(char[] source, long pos, boolean isInsideAnnotation) {
 		
 		super(source, pos);
+		this.isInsideAnnotation = isInsideAnnotation;
 	}
 	
 	public StringBuffer printExpression(int indent, StringBuffer output) {
@@ -51,6 +54,25 @@ public class CompletionOnMemberAccess extends FieldReference {
 	public TypeBinding resolveType(BlockScope scope) {
 		
 		this.receiverType = receiver.resolveType(scope);
+		
+		if (this.receiverType == null && receiver instanceof MessageSend) {
+			MessageSend messageSend = (MessageSend) receiver;
+			if(messageSend.receiver instanceof ThisReference) {
+				Expression[] arguments = messageSend.arguments;
+				int length = arguments == null ? 0 : arguments.length;
+				TypeBinding[] argBindings = new TypeBinding[length];
+				for (int i = 0; i < length; i++) {
+					argBindings[i] = arguments[i].resolvedType;
+					if(argBindings[i] == null || !argBindings[i].isValidBinding()) {
+						throw new CompletionNodeFound();
+					}
+				}
+					
+				ProblemMethodBinding problemMethodBinding = new ProblemMethodBinding(messageSend.selector, argBindings, ProblemReasons.NotFound);
+				throw new CompletionNodeFound(this, problemMethodBinding, scope);
+			}
+		}
+		
 		if (this.receiverType == null || this.receiverType.isBaseType())
 			throw new CompletionNodeFound();
 		else

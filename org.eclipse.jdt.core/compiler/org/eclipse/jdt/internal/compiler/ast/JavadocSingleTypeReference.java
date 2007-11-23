@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,7 +11,17 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
-import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
+import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
+import org.eclipse.jdt.internal.compiler.lookup.ClassScope;
+import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
+import org.eclipse.jdt.internal.compiler.lookup.ProblemReferenceBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
+import org.eclipse.jdt.internal.compiler.lookup.Scope;
+import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 
 
 public class JavadocSingleTypeReference extends SingleTypeReference {
@@ -23,14 +33,14 @@ public class JavadocSingleTypeReference extends SingleTypeReference {
 		super(source, pos);
 		this.tagSourceStart = tagStart;
 		this.tagSourceEnd = tagEnd;
-		this.bits |= InsideJavadoc;
+		this.bits |= ASTNode.InsideJavadoc;
 	}
 
 	protected void reportInvalidType(Scope scope) {
 		scope.problemReporter().javadocInvalidType(this, this.resolvedType, scope.getDeclarationModifiers());
 	}
-	protected void reportDeprecatedType(Scope scope) {
-		scope.problemReporter().javadocDeprecatedType(this.resolvedType, this, scope.getDeclarationModifiers());
+	protected void reportDeprecatedType(TypeBinding type, Scope scope) {
+		scope.problemReporter().javadocDeprecatedType(type, this, scope.getDeclarationModifiers());
 	}
 
 	/* (non-Javadoc)
@@ -52,7 +62,7 @@ public class JavadocSingleTypeReference extends SingleTypeReference {
 	 */
 	TypeBinding internalResolveType(Scope scope) {
 		// handle the error here
-		this.constant = NotAConstant;
+		this.constant = Constant.NotAConstant;
 		if (this.resolvedType != null)// is a shared type reference which was already resolved
 			return this.resolvedType.isValidBinding() ? this.resolvedType : null; // already reported error
 
@@ -64,10 +74,10 @@ public class JavadocSingleTypeReference extends SingleTypeReference {
 				this.packageBinding = (PackageBinding) binding;
 			} else {
 				if (this.resolvedType.problemId() == ProblemReasons.NonStaticReferenceInStaticContext) {
-					ReferenceBinding closestMatch = ((ProblemReferenceBinding)this.resolvedType).closestMatch;
+					ReferenceBinding closestMatch = ((ProblemReferenceBinding)this.resolvedType).closestMatch();
 					if (closestMatch != null && closestMatch.isTypeVariable()) {
 						this.resolvedType = closestMatch; // ignore problem as we want report specific javadoc one instead
-						return resolvedType;
+						return this.resolvedType;
 					}
 				}
 				reportInvalidType(scope);
@@ -75,11 +85,11 @@ public class JavadocSingleTypeReference extends SingleTypeReference {
 			return null;
 		}
 		if (isTypeUseDeprecated(this.resolvedType, scope))
-			reportDeprecatedType(scope);
-		if (resolvedType instanceof ParameterizedTypeBinding) {
-			resolvedType = ((ParameterizedTypeBinding)resolvedType).type;
+			reportDeprecatedType(this.resolvedType, scope);
+		if (this.resolvedType instanceof ParameterizedTypeBinding) {
+			this.resolvedType = ((ParameterizedTypeBinding)this.resolvedType).genericType();
 		}
-		return resolvedType;
+		return this.resolvedType;
 	}
 
 	/* (non-Javadoc)

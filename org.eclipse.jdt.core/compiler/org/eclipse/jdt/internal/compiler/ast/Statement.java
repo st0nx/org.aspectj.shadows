@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -23,7 +23,7 @@ public abstract class Statement extends ASTNode {
 	 * INTERNAL USE ONLY.
 	 * This is used to redirect inter-statements jumps.
 	 */
-	public void branchChainTo(Label label) {
+	public void branchChainTo(BranchLabel label) {
 		// do nothing by default
 	}
 	
@@ -31,7 +31,7 @@ public abstract class Statement extends ASTNode {
 	public boolean complainIfUnreachable(FlowInfo flowInfo, BlockScope scope, boolean didAlreadyComplain) {
 	
 		if ((flowInfo.reachMode() & FlowInfo.UNREACHABLE) != 0) {
-			this.bits &= ~ASTNode.IsReachableMASK;
+			this.bits &= ~ASTNode.IsReachable;
 			boolean reported = flowInfo == FlowInfo.DEAD_END;
 			if (!didAlreadyComplain && reported) {
 				scope.problemReporter().unreachableCode(this);
@@ -76,7 +76,7 @@ public abstract class Statement extends ASTNode {
 			} else if (argLength == paramLength) {
 				// right number of arguments - could be inexact - pass argument as is
 				TypeBinding lastType = arguments[varArgIndex].resolvedType;
-				if (lastType == NullBinding
+				if (lastType == TypeBinding.NULL
 					|| (varArgsType.dimensions() == lastType.dimensions()
 						&& lastType.isCompatibleWith(varArgsType))) {
 					// foo(1, new int[]{2, 3}) or foo(1, null) --> last arg is passed as-is
@@ -138,7 +138,7 @@ public abstract class Statement extends ASTNode {
 		// statement within a switch that are not case are treated as normal statement.... 
 
 		resolve(scope);
-		return NotAConstant;
+		return Constant.NotAConstant;
 	}
 
 }

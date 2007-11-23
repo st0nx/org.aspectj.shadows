@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,10 +13,10 @@ package org.eclipse.jdt.internal.compiler.env;
 public class AccessRestriction {
 
 	private AccessRule accessRule;
-	private String messageTemplate;
-	public AccessRestriction(AccessRule accessRule, String messageTemplate) {
+	private String[] messageTemplates;
+	public AccessRestriction(AccessRule accessRule, String [] messageTemplates) {
 		this.accessRule = accessRule;
-		this.messageTemplate = messageTemplate;
+		this.messageTemplates = messageTemplates;
 	}
 	
 	/**
@@ -25,11 +25,26 @@ public class AccessRestriction {
 	 * e.g. "{0} has restricted access"
 	 */
 	public String getMessageTemplate() {
-		return this.messageTemplate;
+		return this.messageTemplates[0];
 	}
 	
-	public int getProblemId() {
-		return this.accessRule.problemId;
+	public String getConstructorAccessMessageTemplate() {
+		return this.messageTemplates[1];
 	}
 
+	public String getMethodAccessMessageTemplate() {
+		return this.messageTemplates[2];
+	}
+
+	public String getFieldAccessMessageTemplate() {
+		return this.messageTemplates[3];
+	}
+
+	public int getProblemId() {
+		return this.accessRule.getProblemId();
+	}
+
+	public boolean ignoreIfBetter() {
+		return this.accessRule.ignoreIfBetter();
+	}
 }

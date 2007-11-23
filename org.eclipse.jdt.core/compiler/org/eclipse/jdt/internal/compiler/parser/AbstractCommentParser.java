@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,50 +16,29 @@ import java.util.List;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 /**
  * Parser specialized for decoding javadoc comments
  */
-public abstract class AbstractCommentParser {
+public abstract class AbstractCommentParser implements JavadocTagConstants {
 
-	// recognized tags
-	public static final char[] TAG_DEPRECATED = "deprecated".toCharArray(); //$NON-NLS-1$
-	public static final char[] TAG_PARAM = "param".toCharArray(); //$NON-NLS-1$
-	public static final char[] TAG_RETURN = "return".toCharArray(); //$NON-NLS-1$
-	public static final char[] TAG_THROWS = "throws".toCharArray(); //$NON-NLS-1$
-	public static final char[] TAG_EXCEPTION = "exception".toCharArray(); //$NON-NLS-1$
-	public static final char[] TAG_SEE = "see".toCharArray(); //$NON-NLS-1$
-	public static final char[] TAG_LINK = "link".toCharArray(); //$NON-NLS-1$
-	public static final char[] TAG_LINKPLAIN = "linkplain".toCharArray(); //$NON-NLS-1$
-	public static final char[] TAG_INHERITDOC = "inheritDoc".toCharArray(); //$NON-NLS-1$
-	public static final char[] TAG_VALUE = "value".toCharArray(); //$NON-NLS-1$
-
-	// tags value
-	public static final int NO_TAG_VALUE = 0;
-	public static final int TAG_DEPRECATED_VALUE = 1;
-	public static final int TAG_PARAM_VALUE = 2;
-	public static final int TAG_RETURN_VALUE = 3;
-	public static final int TAG_THROWS_VALUE = 4;
-	public static final int TAG_EXCEPTION_VALUE = 5;
-	public static final int TAG_SEE_VALUE = 6;
-	public static final int TAG_LINK_VALUE = 7;
-	public static final int TAG_LINKPLAIN_VALUE = 8;
-	public static final int TAG_INHERITDOC_VALUE = 9;
-	public static final int TAG_VALUE_VALUE = 10;
-	public static final int TAG_OTHERS_VALUE = 11;
-	protected int tagValue = NO_TAG_VALUE;
-	
-	// tags expected positions
-	public final static int ORDERED_TAGS_NUMBER = 3;
-	public final static int PARAM_TAG_EXPECTED_ORDER = 0;
-	public final static int THROWS_TAG_EXPECTED_ORDER = 1;
-	public final static int SEE_TAG_EXPECTED_ORDER = 2;
-	
 	// Kind of comment parser
-	public final static int COMPIL_PARSER = 0x00000001;
-	public final static int DOM_PARSER = 0x00000002;
-	public final static int SELECTION_PARSER = 0x00000003;
+	public final static int COMPIL_PARSER = 1;
+	public final static int DOM_PARSER = 2;
+	public final static int SELECTION_PARSER = 3;
+	public final static int COMPLETION_PARSER = 4;
+	public final static int SOURCE_PARSER = 5;
+	protected final static int PARSER_KIND = 0x00FF;
+	protected final static int TEXT_PARSE = 0x0100; // flag saying that text must be stored
+	protected final static int TEXT_VERIF = 0x0200; // flag saying that text must be verified
 	
+	// Parser recovery states
+	protected final static int QUALIFIED_NAME_RECOVERY = 1;
+	protected final static int ARGUMENT_RECOVERY= 2;
+	protected final static int ARGUMENT_TYPE_RECOVERY = 3;
+	protected final static int EMPTY_ARGUMENT_RECOVERY = 4;
+
 	// Parse infos
 	public Scanner scanner;
 	public char[] source;
@@ -69,7 +48,8 @@ public abstract class AbstractCommentParser {
 	// Options
 	public boolean checkDocComment = false;
 	public boolean reportProblems;
-	protected boolean jdk15;
+	protected long complianceLevel;
+	protected long sourceLevel;
 	
 	// Results
 	protected long inheritedPositions;
@@ -91,6 +71,7 @@ public abstract class AbstractCommentParser {
 	protected boolean inlineTagStarted = false;
 	protected boolean abort = false;
 	protected int kind;
+	protected int tagValue = NO_TAG_VALUE;
 	
 	// Line pointers
 	private int linePtr, lastLinePtr;
@@ -103,7 +84,7 @@ public abstract class AbstractCommentParser {
 	protected long[] identifierPositionStack;
 
 	// Ast stack
-	protected static int AstStackIncrement = 10;
+	protected final static int AST_STACK_INCREMENT = 10;
 	protected int astPtr;
 	protected Object[] astStack;
 	protected int astLengthPtr;
@@ -118,6 +99,12 @@ public abstract class AbstractCommentParser {
 		this.astStack = new Object[30];
 		this.astLengthStack = new int[20];
 		this.reportProblems = sourceParser != null;
+		if (sourceParser != null) {
+			this.checkDocComment = this.sourceParser.options.docCommentSupport;
+			this.sourceLevel = this.sourceParser.options.sourceLevel;
+			this.scanner.sourceLevel = this.sourceLevel;
+			this.complianceLevel = this.sourceParser.options.complianceLevel;
+		}
 	}
 
 	/* (non-Javadoc)
@@ -147,6 +134,7 @@ public abstract class AbstractCommentParser {
 			// Init local variables
 			this.astLengthPtr = -1;
 			this.astPtr = -1;
+			this.identifierPtr = -1;
 			this.currentTokenType = -1;
 			this.inlineTagStarted = false;
 			this.inlineTagStart = -1;
@@ -160,9 +148,12 @@ public abstract class AbstractCommentParser {
 			char previousChar = 0;
 			int invalidTagLineEnd = -1;
 			int invalidInlineTagLineEnd = -1;
+			boolean pushText = (this.kind & TEXT_PARSE) != 0;
+			boolean verifText = (this.kind & TEXT_VERIF) != 0;
+			boolean isDomParser = (this.kind & DOM_PARSER) != 0;
 			
 			// Loop on each comment character
-			characterLoop: while (!abort && this.index < this.javadocEnd) {
+			while (!abort && this.index < this.javadocEnd) {
 				previousPosition = this.index;
 				previousChar = nextCharacter;
 				
@@ -197,7 +188,6 @@ public abstract class AbstractCommentParser {
 					case '@' :
 						// Start tag parsing only if we are on line beginning or at inline tag beginning
 						if ((!this.lineStarted || previousChar == '{')) {
-							this.lineStarted = true;
 							if (this.inlineTagStarted) {
 								this.inlineTagStarted = false;
 								// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=53279
@@ -207,19 +197,19 @@ public abstract class AbstractCommentParser {
 									this.sourceParser.problemReporter().javadocUnterminatedInlineTag(this.inlineTagStart, end);
 								}
 								validComment = false;
-								if (this.lineStarted && this.textStart != -1 && this.textStart < previousPosition) {
-									if (this.kind == DOM_PARSER) pushText(this.textStart, previousPosition);
+								if (this.textStart != -1 && this.textStart < previousPosition) {
+									if (pushText) pushText(this.textStart, previousPosition);
 								}
-								if (this.kind == DOM_PARSER) refreshInlineTagPosition(previousPosition);
+								if (isDomParser) refreshInlineTagPosition(previousPosition);
 							}
 							if (previousChar == '{') {
 								if (this.textStart != -1 && this.textStart < this.inlineTagStart) {
-									if (this.kind == DOM_PARSER) pushText(this.textStart, this.inlineTagStart);
+									if (pushText) pushText(this.textStart, this.inlineTagStart);
 								}
 								this.inlineTagStarted = true;
 								invalidInlineTagLineEnd = this.lineEnd;
 							} else if (this.textStart != -1 && this.textStart < invalidTagLineEnd) {
-								if (this.kind == DOM_PARSER) pushText(this.textStart, invalidTagLineEnd);
+								if (pushText) pushText(this.textStart, invalidTagLineEnd);
 							}
 							this.scanner.resetTo(this.index, this.javadocEnd);
 							this.currentTokenType = -1; // flush token cache at line begin
@@ -230,36 +220,35 @@ public abstract class AbstractCommentParser {
 									validComment = false;
 									// bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=51600
 									// for DOM AST node, store tag as text in case of invalid syntax
-									if (this.kind == DOM_PARSER) {
+									if (isDomParser) {
 										createTag();
-										this.textStart = this.tagSourceEnd+1;
-										invalidTagLineEnd  = this.lineEnd;
 									}
+									this.textStart = this.tagSourceEnd+1;
+									invalidTagLineEnd  = this.lineEnd;
 								}
 							} catch (InvalidInputException e) {
 								consumeToken();
 							}
-						} else {
-							if (this.kind == COMPIL_PARSER && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
-								refreshReturnStatement();
-							}
+						} else if (verifText && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
+							refreshReturnStatement();
 						}
+						this.lineStarted = true;
 						break;
 					case '\r':
 					case '\n':
 						if (this.lineStarted && this.textStart < previousPosition) {
-							if (this.kind == DOM_PARSER) pushText(this.textStart, previousPosition);
+							if (pushText) pushText(this.textStart, previousPosition);
 						}
 						this.lineStarted = false;
 						// Fix bug 51650
 						this.textStart = -1;
 						break;
 					case '}' :
-						if (this.kind == COMPIL_PARSER && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
+						if (verifText && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
 							refreshReturnStatement();
 						}
 						if (this.inlineTagStarted) {
-							if (this.kind == DOM_PARSER) {
+							if (pushText) {
 								if (this.lineStarted && this.textStart != -1 && this.textStart < previousPosition) {
 								pushText(this.textStart, previousPosition);
 								}
@@ -275,7 +264,7 @@ public abstract class AbstractCommentParser {
 						this.lineStarted = true;
 						break;
 					case '{' :
-						if (this.kind == COMPIL_PARSER && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
+						if (verifText && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
 							refreshReturnStatement();
 						}
 						if (this.inlineTagStarted) {
@@ -286,7 +275,7 @@ public abstract class AbstractCommentParser {
 								int end = previousPosition<invalidInlineTagLineEnd ? previousPosition : invalidInlineTagLineEnd;
 								this.sourceParser.problemReporter().javadocUnterminatedInlineTag(this.inlineTagStart, end);
 							}
-							if (this.kind == DOM_PARSER) {
+							if (pushText) {
 								if (this.lineStarted && this.textStart != -1 && this.textStart < previousPosition) {
 									pushText(this.textStart, previousPosition);
 								}
@@ -306,7 +295,7 @@ public abstract class AbstractCommentParser {
 						// do nothing for space or '*' characters
 						break;
 					default :
-						if (this.kind == COMPIL_PARSER && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
+						if (verifText && this.tagValue == TAG_RETURN_VALUE && this.returnStatement != null) {
 							refreshReturnStatement();
 						}
 						if (!this.lineStarted) {
@@ -325,13 +314,13 @@ public abstract class AbstractCommentParser {
 					if (this.index >= this.javadocEnd) end = invalidInlineTagLineEnd;
 					this.sourceParser.problemReporter().javadocUnterminatedInlineTag(this.inlineTagStart, end);
 				}
-				if (this.kind == DOM_PARSER) {
+				if (pushText) {
 					if (this.lineStarted && this.textStart != -1 && this.textStart < previousPosition) {
 						pushText(this.textStart, previousPosition);
 					}
 					refreshInlineTagPosition(previousPosition);
 				}
-			} else if (this.kind == DOM_PARSER && this.lineStarted && this.textStart < previousPosition) {
+			} else if (pushText && this.lineStarted && this.textStart < previousPosition) {
 				pushText(this.textStart, previousPosition);
 			}
 			updateDocComment();
@@ -341,7 +330,7 @@ public abstract class AbstractCommentParser {
 		return validComment;
 	}
 
-	private void consumeToken() {
+	protected void consumeToken() {
 		this.currentTokenType = -1; // flush token cache
 		updateLineEnd();
 	}
@@ -370,29 +359,11 @@ public abstract class AbstractCommentParser {
 	private int getLineNumber(int position) {
 	
 		if (this.scanner.linePtr != -1) {
-			return this.scanner.getLineNumber(position);
+			return Util.getLineNumber(position, this.scanner.lineEnds, 0, this.scanner.linePtr);
 		}
 		if (this.lineEnds == null)
 			return 1;
-		int length = this.lineEnds.length;
-		if (length == 0)
-			return 1;
-		int g = 0, d = length - 1;
-		int m = 0;
-		while (g <= d) {
-			m = (g + d) /2;
-			if (position < this.lineEnds[m]) {
-				d = m-1;
-			} else if (position > this.lineEnds[m]) {
-				g = m+1;
-			} else {
-				return m + 1;
-			}
-		}
-		if (position < this.lineEnds[m]) {
-			return m+1;
-		}
-		return m+2;
+		return Util.getLineNumber(position, this.lineEnds, 0, this.lineEnds.length-1);
 	}
 
 	private int getTokenEndPosition() {
@@ -403,10 +374,17 @@ public abstract class AbstractCommentParser {
 		}
 	}
 	
+	/**
+	 * @return Returns the currentTokenType.
+	 */
+	protected int getCurrentTokenType() {
+		return currentTokenType;
+	}
+
 	/*
 	 * Parse argument in @see tag method reference
 	 */
-	private Object parseArguments(Object receiver) throws InvalidInputException {
+	protected Object parseArguments(Object receiver) throws InvalidInputException {
 
 		// Init
 		int modulo = 0; // should be 2 for (Type,Type,...) or 3 for (Type arg,Type arg,...)
@@ -414,12 +392,17 @@ public abstract class AbstractCommentParser {
 		char[] argName = null;
 		List arguments = new ArrayList(10);
 		int start = this.scanner.getCurrentTokenStartPosition();
+		Object typeRef = null;
+		int dim = 0;
+		boolean isVarargs = false;
+		long[] dimPositions = new long[20]; // assume that there won't be more than 20 dimensions...
+		char[] name = null;
+		long argNamePos = -1;
 		
 		// Parse arguments declaration if method reference
 		nextArg : while (this.index < this.scanner.eofPosition) {
 
 			// Read argument type reference
-			Object typeRef;
 			try {
 				typeRef = parseQualifiedName(false);
 				if (this.abort) return null; // May be aborted by specialized parser
@@ -450,9 +433,8 @@ public abstract class AbstractCommentParser {
 			iToken++;
 
 			// Read possible additional type info
-			int dim = 0;
-			boolean isVarargs = false;
-			long[] dimPositions = new long[20]; // assume that there won't be more than 20 dimensions...
+			dim = 0;
+			isVarargs = false;
 			if (readToken() == TerminalTokens.TokenNameLBRACKET) {
 				// array declaration
 				int dimStart = this.scanner.getCurrentTokenStartPosition();
@@ -473,7 +455,7 @@ public abstract class AbstractCommentParser {
 			}
 
 			// Read argument name
-			long argNamePos = -1;
+			argNamePos = -1;
 			if (readToken() == TerminalTokens.TokenNameIdentifier) {
 				consumeToken();
 				if (firstArg) { // verify position
@@ -505,7 +487,7 @@ public abstract class AbstractCommentParser {
 
 			// Read separator or end arguments declaration
 			int token = readToken();
-			char[] name = argName == null ? new char[0] : argName;
+			name = argName == null ? CharOperation.NO_CHAR : argName;
 			if (token == TerminalTokens.TokenNameCOMMA) {
 				// Create new argument
 				Object argument = createArgumentReference(name, dim, isVarargs, typeRef, dimPositions, argNamePos);
@@ -541,7 +523,8 @@ public abstract class AbstractCommentParser {
 	 */
 	private boolean parseHref() throws InvalidInputException {
 		int start = this.scanner.getCurrentTokenStartPosition();
-		if (Character.toLowerCase(readChar()) == 'a') {
+		char currentChar = readChar();
+		if (currentChar == 'a' || currentChar == 'A') {
 			this.scanner.currentPosition = this.index;
 			if (readToken() == TerminalTokens.TokenNameIdentifier) {
 				consumeToken();
@@ -587,7 +570,8 @@ public abstract class AbstractCommentParser {
 								consumeToken();
 								start = this.scanner.getCurrentTokenStartPosition();
 								if (readChar() == '/') {
-									if (Character.toLowerCase(readChar()) == 'a') {
+									currentChar = readChar();
+									if (currentChar == 'a' || currentChar == 'A') {
 										if (readChar() == '>') {
 											// Valid href
 											return true;
@@ -613,10 +597,26 @@ public abstract class AbstractCommentParser {
 		return false;
 	}
 
+	/* 
+	 * Parse tag followed by an identifier
+	 */
+	protected boolean parseIdentifierTag(boolean report) {
+		int token = readTokenSafely();
+		switch (token) {
+			case TerminalTokens.TokenNameIdentifier:
+				pushIdentifier(true, false);
+				return true;
+		}
+		if (report) {
+			this.sourceParser.problemReporter().javadocMissingIdentifier(this.tagSourceStart, this.tagSourceEnd, this.sourceParser.modifiers);
+		}
+		return false;
+	}
+
 	/*
 	 * Parse a method reference in @see tag
 	 */
-	private Object parseMember(Object receiver) throws InvalidInputException {
+	protected Object parseMember(Object receiver) throws InvalidInputException {
 		// Init
 		this.identifierPtr = -1;
 		this.identifierLengthPtr = -1;
@@ -625,8 +625,12 @@ public abstract class AbstractCommentParser {
 	
 		// Get member identifier
 		if (readToken() == TerminalTokens.TokenNameIdentifier) {
-			consumeToken();
-			pushIdentifier(true);
+			if (this.scanner.currentCharacter == '.') { // member name may be qualified (inner class constructor reference)
+				parseQualifiedName(true);
+			} else {
+				consumeToken();
+				pushIdentifier(true, false);
+			}
 			// Look for next token to know whether it's a field or method reference
 			int previousPosition = this.index;
 			if (readToken() == TerminalTokens.TokenNameLPAREN) {
@@ -678,14 +682,15 @@ public abstract class AbstractCommentParser {
 		int end = this.tagSourceEnd;
 		boolean tokenWhiteSpace = this.scanner.tokenizeWhiteSpace;
 		this.scanner.tokenizeWhiteSpace = true;
-//		this.scanner.tokenizeLineSeparator = true;
 		
 		// Verify that there are whitespaces after tag
-		int token = readToken();
-		if (token != TerminalTokens.TokenNameWHITESPACE) {
+		boolean isCompletionParser = (this.kind & COMPLETION_PARSER) != 0;
+		if (this.scanner.currentCharacter != ' ' && !ScannerHelper.isWhitespace(this.scanner.currentCharacter)) {
 			if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidTag(start, this.scanner.getCurrentTokenEndPosition());
-			this.scanner.currentPosition = start;
-			this.index = start;
+			if (!isCompletionParser) {
+				this.scanner.currentPosition = start;
+				this.index = start;
+			}
 			this.currentTokenType = -1;
 			this.scanner.tokenizeWhiteSpace = tokenWhiteSpace;
 			return false;
@@ -697,6 +702,8 @@ public abstract class AbstractCommentParser {
 		boolean hasMultiLines = this.scanner.currentPosition > (this.lineEnd+1);
 		boolean isTypeParam = false;
 		boolean valid = true, empty = true;
+		boolean mayBeGeneric = this.sourceLevel >= ClassFileConstants.JDK1_5;
+		int token = -1;
 		nextToken: while (true) {
 			this.currentTokenType = -1;
 			try {
@@ -708,16 +715,16 @@ public abstract class AbstractCommentParser {
 				case TerminalTokens.TokenNameIdentifier :
 					if (valid) { 
 						// store param name id
-						pushIdentifier(true);
+						pushIdentifier(true, false);
 						start = this.scanner.getCurrentTokenStartPosition();
 						end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
 						break nextToken;
 					}
 					// fall through next case to report error
 				case TerminalTokens.TokenNameLESS:
-					if (valid && this.jdk15) {
+					if (valid && mayBeGeneric) {
 						// store '<' in identifiers stack as we need to add it to tag element (bug 79809)
-						pushIdentifier(true);
+						pushIdentifier(true, true);
 						start = this.scanner.getCurrentTokenStartPosition();
 						end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
 						isTypeParam = true;
@@ -743,12 +750,14 @@ public abstract class AbstractCommentParser {
 					if (this.reportProblems)
 						if (empty)
 							this.sourceParser.problemReporter().javadocMissingParamName(start, end, this.sourceParser.modifiers);
-						else if (this.jdk15 && isTypeParam)
+						else if (mayBeGeneric && isTypeParam)
 							this.sourceParser.problemReporter().javadocInvalidParamTypeParameter(start, end);
 						else
 							this.sourceParser.problemReporter().javadocInvalidParamTagName(start, end);
-					this.scanner.currentPosition = start;
-					this.index = start;
+					if (!isCompletionParser) {
+						this.scanner.currentPosition = start;
+						this.index = start;
+					}
 					this.currentTokenType = -1;
 					this.scanner.tokenizeWhiteSpace = tokenWhiteSpace;
 					return false;
@@ -756,7 +765,7 @@ public abstract class AbstractCommentParser {
 		}
 		
 		// Scan more tokens for type parameter declaration
-		if (isTypeParam && this.jdk15) {
+		if (isTypeParam && mayBeGeneric) {
 			// Get type parameter name
 			nextToken: while (true) {
 				this.currentTokenType = -1;
@@ -771,8 +780,10 @@ public abstract class AbstractCommentParser {
 						// if not valid fall through next case to report error
 					case TerminalTokens.TokenNameEOF:
 						if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidParamTypeParameter(start, end);
-						this.scanner.currentPosition = start;
-						this.index = start;
+						if (!isCompletionParser) {
+							this.scanner.currentPosition = start;
+							this.index = start;
+						}
 						this.currentTokenType = -1;
 						this.scanner.tokenizeWhiteSpace = tokenWhiteSpace;
 						return false;
@@ -780,7 +791,7 @@ public abstract class AbstractCommentParser {
 						end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
 						if (valid) {
 							// store param name id
-							pushIdentifier(false);
+							pushIdentifier(false, false);
 							break nextToken;
 						}
 						break;
@@ -812,8 +823,10 @@ public abstract class AbstractCommentParser {
 						// if not valid fall through next case to report error
 					case TerminalTokens.TokenNameEOF:
 						if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidParamTypeParameter(start, end);
-						this.scanner.currentPosition = start;
-						this.index = start;
+						if (!isCompletionParser) {
+							this.scanner.currentPosition = start;
+							this.index = start;
+						}
 						this.currentTokenType = -1;
 						this.scanner.tokenizeWhiteSpace = tokenWhiteSpace;
 						return false;
@@ -821,7 +834,7 @@ public abstract class AbstractCommentParser {
 						end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
 						if (valid) {
 							// store '>' in identifiers stack as we need to add it to tag element (bug 79809)
-							pushIdentifier(false);
+							pushIdentifier(false, true);
 							break nextToken;
 						}
 						break;
@@ -852,13 +865,14 @@ public abstract class AbstractCommentParser {
 		
 		// Report problem
 		this.currentTokenType = -1;
+		if (isCompletionParser) return false;
 		end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
 		while ((token=readToken()) != TerminalTokens.TokenNameWHITESPACE && token != TerminalTokens.TokenNameEOF) {
 			this.currentTokenType = -1;
 			end = hasMultiLines ? this.lineEnd: this.scanner.getCurrentTokenEndPosition();
 		}
 		if (this.reportProblems)
-			if (this.jdk15 && isTypeParam)
+			if (mayBeGeneric && isTypeParam)
 				this.sourceParser.problemReporter().javadocInvalidParamTypeParameter(start, end);
 			else
 				this.sourceParser.problemReporter().javadocInvalidParamTagName(start, end);
@@ -882,19 +896,20 @@ public abstract class AbstractCommentParser {
 
 		// Scan tokens
 		int primitiveToken = -1;
+		int parserKind = this.kind & PARSER_KIND;
 		nextToken : for (int iToken = 0; ; iToken++) {
 			int token = readTokenSafely();
 			switch (token) {
 				case TerminalTokens.TokenNameIdentifier :
-					if (((iToken % 2) > 0)) { // identifiers must be odd tokens
+					if (((iToken & 1) != 0)) { // identifiers must be odd tokens
 						break nextToken;
 					}
-					pushIdentifier(iToken == 0);
+					pushIdentifier(iToken == 0, false);
 					consumeToken();
 					break;
 
 				case TerminalTokens.TokenNameDOT :
-					if ((iToken % 2) == 0) { // dots must be even tokens
+					if ((iToken & 1) == 0) { // dots must be even tokens
 						throw new InvalidInputException();
 					}
 					consumeToken();
@@ -912,34 +927,49 @@ public abstract class AbstractCommentParser {
 					if (iToken > 0) {
 						throw new InvalidInputException();
 					}
-					pushIdentifier(true);
+					pushIdentifier(true, false);
 					primitiveToken = token;
 					consumeToken();
 					break nextToken;
 
 				default :
 					if (iToken == 0) {
+						if (this.identifierPtr>=0) {
+							this.lastIdentifierEndPosition = (int) this.identifierPositionStack[this.identifierPtr];
+						}
 						return null;
 					}
-					if ((iToken % 2) == 0) { // cannot leave on a dot
-						// Reset position: we want to rescan last token
-						if (this.kind == DOM_PARSER && this.currentTokenType != -1) {
-							this.index = this.tokenPreviousPosition;
-							this.scanner.currentPosition = this.tokenPreviousPosition;
-							this.currentTokenType = -1;
+					if ((iToken & 1) == 0) { // cannot leave on a dot
+						switch (parserKind) {
+							case COMPLETION_PARSER:
+								if (this.identifierPtr>=0) {
+									this.lastIdentifierEndPosition = (int) this.identifierPositionStack[this.identifierPtr];
+								}
+								return syntaxRecoverQualifiedName(primitiveToken);
+							case DOM_PARSER:
+								if (this.currentTokenType != -1) {
+									// Reset position: we want to rescan last token
+									this.index = this.tokenPreviousPosition;
+									this.scanner.currentPosition = this.tokenPreviousPosition;
+									this.currentTokenType = -1;
+								}
+								// fall through default case to raise exception
+							default:
+								throw new InvalidInputException();
 						}
-						throw new InvalidInputException();
 					}
 					break nextToken;
 			}
 		}
 		// Reset position: we want to rescan last token
-		if (this.currentTokenType != -1) {
+		if (parserKind != COMPLETION_PARSER && this.currentTokenType != -1) {
 			this.index = this.tokenPreviousPosition;
 			this.scanner.currentPosition = this.tokenPreviousPosition;
 			this.currentTokenType = -1;
 		}
-		this.lastIdentifierEndPosition = (int) this.identifierPositionStack[this.identifierPtr];
+		if (this.identifierPtr>=0) {
+			this.lastIdentifierEndPosition = (int) this.identifierPositionStack[this.identifierPtr];
+		}
 		return createTypeReference(primitiveToken);
 	}
 
@@ -960,6 +990,8 @@ public abstract class AbstractCommentParser {
 				int token = readTokenSafely();
 				switch (token) {
 				case TerminalTokens.TokenNameStringLiteral : // @see "string"
+						// If typeRef != null we may raise a warning here to let user know there's an unused reference...
+						// Currently as javadoc 1.4.2 ignore it, we do the same (see bug 69302)
 						if (typeRef != null) break nextToken;
 						consumeToken();
 						int start = this.scanner.getCurrentTokenStartPosition();
@@ -968,13 +1000,7 @@ public abstract class AbstractCommentParser {
 							if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidValueReference(start, getTokenEndPosition(), this.sourceParser.modifiers);
 							return false;
 						}
-						// If typeRef != null we may raise a warning here to let user know there's an unused reference...
-						// Currently as javadoc 1.4.2 ignore it, we do the same (see bug 69302)
-						if (typeRef != null) {
-							start = this.tagSourceEnd+1;
-							previousPosition = start;
-							typeRef = null;
-						}
+
 						// verify end line
 						if (verifyEndLine(previousPosition)) {
 							return true;
@@ -982,18 +1008,13 @@ public abstract class AbstractCommentParser {
 						if (this.reportProblems) this.sourceParser.problemReporter().javadocUnexpectedText(this.scanner.currentPosition, this.lineEnd);
 						return false;
 					case TerminalTokens.TokenNameLESS : // @see "<a href="URL#Value">label</a>
+						// If typeRef != null we may raise a warning here to let user know there's an unused reference...
+						// Currently as javadoc 1.4.2 ignore it, we do the same (see bug 69302)
 						if (typeRef != null) break nextToken;
 						consumeToken();
 						start = this.scanner.getCurrentTokenStartPosition();
 						if (parseHref()) {
 							consumeToken();
-							// If typeRef != null we may raise a warning here to let user know there's an unused reference...
-							// Currently as javadoc 1.4.2 ignore it, we do the same (see bug 69302)
-							if (typeRef != null) {
-								start = this.tagSourceEnd+1;
-								previousPosition = start;
-								typeRef = null;
-							}
 							if (this.tagValue == TAG_VALUE_VALUE) {
 								// String reference are not allowed for @value tag
 								if (this.reportProblems) this.sourceParser.problemReporter().javadocInvalidValueReference(start, getIndexPosition(), this.sourceParser.modifiers);
@@ -1008,8 +1029,8 @@ public abstract class AbstractCommentParser {
 						}
 						return false;
 					case TerminalTokens.TokenNameERROR :
+						consumeToken();
 						if (this.scanner.currentCharacter == '#') { // @see ...#member
-							consumeToken();
 							reference = parseMember(typeRef);
 							if (reference != null) {
 								return pushSeeRef(reference);
@@ -1041,7 +1062,7 @@ public abstract class AbstractCommentParser {
 				this.scanner.currentPosition = this.tokenPreviousPosition;
 				this.currentTokenType = -1;
 				if (this.tagValue == TAG_VALUE_VALUE) {
-					if (this.kind == DOM_PARSER) createTag();
+					if ((this.kind & DOM_PARSER) != 0) createTag();
 					return true;
 				}
 				if (this.reportProblems) {
@@ -1051,8 +1072,10 @@ public abstract class AbstractCommentParser {
 			}
 
 			// Reset position at the end of type reference
-			this.index = this.lastIdentifierEndPosition+1;
-			this.scanner.currentPosition = this.index;
+			if (this.lastIdentifierEndPosition > this.javadocStart) {
+				this.index = this.lastIdentifierEndPosition+1;
+				this.scanner.currentPosition = this.index;
+			}
 			this.currentTokenType = -1;
 
 			// In case of @value, we have an invalid reference (only static field refs are valid for this tag)
@@ -1129,9 +1152,9 @@ public abstract class AbstractCommentParser {
 			idx++;
 			while (this.source[idx] == 'u')
 				idx++;
-			if (!(((c1 = Character.getNumericValue(this.source[idx++])) > 15 || c1 < 0)
-					|| ((c2 = Character.getNumericValue(this.source[idx++])) > 15 || c2 < 0)
-					|| ((c3 = Character.getNumericValue(this.source[idx++])) > 15 || c3 < 0) || ((c4 = Character.getNumericValue(this.source[idx++])) > 15 || c4 < 0))) {
+			if (!(((c1 = ScannerHelper.getNumericValue(this.source[idx++])) > 15 || c1 < 0)
+					|| ((c2 = ScannerHelper.getNumericValue(this.source[idx++])) > 15 || c2 < 0)
+					|| ((c3 = ScannerHelper.getNumericValue(this.source[idx++])) > 15 || c3 < 0) || ((c4 = ScannerHelper.getNumericValue(this.source[idx++])) > 15 || c4 < 0))) {
 				c = (char) (((c1 * 16 + c2) * 16 + c3) * 16 + c4);
 			}
 		}
@@ -1141,7 +1164,7 @@ public abstract class AbstractCommentParser {
 	/*
 	 * push the consumeToken on the identifier stack. Increase the total number of identifier in the stack.
 	 */
-	protected void pushIdentifier(boolean newLength) {
+	protected void pushIdentifier(boolean newLength, boolean isToken) {
 
 		int stackLength = this.identifierStack.length;
 		if (++this.identifierPtr >= stackLength) {
@@ -1154,7 +1177,7 @@ public abstract class AbstractCommentParser {
 				this.identifierPositionStack = new long[stackLength + 10], 0,
 				stackLength);
 		}
-		this.identifierStack[this.identifierPtr] = this.scanner.getCurrentIdentifierSource();
+		this.identifierStack[this.identifierPtr] = isToken ? this.scanner.getCurrentTokenSource() : this.scanner.getCurrentIdentifierSource();
 		this.identifierPositionStack[this.identifierPtr] = (((long) this.scanner.startPosition) << 32) + (this.scanner.currentPosition - 1);
 
 		if (newLength) {
@@ -1186,7 +1209,7 @@ public abstract class AbstractCommentParser {
 		if (++this.astPtr >= stackLength) {
 			System.arraycopy(
 				this.astStack, 0,
-				this.astStack = new Object[stackLength + AstStackIncrement], 0,
+				this.astStack = new Object[stackLength + AST_STACK_INCREMENT], 0,
 				stackLength);
 			this.astPtr = stackLength;
 		}
@@ -1197,7 +1220,7 @@ public abstract class AbstractCommentParser {
 			if (++this.astLengthPtr >= stackLength) {
 				System.arraycopy(
 					this.astLengthStack, 0,
-					this.astLengthStack = new int[stackLength + AstStackIncrement], 0,
+					this.astLengthStack = new int[stackLength + AST_STACK_INCREMENT], 0,
 					stackLength);
 			}
 			this.astLengthStack[this.astLengthPtr] = 1;
@@ -1241,9 +1264,9 @@ public abstract class AbstractCommentParser {
 			this.index++;
 			while (this.source[this.index] == 'u')
 				this.index++;
-			if (!(((c1 = Character.getNumericValue(this.source[this.index++])) > 15 || c1 < 0)
-					|| ((c2 = Character.getNumericValue(this.source[this.index++])) > 15 || c2 < 0)
-					|| ((c3 = Character.getNumericValue(this.source[this.index++])) > 15 || c3 < 0) || ((c4 = Character.getNumericValue(this.source[this.index++])) > 15 || c4 < 0))) {
+			if (!(((c1 = ScannerHelper.getNumericValue(this.source[this.index++])) > 15 || c1 < 0)
+					|| ((c2 = ScannerHelper.getNumericValue(this.source[this.index++])) > 15 || c2 < 0)
+					|| ((c3 = ScannerHelper.getNumericValue(this.source[this.index++])) > 15 || c3 < 0) || ((c4 = ScannerHelper.getNumericValue(this.source[this.index++])) > 15 || c4 < 0))) {
 				c = (char) (((c1 * 16 + c2) * 16 + c3) * 16 + c4);
 			} else {
 				// TODO (frederic) currently reset to previous position, perhaps signal a syntax error would be more appropriate
@@ -1305,6 +1328,14 @@ public abstract class AbstractCommentParser {
 	 */
 	protected void refreshReturnStatement() {
 		// do nothing by default
+	}
+
+	/*
+	 * Entry point for recovery on invalid syntax
+	 */
+	protected Object syntaxRecoverQualifiedName(int primitiveToken) throws InvalidInputException {
+		// do nothing, just an entry point for recovery
+		return null;
 	}
 
 	public String toString() {
@@ -1381,12 +1412,13 @@ public abstract class AbstractCommentParser {
 	 * Verify that end of the line only contains space characters or end of comment.
 	 * Note that end of comment may be preceeding by several contiguous '*' chars.
 	 */
-	private boolean verifyEndLine(int textPosition) {
+	protected boolean verifyEndLine(int textPosition) {
+		boolean domParser = (this.kind & DOM_PARSER) != 0;
 		// Special case for inline tag
 		if (this.inlineTagStarted) {
 			// expecting closing brace
 			if (peekChar() == '}') {
-				if (this.kind == DOM_PARSER) {
+				if (domParser) {
 					createTag();
 					pushText(textPosition, this.starPosition);
 				}
@@ -1403,7 +1435,7 @@ public abstract class AbstractCommentParser {
 			switch (ch) {
 				case '\r':
 				case '\n':
-					if (this.kind == DOM_PARSER) {
+					if (domParser) {
 						createTag();
 						pushText(textPosition, previousPosition);
 					}
@@ -1419,7 +1451,7 @@ public abstract class AbstractCommentParser {
 					break;
 				case '/':
 					if (this.starPosition >= textPosition) {
-						if (this.kind == DOM_PARSER) {
+						if (domParser) {
 							createTag();
 							pushText(textPosition, this.starPosition);
 						}
@@ -1444,7 +1476,7 @@ public abstract class AbstractCommentParser {
 	 * 	3- are the end of comment (several contiguous star ('*') characters may be
 	 * 	    found before the last slash ('/') character).
 	 */
-	private boolean verifySpaceOrEndComment() {
+	protected boolean verifySpaceOrEndComment() {
 		int startPosition = this.index;
 		// Whitespace or inline tag closing brace
 		char ch = peekChar();
@@ -1452,7 +1484,7 @@ public abstract class AbstractCommentParser {
 			case '}':
 				return this.inlineTagStarted;
 			default:
-				if (Character.isWhitespace(ch)) {
+				if (ScannerHelper.isWhitespace(ch)) {
 					return true;
 				}
 		}
@@ -1460,7 +1492,7 @@ public abstract class AbstractCommentParser {
 		int previousPosition = this.index;
 		this.starPosition = -1;
 		ch = readChar();
-		nextChar: while (this.index<this.source.length) {
+		while (this.index<this.source.length) {
 			switch (ch) {
 				case '*':
 					// valid whatever the number of star before last '/'

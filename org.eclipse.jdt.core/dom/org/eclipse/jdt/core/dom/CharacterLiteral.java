@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,6 +16,7 @@ import java.util.List;
 
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 
 /**
@@ -51,7 +52,7 @@ public class CharacterLiteral extends Expression {
 	 * Clients must not modify the result.
 	 * 
 	 * @param apiLevel the API level; one of the
-	 * <code>AST.JLS&ast;</code> constants
+	 * <code>AST.JLS*</code> constants
 
 	 * @return a list of property descriptors (element type: 
 	 * {@link StructuralPropertyDescriptor})
@@ -254,33 +255,36 @@ public class CharacterLiteral extends Expression {
 					value = '\\';
 					break;
 				default : //octal (well-formed: ended by a ' )
-					if (Character.isDigit(nextChar)) {
-						int number = Character.getNumericValue(nextChar);
-						nextChar = (char) scanner.getNextChar();
-						if (nextChar == -1) {
-							throw new IllegalArgumentException("illegal character literal");//$NON-NLS-1$
-						}
-						if (nextChar != '\'') {
-							if (!Character.isDigit(nextChar)) {
+					try {
+						if (ScannerHelper.isDigit(nextChar)) {
+							int number = ScannerHelper.getNumericValue(nextChar);
+							nextChar = (char) scanner.getNextChar();
+							if (nextChar == -1) {
 								throw new IllegalArgumentException("illegal character literal");//$NON-NLS-1$
 							}
-							number = (number * 8) + Character.getNumericValue(nextChar);
-						}
-						nextChar = (char) scanner.getNextChar();
-						if (nextChar == -1) {
+							if (nextChar != '\'') {
+								if (!ScannerHelper.isDigit(nextChar)) {
+									throw new IllegalArgumentException("illegal character literal");//$NON-NLS-1$
+								}
+								number = (number * 8) + ScannerHelper.getNumericValue(nextChar);
+								nextChar = (char) scanner.getNextChar();
+								if (nextChar == -1) {
+									throw new IllegalArgumentException("illegal character literal");//$NON-NLS-1$
+								}
+								if (nextChar != '\'') {
+									if (!ScannerHelper.isDigit(nextChar)) {
+										throw new IllegalArgumentException("illegal character literal");//$NON-NLS-1$
+									}
+									number = (number * 8) + ScannerHelper.getNumericValue(nextChar);
+								}
+							}
+							return (char) number;			
+						} else {
 							throw new IllegalArgumentException("illegal character literal");//$NON-NLS-1$
 						}
-						if (nextChar != '\'') {
-							if (!Character.isDigit(nextChar)) {
-								throw new IllegalArgumentException("illegal character literal");//$NON-NLS-1$
-							}
-							number = (number * 8) + Character.getNumericValue(nextChar);
-						}
-						value = (char) number;
-					} else {
+					} catch (InvalidInputException e) {
 						throw new IllegalArgumentException("illegal character literal");//$NON-NLS-1$
 					}
-					break;
 			}
 			nextChar = (char) scanner.getNextChar();
 			if (nextChar == -1) {

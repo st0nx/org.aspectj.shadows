@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,6 +11,7 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class JavadocFieldReference extends FieldReference {
@@ -18,7 +19,6 @@ public class JavadocFieldReference extends FieldReference {
 	public int tagSourceStart, tagSourceEnd;
 	public int tagValue;
 	public MethodBinding methodBinding;
-	public boolean superAccess = false;
 
 	public JavadocFieldReference(char[] source, long pos) {
 		super(source, pos);
@@ -37,9 +37,9 @@ public class JavadocFieldReference extends FieldReference {
 	/*
 	 * Resolves type on a Block or Class scope.
 	 */
-	private TypeBinding internalResolveType(Scope scope) {
+	protected TypeBinding internalResolveType(Scope scope) {
 
-		this.constant = NotAConstant;
+		this.constant = Constant.NotAConstant;
 		if (this.receiver == null) {
 			this.receiverType = scope.enclosingSourceType();
 		} else if (scope.kind == Scope.CLASS_SCOPE) {
@@ -95,14 +95,14 @@ public class JavadocFieldReference extends FieldReference {
 		}
 		this.binding = (FieldBinding) fieldBinding;
 
-		if (isFieldUseDeprecated(this.binding, scope, (this.bits & IsStrictlyAssignedMASK) != 0)) {
+		if (isFieldUseDeprecated(this.binding, scope, (this.bits & IsStrictlyAssigned) != 0)) {
 			scope.problemReporter().javadocDeprecatedField(this.binding, this, scope.getDeclarationModifiers());
 		}
 		return this.resolvedType = this.binding.type;
 	}
 	
 	public boolean isSuperAccess() {
-		return this.superAccess;
+		return (this.bits & ASTNode.SuperAccess) != 0;
 	}
 
 	public StringBuffer printExpression(int indent, StringBuffer output) {
@@ -127,6 +127,15 @@ public class JavadocFieldReference extends FieldReference {
 	 * @see org.eclipse.jdt.internal.compiler.ast.ASTNode#traverse(org.eclipse.jdt.internal.compiler.ASTVisitor, org.eclipse.jdt.internal.compiler.lookup.BlockScope)
 	 */
 	public void traverse(ASTVisitor visitor, BlockScope scope) {
+
+		if (visitor.visit(this, scope)) {
+			if (this.receiver != null) {
+				this.receiver.traverse(visitor, scope);
+			}
+		}
+		visitor.endVisit(this, scope);
+	}
+	public void traverse(ASTVisitor visitor, ClassScope scope) {
 
 		if (visitor.visit(this, scope)) {
 			if (this.receiver != null) {

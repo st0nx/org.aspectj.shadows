@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,6 +16,7 @@ import org.eclipse.jdt.internal.compiler.ast.TryStatement;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
 import org.eclipse.jdt.internal.compiler.flow.FlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.InvocationSite;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
@@ -37,7 +38,7 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 	FlowInfo info = super.analyseCode(currentScope, flowContext, flowInfo);
 	// we need to remove this optimization in order to prevent the inlining of the return bytecode
 	// 1GH0AU7: ITPJCORE:ALL - Eval - VerifyError in scrapbook page
-	this.expression.bits &= ~ValueForReturnMASK;
+	this.expression.bits &= ~IsReturnedValue;
 	return info;
 }
 
@@ -56,12 +57,12 @@ public void generateStoreSaveValueIfNecessary(CodeStream codeStream){
 	codeStream.aload_0();
 
 	// push the 2 parameters of "setResult(Object, Class)"
-	if (this.expression == null || this.expression.resolvedType == VoidBinding) { // expressionType == VoidBinding if code snippet is the expression "System.out.println()"
+	if (this.expression == null || this.expression.resolvedType == TypeBinding.VOID) { // expressionType == VoidBinding if code snippet is the expression "System.out.println()"
 		// push null
 		codeStream.aconst_null();
 
 		// void.class
-		codeStream.generateClassLiteralAccessForType(VoidBinding, null);
+		codeStream.generateClassLiteralAccessForType(TypeBinding.VOID, null);
 	} else {
 		// swap with expression
 		int valueTypeID = this.expression.resolvedType.id;
@@ -73,8 +74,8 @@ public void generateStoreSaveValueIfNecessary(CodeStream codeStream){
 		}
 
 		// generate wrapper if needed
-		if (this.expression.resolvedType.isBaseType() && this.expression.resolvedType != NullBinding) { 
-			((CodeSnippetCodeStream)codeStream).generateObjectWrapperForType(this.expression.resolvedType);
+		if (this.expression.resolvedType.isBaseType() && this.expression.resolvedType != TypeBinding.NULL) { 
+			codeStream.generateBoxingConversion(this.expression.resolvedType.id);
 		}
 
 		// generate the expression type
@@ -123,7 +124,7 @@ public void resolve(BlockScope scope) {
 				return;
 			}
 			// in constant case, the implicit conversion cannot be left uninitialized
-			if (this.expression.constant != NotAConstant) {
+			if (this.expression.constant != Constant.NotAConstant) {
 				// fake 'no implicit conversion' (the return type is always void)
 				this.expression.implicitConversion = this.expression.constant.typeID() << 4;
 			}

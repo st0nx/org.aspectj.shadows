@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -91,7 +91,7 @@ public final class NodeInfoStore {
 				    ((VariableDeclarationStatement) node).fragments().add(this.ast.newVariableDeclarationFragment());
 		    		break;
 				case ASTNode.PARAMETERIZED_TYPE :
-				    ((ParameterizedType) node).typeArguments().add(this.ast.newWildcardType()); //$NON-NLS-1$
+				    ((ParameterizedType) node).typeArguments().add(this.ast.newWildcardType());
 		    		break;
 			}
 		    return node;
@@ -135,7 +135,7 @@ public final class NodeInfoStore {
 		this.placeholderNodes.put(node, data);		
 	}
 	
-	private static class PlaceholderData {
+	static class PlaceholderData {
 		// base class
 	}
 			

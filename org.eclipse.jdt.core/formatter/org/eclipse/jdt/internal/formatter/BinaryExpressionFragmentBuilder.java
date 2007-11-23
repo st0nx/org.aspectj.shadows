@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,6 +26,7 @@ import org.eclipse.jdt.internal.compiler.ast.BinaryExpression;
 import org.eclipse.jdt.internal.compiler.ast.CastExpression;
 import org.eclipse.jdt.internal.compiler.ast.CharLiteral;
 import org.eclipse.jdt.internal.compiler.ast.ClassLiteralAccess;
+import org.eclipse.jdt.internal.compiler.ast.CombinedBinaryExpression;
 import org.eclipse.jdt.internal.compiler.ast.CompoundAssignment;
 import org.eclipse.jdt.internal.compiler.ast.ConditionalExpression;
 import org.eclipse.jdt.internal.compiler.ast.DoubleLiteral;
@@ -181,6 +182,12 @@ class BinaryExpressionFragmentBuilder
 	}
 
 	public boolean visit(BinaryExpression binaryExpression, BlockScope scope) {
+		if (binaryExpression instanceof CombinedBinaryExpression) {
+			CombinedBinaryExpression expression = (CombinedBinaryExpression) binaryExpression;
+			if (expression.referencesTable != null) {
+				return this.visit(expression, scope);
+			}
+		}
 		final int numberOfParens = (binaryExpression.bits & ASTNode.ParenthesizedMASK) >> ASTNode.ParenthesizedSHIFT;
 		if (numberOfParens > 0) {
 			this.addRealFragment(binaryExpression);
@@ -246,6 +253,29 @@ class BinaryExpressionFragmentBuilder
 					this.addRealFragment(binaryExpression);
 			}
 		}
+		return false;
+	}
+
+	public boolean visit(CombinedBinaryExpression combinedBinaryExpression, BlockScope scope) {
+		// keep implementation in sync with BinaryExpression#resolveType
+		if (combinedBinaryExpression.referencesTable == null) {
+			this.addRealFragment(combinedBinaryExpression.left);
+			this.operatorsList.add(new Integer(TerminalTokens.TokenNamePLUS));
+			this.addRealFragment(combinedBinaryExpression.right);
+			return false;
+		}
+		BinaryExpression cursor = combinedBinaryExpression.referencesTable[0];
+		if (cursor.left instanceof CombinedBinaryExpression) {
+			this.visit((CombinedBinaryExpression) cursor.left, scope);
+		} else {
+			this.addRealFragment(cursor.left);
+		}
+		for (int i = 0, end = combinedBinaryExpression.arity; i < end; i ++) {
+			this.operatorsList.add(new Integer(TerminalTokens.TokenNamePLUS));
+			this.addRealFragment(combinedBinaryExpression.referencesTable[i].right);
+		}
+		this.operatorsList.add(new Integer(TerminalTokens.TokenNamePLUS));
+		this.addRealFragment(combinedBinaryExpression.right);
 		return false;
 	}
 
@@ -448,5 +478,4 @@ class BinaryExpressionFragmentBuilder
 	public int size() {
 		return this.fragmentsList.size();
 	}
-
 }

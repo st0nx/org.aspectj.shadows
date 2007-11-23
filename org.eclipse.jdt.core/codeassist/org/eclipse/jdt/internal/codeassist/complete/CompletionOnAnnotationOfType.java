@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * Copyright (c) 2004, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,10 +11,16 @@
 package org.eclipse.jdt.internal.codeassist.complete;
 
 import org.eclipse.jdt.internal.compiler.CompilationResult;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.Annotation;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 
 public class CompletionOnAnnotationOfType extends TypeDeclaration {
+	public ASTNode potentialAnnotatedNode;
+	// During recovery a parameter can be parsed as a FieldDeclaration instead of Argument.
+	// 'isParameter' is set to true in this case.
+	public boolean isParameter;
+	
 	public CompletionOnAnnotationOfType(char[] typeName, CompilationResult compilationResult, Annotation annotation){
 		super(compilationResult);
 		this.sourceEnd = annotation.sourceEnd;

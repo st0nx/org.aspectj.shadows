@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,6 +21,7 @@ import org.eclipse.jdt.internal.compiler.ast.ImportReference;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Statement;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class RecoveredElement {
 
@@ -105,6 +106,15 @@ public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalanceV
 	if (this.parent == null) return this; // ignore
 	this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(typeDeclaration.declarationSourceStart - 1));	
 	return this.parent.add(typeDeclaration, bracketBalanceValue);
+}
+protected void addBlockStatement(RecoveredBlock recoveredBlock) {
+	Block block = recoveredBlock.blockDeclaration;
+	if(block.statements != null) {
+		Statement[] statements = block.statements;
+		for (int i = 0; i < statements.length; i++) {
+			recoveredBlock.add(statements[i], 0);
+		}
+	}
 }
 /*
  * Answer the depth of this element, considering the parent link.
@@ -201,7 +211,7 @@ public int previousAvailableLineEnd(int position){
 	Scanner scanner = parser.scanner;
 	if (scanner.lineEnds == null) return position;
 	
-	int index = scanner.getLineNumber(position);
+	int index = Util.getLineNumber(position, scanner.lineEnds, 0, scanner.linePtr);
 	if (index < 2) return position;
 	int previousLineEnd = scanner.lineEnds[index-2];
 

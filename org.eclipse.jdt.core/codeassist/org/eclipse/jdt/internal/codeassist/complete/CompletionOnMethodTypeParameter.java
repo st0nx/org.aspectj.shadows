@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -30,7 +30,7 @@ public class CompletionOnMethodTypeParameter extends MethodDeclaration {
 	
 	public StringBuffer print(int tab, StringBuffer output) {
 		printIndent(tab, output);
-		output.append('<');//$NON-NLS-1$
+		output.append('<');
 		int max = typeParameters.length - 1;
 		for (int j = 0; j < max; j++) {
 			typeParameters[j].print(0, output);

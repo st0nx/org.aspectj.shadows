@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,7 +12,7 @@ package org.eclipse.jdt.internal.compiler;
 
 import java.util.Locale;
 
-import org.eclipse.jdt.core.compiler.*;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 
 /*
  * Factory used from inside the compiler to build the actual problems
@@ -25,7 +25,7 @@ import org.eclipse.jdt.core.compiler.*;
 
 public interface IProblemFactory {
 
-	IProblem createProblem(
+	CategorizedProblem createProblem(
 		char[] originatingFileName,
 		int problemId,
 		String[] problemArguments,
@@ -33,7 +33,8 @@ public interface IProblemFactory {
 		int severity,
 		int startPosition,
 		int endPosition,
-		int lineNumber);
+		int lineNumber,
+		int columnNumber);
 		
 	Locale getLocale();
 	

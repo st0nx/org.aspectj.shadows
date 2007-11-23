@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -19,7 +19,8 @@ public class LabeledStatement extends Statement {
 	
 	public Statement statement;
 	public char[] label;
-	public Label targetLabel;
+	public BranchLabel targetLabel;
+	public int labelEnd;
 
 	// for local variables table attributes
 	int mergedInitStateIndex = -1;
@@ -27,13 +28,14 @@ public class LabeledStatement extends Statement {
 	/**
 	 * LabeledStatement constructor comment.
 	 */
-	public LabeledStatement(char[] label, Statement statement, int sourceStart, int sourceEnd) {
+	public LabeledStatement(char[] label, Statement statement, long labelPosition, int sourceEnd) {
 		
 		this.statement = statement;
 		// remember useful empty statement
-		if (statement instanceof EmptyStatement) statement.bits |= IsUsefulEmptyStatementMASK;
+		if (statement instanceof EmptyStatement) statement.bits |= IsUsefulEmptyStatement;
 		this.label = label;
-		this.sourceStart = sourceStart;
+		this.sourceStart = (int)(labelPosition >>> 32);
+		this.labelEnd = (int) labelPosition;
 		this.sourceEnd = sourceEnd;
 	}
 	
@@ -48,21 +50,30 @@ public class LabeledStatement extends Statement {
 			return flowInfo;
 		} else {
 			LabelFlowContext labelContext;
-			FlowInfo mergedInfo =
-				statement
-					.analyseCode(
-						currentScope,
-						(labelContext =
-							new LabelFlowContext(
-								flowContext,
-								this,
-								label,
-								(targetLabel = new Label()),
-								currentScope)),
-						flowInfo)
-					.mergedWith(labelContext.initsOnBreak);
+			FlowInfo statementInfo, mergedInfo;
+			statementInfo = statement.analyseCode(
+				currentScope,
+				(labelContext =
+					new LabelFlowContext(
+						flowContext,
+						this,
+						label,
+						(targetLabel = new BranchLabel()),
+						currentScope)),
+				flowInfo);
+			boolean reinjectNullInfo = (statementInfo.tagBits & FlowInfo.UNREACHABLE) != 0 &&
+				(labelContext.initsOnBreak.tagBits & FlowInfo.UNREACHABLE) == 0;
+			mergedInfo = statementInfo.mergedWith(labelContext.initsOnBreak);
+			if (reinjectNullInfo) {
+				// an embedded loop has had no chance to reinject forgotten null info
+				((UnconditionalFlowInfo)mergedInfo).addInitializationsFrom(flowInfo.unconditionalFieldLessCopy()).
+					addInitializationsFrom(labelContext.initsOnBreak.unconditionalFieldLessCopy());
+			}
 			mergedInitStateIndex =
 				currentScope.methodScope().recordInitializationStates(mergedInfo);
+			if ((this.bits & ASTNode.LabelUsed) == 0) {
+				currentScope.problemReporter().unusedLabel(this);
+			}
 			return mergedInfo;
 		}
 	}
@@ -83,7 +94,7 @@ public class LabeledStatement extends Statement {
 	 */
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 		
-		if ((bits & IsReachableMASK) == 0) {
+		if ((bits & IsReachable) == 0) {
 			return;
 		}		
 		int pc = codeStream.position;

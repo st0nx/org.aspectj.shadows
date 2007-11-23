@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -98,14 +98,14 @@ protected void consumeClassHeaderName1() {
 	if (this.nestedMethod[this.nestedType] == 0) {
 		if (this.nestedType != 0) {
 			typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
-			typeDecl.bits |= ASTNode.IsMemberTypeMASK;
+			typeDecl.bits |= ASTNode.IsMemberType;
 		} else {
 			typeDecl = new CodeSnippetTypeDeclaration(this.compilationUnit.compilationResult);
 		}
 	} else {
 		// Record that the block has a declaration for local types
 		typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
-		typeDecl.bits |= ASTNode.IsLocalTypeMASK;
+		typeDecl.bits |= ASTNode.IsLocalType;
 		markEnclosingMemberWithLocalType();
 		blockReal();
 	}
@@ -169,7 +169,7 @@ protected void consumeFieldAccess(boolean isSuperAccess) {
 		//considerates the fieldReference beginning at the 'super' ....	
 		fr.sourceStart = this.intStack[this.intPtr--];
 		problemReporter().codeSnippetMissingClass(null,0, 0);
-		fr.receiver = new CodeSnippetSuperReference(fr.sourceStart, this.endPosition, this.evaluationContext);
+		fr.receiver = new CodeSnippetSuperReference(fr.sourceStart, this.endPosition);
 		pushOnExpressionStack(fr);
 	} else {
 		//optimize push/pop
@@ -186,14 +186,14 @@ protected void consumeInterfaceHeaderName1() {
 	if (this.nestedMethod[this.nestedType] == 0) {
 		if (this.nestedType != 0) {
 			typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
-			typeDecl.bits |= ASTNode.IsMemberTypeMASK;
+			typeDecl.bits |= ASTNode.IsMemberType;
 		} else {
 			typeDecl = new CodeSnippetTypeDeclaration(this.compilationUnit.compilationResult);
 		}
 	} else {
 		// Record that the block has a declaration for local types
 		typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
-		typeDecl.bits |= ASTNode.IsLocalTypeMASK;
+		typeDecl.bits |= ASTNode.IsLocalType;
 		markEnclosingMemberWithLocalType(); 
 		blockReal();
 	}
@@ -377,7 +377,7 @@ protected void consumeMethodInvocationSuper() {
 	m.nameSourcePosition = this.identifierPositionStack[this.identifierPtr];
 	m.selector = this.identifierStack[this.identifierPtr--];
 	this.identifierLengthPtr--;
-	m.receiver = new CodeSnippetSuperReference(m.sourceStart, this.endPosition, this.evaluationContext);
+	m.receiver = new CodeSnippetSuperReference(m.sourceStart, this.endPosition);
 	pushOnExpressionStack(m);
 }
 protected void consumePrimaryNoNewArrayThis() {

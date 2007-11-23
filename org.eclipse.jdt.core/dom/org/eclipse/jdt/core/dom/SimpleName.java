@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -179,18 +179,15 @@ public class SimpleName extends Name {
 		char[] source = identifier.toCharArray();
 		scanner.setSource(source);
 		final int length = source.length;
-		scanner.resetTo(0, length);
+		scanner.resetTo(0, length - 1);
 		try {
-			int tokenType = scanner.getNextToken();
-			switch(tokenType) {
-				case TerminalTokens.TokenNameIdentifier:
-					if (scanner.getCurrentTokenEndPosition() != length - 1) {
-						// this is the case when there is only one identifier see 87849
-						throw new IllegalArgumentException();
-					}
-					break;
-				default:
-					throw new IllegalArgumentException();
+			int tokenType = scanner.scanIdentifier();
+			if (tokenType != TerminalTokens.TokenNameIdentifier) {
+				throw new IllegalArgumentException();
+			}
+			if (scanner.currentPosition != length) {
+				// this is the case when there is only one identifier see 87849
+				throw new IllegalArgumentException();
 			}
 		} catch(InvalidInputException e) {
 			throw new IllegalArgumentException();

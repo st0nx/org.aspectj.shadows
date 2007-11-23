@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,6 +12,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -26,6 +27,10 @@ public abstract class Annotation extends Expression {
 	public Binding recipient;
 	
 	public TypeReference type;
+	/** 
+	 *  The representation of this annotation in the type system. 
+	 */
+	private AnnotationBinding compilerAnnotation = null;
 	
 	public static long getRetentionPolicy(char[] policyName) {
 		if (policyName == null || policyName.length == 0)
@@ -84,7 +89,11 @@ public abstract class Annotation extends Expression {
 		}
 		return 0; // unknown
 	}		
-	
+
+	public ElementValuePair[] computeElementValuePairs() {
+		return Binding.NO_ELEMENT_VALUE_PAIRS;
+	}
+
 	/**
 	 * Compute the bit pattern for recognized standard annotations the compiler may need to act upon
 	 */
@@ -154,7 +163,11 @@ public abstract class Annotation extends Expression {
 		}
 		return tagBits;
 	}
-	
+
+	public AnnotationBinding getCompilerAnnotation() {
+		return this.compilerAnnotation;
+	}
+
 	public abstract MemberValuePair[] memberValuePairs();
 	
 	public StringBuffer printExpression(int indent, StringBuffer output) {
@@ -208,12 +221,15 @@ public abstract class Annotation extends Expression {
 	}
 	
 	public TypeBinding resolveType(BlockScope scope) {
-		
-		this.constant = NotAConstant;
+
+		if (this.compilerAnnotation != null)
+			return this.resolvedType;
+		this.constant = Constant.NotAConstant;
 		
 		TypeBinding typeBinding = this.type.resolveType(scope);
-		if (typeBinding == null)
+		if (typeBinding == null) {
 			return null;
+		}
 		this.resolvedType = typeBinding;
 		// ensure type refers to an annotation type
 		if (!typeBinding.isAnnotationType()) {
@@ -228,7 +244,11 @@ public abstract class Annotation extends Expression {
 		MemberValuePair valueAttribute = null; // remember the first 'value' pair
 		MemberValuePair[] pairs;
 		int pairsLength = originalValuePairs.length;
-		System.arraycopy(originalValuePairs, 0, pairs = new MemberValuePair[pairsLength], 0, pairsLength);
+		if (pairsLength > 0) {
+			System.arraycopy(originalValuePairs, 0, pairs = new MemberValuePair[pairsLength], 0, pairsLength);
+		} else {
+			pairs = originalValuePairs;
+		}		
 		
 		nextMember: for (int i = 0, requiredLength = methods.length; i < requiredLength; i++) {
 			MethodBinding method = methods[i];
@@ -266,7 +286,7 @@ public abstract class Annotation extends Expression {
 					}
 				}
 			}
-			if (!foundValue && (method.modifiers & AccAnnotationDefault) == 0) {
+			if (!foundValue && (method.modifiers & ClassFileConstants.AccAnnotationDefault) == 0) {
 				scope.problemReporter().missingValueForAnnotationMember(this, selector);
 			}
 		}
@@ -274,8 +294,11 @@ public abstract class Annotation extends Expression {
 		for (int i = 0; i < pairsLength; i++) {
 			if (pairs[i] != null) {
 				scope.problemReporter().undefinedAnnotationValue(annotationType, pairs[i]);
+				pairs[i].resolveTypeExpecting(scope, null); // resilient
 			}
 		}
+//		if (scope.compilerOptions().storeAnnotations)
+		this.compilerAnnotation = scope.environment().createAnnotation((ReferenceBinding) this.resolvedType, this.computeElementValuePairs());
 		// recognize standard annotations ?
 		long tagBits = detectStandardAnnotation(scope, annotationType, valueAttribute);
 
@@ -290,12 +313,17 @@ public abstract class Annotation extends Expression {
 						break;
 					case Binding.TYPE :
 					case Binding.GENERIC_TYPE :
-					case Binding.TYPE_PARAMETER :
 						SourceTypeBinding sourceType = (SourceTypeBinding) this.recipient;
 						sourceType.tagBits |= tagBits;
 						if ((tagBits & TagBits.AnnotationSuppressWarnings) != 0) {
 							TypeDeclaration typeDeclaration =  sourceType.scope.referenceContext;
-							recordSuppressWarnings(scope, typeDeclaration.declarationSourceStart, typeDeclaration.declarationSourceEnd, scope.compilerOptions().suppressWarnings);
+							int start;
+							if (scope.referenceCompilationUnit().types[0] == typeDeclaration) {
+								start = 0;
+							} else {
+								start = typeDeclaration.declarationSourceStart;
+							}
+							recordSuppressWarnings(scope, start, typeDeclaration.declarationSourceEnd, scope.compilerOptions().suppressWarnings);
 						}
 						break;
 					case Binding.METHOD :
@@ -357,7 +385,7 @@ public abstract class Annotation extends Expression {
 							break checkTargetCompatibility;
 						break;
 					case Binding.LOCAL :
-						if (((LocalVariableBinding)this.recipient).isArgument) {
+						if ((((LocalVariableBinding)this.recipient).tagBits & TagBits.IsArgument) != 0) {
 							if ((metaTagBits & TagBits.AnnotationForParameter) != 0)
 								break checkTargetCompatibility;
 						} else 	if ((annotationType.tagBits & TagBits.AnnotationForLocalVariable) != 0)
@@ -371,5 +399,5 @@ public abstract class Annotation extends Expression {
 	}
 	
 	public abstract void traverse(ASTVisitor visitor, BlockScope scope);
-	public abstract void traverse(ASTVisitor visitor, CompilationUnitScope scope);
+	
 }

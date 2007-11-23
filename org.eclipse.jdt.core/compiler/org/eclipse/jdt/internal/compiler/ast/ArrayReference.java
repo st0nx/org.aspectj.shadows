@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -27,34 +27,32 @@ public class ArrayReference extends Reference {
 		sourceStart = rec.sourceStart;
 	}
 
-	public FlowInfo analyseAssignment(
+public FlowInfo analyseAssignment(
 		BlockScope currentScope,
 		FlowContext flowContext,
 		FlowInfo flowInfo,
 		Assignment assignment,
 		boolean compoundAssignment) {
-
-		if (assignment.expression == null) {
-			return analyseCode(currentScope, flowContext, flowInfo).unconditionalInits();
-		}
-		return assignment
-			.expression
-			.analyseCode(
-				currentScope,
-				flowContext,
-				analyseCode(currentScope, flowContext, flowInfo).unconditionalInits())
-			.unconditionalInits();
+	// TODO (maxime) optimization: unconditionalInits is applied to all existing calls
+	if (assignment.expression == null) {
+		return analyseCode(currentScope, flowContext, flowInfo);
 	}
+	return assignment
+		.expression
+		.analyseCode(
+			currentScope,
+			flowContext,
+			analyseCode(currentScope, flowContext, flowInfo).unconditionalInits());
+}
 
-	public FlowInfo analyseCode(
+public FlowInfo analyseCode(
 		BlockScope currentScope,
 		FlowContext flowContext,
 		FlowInfo flowInfo) {
-
-		flowInfo = receiver.analyseCode(currentScope, flowContext, flowInfo);
-		receiver.checkNullStatus(currentScope, flowContext, flowInfo, FlowInfo.NON_NULL);
-		return position.analyseCode(currentScope, flowContext, flowInfo);
-	}
+	receiver.checkNPE(currentScope, flowContext, flowInfo);
+	flowInfo = receiver.analyseCode(currentScope, flowContext, flowInfo);
+	return position.analyseCode(currentScope, flowContext, flowInfo);
+}
 
 	public void generateAssignment(
 		BlockScope currentScope,
@@ -65,7 +63,7 @@ public class ArrayReference extends Reference {
 		int pc = codeStream.position;
 		receiver.generateCode(currentScope, codeStream, true);
 		if (receiver instanceof CastExpression	// ((type[])null)[0]
-				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == NullBinding){
+				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == TypeBinding.NULL){
 			codeStream.checkcast(receiver.resolvedType); 
 		}	
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
@@ -88,7 +86,7 @@ public class ArrayReference extends Reference {
 		int pc = codeStream.position;
 		receiver.generateCode(currentScope, codeStream, true);
 		if (receiver instanceof CastExpression	// ((type[])null)[0]
-				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == NullBinding){
+				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == TypeBinding.NULL){
 			codeStream.checkcast(receiver.resolvedType); 
 		}			
 		position.generateCode(currentScope, codeStream, true);
@@ -97,11 +95,16 @@ public class ArrayReference extends Reference {
 		if (valueRequired) {
 			codeStream.generateImplicitConversion(implicitConversion);
 		} else {
-			if (this.resolvedType == LongBinding
-				|| this.resolvedType == DoubleBinding) {
-				codeStream.pop2();
-			} else {
-				codeStream.pop();
+			boolean isUnboxing = (implicitConversion & TypeIds.UNBOXING) != 0;
+			// conversion only generated if unboxing
+			if (isUnboxing) codeStream.generateImplicitConversion(implicitConversion);
+			switch (isUnboxing ? postConversionType(currentScope).id : this.resolvedType.id) {
+				case T_long :
+				case T_double :
+					codeStream.pop2();
+					break;
+				default :
+					codeStream.pop();
 			}
 		}
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
@@ -117,7 +120,7 @@ public class ArrayReference extends Reference {
 
 		receiver.generateCode(currentScope, codeStream, true);
 		if (receiver instanceof CastExpression	// ((type[])null)[0]
-				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == NullBinding){
+				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == TypeBinding.NULL){
 			codeStream.checkcast(receiver.resolvedType); 
 		}	
 		position.generateCode(currentScope, codeStream, true);
@@ -155,15 +158,15 @@ public class ArrayReference extends Reference {
 
 		receiver.generateCode(currentScope, codeStream, true);
 		if (receiver instanceof CastExpression	// ((type[])null)[0]
-				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == NullBinding){
+				&& ((CastExpression)receiver).innermostCastedExpression().resolvedType == TypeBinding.NULL){
 			codeStream.checkcast(receiver.resolvedType); 
 		}	
 		position.generateCode(currentScope, codeStream, true);
 		codeStream.dup2();
 		codeStream.arrayAt(this.resolvedType.id);
 		if (valueRequired) {
-			if ((this.resolvedType == LongBinding)
-				|| (this.resolvedType == DoubleBinding)) {
+			if ((this.resolvedType == TypeBinding.LONG)
+				|| (this.resolvedType == TypeBinding.DOUBLE)) {
 				codeStream.dup2_x2();
 			} else {
 				codeStream.dup_x2();
@@ -179,6 +182,10 @@ public class ArrayReference extends Reference {
 		codeStream.arrayAtPut(this.resolvedType.id, false);
 	}
 
+public int nullStatus(FlowInfo flowInfo) {
+	return FlowInfo.UNKNOWN;
+}
+
 	public StringBuffer printExpression(int indent, StringBuffer output) {
 
 		receiver.printExpression(0, output).append('[');
@@ -190,21 +197,21 @@ public class ArrayReference extends Reference {
 		constant = Constant.NotAConstant;
 		if (receiver instanceof CastExpression	// no cast check for ((type[])null)[0]
 				&& ((CastExpression)receiver).innermostCastedExpression() instanceof NullLiteral) {
-			this.receiver.bits |= IgnoreNeedForCastCheckMASK; // will check later on
+			this.receiver.bits |= DisableUnnecessaryCastCheck; // will check later on
 		}		
 		TypeBinding arrayType = receiver.resolveType(scope);
 		if (arrayType != null) {
 			receiver.computeConversion(scope, arrayType, arrayType);
 			if (arrayType.isArrayType()) {
 				TypeBinding elementType = ((ArrayBinding) arrayType).elementsType();
-				this.resolvedType = ((this.bits & IsStrictlyAssignedMASK) == 0) ? elementType.capture(scope, this.sourceEnd) : elementType;
+				this.resolvedType = ((this.bits & IsStrictlyAssigned) == 0) ? elementType.capture(scope, this.sourceEnd) : elementType;
 			} else {
 				scope.problemReporter().referenceMustBeArrayTypeAt(arrayType, this);
 			}
 		}
-		TypeBinding positionType = position.resolveTypeExpecting(scope, IntBinding);
+		TypeBinding positionType = position.resolveTypeExpecting(scope, TypeBinding.INT);
 		if (positionType != null) {
-			position.computeConversion(scope, IntBinding, positionType);
+			position.computeConversion(scope, TypeBinding.INT, positionType);
 		}
 		return this.resolvedType;
 	}

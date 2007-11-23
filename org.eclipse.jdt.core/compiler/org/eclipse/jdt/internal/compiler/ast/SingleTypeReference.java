@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,7 +11,9 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
 public class SingleTypeReference extends TypeReference {
 
@@ -32,6 +34,9 @@ public class SingleTypeReference extends TypeReference {
 		return new ArrayTypeReference(token, dim,(((long)sourceStart)<<32)+sourceEnd);
 	}
 
+	public char[] getLastToken() {
+		return this.token;
+	}
 	protected TypeBinding getTypeBinding(Scope scope) {
 		if (this.resolvedType != null)
 			return this.resolvedType;
@@ -39,7 +44,7 @@ public class SingleTypeReference extends TypeReference {
 		this.resolvedType = scope.getType(token);
 
 		if (scope.kind == Scope.CLASS_SCOPE && this.resolvedType.isValidBinding())
-			if (((ClassScope) scope).detectHierarchyCycle(this.resolvedType, this, null))
+			if (((ClassScope) scope).detectHierarchyCycle(this.resolvedType, this))
 				return null;
 		return this.resolvedType;
 	}
@@ -55,7 +60,7 @@ public class SingleTypeReference extends TypeReference {
 
 	public TypeBinding resolveTypeEnclosing(BlockScope scope, ReferenceBinding enclosingType) {
 
-		ReferenceBinding memberType = scope.getMemberType(token, enclosingType);
+		TypeBinding memberType = scope.getMemberType(token, enclosingType);
 		if (!memberType.isValidBinding()) {
 			this.resolvedType = memberType;
 			scope.problemReporter().invalidEnclosingType(this, memberType, enclosingType);
@@ -63,7 +68,13 @@ public class SingleTypeReference extends TypeReference {
 		}
 		if (isTypeUseDeprecated(memberType, scope))
 			scope.problemReporter().deprecatedType(memberType, this);
-		return this.resolvedType = scope.environment().convertToRawType(memberType);
+		memberType = scope.environment().convertToRawType(memberType);
+		if (memberType.isRawType() 
+				&& (this.bits & IgnoreRawTypeCheck) == 0 
+				&& scope.compilerOptions().getSeverity(CompilerOptions.RawTypeReference) != ProblemSeverities.Ignore){
+			scope.problemReporter().rawTypeReference(this, memberType);
+		}
+		return this.resolvedType = memberType;
 	}
 
 	public void traverse(ASTVisitor visitor, BlockScope scope) {

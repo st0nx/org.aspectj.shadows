@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,11 +11,6 @@
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.internal.compiler.ast.*;
-import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.QualifiedNameReference;
-import org.eclipse.jdt.internal.compiler.ast.SingleNameReference;
-import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
@@ -69,60 +64,67 @@ public class MethodScope extends BlockScope {
 		
 		int modifiers = methodBinding.modifiers;
 		final ReferenceBinding declaringClass = methodBinding.declaringClass;
-		if ((modifiers & AccAlternateModifierProblem) != 0)
+		if ((modifiers & ExtraCompilerModifiers.AccAlternateModifierProblem) != 0)
 			problemReporter().duplicateModifierForMethod(declaringClass, (AbstractMethodDeclaration) referenceContext);
 
-		if (((ConstructorDeclaration) referenceContext).isDefaultConstructor) {
-			if (declaringClass.isEnum())
-				modifiers = AccPrivate;
-			else if (declaringClass.isPublic())
-				modifiers |= AccPublic;
-			else if (declaringClass.isProtected())
-				modifiers |= AccProtected;
+		if ((((ConstructorDeclaration) referenceContext).bits & ASTNode.IsDefaultConstructor) != 0) {
+			// certain flags are propagated from declaring class onto constructor
+			final int DECLARING_FLAGS = ClassFileConstants.AccEnum|ClassFileConstants.AccPublic|ClassFileConstants.AccProtected;
+			final int VISIBILITY_FLAGS = ClassFileConstants.AccPrivate|ClassFileConstants.AccPublic|ClassFileConstants.AccProtected;
+			int flags;
+			if ((flags = declaringClass.modifiers & DECLARING_FLAGS) != 0) {
+				if ((flags & ClassFileConstants.AccEnum) != 0) {
+					modifiers &= ~VISIBILITY_FLAGS;
+					modifiers |= ClassFileConstants.AccPrivate; // default constructor is implicitly private in enum
+				} else {
+					modifiers &= ~VISIBILITY_FLAGS;
+					modifiers |= flags; // propagate public/protected
+				}
+			}
 		}
 
 		// after this point, tests on the 16 bits reserved.
-		int realModifiers = modifiers & AccJustFlag;
+		int realModifiers = modifiers & ExtraCompilerModifiers.AccJustFlag;
 
 		// check for abnormal modifiers
-		int unexpectedModifiers = ~(AccPublic | AccPrivate | AccProtected | AccStrictfp);
-		if (declaringClass.isEnum() && !((ConstructorDeclaration) referenceContext).isDefaultConstructor) {
-			unexpectedModifiers = ~(AccPrivate | AccStrictfp);
-			if ((realModifiers & unexpectedModifiers) != 0) {
+		final int UNEXPECTED_MODIFIERS = ~(ClassFileConstants.AccPublic | ClassFileConstants.AccPrivate | ClassFileConstants.AccProtected | ClassFileConstants.AccStrictfp);
+		if (declaringClass.isEnum() && (((ConstructorDeclaration) referenceContext).bits & ASTNode.IsDefaultConstructor) == 0) {
+			final int UNEXPECTED_ENUM_CONSTR_MODIFIERS = ~(ClassFileConstants.AccPrivate | ClassFileConstants.AccStrictfp);
+			if ((realModifiers & UNEXPECTED_ENUM_CONSTR_MODIFIERS) != 0) {
 				problemReporter().illegalModifierForEnumConstructor((AbstractMethodDeclaration) referenceContext);
-				modifiers &= ~AccJustFlag | ~unexpectedModifiers;
-			} else if ((((AbstractMethodDeclaration) referenceContext).modifiers & AccStrictfp) != 0) {
+				modifiers &= ~ExtraCompilerModifiers.AccJustFlag | ~UNEXPECTED_ENUM_CONSTR_MODIFIERS;
+			} else if ((((AbstractMethodDeclaration) referenceContext).modifiers & ClassFileConstants.AccStrictfp) != 0) {
 				// must check the parse node explicitly
 				problemReporter().illegalModifierForMethod((AbstractMethodDeclaration) referenceContext);
 			}
-			modifiers |= AccPrivate; // enum constructor is implicitly private
-		} else if ((realModifiers & unexpectedModifiers) != 0) {
+			modifiers |= ClassFileConstants.AccPrivate; // enum constructor is implicitly private
+		} else if ((realModifiers & UNEXPECTED_MODIFIERS) != 0) {
 			problemReporter().illegalModifierForMethod((AbstractMethodDeclaration) referenceContext);
-			modifiers &= ~AccJustFlag | ~unexpectedModifiers;
-		} else if ((((AbstractMethodDeclaration) referenceContext).modifiers & AccStrictfp) != 0) {
+			modifiers &= ~ExtraCompilerModifiers.AccJustFlag | ~UNEXPECTED_MODIFIERS;
+		} else if ((((AbstractMethodDeclaration) referenceContext).modifiers & ClassFileConstants.AccStrictfp) != 0) {
 			// must check the parse node explicitly
 			problemReporter().illegalModifierForMethod((AbstractMethodDeclaration) referenceContext);
 		}
 
 		// check for incompatible modifiers in the visibility bits, isolate the visibility bits
-		int accessorBits = realModifiers & (AccPublic | AccProtected | AccPrivate);
+		int accessorBits = realModifiers & (ClassFileConstants.AccPublic | ClassFileConstants.AccProtected | ClassFileConstants.AccPrivate);
 		if ((accessorBits & (accessorBits - 1)) != 0) {
 			problemReporter().illegalVisibilityModifierCombinationForMethod(declaringClass, (AbstractMethodDeclaration) referenceContext);
 
 			// need to keep the less restrictive so disable Protected/Private as necessary
-			if ((accessorBits & AccPublic) != 0) {
-				if ((accessorBits & AccProtected) != 0)
-					modifiers &= ~AccProtected;
-				if ((accessorBits & AccPrivate) != 0)
-					modifiers &= ~AccPrivate;
-			} else if ((accessorBits & AccProtected) != 0 && (accessorBits & AccPrivate) != 0) {
-				modifiers &= ~AccPrivate;
+			if ((accessorBits & ClassFileConstants.AccPublic) != 0) {
+				if ((accessorBits & ClassFileConstants.AccProtected) != 0)
+					modifiers &= ~ClassFileConstants.AccProtected;
+				if ((accessorBits & ClassFileConstants.AccPrivate) != 0)
+					modifiers &= ~ClassFileConstants.AccPrivate;
+			} else if ((accessorBits & ClassFileConstants.AccProtected) != 0 && (accessorBits & ClassFileConstants.AccPrivate) != 0) {
+				modifiers &= ~ClassFileConstants.AccPrivate;
 			}
 		}
 
-		// if the receiver's declaring class is a private nested type, then make sure the receiver is not private (causes problems for inner type emulation)
-		if (declaringClass.isPrivate() && (modifiers & AccPrivate) != 0)
-			modifiers &= ~AccPrivate;
+//		// if the receiver's declaring class is a private nested type, then make sure the receiver is not private (causes problems for inner type emulation)
+//		if (declaringClass.isPrivate() && (modifiers & ClassFileConstants.AccPrivate) != 0)
+//			modifiers &= ~ClassFileConstants.AccPrivate;
 
 		methodBinding.modifiers = modifiers;
 	}
@@ -133,16 +135,16 @@ public class MethodScope extends BlockScope {
 		
 		int modifiers = methodBinding.modifiers;
 		final ReferenceBinding declaringClass = methodBinding.declaringClass;
-		if ((modifiers & AccAlternateModifierProblem) != 0)
+		if ((modifiers & ExtraCompilerModifiers.AccAlternateModifierProblem) != 0)
 			problemReporter().duplicateModifierForMethod(declaringClass, (AbstractMethodDeclaration) referenceContext);
 
 		// after this point, tests on the 16 bits reserved.
-		int realModifiers = modifiers & AccJustFlag;
+		int realModifiers = modifiers & ExtraCompilerModifiers.AccJustFlag;
 
 		// set the requested modifiers for a method in an interface/annotation
 		if (declaringClass.isInterface()) {
-			if ((realModifiers & ~(AccPublic | AccAbstract)) != 0) {
-				if ((declaringClass.modifiers & AccAnnotation) != 0)
+			if ((realModifiers & ~(ClassFileConstants.AccPublic | ClassFileConstants.AccAbstract)) != 0) {
+				if ((declaringClass.modifiers & ClassFileConstants.AccAnnotation) != 0)
 					problemReporter().illegalModifierForAnnotationMember((AbstractMethodDeclaration) referenceContext);
 				else
 					problemReporter().illegalModifierForInterfaceMethod((AbstractMethodDeclaration) referenceContext);
@@ -151,32 +153,32 @@ public class MethodScope extends BlockScope {
 		}
 
 		// check for abnormal modifiers
-		int unexpectedModifiers = ~(AccPublic | AccPrivate | AccProtected
-			| AccAbstract | AccStatic | AccFinal | AccSynchronized | AccNative | AccStrictfp);
-		if ((realModifiers & unexpectedModifiers) != 0) {
+		final int UNEXPECTED_MODIFIERS = ~(ClassFileConstants.AccPublic | ClassFileConstants.AccPrivate | ClassFileConstants.AccProtected
+			| ClassFileConstants.AccAbstract | ClassFileConstants.AccStatic | ClassFileConstants.AccFinal | ClassFileConstants.AccSynchronized | ClassFileConstants.AccNative | ClassFileConstants.AccStrictfp);
+		if ((realModifiers & UNEXPECTED_MODIFIERS) != 0) {
 			problemReporter().illegalModifierForMethod((AbstractMethodDeclaration) referenceContext);
-			modifiers &= ~AccJustFlag | ~unexpectedModifiers;
+			modifiers &= ~ExtraCompilerModifiers.AccJustFlag | ~UNEXPECTED_MODIFIERS;
 		}
 
 		// check for incompatible modifiers in the visibility bits, isolate the visibility bits
-		int accessorBits = realModifiers & (AccPublic | AccProtected | AccPrivate);
+		int accessorBits = realModifiers & (ClassFileConstants.AccPublic | ClassFileConstants.AccProtected | ClassFileConstants.AccPrivate);
 		if ((accessorBits & (accessorBits - 1)) != 0) {
 			problemReporter().illegalVisibilityModifierCombinationForMethod(declaringClass, (AbstractMethodDeclaration) referenceContext);
 
 			// need to keep the less restrictive so disable Protected/Private as necessary
-			if ((accessorBits & AccPublic) != 0) {
-				if ((accessorBits & AccProtected) != 0)
-					modifiers &= ~AccProtected;
-				if ((accessorBits & AccPrivate) != 0)
-					modifiers &= ~AccPrivate;
-			} else if ((accessorBits & AccProtected) != 0 && (accessorBits & AccPrivate) != 0) {
-				modifiers &= ~AccPrivate;
+			if ((accessorBits & ClassFileConstants.AccPublic) != 0) {
+				if ((accessorBits & ClassFileConstants.AccProtected) != 0)
+					modifiers &= ~ClassFileConstants.AccProtected;
+				if ((accessorBits & ClassFileConstants.AccPrivate) != 0)
+					modifiers &= ~ClassFileConstants.AccPrivate;
+			} else if ((accessorBits & ClassFileConstants.AccProtected) != 0 && (accessorBits & ClassFileConstants.AccPrivate) != 0) {
+				modifiers &= ~ClassFileConstants.AccPrivate;
 			}
 		}
 
 		// check for modifiers incompatible with abstract modifier
-		if ((modifiers & AccAbstract) != 0) {
-			int incompatibleWithAbstract = AccPrivate | AccStatic | AccFinal | AccSynchronized | AccNative | AccStrictfp;
+		if ((modifiers & ClassFileConstants.AccAbstract) != 0) {
+			int incompatibleWithAbstract = ClassFileConstants.AccPrivate | ClassFileConstants.AccStatic | ClassFileConstants.AccFinal | ClassFileConstants.AccSynchronized | ClassFileConstants.AccNative | ClassFileConstants.AccStrictfp;
 			if ((modifiers & incompatibleWithAbstract) != 0)
 				problemReporter().illegalAbstractModifierCombinationForMethod(declaringClass, (AbstractMethodDeclaration) referenceContext);
 			if (!methodBinding.declaringClass.isAbstract())
@@ -189,11 +191,11 @@ public class MethodScope extends BlockScope {
 			modifiers |= AccFinal;
 		*/
 		// native methods cannot also be tagged as strictfp
-		if ((modifiers & AccNative) != 0 && (modifiers & AccStrictfp) != 0)
+		if ((modifiers & ClassFileConstants.AccNative) != 0 && (modifiers & ClassFileConstants.AccStrictfp) != 0)
 			problemReporter().nativeMethodsCannotBeStrictfp(declaringClass, (AbstractMethodDeclaration) referenceContext);
 
 		// static members are only authorized in a static member or top level type
-		if (((realModifiers & AccStatic) != 0) && declaringClass.isNestedType() && !declaringClass.isStatic())
+		if (((realModifiers & ClassFileConstants.AccStatic) != 0) && declaringClass.isNestedType() && !declaringClass.isStatic())
 			problemReporter().unexpectedStaticModifierForMethod(declaringClass, (AbstractMethodDeclaration) referenceContext);
 
 		methodBinding.modifiers = modifiers;
@@ -225,12 +227,12 @@ public class MethodScope extends BlockScope {
 		int ilocal = 0, maxLocals = this.localIndex;	
 		while (ilocal < maxLocals) {
 			LocalVariableBinding local = locals[ilocal];
-			if (local == null || !local.isArgument) break; // done with arguments
+			if (local == null || ((local.tagBits & TagBits.IsArgument) == 0)) break; // done with arguments
 
 			// do not report fake used variable
 			if (isReportingUnusedArgument
 					&& local.useFlag == LocalVariableBinding.UNUSED
-					&& ((local.declaration.bits & ASTNode.IsLocalDeclarationReachableMASK) != 0)) { // declaration is reachable
+					&& ((local.declaration.bits & ASTNode.IsLocalDeclarationReachable) != 0)) { // declaration is reachable
 				this.problemReporter().unusedArgument(local.declaration);
 			}
 
@@ -240,7 +242,7 @@ public class MethodScope extends BlockScope {
 			// assign variable position
 			local.resolvedPosition = this.offset;
 
-			if ((local.type == LongBinding) || (local.type == DoubleBinding)) {
+			if ((local.type == TypeBinding.LONG) || (local.type == TypeBinding.DOUBLE)) {
 				this.offset += 2;
 			} else {
 				this.offset++;
@@ -257,7 +259,7 @@ public class MethodScope extends BlockScope {
 			for (int iarg = 0, maxArguments = extraSyntheticArguments.length; iarg < maxArguments; iarg++){
 				SyntheticArgumentBinding argument = extraSyntheticArguments[iarg];
 				argument.resolvedPosition = this.offset;
-				if ((argument.type == LongBinding) || (argument.type == DoubleBinding)){
+				if ((argument.type == TypeBinding.LONG) || (argument.type == TypeBinding.DOUBLE)){
 					this.offset += 2;
 				} else {
 					this.offset++;
@@ -281,15 +283,15 @@ public class MethodScope extends BlockScope {
 		this.referenceContext = method;
 		method.scope = this;
 		SourceTypeBinding declaringClass = referenceType().binding;
-		int modifiers = method.modifiers | AccUnresolved;
+		int modifiers = method.modifiers | ExtraCompilerModifiers.AccUnresolved;
 		if (method.isConstructor()) {
 			if (method.isDefaultConstructor())
-				modifiers |= AccIsDefaultConstructor;
+				modifiers |= ExtraCompilerModifiers.AccIsDefaultConstructor;
 			method.binding = new MethodBinding(modifiers, null, null, declaringClass);
 			checkAndSetModifiersForConstructor(method.binding);
 		} else {
 			if (declaringClass.isInterface()) // interface or annotation type
-				modifiers |= AccPublic | AccAbstract;
+				modifiers |= ClassFileConstants.AccPublic | ClassFileConstants.AccAbstract;
 			method.binding =
 				new MethodBinding(modifiers, method.selector, null, null, null, declaringClass);
 			checkAndSetModifiersForMethod(method.binding);
@@ -300,7 +302,7 @@ public class MethodScope extends BlockScope {
 		int argLength = argTypes == null ? 0 : argTypes.length;
 		if (argLength > 0 && compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5) {
 			if (argTypes[--argLength].isVarArgs())
-				method.binding.modifiers |= AccVarargs;
+				method.binding.modifiers |= ClassFileConstants.AccVarargs;
 			while (--argLength >= 0) {
 				if (argTypes[argLength].isVarArgs())
 					problemReporter().illegalVararg(argTypes[argLength], method);
@@ -310,10 +312,10 @@ public class MethodScope extends BlockScope {
 		TypeParameter[] typeParameters = method.typeParameters();
 	    // do not construct type variables if source < 1.5
 		if (typeParameters == null || compilerOptions().sourceLevel < ClassFileConstants.JDK1_5) {
-		    method.binding.typeVariables = NoTypeVariables;
+		    method.binding.typeVariables = Binding.NO_TYPE_VARIABLES;
 		} else {
 			method.binding.typeVariables = createTypeVariables(typeParameters, method.binding);
-			method.binding.modifiers |= AccGenericSignature;
+			method.binding.modifiers |= ExtraCompilerModifiers.AccGenericSignature;
 		}
 		return method.binding;
 	}
@@ -350,7 +352,7 @@ public class MethodScope extends BlockScope {
 				field, // closest match
 				field.declaringClass,
 				fieldName,
-				NonStaticReferenceInConstructorInvocation);
+				ProblemReasons.NonStaticReferenceInConstructorInvocation);
 		if (invocationSite instanceof QualifiedNameReference) {
 			// look to see if the field is the first binding
 			QualifiedNameReference name = (QualifiedNameReference) invocationSite;
@@ -360,7 +362,7 @@ public class MethodScope extends BlockScope {
 					field, // closest match
 					field.declaringClass,
 					fieldName,
-					NonStaticReferenceInConstructorInvocation);
+					ProblemReasons.NonStaticReferenceInConstructorInvocation);
 		}
 		return field;
 	}
@@ -400,10 +402,11 @@ public class MethodScope extends BlockScope {
 
 	public final int recordInitializationStates(FlowInfo flowInfo) {
 
-		if (!flowInfo.isReachable()) return -1;
+		if ((flowInfo.tagBits & FlowInfo.UNREACHABLE) != 0) return -1;
 
-		UnconditionalFlowInfo unconditionalFlowInfo = flowInfo.unconditionalInits();
-		long[] extraInits = unconditionalFlowInfo.extraDefiniteInits;
+		UnconditionalFlowInfo unconditionalFlowInfo = flowInfo.unconditionalInitsWithoutSideEffect();
+		long[] extraInits = unconditionalFlowInfo.extra == null ?
+				null : unconditionalFlowInfo.extra[0];
 		long inits = unconditionalFlowInfo.definiteInits;
 		checkNextEntry : for (int i = lastIndex; --i >= 0;) {
 			if (definiteInits[i] == inits) {

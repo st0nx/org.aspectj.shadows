@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -88,6 +88,43 @@ public interface IMethodBinding extends IBinding {
 	public ITypeBinding getDeclaringClass();
 
 	/**
+	 * Returns the resolved default value of an annotation type member, 
+	 * or <code>null</code> if the member has no default value, or if this
+	 * is not the binding for an annotation type member.
+	 * <p>
+	 * Resolved values are represented as follows (same as for
+	 * {@link IMemberValuePairBinding#getValue()}):
+	 * <ul>
+	 * <li>Primitive type - the equivalent boxed object</li>
+	 * <li>java.lang.Class - the <code>ITypeBinding</code> for the class object</li>
+	 * <li>java.lang.String - the string value itself</li>
+	 * <li>enum type - the <code>IVariableBinding</code> for the enum constant</li>
+	 * <li>annotation type - an <code>IAnnotationBinding</code></li>
+	 * <li>array type - an <code>Object[]</code> whose elements are as per above
+	 * (the language only allows single dimensional arrays in annotations)</li>
+	 * </ul>
+	 * 
+	 * @return the default value of this annotation type member, or <code>null</code>
+	 * if none or not applicable
+	 * @since 3.2
+	 */
+	public Object getDefaultValue();
+
+	/**
+	 * Returns the resolved annotations of a parameter of this method.
+	 * The result returned is the same regardless of whether 
+	 * this is a parameterized method.
+	 * 
+	 * @param paramIndex the index of the parameter of interest
+	 * @return the resolved annotations of the <code>paramIndex</code>th parameter,
+	 * or an empty list if there are none
+	 * @throws ArrayIndexOutOfBoundsException if <code>paramIndex</code> is 
+	 * not a valid index
+	 * @since 3.2
+	 */
+	public IAnnotationBinding[] getParameterAnnotations(int paramIndex);
+
+	/**
 	 * Returns a list of type bindings representing the formal parameter types,
 	 * in declaration order, of this method or constructor. Returns an array of
 	 * length 0 if this method or constructor does not takes any parameters.
@@ -145,7 +182,16 @@ public interface IMethodBinding extends IBinding {
 	 * @since 3.1
 	 */
 	public ITypeBinding[] getTypeParameters();
-	
+
+	/**
+	 * Returns whether this is the binding for an annotation type member.
+	 * 
+	 * @return <code>true</code> iff this is the binding for an annotation type member
+	 *         and <code>false</code> otherwise
+	 * @since 3.2
+	 */
+	public boolean isAnnotationMember();
+
 	/**
 	 * Returns whether this method binding represents a declaration of
 	 * a generic method.
@@ -225,7 +271,7 @@ public interface IMethodBinding extends IBinding {
 	 * @since 3.1
 	 */
 	public IMethodBinding getMethodDeclaration();
-
+	
 	/**
 	 * Returns whether this method binding represents an instance of
 	 * a generic method corresponding to a raw method reference.
@@ -267,8 +313,8 @@ public interface IMethodBinding extends IBinding {
 	
 	/**
 	 * Returns whether this method overrides the given method,
-	 * as specified in section 6.4.2 of <em>The Java Language 
-	 * Specification, Second Edition</em> (JLS2).
+	 * as specified in section 8.4.8.1 of <em>The Java Language 
+	 * Specification, Third Edition</em> (JLS3).
 	 * 
 	 * @param method the method that is possibly overriden
 	 * @return <code>true</code> if this method overrides the given method,

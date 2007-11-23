@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -52,6 +52,7 @@ public class MultiCommentRegion extends CommentRegion implements IJavaDocTagCons
 		fIndentDescriptions= this.preferences.comment_indent_parameter_description;
 		fSeparateRoots= this.preferences.comment_insert_empty_line_before_root_tags;
 		fParameterNewLine= this.preferences.comment_insert_new_line_for_parameter;
+		fClear = this.preferences.comment_clear_blank_lines_in_block_comment;
 	}
 
 	/*
@@ -139,7 +140,7 @@ public class MultiCommentRegion extends CommentRegion implements IJavaDocTagCons
 				return delimiter + delimiter;
 
 			else if (fIndentRoots && !predecessor.hasAttribute(COMMENT_ROOT) && !predecessor.hasAttribute(COMMENT_PARAMETER) && !predecessor.hasAttribute(COMMENT_BLANKLINE))
-				return delimiter + stringToIndent(predecessor.getIndentationReference(), false);
+				return delimiter + stringToIndent(predecessor.getIndentationReference());
 		}
 		return delimiter;
 	}
@@ -189,7 +190,7 @@ public class MultiCommentRegion extends CommentRegion implements IJavaDocTagCons
 	 * @param range the comment range to mark
 	 * @param token token associated with the comment range
 	 */
-	protected void markHtmlTag(final CommentRange range, final String token) {
+	protected void markHtmlTag(final CommentRange range, final char[] token) {
 		// Do nothing
 	}
 
@@ -199,7 +200,7 @@ public class MultiCommentRegion extends CommentRegion implements IJavaDocTagCons
 	 * @param range the comment range to mark
 	 * @param token token associated with the comment range
 	 */
-	protected void markJavadocTag(final CommentRange range, final String token) {
+	protected void markJavadocTag(final CommentRange range, final char[] token) {
 		range.markPrefixTag(COMMENT_ROOT_TAGS, COMMENT_TAG_PREFIX, token, COMMENT_ROOT);
 	}
 
@@ -211,7 +212,7 @@ public class MultiCommentRegion extends CommentRegion implements IJavaDocTagCons
 		int count= 0;
 		boolean paragraph= false;
 
-		String token= null;
+		char[] token= null;
 		CommentRange range= null;
 
 		for (final ListIterator iterator= getRanges().listIterator(); iterator.hasNext();) {
@@ -221,7 +222,7 @@ public class MultiCommentRegion extends CommentRegion implements IJavaDocTagCons
 
 			if (count > 0) {
 
-				token= getText(range.getOffset(), count).toLowerCase();
+				token= getText(range.getOffset(), count).toLowerCase().toCharArray();
 
 				markJavadocTag(range, token);
 				if (!paragraph && (range.hasAttribute(COMMENT_ROOT) || range.hasAttribute(COMMENT_PARAMETER))) {

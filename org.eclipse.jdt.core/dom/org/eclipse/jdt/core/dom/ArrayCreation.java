@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -19,7 +19,7 @@ import java.util.List;
  * <pre>
  * ArrayCreation:
  *    <b>new</b> PrimitiveType <b>[</b> Expression <b>]</b> { <b>[</b> Expression <b>]</b> } { <b>[</b> <b>]</b> }
- *    <b>new</b> TypeName <b>[</b> Expression ]</b> { <b>[</b> Expression <b>]</b> } { <b>[</b> <b>]</b> }
+ *    <b>new</b> TypeName <b>[</b> Expression <b>]</b> { <b>[</b> Expression <b>]</b> } { <b>[</b> <b>]</b> }
  *    <b>new</b> PrimitiveType <b>[</b> <b>]</b> { <b>[</b> <b>]</b> } ArrayInitializer
  *    <b>new</b> TypeName <b>[</b> <b>]</b> { <b>[</b> <b>]</b> } ArrayInitializer
  * </pre>
@@ -37,7 +37,7 @@ import java.util.List;
  * ArrayCreation:
  *    <b>new</b> PrimitiveType <b>[</b> Expression <b>]</b> { <b>[</b> Expression <b>]</b> } { <b>[</b> <b>]</b> }
  *    <b>new</b> TypeName [ <b>&lt;</b> Type { <b>,</b> Type } <b>&gt;</b> ]
- *        <b>[</b> Expression ]</b> { <b>[</b> Expression <b>]</b> } { <b>[</b> <b>]</b> }
+ *        <b>[</b> Expression <b>]</b> { <b>[</b> Expression <b>]</b> } { <b>[</b> <b>]</b> }
  *    <b>new</b> PrimitiveType <b>[</b> <b>]</b> { <b>[</b> <b>]</b> } ArrayInitializer
  *    <b>new</b> TypeName [ <b>&lt;</b> Type { <b>,</b> Type } <b>&gt;</b> ]
  *        <b>[</b> <b>]</b> { <b>[</b> <b>]</b> } ArrayInitializer
@@ -89,7 +89,7 @@ public class ArrayCreation extends Expression {
 	 * Clients must not modify the result.
 	 * 
 	 * @param apiLevel the API level; one of the
-	 * <code>AST.JLS&ast;</code> constants
+	 * <code>AST.JLS*</code> constants
 
 	 * @return a list of property descriptors (element type: 
 	 * {@link StructuralPropertyDescriptor})

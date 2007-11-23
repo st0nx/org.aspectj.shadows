@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,6 +12,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 /**
@@ -21,7 +22,6 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 public class ParameterizedSingleTypeReference extends ArrayTypeReference {
 
 	public TypeReference[] typeArguments;
-	private boolean didResolve = false;
 	
 	public ParameterizedSingleTypeReference(char[] name, TypeReference[] typeArguments, int dim, long pos){
 		super(name, dim, pos);
@@ -33,7 +33,7 @@ public class ParameterizedSingleTypeReference extends ArrayTypeReference {
 
 		if (this.resolvedType.leafComponentType() instanceof ParameterizedTypeBinding) {
 			ParameterizedTypeBinding parameterizedType = (ParameterizedTypeBinding) this.resolvedType.leafComponentType();
-			ReferenceBinding currentType = parameterizedType.type;
+			ReferenceBinding currentType = parameterizedType.genericType();
 			TypeVariableBinding[] typeVariables = currentType.typeVariables();
 			TypeBinding[] argTypes = parameterizedType.arguments;
 			if (argTypes != null && typeVariables != null) { // may be null in error cases
@@ -45,7 +45,7 @@ public class ParameterizedSingleTypeReference extends ArrayTypeReference {
 	 * @see org.eclipse.jdt.internal.compiler.ast.TypeReference#copyDims(int)
 	 */
 	public TypeReference copyDims(int dim) {
-		return new ParameterizedSingleTypeReference(this.token, this.typeArguments, dim, (((long)this.sourceStart)<<32) + this.sourceEnd);
+		return new ParameterizedSingleTypeReference(token, typeArguments, dim, (((long)sourceStart)<<32)+sourceEnd);
 	}
 
 	/**
@@ -87,30 +87,39 @@ public class ParameterizedSingleTypeReference extends ArrayTypeReference {
 	private TypeBinding internalResolveType(Scope scope, ReferenceBinding enclosingType, boolean checkBounds) {
 
 		// handle the error here
-		this.constant = NotAConstant;
-		if (this.didResolve) { // is a shared type reference which was already resolved
+		this.constant = Constant.NotAConstant;
+		if ((this.bits & ASTNode.DidResolve) != 0) { // is a shared type reference which was already resolved
 			if (this.resolvedType != null && !this.resolvedType.isValidBinding())
 				return null; // already reported error
 			return this.resolvedType;
 		} 
-	    this.didResolve = true;
+		this.bits |= ASTNode.DidResolve;
 		if (enclosingType == null) {
 			this.resolvedType = scope.getType(token);
 			if (!(this.resolvedType.isValidBinding())) {
 				reportInvalidType(scope);
+				// be resilient, still attempt resolving arguments
+				boolean isClassScope = scope.kind == Scope.CLASS_SCOPE;
+				int argLength = this.typeArguments.length;
+				for (int i = 0; i < argLength; i++) {
+					TypeReference typeArgument = this.typeArguments[i];
+					if (isClassScope) {
+						typeArgument.resolveType((ClassScope) scope);
+					} else {
+						typeArgument.resolveType((BlockScope) scope, checkBounds);
+					}
+				}
 				return null;
 			}
 			enclosingType = this.resolvedType.enclosingType(); // if member type
-			if (enclosingType != null) {
+			if (enclosingType != null && (enclosingType.isGenericType() || enclosingType.isParameterizedType())) {
 				ReferenceBinding currentType = (ReferenceBinding) this.resolvedType;
-				if (currentType.isStatic() 
-						|| (enclosingType.isGenericType() 
-								&& enclosingType.outermostEnclosingType() != scope.outerMostClassScope().referenceContext.binding)) {
-					enclosingType = (ReferenceBinding) scope.environment().convertToRawType(enclosingType);
-				}
+				enclosingType = currentType.isStatic()
+					? (ReferenceBinding) scope.environment().convertToRawType(enclosingType)
+					: scope.environment().convertToParameterizedType(enclosingType);
 			}
 		} else { // resolving member type (relatively to enclosingType)
-			this.resolvedType = scope.getMemberType(token, (ReferenceBinding)enclosingType.erasure());		    
+			this.resolvedType = scope.getMemberType(token, enclosingType);
 			if (!this.resolvedType.isValidBinding()) {
 				scope.problemReporter().invalidEnclosingType(this, this.resolvedType, enclosingType);
 				return null;
@@ -144,45 +153,35 @@ public class ParameterizedSingleTypeReference extends ArrayTypeReference {
 		if (argHasError) return null;
 		if (isClassScope) {
 	    	((ClassScope) scope).superTypeReference = keep;
-			if (((ClassScope) scope).detectHierarchyCycle(currentType, this, argTypes))
+			if (((ClassScope) scope).detectHierarchyCycle(currentType, this))
 				return null;
 		}
 
 		TypeVariableBinding[] typeVariables = currentType.typeVariables();
-		if (typeVariables == NoTypeVariables) { // check generic
+		if (typeVariables == Binding.NO_TYPE_VARIABLES) { // check generic
 			scope.problemReporter().nonGenericTypeCannotBeParameterized(this, currentType, argTypes);
 			return null;
 		} else if (argLength != typeVariables.length) { // check arity
 			scope.problemReporter().incorrectArityForParameterizedType(this, currentType, argTypes);
 			return null;
-		} else if (!currentType.isStatic() && enclosingType != null && enclosingType.isRawType()){
-			scope.problemReporter().rawMemberTypeCannotBeParameterized(
-					this, scope.environment().createRawType((ReferenceBinding)currentType.erasure(), enclosingType), argTypes);
-			return null;
+		} else if (!currentType.isStatic()) {
+			ReferenceBinding actualEnclosing = currentType.enclosingType();
+			if (actualEnclosing != null && actualEnclosing.isRawType()){
+				scope.problemReporter().rawMemberTypeCannotBeParameterized(
+						this, scope.environment().createRawType((ReferenceBinding)currentType.erasure(), actualEnclosing), argTypes);
+				return null;
+			}
 		}
 
-		// if generic type X<T> is referred to as parameterized X<T>, then answer itself
-		boolean isIdentical = true; //this.resolvedType instanceof SourceTypeBinding;
-		if (isIdentical) {
-		    for (int i = 0; i < argLength; i++) {
-				if (typeVariables[i] != argTypes[i]) {
-					isIdentical = false;
-				    break;
-				}
-			}
-		}		
-	    if (!isIdentical) {
-	    	ParameterizedTypeBinding parameterizedType = scope.environment().createParameterizedType((ReferenceBinding)currentType.erasure(), argTypes, enclosingType);
-			// check argument type compatibility
-			if (checkBounds) // otherwise will do it in Scope.connectTypeVariables() or generic method resolution
-				parameterizedType.boundCheck(scope, this.typeArguments);
-	
-			this.resolvedType = parameterizedType;
-			if (isTypeUseDeprecated(this.resolvedType, scope))
-				reportDeprecatedType(scope);
-		} else {
-			this.resolvedType = this.resolvedType.erasure();
-		}
+    	ParameterizedTypeBinding parameterizedType = scope.environment().createParameterizedType((ReferenceBinding)currentType.erasure(), argTypes, enclosingType);
+		// check argument type compatibility
+		if (checkBounds) // otherwise will do it in Scope.connectTypeVariables() or generic method resolution
+			parameterizedType.boundCheck(scope, this.typeArguments);
+
+		this.resolvedType = parameterizedType;
+		if (isTypeUseDeprecated(this.resolvedType, scope))
+			reportDeprecatedType(this.resolvedType, scope);
+
 		// array type ?
 		if (this.dimensions > 0) {
 			if (dimensions > 255)

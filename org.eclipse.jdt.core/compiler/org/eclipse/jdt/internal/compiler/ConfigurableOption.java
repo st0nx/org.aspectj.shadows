@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -17,7 +17,13 @@ package org.eclipse.jdt.internal.compiler;
  * @deprecated backport 1.0 internal functionality
  */
 
-import java.util.*;
+import java.util.Locale;
+import java.util.MissingResourceException;
+import java.util.NoSuchElementException;
+import java.util.ResourceBundle;
+import java.util.StringTokenizer;
+
+import org.eclipse.jdt.core.compiler.CharOperation;
 
 public class ConfigurableOption {
 	private String componentName;
@@ -28,7 +34,6 @@ public class ConfigurableOption {
 	private String name;
 	private String description;
 	private int currentValueIndex;
-	private int defaultValueIndex;
 	private String[] possibleValues;
 
 	// special value for <possibleValues> indicating that 
@@ -59,7 +64,7 @@ public ConfigurableOption(
 		category = "Missing ressources entries for" + componentName + " options"; //$NON-NLS-1$ //$NON-NLS-2$
 		name = "Missing ressources entries for"+ componentName + " options"; //$NON-NLS-1$ //$NON-NLS-2$
 		description = "Missing ressources entries for" + componentName + " options"; //$NON-NLS-1$ //$NON-NLS-2$
-		possibleValues = new String[0];
+		possibleValues = CharOperation.NO_STRINGS;
 		id = -1;
 	}
 	if (resource == null) return;
@@ -94,11 +99,11 @@ public ConfigurableOption(
 			}
 		}
 	} catch (MissingResourceException e) {
-		possibleValues = new String[0];
+		possibleValues = CharOperation.NO_STRINGS;
 	} catch (NoSuchElementException e) {
-		possibleValues = new String[0];
+		possibleValues = CharOperation.NO_STRINGS;
 	} catch (NumberFormatException e) {
-		possibleValues = new String[0];
+		possibleValues = CharOperation.NO_STRINGS;
 	}
 	try {
 		description = resource.getString(optionName + ".description");  //$NON-NLS-1$
@@ -135,18 +140,6 @@ public String getComponentName() {
  */
 public int getCurrentValueIndex() {
 	return currentValueIndex;
-}
-/**
- * Answer the index (in possibleValues array) of the default setting for this
- * particular option.
- *
- * In case the set of possibleValues is NoDiscreteValue, then this index is the
- * actual value (e.g. max line lenght set to 80).
- *
- * @return int
- */
-public int getDefaultValueIndex() {
-	return defaultValueIndex;
 }
 /**
  * Return an String that represents the localized description of the receiver.

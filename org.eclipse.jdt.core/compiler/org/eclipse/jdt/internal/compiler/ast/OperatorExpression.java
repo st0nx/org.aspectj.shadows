@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,10 +7,12 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Perry James - nullStatus method improvement (165346)
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 public abstract class OperatorExpression extends Expression implements OperatorIds {
 
@@ -72,7 +74,7 @@ public abstract class OperatorExpression extends Expression implements OperatorI
 					case T_null		: return "null"; //$NON-NLS-1$
 					case T_short	: return "((short) 5)"; //$NON-NLS-1$
 					case T_JavaLangObject	: return "null";} //$NON-NLS-1$
-				return "";} //$NON-NLS-1$
+				return Util.EMPTY_STRING;}
 	
 			public  final String type(int code){
 				switch(code){ 
@@ -1197,9 +1199,7 @@ public abstract class OperatorExpression extends Expression implements OperatorI
 		//  0000   0000       0000   0000      0000
 		//  <<16   <<12       <<8    <<4       
 		
-		int[] table  = new int[16*16];
-	
-		table = (int[]) get_PLUS().clone();
+		int[] table = (int[]) get_PLUS().clone();
 
 		// customization	
 		table[(T_JavaLangString<<4)+T_byte] 		= T_undefined;
@@ -1557,7 +1557,7 @@ public abstract class OperatorExpression extends Expression implements OperatorI
 	}
 
 	public int nullStatus(FlowInfo flowInfo) {
-		return FlowInfo.UNKNOWN;
+		return FlowInfo.NON_NULL;
 	}
 	
 	public StringBuffer printExpression(int indent, StringBuffer output){

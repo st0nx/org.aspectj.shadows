@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -88,14 +88,12 @@ public final class Messages {
 	public static String compilation_unit;
 	public static String compilation_internalError;
 	public static String output_isFile;
-	public static String output_isFileNotDirectory;
-	public static String output_dirName;
 	public static String output_notValidAll;
-	public static String output_fileName;
 	public static String output_notValid;
 	public static String problem_noSourceInformation;
 	public static String problem_atLine;
 	public static String abort_invalidAttribute;
+	public static String abort_invalidExceptionAttribute;
 	public static String abort_missingCode;
 	public static String abort_againstSourceModel;
 	public static String accept_cannot;
@@ -223,21 +221,21 @@ public final class Messages {
 		final String[] variants = buildVariants(bundleName);
 		// search the dirs in reverse order so the cascading defaults is set correctly
 		for (int i = variants.length; --i >= 0;) {
-			final InputStream input = loader.getResourceAsStream(variants[i]);
-			if (input == null)
-				continue;
+			InputStream input = (loader == null)
+				? ClassLoader.getSystemResourceAsStream(variants[i])
+				: loader.getResourceAsStream(variants[i]);
+			if (input == null) continue;
 			try {
 				final MessagesProperties properties = new MessagesProperties(fields, bundleName);
 				properties.load(input);
 			} catch (IOException e) {
 				// ignore
 			} finally {
-				if (input != null)
-					try {
-						input.close();
-					} catch (IOException e) {
-						// ignore
-					}
+				try {
+					input.close();
+				} catch (IOException e) {
+					// ignore
+				}
 			}
 		}
 	}

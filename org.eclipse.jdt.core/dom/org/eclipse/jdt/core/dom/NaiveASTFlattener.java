@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -639,6 +639,7 @@ class NaiveASTFlattener extends ASTVisitor {
 		for (Iterator it = node.initializers().iterator(); it.hasNext(); ) {
 			Expression e = (Expression) it.next();
 			e.accept(this);
+			if (it.hasNext()) buffer.append(", ");//$NON-NLS-1$
 		}
 		this.buffer.append("; ");//$NON-NLS-1$
 		if (node.getExpression() != null) {
@@ -648,6 +649,7 @@ class NaiveASTFlattener extends ASTVisitor {
 		for (Iterator it = node.updaters().iterator(); it.hasNext(); ) {
 			Expression e = (Expression) it.next();
 			e.accept(this);
+			if (it.hasNext()) buffer.append(", ");//$NON-NLS-1$
 		}
 		this.buffer.append(") ");//$NON-NLS-1$
 		node.getBody().accept(this);
@@ -1454,20 +1456,8 @@ class NaiveASTFlattener extends ASTVisitor {
 		}
 		this.buffer.append("{\n");//$NON-NLS-1$
 		this.indent++;
-		BodyDeclaration prev = null;
 		for (Iterator it = node.bodyDeclarations().iterator(); it.hasNext(); ) {
 			BodyDeclaration d = (BodyDeclaration) it.next();
-			if (prev instanceof EnumConstantDeclaration) {
-				// enum constant declarations do not include punctuation
-				if (d instanceof EnumConstantDeclaration) {
-					// enum constant declarations are separated by commas
-					this.buffer.append(", ");//$NON-NLS-1$
-				} else {
-					// semicolon separates last enum constant declaration from 
-					// first class body declarations
-					this.buffer.append("; ");//$NON-NLS-1$
-				}
-			}
 			d.accept(this);
 		}
 		this.indent--;

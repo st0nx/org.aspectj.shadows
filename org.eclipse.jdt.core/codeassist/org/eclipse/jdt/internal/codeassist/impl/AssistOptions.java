@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -20,6 +20,8 @@ public class AssistOptions {
 	 */
 	public static final String OPTION_PerformVisibilityCheck =
 		"org.eclipse.jdt.core.codeComplete.visibilityCheck"; 	//$NON-NLS-1$
+	public static final String OPTION_PerformDeprecationCheck =
+		"org.eclipse.jdt.core.codeComplete.deprecationCheck"; 	//$NON-NLS-1$
 	public static final String OPTION_ForceImplicitQualification =
 		"org.eclipse.jdt.core.codeComplete.forceImplicitQualification"; 	//$NON-NLS-1$
 	public static final String OPTION_FieldPrefixes =
@@ -42,14 +44,21 @@ public class AssistOptions {
 		"org.eclipse.jdt.core.codeComplete.forbiddenReferenceCheck"; 	//$NON-NLS-1$
 	public static final String OPTION_PerformDiscouragedReferenceCheck =
 		"org.eclipse.jdt.core.codeComplete.discouragedReferenceCheck"; 	//$NON-NLS-1$
+	public static final String OPTION_CamelCaseMatch =
+		"org.eclipse.jdt.core.codeComplete.camelCaseMatch"; 	//$NON-NLS-1$
+	public static final String OPTION_SuggestStaticImports =
+		"org.eclipse.jdt.core.codeComplete.suggestStaticImports"; 	//$NON-NLS-1$
 	
 	public static final String ENABLED = "enabled"; //$NON-NLS-1$
 	public static final String DISABLED = "disabled"; //$NON-NLS-1$
 	
 	public boolean checkVisibility = false;
+	public boolean checkDeprecation = false;
 	public boolean checkForbiddenReference = false;
 	public boolean checkDiscouragedReference = false;
 	public boolean forceImplicitQualification = false;
+	public boolean camelCaseMatch = true;
+	public boolean suggestStaticImport = true;
 	public char[][] fieldPrefixes = null;
 	public char[][] staticFieldPrefixes = null;
 	public char[][] localPrefixes = null;
@@ -96,7 +105,7 @@ public class AssistOptions {
 			if (optionValue instanceof String) {
 				String stringValue = (String) optionValue;
 				if (stringValue.length() > 0){
-					this.fieldPrefixes = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+					this.fieldPrefixes = this.splitAndTrimOn(',', stringValue.toCharArray());
 				} else {
 					this.fieldPrefixes = null;
 				}
@@ -106,7 +115,7 @@ public class AssistOptions {
 			if (optionValue instanceof String) {
 				String stringValue = (String) optionValue;
 				if (stringValue.length() > 0){
-					this.staticFieldPrefixes = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+					this.staticFieldPrefixes = this.splitAndTrimOn(',', stringValue.toCharArray());
 				} else {
 					this.staticFieldPrefixes = null;
 				}
@@ -116,7 +125,7 @@ public class AssistOptions {
 			if (optionValue instanceof String) {
 				String stringValue = (String) optionValue;
 				if (stringValue.length() > 0){
-					this.localPrefixes = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+					this.localPrefixes = this.splitAndTrimOn(',', stringValue.toCharArray());
 				} else {
 					this.localPrefixes = null;
 				}
@@ -126,7 +135,7 @@ public class AssistOptions {
 			if (optionValue instanceof String) {
 				String stringValue = (String) optionValue;
 				if (stringValue.length() > 0){
-					this.argumentPrefixes = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+					this.argumentPrefixes = this.splitAndTrimOn(',', stringValue.toCharArray());
 				} else {
 					this.argumentPrefixes = null;
 				}
@@ -136,7 +145,7 @@ public class AssistOptions {
 			if (optionValue instanceof String) {
 				String stringValue = (String) optionValue;
 				if (stringValue.length() > 0){
-					this.fieldSuffixes = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+					this.fieldSuffixes = this.splitAndTrimOn(',', stringValue.toCharArray());
 				} else {
 					this.fieldSuffixes = null;
 				}
@@ -146,7 +155,7 @@ public class AssistOptions {
 			if (optionValue instanceof String) {
 				String stringValue = (String) optionValue;
 				if (stringValue.length() > 0){
-					this.staticFieldSuffixes = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+					this.staticFieldSuffixes = this.splitAndTrimOn(',', stringValue.toCharArray());
 				} else {
 					this.staticFieldSuffixes = null;
 				}
@@ -156,7 +165,7 @@ public class AssistOptions {
 			if (optionValue instanceof String) {
 				String stringValue = (String) optionValue;
 				if (stringValue.length() > 0){
-					this.localSuffixes = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+					this.localSuffixes = this.splitAndTrimOn(',', stringValue.toCharArray());
 				} else {
 					this.localSuffixes = null;
 				}
@@ -166,7 +175,7 @@ public class AssistOptions {
 			if (optionValue instanceof String) {
 				String stringValue = (String) optionValue;
 				if (stringValue.length() > 0){
-					this.argumentSuffixes = CharOperation.splitAndTrimOn(',', stringValue.toCharArray());
+					this.argumentSuffixes = this.splitAndTrimOn(',', stringValue.toCharArray());
 				} else {
 					this.argumentSuffixes = null;
 				}
@@ -186,5 +195,43 @@ public class AssistOptions {
 				this.checkDiscouragedReference = false;
 			}
 		}
+		if ((optionValue = optionsMap.get(OPTION_CamelCaseMatch)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.camelCaseMatch = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.camelCaseMatch = false;
+			}
+		}
+		if ((optionValue = optionsMap.get(OPTION_PerformDeprecationCheck)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.checkDeprecation = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.checkDeprecation = false;
+			}
+		}
+		if ((optionValue = optionsMap.get(OPTION_SuggestStaticImports)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.suggestStaticImport = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.suggestStaticImport = false;
+			}
+		}
+	}
+	
+	private char[][] splitAndTrimOn(char divider, char[] arrayToSplit) {
+		char[][] result = CharOperation.splitAndTrimOn(',', arrayToSplit);
+		
+		int length = result.length;
+		
+		int resultCount = 0;
+		for (int i = 0; i < length; i++) {
+			if(result[i].length != 0) {
+				result[resultCount++] = result[i];
+			}
+		}
+		if(resultCount != length) {
+			System.arraycopy(result, 0, result = new char[resultCount][], 0, resultCount);
+		}
+		return result;
 	}
 }

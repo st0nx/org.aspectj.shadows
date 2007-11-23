@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,6 +14,7 @@ package org.eclipse.jdt.internal.formatter.comment;
 import java.util.HashSet;
 import java.util.Set;
 
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jface.text.IRegion;
 import org.eclipse.jface.text.Region;
 
@@ -42,22 +43,22 @@ public class MultiCommentLine extends CommentLine implements ICommentAttributes,
 	static {
 		fgTagLookup= new HashSet();
 		for (int i= 0; i < JAVADOC_BREAK_TAGS.length; i++) {
-			fgTagLookup.add(JAVADOC_BREAK_TAGS[i]);
+			fgTagLookup.add(new String(JAVADOC_BREAK_TAGS[i]));
 		}
 		for (int i= 0; i < JAVADOC_SINGLE_BREAK_TAG.length; i++) {
-			fgTagLookup.add(JAVADOC_SINGLE_BREAK_TAG[i]);
+			fgTagLookup.add(new String(JAVADOC_SINGLE_BREAK_TAG[i]));
 		}
 		for (int i= 0; i < JAVADOC_CODE_TAGS.length; i++) {
-			fgTagLookup.add(JAVADOC_CODE_TAGS[i]);
+			fgTagLookup.add(new String(JAVADOC_CODE_TAGS[i]));
 		}
 		for (int i= 0; i < JAVADOC_IMMUTABLE_TAGS.length; i++) {
-			fgTagLookup.add(JAVADOC_IMMUTABLE_TAGS[i]);
+			fgTagLookup.add(new String(JAVADOC_IMMUTABLE_TAGS[i]));
 		}
 		for (int i= 0; i < JAVADOC_NEWLINE_TAGS.length; i++) {
-			fgTagLookup.add(JAVADOC_NEWLINE_TAGS[i]);
+			fgTagLookup.add(new String(JAVADOC_NEWLINE_TAGS[i]));
 		}
 		for (int i= 0; i < JAVADOC_SEPARATOR_TAGS.length; i++) {
-			fgTagLookup.add(JAVADOC_SEPARATOR_TAGS[i]);
+			fgTagLookup.add(new String(JAVADOC_SEPARATOR_TAGS[i]));
 		}
 	}
 
@@ -261,7 +262,7 @@ public class MultiCommentLine extends CommentLine implements ICommentAttributes,
 		final String content= parent.getText(begin, range.getLength());
 		final int length= content.length();
 
-		while (offset < length && Character.isWhitespace(content.charAt(offset)))
+		while (offset < length && ScannerHelper.isWhitespace(content.charAt(offset)))
 			offset++;
 
 		CommentRange result= null;
@@ -277,7 +278,7 @@ public class MultiCommentLine extends CommentLine implements ICommentAttributes,
 		int attribute= COMMENT_FIRST_TOKEN | COMMENT_STARTS_WITH_RANGE_DELIMITER;
 		while (offset < length) {
 
-			while (offset < length && Character.isWhitespace(content.charAt(offset))) {
+			while (offset < length && ScannerHelper.isWhitespace(content.charAt(offset))) {
 				offset++;
 				attribute |= COMMENT_STARTS_WITH_RANGE_DELIMITER;
 			}
@@ -301,12 +302,15 @@ public class MultiCommentLine extends CommentLine implements ICommentAttributes,
 					} else {
 						// no tag - do the usual thing from the original offset
 						index= tag;
-						while (index < length && !Character.isWhitespace(content.charAt(index)) && content.charAt(index) != HTML_TAG_PREFIX && !content.startsWith(LINK_TAG_PREFIX, index))
+						while (index < length
+								&& !ScannerHelper.isWhitespace(content.charAt(index))
+								&& content.charAt(index) != HTML_TAG_PREFIX 
+								&& !content.startsWith(LINK_TAG_PREFIX_STRING, index))
 							index++;
 					}
 
 
-				} else if (content.startsWith(LINK_TAG_PREFIX, index)) {
+				} else if (content.startsWith(LINK_TAG_PREFIX_STRING, index)) {
 
 					while (index < length && content.charAt(index) != LINK_TAG_POSTFIX)
 						index++;
@@ -318,7 +322,10 @@ public class MultiCommentLine extends CommentLine implements ICommentAttributes,
 
 				} else {
 
-					while (index < length && !Character.isWhitespace(content.charAt(index)) && content.charAt(index) != HTML_TAG_PREFIX && !content.startsWith(LINK_TAG_PREFIX, index))
+					while (index < length
+							&& !ScannerHelper.isWhitespace(content.charAt(index))
+							&& content.charAt(index) != HTML_TAG_PREFIX
+							&& !content.startsWith(LINK_TAG_PREFIX_STRING, index))
 						index++;
 				}
 			}
@@ -357,7 +364,7 @@ public class MultiCommentLine extends CommentLine implements ICommentAttributes,
 		
 		// extract first token
 		int i= 0;
-		while (i < tag.length() && !Character.isWhitespace(tag.charAt(i)))
+		while (i < tag.length() && !ScannerHelper.isWhitespace(tag.charAt(i)))
 			i++;
 		tag= tag.substring(0, i);
 		

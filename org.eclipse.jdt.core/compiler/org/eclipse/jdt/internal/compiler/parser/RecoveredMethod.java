@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -20,19 +20,21 @@ import org.eclipse.jdt.internal.compiler.ast.ExplicitConstructorCall;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.MemberValuePair;
+import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Statement;
 import org.eclipse.jdt.internal.compiler.ast.SuperReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.TypeParameter;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
-import org.eclipse.jdt.internal.compiler.lookup.BaseTypes;
-import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 /**
  * Internal method structure for parsing recovery 
  */
 
-public class RecoveredMethod extends RecoveredElement implements CompilerModifiers, TerminalTokens, BaseTypes {
+public class RecoveredMethod extends RecoveredElement implements TerminalTokens {
 
 	public AbstractMethodDeclaration methodDeclaration;
 
@@ -85,10 +87,10 @@ public RecoveredElement add(FieldDeclaration fieldDeclaration, int bracketBalanc
 
 	/* local variables inside method can only be final and non void */
 	char[][] fieldTypeName; 
-	if ((fieldDeclaration.modifiers & ~AccFinal) != 0 // local var can only be final 
+	if ((fieldDeclaration.modifiers & ~ClassFileConstants.AccFinal) != 0 // local var can only be final 
 		|| (fieldDeclaration.type == null) // initializer
 		|| ((fieldTypeName = fieldDeclaration.type.getTypeName()).length == 1 // non void
-			&& CharOperation.equals(fieldTypeName[0], VoidBinding.sourceName()))){ 
+			&& CharOperation.equals(fieldTypeName[0], TypeBinding.VOID.sourceName()))){ 
 
 		if (this.parent == null){
 			return this; // ignore
@@ -206,7 +208,7 @@ public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalanceV
 		}
 		return this.parent.add(typeDeclaration, bracketBalanceValue);
 	}
-	if ((typeDeclaration.bits & ASTNode.IsLocalTypeMASK) != 0){
+	if ((typeDeclaration.bits & ASTNode.IsLocalType) != 0 || this.parser().methodRecoveryActivated || this.parser().statementRecoveryActivated){
 		if (methodBody == null){
 			Block block = new Block(0);
 			block.sourceStart = methodDeclaration.bodyStart;
@@ -214,13 +216,15 @@ public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalanceV
 		}
 		return methodBody.add(typeDeclaration, bracketBalanceValue, true);	
 	}
-	if (typeDeclaration.kind() == IGenericType.INTERFACE_DECL) {
-		this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(typeDeclaration.declarationSourceStart - 1));
-		if (this.parent == null) {
-			return this; // ignore
-		}
-		// close the constructor
-		return this.parent.add(typeDeclaration, bracketBalanceValue);
+	switch (TypeDeclaration.kind(typeDeclaration.modifiers)) {
+		case TypeDeclaration.INTERFACE_DECL :
+		case TypeDeclaration.ANNOTATION_TYPE_DECL :
+			this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(typeDeclaration.declarationSourceStart - 1));
+			if (this.parent == null) {
+				return this; // ignore
+			}
+			// close the constructor
+			return this.parent.add(typeDeclaration, bracketBalanceValue);
 	}
 	if (localTypes == null) {
 		localTypes = new RecoveredType[5];
@@ -310,7 +314,7 @@ public AbstractMethodDeclaration updatedMethodDeclaration(){
 			}
 		}
 	}
-	if (localTypeCount > 0) methodDeclaration.bits |= ASTNode.HasLocalTypeMASK;
+	if (localTypeCount > 0) methodDeclaration.bits |= ASTNode.HasLocalType;
 	return methodDeclaration;
 }
 /*
@@ -380,9 +384,9 @@ public void updateFromParserState(){
 						Argument argument = (Argument)aNode;
 						/* cannot be an argument if non final */
 						char[][] argTypeName = argument.type.getTypeName();
-						if ((argument.modifiers & ~AccFinal) != 0
+						if ((argument.modifiers & ~ClassFileConstants.AccFinal) != 0
 							|| (argTypeName.length == 1
-								&& CharOperation.equals(argTypeName[0], VoidBinding.sourceName()))){
+								&& CharOperation.equals(argTypeName[0], TypeBinding.VOID.sourceName()))){
 							parser.astLengthStack[parser.astLengthPtr] = count; 
 							parser.astPtr = argStart+count-1; 
 							parser.listLength = count;
@@ -442,6 +446,15 @@ public RecoveredElement updateOnClosingBrace(int braceStart, int braceEnd){
 		}
 		return this;
 	}
+	if(this.parent != null && this.parent instanceof RecoveredType) {
+		int modifiers = ((RecoveredType)this.parent).typeDeclaration.modifiers;
+		if (TypeDeclaration.kind(modifiers) == TypeDeclaration.INTERFACE_DECL) {
+			if (!this.foundOpeningBrace) {
+				this.updateSourceEndIfNecessary(braceStart - 1, braceStart - 1);
+				return this.parent.updateOnClosingBrace(braceStart, braceEnd);
+			}
+		}
+	}
 	return super.updateOnClosingBrace(braceStart, braceEnd);
 }
 /*
@@ -482,6 +495,27 @@ public void updateSourceEndIfNecessary(int braceStart, int braceEnd){
 			this.methodDeclaration.declarationSourceEnd = braceEnd;
 			this.methodDeclaration.bodyEnd  = braceStart - 1;
 		}
+	}
+}
+void attach(TypeParameter[] parameters, int startPos) {
+	if(methodDeclaration.modifiers != ClassFileConstants.AccDefault) return;
+	
+	int lastParameterEnd = parameters[parameters.length - 1].sourceEnd;
+	
+	Parser parser = this.parser();
+	Scanner scanner = parser.scanner;
+	if(Util.getLineNumber(methodDeclaration.declarationSourceStart, scanner.lineEnds, 0, scanner.linePtr)
+			!= Util.getLineNumber(lastParameterEnd, scanner.lineEnds, 0, scanner.linePtr)) return;
+	
+	if(parser.modifiersSourceStart > lastParameterEnd
+			&& parser.modifiersSourceStart < methodDeclaration.declarationSourceStart) return;
+	
+	if (this.methodDeclaration instanceof MethodDeclaration) {
+		((MethodDeclaration)this.methodDeclaration).typeParameters = parameters;
+		this.methodDeclaration.declarationSourceStart = startPos;
+	} else if (this.methodDeclaration instanceof ConstructorDeclaration){
+		((ConstructorDeclaration)this.methodDeclaration).typeParameters = parameters;
+		this.methodDeclaration.declarationSourceStart = startPos;
 	}
 }
 }

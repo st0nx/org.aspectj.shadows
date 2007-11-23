@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,14 +10,17 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class JavadocAllocationExpression extends AllocationExpression {
 
 	public int tagSourceStart, tagSourceEnd;
-	public int tagValue;
-	public boolean superAccess = false;
-	
+	public int tagValue, memberStart;
+	public char[][] qualification;
+
 	public JavadocAllocationExpression(int start, int end) {
 		this.sourceStart = start;
 		this.sourceEnd = end;
@@ -27,10 +30,10 @@ public class JavadocAllocationExpression extends AllocationExpression {
 		this((int) (pos >>> 32), (int) pos);
 	}
 
-	private TypeBinding internalResolveType(Scope scope) {
+	TypeBinding internalResolveType(Scope scope) {
 	
 		// Propagate the type checking to the arguments, and check if the constructor is defined.
-		this.constant = NotAConstant;
+		this.constant = Constant.NotAConstant;
 		if (this.type == null) {
 			this.resolvedType = scope.enclosingSourceType();
 		} else if (scope.kind == Scope.CLASS_SCOPE) {
@@ -40,7 +43,7 @@ public class JavadocAllocationExpression extends AllocationExpression {
 		}
 	
 		// buffering the arguments' types
-		TypeBinding[] argumentTypes = NoParameters;
+		TypeBinding[] argumentTypes = Binding.NO_PARAMETERS;
 		boolean hasTypeVarArgs = false;
 		if (this.arguments != null) {
 			boolean argHasError = false;
@@ -70,7 +73,9 @@ public class JavadocAllocationExpression extends AllocationExpression {
 		}
 		this.resolvedType = scope.environment().convertToRawType(this.type.resolvedType);
 		SourceTypeBinding enclosingType = scope.enclosingSourceType();
-		this.superAccess = enclosingType==null ? false : enclosingType.isCompatibleWith(this.resolvedType);
+		if (enclosingType == null ? false : enclosingType.isCompatibleWith(this.resolvedType)) {
+			this.bits |= ASTNode.SuperAccess;
+		}
 	
 		ReferenceBinding allocationType = (ReferenceBinding) this.resolvedType;
 		this.binding = scope.getConstructor(allocationType, argumentTypes, this);
@@ -119,15 +124,31 @@ public class JavadocAllocationExpression extends AllocationExpression {
 					}
 				}
 			}
+		} else if (this.resolvedType.isMemberType()) {
+			int length = qualification.length;
+			if (length > 1) { // accept qualified member class constructor reference => see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=103304
+				ReferenceBinding enclosingTypeBinding = allocationType;
+				if (type instanceof JavadocQualifiedTypeReference && ((JavadocQualifiedTypeReference)type).tokens.length != length) {
+					scope.problemReporter().javadocInvalidMemberTypeQualification(this.memberStart+1, this.sourceEnd, scope.getDeclarationModifiers());
+				} else {
+					int idx = length;
+					while (idx > 0 && CharOperation.equals(qualification[--idx], enclosingTypeBinding.sourceName) && (enclosingTypeBinding = enclosingTypeBinding.enclosingType()) != null) {
+						// verify that each qualification token matches enclosing types
+					}
+					if (idx > 0 || enclosingTypeBinding != null) {
+						scope.problemReporter().javadocInvalidMemberTypeQualification(this.memberStart+1, this.sourceEnd, scope.getDeclarationModifiers());
+					}
+				}
+			}
 		}
-		if (isMethodUseDeprecated(this.binding, scope)) {
+		if (isMethodUseDeprecated(this.binding, scope, true)) {
 			scope.problemReporter().javadocDeprecatedMethod(this.binding, this, scope.getDeclarationModifiers());
 		}
 		return allocationType;
 	}
 
 	public boolean isSuperAccess() {
-		return this.superAccess;
+		return (this.bits & ASTNode.SuperAccess) != 0;
 	}
 
 	public TypeBinding resolveType(BlockScope scope) {
@@ -137,4 +158,38 @@ public class JavadocAllocationExpression extends AllocationExpression {
 	public TypeBinding resolveType(ClassScope scope) {
 		return internalResolveType(scope);
 	}
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
+		if (visitor.visit(this, scope)) {
+			if (this.typeArguments != null) {
+				for (int i = 0, typeArgumentsLength = this.typeArguments.length; i < typeArgumentsLength; i++) {
+					this.typeArguments[i].traverse(visitor, scope);
+				}
+			}
+			if (this.type != null) { // enum constant scenario
+				this.type.traverse(visitor, scope);
+			}
+			if (this.arguments != null) {
+				for (int i = 0, argumentsLength = this.arguments.length; i < argumentsLength; i++)
+					this.arguments[i].traverse(visitor, scope);
+			}
+		}
+		visitor.endVisit(this, scope);
+	}
+	public void traverse(ASTVisitor visitor, ClassScope scope) {
+		if (visitor.visit(this, scope)) {
+			if (this.typeArguments != null) {
+				for (int i = 0, typeArgumentsLength = this.typeArguments.length; i < typeArgumentsLength; i++) {
+					this.typeArguments[i].traverse(visitor, scope);
+				}
+			}
+			if (this.type != null) { // enum constant scenario
+				this.type.traverse(visitor, scope);
+			}
+			if (this.arguments != null) {
+				for (int i = 0, argumentsLength = this.arguments.length; i < argumentsLength; i++)
+					this.arguments[i].traverse(visitor, scope);
+			}
+		}
+		visitor.endVisit(this, scope);
+	}	
 }

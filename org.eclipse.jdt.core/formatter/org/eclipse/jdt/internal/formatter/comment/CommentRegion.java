@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,6 +14,8 @@ package org.eclipse.jdt.internal.formatter.comment;
 import java.util.Iterator;
 import java.util.LinkedList;
 
+import org.eclipse.core.runtime.Assert;
+
 import org.eclipse.text.edits.MalformedTreeException;
 import org.eclipse.text.edits.TextEdit;
 
@@ -24,6 +26,7 @@ import org.eclipse.jface.text.ILineTracker;
 import org.eclipse.jface.text.IRegion;
 import org.eclipse.jface.text.Position;
 
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.formatter.CodeFormatterVisitor;
 import org.eclipse.jdt.internal.formatter.DefaultCodeFormatterOptions;
 import org.eclipse.jdt.internal.formatter.Scribe;
@@ -45,7 +48,7 @@ public class CommentRegion extends Position implements IHtmlTagDelimiters, IBord
 	private int fBorders= 0;
 
 	/** Should all blank lines be cleared during formatting? */
-	private final boolean fClear;
+	protected boolean fClear;
 
 	/** The line delimiter used in this comment region */
 	private final String fDelimiter;
@@ -68,12 +71,6 @@ public class CommentRegion extends Position implements IHtmlTagDelimiters, IBord
 	/** Number of spaces representing tabulator */
 	private int fTabSize;
 
-	/**
-	 * <code>true</code> if tabs, not spaces, should be used for indentation
-	 * @since 3.1
-	 */
-	private boolean fUseTab;
-	
 	/** the scribe used to create edits */
 	protected Scribe scribe;
 
@@ -91,10 +88,7 @@ public class CommentRegion extends Position implements IHtmlTagDelimiters, IBord
 		fDelimiter = this.preferences.line_separator;
 		fDocument= document;
 		
-		fClear= this.preferences.comment_clear_blank_lines;
-		
-		fTabSize= this.preferences.tab_size;
-		fUseTab = this.preferences.tab_char == DefaultCodeFormatterOptions.TAB;
+		fTabSize= DefaultCodeFormatterOptions.SPACE == this.preferences.tab_char ? this.preferences.indentation_size : this.preferences.tab_size;
 
 		this.scribe = formatter.scribe;
 
@@ -327,7 +321,7 @@ public class CommentRegion extends Position implements IHtmlTagDelimiters, IBord
 		final String token= getText(range.getOffset(), range.getLength());
 
 		for (int index= 0; index < token.length(); index++) {
-			if (!Character.isLetterOrDigit(token.charAt(index)))
+			if (!ScannerHelper.isLetterOrDigit(token.charAt(index)))
 				return false;
 		}
 		return true;
@@ -345,7 +339,7 @@ public class CommentRegion extends Position implements IHtmlTagDelimiters, IBord
 		final String token= getText(range.getOffset(), range.getLength());
 
 		for (int index= 0; index < token.length(); index++) {
-			if (Character.isLetterOrDigit(token.charAt(index)))
+			if (ScannerHelper.isLetterOrDigit(token.charAt(index)))
 				return false;
 		}
 		return true;
@@ -425,7 +419,21 @@ public class CommentRegion extends Position implements IHtmlTagDelimiters, IBord
 	 * @since 3.1
 	 */
 	private String computeIndentation(int indentationLevel) {
-		return replicate(fUseTab ? "\t" : replicate(" ", fTabSize), indentationLevel);  //$NON-NLS-1$//$NON-NLS-2$
+		if (DefaultCodeFormatterOptions.TAB == this.preferences.tab_char)
+			return replicate("\t", indentationLevel); //$NON-NLS-1$
+
+		if (DefaultCodeFormatterOptions.SPACE == this.preferences.tab_char)
+			return replicate(" ", indentationLevel * this.preferences.tab_size); //$NON-NLS-1$
+		
+		if (DefaultCodeFormatterOptions.MIXED == this.preferences.tab_char) {
+			int tabSize= this.preferences.tab_size;
+			int indentSize= this.preferences.indentation_size;
+			int spaceEquivalents= indentationLevel * indentSize;
+			return replicate("\t", spaceEquivalents / tabSize) + replicate(" ", spaceEquivalents % tabSize); //$NON-NLS-1$ //$NON-NLS-2$
+		}
+		
+		Assert.isTrue(false);
+		return null;
 	}
 	
 	/**
@@ -447,35 +455,10 @@ public class CommentRegion extends Position implements IHtmlTagDelimiters, IBord
 	 * Computes the equivalent indentation for a string
 	 * 
 	 * @param reference the string to compute the indentation for
-	 * @param tabs <code>true</code> iff the indentation should use tabs,
-	 *                <code>false</code> otherwise.
 	 * @return the indentation string
 	 */
-	protected final String stringToIndent(final String reference, final boolean tabs) {
-
-		int spaceWidth= 1;
-		int referenceWidth= expandTabs(reference).length();
-
-		final StringBuffer buffer= new StringBuffer();
-		final int spaces= referenceWidth / spaceWidth;
-
-		if (tabs) {
-
-			final int count= spaces / fTabSize;
-			final int modulo= spaces % fTabSize;
-
-			for (int index= 0; index < count; index++)
-				buffer.append('\t');
-
-			for (int index= 0; index < modulo; index++)
-				buffer.append(' ');
-
-		} else {
-
-			for (int index= 0; index < spaces; index++)
-				buffer.append(' ');
-		}
-		return buffer.toString();
+	protected final String stringToIndent(final String reference) {
+		return replicate(" ", stringToLength(reference)); //$NON-NLS-1$
 	}
 
 	/**

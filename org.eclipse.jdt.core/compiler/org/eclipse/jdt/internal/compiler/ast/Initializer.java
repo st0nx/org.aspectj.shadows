@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,20 +11,19 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 
 public class Initializer extends FieldDeclaration {
-	
+
 	public Block block;
 	public int lastVisibleFieldID;
 	public int bodyStart;
 	public int bodyEnd;
-	
-	public boolean errorInSignature = false; 
-	
+
 	public Initializer(Block block, int modifiers) {
 		this.block = block;
 		this.modifiers = modifiers;
@@ -49,7 +48,7 @@ public class Initializer extends FieldDeclaration {
 	 */
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 
-		if ((bits & IsReachableMASK) == 0) {
+		if ((bits & IsReachable) == 0) {
 			return;
 		}
 		int pc = codeStream.position;
@@ -66,7 +65,7 @@ public class Initializer extends FieldDeclaration {
 	
 	public boolean isStatic() {
 
-		return (modifiers & AccStatic) != 0;
+		return (this.modifiers & ClassFileConstants.AccStatic) != 0;
 	}
 	
 	public void parseStatements(

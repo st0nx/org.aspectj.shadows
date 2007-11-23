@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,7 +12,7 @@ package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 
-public abstract class Binding implements CompilerModifiers, ProblemReasons {
+public abstract class Binding {
 
 	// binding kinds
 	public static final int FIELD = ASTNode.Bit1;
@@ -30,11 +30,21 @@ public abstract class Binding implements CompilerModifiers, ProblemReasons {
 	public static final int GENERIC_TYPE = TYPE | ASTNode.Bit12;
 	public static final int TYPE_PARAMETER = TYPE | ASTNode.Bit13;
 	
-	/* API
+	// Shared binding collections
+	public static final TypeBinding[] NO_TYPES = new TypeBinding[0];
+	public static final TypeBinding[] NO_PARAMETERS = new TypeBinding[0];
+	public static final ReferenceBinding[] NO_EXCEPTIONS = new ReferenceBinding[0];
+	public static final ReferenceBinding[] ANY_EXCEPTION = new ReferenceBinding[] { null }; // special handler for all exceptions
+	public static final FieldBinding[] NO_FIELDS = new FieldBinding[0];
+	public static final MethodBinding[] NO_METHODS = new MethodBinding[0];
+	public static final ReferenceBinding[] NO_SUPERINTERFACES = new ReferenceBinding[0];
+	public static final ReferenceBinding[] NO_MEMBER_TYPES = new ReferenceBinding[0];
+	public static final TypeVariableBinding[] NO_TYPE_VARIABLES = new TypeVariableBinding[0];
+	public static final AnnotationBinding[] NO_ANNOTATIONS = new AnnotationBinding[0];
+	public static final ElementValuePair[] NO_ELEMENT_VALUE_PAIRS = new ElementValuePair[0];
+
+	/*
 	* Answer the receiver's binding type from Binding.BindingID.
-	*
-	* Note: Do NOT expect this to be used very often... only in switch statements with
-	* more than 2 possible choices.
 	*/
 	public abstract int kind();
 	/*
@@ -60,12 +70,21 @@ public abstract class Binding implements CompilerModifiers, ProblemReasons {
 	public long getAnnotationTagBits() {
 		return 0;
 	}
+	
+	/**
+	 * Compute the tag bits for @Deprecated annotations, avoiding resolving
+	 * entire annotation if not necessary.
+	 * @see org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding#initializeDeprecatedAnnotationTagBits()
+	 */
+	public void initializeDeprecatedAnnotationTagBits() {
+		// empty block
+	}	
 
 	/* API
 	* Answer true if the receiver is not a problem binding
 	*/
 	public final boolean isValidBinding() {
-		return problemId() == NoError;
+		return problemId() == ProblemReasons.NoError;
 	}
 	/* API
 	* Answer the problem id associated with the receiver.
@@ -73,7 +92,7 @@ public abstract class Binding implements CompilerModifiers, ProblemReasons {
 	*/
 	// TODO (philippe) should rename into problemReason()
 	public int problemId() {
-		return NoError;
+		return ProblemReasons.NoError;
 	}
 	/* Answer a printable representation of the receiver.
 	*/

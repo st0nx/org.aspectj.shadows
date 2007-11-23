@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -47,7 +47,7 @@ public class EmptyStatement extends Statement {
 	}
 		
 	public void resolve(BlockScope scope) {
-		if ((bits & IsUsefulEmptyStatementMASK) == 0) {
+		if ((bits & IsUsefulEmptyStatement) == 0) {
 			scope.problemReporter().superfluousSemicolon(this.sourceStart, this.sourceEnd);
 		} else {
 			scope.problemReporter().emptyControlFlowStatement(this.sourceStart, this.sourceEnd);

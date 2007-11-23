@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,8 +11,10 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class ArrayInitializer extends Expression {
@@ -53,7 +55,7 @@ public class ArrayInitializer extends Expression {
 			int elementsTypeID = binding.dimensions > 1 ? -1 : binding.leafComponentType.id;
 			for (int i = 0; i < expressionLength; i++) {
 				Expression expr;
-				if ((expr = expressions[i]).constant != NotAConstant) {
+				if ((expr = expressions[i]).constant != Constant.NotAConstant) {
 					switch (elementsTypeID) { // filter out initializations to default values
 						case T_int :
 						case T_short :
@@ -135,75 +137,82 @@ public class ArrayInitializer extends Expression {
 	
 		// this method is recursive... (the test on isArrayType is the stop case)
 	
-		this.constant = NotAConstant;
+		this.constant = Constant.NotAConstant;
 		
-		// allow new List<?>[5]
-		if ((this.bits & IsAnnotationDefaultValue) == 0) { // annotation default value need only to be commensurate JLS9.7
-			TypeBinding leafComponentType = expectedType.leafComponentType();
-			if (leafComponentType.isBoundParameterizedType() || leafComponentType.isGenericType() || leafComponentType.isTypeVariable()) {
-			    scope.problemReporter().illegalGenericArray(leafComponentType, this);
+		if (expectedType instanceof ArrayBinding) {
+			// allow new List<?>[5]
+			if ((this.bits & IsAnnotationDefaultValue) == 0) { // annotation default value need only to be commensurate JLS9.7
+				// allow new List<?>[5] - only check for generic array when no initializer, since also checked inside initializer resolution
+				TypeBinding leafComponentType = expectedType.leafComponentType();
+				if (!leafComponentType.isReifiable()) {
+				    scope.problemReporter().illegalGenericArray(leafComponentType, this);
+				}
 			}
-		}
-			
-		if (expectedType.isArrayType()) {
 			this.resolvedType = this.binding = (ArrayBinding) expectedType;
 			if (this.expressions == null)
 				return this.binding;
 			TypeBinding elementType = this.binding.elementsType();
-			for (int i = 0, length = expressions.length; i < length; i++) {
-				Expression expression = expressions[i];
-				TypeBinding exprType = expression instanceof ArrayInitializer
+			for (int i = 0, length = this.expressions.length; i < length; i++) {
+				Expression expression = this.expressions[i];
+				expression.setExpectedType(elementType);
+				TypeBinding expressionType = expression instanceof ArrayInitializer
 						? expression.resolveTypeExpecting(scope, elementType)
 						: expression.resolveType(scope);
-				if (exprType == null)
-					return null;
+				if (expressionType == null)
+					continue;
 
 				// Compile-time conversion required?
-				if (elementType != exprType) // must call before computeConversion() and typeMismatchError()
-					scope.compilationUnitScope().recordTypeConversion(elementType, exprType);
+				if (elementType != expressionType) // must call before computeConversion() and typeMismatchError()
+					scope.compilationUnitScope().recordTypeConversion(elementType, expressionType);
 
-				if ((expression.isConstantValueOfTypeAssignableToType(exprType, elementType)
-						|| (elementType.isBaseType() && BaseTypeBinding.isWidening(elementType.id, exprType.id)))
-						|| exprType.isCompatibleWith(elementType)) {
-					expression.computeConversion(scope, elementType, exprType);
-				} else if (scope.isBoxingCompatibleWith(exprType, elementType) 
-									|| (exprType.isBaseType()  // narrowing then boxing ?
-											&& scope.compilerOptions().sourceLevel >= JDK1_5 // autoboxing
+				if ((expression.isConstantValueOfTypeAssignableToType(expressionType, elementType)
+						|| (elementType.isBaseType() && BaseTypeBinding.isWidening(elementType.id, expressionType.id)))
+						|| expressionType.isCompatibleWith(elementType)) {
+					expression.computeConversion(scope, elementType, expressionType);
+				} else if (scope.isBoxingCompatibleWith(expressionType, elementType) 
+									|| (expressionType.isBaseType()  // narrowing then boxing ?
+											&& scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5 // autoboxing
 											&& !elementType.isBaseType()
-											&& expression.isConstantValueOfTypeAssignableToType(exprType, scope.environment().computeBoxingType(elementType)))) {
-					expression.computeConversion(scope, elementType, exprType);
+											&& expression.isConstantValueOfTypeAssignableToType(expressionType, scope.environment().computeBoxingType(elementType)))) {
+					expression.computeConversion(scope, elementType, expressionType);
 				} else {
-					scope.problemReporter().typeMismatchError(exprType, elementType, expression);
-					return null;
+					scope.problemReporter().typeMismatchError(expressionType, elementType, expression);
 				} 				
 			}
-			return binding;
+			return this.binding;
 		}
 		
 		// infer initializer type for error reporting based on first element
 		TypeBinding leafElementType = null;
 		int dim = 1;
-		if (expressions == null) {
+		if (this.expressions == null) {
 			leafElementType = scope.getJavaLangObject();
 		} else {
-			Expression currentExpression = expressions[0];
-			while(currentExpression != null && currentExpression instanceof ArrayInitializer) {
+			Expression expression = this.expressions[0];
+			while(expression != null && expression instanceof ArrayInitializer) {
 				dim++;
-				Expression[] subExprs = ((ArrayInitializer) currentExpression).expressions;
+				Expression[] subExprs = ((ArrayInitializer) expression).expressions;
 				if (subExprs == null){
 					leafElementType = scope.getJavaLangObject();
-					currentExpression = null;
+					expression = null;
 					break;
 				}
-				currentExpression = ((ArrayInitializer) currentExpression).expressions[0];
+				expression = ((ArrayInitializer) expression).expressions[0];
 			}
-			if (currentExpression != null) {
-				leafElementType = currentExpression.resolveType(scope);
+			if (expression != null) {
+				leafElementType = expression.resolveType(scope);
 			}
-		}
+			// fault-tolerance - resolve other expressions as well
+			for (int i = 1, length = this.expressions.length; i < length; i++) {
+				expression = this.expressions[i];
+				if (expression != null) {
+					expression.resolveType(scope)	;
+				}
+			}		}
 		if (leafElementType != null) {
-			TypeBinding probableTb = scope.createArrayType(leafElementType, dim);
-			scope.problemReporter().typeMismatchError(probableTb, expectedType, this);
+			this.resolvedType = scope.createArrayType(leafElementType, dim);
+			if (expectedType != null)
+				scope.problemReporter().typeMismatchError(this.resolvedType, expectedType, this);
 		}
 		return null;
 	}
@@ -211,10 +220,10 @@ public class ArrayInitializer extends Expression {
 	public void traverse(ASTVisitor visitor, BlockScope scope) {
 
 		if (visitor.visit(this, scope)) {
-			if (expressions != null) {
-				int expressionsLength = expressions.length;
+			if (this.expressions != null) {
+				int expressionsLength = this.expressions.length;
 				for (int i = 0; i < expressionsLength; i++)
-					expressions[i].traverse(visitor, scope);
+					this.expressions[i].traverse(visitor, scope);
 			}
 		}
 		visitor.endVisit(this, scope);

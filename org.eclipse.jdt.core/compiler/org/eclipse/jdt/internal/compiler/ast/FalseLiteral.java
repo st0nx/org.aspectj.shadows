@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,9 +11,11 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
-import org.eclipse.jdt.internal.compiler.impl.*;
-import org.eclipse.jdt.internal.compiler.codegen.*;
-import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.codegen.BranchLabel;
+import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
+import org.eclipse.jdt.internal.compiler.impl.BooleanConstant;
+import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
+import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 
 public class FalseLiteral extends MagicLiteral {
 	static final char[] source = {'f', 'a', 'l', 's', 'e'};
@@ -21,7 +23,7 @@ public FalseLiteral(int s , int e) {
 	super(s,e);
 }
 public void computeConstant() {
-	constant = Constant.fromValue(false);
+	constant = BooleanConstant.fromValue(false);
 }
 /**
  * Code generation for false literal
@@ -37,7 +39,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 	}
 	codeStream.recordPositionsFrom(pc, this.sourceStart);
 }
-public void generateOptimizedBoolean(BlockScope currentScope, CodeStream codeStream, Label trueLabel, Label falseLabel, boolean valueRequired) {
+public void generateOptimizedBoolean(BlockScope currentScope, CodeStream codeStream, BranchLabel trueLabel, BranchLabel falseLabel, boolean valueRequired) {
 
 	// falseLabel being not nil means that we will not fall through into the FALSE case
 
@@ -53,7 +55,7 @@ public void generateOptimizedBoolean(BlockScope currentScope, CodeStream codeStr
 	codeStream.recordPositionsFrom(pc, this.sourceStart);
 }
 public TypeBinding literalType(BlockScope scope) {
-	return BooleanBinding;
+	return TypeBinding.BOOLEAN;
 }
 /**
  * 

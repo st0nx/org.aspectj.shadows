@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -49,7 +49,7 @@ public StringBuffer printExpression(int indent, StringBuffer output) {
 	output.append("<CompleteOnName:"); //$NON-NLS-1$
 	for (int i = 0; i < tokens.length; i++) {
 		output.append(tokens[i]);
-		output.append('.'); //$NON-NLS-1$
+		output.append('.');
 	}
 	output.append(completionIdentifier).append('>'); 
 	return output;
@@ -65,9 +65,14 @@ public TypeBinding resolveType(BlockScope scope) {
 		} else {
 			scope.problemReporter().unresolvableReference(this, binding);
 		}
+		
+		if (binding.problemId() == ProblemReasons.NotFound) {
+			throw new CompletionNodeFound(this, binding, scope);
+		}
+		
 		throw new CompletionNodeFound();
 	}
-
+	
 	throw new CompletionNodeFound(this, binding, scope);
 }
 }

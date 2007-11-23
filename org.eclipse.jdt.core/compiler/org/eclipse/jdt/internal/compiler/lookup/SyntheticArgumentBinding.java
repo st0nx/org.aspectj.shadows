@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -22,11 +22,12 @@ package org.eclipse.jdt.internal.compiler.lookup;
  */
 
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 
 public class SyntheticArgumentBinding extends LocalVariableBinding {
 
 	{	
-		this.isArgument = true;
+		this.tagBits |= TagBits.IsArgument;
 		this.useFlag = USED;
 	}
 	
@@ -40,7 +41,7 @@ public class SyntheticArgumentBinding extends LocalVariableBinding {
 		super(
 			CharOperation.concat(TypeConstants.SYNTHETIC_OUTER_LOCAL_PREFIX, actualOuterLocalVariable.name), 
 			actualOuterLocalVariable.type, 
-			AccFinal,
+			ClassFileConstants.AccFinal,
 			true);
 		this.actualOuterLocalVariable = actualOuterLocalVariable;
 	}
@@ -52,7 +53,7 @@ public class SyntheticArgumentBinding extends LocalVariableBinding {
 				TypeConstants.SYNTHETIC_ENCLOSING_INSTANCE_PREFIX,
 				String.valueOf(enclosingType.depth()).toCharArray()),
 			enclosingType, 
-			AccFinal,
+			ClassFileConstants.AccFinal,
 			true);
 	}
 }

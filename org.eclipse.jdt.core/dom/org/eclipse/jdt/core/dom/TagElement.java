@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
+ * Copyright (c) 2004, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -70,7 +70,7 @@ public final class TagElement extends ASTNode implements IDocElement {
 	 * Clients must not modify the result.
 	 * 
 	 * @param apiLevel the API level; one of the
-	 * <code>AST.JLS&ast;</code> constants
+	 * <code>AST.JLS*</code> constants
 	 * @return a list of property descriptors (element type: 
 	 * {@link StructuralPropertyDescriptor})
 	 * @since 3.0
@@ -320,7 +320,7 @@ public final class TagElement extends ASTNode implements IDocElement {
 	 * The fragments cover everything following the tag name
 	 * (or everything if there is no tag name), and generally omit
 	 * embedded line breaks (and leading whitespace on new lines,
-	 * including any leading "&ast;"). {@link org.eclipse.jdt.core.dom.TagElement}
+	 * including any leading "*"). {@link org.eclipse.jdt.core.dom.TagElement}
 	 * nodes are used to represent tag elements (e.g., "@link")
 	 * nested within this tag element. 
 	 * </p>

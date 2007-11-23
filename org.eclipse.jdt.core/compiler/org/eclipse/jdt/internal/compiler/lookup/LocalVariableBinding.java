@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,7 +10,9 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.Annotation;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
@@ -18,7 +20,6 @@ import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
 
 public class LocalVariableBinding extends VariableBinding {
 
-	public boolean isArgument;
 	public int resolvedPosition; // for code generation (position in method context)
 	
 	public static final int UNUSED = 0;
@@ -37,7 +38,7 @@ public class LocalVariableBinding extends VariableBinding {
 	// note that the name of a variable should be chosen so as not to conflict with user ones (usually starting with a space char is all needed)
 	public LocalVariableBinding(char[] name, TypeBinding type, int modifiers, boolean isArgument) {
 		super(name, type, modifiers, isArgument ? Constant.NotAConstant : null);
-		this.isArgument = isArgument;
+		if (isArgument) this.tagBits |= TagBits.IsArgument;
 	}
 	
 	// regular local variable or argument
@@ -64,23 +65,25 @@ public class LocalVariableBinding extends VariableBinding {
 		
 		// declaring method or type
 		BlockScope scope = this.declaringScope;
-		MethodScope methodScope = scope instanceof MethodScope ? (MethodScope) scope : scope.enclosingMethodScope();
-		ReferenceContext referenceContext = methodScope.referenceContext;
-		if (referenceContext instanceof AbstractMethodDeclaration) {
-			MethodBinding methodBinding = ((AbstractMethodDeclaration) referenceContext).binding;
-			if (methodBinding != null) {
-				buffer.append(methodBinding.computeUniqueKey(false/*not a leaf*/));
+		if (scope != null) {
+			// the scope can be null. See https://bugs.eclipse.org/bugs/show_bug.cgi?id=185129
+			MethodScope methodScope = scope instanceof MethodScope ? (MethodScope) scope : scope.enclosingMethodScope();
+			ReferenceContext referenceContext = methodScope.referenceContext;
+			if (referenceContext instanceof AbstractMethodDeclaration) {
+				MethodBinding methodBinding = ((AbstractMethodDeclaration) referenceContext).binding;
+				if (methodBinding != null) {
+					buffer.append(methodBinding.computeUniqueKey(false/*not a leaf*/));
+				}
+			} else if (referenceContext instanceof TypeDeclaration) {
+				TypeBinding typeBinding = ((TypeDeclaration) referenceContext).binding;
+				if (typeBinding != null) {
+					buffer.append(typeBinding.computeUniqueKey(false/*not a leaf*/));
+				}
 			}
-		} else if (referenceContext instanceof TypeDeclaration) {
-			TypeBinding typeBinding = ((TypeDeclaration) referenceContext).binding;
-			if (typeBinding != null) {
-				buffer.append(typeBinding.computeUniqueKey(false/*not a leaf*/));
-			}
+	
+			// scope index
+			getScopeKey(scope, buffer);
 		}
-
-		// scope index
-		getScopeKey(scope, buffer);
-
 		// variable name
 		buffer.append('#');
 		buffer.append(this.name);
@@ -90,7 +93,51 @@ public class LocalVariableBinding extends VariableBinding {
 		buffer.getChars(0, length, uniqueKey, 0);
 		return uniqueKey;
 	}
-	
+
+	public AnnotationBinding[] getAnnotations() {
+		if (this.declaringScope == null) {
+			if ((this.tagBits & TagBits.AnnotationResolved) != 0) {
+				// annotation are already resolved
+				if (this.declaration == null) {
+					return Binding.NO_ANNOTATIONS;
+				}
+				Annotation[] annotations = this.declaration.annotations;
+				if (annotations != null) {
+					int length = annotations.length;
+					AnnotationBinding[] annotationBindings = new AnnotationBinding[length];
+					for (int i = 0; i < length; i++) {
+						AnnotationBinding compilerAnnotation = annotations[i].getCompilerAnnotation();
+						if (compilerAnnotation == null) {
+							return Binding.NO_ANNOTATIONS;
+						}
+						annotationBindings[i] = compilerAnnotation;
+					}
+					return annotationBindings;
+				}
+			}
+			return Binding.NO_ANNOTATIONS;
+		}
+		SourceTypeBinding sourceType = this.declaringScope.enclosingSourceType();
+		if (sourceType == null)
+			return Binding.NO_ANNOTATIONS;
+
+		AnnotationBinding[] annotations = sourceType.retrieveAnnotations(this);
+		if ((this.tagBits & TagBits.AnnotationResolved) == 0) {
+			if (((this.tagBits & TagBits.IsArgument) != 0) && this.declaration != null) {
+				Annotation[] annotationNodes = declaration.annotations;
+				if (annotationNodes != null) {
+					int length = annotationNodes.length;
+					ASTNode.resolveAnnotations(this.declaringScope, annotationNodes, this);
+					annotations = new AnnotationBinding[length];
+					for (int i = 0; i < length; i++)
+						annotations[i] = new AnnotationBinding(annotationNodes[i]);
+					setAnnotations(annotations);
+				}
+			}
+		}
+		return annotations;
+	}
+
 	private void getScopeKey(BlockScope scope, StringBuffer buffer) {
 		int scopeIndex = scope.scopeIndex();
 		if (scopeIndex != -1) {
@@ -103,7 +150,7 @@ public class LocalVariableBinding extends VariableBinding {
 	// Answer whether the variable binding is a secret variable added for code gen purposes
 	public boolean isSecret() {
 
-		return declaration == null && !isArgument;
+		return declaration == null && (this.tagBits & TagBits.IsArgument) == 0;
 	}
 
 	public void recordInitializationEndPC(int pc) {
@@ -115,18 +162,33 @@ public class LocalVariableBinding extends VariableBinding {
 	public void recordInitializationStartPC(int pc) {
 
 		if (initializationPCs == null) 	return;
-		// optimize cases where reopening a contiguous interval
-		if ((initializationCount > 0) && (initializationPCs[ ((initializationCount - 1) << 1) + 1] == pc)) {
-			initializationPCs[ ((initializationCount - 1) << 1) + 1] = -1; // reuse previous interval (its range will be augmented)
-		} else {
-			int index = initializationCount << 1;
-			if (index == initializationPCs.length) {
-				System.arraycopy(initializationPCs, 0, (initializationPCs = new int[initializationCount << 2]), 0, index);
+		if (initializationCount > 0) {
+			int previousEndPC = initializationPCs[ ((initializationCount - 1) << 1) + 1];
+			 // interval still open, keep using it (108180)
+			if (previousEndPC == -1) {
+				return;
 			}
-			initializationPCs[index] = pc;
-			initializationPCs[index + 1] = -1;
-			initializationCount++;
+			// optimize cases where reopening a contiguous interval
+			if (previousEndPC == pc) {
+				initializationPCs[ ((initializationCount - 1) << 1) + 1] = -1; // reuse previous interval (its range will be augmented)
+				return;
+			}
 		}
+		int index = initializationCount << 1;
+		if (index == initializationPCs.length) {
+			System.arraycopy(initializationPCs, 0, (initializationPCs = new int[initializationCount << 2]), 0, index);
+		}
+		initializationPCs[index] = pc;
+		initializationPCs[index + 1] = -1;
+		initializationCount++;
+	}
+
+	public void setAnnotations(AnnotationBinding[] annotations) {
+		if (this.declaringScope == null) return;
+
+		SourceTypeBinding sourceType = this.declaringScope.enclosingSourceType();
+		if (sourceType != null)
+			sourceType.storeAnnotations(this, annotations);
 	}
 
 	public String toString() {

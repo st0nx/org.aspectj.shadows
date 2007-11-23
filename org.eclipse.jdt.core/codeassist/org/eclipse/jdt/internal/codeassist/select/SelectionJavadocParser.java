@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -28,7 +28,7 @@ public class SelectionJavadocParser extends JavadocParser {
 
 	public SelectionJavadocParser(SelectionParser sourceParser) {
 		super(sourceParser);
-		this.kind = SELECTION_PARSER;
+		this.kind = SELECTION_PARSER | TEXT_PARSE;
 	}
 
 	/*
@@ -101,8 +101,9 @@ public class SelectionJavadocParser extends JavadocParser {
 	 * Otherwise return null as we do not need this reference.
 	 */
 	protected Object createMethodReference(Object receiver, List arguments) throws InvalidInputException {
-		int start = (int) (this.identifierPositionStack[0] >>> 32);
-		int end = (int) this.identifierPositionStack[0];
+		int memberPtr = this.identifierLengthStack[0] - 1;	// may be > 0 for inner class constructor reference
+		int start = (int) (this.identifierPositionStack[memberPtr] >>> 32);
+		int end = (int) this.identifierPositionStack[memberPtr];
 		if (start <= this.selectionStart && this.selectionEnd <= end) {
 			selectedNode = (ASTNode) super.createMethodReference(receiver, arguments);
 			this.abort = true;
@@ -134,9 +135,10 @@ public class SelectionJavadocParser extends JavadocParser {
 					if (start <= this.selectionStart && this.selectionEnd <= end) {
 						int pos = i + 1;
 						char[][] tokens = new char[pos][];
-						System.arraycopy(this.identifierStack, this.identifierPtr+1, tokens, 0, pos);
+						int ptr = this.identifierPtr - size;
+						System.arraycopy(this.identifierStack, ptr, tokens, 0, pos);
 						long[] positions = new long[pos];
-						System.arraycopy(this.identifierPositionStack, this.identifierPtr + 1, positions, 0, pos);
+						System.arraycopy(this.identifierPositionStack, ptr, positions, 0, pos);
 						selectedNode = new JavadocQualifiedTypeReference(tokens, positions, this.tagSourceStart, this.tagSourceEnd);
 						this.abort = true; // we got selected node => cancel parse
 						if (SelectionEngine.DEBUG) {

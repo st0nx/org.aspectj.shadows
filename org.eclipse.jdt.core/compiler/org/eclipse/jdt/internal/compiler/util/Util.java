@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,13 +10,13 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.util;
 
-import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -28,7 +28,11 @@ public class Util implements SuffixConstants {
 	}
 
 	private static final int DEFAULT_READING_SIZE = 8192;
-	public static String LINE_SEPARATOR = System.getProperty("line.separator"); //$NON-NLS-1$
+	public final static String UTF_8 = "UTF-8";	//$NON-NLS-1$
+	public static final String LINE_SEPARATOR = System.getProperty("line.separator"); //$NON-NLS-1$
+	
+	public static final String EMPTY_STRING = new String(CharOperation.NO_CHAR);
+	public static final int[] EMPTY_INT_ARRAY= new int[0];
 	
 	/**
 	 * Returns the given bytes as a char array using a given encoding (null means platform default).
@@ -45,7 +49,7 @@ public class Util implements SuffixConstants {
 	public static byte[] getFileByteContent(File file) throws IOException {
 		InputStream stream = null;
 		try {
-			stream = new BufferedInputStream(new FileInputStream(file));
+			stream = new FileInputStream(file);
 			return getInputStreamAsByteArray(stream, (int) file.length());
 		} finally {
 			if (stream != null) {
@@ -65,7 +69,7 @@ public class Util implements SuffixConstants {
 	public static char[] getFileCharContent(File file, String encoding) throws IOException {
 		InputStream stream = null;
 		try {
-			stream = new BufferedInputStream(new FileInputStream(file));
+			stream = new FileInputStream(file);
 			return getInputStreamAsCharArray(stream, (int) file.length(), encoding);
 		} finally {
 			if (stream != null) {
@@ -161,7 +165,7 @@ public class Util implements SuffixConstants {
 	 * in this area...
 	public static char[] getInputStreamAsCharArray(FileInputStream stream, int length, String encoding)
 		throws IOException {
-		
+	
 		FileChannel channel = stream.getChannel();
 		int size = (int)channel.size();
 		if (length >= 0 && length < size) size = length;
@@ -179,89 +183,93 @@ public class Util implements SuffixConstants {
 	*/
 	/**
 	 * Returns the given input stream's contents as a character array.
-	 * If a length is specified (ie. if length != -1), only length chars
-	 * are returned. Otherwise all chars in the stream are returned.
+	 * If a length is specified (ie. if length != -1), this represents the number of bytes in the stream.
 	 * Note this doesn't close the stream.
 	 * @throws IOException if a problem occured reading the stream.
 	 */
 	public static char[] getInputStreamAsCharArray(InputStream stream, int length, String encoding)
 		throws IOException {
 		InputStreamReader reader = null;
-		reader = encoding == null
-					? new InputStreamReader(stream)
-					: new InputStreamReader(stream, encoding);
+		try {
+			reader = encoding == null
+						? new InputStreamReader(stream)
+						: new InputStreamReader(stream, encoding);
+		} catch (UnsupportedEncodingException e) {
+			// encoding is not supported
+			reader =  new InputStreamReader(stream);
+		}
 		char[] contents;
+		int totalRead = 0;
 		if (length == -1) {
 			contents = CharOperation.NO_CHAR;
-			int contentsLength = 0;
-			int amountRead = -1;
-			do {
-				int amountRequested = Math.max(stream.available(), DEFAULT_READING_SIZE);  // read at least 8K
-
-				// resize contents if needed
-				if (contentsLength + amountRequested > contents.length) {
-					System.arraycopy(
-						contents,
-						0,
-						contents = new char[contentsLength + amountRequested],
-						0,
-						contentsLength);
-				}
-
-				// read as many chars as possible
-				amountRead = reader.read(contents, contentsLength, amountRequested);
-
-				if (amountRead > 0) {
-					// remember length of contents
-					contentsLength += amountRead;
-				}
-			} while (amountRead != -1);
-
-			// Do not keep first character for UTF-8 BOM encoding
-			int start = 0;
-			if (contentsLength > 0 && "UTF-8".equals(encoding)) { //$NON-NLS-1$
-				if (contents[0] == 0xFEFF) { // if BOM char then skip
-					contentsLength--;
-					start = 1;
-				}
-			}
-			// resize contents if necessary
-			if (contentsLength < contents.length) {
-				System.arraycopy(
-					contents,
-					start,
-					contents = new char[contentsLength],
-					0,
-					contentsLength);
-			}
 		} else {
-			contents = new char[length];
-			int len = 0;
-			int readSize = 0;
-			while ((readSize != -1) && (len != length)) {
-				// See PR 1FMS89U
-				// We record first the read size. In this case len is the actual read size.
-				len += readSize;
-				readSize = reader.read(contents, len, length - len);
-			}
-			// Do not keep first character for UTF-8 BOM encoding
-			int start = 0;
-			if (length > 0 && "UTF-8".equals(encoding)) { //$NON-NLS-1$
-				if (contents[0] == 0xFEFF) { // if BOM char then skip
-					len--;
-					start = 1;
-				}
-			}
-			// See PR 1FMS89U
-			// Now we need to resize in case the default encoding used more than one byte for each
-			// character
-			if (len != length)
-				System.arraycopy(contents, start, (contents = new char[len]), 0, len);
+			// length is a good guess when the encoding produces less or the same amount of characters than the file length
+			contents = new char[length]; // best guess
 		}
+
+		while (true) {
+			int amountRequested;
+			if (totalRead < length) {
+				// until known length is met, reuse same array sized eagerly
+				amountRequested = length - totalRead;
+			} else {
+				// reading beyond known length
+				int current = reader.read(); 
+				if (current < 0) break;
+				
+				amountRequested = Math.max(stream.available(), DEFAULT_READING_SIZE);  // read at least 8K
+				
+				// resize contents if needed
+				if (totalRead + 1 + amountRequested > contents.length)
+					System.arraycopy(contents, 	0, 	contents = new char[totalRead + 1 + amountRequested], 0, totalRead);
+				
+				// add current character
+				contents[totalRead++] = (char) current; // coming from totalRead==length
+			}
+			// read as many chars as possible
+			int amountRead = reader.read(contents, totalRead, amountRequested);
+			if (amountRead < 0) break;
+			totalRead += amountRead;
+		}
+
+		// Do not keep first character for UTF-8 BOM encoding
+		int start = 0;
+		if (totalRead > 0 && UTF_8.equals(encoding)) {
+			if (contents[0] == 0xFEFF) { // if BOM char then skip
+				totalRead--;
+				start = 1;
+			}
+		}
+		
+		// resize contents if necessary
+		if (totalRead < contents.length)
+			System.arraycopy(contents, start, contents = new char[totalRead], 	0, 	totalRead);
 
 		return contents;
 	}
 	
+	public static int getLineNumber(int position, int[] lineEnds, int g, int d) {
+		if (lineEnds == null)
+			return 1;
+		if (d == -1)
+			return 1;
+		int m = g, start;
+		while (g <= d) {
+			m = g + (d - g) /2;
+			if (position < (start = lineEnds[m])) {
+				d = m-1;
+			} else if (position > start) {
+				g = m+1;
+			} else {
+				return m + 1;
+			}
+		}
+		if (position < lineEnds[m]) {
+			return m+1;
+		}
+		return m+2;
+	}
+
 	/**
 	 * Returns the contents of the given zip entry as a byte array.
 	 * @throws IOException if a problem occured reading the zip entry.
@@ -271,7 +279,8 @@ public class Util implements SuffixConstants {
 
 		InputStream stream = null;
 		try {
-			stream = new BufferedInputStream(zip.getInputStream(ze));
+			stream = zip.getInputStream(ze);
+			if (stream == null) throw new IOException("Invalid zip entry name : " + ze.getName()); //$NON-NLS-1$
 			return getInputStreamAsByteArray(stream, (int) ze.getSize());
 		} finally {
 			if (stream != null) {
@@ -377,7 +386,7 @@ public class Util implements SuffixConstants {
 		if (isFolderPath) {
 			path = CharOperation.concat(path, new char[] {'*'}, '/');
 		}
-		exclusionCheck: if (exclusionPatterns != null) {
+		if (exclusionPatterns != null) {
 			for (int i = 0, length = exclusionPatterns.length; i < length; i++) {
 				if (CharOperation.pathMatch(exclusionPatterns[i], path, true, '/')) {
 					return true;
@@ -418,6 +427,25 @@ public class Util implements SuffixConstants {
 		return true;		
 	}
 
+	/**
+	 * INTERNAL USE-ONLY
+	 * Search the column number corresponding to a specific position
+	 */
+	public static final int searchColumnNumber(int[] startLineIndexes, int lineNumber, int position) {
+		switch(lineNumber) {
+			case 1 :
+				return position + 1;
+			case 2:
+				return position - startLineIndexes[0];
+			default:
+				int line = lineNumber - 2;
+	    		int length = startLineIndexes.length;
+	    		if (line >= length) {
+	    			return position - startLineIndexes[length - 1];
+	    		}
+	    		return position - startLineIndexes[line];
+		}
+	}
 	/**
 	 * Converts a boolean value into Boolean.
 	 * @param bool The boolean to convert

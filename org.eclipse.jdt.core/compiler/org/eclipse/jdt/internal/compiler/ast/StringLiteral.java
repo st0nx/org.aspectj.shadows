@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,18 +12,20 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
-import org.eclipse.jdt.internal.compiler.impl.Constant;
+import org.eclipse.jdt.internal.compiler.impl.StringConstant;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 
 public class StringLiteral extends Literal {
 
 	char[] source;
+	int lineNumber;
 
-	public StringLiteral(char[] token, int s, int e) {
+	public StringLiteral(char[] token, int start, int end, int lineNumber) {
 
-		this(s,e);
-		source = token;
+		this(start,end);
+		this.source = token;
+		this.lineNumber = lineNumber - 1; // line number is 1 based 
 	}
 
 	public StringLiteral(int s, int e) {
@@ -33,7 +35,7 @@ public class StringLiteral extends Literal {
 
 	public void computeConstant() {
 	
-		constant = Constant.fromValue(String.valueOf(source));
+		constant = StringConstant.fromValue(String.valueOf(source));
 	}
 
 	public ExtendedStringLiteral extendWith(CharLiteral lit){

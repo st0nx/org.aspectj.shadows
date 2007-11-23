@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -51,14 +51,17 @@ public class AssertStatement extends Statement {
 		preAssertInitStateIndex = currentScope.methodScope().recordInitializationStates(flowInfo);
 
 		Constant cst = this.assertExpression.optimizedBooleanConstant();		
-		boolean isOptimizedTrueAssertion = cst != NotAConstant && cst.booleanValue() == true;
-		boolean isOptimizedFalseAssertion = cst != NotAConstant && cst.booleanValue() == false;
+		boolean isOptimizedTrueAssertion = cst != Constant.NotAConstant && cst.booleanValue() == true;
+		boolean isOptimizedFalseAssertion = cst != Constant.NotAConstant && cst.booleanValue() == false;
 
-		FlowInfo assertInfo = flowInfo.copy();
+		FlowInfo assertRawInfo = assertExpression.
+			analyseCode(currentScope, flowContext, flowInfo.copy());
+		UnconditionalFlowInfo assertWhenTrueInfo = assertRawInfo.initsWhenTrue().
+			unconditionalInits();
+		UnconditionalFlowInfo assertInfo = assertRawInfo.unconditionalCopy();
 		if (isOptimizedTrueAssertion) {
 			assertInfo.setReachMode(FlowInfo.UNREACHABLE);
 		}
-		assertInfo = assertExpression.analyseCode(currentScope, flowContext, assertInfo).unconditionalInits();
 		
 		if (exceptionArgument != null) {
 			// only gets evaluated when escaping - results are not taken into account
@@ -79,25 +82,30 @@ public class AssertStatement extends Statement {
 		}
 		if (isOptimizedFalseAssertion) {
 			return flowInfo; // if assertions are enabled, the following code will be unreachable
+			// change this if we need to carry null analysis results of the assert
+			// expression downstream
 		} else {
-			return flowInfo.mergedWith(assertInfo.unconditionalInits()); 
+			return flowInfo.mergedWith(assertInfo.nullInfoLessUnconditionalCopy()).
+				addInitializationsFrom(assertWhenTrueInfo.discardInitializationInfo());
+			// keep the merge from the initial code for the definite assignment 
+			// analysis, tweak the null part to influence nulls downstream
 		}
 	}
 
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 
-		if ((bits & IsReachableMASK) == 0) {
+		if ((bits & IsReachable) == 0) {
 			return;
 		}
 		int pc = codeStream.position;
 	
 		if (this.assertionSyntheticFieldBinding != null) {
-			Label assertionActivationLabel = new Label(codeStream);
+			BranchLabel assertionActivationLabel = new BranchLabel(codeStream);
 			codeStream.getstatic(this.assertionSyntheticFieldBinding);
 			codeStream.ifne(assertionActivationLabel);
 			
-			Label falseLabel = new Label(codeStream);
-			this.assertExpression.generateOptimizedBoolean(currentScope, codeStream, (falseLabel = new Label(codeStream)), null , true);
+			BranchLabel falseLabel;
+			this.assertExpression.generateOptimizedBoolean(currentScope, codeStream, (falseLabel = new BranchLabel(codeStream)), null , true);
 			codeStream.newJavaLangAssertionError();
 			codeStream.dup();
 			if (exceptionArgument != null) {
@@ -107,20 +115,25 @@ public class AssertStatement extends Statement {
 				codeStream.invokeJavaLangAssertionErrorDefaultConstructor();
 			}
 			codeStream.athrow();
+			
+			// May loose some local variable initializations : affecting the local variable attributes
+			if (preAssertInitStateIndex != -1) {
+				codeStream.removeNotDefinitelyAssignedVariables(currentScope, preAssertInitStateIndex);
+			}	
 			falseLabel.place();
 			assertionActivationLabel.place();
+		} else {			
+			// May loose some local variable initializations : affecting the local variable attributes
+			if (preAssertInitStateIndex != -1) {
+				codeStream.removeNotDefinitelyAssignedVariables(currentScope, preAssertInitStateIndex);
+			}			
 		}
-		
-		// May loose some local variable initializations : affecting the local variable attributes
-		if (preAssertInitStateIndex != -1) {
-			codeStream.removeNotDefinitelyAssignedVariables(currentScope, preAssertInitStateIndex);
-		}	
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
 	public void resolve(BlockScope scope) {
 
-		assertExpression.resolveTypeExpecting(scope, BooleanBinding);
+		assertExpression.resolveTypeExpecting(scope, TypeBinding.BOOLEAN);
 		if (exceptionArgument != null) {
 			TypeBinding exceptionArgumentType = exceptionArgument.resolveType(scope);
 			if (exceptionArgumentType != null){
@@ -158,28 +171,29 @@ public class AssertStatement extends Statement {
 	
 	public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo) {
 
-		if (!flowInfo.isReachable()) return;
-		
-		// need assertion flag: $assertionsDisabled on outer most source clas
-		// (in case of static member of interface, will use the outermost static member - bug 22334)
-		SourceTypeBinding outerMostClass = currentScope.enclosingSourceType();
-		while (outerMostClass.isLocalType()){
-			ReferenceBinding enclosing = outerMostClass.enclosingType();
-			if (enclosing == null || enclosing.isInterface()) break;
-			outerMostClass = (SourceTypeBinding) enclosing;
-		}
-
-		this.assertionSyntheticFieldBinding = outerMostClass.addSyntheticFieldForAssert(currentScope);
-
-		// find <clinit> and enable assertion support
-		TypeDeclaration typeDeclaration = outerMostClass.scope.referenceType();
-		AbstractMethodDeclaration[] methods = typeDeclaration.methods;
-		for (int i = 0, max = methods.length; i < max; i++) {
-			AbstractMethodDeclaration method = methods[i];
-			if (method.isClinit()) {
-				((Clinit) method).setAssertionSupport(assertionSyntheticFieldBinding, currentScope.compilerOptions().sourceLevel < ClassFileConstants.JDK1_5);
-				break;
-			}
+		if ((flowInfo.tagBits & FlowInfo.UNREACHABLE) == 0) {
+    		
+    		// need assertion flag: $assertionsDisabled on outer most source clas
+    		// (in case of static member of interface, will use the outermost static member - bug 22334)
+    		SourceTypeBinding outerMostClass = currentScope.enclosingSourceType();
+			while (outerMostClass.isLocalType()) {
+    			ReferenceBinding enclosing = outerMostClass.enclosingType();
+    			if (enclosing == null || enclosing.isInterface()) break;
+    			outerMostClass = (SourceTypeBinding) enclosing;
+    		}
+    
+    		this.assertionSyntheticFieldBinding = outerMostClass.addSyntheticFieldForAssert(currentScope);
+    
+    		// find <clinit> and enable assertion support
+    		TypeDeclaration typeDeclaration = outerMostClass.scope.referenceType();
+    		AbstractMethodDeclaration[] methods = typeDeclaration.methods;
+    		for (int i = 0, max = methods.length; i < max; i++) {
+    			AbstractMethodDeclaration method = methods[i];
+    			if (method.isClinit()) {
+    				((Clinit) method).setAssertionSupport(assertionSyntheticFieldBinding, currentScope.compilerOptions().sourceLevel < ClassFileConstants.JDK1_5);
+    				break;
+    			}
+    		}
 		}
 	}
 

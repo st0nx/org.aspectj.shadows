@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * Copyright (c) 2004, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -95,7 +95,7 @@ public abstract class AbstractTypeDeclaration extends BodyDeclaration {
 	 * @return the property descriptor
 	 */
 	static final ChildPropertyDescriptor internalNamePropertyFactory(Class nodeClass) {
-		return new ChildPropertyDescriptor(nodeClass, "name", Name.class, MANDATORY, NO_CYCLE_RISK); //$NON-NLS-1$
+		return new ChildPropertyDescriptor(nodeClass, "name", SimpleName.class, MANDATORY, NO_CYCLE_RISK); //$NON-NLS-1$
 	}
 	
 	/**

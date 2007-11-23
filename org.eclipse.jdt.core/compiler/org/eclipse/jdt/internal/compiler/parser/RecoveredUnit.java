@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -48,12 +48,19 @@ public RecoveredElement add(AbstractMethodDeclaration methodDeclaration, int bra
 		type.typeDeclaration.declarationSourceEnd = 0; // reset position
 		type.typeDeclaration.bodyEnd = 0;
 		
-		if(start > 0 && start < end) {
+		int kind = TypeDeclaration.kind(type.typeDeclaration.modifiers);
+		if(start > 0 &&
+				start < end && 
+				kind != TypeDeclaration.INTERFACE_DECL &&
+				kind != TypeDeclaration.ANNOTATION_TYPE_DECL) {
+			// the } of the last type can be considered as the end of an initializer
 			Initializer initializer = new Initializer(new Block(0), 0);
 			initializer.bodyStart = end;
 			initializer.bodyEnd = end;
 			initializer.declarationSourceStart = end;
 			initializer.declarationSourceEnd = end;
+			initializer.sourceStart = end;
+			initializer.sourceEnd = end;
 			type.add(initializer, bracketBalanceValue);
 		}
 		
@@ -99,7 +106,7 @@ public RecoveredElement add(ImportReference importReference, int bracketBalanceV
 }
 public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalanceValue) {
 	
-	if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0){
+	if ((typeDeclaration.bits & ASTNode.IsAnonymousType) != 0){
 		if (this.typeCount > 0) {
 			// add it to the last type
 			RecoveredType lastType = this.types[this.typeCount-1];
@@ -188,7 +195,7 @@ public CompilationUnitDeclaration updatedCompilationUnitDeclaration(){
 		for (int i = 0; i < this.typeCount; i++){
 			TypeDeclaration typeDecl = this.types[i].updatedTypeDeclaration();
 			// filter out local types (12454)
-			if ((typeDecl.bits & ASTNode.IsLocalTypeMASK) == 0){
+			if ((typeDecl.bits & ASTNode.IsLocalType) == 0){
 				typeDeclarations[actualCount++] = typeDecl;
 			}
 		}

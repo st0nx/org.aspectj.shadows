@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2002, 2005 IBM Corporation and others.
+ * Copyright (c) 2002, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -40,6 +40,7 @@ import org.eclipse.jdt.internal.compiler.ast.CastExpression;
 import org.eclipse.jdt.internal.compiler.ast.CharLiteral;
 import org.eclipse.jdt.internal.compiler.ast.ClassLiteralAccess;
 import org.eclipse.jdt.internal.compiler.ast.Clinit;
+import org.eclipse.jdt.internal.compiler.ast.CombinedBinaryExpression;
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.CompoundAssignment;
 import org.eclipse.jdt.internal.compiler.ast.ConditionalExpression;
@@ -103,12 +104,12 @@ import org.eclipse.jdt.internal.compiler.ast.UnaryExpression;
 import org.eclipse.jdt.internal.compiler.ast.WhileStatement;
 import org.eclipse.jdt.internal.compiler.ast.Wildcard;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.ClassScope;
 import org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope;
-import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
+import org.eclipse.jdt.internal.compiler.lookup.ExtraCompilerModifiers;
 import org.eclipse.jdt.internal.compiler.lookup.MethodScope;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
@@ -144,7 +145,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		}
 	}
 	
-	public static boolean DEBUG = false;
+	public final static boolean DEBUG = false;
 	private static final int NO_MODIFIERS = 0;
 	/*
 	 * Set of expected tokens type for a single type reference.
@@ -174,21 +175,13 @@ public class CodeFormatterVisitor extends ASTVisitor {
 	public Scribe scribe;
 
 	public CodeFormatterVisitor(DefaultCodeFormatterOptions preferences, Map settings, int offset, int length, CodeSnippetParsingUtil codeSnippetParsingUtil) {
-		if (settings != null) {
-			Object assertModeSetting = settings.get(JavaCore.COMPILER_SOURCE);
-			long sourceLevel = ClassFileConstants.JDK1_3;
-			if (JavaCore.VERSION_1_4.equals(assertModeSetting)) {
-				sourceLevel = ClassFileConstants.JDK1_4;
-			} else if (JavaCore.VERSION_1_5.equals(assertModeSetting)) {
-				sourceLevel = ClassFileConstants.JDK1_5;
-			}		
-			this.localScanner = new Scanner(true, false, false/*nls*/, sourceLevel/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
-		} else {
-			this.localScanner = new Scanner(true, false, false/*nls*/, ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
-		}
+		long sourceLevel = settings == null
+			? ClassFileConstants.JDK1_3
+			: CompilerOptions.versionToJdkLevel(settings.get(JavaCore.COMPILER_SOURCE));
+		this.localScanner = new Scanner(true, false, false/*nls*/, sourceLevel/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
 		
 		this.preferences = preferences;
-		this.scribe = new Scribe(this, settings, offset, length, codeSnippetParsingUtil);
+		this.scribe = new Scribe(this, sourceLevel, offset, length, codeSnippetParsingUtil);
 	}
 	
 	/**
@@ -201,6 +194,10 @@ public class CodeFormatterVisitor extends ASTVisitor {
 	private BinaryExpressionFragmentBuilder buildFragments(BinaryExpression binaryExpression, BlockScope scope) {
 		BinaryExpressionFragmentBuilder builder = new BinaryExpressionFragmentBuilder();
 
+		if (binaryExpression instanceof CombinedBinaryExpression) {
+			binaryExpression.traverse(builder, scope);
+			return builder;
+		}
 		switch((binaryExpression.bits & ASTNode.OperatorMASK) >> ASTNode.OperatorSHIFT) {
 			case OperatorIds.MULTIPLY :
 				binaryExpression.left.traverse(builder, scope);
@@ -308,9 +305,12 @@ public class CodeFormatterVisitor extends ASTVisitor {
 						multiFieldDeclaration.declarations[length] = currentField;
 					} else if (previousMergedNode instanceof FieldDeclaration) {
 						// need to check we need to create a multiple field declaration
-						if (currentField.declarationSourceStart == ((FieldDeclaration) previousMergedNode).declarationSourceStart) {
+						final FieldDeclaration previousFieldDeclaration = (FieldDeclaration)previousMergedNode;
+						if (currentField.declarationSourceStart == previousFieldDeclaration.declarationSourceStart) {
 							// we create a multi field declaration
-							mergedNodes.set(mergedNodes.size() - 1, new MultiFieldDeclaration(new FieldDeclaration[]{ (FieldDeclaration)previousMergedNode, currentField}));
+							final MultiFieldDeclaration multiFieldDeclaration = new MultiFieldDeclaration(new FieldDeclaration[]{ previousFieldDeclaration, currentField});
+							multiFieldDeclaration.annotations = previousFieldDeclaration.annotations;
+							mergedNodes.set(mergedNodes.size() - 1, multiFieldDeclaration);
 						} else {
 							mergedNodes.add(currentNode);
 						}
@@ -371,10 +371,13 @@ public class CodeFormatterVisitor extends ASTVisitor {
 							System.arraycopy(multiField.declarations, 0, multiField.declarations=new FieldDeclaration[length+1], 0, length);
 							multiField.declarations[length] = field;
 						} else {
-							members[index - 1] = new MultiFieldDeclaration(new FieldDeclaration[]{ (FieldDeclaration)previousMember, field});
+							FieldDeclaration fieldDeclaration = (FieldDeclaration)previousMember;
+							final MultiFieldDeclaration multiFieldDeclaration = new MultiFieldDeclaration(new FieldDeclaration[]{ fieldDeclaration, field});
+							multiFieldDeclaration.annotations = fieldDeclaration.annotations;
+							members[index - 1] = multiFieldDeclaration;
 						}
 					} else {
-						members[index++] = field;					
+						members[index++] = field;
 					}
 					previousFieldStart = fieldStart;
 					if (++fieldIndex < fieldCount) { // find next field if any
@@ -440,8 +443,13 @@ public class CodeFormatterVisitor extends ASTVisitor {
 							// a new line has been inserted by printTrailingComment()
 							this.scribe.indentationLevel = binaryExpressionAlignment.breakIndentationLevel;
 						}
-						this.scribe.alignFragment(binaryExpressionAlignment, i);
-						this.scribe.printNextToken(operators[i], this.preferences.insert_space_before_binary_operator);
+						if (this.preferences.wrap_before_binary_operator) {
+							this.scribe.alignFragment(binaryExpressionAlignment, i);
+							this.scribe.printNextToken(operators[i], this.preferences.insert_space_before_binary_operator);
+						} else {
+							this.scribe.printNextToken(operators[i], this.preferences.insert_space_before_binary_operator);
+							this.scribe.alignFragment(binaryExpressionAlignment, i);
+						}
 						if (operators[i] == TerminalTokens.TokenNameMINUS && isNextToken(TerminalTokens.TokenNameMINUS)) {
 							// the next character is a minus (unary operator)
 							this.scribe.space();
@@ -550,7 +558,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 				this.scribe.printEmptyLines(newLinesBeforeField);
 			}
 		}
-		Alignment memberAlignment = this.scribe.getMemberAlignment();	//$NON-NLS-1$
+		Alignment memberAlignment = this.scribe.getMemberAlignment();
 	
         this.scribe.printComment();
 		this.scribe.printModifiers(fieldDeclaration.annotations, this);
@@ -588,7 +596,19 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			if (this.preferences.insert_space_after_assignment_operator) {
 				this.scribe.space();
 			}
-			initialization.traverse(this, scope);
+			Alignment assignmentAlignment = this.scribe.createAlignment("fieldDeclarationAssignmentAlignment", this.preferences.alignment_for_assignment, Alignment.R_OUTERMOST, 1, this.scribe.scanner.currentPosition); //$NON-NLS-1$
+			this.scribe.enterAlignment(assignmentAlignment);
+			boolean ok = false;
+			do {
+				try {
+					this.scribe.alignFragment(assignmentAlignment, 0);
+					initialization.traverse(this, scope);
+					ok = true;
+				} catch(AlignmentException e){
+					this.scribe.redoAlignment(e);
+				}
+			} while (!ok);		
+			this.scribe.exitAlignment(assignmentAlignment, true);			
 		}
 		
 		this.scribe.printNextToken(TerminalTokens.TokenNameSEMICOLON, this.preferences.insert_space_before_semicolon);
@@ -602,6 +622,32 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		}
 	}
 	
+	private void format(ImportReference importRef, boolean isLast) {
+		this.scribe.printNextToken(TerminalTokens.TokenNameimport);
+		this.preferences.number_of_empty_lines_to_preserve = this.preferences.blank_lines_between_import_groups;
+		this.scribe.space();
+		if (importRef.isStatic()) {
+			this.scribe.printNextToken(TerminalTokens.TokenNamestatic);
+			this.scribe.space();
+		}
+		if ((importRef.bits & ASTNode.OnDemand) != 0) {
+			this.scribe.printQualifiedReference(importRef.sourceEnd);
+			this.scribe.printNextToken(TerminalTokens.TokenNameDOT);
+			this.scribe.printNextToken(TerminalTokens.TokenNameMULTIPLY);			
+			this.scribe.printNextToken(TerminalTokens.TokenNameSEMICOLON, this.preferences.insert_space_before_semicolon);
+		} else {
+			this.scribe.printQualifiedReference(importRef.sourceEnd);
+			this.scribe.printNextToken(TerminalTokens.TokenNameSEMICOLON, this.preferences.insert_space_before_semicolon);
+		}
+		if (isLast) {
+			this.scribe.printTrailingComment();
+		} else {
+			this.scribe.printTrailingComment(this.preferences.blank_lines_between_import_groups);
+		}
+		this.scribe.printNewLine();			
+	}
+
+
 	private void format(MultiFieldDeclaration multiFieldDeclaration, ASTVisitor visitor, MethodScope scope, boolean isChunkStart, boolean isFirstClassBodyDeclaration) {
 	
 		if (isFirstClassBodyDeclaration) {
@@ -619,7 +665,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 				this.scribe.printEmptyLines(newLinesBeforeField);
 			}
 		}
-		Alignment fieldAlignment = this.scribe.getMemberAlignment();	//$NON-NLS-1$
+		Alignment fieldAlignment = this.scribe.getMemberAlignment();
 	
         this.scribe.printComment();
 		this.scribe.printModifiers(multiFieldDeclaration.annotations, this);
@@ -868,23 +914,30 @@ public class CodeFormatterVisitor extends ASTVisitor {
          * Print comments to get proper line number
          */
         this.scribe.printComment();
-        final int line = this.scribe.line; 
-        
-        this.scribe.printModifiers(typeDeclaration.annotations, this);
-		/*
+        int line = this.scribe.line; 
+
+		this.scribe.printModifiers(typeDeclaration.annotations, this);
+
+		if (this.scribe.line > line) {
+        	// annotations introduced new line, but this is not a line wrapping
+			// see 158267
+			line = this.scribe.line;
+		}
+
+        /*
 		 * Type name
 		 */
-        switch(typeDeclaration.kind()) {
-        	case IGenericType.CLASS_DECL :
+        switch(TypeDeclaration.kind(typeDeclaration.modifiers)) {
+        	case TypeDeclaration.CLASS_DECL :
 				this.scribe.printNextToken(TerminalTokens.TokenNameclass, true); 
         		break;
-        	case IGenericType.INTERFACE_DECL :
+        	case TypeDeclaration.INTERFACE_DECL :
 				this.scribe.printNextToken(TerminalTokens.TokenNameinterface, true); 
         		break;
-        	case IGenericType.ENUM_DECL :
+        	case TypeDeclaration.ENUM_DECL :
 				this.scribe.printNextToken(TerminalTokens.TokenNameenum, true); 
         		break;
-        	case IGenericType.ANNOTATION_TYPE_DECL :
+        	case TypeDeclaration.ANNOTATION_TYPE_DECL :
 				this.scribe.printNextToken(TerminalTokens.TokenNameAT, this.preferences.insert_space_before_at_in_annotation_type_declaration);
 				this.scribe.printNextToken(TerminalTokens.TokenNameinterface, this.preferences.insert_space_after_at_in_annotation_type_declaration); 
         		break;
@@ -946,8 +999,9 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		final TypeReference[] superInterfaces = typeDeclaration.superInterfaces;
 		if (superInterfaces != null) {
 			int alignment_for_superinterfaces;
-			switch(typeDeclaration.kind()) {
-				case IGenericType.ENUM_DECL :
+			int kind = TypeDeclaration.kind(typeDeclaration.modifiers);
+			switch(kind) {
+				case TypeDeclaration.ENUM_DECL :
 					alignment_for_superinterfaces = this.preferences.alignment_for_superinterfaces_in_enum_declaration;
 					break;
 				default:
@@ -965,7 +1019,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			do {
 				try {
 					this.scribe.alignFragment(interfaceAlignment, 0);
-					if (typeDeclaration.kind() == IGenericType.INTERFACE_DECL) {
+					if (kind == TypeDeclaration.INTERFACE_DECL) {
 						this.scribe.printNextToken(TerminalTokens.TokenNameextends, true);
 					} else  {
 						this.scribe.printNextToken(TerminalTokens.TokenNameimplements, true);
@@ -998,12 +1052,13 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		 */
 		String class_declaration_brace;
 		boolean space_before_opening_brace;
-		switch(typeDeclaration.kind()) {
-			case IGenericType.ENUM_DECL :
+		int kind = TypeDeclaration.kind(typeDeclaration.modifiers);
+		switch(kind) {
+			case TypeDeclaration.ENUM_DECL :
 				class_declaration_brace = this.preferences.brace_position_for_enum_declaration;
 				space_before_opening_brace = this.preferences.insert_space_before_opening_brace_in_enum_declaration;
 				break;
-			case IGenericType.ANNOTATION_TYPE_DECL :
+			case TypeDeclaration.ANNOTATION_TYPE_DECL :
 				class_declaration_brace = this.preferences.brace_position_for_annotation_type_declaration;
 				space_before_opening_brace =  this.preferences.insert_space_before_opening_brace_in_annotation_type_declaration;
 				break;
@@ -1016,13 +1071,12 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		formatTypeOpeningBrace(class_declaration_brace, space_before_opening_brace, typeDeclaration);
 		
 		boolean indent_body_declarations_compare_to_header;
-		switch(typeDeclaration.kind()) {
-			case IGenericType.ENUM_DECL :
+		switch(kind) {
+			case TypeDeclaration.ENUM_DECL :
 				indent_body_declarations_compare_to_header = this.preferences.indent_body_declarations_compare_to_enum_declaration_header;
 				break;
-			case IGenericType.ANNOTATION_TYPE_DECL :
-				// TODO (olivier) might want to add an option for annotation type
-				indent_body_declarations_compare_to_header = this.preferences.indent_body_declarations_compare_to_type_header;
+			case TypeDeclaration.ANNOTATION_TYPE_DECL :
+				indent_body_declarations_compare_to_header = this.preferences.indent_body_declarations_compare_to_annotation_declaration_header;
 				break;
 			default:
 				indent_body_declarations_compare_to_header = this.preferences.indent_body_declarations_compare_to_type_header;
@@ -1032,7 +1086,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			this.scribe.indent();
 		}
 		
-		if (typeDeclaration.kind() == IGenericType.ENUM_DECL) {
+		if (kind == TypeDeclaration.ENUM_DECL) {
 			FieldDeclaration[] fieldDeclarations = typeDeclaration.fields;
 			boolean hasConstants = false;
 			if (fieldDeclarations != null) {
@@ -1105,22 +1159,19 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		}
 
 		formatTypeMembers(typeDeclaration);
-
-		this.scribe.printComment();
 		
 		if (indent_body_declarations_compare_to_header) {
 			this.scribe.unIndent();
 		}
 		
-		switch(typeDeclaration.kind()) {
-			case IGenericType.ENUM_DECL :
+		switch(kind) {
+			case TypeDeclaration.ENUM_DECL :
 				if (this.preferences.insert_new_line_in_empty_enum_declaration) {
 					this.scribe.printNewLine();
 				}
 				break;
-			case IGenericType.ANNOTATION_TYPE_DECL :
-				// TODO (olivier) might want an option for annotation type
-				if (this.preferences.insert_new_line_in_empty_type_declaration) {
+			case TypeDeclaration.ANNOTATION_TYPE_DECL :
+				if (this.preferences.insert_new_line_in_empty_annotation_declaration) {
 					this.scribe.printNewLine();
 				}
 				break;
@@ -1174,8 +1225,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		this.scribe.indent();
 
 		formatTypeMembers(typeDeclaration);
-		
-		this.scribe.printComment();
+
 		this.scribe.unIndent();
 		if (this.preferences.insert_new_line_in_empty_anonymous_type_declaration) {
 			this.scribe.printNewLine();
@@ -1552,7 +1602,19 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			if (this.preferences.insert_space_after_assignment_operator) {
 				this.scribe.space();
 			}
-			initialization.traverse(this, scope);
+			Alignment assignmentAlignment = this.scribe.createAlignment("localDeclarationAssignmentAlignment", this.preferences.alignment_for_assignment, Alignment.R_OUTERMOST, 1, this.scribe.scanner.currentPosition); //$NON-NLS-1$
+			this.scribe.enterAlignment(assignmentAlignment);
+			boolean ok = false;
+			do {
+				try {
+					this.scribe.alignFragment(assignmentAlignment, 0);
+					initialization.traverse(this, scope);
+					ok = true;
+				} catch(AlignmentException e){
+					this.scribe.redoAlignment(e);
+				}
+			} while (!ok);		
+			this.scribe.exitAlignment(assignmentAlignment, true);			
 		}
 
 		if (isPartOfMultipleLocalDeclaration()) {
@@ -1663,6 +1725,9 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		
 		final Argument[] arguments = methodDeclaration.arguments;
 		if (arguments != null) {
+			if (spaceBeforeFirstParameter) {
+				this.scribe.space();
+			}
 			int argumentLength = arguments.length;
 			Alignment argumentsAlignment = this.scribe.createAlignment(
 					"methodArguments",//$NON-NLS-1$
@@ -1673,9 +1738,6 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			boolean ok = false;
 			do {
 				try {
-					if (spaceBeforeFirstParameter) {
-						this.scribe.space();
-					}
 					for (int i = 0; i < argumentLength; i++) {
 						if (i > 0) {
 							this.scribe.printNextToken(TerminalTokens.TokenNameCOMMA, spaceBeforeComma);
@@ -1790,7 +1852,11 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			if (statement instanceof Expression) {
 				this.scribe.printNextToken(TerminalTokens.TokenNameSEMICOLON, this.preferences.insert_space_before_semicolon);
 				this.scribe.printTrailingComment();
-				if (i != statementsLength - 1 || (i == statementsLength - 1 && insertNewLineAfterLastStatement)) {
+				if (i != statementsLength - 1) {
+					if (!(statement instanceof EmptyStatement) && !(statements[i + 1] instanceof EmptyStatement)) {
+						this.scribe.printNewLine();
+					}
+				} else if (i == statementsLength - 1 && insertNewLineAfterLastStatement) {
 					this.scribe.printNewLine();
 				}
 			} else if (statement instanceof LocalDeclaration) {
@@ -1804,21 +1870,33 @@ public class CodeFormatterVisitor extends ASTVisitor {
 						if (currentLocal.declarationSourceStart != nextLocal.declarationSourceStart) {
 							this.scribe.printNextToken(TerminalTokens.TokenNameSEMICOLON, this.preferences.insert_space_before_semicolon);
 							this.scribe.printTrailingComment();
-							if (i != statementsLength - 1 || (i == statementsLength - 1 && insertNewLineAfterLastStatement)) {
+							if (i != statementsLength - 1) {
+								if (!(statement instanceof EmptyStatement) && !(statements[i + 1] instanceof EmptyStatement)) {
+									this.scribe.printNewLine();
+								}
+							} else if (i == statementsLength - 1 && insertNewLineAfterLastStatement) {
 								this.scribe.printNewLine();
 							}
 						}
 					} else {
 						this.scribe.printNextToken(TerminalTokens.TokenNameSEMICOLON, this.preferences.insert_space_before_semicolon);
 						this.scribe.printTrailingComment();
-						if (i != statementsLength - 1 || (i == statementsLength - 1 && insertNewLineAfterLastStatement)) {
+						if (i != statementsLength - 1) {
+							if (!(statement instanceof EmptyStatement) && !(statements[i + 1] instanceof EmptyStatement)) {
+								this.scribe.printNewLine();
+							}
+						} else if (i == statementsLength - 1 && insertNewLineAfterLastStatement) {
 							this.scribe.printNewLine();
 						}
 					}
 				} else {
 					this.scribe.printNextToken(TerminalTokens.TokenNameSEMICOLON, this.preferences.insert_space_before_semicolon);
 					this.scribe.printTrailingComment();
-					if (i != statementsLength - 1 || (i == statementsLength - 1 && insertNewLineAfterLastStatement)) {
+					if (i != statementsLength - 1) {
+						if (!(statement instanceof EmptyStatement) && !(statements[i + 1] instanceof EmptyStatement)) {
+							this.scribe.printNewLine();
+						}
+					} else if (i == statementsLength - 1 && insertNewLineAfterLastStatement) {
 						this.scribe.printNewLine();
 					}
 				}
@@ -1947,7 +2025,8 @@ public class CodeFormatterVisitor extends ASTVisitor {
 				startIndex = memberAlignment.chunkStartIndex;
 				this.scribe.redoMemberAlignment(e);
 			}
-		} while (!ok);		
+		} while (!ok);
+		this.scribe.printComment();
 		this.scribe.exitMemberAlignment(memberAlignment);
 	}
 
@@ -1956,15 +2035,22 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		int methodCount = (typeDeclaration.methods == null) ? 0 : typeDeclaration.methods.length;
 		int typeCount = (typeDeclaration.memberTypes == null) ? 0 : typeDeclaration.memberTypes.length;
 	
-		if (methodCount == 1 && typeDeclaration.methods[0].isDefaultConstructor()) {
-			methodCount = 0;
+		if (methodCount <= 2) {
+			for (int i = 0, max = methodCount; i < max; i++) {
+				final AbstractMethodDeclaration abstractMethodDeclaration = typeDeclaration.methods[i];
+				if (abstractMethodDeclaration.isDefaultConstructor()) {
+					methodCount--;
+				} else if (abstractMethodDeclaration.isClinit()) {
+					methodCount--;
+				}
+			}
 		}
 		final int memberLength = fieldCount + methodCount+typeCount;
 
 		boolean insertNewLine = memberLength > 0;
 		
 		if (!insertNewLine) {
-			if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0) {
+			if ((typeDeclaration.bits & ASTNode.IsAnonymousType) != 0) {
 				insertNewLine = this.preferences.insert_new_line_in_empty_enum_constant;
 			}
 		}
@@ -1980,20 +2066,29 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		int methodCount = (typeDeclaration.methods == null) ? 0 : typeDeclaration.methods.length;
 		int typeCount = (typeDeclaration.memberTypes == null) ? 0 : typeDeclaration.memberTypes.length;
 	
-		if (methodCount == 1 && typeDeclaration.methods[0].isDefaultConstructor()) {
-			methodCount = 0;
+		if (methodCount <= 2) {
+			for (int i = 0, max = methodCount; i < max; i++) {
+				final AbstractMethodDeclaration abstractMethodDeclaration = typeDeclaration.methods[i];
+				if (abstractMethodDeclaration.isDefaultConstructor()) {
+					methodCount--;
+				} else if (abstractMethodDeclaration.isClinit()) {
+					methodCount--;
+				}
+			}
 		}
 		final int memberLength = fieldCount + methodCount + typeCount;
 
 		boolean insertNewLine = memberLength > 0;
 		
 		if (!insertNewLine) {
-			if (typeDeclaration.kind() == IGenericType.ENUM_DECL) {
+			if (TypeDeclaration.kind(typeDeclaration.modifiers) == TypeDeclaration.ENUM_DECL) {
 				insertNewLine = this.preferences.insert_new_line_in_empty_enum_declaration;
-			} else if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0) {
+			} else if ((typeDeclaration.bits & ASTNode.IsAnonymousType) != 0) {
 				insertNewLine = this.preferences.insert_new_line_in_empty_anonymous_type_declaration;
+			} else if (TypeDeclaration.kind(typeDeclaration.modifiers) == TypeDeclaration.ANNOTATION_TYPE_DECL) {
+				insertNewLine = this.preferences.insert_new_line_in_empty_annotation_declaration;
 			} else {
-				insertNewLine = this.preferences.insert_new_line_in_empty_type_declaration;
+				insertNewLine = this.preferences.insert_new_line_in_empty_type_declaration;				
 			}
 		}
 	
@@ -2007,26 +2102,33 @@ public class CodeFormatterVisitor extends ASTVisitor {
 
 		this.localScanner.resetTo(this.scribe.scanner.currentPosition, this.scribe.scannerEndPosition - 1);
 		int dimensions = 0;
+		int balance = 0;
 		try {
 			int token;
-			while ((token = this.localScanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+			loop: while ((token = this.localScanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
 				switch(token) {
 					case TerminalTokens.TokenNameRBRACKET:
 						dimensions++;
+						balance--;
 						break;
 					case TerminalTokens.TokenNameCOMMENT_BLOCK :
 					case TerminalTokens.TokenNameCOMMENT_JAVADOC :
 					case TerminalTokens.TokenNameCOMMENT_LINE :
+						break;
 					case TerminalTokens.TokenNameLBRACKET :
+						balance++;
 						break;
 					default:
-						return dimensions;
+						break loop;
 				}
 			}
 		} catch(InvalidInputException e) {
 			// ignore
 		}
-		return dimensions;
+		if (balance == 0) {
+			return dimensions;
+		}
+		return 0;
 	}
 
 	private boolean hasComments() {
@@ -2659,8 +2761,21 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		if (this.preferences.insert_space_after_assignment_operator) {
 			this.scribe.space();
 		}
-		assignment.expression.traverse(this, scope);
-		
+
+		Alignment assignmentAlignment = this.scribe.createAlignment("assignmentAlignment", this.preferences.alignment_for_assignment, Alignment.R_OUTERMOST, 1, this.scribe.scanner.currentPosition); //$NON-NLS-1$
+		this.scribe.enterAlignment(assignmentAlignment);
+		boolean ok = false;
+		do {
+			try {
+				this.scribe.alignFragment(assignmentAlignment, 0);
+				assignment.expression.traverse(this, scope);
+				ok = true;
+			} catch(AlignmentException e){
+				this.scribe.redoAlignment(e);
+			}
+		} while (!ok);		
+		this.scribe.exitAlignment(assignmentAlignment, true);
+
 		if (numberOfParens > 0) {
 			manageClosingParenthesizedExpression(assignment, numberOfParens);
 		}
@@ -2872,9 +2987,18 @@ public class CodeFormatterVisitor extends ASTVisitor {
 				}
 			}
 			int importLength = imports.length;
-			for (int i = 0; i < importLength; i++) {
-				imports[i].traverse(this, scope);
-			}			
+			int savedNumberOfLineToPreserve = this.preferences.number_of_empty_lines_to_preserve;
+			if (importLength != 1) {
+				format(imports[0], false);
+    			for (int i = 1; i < importLength - 1; i++) {
+    				format(imports[i], false);
+    			}
+    			format(imports[importLength - 1], true);
+    			this.preferences.number_of_empty_lines_to_preserve = savedNumberOfLineToPreserve;
+			} else {
+				format(imports[0], true);
+			}
+			this.preferences.number_of_empty_lines_to_preserve = savedNumberOfLineToPreserve;
 			
 			int blankLinesAfterImports = this.preferences.blank_lines_after_imports;
 			if (blankLinesAfterImports > 0) {
@@ -2962,7 +3086,19 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		if (this.preferences.insert_space_after_assignment_operator) {
 			this.scribe.space();
 		}
-		compoundAssignment.expression.traverse(this, scope);
+		Alignment assignmentAlignment = this.scribe.createAlignment("compoundAssignmentAlignment", this.preferences.alignment_for_assignment, Alignment.R_OUTERMOST, 1, this.scribe.scanner.currentPosition); //$NON-NLS-1$
+		this.scribe.enterAlignment(assignmentAlignment);
+		boolean ok = false;
+		do {
+			try {
+				this.scribe.alignFragment(assignmentAlignment, 0);
+				compoundAssignment.expression.traverse(this, scope);
+				ok = true;
+			} catch(AlignmentException e){
+				this.scribe.redoAlignment(e);
+			}
+		} while (!ok);		
+		this.scribe.exitAlignment(assignmentAlignment, true);
 		
 		if (numberOfParens > 0) {
 			manageClosingParenthesizedExpression(compoundAssignment, numberOfParens);
@@ -3032,16 +3168,36 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			
 		if (constructorDeclaration.ignoreFurtherInvestigation) {
 			this.scribe.printComment();
-			this.scribe.scanner.resetTo(constructorDeclaration.declarationSourceEnd + 1, this.scribe.scannerEndPosition);
+			if (this.scribe.indentationLevel != 0) {
+				this.scribe.printIndentationIfNecessary();
+			}
+			this.scribe.scanner.resetTo(constructorDeclaration.declarationSourceEnd + 1, this.scribe.scannerEndPosition - 1);
 			this.scribe.printTrailingComment();
+			switch(this.scribe.scanner.source[this.scribe.scanner.currentPosition]) {
+				case '\n' :
+					this.scribe.scanner.currentPosition++;
+					this.scribe.lastNumberOfNewLines = 1;
+					break;
+				case '\r' :
+					this.scribe.scanner.currentPosition++;
+					if (this.scribe.scanner.source[this.scribe.scanner.currentPosition] == '\n') {
+						this.scribe.scanner.currentPosition++;
+					}
+					this.scribe.lastNumberOfNewLines = 1;
+			}
 			return false;
 		}
         /*
          * Print comments to get proper line number
          */
         this.scribe.printComment();
-        final int line = this.scribe.line;
+        int line = this.scribe.line;
 		this.scribe.printModifiers(constructorDeclaration.annotations, this);
+		if (this.scribe.line > line) {
+        	// annotations introduced new line, but this is not a line wrapping
+			// see 158267
+			line = this.scribe.line;
+		}
 		this.scribe.space();
 
 		TypeParameter[] typeParameters = constructorDeclaration.typeParameters;
@@ -3183,8 +3339,8 @@ public class CodeFormatterVisitor extends ASTVisitor {
 				if (action instanceof Expression) {
 					this.scribe.printNextToken(TerminalTokens.TokenNameSEMICOLON, this.preferences.insert_space_before_semicolon);
 					this.scribe.printTrailingComment();
-					this.scribe.printNewLine();
 				}
+				this.scribe.printNewLine();
 				this.scribe.unIndent();
 			}
 		} else {
@@ -3286,9 +3442,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			if (fieldsCount != 0 || methodsCount != 0 || membersCount != 0) {
 				formatTypeMembers(typeDeclaration);
 			}
-	
-			this.scribe.printComment();
-			
+
 			if (this.preferences.indent_body_declarations_compare_to_enum_constant_header) {
 				this.scribe.unIndent();
 			}
@@ -3623,7 +3777,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 					 */
 					 formatGuardClauseBlock((Block) thenStatement, scope);
 				} else {
-                    formatLeftCurlyBrace(line, this.preferences.brace_position_for_block);
+					formatLeftCurlyBrace(line, this.preferences.brace_position_for_block);
 					thenStatement.traverse(this, scope);
 					if (elseStatement != null && (this.preferences.insert_new_line_before_else_in_if_statement)) {
 						this.scribe.printNewLine();
@@ -3654,7 +3808,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 						this.scribe.redoAlignment(e);
 					}
 				} while (!ok);
-				this.scribe.exitAlignment(compactIfAlignment, true);				
+				this.scribe.exitAlignment(compactIfAlignment, true);
 			} else if (this.preferences.keep_then_statement_on_same_line) {
 				this.scribe.space();
 				thenStatement.traverse(this, scope);
@@ -3694,7 +3848,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 					this.scribe.printNewLine();
 					this.scribe.indent();
 				}
-				this.scribe.space();				
+				this.scribe.space();
 				elseStatement.traverse(this, scope);
 				if (!this.preferences.compact_else_if) {
 					this.scribe.unIndent();
@@ -3717,33 +3871,6 @@ public class CodeFormatterVisitor extends ASTVisitor {
 				this.scribe.unIndent();
 			}
 		}
-		return false;
-	}
-	
-	/**
-	 * @see org.eclipse.jdt.internal.compiler.ASTVisitor#visit(org.eclipse.jdt.internal.compiler.ast.ImportReference, org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope)
-	 */
-	public boolean visit(
-		ImportReference importRef,
-		CompilationUnitScope scope) {
-		
-		this.scribe.printNextToken(TerminalTokens.TokenNameimport);
-		this.scribe.space();
-		if (importRef.isStatic()) {
-			this.scribe.printNextToken(TerminalTokens.TokenNamestatic);
-			this.scribe.space();
-		}
-		if (importRef.onDemand) {
-			this.scribe.printQualifiedReference(importRef.sourceEnd);
-			this.scribe.printNextToken(TerminalTokens.TokenNameDOT);
-			this.scribe.printNextToken(TerminalTokens.TokenNameMULTIPLY);			
-			this.scribe.printNextToken(TerminalTokens.TokenNameSEMICOLON, this.preferences.insert_space_before_semicolon);
-		} else {
-			this.scribe.printQualifiedReference(importRef.sourceEnd);
-			this.scribe.printNextToken(TerminalTokens.TokenNameSEMICOLON, this.preferences.insert_space_before_semicolon);
-		}
-		this.scribe.printTrailingComment();
-		this.scribe.printNewLine();
 		return false;
 	}
 
@@ -3858,7 +3985,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		this.scribe.printQualifiedReference(annotation.sourceEnd);
 		return false;
 	}
-	public boolean visit(MarkerAnnotation annotation, CompilationUnitScope scope) {
+	public boolean visit(MarkerAnnotation annotation, ClassScope scope) {
 		this.scribe.printNextToken(TerminalTokens.TokenNameAT);
 		if (this.preferences.insert_space_after_at_in_annotation) {
 			this.scribe.space();
@@ -3875,25 +4002,6 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		pair.value.traverse(this, scope);	
 		return false;
 	}
-	public boolean visit(MemberValuePair pair, ClassScope scope) {
-		this.scribe.printNextToken(TerminalTokens.TokenNameIdentifier);
-		this.scribe.printNextToken(TerminalTokens.TokenNameEQUAL, this.preferences.insert_space_before_assignment_operator);
-		if (this.preferences.insert_space_after_assignment_operator) {
-			this.scribe.space();
-		}
-		pair.value.traverse(this, scope);	
-		return false;
-	}
-	public boolean visit(MemberValuePair pair, CompilationUnitScope scope) {
-		this.scribe.printNextToken(TerminalTokens.TokenNameIdentifier);
-		this.scribe.printNextToken(TerminalTokens.TokenNameEQUAL, this.preferences.insert_space_before_assignment_operator);
-		if (this.preferences.insert_space_after_assignment_operator) {
-			this.scribe.space();
-		}
-		pair.value.traverse(this, scope);	
-		return false;
-	}
-
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.ASTVisitor#visit(org.eclipse.jdt.internal.compiler.ast.MessageSend, org.eclipse.jdt.internal.compiler.lookup.BlockScope)
 	 */
@@ -3946,8 +4054,23 @@ public class CodeFormatterVisitor extends ASTVisitor {
 
 		if (methodDeclaration.ignoreFurtherInvestigation) {
 			this.scribe.printComment();
-			this.scribe.scanner.resetTo(methodDeclaration.declarationSourceEnd + 1, this.scribe.scannerEndPosition);
+			if (this.scribe.indentationLevel != 0) {
+				this.scribe.printIndentationIfNecessary();
+			}
+			this.scribe.scanner.resetTo(methodDeclaration.declarationSourceEnd + 1, this.scribe.scannerEndPosition - 1);
 			this.scribe.printTrailingComment();
+			switch(this.scribe.scanner.source[this.scribe.scanner.currentPosition]) {
+				case '\n' :
+					this.scribe.scanner.currentPosition++;
+					this.scribe.lastNumberOfNewLines = 1;
+					break;
+				case '\r' :
+					this.scribe.scanner.currentPosition++;
+					if (this.scribe.scanner.source[this.scribe.scanner.currentPosition] == '\n') {
+						this.scribe.scanner.currentPosition++;
+					}
+					this.scribe.lastNumberOfNewLines = 1;
+			}
 			return false;
 		}
         
@@ -3955,9 +4078,15 @@ public class CodeFormatterVisitor extends ASTVisitor {
          * Print comments to get proper line number
          */
         this.scribe.printComment();
-        final int line = this.scribe.line;
+        int line = this.scribe.line;
         
         this.scribe.printModifiers(methodDeclaration.annotations, this);
+        
+		if (this.scribe.line > line) {
+        	// annotations introduced new line, but this is not a line wrapping
+			// see 158267
+			line = this.scribe.line;
+		}
 		this.scribe.space();
 		
 		TypeParameter[] typeParameters = methodDeclaration.typeParameters;
@@ -4024,7 +4153,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			this.preferences.insert_space_after_comma_in_method_declaration_throws,
 			this.preferences.alignment_for_throws_clause_in_method_declaration);
 
-		if (!methodDeclaration.isNative() && !methodDeclaration.isAbstract() && ((methodDeclaration.modifiers & CompilerModifiers.AccSemicolonBody) == 0)) {
+		if (!methodDeclaration.isNative() && !methodDeclaration.isAbstract() && ((methodDeclaration.modifiers & ExtraCompilerModifiers.AccSemicolonBody) == 0)) {
 			/*
 			 * Method body
 			 */
@@ -4093,32 +4222,6 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		this.scribe.printNextToken(TerminalTokens.TokenNameRPAREN, this.preferences.insert_space_before_closing_paren_in_annotation);
 		return false;
 	}
-	public boolean visit(NormalAnnotation annotation, CompilationUnitScope scope) {
-		this.scribe.printNextToken(TerminalTokens.TokenNameAT);
-		if (this.preferences.insert_space_after_at_in_annotation) {
-			this.scribe.space();
-		}
-		this.scribe.printQualifiedReference(annotation.sourceEnd);
-		this.scribe.printNextToken(TerminalTokens.TokenNameLPAREN, this.preferences.insert_space_before_opening_paren_in_annotation);
-		if (this.preferences.insert_space_after_opening_paren_in_annotation) {
-			this.scribe.space();
-		}
-		MemberValuePair[] memberValuePairs = annotation.memberValuePairs;
-		if (memberValuePairs != null) {
-			int length = memberValuePairs.length;
-			for (int i = 0; i < length - 1; i++) {
-				memberValuePairs[i].traverse(this, scope);
-				this.scribe.printNextToken(TerminalTokens.TokenNameCOMMA, this.preferences.insert_space_before_comma_in_annotation);
-				if (this.preferences.insert_space_after_comma_in_annotation) {
-					this.scribe.space();
-				}
-			}
-			memberValuePairs[length - 1].traverse(this, scope);
-		}
-		this.scribe.printNextToken(TerminalTokens.TokenNameRPAREN, this.preferences.insert_space_before_closing_paren_in_annotation);
-		return false;
-	}
-
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.ASTVisitor#visit(org.eclipse.jdt.internal.compiler.ast.NullLiteral, org.eclipse.jdt.internal.compiler.lookup.BlockScope)
 	 */
@@ -4178,7 +4281,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			}
 		}
 		int dimensions = getDimensions();
-		if (dimensions != 0) {
+		if (dimensions != 0 && dimensions <= parameterizedQualifiedTypeReference.dimensions()) {
 			if (this.preferences.insert_space_before_opening_bracket_in_array_type_reference) {
 				this.scribe.space();
 			}
@@ -4230,7 +4333,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			}
 		}
 		int dimensions = getDimensions();
-		if (dimensions != 0) {
+		if (dimensions != 0 && dimensions <= parameterizedQualifiedTypeReference.dimensions()) {
 			if (this.preferences.insert_space_before_opening_bracket_in_array_type_reference) {
 				this.scribe.space();
 			}
@@ -4274,7 +4377,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			this.scribe.printNextToken(CLOSING_GENERICS_EXPECTEDTOKENS, this.preferences.insert_space_before_closing_angle_bracket_in_parameterized_type_reference);
 		}
 		int dimensions = getDimensions();
-		if (dimensions != 0) {
+		if (dimensions != 0 && dimensions <= parameterizedSingleTypeReference.dimensions()) {
 			if (this.preferences.insert_space_before_opening_bracket_in_array_type_reference) {
 				this.scribe.space();
 			}
@@ -4318,7 +4421,7 @@ public class CodeFormatterVisitor extends ASTVisitor {
 			this.scribe.printNextToken(CLOSING_GENERICS_EXPECTEDTOKENS, this.preferences.insert_space_before_closing_angle_bracket_in_parameterized_type_reference);
 		}
 		int dimensions = getDimensions();
-		if (dimensions != 0) {
+		if (dimensions != 0 && dimensions <= parameterizedSingleTypeReference.dimensions()) {
 			if (this.preferences.insert_space_before_opening_bracket_in_array_type_reference) {
 				this.scribe.space();
 			}
@@ -4585,7 +4688,11 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		this.scribe.printNextToken(TerminalTokens.TokenNamereturn);
 		final Expression expression = returnStatement.expression;
 		if (expression != null) {
-			this.scribe.space();
+			final int numberOfParens = (expression.bits & ASTNode.ParenthesizedMASK) >> ASTNode.ParenthesizedSHIFT;
+			if ((numberOfParens != 0 && this.preferences.insert_space_before_parenthesized_expression_in_return)
+					|| numberOfParens == 0) {
+				this.scribe.space();
+			}
 			expression.traverse(this, scope);
 		}
 		/*
@@ -4609,22 +4716,6 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		this.scribe.printNextToken(TerminalTokens.TokenNameRPAREN, this.preferences.insert_space_before_closing_paren_in_annotation);
 		return false;
 	}
-	public boolean visit(SingleMemberAnnotation annotation,
-			CompilationUnitScope scope) {
-		this.scribe.printNextToken(TerminalTokens.TokenNameAT);
-		if (this.preferences.insert_space_after_at_in_annotation) {
-			this.scribe.space();
-		}
-		this.scribe.printQualifiedReference(annotation.sourceEnd);
-		this.scribe.printNextToken(TerminalTokens.TokenNameLPAREN, this.preferences.insert_space_before_opening_paren_in_annotation);
-		if (this.preferences.insert_space_after_opening_paren_in_annotation) {
-			this.scribe.space();
-		}
-		annotation.memberValue.traverse(this, scope);
-		this.scribe.printNextToken(TerminalTokens.TokenNameRPAREN, this.preferences.insert_space_before_closing_paren_in_annotation);
-		return false;
-	}
-
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.ASTVisitor#visit(org.eclipse.jdt.internal.compiler.ast.SingleNameReference, org.eclipse.jdt.internal.compiler.lookup.BlockScope)
 	 */
@@ -4894,8 +4985,9 @@ public class CodeFormatterVisitor extends ASTVisitor {
 				} else if (!wasACase) {
 					this.scribe.printNewLine();
 				}
+				this.scribe.printComment();
 			}
-		}		
+		}
 		
 		if ((wasACase || wasAStatement) && this.preferences.indent_switchstatements_compare_to_cases) {
 			this.scribe.unIndent();
@@ -4961,8 +5053,13 @@ public class CodeFormatterVisitor extends ASTVisitor {
 	public boolean visit(ThrowStatement throwStatement, BlockScope scope) {
 
 		this.scribe.printNextToken(TerminalTokens.TokenNamethrow);
-		this.scribe.space();
-		throwStatement.exception.traverse(this, scope);
+		Expression expression = throwStatement.exception;
+		final int numberOfParens = (expression.bits & ASTNode.ParenthesizedMASK) >> ASTNode.ParenthesizedSHIFT;
+		if ((numberOfParens > 0 && this.preferences.insert_space_before_parenthesized_expression_in_throw)
+				|| numberOfParens == 0) {
+			this.scribe.space();
+		}
+		expression.traverse(this, scope);
 		/*
 		 * Print the semi-colon
 		 */	
@@ -5122,7 +5219,8 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		 * Print the operator
 		 */
 		int operator;
-		switch((unaryExpression.bits & ASTNode.OperatorMASK) >> ASTNode.OperatorSHIFT) {
+		int operatorValue = (unaryExpression.bits & ASTNode.OperatorMASK) >> ASTNode.OperatorSHIFT;
+		switch(operatorValue) {
 			case OperatorIds.PLUS:
 				operator = TerminalTokens.TokenNamePLUS;
 				break;
@@ -5140,7 +5238,29 @@ public class CodeFormatterVisitor extends ASTVisitor {
 		if (this.preferences.insert_space_after_unary_operator) {
 			this.scribe.space();
 		}
-		unaryExpression.expression.traverse(this, scope);
+		Expression expression = unaryExpression.expression;
+
+		if (expression instanceof PrefixExpression) {
+			PrefixExpression prefixExpression = (PrefixExpression) expression;
+			final int numberOfParensForExpression = (prefixExpression.bits & ASTNode.ParenthesizedMASK) >> ASTNode.ParenthesizedSHIFT;
+			if (numberOfParensForExpression == 0) {
+				switch(operatorValue) {
+					case OperatorIds.PLUS:
+						if (prefixExpression.operator == OperatorIds.PLUS) {
+							this.scribe.space();
+						}						
+						break;
+					case OperatorIds.MINUS:
+						if (prefixExpression.operator == OperatorIds.MINUS) {
+							this.scribe.space();
+						}						
+						break;
+				}
+			}
+			expression.traverse(this, scope);
+		} else {
+			expression.traverse(this, scope);
+		}
 
 		if (numberOfParens > 0) {
 			manageClosingParenthesizedExpression(unaryExpression, numberOfParens);

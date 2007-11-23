@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,12 +14,13 @@ import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class LexStream implements TerminalTokens {
 	public static final int IS_AFTER_JUMP = 1;
 	public static final int LBRACE_MISSING = 2;
 		
-	public class Token{
+	public static class Token{
 		int kind;
 		char[] name;
 		int start;
@@ -48,6 +49,7 @@ public class LexStream implements TerminalTokens {
 	private int[] intervalFlagsToSkip;
 	
 	private int previousInterval = -1;
+	private int currentInterval = -1;
 	
 	public LexStream(int size, Scanner scanner, int[] intervalStartToSkip, int[] intervalEndToSkip, int[] intervalFlagsToSkip, int firstToken, int init, int eof) {
 		this.tokenCache = new Token[size];
@@ -78,26 +80,31 @@ public class LexStream implements TerminalTokens {
 				if(tokenKind != TokenNameEOF) {
 					int start = scanner.getCurrentTokenStartPosition();
 					int end = scanner.getCurrentTokenEndPosition();
-					if(!RangeUtil.isInInterval(start, end, intervalStartToSkip, intervalEndToSkip)) {
+					
+					int nextInterval = currentInterval + 1;
+					if(intervalStartToSkip.length == 0 ||
+							nextInterval >= intervalStartToSkip.length ||
+							start < intervalStartToSkip[nextInterval]) {
 						Token token = new Token();
 						token.kind = tokenKind;
 						token.name = scanner.getCurrentTokenSource();
 						token.start = start;
 						token.end = end;
-						token.line = scanner.getLineNumber(end);
+						token.line = Util.getLineNumber(end, scanner.lineEnds, 0, scanner.linePtr);
 						
-						int pInterval = RangeUtil.getPreviousInterval(start, end, intervalStartToSkip, intervalEndToSkip);
-						if(pInterval != previousInterval && (intervalFlagsToSkip[previousInterval + 1] & RangeUtil.IGNORE) == 0){
+						if(currentInterval != previousInterval && (intervalFlagsToSkip[currentInterval] & RangeUtil.IGNORE) == 0){
 							token.flags = IS_AFTER_JUMP;
-							if((intervalFlagsToSkip[pInterval] & RangeUtil.LBRACE_MISSING) != 0){
+							if((intervalFlagsToSkip[currentInterval] & RangeUtil.LBRACE_MISSING) != 0){
 								token.flags |= LBRACE_MISSING;
 							}
 						}
-						previousInterval = pInterval;
+						previousInterval = currentInterval;
 
 						tokenCache[++tokenCacheIndex % length] = token;
 						
 						tokenNotFound = false;
+					} else {
+						scanner.resetTo(intervalEndToSkip[++currentInterval] + 1, scanner.eofPosition - 1);
 					}
 				} else {
 					int start = scanner.getCurrentTokenStartPosition();
@@ -107,7 +114,7 @@ public class LexStream implements TerminalTokens {
 					token.name = CharOperation.NO_CHAR;
 					token.start = start;
 					token.end = end;
-					token.line = scanner.getLineNumber(end);
+					token.line = Util.getLineNumber(end, scanner.lineEnds, 0, scanner.linePtr);
 					
 					tokenCache[++tokenCacheIndex % length] = token;
 					
@@ -217,7 +224,21 @@ public class LexStream implements TerminalTokens {
 		
 		String source = new String(scanner.source);
 		if(currentIndex < 0) {
-			res.append(source);
+			int previousEnd = -1;
+			for (int i = 0; i < intervalStartToSkip.length; i++) {
+				int intervalStart = intervalStartToSkip[i];
+				int intervalEnd = intervalEndToSkip[i];
+				
+				res.append(source.substring(previousEnd + 1, intervalStart));
+				res.append('<');
+				res.append('@');
+				res.append(source.substring(intervalStart, intervalEnd + 1));
+				res.append('@');
+				res.append('>');
+				
+				previousEnd = intervalEnd;
+			}
+			res.append(source.substring(previousEnd + 1));
 		} else {
 			Token token = token(currentIndex);
 			int curtokKind = token.kind;

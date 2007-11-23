@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,16 +11,16 @@
 package org.eclipse.jdt.internal.formatter;
 
 import java.util.Arrays;
-import java.util.Map;
 
-import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.InvalidInputException;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.ast.Annotation;
-import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
+import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.util.CodeSnippetParsingUtil;
 import org.eclipse.jdt.internal.core.util.RecordedParsingInformation;
 import org.eclipse.jdt.internal.formatter.align.Alignment;
@@ -34,8 +34,6 @@ import org.eclipse.text.edits.TextEdit;
  * @since 2.1
  */
 public class Scribe {
-	private static final String EMPTY_STRING = ""; //$NON-NLS-1$
-
 	private static final int INITIAL_SIZE = 100;
 	
 	private boolean checkLineWrapping;
@@ -75,25 +73,21 @@ public class Scribe {
 	public int numberOfIndentations;
 	private boolean useTabsOnlyForLeadingIndents;
 
-	Scribe(CodeFormatterVisitor formatter, Map settings, int offset, int length, CodeSnippetParsingUtil codeSnippetParsingUtil) {
-		if (settings != null) {
-			Object sourceLevelOption = settings.get(JavaCore.COMPILER_SOURCE);
-			long sourceLevel = ClassFileConstants.JDK1_3;
-			if (JavaCore.VERSION_1_4.equals(sourceLevelOption)) {
-				sourceLevel = ClassFileConstants.JDK1_4;
-			} else if (JavaCore.VERSION_1_5.equals(sourceLevelOption)) {
-				sourceLevel = ClassFileConstants.JDK1_5;
-			}
-			this.scanner = new Scanner(true, true, false/*nls*/, sourceLevel/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
-		} else {
-			this.scanner = new Scanner(true, true, false/*nls*/, ClassFileConstants.JDK1_3/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
-		}
+	/** indent empty lines*/
+	private final boolean indentEmptyLines;
+	
+	private final boolean formatJavadocComment;
+	private final boolean formatBlockComment;
+	
+	Scribe(CodeFormatterVisitor formatter, long sourceLevel, int offset, int length, CodeSnippetParsingUtil codeSnippetParsingUtil) {
+		this.scanner = new Scanner(true, true, false/*nls*/, sourceLevel/*sourceLevel*/, null/*taskTags*/, null/*taskPriorities*/, true/*taskCaseSensitive*/);
 		this.formatter = formatter;
 		this.pageWidth = formatter.preferences.page_width;
 		this.tabLength = formatter.preferences.tab_size;
 		this.indentationLevel= 0; // initialize properly
 		this.numberOfIndentations = 0;
 		this.useTabsOnlyForLeadingIndents = formatter.preferences.use_tabs_only_for_leading_indentations;
+		this.indentEmptyLines = formatter.preferences.indent_empty_lines;
 		this.tabChar = formatter.preferences.tab_char;
 		if (this.tabChar == DefaultCodeFormatterOptions.MIXED) {
 			this.indentationSize = formatter.preferences.indentation_size;
@@ -111,6 +105,8 @@ public class Scribe {
 				this.commentPositions = information.commentPositions;
 			}
 		}
+		this.formatBlockComment = formatter.preferences.comment_format_block_comment;
+		this.formatJavadocComment = formatter.preferences.comment_format_javadoc_comment;
 		reset();
 	}
 	
@@ -119,7 +115,7 @@ public class Scribe {
 			// resize
 			resize();
 		}
-		addOptimizedReplaceEdit(start, end - start + 1, EMPTY_STRING); //$NON-NLS-1$
+		addOptimizedReplaceEdit(start, end - start + 1, Util.EMPTY_STRING);
 	}
 
 	public final void addInsertEdit(int insertPosition, String insertedString) {
@@ -182,6 +178,27 @@ public class Scribe {
 					if (replacementLength != 0) {
 						this.edits[this.editsIndex - 1] = new OptimizedReplaceEdit(previousOffset, previousLength, previousReplacement + replacement);
 					}
+				}
+			} else if ((offset + length == previousOffset) && (previousLength + length == replacementLength + previousReplacementLength)) {
+				// check if both edits corresponds to the orignal source code
+				boolean canBeRemoved = true;
+				String totalReplacement = replacement + previousReplacement;
+				loop: for (int i = 0; i < previousLength + length; i++) {
+					if (scanner.source[i + offset] != totalReplacement.charAt(i)) {
+						this.edits[this.editsIndex - 1] = new OptimizedReplaceEdit(offset, previousLength + length, totalReplacement);
+						canBeRemoved = false;
+						break loop;
+					}
+				}
+				if (canBeRemoved) {
+					if (this.currentAlignment != null) {
+						final Location location = this.currentAlignment.location;
+						if (location.editsIndex == this.editsIndex) {
+							location.editsIndex--;
+							location.textEdit = previous;
+						}
+					}
+					this.editsIndex--;
 				}
 			} else {
 				this.edits[this.editsIndex++] = new OptimizedReplaceEdit(offset, length, replacement);
@@ -373,7 +390,7 @@ public class Scribe {
 		int g = 0, d = length - 1;
 		int m = 0;
 		while (g <= d) {
-			m = (g + d) / 2;
+			m = g + (d - g) / 2;
 			int bound = this.commentPositions[m][1];
 			if (bound < 0) {
 				bound = -bound;
@@ -389,14 +406,53 @@ public class Scribe {
 		return -(g + 1);
 	}
 
+	private int getCurrentCommentOffset(int start) {
+		int linePtr = -Arrays.binarySearch(this.lineEnds, start);
+		int offset = 0;
+		int beginningOfLine = this.getLineEnd(linePtr - 1);
+		if (beginningOfLine == -1) {
+			beginningOfLine = 0;
+		}
+		int currentStartPosition = start;
+		char[] source = scanner.source;
+
+		// find the position of the beginning of the line containing the comment
+		while (beginningOfLine > currentStartPosition) {
+			if (linePtr > 0) {
+				beginningOfLine = this.getLineEnd(--linePtr);
+			} else {
+				beginningOfLine = 0;
+				break;
+			}
+		}
+		for (int i = currentStartPosition - 1; i >= beginningOfLine ; i--) {
+			char currentCharacter = source[i];
+			switch (currentCharacter) {
+				case '\t' :
+					offset += this.tabLength;
+					break;
+				case ' ' :
+					offset++;
+					break;
+				case '\r' :
+				case '\n' :
+					break;
+				default:
+					return offset;
+			}
+		}
+		return offset;
+	}
+
 	public String getEmptyLines(int linesNumber) {
 		if (this.nlsTagCounter > 0) {
-			return EMPTY_STRING;
+			return Util.EMPTY_STRING;
 		}
 		StringBuffer buffer = new StringBuffer();
 		if (lastNumberOfNewLines == 0) {
 			linesNumber++; // add an extra line breaks
 			for (int i = 0; i < linesNumber; i++) {
+				if (indentEmptyLines) printIndentationIfNecessary(buffer);
 				buffer.append(this.lineSeparator);
 			}
 			lastNumberOfNewLines += linesNumber;
@@ -406,6 +462,7 @@ public class Scribe {
 			this.pendingSpace = false;
 		} else if (lastNumberOfNewLines == 1) {
 			for (int i = 0; i < linesNumber; i++) {
+				if (indentEmptyLines) printIndentationIfNecessary(buffer);
 				buffer.append(this.lineSeparator);
 			}
 			lastNumberOfNewLines += linesNumber;
@@ -416,10 +473,11 @@ public class Scribe {
 		} else {
 			if ((lastNumberOfNewLines - 1) >= linesNumber) {
 				// there is no need to add new lines
-				return EMPTY_STRING;
+				return Util.EMPTY_STRING;
 			}
 			final int realNewLineNumber = linesNumber - lastNumberOfNewLines + 1;
 			for (int i = 0; i < realNewLineNumber; i++) {
+				if (indentEmptyLines) printIndentationIfNecessary(buffer);
 				buffer.append(this.lineSeparator);
 			}
 			lastNumberOfNewLines += realNewLineNumber;
@@ -454,11 +512,11 @@ public class Scribe {
 	
 	public String getNewLine() {
 		if (this.nlsTagCounter > 0) {
-			return EMPTY_STRING;
+			return Util.EMPTY_STRING;
 		}
 		if (lastNumberOfNewLines >= 1) {
 			column = 1; // ensure that the scribe is at the beginning of a new line
-			return EMPTY_STRING;
+			return Util.EMPTY_STRING;
 		}
 		line++;
 		lastNumberOfNewLines = 1;
@@ -497,7 +555,7 @@ public class Scribe {
 				return getNewLine();
 			}
 		}
-		return EMPTY_STRING;
+		return Util.EMPTY_STRING;
 	}
 	
 	public TextEdit getRootEdit() {
@@ -570,56 +628,37 @@ public class Scribe {
 					// check that we are on the same line
 					int lineIndexForComment = Arrays.binarySearch(this.lineEnds, start);
 					if (lineIndexForComment == index) {
-						return indexOf(Scanner.TAG_PREFIX.toCharArray(), this.scanner.source, start, currentLineEnd) != -1;
+						return CharOperation.indexOf(Scanner.TAG_PREFIX, this.scanner.source, true, start, currentLineEnd) != -1;
 					}
 				}
 			}
 		}
 		return false;
 	}
-	
+
 	public void indent() {
 		this.indentationLevel += this.indentationSize;
 		this.numberOfIndentations++;
 	}	
 
-	private int indexOf(char[] toBeFound, char[] source, int start, int end) {
-		if (toBeFound == null || source == null) {
-			throw new IllegalArgumentException();
-		}
-		int toBeFoundLength = toBeFound.length;
-		if (end < start || (end - start + 1) < toBeFoundLength) {
-			return -1;
-		}
-		int indexInSource = 0;
-		for (int i = start; i < end; i++) {
-			if (source[i] == toBeFound[indexInSource]) {
-				int j = i + 1;
-				indexInSource++;
-				loop: for (; j < end && indexInSource < toBeFoundLength; j++) {
-					if (toBeFound[indexInSource] != source[j]) {
-						break loop;
-					}
-					indexInSource++;
-				}
-				if (j == i + toBeFoundLength) {
-					return i;
-				}
-				indexInSource = 0;
-			}
-		}
-		return -1;
-	}
 	/**
 	 * @param compilationUnitSource
 	 */
 	public void initializeScanner(char[] compilationUnitSource) {
 		this.scanner.setSource(compilationUnitSource);
 		this.scannerEndPosition = compilationUnitSource.length;
-		this.scanner.resetTo(0, this.scannerEndPosition);
+		this.scanner.resetTo(0, this.scannerEndPosition - 1);
 		this.edits = new OptimizedReplaceEdit[INITIAL_SIZE];
 	}	
-	
+
+	private boolean isOnFirstColumn(int start) {
+		if (this.lineEnds == null) return start == 0;
+		int index = Arrays.binarySearch(this.lineEnds, start);
+		// we want the line end of the previous line
+		int previousLineEnd = this.getLineEnd(-index - 1);
+		return previousLineEnd != -1 && previousLineEnd == start - 1;
+	}
+
 	private boolean isValidEdit(OptimizedReplaceEdit edit) {
 		final int editLength= edit.length;
 		final int editReplacementLength= edit.replacement.length();
@@ -675,7 +714,9 @@ public class Scribe {
 			handleLineTooLong();
 		}
 		this.lastNumberOfNewLines = 0;
-		printIndentationIfNecessary();
+		if (this.indentationLevel != 0) {
+			printIndentationIfNecessary();
+		}
 		if (considerSpaceIfAny) {
 			this.space();
 		}
@@ -697,13 +738,26 @@ public class Scribe {
 		boolean isNewLine = false;
 		int start = currentTokenStartPosition;
 		int nextCharacterStart = currentTokenStartPosition;
-		printIndentationIfNecessary();
+		int previousStart = currentTokenStartPosition;
+		boolean onFirstColumn = isOnFirstColumn(start);
+
+		boolean indentComment = false;
+		if (this.indentationLevel != 0) {
+			if (isJavadoc
+					|| !this.formatter.preferences.never_indent_block_comments_on_first_column
+					|| !onFirstColumn) {
+				indentComment = true;
+				printIndentationIfNecessary();
+			}
+		}
 		if (this.pendingSpace) {
 			this.addInsertEdit(currentTokenStartPosition, " "); //$NON-NLS-1$
 		}
-		this.needSpace = false;		
-		this.pendingSpace = false;		
-		int previousStart = currentTokenStartPosition;
+		this.needSpace = false;
+		this.pendingSpace = false;
+
+		int currentCommentOffset = onFirstColumn ? 0 : getCurrentCommentOffset(start);
+		boolean formatComment = (isJavadoc && formatJavadocComment) || (!isJavadoc && formatBlockComment);
 
 		while (nextCharacterStart <= currentTokenEndPosition && (currentCharacter = this.scanner.getNextChar()) != -1) {
 			nextCharacterStart = this.scanner.currentPosition;
@@ -720,34 +774,87 @@ public class Scribe {
 				case '\n' :
 					start = previousStart;
 					isNewLine = true;
+					nextCharacterStart = this.scanner.currentPosition;
 					break;
 				default:
 					if (isNewLine) {
-						if (Character.isWhitespace((char) currentCharacter)) {
-							int previousStartPosition = this.scanner.currentPosition;
-							while(currentCharacter != -1 && currentCharacter != '\r' && currentCharacter != '\n' && Character.isWhitespace((char) currentCharacter)) {
-								previousStart = nextCharacterStart;
-								previousStartPosition = this.scanner.currentPosition;
-								currentCharacter = this.scanner.getNextChar();
-								nextCharacterStart = this.scanner.currentPosition;
-							}
-							if (currentCharacter == '\r' || currentCharacter == '\n') {
-								nextCharacterStart = previousStartPosition;
-							}
-						}
 						this.column = 1;
 						this.line++;
-
+						isNewLine = false;
+						
 						StringBuffer buffer = new StringBuffer();
-						buffer.append(this.lineSeparator);
-						printIndentationIfNecessary(buffer);
-						buffer.append(' ');
-				
+						if (onFirstColumn) {
+							// simply insert indentation if necessary
+							buffer.append(this.lineSeparator);
+							if (indentComment) {
+								printIndentationIfNecessary(buffer);
+							}
+							if (formatComment) {
+								if (ScannerHelper.isWhitespace((char) currentCharacter)) {
+									int previousStartPosition = this.scanner.currentPosition;
+									while(currentCharacter != -1 && currentCharacter != '\r' && currentCharacter != '\n' && ScannerHelper.isWhitespace((char) currentCharacter)) {
+										previousStart = nextCharacterStart;
+										previousStartPosition = this.scanner.currentPosition;
+										currentCharacter = this.scanner.getNextChar();
+										nextCharacterStart = this.scanner.currentPosition;
+									}
+									if (currentCharacter == '\r' || currentCharacter == '\n') {
+										nextCharacterStart = previousStartPosition;
+									}
+								}
+								if (currentCharacter != '\r' && currentCharacter != '\n') {
+									buffer.append(' ');
+								}
+							}
+						} else {
+							if (ScannerHelper.isWhitespace((char) currentCharacter)) {
+								int previousStartPosition = this.scanner.currentPosition;
+								int count = 0;
+								loop: while(currentCharacter != -1 && currentCharacter != '\r' && currentCharacter != '\n' && ScannerHelper.isWhitespace((char) currentCharacter)) {
+									if (count >= currentCommentOffset) {
+										break loop;
+									}
+									previousStart = nextCharacterStart;
+									previousStartPosition = this.scanner.currentPosition;
+									switch(currentCharacter) {
+										case '\t' :
+											count += this.tabLength;
+											break;
+										default :
+											count ++;
+									}
+									currentCharacter = this.scanner.getNextChar();
+									nextCharacterStart = this.scanner.currentPosition;
+								}
+								if (currentCharacter == '\r' || currentCharacter == '\n') {
+									nextCharacterStart = previousStartPosition;
+								}
+							}
+							buffer.append(this.lineSeparator);
+							if (indentComment) {
+								printIndentationIfNecessary(buffer);
+							}
+							if (formatComment) {
+								int previousStartTemp = previousStart;
+								int nextCharacterStartTemp = nextCharacterStart;
+								while(currentCharacter != -1 && currentCharacter != '\r' && currentCharacter != '\n' && ScannerHelper.isWhitespace((char) currentCharacter)) {
+									previousStart = nextCharacterStart;
+									currentCharacter = this.scanner.getNextChar();
+									nextCharacterStart = this.scanner.currentPosition;
+								}
+								if (currentCharacter == '*') {
+									buffer.append(' ');
+								} else {
+									previousStart = previousStartTemp;
+									nextCharacterStart = nextCharacterStartTemp;
+								}
+								this.scanner.currentPosition = nextCharacterStart;
+							}
+						}
 						addReplaceEdit(start, previousStart - 1, String.valueOf(buffer));
 					} else {
 						this.column += (nextCharacterStart - previousStart);
 					}
-					isNewLine = false;
 			}
 			previousStart = nextCharacterStart;
 			this.scanner.currentPosition = nextCharacterStart;
@@ -817,7 +924,7 @@ public class Scribe {
 							space();
 						} 
 						hasWhitespace = false;
-						this.printCommentLine(this.scanner.getRawTokenSource());
+						this.printLineComment(this.scanner.getRawTokenSource());
 						currentTokenStartPosition = this.scanner.currentPosition;
 						hasLineComment = true;		
 						count = 0;
@@ -934,7 +1041,7 @@ public class Scribe {
 							space();
 						} 
 						hasWhitespace = false;
-						this.printCommentLine(this.scanner.getRawTokenSource());
+						this.printLineComment(this.scanner.getRawTokenSource());
 						currentTokenStartPosition = this.scanner.currentPosition;
 						hasLineComment = true;		
 						count = 0;
@@ -984,22 +1091,28 @@ public class Scribe {
 		}
 	}
 	
-	private void printCommentLine(char[] s) {
+	private void printLineComment(char[] s) {
 		int currentTokenStartPosition = this.scanner.getCurrentTokenStartPosition();
 		int currentTokenEndPosition = this.scanner.getCurrentTokenEndPosition() + 1;
-		if (indexOf(Scanner.TAG_PREFIX.toCharArray(), this.scanner.source, currentTokenStartPosition, currentTokenEndPosition) != -1) {
+		if (CharOperation.indexOf(Scanner.TAG_PREFIX, this.scanner.source, true, currentTokenStartPosition, currentTokenEndPosition) != -1) {
 			this.nlsTagCounter = 0;
 		}
 		this.scanner.resetTo(currentTokenStartPosition, currentTokenEndPosition - 1);
 		int currentCharacter;
 		int start = currentTokenStartPosition;
 		int nextCharacterStart = currentTokenStartPosition;
-		printIndentationIfNecessary();
+		
+		if (this.indentationLevel != 0) {
+			if (!this.formatter.preferences.never_indent_line_comments_on_first_column
+					|| !isOnFirstColumn(start)) {
+				printIndentationIfNecessary();
+			}
+		}
 		if (this.pendingSpace) {
 			this.addInsertEdit(currentTokenStartPosition, " "); //$NON-NLS-1$
 		}
-		this.needSpace = false;		
-		this.pendingSpace = false;		
+		this.needSpace = false;
+		this.pendingSpace = false;
 		int previousStart = currentTokenStartPosition;
 
 		loop: while (nextCharacterStart <= currentTokenEndPosition && (currentCharacter = this.scanner.getNextChar()) != -1) {
@@ -1016,24 +1129,27 @@ public class Scribe {
 			previousStart = nextCharacterStart;
 		}
 		if (start != currentTokenStartPosition) {
+			// this means that the line comment doesn't end the file
 			addReplaceEdit(start, currentTokenEndPosition - 1, lineSeparator);
+			this.line++; 
+			this.column = 1;
+			this.lastNumberOfNewLines = 1;
 		}
-		line++; 
-		column = 1;
-		needSpace = false;
+		this.needSpace = false;
 		this.pendingSpace = false;
-		lastNumberOfNewLines = 1;
 		// realign to the proper value
 		if (this.currentAlignment != null) {
 			if (this.memberAlignment != null) {
 				// select the last alignment
 				if (this.currentAlignment.location.inputOffset > this.memberAlignment.location.inputOffset) {
-					this.indentationLevel = Math.max(this.indentationLevel, this.currentAlignment.breakIndentationLevel);
+					if (this.currentAlignment.couldBreak() && this.currentAlignment.wasSplit) {
+						this.currentAlignment.performFragmentEffect();
+					}
 				} else {
 					this.indentationLevel = Math.max(this.indentationLevel, this.memberAlignment.breakIndentationLevel);
 				}
-			} else {
-				this.indentationLevel = Math.max(this.indentationLevel, this.currentAlignment.breakIndentationLevel);
+			} else if (this.currentAlignment.couldBreak() && this.currentAlignment.wasSplit) {
+				this.currentAlignment.performFragmentEffect();
 			}
 		}
 		this.scanner.resetTo(currentTokenEndPosition, this.scannerEndPosition - 1);
@@ -1043,48 +1159,13 @@ public class Scribe {
 	}
 
 	private void printEmptyLines(int linesNumber, int insertPosition) {
-		if (this.nlsTagCounter > 0) {
-			return;
-		}
-		StringBuffer buffer = new StringBuffer();
-		if (lastNumberOfNewLines == 0) {
-			linesNumber++; // add an extra line breaks
-			for (int i = 0; i < linesNumber; i++) {
-				buffer.append(this.lineSeparator);
-			}
-			lastNumberOfNewLines += linesNumber;
-			line += linesNumber;
-			column = 1;
-			needSpace = false;
-			this.pendingSpace = false;
-		} else if (lastNumberOfNewLines == 1) {
-			for (int i = 0; i < linesNumber; i++) {
-				buffer.append(this.lineSeparator);
-			}
-			lastNumberOfNewLines += linesNumber;
-			line += linesNumber;
-			column = 1;
-			needSpace = false;
-			this.pendingSpace = false;
-		} else {
-			if ((lastNumberOfNewLines - 1) >= linesNumber) {
-				// there is no need to add new lines
-				return;
-			}
-			final int realNewLineNumber = linesNumber - lastNumberOfNewLines + 1;
-			for (int i = 0; i < realNewLineNumber; i++) {
-				buffer.append(this.lineSeparator);
-			}
-			lastNumberOfNewLines += realNewLineNumber;
-			line += realNewLineNumber;
-			column = 1;
-			needSpace = false;
-			this.pendingSpace = false;
-		}
-		addInsertEdit(insertPosition, buffer.toString());
+		final String buffer = getEmptyLines(linesNumber);
+		if (Util.EMPTY_STRING == buffer) return;
+
+		addInsertEdit(insertPosition, buffer);
 	}
 
-	private void printIndentationIfNecessary() {
+	void printIndentationIfNecessary() {
 		StringBuffer buffer = new StringBuffer();
 		printIndentationIfNecessary(buffer);
 		if (buffer.length() > 0) {
@@ -1104,7 +1185,6 @@ public class Scribe {
 						if (indentationsAsTab < numberOfLeadingIndents) {
 							buffer.append('\t');
 							indentationsAsTab++;
-							this.lastNumberOfNewLines = 0;
 							int complement = this.tabLength - ((this.column - 1) % this.tabLength); // amount of space
 							this.column += complement;
 							this.needSpace = false;
@@ -1117,7 +1197,6 @@ public class Scribe {
 				} else {
 					while (this.column <= this.indentationLevel) {
 						buffer.append('\t');
-						this.lastNumberOfNewLines = 0;
 						int complement = this.tabLength - ((this.column - 1) % this.tabLength); // amount of space
 						this.column += complement;
 						this.needSpace = false;
@@ -1236,7 +1315,7 @@ public class Scribe {
 						hasComment = true;
 						break;
 					case TerminalTokens.TokenNameCOMMENT_LINE :
-						this.printCommentLine(this.scanner.getRawTokenSource());
+						this.printLineComment(this.scanner.getRawTokenSource());
 						currentTokenStartPosition = this.scanner.currentPosition;
 						break;
 					case TerminalTokens.TokenNameWHITESPACE :
@@ -1371,7 +1450,7 @@ public class Scribe {
 						currentTokenStartPosition = this.scanner.currentPosition;
 						break;
 					case TerminalTokens.TokenNameCOMMENT_LINE :
-						this.printCommentLine(this.scanner.getRawTokenSource());
+						this.printLineComment(this.scanner.getRawTokenSource());
 						currentTokenStartPosition = this.scanner.currentPosition;
 						break;
 					case TerminalTokens.TokenNameIdentifier :
@@ -1414,7 +1493,7 @@ public class Scribe {
 						currentTokenStartPosition = this.scanner.currentPosition;
 						break;
 					case TerminalTokens.TokenNameCOMMENT_LINE :
-						this.printCommentLine(this.scanner.getRawTokenSource());
+						this.printLineComment(this.scanner.getRawTokenSource());
 						currentTokenStartPosition = this.scanner.currentPosition;
 						break;
 					case TerminalTokens.TokenNameIdentifier :
@@ -1448,6 +1527,77 @@ public class Scribe {
 		}			
 	}
 
+	public void printTrailingComment(int numberOfNewLinesToInsert) {
+		try {
+			// if we have a space between two tokens we ensure it will be dumped in the formatted string
+			int currentTokenStartPosition = this.scanner.currentPosition;
+			boolean hasWhitespaces = false;
+			boolean hasLineComment = false;
+			while ((this.currentToken = this.scanner.getNextToken()) != TerminalTokens.TokenNameEOF) {
+				switch(this.currentToken) {
+					case TerminalTokens.TokenNameWHITESPACE :
+						int count = 0;
+						char[] whiteSpaces = this.scanner.getCurrentTokenSource();
+						for (int i = 0, max = whiteSpaces.length; i < max; i++) {
+							switch(whiteSpaces[i]) {
+								case '\r' :
+									if ((i + 1) < max) {
+										if (whiteSpaces[i + 1] == '\n') {
+											i++;
+										}
+									}
+									count++;
+									break;
+								case '\n' :
+									count++;
+							}
+						}
+						if (hasLineComment) {
+							if (count >= 1) {
+								currentTokenStartPosition = this.scanner.getCurrentTokenStartPosition();
+								this.preserveEmptyLines(numberOfNewLinesToInsert, currentTokenStartPosition);
+								addDeleteEdit(currentTokenStartPosition, this.scanner.getCurrentTokenEndPosition());
+								this.scanner.resetTo(this.scanner.currentPosition, this.scannerEndPosition - 1);
+								return;
+							} else {
+								this.scanner.resetTo(currentTokenStartPosition, this.scannerEndPosition - 1);
+								return;
+							}
+						} else if (count > 1) {
+							this.printEmptyLines(numberOfNewLinesToInsert, this.scanner.getCurrentTokenStartPosition());
+							this.scanner.resetTo(currentTokenStartPosition, this.scannerEndPosition - 1);
+							return;
+						} else {
+							hasWhitespaces = true;
+							currentTokenStartPosition = this.scanner.currentPosition;						
+							addDeleteEdit(this.scanner.getCurrentTokenStartPosition(), this.scanner.getCurrentTokenEndPosition());
+						}
+						break;
+					case TerminalTokens.TokenNameCOMMENT_LINE :
+						if (hasWhitespaces) {
+							space();
+						}
+						this.printLineComment(this.scanner.getRawTokenSource());
+						currentTokenStartPosition = this.scanner.currentPosition;
+						hasLineComment = true;
+						break;
+					case TerminalTokens.TokenNameCOMMENT_BLOCK :
+						if (hasWhitespaces) {
+							space();
+						}
+						this.printBlockComment(this.scanner.getRawTokenSource(), false);
+						currentTokenStartPosition = this.scanner.currentPosition;
+						break;
+					default :
+						// step back one token
+						this.scanner.resetTo(currentTokenStartPosition, this.scannerEndPosition - 1);
+						return;
+				}
+			}
+		} catch (InvalidInputException e) {
+			throw new AbortFormatting(e);
+		}
+	}
 	public void printTrailingComment() {
 		try {
 			// if we have a space between two tokens we ensure it will be dumped in the formatted string
@@ -1501,7 +1651,7 @@ public class Scribe {
 						if (hasWhitespaces) {
 							space();
 						}
-						this.printCommentLine(this.scanner.getRawTokenSource());
+						this.printLineComment(this.scanner.getRawTokenSource());
 						currentTokenStartPosition = this.scanner.currentPosition;
 						hasLineComment = true;
 						break;

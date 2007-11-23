@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,6 +12,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -26,19 +27,20 @@ public class UnaryExpression extends OperatorExpression {
 		this.bits |= operator << OperatorSHIFT; // encode operator
 	}
 
-	public FlowInfo analyseCode(
+public FlowInfo analyseCode(
 		BlockScope currentScope,
 		FlowContext flowContext,
 		FlowInfo flowInfo) {
-			
-		if (((bits & OperatorMASK) >> OperatorSHIFT) == NOT) {
-			return this.expression
-				.analyseCode(currentScope, flowContext, flowInfo)
-				.asNegatedCondition();
-		} else {
-			return this.expression.analyseCode(currentScope, flowContext, flowInfo);
-		}
+	this.expression.checkNPE(currentScope, flowContext, flowInfo);	
+	if (((bits & OperatorMASK) >> OperatorSHIFT) == NOT) {
+		return this.expression.
+			analyseCode(currentScope, flowContext, flowInfo).
+			asNegatedCondition();
+	} else {
+		return this.expression.
+			analyseCode(currentScope, flowContext, flowInfo);
 	}
+}
 
 	public Constant optimizedBooleanConstant() {
 		
@@ -60,7 +62,7 @@ public class UnaryExpression extends OperatorExpression {
 		boolean valueRequired) {
 			
 		int pc = codeStream.position;
-		Label falseLabel, endifLabel;
+		BranchLabel falseLabel, endifLabel;
 		if (this.constant != Constant.NotAConstant) {
 			// inlined value
 			if (valueRequired) {
@@ -79,12 +81,12 @@ public class UnaryExpression extends OperatorExpression {
 							currentScope,
 							codeStream,
 							null,
-							(falseLabel = new Label(codeStream)),
+							(falseLabel = new BranchLabel(codeStream)),
 							valueRequired);
 						if (valueRequired) {
 							codeStream.iconst_0();
-							if (falseLabel.hasForwardReferences()) {
-								codeStream.goto_(endifLabel = new Label(codeStream));
+							if (falseLabel.forwardReferenceCount() > 0) {
+								codeStream.goto_(endifLabel = new BranchLabel(codeStream));
 								codeStream.decrStackSize(1);
 								falseLabel.place();
 								codeStream.iconst_1();
@@ -116,7 +118,7 @@ public class UnaryExpression extends OperatorExpression {
 				break;
 			case MINUS :
 				// - <num>
-				if (this.constant != NotAConstant) {
+				if (this.constant != Constant.NotAConstant) {
 					if (valueRequired) {
 						switch ((this.expression.implicitConversion & IMPLICIT_CONVERSION_MASK) >> 4){ /* runtime */
 							case T_int :
@@ -167,8 +169,8 @@ public class UnaryExpression extends OperatorExpression {
 	public void generateOptimizedBoolean(
 		BlockScope currentScope,
 		CodeStream codeStream,
-		Label trueLabel,
-		Label falseLabel,
+		BranchLabel trueLabel,
+		BranchLabel falseLabel,
 		boolean valueRequired) {
 
 		if ((this.constant != Constant.NotAConstant) && (this.constant.typeID() == T_boolean)) {
@@ -206,22 +208,22 @@ public class UnaryExpression extends OperatorExpression {
 	public TypeBinding resolveType(BlockScope scope) {
 		
 		boolean expressionIsCast;
-		if ((expressionIsCast = this.expression instanceof CastExpression) == true) this.expression.bits |= IgnoreNeedForCastCheckMASK; // will check later on
+		if ((expressionIsCast = this.expression instanceof CastExpression) == true) this.expression.bits |= DisableUnnecessaryCastCheck; // will check later on
 		TypeBinding expressionType = this.expression.resolveType(scope);
 		if (expressionType == null) {
-			this.constant = NotAConstant;
+			this.constant = Constant.NotAConstant;
 			return null;
 		}
 		int expressionTypeID = expressionType.id;
 		// autoboxing support
-		boolean use15specifics = scope.compilerOptions().sourceLevel >= JDK1_5;
+		boolean use15specifics = scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5;
 		if (use15specifics) {
 			if (!expressionType.isBaseType()) {
 				expressionTypeID = scope.environment().computeBoxingType(expressionType).id;
 			}
 		}		
 		if (expressionTypeID > 15) {
-			this.constant = NotAConstant;
+			this.constant = Constant.NotAConstant;
 			scope.problemReporter().invalidOperator(this, expressionType);
 			return null;
 		}
@@ -247,25 +249,25 @@ public class UnaryExpression extends OperatorExpression {
 		this.bits |= operatorSignature & 0xF;
 		switch (operatorSignature & 0xF) { // only switch on possible result type.....
 			case T_boolean :
-				this.resolvedType = BooleanBinding;
+				this.resolvedType = TypeBinding.BOOLEAN;
 				break;
 			case T_byte :
-				this.resolvedType = ByteBinding;
+				this.resolvedType = TypeBinding.BYTE;
 				break;
 			case T_char :
-				this.resolvedType = CharBinding;
+				this.resolvedType = TypeBinding.CHAR;
 				break;
 			case T_double :
-				this.resolvedType = DoubleBinding;
+				this.resolvedType = TypeBinding.DOUBLE;
 				break;
 			case T_float :
-				this.resolvedType = FloatBinding;
+				this.resolvedType = TypeBinding.FLOAT;
 				break;
 			case T_int :
-				this.resolvedType = IntBinding;
+				this.resolvedType = TypeBinding.INT;
 				break;
 			case T_long :
-				this.resolvedType = LongBinding;
+				this.resolvedType = TypeBinding.LONG;
 				break;
 			default : //error........
 				this.constant = Constant.NotAConstant;
@@ -285,7 +287,7 @@ public class UnaryExpression extends OperatorExpression {
 			if (((bits & OperatorMASK) >> OperatorSHIFT) == NOT) {
 				Constant cst = expression.optimizedBooleanConstant();
 				if (cst != Constant.NotAConstant) 
-					this.optimizedBooleanConstant = Constant.fromValue(!cst.booleanValue());
+					this.optimizedBooleanConstant = BooleanConstant.fromValue(!cst.booleanValue());
 			}
 		}
 		if (expressionIsCast) {
@@ -296,8 +298,8 @@ public class UnaryExpression extends OperatorExpression {
 	}
 
 	public void traverse(
-		ASTVisitor visitor,
-		BlockScope blockScope) {
+    		ASTVisitor visitor,
+    		BlockScope blockScope) {
 			
 		if (visitor.visit(this, blockScope)) {
 			this.expression.traverse(visitor, blockScope);

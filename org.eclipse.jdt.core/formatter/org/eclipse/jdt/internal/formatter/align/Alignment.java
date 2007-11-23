@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -122,8 +122,8 @@ public class Alignment {
 	public int tieBreakRule;
 	
 	// alignment effects on a per fragment basis
-	public static int NONE = 0;
-	public static int BREAK = 1;
+	public static final int NONE = 0;
+	public static final int BREAK = 1;
 	
 	// chunk kind
 	public static final int CHUNK_FIELD = 1;
@@ -404,5 +404,14 @@ public class Alignment {
 		        this.fragmentIndentations[i] = this.breakIndentationLevel;
 		    }
 		}
+	}
+
+	public boolean isWrapped() {
+		for (int i = 0, max = this.fragmentCount; i < max; i++) {
+			if (this.fragmentBreaks[i] == BREAK) {
+				return true;
+			}
+		}
+		return false;
 	}
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -72,6 +72,42 @@
  *     IBM Corporation - added the following constants
  *								   IllegalUsageOfQualifiedTypeReference
  *								   InvalidDigit
+ *     IBM Corporation - added the following constants
+ *								   ParameterAssignment
+ *								   FallthroughCase
+ *     IBM Corporation - added the following constants
+ *                                 UnusedLabel
+ *                                 UnnecessaryNLSTag
+ *                                 LocalVariableMayBeNull
+ *                                 EnumConstantsCannotBeSurroundedByParenthesis
+ *                                 JavadocMissingIdentifier
+ *                                 JavadocNonStaticTypeFromStaticInvocation
+ *                                 RawTypeReference
+ *                                 NoAdditionalBoundAfterTypeVariable
+ *                                 UnsafeGenericArrayForVarargs
+ *                                 IllegalAccessFromTypeVariable
+ *                                 AnnotationValueMustBeArrayInitializer
+ *                                 InvalidEncoding
+ *                                 CannotReadSource
+ *                                 EnumStaticFieldInInInitializerContext
+ *                                 ExternalProblemNotFixable
+ *                                 ExternalProblemFixable
+ *     IBM Corporation - added the following constants
+ *                                 AnnotationValueMustBeAnEnumConstant
+ *                                 OverridingMethodWithoutSuperInvocation
+ *                                 MethodMustOverrideOrImplement
+ *                                 TypeHidingTypeParameterFromType
+ *                                 TypeHidingTypeParameterFromMethod
+ *                                 TypeHidingType
+ *     IBM Corporation - added the following constants
+ *								   NullLocalVariableReference
+ *								   PotentialNullLocalVariableReference
+ *								   RedundantNullCheckOnNullLocalVariable
+ * 								   NullLocalVariableComparisonYieldsFalse
+ * 								   RedundantLocalVariableNullAssignment
+ * 								   NullLocalVariableInstanceofYieldsFalse
+ * 								   RedundantNullCheckOnNonNullLocalVariable
+ * 								   NonNullLocalVariableComparisonYieldsFalse
  *******************************************************************************/
 package org.eclipse.jdt.core.compiler;
  
@@ -84,7 +120,7 @@ import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
  * <ul>
  * <li> its location (originating source file name, source position, line number), </li>
  * <li> its message description and a predicate to check its severity (warning or error). </li>
- * <li> its ID : an number identifying the very nature of this problem. All possible IDs are listed
+ * <li> its ID : a number identifying the very nature of this problem. All possible IDs are listed
  * as constants on this interface. </li>
  * </ul>
  * 
@@ -97,91 +133,92 @@ import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
  */
 public interface IProblem { 
 	
-	/**
-	 * Answer back the original arguments recorded into the problem.
-	 * @return the original arguments recorded into the problem
-	 */
-	String[] getArguments();
+/**
+ * Answer back the original arguments recorded into the problem.
+ * @return the original arguments recorded into the problem
+ */
+String[] getArguments();
 
-	/**
-	 * Returns the problem id
-	 * 
-	 * @return the problem id
-	 */
-	int getID();
+/**
+ * Returns the problem id
+ * 
+ * @return the problem id
+ */
+int getID();
 
-	/**
-	 * Answer a localized, human-readable message string which describes the problem.
-	 * 
-	 * @return a localized, human-readable message string which describes the problem
-	 */
-	String getMessage();
+/**
+ * Answer a localized, human-readable message string which describes the problem.
+ * 
+ * @return a localized, human-readable message string which describes the problem
+ */
+String getMessage();
 
-	/**
-	 * Answer the file name in which the problem was found.
-	 * 
-	 * @return the file name in which the problem was found
-	 */
-	char[] getOriginatingFileName();
-	
-	/**
-	 * Answer the end position of the problem (inclusive), or -1 if unknown.
-	 * 
-	 * @return the end position of the problem (inclusive), or -1 if unknown
-	 */
-	int getSourceEnd();
+/**
+ * Answer the file name in which the problem was found.
+ * 
+ * @return the file name in which the problem was found
+ */
+char[] getOriginatingFileName();
 
-	/**
-	 * Answer the line number in source where the problem begins.
-	 * 
-	 * @return the line number in source where the problem begins
-	 */
-	int getSourceLineNumber();
+/**
+ * Answer the end position of the problem (inclusive), or -1 if unknown.
+ * 
+ * @return the end position of the problem (inclusive), or -1 if unknown
+ */
+int getSourceEnd();
 
-	/**
-	 * Answer the start position of the problem (inclusive), or -1 if unknown.
-	 * 
-	 * @return the start position of the problem (inclusive), or -1 if unknown
-	 */
-	int getSourceStart();
+/**
+ * Answer the line number in source where the problem begins.
+ * 
+ * @return the line number in source where the problem begins
+ */
+int getSourceLineNumber();
 
-	/**
-	 * Checks the severity to see if the Error bit is set.
-	 * 
-	 * @return true if the Error bit is set for the severity, false otherwise
-	 */
-	boolean isError();
+/**
+ * Answer the start position of the problem (inclusive), or -1 if unknown.
+ * 
+ * @return the start position of the problem (inclusive), or -1 if unknown
+ */
+int getSourceStart();
 
-	/**
-	 * Checks the severity to see if the Error bit is not set.
-	 * 
-	 * @return true if the Error bit is not set for the severity, false otherwise
-	 */
-	boolean isWarning();
+/**
+ * Checks the severity to see if the Error bit is set.
+ * 
+ * @return true if the Error bit is set for the severity, false otherwise
+ */
+boolean isError();
 
-	/**
-	 * Set the end position of the problem (inclusive), or -1 if unknown.
-	 * Used for shifting problem positions.
-	 * 
-	 * @param sourceEnd the given end position
-	 */
-	void setSourceEnd(int sourceEnd);
+/**
+ * Checks the severity to see if the Error bit is not set.
+ * 
+ * @return true if the Error bit is not set for the severity, false otherwise
+ */
+boolean isWarning();
 
-	/**
-	 * Set the line number in source where the problem begins.
-	 * 
-	 * @param lineNumber the given line number
-	 */
-	void setSourceLineNumber(int lineNumber);
+/**
+ * Set the end position of the problem (inclusive), or -1 if unknown.
+ * Used for shifting problem positions.
+ * 
+ * @param sourceEnd the given end position
+ */
+void setSourceEnd(int sourceEnd);
 
-	/**
-	 * Set the start position of the problem (inclusive), or -1 if unknown.
-	 * Used for shifting problem positions.
-	 * 
-	 * @param sourceStart the given start position
-	 */
-	void setSourceStart(int sourceStart);
-	
+/**
+ * Set the line number in source where the problem begins.
+ * 
+ * @param lineNumber the given line number
+ */
+void setSourceLineNumber(int lineNumber);
+
+/**
+ * Set the start position of the problem (inclusive), or -1 if unknown.
+ * Used for shifting problem positions.
+ * 
+ * @param sourceStart the given start position
+ */
+void setSourceStart(int sourceStart);
+
+
 	/**
 	 * Problem Categories
 	 * The high bits of a problem ID contains information about the category of a problem. 
@@ -191,7 +228,8 @@ public interface IProblem {
 	 * are listed, focusing on import related problems first might be relevant.
 	 * 
 	 * When a problem is tagged as Internal, it means that no change other than a local source code change
-	 * can  fix the corresponding problem.
+	 * can  fix the corresponding problem. A type related problem could be addressed by changing the type
+	 * involved in it.
 	 */
 	int TypeRelated = 0x01000000;
 	int FieldRelated = 0x02000000;
@@ -200,9 +238,7 @@ public interface IProblem {
 	int ImportRelated = 0x10000000;
 	int Internal = 0x20000000;
 	int Syntax = 0x40000000;
-	/**
-	 * @since 3.0
-	 */
+	/** @since 3.0 */
 	int Javadoc = 0x80000000;
 	
 	/**
@@ -259,11 +295,14 @@ public interface IProblem {
 	int CannotDefineEnumInLocalType = Internal + 31;
 	/** @since 3.1 */
 	int NonStaticContextForEnumMemberType = Internal + 32;
-
+	/** @since 3.3 */
+	int TypeHidingType = TypeRelated + 33;
+	
 	// variables
-	int UndefinedName = 50;
+	int UndefinedName = Internal + FieldRelated + 50;
 	int UninitializedLocalVariable = Internal + 51;
 	int VariableTypeCannotBeVoid = Internal + 52;
+	/** @deprecated - problem is no longer generated, use {@link #CannotAllocateVoidArray} instead */
 	int VariableTypeCannotBeVoidArray = Internal + 53;
 	int CannotAllocateVoidArray = Internal + 54;
 	// local variables
@@ -273,7 +312,8 @@ public interface IProblem {
 	int DuplicateFinalLocalInitialization = Internal + 57;
 	/** @since 2.1 */
 	int NonBlankFinalLocalAssignment = Internal + 58;
-	
+	/** @since 3.2 */
+	int ParameterAssignment = Internal + 59;	
 	int FinalOuterLocalAssignment = Internal + 60;
 	int LocalVariableIsNeverUsed = Internal + 61;
 	int ArgumentIsNeverUsed = Internal + 62;
@@ -287,7 +327,7 @@ public interface IProblem {
 	int TooManyArrayDimensions = Internal + 68;
 	/** @since 2.1 */
 	int BytecodeExceeds64KLimitForConstructor = Internal + 69;
-
+	
 	// fields
 	int UndefinedField = FieldRelated + 70;
 	int NotVisibleField = FieldRelated + 71;
@@ -378,7 +418,7 @@ public interface IProblem {
 	int NoImplicitStringConversionForCharArrayExpression = Internal + 151;
 	// constant expressions
 	int StringConstantIsExceedingUtf8Limit = Internal + 152;
-	int NonConstantExpression = 153;
+	int NonConstantExpression = Internal + 153;
 	int NumericValueOutOfRange = Internal + 154;
 	// cast expressions
 	int IllegalCast = TypeRelated + 156;
@@ -396,12 +436,13 @@ public interface IProblem {
 	int InvalidVoidExpression = Internal + 164;
 	// try
 	int MaskedCatch = TypeRelated + 165;
-	int DuplicateDefaultCase = 166;
+	int DuplicateDefaultCase = Internal + 166;
 	int UnreachableCatch = TypeRelated + MethodRelated + 167;
 	int UnhandledException = TypeRelated + 168;
 	// switch       
 	int IncorrectSwitchType = TypeRelated + 169;
 	int DuplicateCase = FieldRelated + 170;
+
 	// labelled
 	int DuplicateLabel = Internal + 171;
 	int InvalidBreak = Internal + 172;
@@ -421,7 +462,7 @@ public interface IProblem {
 	int SuperfluousSemicolon = Internal + 180;
 	/** @since 3.0 */
 	int UnnecessaryCast = Internal + TypeRelated + 181;
-	/** @deprecated - no longer generated, simply treated as UnnecessaryCast
+	/** @deprecated - no longer generated, use {@link #UnnecessaryCast} instead
 	 *   @since 3.0 */
 	int UnnecessaryArgumentCast = Internal + TypeRelated + 182;
 	/** @since 3.0 */
@@ -445,6 +486,9 @@ public interface IProblem {
 	int NeedToEmulateMethodAccess = MethodRelated + 192;
 	int NeedToEmulateConstructorAccess = MethodRelated + 193;
 
+	/** @since 3.2 */
+	int FallthroughCase = Internal + 194;	
+	
 	//inherited name hides enclosing name (sort of ambiguous)
 	int InheritedMethodHidesEnclosingName = MethodRelated + 195;
 	int InheritedFieldHidesEnclosingName = FieldRelated + 196;
@@ -454,6 +498,8 @@ public interface IProblem {
 	int IllegalUsageOfQualifiedTypeReference = Internal + Syntax + 198;
 
 	// miscellaneous
+	/** @since 3.2 */
+	int UnusedLabel = Internal + 199;
 	int ThisInStaticContext = Internal + 200;
 	int StaticMethodRequested = Internal + MethodRelated + 201;
 	int IllegalDimension = Internal + 202;
@@ -517,12 +563,15 @@ public interface IProblem {
 	int NullSourceString = Syntax + Internal + 258;
 	int UnterminatedString = Syntax + Internal + 259;
 	int UnterminatedComment = Syntax + Internal + 260;
+	int NonExternalizedStringLiteral = Internal + 261;
 	/** @since 3.1 */
 	int InvalidDigit = Syntax + Internal + 262;	
 	/** @since 3.1 */
 	int InvalidLowSurrogate = Syntax + Internal + 263;
 	/** @since 3.1 */
 	int InvalidHighSurrogate = Syntax + Internal + 264;
+	/** @since 3.2 */
+	int UnnecessaryNLSTag = Internal + 265;
 
 	// type related problems
 	/** @since 3.1 */
@@ -555,34 +604,34 @@ public interface IProblem {
 	int DuplicateTypes = TypeRelated + 323;
 	int IsClassPathCorrect = TypeRelated + 324;
 	int PublicClassMustMatchFileName = TypeRelated + 325;
-	int MustSpecifyPackage = 326;
+	int MustSpecifyPackage = Internal + 326;
 	int HierarchyHasProblems = TypeRelated + 327;
-	int PackageIsNotExpectedPackage = 328;
+	int PackageIsNotExpectedPackage = Internal + 328;
 	/** @since 2.1 */
-	int ObjectCannotHaveSuperTypes = 329;
+	int ObjectCannotHaveSuperTypes = Internal + 329;
 	/** @since 3.1 */
-	int ObjectMustBeClass = 330;
+	int ObjectMustBeClass = Internal + 330;
 
-	/** @deprecated - problem is no longer generated, UndefinedType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #UndefinedType} instead */
 	int SuperclassNotFound =  TypeRelated + 329 + ProblemReasons.NotFound; // TypeRelated + 330
-	/** @deprecated - problem is no longer generated, NotVisibleType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #NotVisibleType} instead */
 	int SuperclassNotVisible =  TypeRelated + 329 + ProblemReasons.NotVisible; // TypeRelated + 331
-	/** @deprecated - problem is no longer generated, use AmbiguousType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #AmbiguousType} instead */
 	int SuperclassAmbiguous =  TypeRelated + 329 + ProblemReasons.Ambiguous; // TypeRelated + 332
-	/** @deprecated - problem is no longer generated, use InternalTypeNameProvided is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InternalTypeNameProvided} instead */
 	int SuperclassInternalNameProvided =  TypeRelated + 329 + ProblemReasons.InternalNameProvided; // TypeRelated + 333
-	/** @deprecated - problem is no longer generated, use InheritedTypeHidesEnclosingName is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InheritedTypeHidesEnclosingName} instead */
 	int SuperclassInheritedNameHidesEnclosingName =  TypeRelated + 329 + ProblemReasons.InheritedNameHidesEnclosingName; // TypeRelated + 334
 
-	/** @deprecated - problem is no longer generated, UndefinedType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #UndefinedType} instead */
 	int InterfaceNotFound =  TypeRelated + 334 + ProblemReasons.NotFound; // TypeRelated + 335
-	/** @deprecated - problem is no longer generated, NotVisibleType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #NotVisibleType} instead */
 	int InterfaceNotVisible =  TypeRelated + 334 + ProblemReasons.NotVisible; // TypeRelated + 336
-	/** @deprecated - problem is no longer generated, use AmbiguousType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #AmbiguousType} instead */
 	int InterfaceAmbiguous =  TypeRelated + 334 + ProblemReasons.Ambiguous; // TypeRelated + 337
-	/** @deprecated - problem is no longer generated, use InternalTypeNameProvided is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InternalTypeNameProvided} instead */
 	int InterfaceInternalNameProvided =  TypeRelated + 334 + ProblemReasons.InternalNameProvided; // TypeRelated + 338
-	/** @deprecated - problem is no longer generated, use InheritedTypeHidesEnclosingName is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InheritedTypeHidesEnclosingName} instead */
 	int InterfaceInheritedNameHidesEnclosingName =  TypeRelated + 334 + ProblemReasons.InheritedNameHidesEnclosingName; // TypeRelated + 339
 
 	// field related problems
@@ -594,15 +643,15 @@ public interface IProblem {
 	int IllegalModifierCombinationFinalVolatileForField = FieldRelated + 345;
 	int UnexpectedStaticModifierForField = FieldRelated + 346;
 
-	/** @deprecated - problem is no longer generated, UndefinedType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #UndefinedType} instead */
 	int FieldTypeNotFound =  FieldRelated + 349 + ProblemReasons.NotFound; // FieldRelated + 350
-	/** @deprecated - problem is no longer generated, NotVisibleType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #NotVisibleType} instead */
 	int FieldTypeNotVisible =  FieldRelated + 349 + ProblemReasons.NotVisible; // FieldRelated + 351
-	/** @deprecated - problem is no longer generated, use AmbiguousType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #AmbiguousType} instead */
 	int FieldTypeAmbiguous =  FieldRelated + 349 + ProblemReasons.Ambiguous; // FieldRelated + 352
-	/** @deprecated - problem is no longer generated, use InternalTypeNameProvided is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InternalTypeNameProvided} instead */
 	int FieldTypeInternalNameProvided =  FieldRelated + 349 + ProblemReasons.InternalNameProvided; // FieldRelated + 353
-	/** @deprecated - problem is no longer generated, use InheritedTypeHidesEnclosingName is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InheritedTypeHidesEnclosingName} instead */
 	int FieldTypeInheritedNameHidesEnclosingName =  FieldRelated + 349 + ProblemReasons.InheritedNameHidesEnclosingName; // FieldRelated + 354
 	
 	// method related problems
@@ -616,42 +665,44 @@ public interface IProblem {
 	int IllegalAbstractModifierCombinationForMethod = MethodRelated + 362;
 	int AbstractMethodInAbstractClass = MethodRelated + 363;
 	int ArgumentTypeCannotBeVoid = MethodRelated + 364;
+	/** @deprecated - problem is no longer generated, use {@link #CannotAllocateVoidArray} instead */
 	int ArgumentTypeCannotBeVoidArray = MethodRelated + 365;
+	/** @deprecated - problem is no longer generated, use {@link #CannotAllocateVoidArray} instead */
 	int ReturnTypeCannotBeVoidArray = MethodRelated + 366;
 	int NativeMethodsCannotBeStrictfp = MethodRelated + 367;
 	int DuplicateModifierForArgument = MethodRelated + 368;
 
-	/** @deprecated - problem is no longer generated, UndefinedType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #UndefinedType} instead */
 	int ArgumentTypeNotFound =  MethodRelated + 369 + ProblemReasons.NotFound; // MethodRelated + 370
-	/** @deprecated - problem is no longer generated, NotVisibleType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #NotVisibleType} instead */
 	int ArgumentTypeNotVisible =  MethodRelated + 369 + ProblemReasons.NotVisible; // MethodRelated + 371
-	/** @deprecated - problem is no longer generated, use AmbiguousType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #AmbiguousType} instead */
 	int ArgumentTypeAmbiguous =  MethodRelated + 369 + ProblemReasons.Ambiguous; // MethodRelated + 372
-	/** @deprecated - problem is no longer generated, use InternalTypeNameProvided is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InternalTypeNameProvided} instead */
 	int ArgumentTypeInternalNameProvided =  MethodRelated + 369 + ProblemReasons.InternalNameProvided; // MethodRelated + 373
-	/** @deprecated - problem is no longer generated, use InheritedTypeHidesEnclosingName is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InheritedTypeHidesEnclosingName} instead */
 	int ArgumentTypeInheritedNameHidesEnclosingName =  MethodRelated + 369 + ProblemReasons.InheritedNameHidesEnclosingName; // MethodRelated + 374
 
-	/** @deprecated - problem is no longer generated, UndefinedType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #UndefinedType} instead */
 	int ExceptionTypeNotFound =  MethodRelated + 374 + ProblemReasons.NotFound; // MethodRelated + 375
-	/** @deprecated - problem is no longer generated, NotVisibleType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #NotVisibleType} instead */
 	int ExceptionTypeNotVisible =  MethodRelated + 374 + ProblemReasons.NotVisible; // MethodRelated + 376
-	/** @deprecated - problem is no longer generated, use AmbiguousType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #AmbiguousType} instead */
 	int ExceptionTypeAmbiguous =  MethodRelated + 374 + ProblemReasons.Ambiguous; // MethodRelated + 377
-	/** @deprecated - problem is no longer generated, use InternalTypeNameProvided is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InternalTypeNameProvided} instead */
 	int ExceptionTypeInternalNameProvided =  MethodRelated + 374 + ProblemReasons.InternalNameProvided; // MethodRelated + 378
-	/** @deprecated - problem is no longer generated, use InheritedTypeHidesEnclosingName is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InheritedTypeHidesEnclosingName} instead */
 	int ExceptionTypeInheritedNameHidesEnclosingName =  MethodRelated + 374 + ProblemReasons.InheritedNameHidesEnclosingName; // MethodRelated + 379
 
-	/** @deprecated - problem is no longer generated, UndefinedType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #UndefinedType} instead */
 	int ReturnTypeNotFound =  MethodRelated + 379 + ProblemReasons.NotFound; // MethodRelated + 380
-	/** @deprecated - problem is no longer generated, NotVisibleType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #NotVisibleType} instead */
 	int ReturnTypeNotVisible =  MethodRelated + 379 + ProblemReasons.NotVisible; // MethodRelated + 381
-	/** @deprecated - problem is no longer generated, use AmbiguousType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #AmbiguousType} instead */
 	int ReturnTypeAmbiguous =  MethodRelated + 379 + ProblemReasons.Ambiguous; // MethodRelated + 382
-	/** @deprecated - problem is no longer generated, use InternalTypeNameProvided is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InternalTypeNameProvided} instead */
 	int ReturnTypeInternalNameProvided =  MethodRelated + 379 + ProblemReasons.InternalNameProvided; // MethodRelated + 383
-	/** @deprecated - problem is no longer generated, use InheritedTypeHidesEnclosingName is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InheritedTypeHidesEnclosingName} instead */
 	int ReturnTypeInheritedNameHidesEnclosingName =  MethodRelated + 379 + ProblemReasons.InheritedNameHidesEnclosingName; // MethodRelated + 384
 
 	// import related problems
@@ -661,13 +712,13 @@ public interface IProblem {
 	int UnusedImport = ImportRelated + 388;
 
 	int ImportNotFound =  ImportRelated + 389 + ProblemReasons.NotFound; // ImportRelated + 390
-	/** @deprecated - problem is no longer generated, NotVisibleType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #NotVisibleType} instead */
 	int ImportNotVisible =  ImportRelated + 389 + ProblemReasons.NotVisible; // ImportRelated + 391
-	/** @deprecated - problem is no longer generated, use AmbiguousType is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #AmbiguousType} instead */
 	int ImportAmbiguous =  ImportRelated + 389 + ProblemReasons.Ambiguous; // ImportRelated + 392
-	/** @deprecated - problem is no longer generated, use InternalTypeNameProvided is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InternalTypeNameProvided} instead */
 	int ImportInternalNameProvided =  ImportRelated + 389 + ProblemReasons.InternalNameProvided; // ImportRelated + 393
-	/** @deprecated - problem is no longer generated, use InheritedTypeHidesEnclosingName is used instead */
+	/** @deprecated - problem is no longer generated, use {@link #InheritedTypeHidesEnclosingName} instead */
 	int ImportInheritedNameHidesEnclosingName =  ImportRelated + 389 + ProblemReasons.InheritedNameHidesEnclosingName; // ImportRelated + 394
 
 	/** @since 3.1 */
@@ -676,10 +727,12 @@ public interface IProblem {
 	// local variable related problems
 	int DuplicateModifierForVariable = MethodRelated + 395;
 	int IllegalModifierForVariable = MethodRelated + 396;
-	/** @since 3.1 */
-	int LocalVariableCannotBeNull = MethodRelated + 397;
-	/** @since 3.1 */
-	int LocalVariableCanOnlyBeNull = MethodRelated + 398;
+	/** @deprecated - problem is no longer generated, use {@link #RedundantNullCheckOnNonNullLocalVariable} instead */
+	int LocalVariableCannotBeNull = Internal + 397; // since 3.3: semantics are LocalVariableRedundantCheckOnNonNull
+	/** @deprecated - problem is no longer generated, use {@link #NullLocalVariableReference}, {@link #RedundantNullCheckOnNullLocalVariable} or {@link #RedundantLocalVariableNullAssignment} instead */
+	int LocalVariableCanOnlyBeNull = Internal + 398; // since 3.3: split with LocalVariableRedundantCheckOnNull depending on context
+	/** @deprecated - problem is no longer generated, use {@link #PotentialNullLocalVariableReference} instead */
+	int LocalVariableMayBeNull = Internal + 399;
 
 	// method verifier problems
 	int AbstractMethodMustBeImplemented = MethodRelated + 400;
@@ -701,11 +754,12 @@ public interface IProblem {
 	int IncompatibleExceptionInThrowsClauseForNonInheritedInterfaceMethod = MethodRelated + 414;
 	/** @since 3.1 */
 	int IllegalVararg = MethodRelated + 415;
-
+	/** @since 3.3 */
+	int OverridingMethodWithoutSuperInvocation = MethodRelated + 416; 
+	
 	// code snippet support
 	int CodeSnippetMissingClass = Internal + 420;
 	int CodeSnippetMissingMethod = Internal + 421;
-	int NonExternalizedStringLiteral = Internal + 261;
 	int CannotUseSuperInCodeSnippet = Internal + 422;
 	
 	//constant pool
@@ -725,11 +779,31 @@ public interface IProblem {
 	
 	// 1.5 features
 	int UseEnumAsAnIdentifier = Internal + 441;
-	
+	/** @since 3.2 */
+	int EnumConstantsCannotBeSurroundedByParenthesis = Syntax + Internal + 442;
+
 	// detected task
 	/** @since 2.1 */
 	int Task = Internal + 450;
 	
+	// local variables related problems, cont'd
+	/** @since 3.3 */
+	int NullLocalVariableReference = Internal + 451;
+	/** @since 3.3 */
+	int PotentialNullLocalVariableReference = Internal + 452;
+	/** @since 3.3 */
+	int RedundantNullCheckOnNullLocalVariable = Internal + 453;
+	/** @since 3.3 */
+	int NullLocalVariableComparisonYieldsFalse = Internal + 454;
+	/** @since 3.3 */
+	int RedundantLocalVariableNullAssignment = Internal + 455;
+	/** @since 3.3 */
+	int NullLocalVariableInstanceofYieldsFalse = Internal + 456;
+	/** @since 3.3 */
+	int RedundantNullCheckOnNonNullLocalVariable = Internal + 457;
+	/** @since 3.3 */
+	int NonNullLocalVariableComparisonYieldsFalse = Internal + 458;
+
 	// block
 	/** @since 3.0 */
 	int UndocumentedEmptyBlock = Internal + 460;
@@ -737,6 +811,27 @@ public interface IProblem {
 	/*
 	 * Javadoc comments
 	 */
+	/** 
+	 * Problem warned on duplicated tag.
+	 * @since 3.3
+	 */
+	int JavadocDuplicateTag = Javadoc + Internal + 464;
+	/** 
+	 * Problem signaled on an hidden reference due to a too low visibility level.
+	 * @since 3.3
+	 */
+	int JavadocHiddenReference = Javadoc + Internal + 465;
+	/** 
+	 * Problem signaled on an invalid qualification for member type reference.
+	 * @since 3.3
+	 */
+	int JavadocInvalidMemberTypeQualification = Javadoc + Internal + 466;
+	/** @since 3.2 */
+	int JavadocMissingIdentifier = Javadoc + Internal + 467;
+	/** @since 3.2 */
+	int JavadocNonStaticTypeFromStaticInvocation = Javadoc + Internal + 468;
+	/** @since 3.1 */
+	int JavadocInvalidParamTagTypeParameter = Javadoc + Internal + 469;
 	/** @since 3.0 */
 	int JavadocUnexpectedTag = Javadoc + Internal + 470;
 	/** @since 3.0 */
@@ -839,6 +934,7 @@ public interface IProblem {
 	int JavadocMalformedSeeReference = Javadoc + Internal + 513;
 	/** @since 3.0 */
 	int JavadocMessagePrefix = Internal + 514;
+
 	/** @since 3.1 */
 	int JavadocMissingHashCharacter = Javadoc + Internal + 515;
 	/** @since 3.1 */
@@ -849,8 +945,6 @@ public interface IProblem {
 	int JavadocUnexpectedText = Javadoc + Internal + 518;
 	/** @since 3.1 */
 	int JavadocInvalidParamTagName = Javadoc + Internal + 519;
-	/** @since 3.1 */
-	int JavadocInvalidParamTagTypeParameter = Javadoc + Internal + 469;
 
 	/**
 	 * Generics
@@ -959,6 +1053,20 @@ public interface IProblem {
 	int UnsafeRawGenericMethodInvocation = TypeRelated + 570;
 	/** @since 3.1 */
 	int TypeParameterHidingType = TypeRelated + 571;
+	/** @since 3.2 */
+	int RawTypeReference = TypeRelated + 572;
+	/** @since 3.2 */
+	int NoAdditionalBoundAfterTypeVariable = TypeRelated + 573;
+	/** @since 3.2 */
+	int UnsafeGenericArrayForVarargs = MethodRelated + 574;
+	/** @since 3.2 */
+	int IllegalAccessFromTypeVariable = TypeRelated + 575;
+	/** @since 3.3 */
+	int TypeHidingTypeParameterFromType = TypeRelated + 576;
+	/** @since 3.3 */
+	int TypeHidingTypeParameterFromMethod = TypeRelated + 577;
+    /** @since 3.3 */
+    int InvalidUsageOfWildcard = Syntax + Internal + 578;
 	
 	/**
 	 * Foreach
@@ -1019,7 +1127,8 @@ public interface IProblem {
 	int AnnotationValueMustBeClassLiteral = Internal + 612;
 	/** @since 3.1 */
 	int AnnotationValueMustBeConstant = Internal + 613;
-	/** @since 3.1 */
+	/** @deprecated - problem is no longer generated (code is legite)
+	 *   @since 3.1 */
 	int AnnotationFieldNeedConstantInitialization = Internal + 614;
 	/** @since 3.1 */
 	int IllegalModifierForAnnotationField = Internal + 615;
@@ -1055,12 +1164,25 @@ public interface IProblem {
 	int TypeMissingDeprecatedAnnotation = Internal + 630;
 	/** @since 3.1 */
 	int UnhandledWarningToken = Internal + 631;
+	/** @since 3.2 */
+	int AnnotationValueMustBeArrayInitializer = Internal + 632;
+	/** @since 3.3 */
+	int AnnotationValueMustBeAnEnumConstant = Internal + 633;
+	/** @since 3.3 */
+	int MethodMustOverrideOrImplement = MethodRelated + 634;
 	
 	/**
 	 * Corrupted binaries
 	 */
 	/** @since 3.1 */
 	int CorruptedSignature = Internal + 700;
+	/**
+	 * Corrupted source
+	 */
+	/** @since 3.2 */
+	int InvalidEncoding = Internal + 701;
+	/** @since 3.2 */
+	int CannotReadSource = Internal + 702;
 
 	/**
 	 * Autoboxing
@@ -1097,6 +1219,8 @@ public interface IProblem {
 	int IllegalModifierForEnumConstructor = MethodRelated + 760;
 	/** @since 3.1 */
 	int MissingEnumConstantCase = FieldRelated + 761;
+	/** @since 3.2 */ // TODO need to fix 3.1.1 contribution (inline this constant on client side)
+	int EnumStaticFieldInInInitializerContext = FieldRelated + 762;
 	
 	/**
 	 * Var args
@@ -1133,4 +1257,16 @@ public interface IProblem {
 	int JavadocParameterizedConstructorArgumentTypeMismatch = Javadoc + Internal + 858;
 	/** @since 3.1 */
 	int JavadocTypeArgumentsForRawGenericConstructor = Javadoc + Internal + 859;
+
+	/**
+	 * External problems -- These are problems defined by other plugins
+	 */
+
+	/** @since 3.2 */
+	int ExternalProblemNotFixable = 900;
+
+	// indicates an externally defined problem that has a quick-assist processor
+	// associated with it
+	/** @since 3.2 */
+	int ExternalProblemFixable = 901;
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,6 +14,7 @@ package org.eclipse.jdt.internal.compiler.parser;
  * Internal field structure for parsing recovery 
  */
 import org.eclipse.jdt.internal.compiler.ast.AbstractVariableDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.ArrayQualifiedTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.ArrayTypeReference;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.Expression;
@@ -60,7 +61,7 @@ public RecoveredElement add(Statement statement, int bracketBalanceValue) {
 public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalanceValue) {
 
 	if (this.alreadyCompletedFieldInitialization 
-			|| ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) == 0)
+			|| ((typeDeclaration.bits & ASTNode.IsAnonymousType) == 0)
 			|| (this.fieldDeclaration.declarationSourceEnd != 0 && typeDeclaration.sourceStart > this.fieldDeclaration.declarationSourceEnd)) {
 		return super.add(typeDeclaration, bracketBalanceValue);
 	} else { 
@@ -120,10 +121,16 @@ public FieldDeclaration updatedFieldDeclaration(){
 					typeDeclaration.bodyEnd = this.fieldDeclaration.declarationSourceEnd;
 				}
 				if (recoveredType.preserveContent){
-					fieldDeclaration.initialization = recoveredType.updatedTypeDeclaration().allocation;
+					TypeDeclaration anonymousType = recoveredType.updatedTypeDeclaration();
+					fieldDeclaration.initialization = anonymousType.allocation;
+					if(this.fieldDeclaration.declarationSourceEnd == 0) {
+						int end = anonymousType.declarationSourceEnd;
+						this.fieldDeclaration.declarationSourceEnd = end;
+						this.fieldDeclaration.declarationEnd = end;
+					}
 				}
 			}
-			if (this.anonymousTypeCount > 0) fieldDeclaration.bits |= ASTNode.HasLocalTypeMASK;
+			if (this.anonymousTypeCount > 0) fieldDeclaration.bits |= ASTNode.HasLocalType;
 		} else if(fieldDeclaration.getKind() == AbstractVariableDeclaration.ENUM_CONSTANT) {
 			// fieldDeclaration is an enum constant
 			for (int i = 0; i < this.anonymousTypeCount; i++){
@@ -172,7 +179,7 @@ public RecoveredElement updateOnClosingBrace(int braceStart, int braceEnd){
  */
 public RecoveredElement updateOnOpeningBrace(int braceStart, int braceEnd){
 	if (fieldDeclaration.declarationSourceEnd == 0 
-		&& fieldDeclaration.type instanceof ArrayTypeReference
+		&& (fieldDeclaration.type instanceof ArrayTypeReference || fieldDeclaration.type instanceof ArrayQualifiedTypeReference)
 		&& !alreadyCompletedFieldInitialization){
 		bracketBalance++;
 		return null; // no update is necessary	(array initializer)

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,18 +13,20 @@ package org.eclipse.jdt.internal.compiler.ast;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
-import org.eclipse.jdt.internal.compiler.codegen.Label;
+import org.eclipse.jdt.internal.compiler.codegen.BranchLabel;
 import org.eclipse.jdt.internal.compiler.flow.FlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
 import org.eclipse.jdt.internal.compiler.flow.LoopingFlowContext;
+import org.eclipse.jdt.internal.compiler.flow.UnconditionalFlowInfo;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.ArrayBinding;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
-import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 
 public class ForeachStatement extends Statement {
     
@@ -40,11 +42,12 @@ public class ForeachStatement extends Statement {
 	private static final int RAW_ITERABLE = 1;
 	private static final int GENERIC_ITERABLE = 2;
 
+	private TypeBinding iteratorReceiverType;
 	private TypeBinding collectionElementType;
 
 	// loop labels
-	private Label breakLabel;
-	private Label continueLabel;
+	private BranchLabel breakLabel;
+	private BranchLabel continueLabel;
 	
 	public BlockScope scope;
 
@@ -62,11 +65,9 @@ public class ForeachStatement extends Statement {
 	
 	public ForeachStatement(
 		LocalDeclaration elementVariable,
-		Expression collection,
 		int start) {
 
 		this.elementVariable = elementVariable;
-		this.collection = collection;
 		this.sourceStart = start;
 		this.kind = -1;
 	}
@@ -76,13 +77,13 @@ public class ForeachStatement extends Statement {
 		FlowContext flowContext,
 		FlowInfo flowInfo) {
 		// initialize break and continue labels
-		breakLabel = new Label();
-		continueLabel = new Label();
+		breakLabel = new BranchLabel();
+		continueLabel = new BranchLabel();
 
 		// process the element variable and collection
+		this.collection.checkNPE(currentScope, flowContext, flowInfo);
 		flowInfo = this.elementVariable.analyseCode(scope, flowContext, flowInfo);
-		FlowInfo condInfo = flowInfo.copy().unconditionalInits().discardNullRelatedInitializations();
-		condInfo = this.collection.analyseCode(scope, flowContext, condInfo);
+		FlowInfo condInfo = this.collection.analyseCode(scope, flowContext, flowInfo.copy());
 
 		// element variable will be assigned when iterating
 		condInfo.markAsDefinitelyAssigned(this.elementVariable.binding);
@@ -90,25 +91,33 @@ public class ForeachStatement extends Statement {
 		this.postCollectionInitStateIndex = currentScope.methodScope().recordInitializationStates(condInfo);
 		
 		// process the action
-		LoopingFlowContext loopingContext = new LoopingFlowContext(flowContext, this, breakLabel, continueLabel, scope);
-		FlowInfo actionInfo = condInfo.initsWhenTrue().copy();
+		LoopingFlowContext loopingContext = 
+			new LoopingFlowContext(flowContext, flowInfo, this, breakLabel, 
+				continueLabel, scope);
+		UnconditionalFlowInfo actionInfo = 
+			condInfo.nullInfoLessUnconditionalCopy();
+		actionInfo.markAsDefinitelyUnknown(this.elementVariable.binding);
 		FlowInfo exitBranch;
 		if (!(action == null || (action.isEmptyBlock() 
 		        	&& currentScope.compilerOptions().complianceLevel <= ClassFileConstants.JDK1_3))) {
 
 			if (!this.action.complainIfUnreachable(actionInfo, scope, false)) {
-				actionInfo = action.analyseCode(scope, loopingContext, actionInfo);
+				actionInfo = action.
+					analyseCode(scope, loopingContext, actionInfo).
+					unconditionalCopy();
 			}
 
 			// code generation can be optimized when no need to continue in the loop
-			exitBranch = condInfo.initsWhenFalse();
-			exitBranch.addInitializationsFrom(flowInfo); // recover null inits from before condition analysis			
-			if (!actionInfo.isReachable() && !loopingContext.initsOnContinue.isReachable()) {
+			exitBranch = flowInfo.unconditionalCopy().
+				addInitializationsFrom(condInfo.initsWhenFalse()); 
+			// TODO (maxime) no need to test when false: can optimize (same for action being unreachable above) 
+			if ((actionInfo.tagBits & loopingContext.initsOnContinue.tagBits &
+					FlowInfo.UNREACHABLE) != 0) {
 				continueLabel = null;
 			} else {
-				actionInfo = actionInfo.mergedWith(loopingContext.initsOnContinue.unconditionalInits());
-				loopingContext.complainOnDeferredChecks(scope, actionInfo);
-				exitBranch.addPotentialInitializationsFrom(actionInfo.unconditionalInits());
+				actionInfo = actionInfo.mergedWith(loopingContext.initsOnContinue);
+				loopingContext.complainOnDeferredFinalChecks(scope, actionInfo);
+				exitBranch.addPotentialInitializationsFrom(actionInfo);
 			}
 		} else {
 			exitBranch = condInfo.initsWhenFalse();
@@ -116,24 +125,34 @@ public class ForeachStatement extends Statement {
 
 		// we need the variable to iterate the collection even if the 
 		// element variable is not used
-		if (!(this.action == null
+		final boolean hasEmptyAction = this.action == null
 				|| this.action.isEmptyBlock()
-				|| ((this.action.bits & IsUsefulEmptyStatementMASK) != 0))) {
-			switch(this.kind) {
-				case ARRAY :
+				|| ((this.action.bits & IsUsefulEmptyStatement) != 0);
+
+		switch(this.kind) {
+			case ARRAY :
+				if (!hasEmptyAction
+						|| this.elementVariable.binding.resolvedPosition != -1) {				
 					this.collectionVariable.useFlag = LocalVariableBinding.USED;
-					this.indexVariable.useFlag = LocalVariableBinding.USED;
-					this.maxVariable.useFlag = LocalVariableBinding.USED;
-					break;
-				case RAW_ITERABLE :
-				case GENERIC_ITERABLE :
-					this.indexVariable.useFlag = LocalVariableBinding.USED;
-					break;
-			}
+					if (this.continueLabel != null) {
+						this.indexVariable.useFlag = LocalVariableBinding.USED;
+						this.maxVariable.useFlag = LocalVariableBinding.USED;
+					}
+				}
+				break;
+			case RAW_ITERABLE :
+			case GENERIC_ITERABLE :
+				this.indexVariable.useFlag = LocalVariableBinding.USED;
+				break;
 		}
 		//end of loop
+		loopingContext.complainOnDeferredNullChecks(currentScope, actionInfo);
+
 		FlowInfo mergedInfo = FlowInfo.mergedOptimizedBranches(
-				loopingContext.initsOnBreak, 
+				(loopingContext.initsOnBreak.tagBits &
+					FlowInfo.UNREACHABLE) != 0 ?
+					loopingContext.initsOnBreak :
+					flowInfo.addInitializationsFrom(loopingContext.initsOnBreak), // recover upstream null info
 				false, 
 				exitBranch, 
 				false, 
@@ -150,13 +169,18 @@ public class ForeachStatement extends Statement {
 	 */
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 	    
-		if ((bits & IsReachableMASK) == 0) {
+		if ((bits & IsReachable) == 0) {
 			return;
 		}
 		int pc = codeStream.position;
-		if (this.action == null
-				|| this.action.isEmptyBlock()
-				|| ((this.action.bits & IsUsefulEmptyStatementMASK) != 0)) {
+		final boolean hasEmptyAction = this.action == null
+			|| this.action.isEmptyBlock()
+			|| ((this.action.bits & IsUsefulEmptyStatement) != 0);
+
+		if (hasEmptyAction
+				&& this.elementVariable.binding.resolvedPosition == -1
+				&& this.kind == ARRAY) {
+			collection.generateCode(scope, codeStream, false);
 			codeStream.exitUserScope(scope);
 			if (mergedInitStateIndex != -1) {
 				codeStream.removeNotDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);
@@ -165,31 +189,35 @@ public class ForeachStatement extends Statement {
 			codeStream.recordPositionsFrom(pc, this.sourceStart);
 			return;
 		}
+
 		// generate the initializations
 		switch(this.kind) {
 			case ARRAY :
 				collection.generateCode(scope, codeStream, true);
-				codeStream.store(this.collectionVariable, false);
-				codeStream.iconst_0();
-				codeStream.store(this.indexVariable, false);
-				codeStream.load(this.collectionVariable);
-				codeStream.arraylength();
-				codeStream.store(this.maxVariable, false);
+				codeStream.store(this.collectionVariable, true); 
+				if (this.continueLabel != null) {
+					// int length = (collectionVariable = [collection]).length;
+					codeStream.arraylength();
+					codeStream.store(this.maxVariable, false);
+					codeStream.iconst_0();
+					codeStream.store(this.indexVariable, false);
+				} else {
+					// leave collectionVariable on execution stack (will be consumed when swapping condition further down)
+				}
 				break;
 			case RAW_ITERABLE :
 			case GENERIC_ITERABLE :
 				collection.generateCode(scope, codeStream, true);
 				// declaringClass.iterator();
-				final TypeBinding collectionTypeBinding = collection.resolvedType.erasure();
 				MethodBinding iteratorMethodBinding =
 					new MethodBinding(
-							AccPublic,
+							ClassFileConstants.AccPublic,
 							"iterator".toCharArray(),//$NON-NLS-1$
 							scope.getJavaUtilIterator(),
-							TypeConstants.NoParameters,
-							TypeConstants.NoExceptions,
-							(ReferenceBinding) collectionTypeBinding);
-				if (collectionTypeBinding.isInterface()) {
+							Binding.NO_PARAMETERS,
+							Binding.NO_EXCEPTIONS,
+							(ReferenceBinding) this.iteratorReceiverType.erasure());
+				if (this.iteratorReceiverType.isInterface()) {
 					codeStream.invokeinterface(iteratorMethodBinding);
 				} else {
 					codeStream.invokevirtual(iteratorMethodBinding);
@@ -197,116 +225,137 @@ public class ForeachStatement extends Statement {
 				codeStream.store(this.indexVariable, false);
 				break;
 		}
-		
 		// label management
-		Label actionLabel = new Label(codeStream);
-		Label conditionLabel = new Label(codeStream);
+		BranchLabel actionLabel = new BranchLabel(codeStream);
+		actionLabel.tagBits |= BranchLabel.USED;
+		BranchLabel conditionLabel = new BranchLabel(codeStream);
+		conditionLabel.tagBits |= BranchLabel.USED;
 		breakLabel.initialize(codeStream);
-		if (this.continueLabel != null) {
+		if (this.continueLabel == null) {
+			// generate the condition (swapped for optimizing)
+			conditionLabel.place();
+			int conditionPC = codeStream.position;
+			switch(this.kind) {
+				case ARRAY :
+					// inline the arraylength call
+					// collectionVariable is already on execution stack
+					codeStream.arraylength();					
+					codeStream.ifeq(breakLabel);
+					break;
+				case RAW_ITERABLE :
+				case GENERIC_ITERABLE :
+					codeStream.load(this.indexVariable);
+					codeStream.invokeJavaUtilIteratorHasNext();
+					codeStream.ifeq(breakLabel);
+					break;
+			}
+			codeStream.recordPositionsFrom(conditionPC, this.elementVariable.sourceStart);			
+		} else {
 			this.continueLabel.initialize(codeStream);
+			this.continueLabel.tagBits |= BranchLabel.USED;
+			// jump over the actionBlock
+			codeStream.goto_(conditionLabel);
 		}
-		// jump over the actionBlock
-		codeStream.goto_(conditionLabel);
 
 		// generate the loop action
 		actionLabel.place();
 
 		// generate the loop action
-		if (this.elementVariable.binding.resolvedPosition != -1) {
-			switch(this.kind) {
-				case ARRAY :
+		switch(this.kind) {
+			case ARRAY :
+				if (this.elementVariable.binding.resolvedPosition != -1) {
 					codeStream.load(this.collectionVariable);
-					codeStream.load(this.indexVariable);
+					if (this.continueLabel == null) {
+						codeStream.iconst_0(); // no continue, thus simply hardcode offset 0
+					} else {
+						codeStream.load(this.indexVariable);
+					}
 					codeStream.arrayAt(this.collectionElementType.id);
 					if (this.elementVariableImplicitWidening != -1) {
 						codeStream.generateImplicitConversion(this.elementVariableImplicitWidening);
 					}
 					codeStream.store(this.elementVariable.binding, false);
-					break;
-				case RAW_ITERABLE :
-				case GENERIC_ITERABLE :
-					codeStream.load(this.indexVariable);
-					codeStream.invokeJavaUtilIteratorNext();
-					if (this.elementVariable.binding.type.id != T_JavaLangObject) {
-						if (this.elementVariableImplicitWidening != -1) {
-							codeStream.checkcast(this.collectionElementType);
-							codeStream.generateImplicitConversion(this.elementVariableImplicitWidening);
-						} else {
-							codeStream.checkcast(this.elementVariable.binding.type);
-						}
+					codeStream.addVisibleLocalVariable(this.elementVariable.binding);
+					if (this.postCollectionInitStateIndex != -1) {
+						codeStream.addDefinitelyAssignedVariables(
+							currentScope,
+							this.postCollectionInitStateIndex);
 					}
-					codeStream.store(this.elementVariable.binding, false);
-					break;
-			}
-			codeStream.addVisibleLocalVariable(this.elementVariable.binding);
-			if (this.postCollectionInitStateIndex != -1) {
-				codeStream.addDefinitelyAssignedVariables(
-					currentScope,
-					this.postCollectionInitStateIndex);
-			}
-		} else {
-			// if unused variable, some side effects still need to be performed (86487)
-			switch(this.kind) {
-				case ARRAY :
-					break;
-				case RAW_ITERABLE :
-				case GENERIC_ITERABLE :
-					// still advance in iterator to prevent infinite loop
-					codeStream.load(this.indexVariable);
-					codeStream.invokeJavaUtilIteratorNext();
-					codeStream.pop();
-					break;
-			}
-		}
-		this.action.generateCode(scope, codeStream);
-
-		// continuation point
-		int continuationPC = codeStream.position;
-		if (this.continueLabel != null) {
-			this.continueLabel.place();
-			// generate the increments for next iteration
-			switch(this.kind) {
-				case ARRAY :
-					codeStream.iinc(this.indexVariable.resolvedPosition, 1);
-					break;
-				case RAW_ITERABLE :
-				case GENERIC_ITERABLE :
-					break;
-			}
-		}
-		// generate the condition
-		conditionLabel.place();
-		if (this.postCollectionInitStateIndex != -1) {
-			codeStream.removeNotDefinitelyAssignedVariables(currentScope, postCollectionInitStateIndex);
-		}
-		switch(this.kind) {
-			case ARRAY :
-				codeStream.load(this.indexVariable);
-				codeStream.load(this.maxVariable);
-				codeStream.if_icmplt(actionLabel);
+				}
 				break;
 			case RAW_ITERABLE :
 			case GENERIC_ITERABLE :
 				codeStream.load(this.indexVariable);
-				codeStream.invokeJavaUtilIteratorHasNext();
-				codeStream.ifne(actionLabel);
+				codeStream.invokeJavaUtilIteratorNext();
+				if (this.elementVariable.binding.type.id != T_JavaLangObject) {
+					if (this.elementVariableImplicitWidening != -1) {
+						codeStream.checkcast(this.collectionElementType);
+						codeStream.generateImplicitConversion(this.elementVariableImplicitWidening);
+					} else {
+						codeStream.checkcast(this.elementVariable.binding.type);
+					}
+				}
+				if (this.elementVariable.binding.resolvedPosition == -1) {
+					codeStream.pop();
+				} else {
+					codeStream.store(this.elementVariable.binding, false);
+					codeStream.addVisibleLocalVariable(this.elementVariable.binding);
+					if (this.postCollectionInitStateIndex != -1) {
+						codeStream.addDefinitelyAssignedVariables(
+							currentScope,
+							this.postCollectionInitStateIndex);
+					}
+				}
 				break;
 		}
-		codeStream.recordPositionsFrom(continuationPC, this.elementVariable.sourceStart);
 
-		breakLabel.place();
+		if (!hasEmptyAction) {
+			this.action.generateCode(scope, codeStream);
+		}
+		codeStream.removeVariable(this.elementVariable.binding);
+		if (this.postCollectionInitStateIndex != -1) {
+			codeStream.removeNotDefinitelyAssignedVariables(currentScope, this.postCollectionInitStateIndex);
+		}
+		// continuation point
+		if (this.continueLabel != null) {
+			this.continueLabel.place();
+			int continuationPC = codeStream.position;
+			// generate the increments for next iteration
+			switch(this.kind) {
+				case ARRAY :
+					if (!hasEmptyAction || this.elementVariable.binding.resolvedPosition >= 0) {
+						codeStream.iinc(this.indexVariable.resolvedPosition, 1);
+					}
+					// generate the condition
+					conditionLabel.place();
+					codeStream.load(this.indexVariable);
+					codeStream.load(this.maxVariable);
+					codeStream.if_icmplt(actionLabel);
+					break;
+				case RAW_ITERABLE :
+				case GENERIC_ITERABLE :
+					// generate the condition
+					conditionLabel.place();
+					codeStream.load(this.indexVariable);
+					codeStream.invokeJavaUtilIteratorHasNext();
+					codeStream.ifne(actionLabel);
+					break;
+			}
+			codeStream.recordPositionsFrom(continuationPC, this.elementVariable.sourceStart);
+		}
 		codeStream.exitUserScope(scope);
 		if (mergedInitStateIndex != -1) {
 			codeStream.removeNotDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);
 			codeStream.addDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);			
 		}
+		breakLabel.place();
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
-	public StringBuffer printStatement(int tab, StringBuffer output) {
+	public StringBuffer printStatement(int indent, StringBuffer output) {
 
-		printIndent(tab, output).append("for ("); //$NON-NLS-1$
-		this.elementVariable.print(0, output); 
+		printIndent(indent, output).append("for ("); //$NON-NLS-1$
+		this.elementVariable.printAsExpression(0, output); 
 		output.append(" : ");//$NON-NLS-1$
 		this.collection.print(0, output).append(") "); //$NON-NLS-1$
 		//block
@@ -314,7 +363,7 @@ public class ForeachStatement extends Statement {
 			output.append(';');
 		} else {
 			output.append('\n');
-			this.action.printStatement(tab + 1, output); //$NON-NLS-1$
+			this.action.printStatement(indent + 1, output);
 		}
 		return output;
 	}
@@ -324,13 +373,12 @@ public class ForeachStatement extends Statement {
 		scope = new BlockScope(upperScope);
 		this.elementVariable.resolve(scope); // collection expression can see itemVariable
 		TypeBinding elementType = this.elementVariable.type.resolvedType;
-		TypeBinding collectionType = this.collection.resolveType(scope);
-		this.collection.computeConversion(scope, collectionType, collectionType);
-		boolean hasError = elementType == null || collectionType == null;
+		TypeBinding collectionType = this.collection == null ? null : this.collection.resolveType(scope);
 
-		if (!hasError) {
+		if (elementType != null && collectionType != null) {
 			if (collectionType.isArrayType()) { // for(E e : E[])
 				this.kind = ARRAY;
+				this.collection.computeConversion(scope,collectionType, collectionType);
 				this.collectionElementType = ((ArrayBinding) collectionType).elementsType();
 				if (!collectionElementType.isCompatibleWith(elementType)
 						&& !scope.isBoxingCompatibleWith(collectionElementType, elementType)) {
@@ -359,97 +407,92 @@ public class ForeachStatement extends Statement {
 				}
 			} else if (collectionType instanceof ReferenceBinding) {
 			    ReferenceBinding iterableType = ((ReferenceBinding)collectionType).findSuperTypeErasingTo(T_JavaLangIterable, false /*Iterable is not a class*/);
-			    if (iterableType != null) {
-				    if (iterableType.isParameterizedType()) { // for(E e : Iterable<E>)
-					    ParameterizedTypeBinding parameterizedType = (ParameterizedTypeBinding)iterableType;
-						if (parameterizedType.arguments.length == 1) { // per construction can only be one
-							this.kind = GENERIC_ITERABLE;
-							this.collectionElementType = parameterizedType.arguments[0]; 
+			    checkIterable: {
+			    	if (iterableType == null) break checkIterable;
+			    	
+					this.iteratorReceiverType = collectionType.erasure();
+					if (((ReferenceBinding)iteratorReceiverType).findSuperTypeErasingTo(T_JavaLangIterable, false) == null) {
+						this.iteratorReceiverType = iterableType; // handle indirect inheritance thru variable secondary bound
+	   					this.collection.computeConversion(scope, iterableType, collectionType);
+					} else {
+	   					this.collection.computeConversion(scope, collectionType, collectionType);
+					}
+
+			    	TypeBinding[] arguments = null;
+			    	switch (iterableType.kind()) {
+			    		case Binding.RAW_TYPE : // for(Object o : Iterable)
+							this.kind = RAW_ITERABLE;
+							this.collectionElementType = scope.getJavaLangObject();
 							if (!collectionElementType.isCompatibleWith(elementType)
 									&& !scope.isBoxingCompatibleWith(collectionElementType, elementType)) {
 								scope.problemReporter().notCompatibleTypesErrorInForeach(collection, collectionElementType, elementType);
 							}
-							int compileTimeTypeID = collectionElementType.id;
 							// no conversion needed as only for reference types
+			    			break checkIterable;
+			    			
+			    		case Binding.GENERIC_TYPE : // for (T t : Iterable<T>) - in case used inside Iterable itself
+			    			arguments = iterableType.typeVariables();
+			    			break;
+			    			
+			    		case Binding.PARAMETERIZED_TYPE : // for(E e : Iterable<E>)
+			    			arguments = ((ParameterizedTypeBinding)iterableType).arguments;
+			    			break;
+			    			
+			    		default:
+			    			break checkIterable;
+			    	}
+			    	// generic or parameterized case
+					if (arguments.length != 1) break checkIterable; // per construction can only be one
+					this.kind = GENERIC_ITERABLE;
+					
+					this.collectionElementType = arguments[0]; 
+					if (!collectionElementType.isCompatibleWith(elementType)
+							&& !scope.isBoxingCompatibleWith(collectionElementType, elementType)) {
+						scope.problemReporter().notCompatibleTypesErrorInForeach(collection, collectionElementType, elementType);
+					}
+					int compileTimeTypeID = collectionElementType.id;
+					// no conversion needed as only for reference types
+					if (elementType.isBaseType()) {
+						if (!collectionElementType.isBaseType()) {
+							compileTimeTypeID = scope.environment().computeBoxingType(collectionElementType).id;
+							this.elementVariableImplicitWidening = UNBOXING;
 							if (elementType.isBaseType()) {
-								if (!collectionElementType.isBaseType()) {
-									compileTimeTypeID = scope.environment().computeBoxingType(collectionElementType).id;
-									this.elementVariableImplicitWidening = UNBOXING;
-									if (elementType.isBaseType()) {
-										this.elementVariableImplicitWidening |= (elementType.id << 4) + compileTimeTypeID;
-									}
-								} else {
-									this.elementVariableImplicitWidening = (elementType.id << 4) + compileTimeTypeID;
-								}
-							} else {
-								if (collectionElementType.isBaseType()) {
-									int boxedID = scope.environment().computeBoxingType(collectionElementType).id;
-									this.elementVariableImplicitWidening = BOXING | (compileTimeTypeID << 4) | compileTimeTypeID; // use primitive type in implicit conversion
-									compileTimeTypeID = boxedID;
-								}
+								this.elementVariableImplicitWidening |= (elementType.id << 4) + compileTimeTypeID;
 							}
+						} else {
+							this.elementVariableImplicitWidening = (elementType.id << 4) + compileTimeTypeID;
 						}
-				    } else if (iterableType.isGenericType()) { // for (T t : Iterable<T>) - in case used inside Iterable itself
-						if (iterableType.typeVariables().length == 1) {
-							this.kind = GENERIC_ITERABLE;
-							this.collectionElementType = iterableType.typeVariables()[0]; 
-							if (!collectionElementType.isCompatibleWith(elementType)
-									&& !scope.isBoxingCompatibleWith(collectionElementType, elementType)) {
-								scope.problemReporter().notCompatibleTypesErrorInForeach(collection, collectionElementType, elementType);
-							}
-							int compileTimeTypeID = collectionElementType.id;
-							// no conversion needed as only for reference types
-							if (elementType.isBaseType()) {
-								if (!collectionElementType.isBaseType()) {
-									compileTimeTypeID = scope.environment().computeBoxingType(collectionElementType).id;
-									this.elementVariableImplicitWidening = UNBOXING;
-									if (elementType.isBaseType()) {
-										this.elementVariableImplicitWidening |= (elementType.id << 4) + compileTimeTypeID;
-									}
-								} else {
-									this.elementVariableImplicitWidening = (elementType.id << 4) + compileTimeTypeID;
-								}
-							} else {
-								if (collectionElementType.isBaseType()) {
-									int boxedID = scope.environment().computeBoxingType(collectionElementType).id;
-									this.elementVariableImplicitWidening = BOXING | (compileTimeTypeID << 4) | compileTimeTypeID; // use primitive type in implicit conversion
-									compileTimeTypeID = boxedID;
-								}
-							}
+					} else {
+						if (collectionElementType.isBaseType()) {
+							int boxedID = scope.environment().computeBoxingType(collectionElementType).id;
+							this.elementVariableImplicitWidening = BOXING | (compileTimeTypeID << 4) | compileTimeTypeID; // use primitive type in implicit conversion
+							compileTimeTypeID = boxedID;
 						}
-					} else if (iterableType.isRawType()) { // for(Object o : Iterable)
-						this.kind = RAW_ITERABLE;
-						this.collectionElementType = scope.getJavaLangObject();
-						if (!collectionElementType.isCompatibleWith(elementType)
-								&& !scope.isBoxingCompatibleWith(collectionElementType, elementType)) {
-							scope.problemReporter().notCompatibleTypesErrorInForeach(collection, collectionElementType, elementType);
-						}
-						// no conversion needed as only for reference types
-					}			    
+					}
 			    }
 			}
 			switch(this.kind) {
 				case ARRAY :
 					// allocate #index secret variable (of type int)
-					this.indexVariable = new LocalVariableBinding(SecretIndexVariableName, IntBinding, AccDefault, false);
+					this.indexVariable = new LocalVariableBinding(SecretIndexVariableName, TypeBinding.INT, ClassFileConstants.AccDefault, false);
 					scope.addLocalVariable(this.indexVariable);
-					this.indexVariable.setConstant(NotAConstant); // not inlinable
+					this.indexVariable.setConstant(Constant.NotAConstant); // not inlinable
 					
 					// allocate #max secret variable
-					this.maxVariable = new LocalVariableBinding(SecretMaxVariableName, IntBinding, AccDefault, false);
+					this.maxVariable = new LocalVariableBinding(SecretMaxVariableName, TypeBinding.INT, ClassFileConstants.AccDefault, false);
 					scope.addLocalVariable(this.maxVariable);
-					this.maxVariable.setConstant(NotAConstant); // not inlinable
+					this.maxVariable.setConstant(Constant.NotAConstant); // not inlinable
 					// add #array secret variable (of collection type)
-					this.collectionVariable = new LocalVariableBinding(SecretCollectionVariableName, collectionType, AccDefault, false);
+					this.collectionVariable = new LocalVariableBinding(SecretCollectionVariableName, collectionType, ClassFileConstants.AccDefault, false);
 					scope.addLocalVariable(this.collectionVariable);
-					this.collectionVariable.setConstant(NotAConstant); // not inlinable
+					this.collectionVariable.setConstant(Constant.NotAConstant); // not inlinable
 					break;
 				case RAW_ITERABLE :
 				case GENERIC_ITERABLE :
 					// allocate #index secret variable (of type Iterator)
-					this.indexVariable = new LocalVariableBinding(SecretIndexVariableName, scope.getJavaUtilIterator(), AccDefault, false);
+					this.indexVariable = new LocalVariableBinding(SecretIndexVariableName, scope.getJavaUtilIterator(), ClassFileConstants.AccDefault, false);
 					scope.addLocalVariable(this.indexVariable);
-					this.indexVariable.setConstant(NotAConstant); // not inlinable
+					this.indexVariable.setConstant(Constant.NotAConstant); // not inlinable
 					break;
 				default :
 					scope.problemReporter().invalidTypeForCollection(collection);

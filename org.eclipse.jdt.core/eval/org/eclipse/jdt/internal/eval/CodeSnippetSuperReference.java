@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -23,11 +23,9 @@ import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
  * reference are not supported in code snippet.
  */
 public class CodeSnippetSuperReference extends SuperReference implements EvaluationConstants, InvocationSite {
-	EvaluationContext evaluationContext;
 	
-public CodeSnippetSuperReference(int pos, int sourceEnd, 	EvaluationContext evaluationContext) {
+public CodeSnippetSuperReference(int pos, int sourceEnd) {
 	super(pos, sourceEnd);
-	this.evaluationContext = evaluationContext;
 }
 
 /**
@@ -38,8 +36,8 @@ public TypeBinding[] genericTypeArguments() {
 }
 
 public TypeBinding resolveType(BlockScope scope) {
-		scope.problemReporter().cannotUseSuperInCodeSnippet(this.sourceStart, this.sourceEnd); //$NON-NLS-1$
-		return null;
+	scope.problemReporter().cannotUseSuperInCodeSnippet(this.sourceStart, this.sourceEnd);
+	return null;
 }
 public boolean isSuperAccess(){
 	return false;

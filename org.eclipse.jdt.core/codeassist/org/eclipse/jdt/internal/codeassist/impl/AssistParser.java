@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,23 +16,9 @@ package org.eclipse.jdt.internal.codeassist.impl;
  */
 
 import org.eclipse.jdt.internal.compiler.ast.*;
-import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.ASTNode;
-import org.eclipse.jdt.internal.compiler.ast.Block;
-import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.ExplicitConstructorCall;
-import org.eclipse.jdt.internal.compiler.ast.Expression;
-import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.ImportReference;
-import org.eclipse.jdt.internal.compiler.ast.Initializer;
-import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.MessageSend;
-import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.NameReference;
-import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.TypeReference;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
+import org.eclipse.jdt.internal.compiler.lookup.ExtraCompilerModifiers;
 import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.parser.RecoveredBlock;
 import org.eclipse.jdt.internal.compiler.parser.RecoveredElement;
@@ -89,6 +75,9 @@ public abstract class AssistParser extends Parser {
 public AssistParser(ProblemReporter problemReporter) {
 	super(problemReporter, true);
 	this.javadocParser.checkDocComment = false;
+	
+	this.setMethodsFullRecovery(false);
+	this.setStatementsRecovery(false);
 }
 public abstract char[] assistIdentifier();
 public int bodyEnd(AbstractMethodDeclaration method){
@@ -155,13 +144,23 @@ public RecoveredElement buildInitialRecoveryState(){
 		/* check for intermediate block creation, so recovery can properly close them afterwards */
 		int nodeStart = node.sourceStart;
 		for (int j = blockIndex; j <= realBlockPtr; j++){
-			if (blockStarts[j] > nodeStart){
-				blockIndex = j; // shift the index to the new block
-				break;
-			}
-			if (blockStarts[j] != lastStart){ // avoid multiple block if at same position
+			if (blockStarts[j] >= 0) {
+				if (blockStarts[j] > nodeStart){
+					blockIndex = j; // shift the index to the new block
+					break;
+				}
+				if (blockStarts[j] != lastStart){ // avoid multiple block if at same position
+					block = new Block(0);
+					block.sourceStart = lastStart = blockStarts[j];
+					element = element.add(block, 1);
+				}
+			} else {
+				if (-blockStarts[j] > nodeStart){
+					blockIndex = j; // shift the index to the new block
+					break;
+				}
 				block = new Block(0);
-				block.sourceStart = lastStart = blockStarts[j];
+				block.sourceStart = lastStart = -blockStarts[j];
 				element = element.add(block, 1);
 			}
 			blockIndex = j+1; // shift the index to the new block
@@ -242,10 +241,18 @@ public RecoveredElement buildInitialRecoveryState(){
 	/* might need some extra block (after the last reduced node) */
 	int pos = this.assistNode == null ? lastCheckPoint : this.assistNode.sourceStart;
 	for (int j = blockIndex; j <= realBlockPtr; j++){
-		if ((blockStarts[j] < pos) && (blockStarts[j] != lastStart)){ // avoid multiple block if at same position
-			block = new Block(0);
-			block.sourceStart = lastStart = blockStarts[j];
-			element = element.add(block, 1);
+		if (blockStarts[j] >= 0) {
+			if ((blockStarts[j] < pos) && (blockStarts[j] != lastStart)){ // avoid multiple block if at same position
+				block = new Block(0);
+				block.sourceStart = lastStart = blockStarts[j];
+				element = element.add(block, 1);
+			}
+		} else {
+			if ((blockStarts[j] < pos)){ // avoid multiple block if at same position
+				block = new Block(0);
+				block.sourceStart = lastStart = -blockStarts[j];
+				element = element.add(block, 1);
+			}
 		}
 	}
 	
@@ -414,6 +421,19 @@ protected void consumeOpenBlock() {
 	}
 	this.blockStarts[this.realBlockPtr] = scanner.startPosition;
 }
+protected void consumeOpenFakeBlock() {
+	// OpenBlock ::= $empty
+
+	super.consumeOpenBlock();
+	int stackLength = this.blockStarts.length;
+	if (this.realBlockPtr >= stackLength) {
+		System.arraycopy(
+			this.blockStarts, 0,
+			this.blockStarts = new int[stackLength + StackIncrement], 0,
+			stackLength);
+	}
+	this.blockStarts[this.realBlockPtr] = -scanner.startPosition;
+}
 protected void consumePackageDeclarationName() {
 	// PackageDeclarationName ::= 'package' Name
 	/* build an ImportRef build from the last name 
@@ -556,7 +576,7 @@ protected void consumeSingleStaticImportDeclarationName() {
 		length); 
 
 	/* build specific assist node on import statement */
-	ImportReference reference = this.createAssistImportReference(subset, positions, AccStatic);
+	ImportReference reference = this.createAssistImportReference(subset, positions, ClassFileConstants.AccStatic);
 	assistNode = reference;
 	this.lastCheckPoint = reference.sourceEnd + 1;
 
@@ -607,7 +627,7 @@ protected void consumeSingleTypeImportDeclarationName() {
 		length); 
 
 	/* build specific assist node on import statement */
-	ImportReference reference = this.createAssistImportReference(subset, positions, AccDefault);
+	ImportReference reference = this.createAssistImportReference(subset, positions, ClassFileConstants.AccDefault);
 	assistNode = reference;
 	this.lastCheckPoint = reference.sourceEnd + 1;
 
@@ -658,8 +678,8 @@ protected void consumeStaticImportOnDemandDeclarationName() {
 		length); 
 
 	/* build specific assist node on import statement */
-	ImportReference reference = this.createAssistImportReference(subset, positions, AccStatic);
-	reference.onDemand = true;
+	ImportReference reference = this.createAssistImportReference(subset, positions, ClassFileConstants.AccStatic);
+	reference.bits |= ASTNode.OnDemand;
 	assistNode = reference;
 	this.lastCheckPoint = reference.sourceEnd + 1;
 
@@ -764,8 +784,8 @@ protected void consumeTypeImportOnDemandDeclarationName() {
 		length); 
 
 	/* build specific assist node on import statement */
-	ImportReference reference = this.createAssistImportReference(subset, positions, AccDefault);
-	reference.onDemand = true;
+	ImportReference reference = this.createAssistImportReference(subset, positions, ClassFileConstants.AccDefault);
+	reference.bits |= ASTNode.OnDemand;
 	assistNode = reference;
 	this.lastCheckPoint = reference.sourceEnd + 1;
 
@@ -1078,7 +1098,12 @@ public void initialize() {
 	this.flushElementStack();
 	this.previousIdentifierPtr = -1;
 }
-
+public void initialize(boolean initializeNLS) {
+	super.initialize(initializeNLS);
+	this.flushAssistState();
+	this.flushElementStack();
+	this.previousIdentifierPtr = -1;
+}
 public abstract void initializeScanner();
 protected boolean isIndirectlyInsideFieldInitialization(){
 	int i = elementPtr;
@@ -1232,7 +1257,7 @@ public void parseBlockStatements(ConstructorDeclaration cd, CompilationUnitDecla
 	} else {
 		cd.constructorCall = SuperReference.implicitSuperConstructorCall();
 		if (!containsComment(cd.bodyStart, cd.bodyEnd)) {
-			cd.bits |= ASTNode.UndocumentedEmptyBlockMASK;
+			cd.bits |= ASTNode.UndocumentedEmptyBlock;
 		}		
 	}
 
@@ -1280,13 +1305,13 @@ public void parseBlockStatements(
 	} else {
 		// check whether this block at least contains some comment in it
 		if (!containsComment(initializer.block.sourceStart, initializer.block.sourceEnd)) {
-			initializer.block.bits |= ASTNode.UndocumentedEmptyBlockMASK;
+			initializer.block.bits |= ASTNode.UndocumentedEmptyBlock;
 		}
 	}
 	
 	// mark initializer with local type if one was found during parsing
-	if ((type.bits & ASTNode.HasLocalTypeMASK) != 0) {
-		initializer.bits |= ASTNode.HasLocalTypeMASK;
+	if ((type.bits & ASTNode.HasLocalType) != 0) {
+		initializer.bits |= ASTNode.HasLocalType;
 	}	
 }
 /**
@@ -1303,7 +1328,7 @@ public void parseBlockStatements(MethodDeclaration md, CompilationUnitDeclaratio
 		return;
 	if (md.isNative())
 		return;
-	if ((md.modifiers & AccSemicolonBody) != 0)
+	if ((md.modifiers & ExtraCompilerModifiers.AccSemicolonBody) != 0)
 		return;
 
 	initialize();
@@ -1340,7 +1365,7 @@ public void parseBlockStatements(MethodDeclaration md, CompilationUnitDeclaratio
 			length); 
 	} else {
 		if (!containsComment(md.bodyStart, md.bodyEnd)) {
-			md.bits |= ASTNode.UndocumentedEmptyBlockMASK;
+			md.bits |= ASTNode.UndocumentedEmptyBlock;
 		}
 	}
 
@@ -1509,7 +1534,7 @@ protected boolean resumeAfterRecovery() {
 	this.genericsLengthPtr = -1;
 	this.genericsPtr = -1;
 	
-	this.modifiers = AccDefault;
+	this.modifiers = ClassFileConstants.AccDefault;
 	this.modifiersSourceStart = -1;
 
 	// if in diet mode, reset the diet counter because we're going to restart outside an initializer.

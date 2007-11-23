@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -23,7 +23,13 @@ UnresolvedReferenceBinding(char[][] compoundName, PackageBinding packageBinding)
 	this.fPackage = packageBinding;
 	this.wrappers = null;
 }
-void addWrapper(TypeBinding wrapper) {
+void addWrapper(TypeBinding wrapper, LookupEnvironment environment) {
+	if (this.resolvedType != null) {
+		// the type reference B<B<T>.M> means a signature of <T:Ljava/lang/Object;>LB<LB<TT;>.M;>;
+		// when the ParameterizedType for Unresolved B is created with args B<T>.M, the Unresolved B is resolved before the wrapper is added
+		wrapper.swapUnresolved(this, this.resolvedType, environment);
+		return;
+	}
 	if (this.wrappers == null) {
 		this.wrappers = new TypeBinding[] {wrapper};
 	} else {
@@ -41,15 +47,14 @@ ReferenceBinding resolve(LookupEnvironment environment, boolean convertGenericTo
 		targetType = this.fPackage.getType0(this.compoundName[this.compoundName.length - 1]);
 		if (targetType == this)
 			targetType = environment.askForType(this.compoundName);
-		if (targetType != null && targetType != this) { // could not resolve any better, error was already reported against it
-			setResolvedType(targetType, environment);
-		} else {
-			environment.problemReporter.isClassPathCorrect(this.compoundName, null);
-			return null; // will not get here since the above error aborts the compilation
+		if (targetType == null || targetType == this) { // could not resolve any better, error was already reported against it
+			// create a proxy for the missing BinaryType
+			targetType = environment.cacheMissingBinaryType(this.compoundName, null);
 		}
+		setResolvedType(targetType, environment);
 	}
 	if (convertGenericToRawType) {
-		targetType = (ReferenceBinding) environment.convertToRawType(targetType);
+		targetType = (ReferenceBinding) environment.convertUnresolvedBinaryToRawType(targetType);
 	}
 	return targetType;
 }

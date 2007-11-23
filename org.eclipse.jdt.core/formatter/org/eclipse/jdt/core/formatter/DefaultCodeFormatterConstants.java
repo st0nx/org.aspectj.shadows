@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,12 +13,16 @@ package org.eclipse.jdt.core.formatter;
 import java.util.Map;
 
 import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.ToolFactory;
 import org.eclipse.jdt.internal.formatter.DefaultCodeFormatterOptions;
 import org.eclipse.jdt.internal.formatter.align.Alignment;
 
 /**
  * Constants used to set up the options of the code formatter.
- * 
+ * <p>
+ * This class is not intended to be instantiated or subclassed by clients.
+ * </p>
+ *
  * @since 3.0
  */
 public class DefaultCodeFormatterConstants {
@@ -40,7 +44,7 @@ public class DefaultCodeFormatterConstants {
 
 	/**
 	 * <pre>
-	 * FORMATTER / Value to set an option to true.
+	 * FORMATTER / Value to set an option to false.
 	 * </pre>
 	 * @since 3.0
 	 */
@@ -49,11 +53,12 @@ public class DefaultCodeFormatterConstants {
 	/**
 	 * <pre>
 	 * FORMATTER / Option to align type members of a type declaration on column
-	 *     - option id:         "org.eclipse.jdt.core.formatter.alignment_for_throws_clause_in_method_declaration"
-	 *     - possible values:   values returned by <code>createAlignmentValue(boolean, int, int)</code> call
-	 *     - default:           createAlignmentValue(false, WRAP_COMPACT, INDENT_DEFAULT)
+	 *     - option id:         "org.eclipse.jdt.core.formatter.formatter.align_type_members_on_columns"
+	 *     - possible values:   { TRUE, FALSE }
+	 *     - default:           FALSE
 	 * </pre>
-	 * @see #createAlignmentValue(boolean, int, int)
+	 * @see #TRUE
+	 * @see #FALSE
 	 * @since 3.0
 	 */
 	public static final String FORMATTER_ALIGN_TYPE_MEMBERS_ON_COLUMNS = JavaCore.PLUGIN_ID + ".formatter.align_type_members_on_columns";	 //$NON-NLS-1$
@@ -113,6 +118,17 @@ public class DefaultCodeFormatterConstants {
 	 * @since 3.0
 	 */
 	public static final String FORMATTER_ALIGNMENT_FOR_ARGUMENTS_IN_QUALIFIED_ALLOCATION_EXPRESSION = JavaCore.PLUGIN_ID + ".formatter.alignment_for_arguments_in_qualified_allocation_expression";	 //$NON-NLS-1$
+	/**
+	 * <pre>
+	 * FORMATTER / Option for alignment of assignment
+	 *     - option id:         "org.eclipse.jdt.core.formatter.alignment_for_assignment"
+	 *     - possible values:   values returned by <code>createAlignmentValue(boolean, int, int)</code> call
+	 *     - default:           createAlignmentValue(false, M_NO_ALIGNMENT, INDENT_DEFAULT)
+	 * </pre>
+	 * @see #createAlignmentValue(boolean, int, int)
+	 * @since 3.2
+	 */
+	public static final String FORMATTER_ALIGNMENT_FOR_ASSIGNMENT  = JavaCore.PLUGIN_ID + ".formatter.alignment_for_assignment";	 //$NON-NLS-1$
 	/**
 	 * <pre>
 	 * FORMATTER / Option for alignment of binary expression
@@ -370,6 +386,19 @@ public class DefaultCodeFormatterConstants {
 	public static final String FORMATTER_BLANK_LINES_BEFORE_PACKAGE = JavaCore.PLUGIN_ID + ".formatter.blank_lines_before_package";	//$NON-NLS-1$
 	/**
 	 * <pre>
+	 * FORMATTER / Option to add blank lines between import groups
+	 *     - option id:         "org.eclipse.jdt.core.formatter.blank_lines_between_import_groups"
+	 *     - possible values:   "&lt;n&gt;", where n is zero or a positive integer
+	 *     - default:           "1"
+	 * </pre>
+	 * Note: Import groups are defined once "Organize Import" operation has been executed. The code formatter itself
+	 * doesn't define the import groups.
+	 *
+	 * @since 3.3
+	 */
+	public static final String FORMATTER_BLANK_LINES_BETWEEN_IMPORT_GROUPS = JavaCore.PLUGIN_ID + ".formatter.blank_lines_between_import_groups";	//$NON-NLS-1$
+	/**
+	 * <pre>
 	 * FORMATTER / Option to add blank lines between type declarations
 	 *     - option id:         "org.eclipse.jdt.core.formatter.blank_lines_between_type_declarations"
 	 *     - possible values:   "&lt;n&gt;", where n is zero or a positive integer
@@ -544,9 +573,36 @@ public class DefaultCodeFormatterConstants {
 	 * @see #TRUE
 	 * @see #FALSE
 	 * @since 3.1
+	 * @deprecated Use {@link #FORMATTER_COMMENT_CLEAR_BLANK_LINES_IN_BLOCK_COMMENT} and {@link #FORMATTER_COMMENT_CLEAR_BLANK_LINES_IN_JAVADOC_COMMENT}
 	 */	
 	public final static String FORMATTER_COMMENT_CLEAR_BLANK_LINES = "org.eclipse.jdt.core.formatter.comment.clear_blank_lines"; //$NON-NLS-1$
 	
+	/**
+	 * <pre>
+	 * FORMATTER / Option to control whether blank lines are cleared inside javadoc comments
+	 *     - option id:         "org.eclipse.jdt.core.formatter.comment.clear_blank_lines_in_javadoc_comment"
+	 *     - possible values:   { TRUE, FALSE }
+	 *     - default:           FALSE
+	 * </pre>
+	 * @see #TRUE
+	 * @see #FALSE
+	 * @since 3.3
+	 */	
+	public final static String FORMATTER_COMMENT_CLEAR_BLANK_LINES_IN_JAVADOC_COMMENT = "org.eclipse.jdt.core.formatter.comment.clear_blank_lines_in_javadoc_comment"; //$NON-NLS-1$
+
+	/**
+	 * <pre>
+	 * FORMATTER / Option to control whether blank lines are cleared inside block comments
+	 *     - option id:         "org.eclipse.jdt.core.formatter.comment.clear_blank_lines_in_block_comment"
+	 *     - possible values:   { TRUE, FALSE }
+	 *     - default:           FALSE
+	 * </pre>
+	 * @see #TRUE
+	 * @see #FALSE
+	 * @since 3.3
+	 */	
+	public final static String FORMATTER_COMMENT_CLEAR_BLANK_LINES_IN_BLOCK_COMMENT = "org.eclipse.jdt.core.formatter.comment.clear_blank_lines_in_block_comment"; //$NON-NLS-1$
+
 	/**
 	 * <pre>
 	 * FORMATTER / Option to control whether comments are formatted
@@ -557,8 +613,49 @@ public class DefaultCodeFormatterConstants {
 	 * @see #TRUE
 	 * @see #FALSE
 	 * @since 3.1
+	 * @deprecated Use multiple settings for each kind of comments. See {@link #FORMATTER_COMMENT_FORMAT_BLOCK_COMMENT},
+	 * {@link #FORMATTER_COMMENT_FORMAT_JAVADOC_COMMENT} and {@link #FORMATTER_COMMENT_FORMAT_LINE_COMMENT}.
 	 */	
 	public final static String FORMATTER_COMMENT_FORMAT = "org.eclipse.jdt.core.formatter.comment.format_comments"; //$NON-NLS-1$
+
+	/**
+	 * <pre>
+	 * FORMATTER / Option to control whether single line comments are formatted
+	 *     - option id:         "org.eclipse.jdt.core.formatter.comment.format_line_comments"
+	 *     - possible values:   { TRUE, FALSE }
+	 *     - default:           TRUE
+	 * </pre>
+	 * @see #TRUE
+	 * @see #FALSE
+	 * @since 3.3
+	 */	
+	public final static String FORMATTER_COMMENT_FORMAT_LINE_COMMENT = "org.eclipse.jdt.core.formatter.comment.format_line_comments"; //$NON-NLS-1$
+
+	/**
+	 * <pre>
+	 * FORMATTER / Option to control whether multiple lines comments are formatted
+	 *     - option id:         "org.eclipse.jdt.core.formatter.comment.format_block_comments"
+	 *     - possible values:   { TRUE, FALSE }
+	 *     - default:           TRUE
+	 * </pre>
+	 * @see #TRUE
+	 * @see #FALSE
+	 * @since 3.3
+	 */	
+	public final static String FORMATTER_COMMENT_FORMAT_BLOCK_COMMENT = "org.eclipse.jdt.core.formatter.comment.format_block_comments"; //$NON-NLS-1$
+
+	/**
+	 * <pre>
+	 * FORMATTER / Option to control whether javadoc comments are formatted
+	 *     - option id:         "org.eclipse.jdt.core.formatter.comment.format_javadoc_comments"
+	 *     - possible values:   { TRUE, FALSE }
+	 *     - default:           TRUE
+	 * </pre>
+	 * @see #TRUE
+	 * @see #FALSE
+	 * @since 3.3
+	 */	
+	public final static String FORMATTER_COMMENT_FORMAT_JAVADOC_COMMENT = "org.eclipse.jdt.core.formatter.comment.format_javadoc_comments"; //$NON-NLS-1$
 
 	/**
 	 * <pre>
@@ -697,6 +794,18 @@ public class DefaultCodeFormatterConstants {
 	public static final String FORMATTER_CONTINUATION_INDENTATION_FOR_ARRAY_INITIALIZER = JavaCore.PLUGIN_ID + ".formatter.continuation_indentation_for_array_initializer";	//$NON-NLS-1$
 	/**
 	 * <pre>
+	 * FORMATTER / Option to indent body declarations compare to its enclosing annotation declaration header
+	 *     - option id:         "org.eclipse.jdt.core.formatter.indent_body_declarations_compare_to_annotation_declaration_header"
+	 *     - possible values:   { TRUE, FALSE }
+	 *     - default:           TRUE
+	 * </pre>
+	 * @see #TRUE
+	 * @see #FALSE
+	 * @since 3.2
+	 */
+	public static final String FORMATTER_INDENT_BODY_DECLARATIONS_COMPARE_TO_ANNOTATION_DECLARATION_HEADER = JavaCore.PLUGIN_ID + ".formatter.indent_body_declarations_compare_to_annotation_declaration_header";	//$NON-NLS-1$
+	/**
+	 * <pre>
 	 * FORMATTER / Option to indent body declarations compare to its enclosing enum constant header
 	 *     - option id:         "org.eclipse.jdt.core.formatter.indent_body_declarations_compare_to_enum_constant_header"
 	 *     - possible values:   { TRUE, FALSE }
@@ -743,6 +852,18 @@ public class DefaultCodeFormatterConstants {
 	 * @since 3.0
 	 */
 	public static final String FORMATTER_INDENT_BREAKS_COMPARE_TO_CASES = JavaCore.PLUGIN_ID + ".formatter.indent_breaks_compare_to_cases";	//$NON-NLS-1$
+	/**
+	 * <pre>
+	 * FORMATTER / Option to indent empty lines
+	 *     - option id:         "org.eclipse.jdt.core.formatter.indent_empty_lines"
+	 *     - possible values:   { TRUE, FALSE }
+	 *     - default:           FALSE
+	 * </pre>
+	 * @see #TRUE
+	 * @see #FALSE
+	 * @since 3.2
+	 */
+	public static final String FORMATTER_INDENT_EMPTY_LINES = JavaCore.PLUGIN_ID + ".formatter.indent_empty_lines"; //$NON-NLS-1$	
 	/**
 	 * <pre>
 	 * FORMATTER / Option to indent statements inside a block
@@ -904,6 +1025,18 @@ public class DefaultCodeFormatterConstants {
 	 * @since 3.0
 	 */
 	public static final String FORMATTER_INSERT_NEW_LINE_BEFORE_WHILE_IN_DO_STATEMENT = JavaCore.PLUGIN_ID + ".formatter.insert_new_line_before_while_in_do_statement";	//$NON-NLS-1$
+	/**
+	 * <pre>
+	 * FORMATTER / Option to insert a new line in an empty annotation declaration
+	 *     - option id:         "org.eclipse.jdt.core.formatter.insert_new_line_in_empty_annotation_declaration"
+	 *     - possible values:   { INSERT, DO_NOT_INSERT }
+	 *     - default:           INSERT
+	 * </pre>
+	 * @see JavaCore#INSERT
+	 * @see JavaCore#DO_NOT_INSERT
+	 * @since 3.2
+	 */
+	public static final String FORMATTER_INSERT_NEW_LINE_IN_EMPTY_ANNOTATION_DECLARATION = JavaCore.PLUGIN_ID + ".formatter.insert_new_line_in_empty_annotation_declaration";	//$NON-NLS-1$
 	/**
 	 * <pre>
 	 * FORMATTER / Option to insert a new line in an empty anonymous type declaration
@@ -2622,6 +2755,32 @@ public class DefaultCodeFormatterConstants {
 	public static final String FORMATTER_INSERT_SPACE_BEFORE_OPENING_PAREN_IN_WHILE = JavaCore.PLUGIN_ID + ".formatter.insert_space_before_opening_paren_in_while";	//$NON-NLS-1$
 	/**
 	 * <pre>
+	 * FORMATTER / Option to insert a space before parenthesized expression in return statement
+	 *     - option id:         "org.eclipse.jdt.core.formatter.insert_space_before_parenthesized_expression_in_return"
+	 *     - possible values:   { INSERT, DO_NOT_INSERT }
+	 *     - default:           INSERT
+	 * </pre>
+	 * 
+	 * @see JavaCore#INSERT
+	 * @see JavaCore#DO_NOT_INSERT
+	 * @since 3.2
+	 */
+	public static final String FORMATTER_INSERT_SPACE_BEFORE_PARENTHESIZED_EXPRESSION_IN_RETURN  = JavaCore.PLUGIN_ID + ".formatter.insert_space_before_parenthesized_expression_in_return";	//$NON-NLS-1$
+	/**
+	 * <pre>
+	 * FORMATTER / Option to insert a space before parenthesized expression in throw statement
+	 *     - option id:         "org.eclipse.jdt.core.formatter.insert_space_before_parenthesized_expression_in_throw"
+	 *     - possible values:   { INSERT, DO_NOT_INSERT }
+	 *     - default:           INSERT
+	 * </pre>
+	 * 
+	 * @see JavaCore#INSERT
+	 * @see JavaCore#DO_NOT_INSERT
+	 * @since 3.3
+	 */
+	public static final String FORMATTER_INSERT_SPACE_BEFORE_PARENTHESIZED_EXPRESSION_IN_THROW  = JavaCore.PLUGIN_ID + ".formatter.insert_space_before_parenthesized_expression_in_throw";	//$NON-NLS-1$
+	/**
+	 * <pre>
 	 * FORMATTER / Option to insert a space before a postfix operator
 	 *     - option id:         "org.eclipse.jdt.core.formatter.insert_space_before_postfix_operator"
 	 *     - possible values:   { INSERT, DO_NOT_INSERT }
@@ -2872,7 +3031,34 @@ public class DefaultCodeFormatterConstants {
 	 * @since 3.0
 	 */
 	public static final String FORMATTER_LINE_SPLIT = JavaCore.PLUGIN_ID + ".formatter.lineSplit"; //$NON-NLS-1$
-
+	/**
+	 * <pre>
+	 * FORMATTER / Option to indent block comments that start on the first column
+	 *     - option id:         "org.eclipse.jdt.core.formatter.formatter.never_indent_block_comments_on_first_column"
+	 *     - possible values:   { TRUE, FALSE }
+	 *     - default:           FALSE
+	 * </pre>
+	 * Note that this option is ignored if the formatter is created with the mode {@link ToolFactory#M_FORMAT_NEW}.
+	 * @see #TRUE
+	 * @see #FALSE
+	 * @see ToolFactory#createCodeFormatter(Map, int)
+	 * @since 3.3
+	 */
+	public static final String FORMATTER_NEVER_INDENT_BLOCK_COMMENTS_ON_FIRST_COLUMN = JavaCore.PLUGIN_ID + ".formatter.never_indent_block_comments_on_first_column"; //$NON-NLS-1$	
+	/**
+	 * <pre>
+	 * FORMATTER / Option to indent line comments that start on the first column
+	 *     - option id:         "org.eclipse.jdt.core.formatter.formatter.never_indent_line_comments_on_first_column"
+	 *     - possible values:   { TRUE, FALSE }
+	 *     - default:           FALSE
+	 * </pre>
+	 * Note that this option is ignored if the formatter is created with the mode {@link ToolFactory#M_FORMAT_NEW}.
+	 * @see #TRUE
+	 * @see #FALSE
+	 * @see ToolFactory#createCodeFormatter(Map, int)
+	 * @since 3.3
+	 */
+	public static final String FORMATTER_NEVER_INDENT_LINE_COMMENTS_ON_FIRST_COLUMN = JavaCore.PLUGIN_ID + ".formatter.never_indent_line_comments_on_first_column"; //$NON-NLS-1$	
 	/**
 	 * <pre>
 	 * FORMATTER / Option to specify the number of empty lines to preserve
@@ -2928,13 +3114,24 @@ public class DefaultCodeFormatterConstants {
 	 *     - possible values:   { TRUE, FALSE }
 	 *     - default:           FALSE
 	 * </pre>
-	 * <p>This is used only if the {@link #FORMATTER_TAB_CHAR } is set to {@link JavaCore#TAB}.</p>
 	 * @see #TRUE
 	 * @see #FALSE
 	 * @since 3.1
 	 */
 	public static final String FORMATTER_USE_TABS_ONLY_FOR_LEADING_INDENTATIONS = JavaCore.PLUGIN_ID + ".formatter.use_tabs_only_for_leading_indentations"; //$NON-NLS-1$
-
+	/**
+	 * <pre>
+	 * FORMATTER / Option to wrap before the binary operator
+	 *     - option id:         "org.eclipse.jdt.core.formatter.wrap_before_binary_operator"
+	 *     - possible values:   { TRUE, FALSE }
+	 *     - default:           TRUE
+	 * </pre>
+	 * This option is used only if the option {@link #FORMATTER_ALIGNMENT_FOR_BINARY_EXPRESSION} is set.
+	 * @see #TRUE
+	 * @see #FALSE
+	 * @since 3.3
+	 */
+	public static final String FORMATTER_WRAP_BEFORE_BINARY_OPERATOR = JavaCore.PLUGIN_ID + ".formatter.wrap_before_binary_operator"; //$NON-NLS-1$
 	/**
 	 * <pre>
 	 * FORMATTER / The wrapping is done by indenting by one compare to the current indentation.
@@ -3015,7 +3212,7 @@ public class DefaultCodeFormatterConstants {
 	public static final String NEXT_LINE_SHIFTED = "next_line_shifted";	//$NON-NLS-1$
 	/**
 	 * <pre>
-	 * FORMATTER / Value to set an option to false.
+	 * FORMATTER / Value to set an option to true.
 	 * </pre>
 	 * @since 3.0
 	 */

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,6 +13,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class QualifiedThisReference extends ThisReference {
@@ -23,6 +24,7 @@ public class QualifiedThisReference extends ThisReference {
 	public QualifiedThisReference(TypeReference name, int sourceStart, int sourceEnd) {
 		super(sourceStart, sourceEnd);
 		qualification = name;
+		name.bits |= IgnoreRawTypeCheck; // no need to worry about raw type usage
 		this.sourceStart = name.sourceStart;
 	}
 
@@ -71,18 +73,26 @@ public class QualifiedThisReference extends ThisReference {
 
 	public TypeBinding resolveType(BlockScope scope) {
 
-		constant = NotAConstant;
+		constant = Constant.NotAConstant;
+		// X.this is not a param/raw type as denoting enclosing instance
 		TypeBinding type = this.qualification.resolveType(scope, true /* check bounds*/);
 		if (type == null) return null;
 		// X.this is not a param/raw type as denoting enclosing instance
-		this.resolvedType = type = type.erasure();
-
+		type = type.erasure();
+		
+		// resolvedType needs to be converted to parameterized
+		if (type instanceof ReferenceBinding) {
+			this.resolvedType = scope.environment().convertToParameterizedType((ReferenceBinding) type);
+		} else {
+			// error case
+			this.resolvedType = type;
+		}
+		
 		// the qualification MUST exactly match some enclosing type name
 		// It is possible to qualify 'this' by the name of the current class
 		int depth = 0;
 		this.currentCompatibleType = scope.referenceType().binding;
-		while (this.currentCompatibleType != null
-			&& this.currentCompatibleType != type) {
+		while (this.currentCompatibleType != null && this.currentCompatibleType != type) {
 			depth++;
 			this.currentCompatibleType = this.currentCompatibleType.isStatic() ? null : this.currentCompatibleType.enclosingType();
 		}
@@ -91,14 +101,15 @@ public class QualifiedThisReference extends ThisReference {
 
 		if (this.currentCompatibleType == null) {
 			scope.problemReporter().noSuchEnclosingInstance(type, this, false);
-			return type;
+			return this.resolvedType;
 		}
 
 		// Ensure one cannot write code like: B() { super(B.this); }
 		if (depth == 0) {
 			checkAccess(scope.methodScope());
 		} // if depth>0, path emulation will diagnose bad scenarii
-		return type;
+		
+		return  this.resolvedType;
 	}
 
 	public StringBuffer printExpression(int indent, StringBuffer output) {
@@ -109,6 +120,16 @@ public class QualifiedThisReference extends ThisReference {
 	public void traverse(
 		ASTVisitor visitor,
 		BlockScope blockScope) {
+
+		if (visitor.visit(this, blockScope)) {
+			qualification.traverse(visitor, blockScope);
+		}
+		visitor.endVisit(this, blockScope);
+	}
+	
+	public void traverse(
+			ASTVisitor visitor,
+			ClassScope blockScope) {
 
 		if (visitor.visit(this, blockScope)) {
 			qualification.traverse(visitor, blockScope);

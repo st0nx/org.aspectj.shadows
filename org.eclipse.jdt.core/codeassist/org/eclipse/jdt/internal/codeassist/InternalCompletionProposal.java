@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
+ * Copyright (c) 2004, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -94,14 +94,16 @@ public class InternalCompletionProposal {
 			}
 		} else { 
 			// TODO (david) shouldn't it be NameLookup.ACCEPT_ALL ?
-			type = this.nameLookup.findType(new String(tName), false, NameLookup.ACCEPT_CLASSES & NameLookup.ACCEPT_INTERFACES);
+			NameLookup.Answer answer = this.nameLookup.findType(new String(tName),
+				false,
+				NameLookup.ACCEPT_CLASSES & NameLookup.ACCEPT_INTERFACES,
+				true/* consider secondary types */,
+				false/* do NOT wait for indexes */,
+				false/*don't check restrictions*/,
+				null);
+			type = answer == null ? null : answer.type;
 			if(type instanceof BinaryType){
-				if(((BinaryType)type).getSourceMapper() != null) {
-					this.completionEngine.typeCache.put(tName, type);
-				} else {
-					this.completionEngine.typeCache.put(tName, NO_ATTACHED_SOURCE);
-					type = null;
-				}
+				this.completionEngine.typeCache.put(tName, type);
 			} else {
 				type = null;
 			}

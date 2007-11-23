@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,8 +11,17 @@
 package org.eclipse.jdt.internal.compiler.impl;
 
 public class LongConstant extends Constant {
-	long value;
-public LongConstant(long value) {
+private static final LongConstant ZERO = new LongConstant(0L);
+
+private long value;
+
+public static Constant fromValue(long value) {
+	if (value == 0L) {
+		return ZERO;
+	}
+	return new LongConstant(value);
+}
+private LongConstant(long value) {
 	this.value = value;
 }
 public byte byteValue() {
@@ -38,10 +47,7 @@ public short shortValue() {
 }
 public String stringValue() {
 	//spec 15.17.11
-	
-	String s = new Long(value).toString() ;
-	if (s == null) return "null"; //$NON-NLS-1$
-	return s;
+	return String.valueOf(this.value);
 }
 public String toString(){
 

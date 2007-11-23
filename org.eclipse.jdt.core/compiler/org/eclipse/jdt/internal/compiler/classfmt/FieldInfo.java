@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,134 +12,74 @@ package org.eclipse.jdt.internal.compiler.classfmt;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.codegen.AttributeNamesConstants;
-import org.eclipse.jdt.internal.compiler.codegen.ConstantPool;
+import org.eclipse.jdt.internal.compiler.env.IBinaryAnnotation;
 import org.eclipse.jdt.internal.compiler.env.IBinaryField;
-import org.eclipse.jdt.internal.compiler.impl.BooleanConstant;
-import org.eclipse.jdt.internal.compiler.impl.ByteConstant;
-import org.eclipse.jdt.internal.compiler.impl.CharConstant;
-import org.eclipse.jdt.internal.compiler.impl.Constant;
-import org.eclipse.jdt.internal.compiler.impl.DoubleConstant;
-import org.eclipse.jdt.internal.compiler.impl.FloatConstant;
-import org.eclipse.jdt.internal.compiler.impl.IntConstant;
-import org.eclipse.jdt.internal.compiler.impl.LongConstant;
-import org.eclipse.jdt.internal.compiler.impl.ShortConstant;
-import org.eclipse.jdt.internal.compiler.impl.StringConstant;
-import org.eclipse.jdt.internal.compiler.lookup.TagBits;
+import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
-public class FieldInfo extends ClassFileStruct implements AttributeNamesConstants, IBinaryField, Comparable, TypeIds {
-	private int accessFlags;
-	private int attributeBytes;
-	private Constant constant;
-	private int[] constantPoolOffsets;
-	private char[] descriptor;
-	private char[] name;
-	private char[] signature;
-	private int signatureUtf8Offset;
-	private long tagBits;	
-	private Object wrappedConstantValue;
+public class FieldInfo extends ClassFileStruct implements IBinaryField, Comparable {
+	protected int accessFlags;
+	protected int attributeBytes;
+	protected Constant constant;
+	protected char[] descriptor;
+	protected char[] name;
+	protected char[] signature;
+	protected int signatureUtf8Offset;
+	protected long tagBits;	
+	protected Object wrappedConstantValue;	
+
+public static FieldInfo createField(byte classFileBytes[], int offsets[], int offset) {
+	FieldInfo fieldInfo = new FieldInfo(classFileBytes, offsets, offset);
+	AnnotationInfo[] annotations = fieldInfo.readAttributes();
+	if (annotations == null)
+		return fieldInfo;
+	return new FieldInfoWithAnnotation(fieldInfo, annotations);
+}
+
 /**
  * @param classFileBytes byte[]
  * @param offsets int[]
  * @param offset int
  */
-public FieldInfo (byte classFileBytes[], int offsets[], int offset) {
-	super(classFileBytes, offset);
-	constantPoolOffsets = offsets;
-	accessFlags = -1;
-	int attributesCount = u2At(6);
-	int readOffset = 8;
+protected FieldInfo (byte classFileBytes[], int offsets[], int offset) {
+	super(classFileBytes, offsets, offset);
+	this.accessFlags = -1;	
 	this.signatureUtf8Offset = -1;
-	for (int i = 0; i < attributesCount; i++) {
-		// check the name of each attribute
-		int utf8Offset = constantPoolOffsets[u2At(readOffset)] - structOffset;
-		char[] attributeName = utf8At(utf8Offset + 3, u2At(utf8Offset + 1));
-		if (attributeName.length > 0) {
-			switch(attributeName[0]) {
-				case 'S' :
-					if (CharOperation.equals(AttributeNamesConstants.SignatureName, attributeName)) {
-						this.signatureUtf8Offset = constantPoolOffsets[u2At(readOffset + 6)] - structOffset;
-					}
-					break;
-				case 'R' :
-					if (CharOperation.equals(attributeName, RuntimeVisibleAnnotationsName)) {
-						decodeStandardAnnotations(readOffset);
-					}
+}
+private AnnotationInfo[] decodeAnnotations(int offset, boolean runtimeVisible) {
+	int numberOfAnnotations = u2At(offset + 6);
+	if (numberOfAnnotations > 0) {
+		int readOffset = offset + 8;
+		AnnotationInfo[] newInfos = null;
+		int newInfoCount = 0;
+		for (int i = 0; i < numberOfAnnotations; i++) {
+			// With the last parameter being 'false', the data structure will not be flushed out
+			AnnotationInfo newInfo = new AnnotationInfo(this.reference, this.constantPoolOffsets,
+				readOffset + this.structOffset, runtimeVisible, false);
+			readOffset += newInfo.readOffset;
+			long standardTagBits = newInfo.standardAnnotationTagBits;
+			if (standardTagBits != 0) {
+				this.tagBits |= standardTagBits;
+			} else {
+				if (newInfos == null)
+					newInfos = new AnnotationInfo[numberOfAnnotations - i];
+				newInfos[newInfoCount++] = newInfo;
 			}
 		}
-		readOffset += (6 + u4At(readOffset + 2));
+		if (newInfos != null) {
+			if (newInfoCount != newInfos.length)
+				System.arraycopy(newInfos, 0, newInfos = new AnnotationInfo[newInfoCount], 0, newInfoCount);
+			return newInfos;
+		}
 	}
-	attributeBytes = readOffset;
+	return null; // nothing to record
 }
-
 public int compareTo(Object o) {
 	if (!(o instanceof FieldInfo)) {
 		throw new ClassCastException();
 	}
 	return new String(this.getName()).compareTo(new String(((FieldInfo) o).getName()));
-}
-private int decodeAnnotation(int offset) {
-	int readOffset = offset;
-	int utf8Offset = this.constantPoolOffsets[u2At(offset)] - structOffset;
-	char[] typeName = utf8At(utf8Offset + 3, u2At(utf8Offset + 1));
-	int numberOfPairs = u2At(offset + 2);
-	readOffset += 4;
-	if (typeName.length == 22 && CharOperation.equals(typeName, ConstantPool.JAVA_LANG_DEPRECATED)) {
-		this.tagBits |= TagBits.AnnotationDeprecated;
-		return readOffset;		
-	}
-	for (int i = 0; i < numberOfPairs; i++) {
-		readOffset += 2;
-		readOffset = decodeElementValue(readOffset);
-	}
-	return readOffset;
-}
-private int decodeElementValue(int offset) {
-	int readOffset = offset;
-	int tag = u1At(readOffset);
-	readOffset++;
-	switch(tag) {
-		case 'B' :
-		case 'C' :
-		case 'D' :
-		case 'F' :
-		case 'I' :
-		case 'J' :
-		case 'S' :
-		case 'Z' :
-		case 's' :
-			readOffset += 2;
-			break;
-		case 'e' :
-			readOffset += 4;
-			break;
-		case 'c' :
-			readOffset += 2;
-			break;
-		case '@' :
-			readOffset = decodeAnnotation(readOffset);
-			break;
-		case '[' :
-			int numberOfValues = u2At(readOffset);
-			readOffset += 2;
-			for (int i = 0; i < numberOfValues; i++) {
-				readOffset = decodeElementValue(readOffset);
-			}
-			break;
-	}
-	return readOffset;
-}
-/**
- * @param offset the offset is located at the beginning of the runtime visible 
- * annotation attribute.
- */
-private void decodeStandardAnnotations(int offset) {
-	int numberOfAnnotations = u2At(offset + 6);
-	int readOffset = offset + 8;
-	for (int i = 0; i < numberOfAnnotations; i++) {
-		readOffset = decodeAnnotation(readOffset);
-	}
 }
 /**
  * Return the constant of the field.
@@ -212,6 +152,12 @@ public char[] getTypeName() {
 	return descriptor;
 }
 /**
+ * @return the annotations or null if there is none.
+ */
+public IBinaryAnnotation[] getAnnotations() {
+	return null;
+}
+/**
  * Return a wrapper that contains the constant of the field.
  * @return java.lang.Object
  */
@@ -221,31 +167,31 @@ public Object getWrappedConstantValue() {
 		if (hasConstant()) {
 			Constant fieldConstant = getConstant();
 			switch (fieldConstant.typeID()) {
-				case T_int :
+				case TypeIds.T_int :
 					this.wrappedConstantValue = new Integer(fieldConstant.intValue());
 					break;
-				case T_byte :
+				case TypeIds.T_byte :
 					this.wrappedConstantValue = new Byte(fieldConstant.byteValue());
 					break;
-				case T_short :
+				case TypeIds.T_short :
 					this.wrappedConstantValue = new Short(fieldConstant.shortValue());
 					break;
-				case T_char :
+				case TypeIds.T_char :
 					this.wrappedConstantValue = new Character(fieldConstant.charValue());
 					break;
-				case T_float :
+				case TypeIds.T_float :
 					this.wrappedConstantValue = new Float(fieldConstant.floatValue());
 					break;
-				case T_double :
+				case TypeIds.T_double :
 					this.wrappedConstantValue = new Double(fieldConstant.doubleValue());
 					break;
-				case T_boolean :
+				case TypeIds.T_boolean :
 					this.wrappedConstantValue = Util.toBoolean(fieldConstant.booleanValue());
 					break;
-				case T_long :
+				case TypeIds.T_long :
 					this.wrappedConstantValue = new Long(fieldConstant.longValue());
 					break;
-				case T_JavaLangString :
+				case TypeIds.T_JavaLangString :
 					this.wrappedConstantValue = fieldConstant.stringValue();
 			}
 		}
@@ -263,7 +209,7 @@ public boolean hasConstant() {
  * This method is used to fully initialize the contents of the receiver. All methodinfos, fields infos
  * will be therefore fully initialized and we can get rid of the bytes.
  */
-void initialize() {
+protected void initialize() {
 	getModifiers();
 	getName();
 	getConstant();
@@ -276,9 +222,47 @@ void initialize() {
  * @return boolean
  */
 public boolean isSynthetic() {
-	return (getModifiers() & AccSynthetic) != 0;
+	return (getModifiers() & ClassFileConstants.AccSynthetic) != 0;
 }
-
+private AnnotationInfo[] readAttributes() {
+	int attributesCount = u2At(6);
+	int readOffset = 8;
+	AnnotationInfo[] annotations = null;
+	for (int i = 0; i < attributesCount; i++) {
+		// check the name of each attribute
+		int utf8Offset = this.constantPoolOffsets[u2At(readOffset)] - this.structOffset;
+		char[] attributeName = utf8At(utf8Offset + 3, u2At(utf8Offset + 1));
+		if (attributeName.length > 0) {
+			switch(attributeName[0]) {
+				case 'S' :
+					if (CharOperation.equals(AttributeNamesConstants.SignatureName, attributeName))
+						this.signatureUtf8Offset = this.constantPoolOffsets[u2At(readOffset + 6)] - this.structOffset;
+					break;
+				case 'R' :
+					AnnotationInfo[] decodedAnnotations = null;
+					if (CharOperation.equals(attributeName, AttributeNamesConstants.RuntimeVisibleAnnotationsName)) {
+						decodedAnnotations = decodeAnnotations(readOffset, true);
+					} else if (CharOperation.equals(attributeName, AttributeNamesConstants.RuntimeInvisibleAnnotationsName)) {
+						decodedAnnotations = decodeAnnotations(readOffset, false);
+					}
+					if (decodedAnnotations != null) {
+						if (annotations == null) {
+							annotations = decodedAnnotations;
+						} else {
+							int length = annotations.length;			
+							AnnotationInfo[] combined = new AnnotationInfo[length + decodedAnnotations.length];
+							System.arraycopy(annotations, 0, combined, 0, length);
+							System.arraycopy(decodedAnnotations, 0, combined, length, decodedAnnotations.length);
+							annotations = combined;
+						}
+					}
+			}
+		}
+		readOffset += (6 + u4At(readOffset + 2));
+	}
+	this.attributeBytes = readOffset;
+	return annotations;
+}
 private void readConstantAttribute() {
 	int attributesCount = u2At(6);
 	int readOffset = 8;
@@ -287,29 +271,29 @@ private void readConstantAttribute() {
 		int utf8Offset = constantPoolOffsets[u2At(readOffset)] - structOffset;
 		char[] attributeName = utf8At(utf8Offset + 3, u2At(utf8Offset + 1));
 		if (CharOperation
-			.equals(attributeName, ConstantValueName)) {
+			.equals(attributeName, AttributeNamesConstants.ConstantValueName)) {
 			isConstant = true;
 			// read the right constant
 			int relativeOffset = constantPoolOffsets[u2At(readOffset + 6)] - structOffset;
 			switch (u1At(relativeOffset)) {
-				case IntegerTag :
+				case ClassFileConstants.IntegerTag :
 					char[] sign = getTypeName();
 					if (sign.length == 1) {
 						switch (sign[0]) {
 							case 'Z' : // boolean constant
-								constant = new BooleanConstant(i4At(relativeOffset + 1) == 1);
+								constant = BooleanConstant.fromValue(i4At(relativeOffset + 1) == 1);
 								break;
 							case 'I' : // integer constant
-								constant = new IntConstant(i4At(relativeOffset + 1));
+								constant = IntConstant.fromValue(i4At(relativeOffset + 1));
 								break;
 							case 'C' : // char constant
-								constant = new CharConstant((char) i4At(relativeOffset + 1));
+								constant = CharConstant.fromValue((char) i4At(relativeOffset + 1));
 								break;
 							case 'B' : // byte constant
-								constant = new ByteConstant((byte) i4At(relativeOffset + 1));
+								constant = ByteConstant.fromValue((byte) i4At(relativeOffset + 1));
 								break;
 							case 'S' : // short constant
-								constant = new ShortConstant((short) i4At(relativeOffset + 1));
+								constant = ShortConstant.fromValue((short) i4At(relativeOffset + 1));
 								break;
 							default:
 								constant = Constant.NotAConstant;                   
@@ -318,19 +302,19 @@ private void readConstantAttribute() {
 						constant = Constant.NotAConstant;
 					}
 					break;
-				case FloatTag :
-					constant = new FloatConstant(floatAt(relativeOffset + 1));
+				case ClassFileConstants.FloatTag :
+					constant = FloatConstant.fromValue(floatAt(relativeOffset + 1));
 					break;
-				case DoubleTag :
-					constant = new DoubleConstant(doubleAt(relativeOffset + 1));
+				case ClassFileConstants.DoubleTag :
+					constant = DoubleConstant.fromValue(doubleAt(relativeOffset + 1));
 					break;
-				case LongTag :
-					constant = new LongConstant(i8At(relativeOffset + 1));
+				case ClassFileConstants.LongTag :
+					constant = LongConstant.fromValue(i8At(relativeOffset + 1));
 					break;
-				case StringTag :
+				case ClassFileConstants.StringTag :
 					utf8Offset = constantPoolOffsets[u2At(relativeOffset + 1)] - structOffset;
 					constant = 
-						new StringConstant(
+						StringConstant.fromValue(
 							String.valueOf(utf8At(utf8Offset + 3, u2At(utf8Offset + 1)))); 
 					break;
 			}
@@ -351,21 +335,17 @@ private void readModifierRelatedAttributes() {
 		if (attributeName.length != 0) {
 			switch(attributeName[0]) {
 				case 'D' :
-					if (CharOperation.equals(attributeName, DeprecatedName))
-						this.accessFlags |= AccDeprecated;
+					if (CharOperation.equals(attributeName, AttributeNamesConstants.DeprecatedName))
+						this.accessFlags |= ClassFileConstants.AccDeprecated;
 					break;
 				case 'S' :
-					if (CharOperation.equals(attributeName, SyntheticName))
-						this.accessFlags |= AccSynthetic;
+					if (CharOperation.equals(attributeName, AttributeNamesConstants.SyntheticName))
+						this.accessFlags |= ClassFileConstants.AccSynthetic;
 					break;
 			}
 		}
 		readOffset += (6 + u4At(readOffset + 2));
 	}
-}
-protected void reset() {
-	this.constantPoolOffsets = null;
-	super.reset();
 }
 /**
  * Answer the size of the receiver in bytes.
@@ -379,26 +359,29 @@ public void throwFormatException() throws ClassFormatException {
 	throw new ClassFormatException(ClassFormatException.ErrBadFieldInfo);
 }
 public String toString() {
-	StringBuffer buffer = new StringBuffer(this.getClass().getName());
+	StringBuffer buffer = new StringBuffer(this.getClass().getName());	
+	toStringContent(buffer);
+	return buffer.toString();
+}
+protected void toStringContent(StringBuffer buffer) {
 	int modifiers = getModifiers();
-	return buffer
-		.append("{") //$NON-NLS-1$
+	buffer
+		.append('{')
 		.append(
-			((modifiers & AccDeprecated) != 0 ? "deprecated " : "") //$NON-NLS-1$ //$NON-NLS-2$
-				+ ((modifiers & 0x0001) == 1 ? "public " : "") //$NON-NLS-1$ //$NON-NLS-2$
-				+ ((modifiers & 0x0002) == 0x0002 ? "private " : "") //$NON-NLS-1$ //$NON-NLS-2$
-				+ ((modifiers & 0x0004) == 0x0004 ? "protected " : "") //$NON-NLS-1$ //$NON-NLS-2$
-				+ ((modifiers & 0x0008) == 0x000008 ? "static " : "") //$NON-NLS-1$ //$NON-NLS-2$
-				+ ((modifiers & 0x0010) == 0x0010 ? "final " : "") //$NON-NLS-1$ //$NON-NLS-2$
-				+ ((modifiers & 0x0040) == 0x0040 ? "volatile " : "") //$NON-NLS-1$ //$NON-NLS-2$
-				+ ((modifiers & 0x0080) == 0x0080 ? "transient " : "")) //$NON-NLS-1$ //$NON-NLS-2$
+			((modifiers & ClassFileConstants.AccDeprecated) != 0 ? "deprecated " : Util.EMPTY_STRING) //$NON-NLS-1$
+				+ ((modifiers & 0x0001) == 1 ? "public " : Util.EMPTY_STRING) //$NON-NLS-1$
+				+ ((modifiers & 0x0002) == 0x0002 ? "private " : Util.EMPTY_STRING) //$NON-NLS-1$
+				+ ((modifiers & 0x0004) == 0x0004 ? "protected " : Util.EMPTY_STRING) //$NON-NLS-1$
+				+ ((modifiers & 0x0008) == 0x000008 ? "static " : Util.EMPTY_STRING) //$NON-NLS-1$
+				+ ((modifiers & 0x0010) == 0x0010 ? "final " : Util.EMPTY_STRING) //$NON-NLS-1$
+				+ ((modifiers & 0x0040) == 0x0040 ? "volatile " : Util.EMPTY_STRING) //$NON-NLS-1$
+				+ ((modifiers & 0x0080) == 0x0080 ? "transient " : Util.EMPTY_STRING)) //$NON-NLS-1$
 		.append(getTypeName())
-		.append(" ") //$NON-NLS-1$
+		.append(' ')
 		.append(getName())
-		.append(" ") //$NON-NLS-1$
+		.append(' ')
 		.append(getConstant())
-		.append("}") //$NON-NLS-1$
+		.append('}')
 		.toString(); 
 }
-
 }

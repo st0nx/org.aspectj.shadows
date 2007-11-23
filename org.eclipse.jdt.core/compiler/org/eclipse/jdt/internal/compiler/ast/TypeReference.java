@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,13 +13,20 @@ package org.eclipse.jdt.internal.compiler.ast;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.flow.FlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
-import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
+import org.eclipse.jdt.internal.compiler.lookup.ArrayBinding;
+import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
+import org.eclipse.jdt.internal.compiler.lookup.ClassScope;
+import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
+import org.eclipse.jdt.internal.compiler.lookup.ProblemReferenceBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
+import org.eclipse.jdt.internal.compiler.lookup.Scope;
+import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
+import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
 public abstract class TypeReference extends Expression {
-
-public TypeReference() {
-		super () ;
-		}
 
 public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, FlowInfo flowInfo) {
 	return flowInfo;
@@ -36,45 +43,45 @@ public static final TypeReference baseTypeReference(int baseType, int dim) {
 	
 	if (dim == 0) {
 		switch (baseType) {
-			case (T_void) :
-				return new SingleTypeReference(VoidBinding.simpleName, 0);
-			case (T_boolean) :
-				return new SingleTypeReference(BooleanBinding.simpleName, 0);
-			case (T_char) :
-				return new SingleTypeReference(CharBinding.simpleName, 0);
-			case (T_float) :
-				return new SingleTypeReference(FloatBinding.simpleName, 0);
-			case (T_double) :
-				return new SingleTypeReference(DoubleBinding.simpleName, 0);
-			case (T_byte) :
-				return new SingleTypeReference(ByteBinding.simpleName, 0);
-			case (T_short) :
-				return new SingleTypeReference(ShortBinding.simpleName, 0);
-			case (T_int) :
-				return new SingleTypeReference(IntBinding.simpleName, 0);
+			case (TypeIds.T_void) :
+				return new SingleTypeReference(TypeBinding.VOID.simpleName, 0);
+			case (TypeIds.T_boolean) :
+				return new SingleTypeReference(TypeBinding.BOOLEAN.simpleName, 0);
+			case (TypeIds.T_char) :
+				return new SingleTypeReference(TypeBinding.CHAR.simpleName, 0);
+			case (TypeIds.T_float) :
+				return new SingleTypeReference(TypeBinding.FLOAT.simpleName, 0);
+			case (TypeIds.T_double) :
+				return new SingleTypeReference(TypeBinding.DOUBLE.simpleName, 0);
+			case (TypeIds.T_byte) :
+				return new SingleTypeReference(TypeBinding.BYTE.simpleName, 0);
+			case (TypeIds.T_short) :
+				return new SingleTypeReference(TypeBinding.SHORT.simpleName, 0);
+			case (TypeIds.T_int) :
+				return new SingleTypeReference(TypeBinding.INT.simpleName, 0);
 			default : //T_long	
-				return new SingleTypeReference(LongBinding.simpleName, 0);
+				return new SingleTypeReference(TypeBinding.LONG.simpleName, 0);
 		}
 	}
 	switch (baseType) {
-		case (T_void) :
-			return new ArrayTypeReference(VoidBinding.simpleName, dim, 0);
-		case (T_boolean) :
-			return new ArrayTypeReference(BooleanBinding.simpleName, dim, 0);
-		case (T_char) :
-			return new ArrayTypeReference(CharBinding.simpleName, dim, 0);
-		case (T_float) :
-			return new ArrayTypeReference(FloatBinding.simpleName, dim, 0);
-		case (T_double) :
-			return new ArrayTypeReference(DoubleBinding.simpleName, dim, 0);
-		case (T_byte) :
-			return new ArrayTypeReference(ByteBinding.simpleName, dim, 0);
-		case (T_short) :
-			return new ArrayTypeReference(ShortBinding.simpleName, dim, 0);
-		case (T_int) :
-			return new ArrayTypeReference(IntBinding.simpleName, dim, 0);
+		case (TypeIds.T_void) :
+			return new ArrayTypeReference(TypeBinding.VOID.simpleName, dim, 0);
+		case (TypeIds.T_boolean) :
+			return new ArrayTypeReference(TypeBinding.BOOLEAN.simpleName, dim, 0);
+		case (TypeIds.T_char) :
+			return new ArrayTypeReference(TypeBinding.CHAR.simpleName, dim, 0);
+		case (TypeIds.T_float) :
+			return new ArrayTypeReference(TypeBinding.FLOAT.simpleName, dim, 0);
+		case (TypeIds.T_double) :
+			return new ArrayTypeReference(TypeBinding.DOUBLE.simpleName, dim, 0);
+		case (TypeIds.T_byte) :
+			return new ArrayTypeReference(TypeBinding.BYTE.simpleName, dim, 0);
+		case (TypeIds.T_short) :
+			return new ArrayTypeReference(TypeBinding.SHORT.simpleName, dim, 0);
+		case (TypeIds.T_int) :
+			return new ArrayTypeReference(TypeBinding.INT.simpleName, dim, 0);
 		default : //T_long	
-			return new ArrayTypeReference(LongBinding.simpleName, dim, 0);
+			return new ArrayTypeReference(TypeBinding.LONG.simpleName, dim, 0);
 	}
 }
 public void checkBounds(Scope scope) {
@@ -84,6 +91,9 @@ public abstract TypeReference copyDims(int dim);
 public int dimensions() {
 	return 0;
 }
+
+public abstract char[] getLastToken();
+
 /**
  * @return char[][]
  * TODO (jerome) should merge back into #getTypeName()
@@ -115,39 +125,62 @@ public final TypeBinding resolveType(BlockScope blockScope) {
 	return resolveType(blockScope, true /* checkbounds if any */);
 }
 
-public TypeBinding resolveType(BlockScope blockScope, boolean checkBounds) {
+public TypeBinding resolveType(BlockScope scope, boolean checkBounds) {
 	// handle the error here
-	this.constant = NotAConstant;
+	this.constant = Constant.NotAConstant;
 	if (this.resolvedType != null) // is a shared type reference which was already resolved
 		return this.resolvedType.isValidBinding() ? this.resolvedType : null; // already reported error
 
-	this.resolvedType = getTypeBinding(blockScope);
-	if (this.resolvedType == null)
+	TypeBinding type = this.resolvedType = getTypeBinding(scope);
+	if (type == null)
 		return null; // detected cycle while resolving hierarchy	
-	if (!this.resolvedType.isValidBinding()) {
-		reportInvalidType(blockScope);
+	if (!type.isValidBinding()) {
+		reportInvalidType(scope);
 		return null;
 	}
-	if (isTypeUseDeprecated(this.resolvedType, blockScope))
-		reportDeprecatedType(blockScope);
-	return this.resolvedType = blockScope.environment().convertToRawType(this.resolvedType);
+	if (type.isArrayType() && ((ArrayBinding) type).leafComponentType == TypeBinding.VOID) {
+		scope.problemReporter().cannotAllocateVoidArray(this);
+		return null;
+	}
+
+	if (isTypeUseDeprecated(type, scope))
+		reportDeprecatedType(type, scope);
+	
+	type = scope.environment().convertToRawType(type);
+	if (type.leafComponentType().isRawType() 
+			&& (this.bits & ASTNode.IgnoreRawTypeCheck) == 0 
+			&& scope.compilerOptions().getSeverity(CompilerOptions.RawTypeReference) != ProblemSeverities.Ignore) {	
+		scope.problemReporter().rawTypeReference(this, type);
+	}			
+	return this.resolvedType = type;
 }
-public TypeBinding resolveType(ClassScope classScope) {
+public TypeBinding resolveType(ClassScope scope) {
 	// handle the error here
-	this.constant = NotAConstant;
+	this.constant = Constant.NotAConstant;
 	if (this.resolvedType != null) // is a shared type reference which was already resolved
 		return this.resolvedType.isValidBinding() ? this.resolvedType : null; // already reported error
 
-	this.resolvedType = getTypeBinding(classScope);
-	if (this.resolvedType == null)
+	TypeBinding type = this.resolvedType = getTypeBinding(scope);
+	if (type == null)
 		return null; // detected cycle while resolving hierarchy	
-	if (!this.resolvedType.isValidBinding()) {
-		reportInvalidType(classScope);
+	if (!type.isValidBinding()) {
+		reportInvalidType(scope);
 		return null;
 	}
-	if (isTypeUseDeprecated(this.resolvedType, classScope))
-		reportDeprecatedType(classScope);
-	return this.resolvedType = classScope.environment().convertToRawType(this.resolvedType);
+	if (type.isArrayType() && ((ArrayBinding) type).leafComponentType == TypeBinding.VOID) {
+		scope.problemReporter().cannotAllocateVoidArray(this);
+		return null;
+	}	
+	if (isTypeUseDeprecated(type, scope))
+		reportDeprecatedType(type, scope);
+	
+	type = scope.environment().convertToRawType(type);
+	if (type.leafComponentType().isRawType() 
+			&& (this.bits & ASTNode.IgnoreRawTypeCheck) == 0 
+			&& scope.compilerOptions().getSeverity(CompilerOptions.RawTypeReference) != ProblemSeverities.Ignore) {
+		scope.problemReporter().rawTypeReference(this, type);
+	}			
+	return this.resolvedType = type;	
 }
 
 public TypeBinding resolveTypeArgument(BlockScope blockScope, ReferenceBinding genericType, int rank) {
@@ -161,9 +194,9 @@ public TypeBinding resolveTypeArgument(ClassScope classScope, ReferenceBinding g
 protected void reportInvalidType(Scope scope) {
 	scope.problemReporter().invalidType(this, this.resolvedType);
 }
-protected void reportDeprecatedType(Scope scope) {
-	scope.problemReporter().deprecatedType(this.resolvedType, this);
+protected void reportDeprecatedType(TypeBinding type, Scope scope) {
+	scope.problemReporter().deprecatedType(type, this);
 }
-public abstract void traverse(ASTVisitor visitor, ClassScope classScope);
-public abstract void traverse(ASTVisitor visitor, BlockScope classScope);
+public abstract void traverse(ASTVisitor visitor, BlockScope scope);
+public abstract void traverse(ASTVisitor visitor, ClassScope scope);
 }

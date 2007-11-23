@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -20,11 +20,12 @@ import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.Compiler;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
-import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
+import org.eclipse.jdt.internal.compiler.lookup.ExtraCompilerModifiers;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
-public class CompilerOptions implements ProblemReasons, ProblemSeverities, ClassFileConstants {
-	
+public class CompilerOptions {
+
 	/**
 	 * Option IDs
 	 */
@@ -43,6 +44,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_ReportUnusedParameter = "org.eclipse.jdt.core.compiler.problem.unusedParameter"; //$NON-NLS-1$
 	public static final String OPTION_ReportUnusedParameterWhenImplementingAbstract = "org.eclipse.jdt.core.compiler.problem.unusedParameterWhenImplementingAbstract"; //$NON-NLS-1$
 	public static final String OPTION_ReportUnusedParameterWhenOverridingConcrete = "org.eclipse.jdt.core.compiler.problem.unusedParameterWhenOverridingConcrete"; //$NON-NLS-1$
+	public static final String OPTION_ReportUnusedParameterIncludeDocCommentReference = "org.eclipse.jdt.core.compiler.problem.unusedParameterIncludeDocCommentReference"; //$NON-NLS-1$
 	public static final String OPTION_ReportUnusedImport = "org.eclipse.jdt.core.compiler.problem.unusedImport"; //$NON-NLS-1$
 	public static final String OPTION_ReportSyntheticAccessEmulation = "org.eclipse.jdt.core.compiler.problem.syntheticAccessEmulation"; //$NON-NLS-1$
 	public static final String OPTION_ReportNoEffectAssignment = "org.eclipse.jdt.core.compiler.problem.noEffectAssignment"; //$NON-NLS-1$
@@ -79,6 +81,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_ReportUnusedDeclaredThrownExceptionWhenOverriding = "org.eclipse.jdt.core.compiler.problem.unusedDeclaredThrownExceptionWhenOverriding"; //$NON-NLS-1$
 	public static final String OPTION_ReportUnqualifiedFieldAccess = "org.eclipse.jdt.core.compiler.problem.unqualifiedFieldAccess"; //$NON-NLS-1$
 	public static final String OPTION_ReportUncheckedTypeOperation = "org.eclipse.jdt.core.compiler.problem.uncheckedTypeOperation"; //$NON-NLS-1$
+	public static final String OPTION_ReportRawTypeReference =  "org.eclipse.jdt.core.compiler.problem.rawTypeReference"; //$NON-NLS-1$
 	public static final String OPTION_ReportFinalParameterBound = "org.eclipse.jdt.core.compiler.problem.finalParameterBound"; //$NON-NLS-1$
 	public static final String OPTION_ReportMissingSerialVersion = "org.eclipse.jdt.core.compiler.problem.missingSerialVersion"; //$NON-NLS-1$
 	public static final String OPTION_ReportVarargsArgumentNeedCast = "org.eclipse.jdt.core.compiler.problem.varargsArgumentNeedCast"; //$NON-NLS-1$
@@ -92,6 +95,8 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_TaskCaseSensitive = "org.eclipse.jdt.core.compiler.taskCaseSensitive"; //$NON-NLS-1$
 	public static final String OPTION_InlineJsr = "org.eclipse.jdt.core.compiler.codegen.inlineJsrBytecode"; //$NON-NLS-1$
 	public static final String OPTION_ReportNullReference = "org.eclipse.jdt.core.compiler.problem.nullReference"; //$NON-NLS-1$
+	public static final String OPTION_ReportPotentialNullReference = "org.eclipse.jdt.core.compiler.problem.potentialNullReference"; //$NON-NLS-1$
+	public static final String OPTION_ReportRedundantNullCheck = "org.eclipse.jdt.core.compiler.problem.redundantNullCheck"; //$NON-NLS-1$
 	public static final String OPTION_ReportAutoboxing = "org.eclipse.jdt.core.compiler.problem.autoboxing"; //$NON-NLS-1$
 	public static final String OPTION_ReportAnnotationSuperInterface = "org.eclipse.jdt.core.compiler.problem.annotationSuperInterface"; //$NON-NLS-1$
 	public static final String OPTION_ReportMissingOverrideAnnotation = "org.eclipse.jdt.core.compiler.problem.missingOverrideAnnotation"; //$NON-NLS-1$
@@ -101,14 +106,18 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String OPTION_ReportDiscouragedReference =  "org.eclipse.jdt.core.compiler.problem.discouragedReference"; //$NON-NLS-1$
 	public static final String OPTION_SuppressWarnings =  "org.eclipse.jdt.core.compiler.problem.suppressWarnings"; //$NON-NLS-1$
 	public static final String OPTION_ReportUnhandledWarningToken =  "org.eclipse.jdt.core.compiler.problem.unhandledWarningToken"; //$NON-NLS-1$
-	
+	public static final String OPTION_ReportUnusedLabel =  "org.eclipse.jdt.core.compiler.problem.unusedLabel"; //$NON-NLS-1$
+	public static final String OPTION_FatalOptionalError =  "org.eclipse.jdt.core.compiler.problem.fatalOptionalError"; //$NON-NLS-1$
+	public static final String OPTION_ReportParameterAssignment =  "org.eclipse.jdt.core.compiler.problem.parameterAssignment"; //$NON-NLS-1$
+	public static final String OPTION_ReportFallthroughCase =  "org.eclipse.jdt.core.compiler.problem.fallthroughCase"; //$NON-NLS-1$
+	public static final String OPTION_ReportOverridingMethodWithoutSuperInvocation =  "org.eclipse.jdt.core.compiler.problem.overridingMethodWithoutSuperInvocation"; //$NON-NLS-1$
+	public static final String OPTION_GenerateClassFiles = "org.eclipse.jdt.core.compiler.generateClassFiles"; //$NON-NLS-1$
+	public static final String OPTION_Process_Annotations = "org.eclipse.jdt.core.compiler.processAnnotations"; //$NON-NLS-1$
+
 	// Backward compatibility
 	public static final String OPTION_ReportInvalidAnnotation = "org.eclipse.jdt.core.compiler.problem.invalidAnnotation"; //$NON-NLS-1$
 	public static final String OPTION_ReportMissingAnnotation = "org.eclipse.jdt.core.compiler.problem.missingAnnotation"; //$NON-NLS-1$
 	public static final String OPTION_ReportMissingJavadoc = "org.eclipse.jdt.core.compiler.problem.missingJavadoc"; //$NON-NLS-1$
-
-	/* should surface ??? */
-	public static final String OPTION_PrivateConstructorAccess = "org.eclipse.jdt.core.compiler.codegen.constructorAccessEmulation"; //$NON-NLS-1$
 
 	/**
 	 * Possible values for configurable options
@@ -121,7 +130,10 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String VERSION_1_2 = "1.2"; //$NON-NLS-1$
 	public static final String VERSION_1_3 = "1.3"; //$NON-NLS-1$
 	public static final String VERSION_1_4 = "1.4"; //$NON-NLS-1$
+	public static final String VERSION_JSR14 = "jsr14"; //$NON-NLS-1$
 	public static final String VERSION_1_5 = "1.5"; //$NON-NLS-1$
+	public static final String VERSION_1_6 = "1.6"; //$NON-NLS-1$
+	public static final String VERSION_1_7 = "1.7"; //$NON-NLS-1$
 	public static final String ERROR = "error"; //$NON-NLS-1$
 	public static final String WARNING = "warning"; //$NON-NLS-1$
 	public static final String IGNORE = "ignore"; //$NON-NLS-1$
@@ -131,7 +143,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final String PROTECTED = "protected";	//$NON-NLS-1$
 	public static final String DEFAULT = "default";	//$NON-NLS-1$
 	public static final String PRIVATE = "private";	//$NON-NLS-1$
-	
+
 	/**
 	 * Bit mask for configurable problems (error/warning threshold)
 	 */
@@ -168,33 +180,36 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	public static final long UncheckedTypeOperation = ASTNode.Bit31;
 	public static final long FinalParameterBound = ASTNode.Bit32L;
 	public static final long MissingSerialVersion = ASTNode.Bit33L;
-	public static final long EnumUsedAsAnIdentifier = ASTNode.Bit34L;	
+	public static final long EnumUsedAsAnIdentifier = ASTNode.Bit34L;
 	public static final long ForbiddenReference = ASTNode.Bit35L;
 	public static final long VarargsArgumentNeedCast = ASTNode.Bit36L;
 	public static final long NullReference = ASTNode.Bit37L;
-	public static final long Autoboxing = ASTNode.Bit38L;
+	public static final long AutoBoxing = ASTNode.Bit38L;
 	public static final long AnnotationSuperInterface = ASTNode.Bit39L;
-	public static final long TypeParameterHiding = ASTNode.Bit40L;
+	public static final long TypeHiding = ASTNode.Bit40L;
 	public static final long MissingOverrideAnnotation = ASTNode.Bit41L;
 	public static final long IncompleteEnumSwitch = ASTNode.Bit42L;
 	public static final long MissingDeprecatedAnnotation = ASTNode.Bit43L;
 	public static final long DiscouragedReference = ASTNode.Bit44L;
 	public static final long UnhandledWarningToken = ASTNode.Bit45L;
-	
-	// TODO (olivier) remove once http://gcc.gnu.org/bugzilla/show_bug.cgi?id=21540 is fixed
-	private static final int IntMissingSerialVersion = (int) (MissingSerialVersion >>> 32);
-	private static final int IntAutoBoxing = (int) (Autoboxing >>> 32);
-	private static final int IntTypeParameterHiding = (int) (TypeParameterHiding >>> 32);
-	private static final int IntIncompleteEnumSwitch = (int) (IncompleteEnumSwitch >>> 32);
-	private static final int IntMissingDeprecatedAnnotation = (int) (MissingDeprecatedAnnotation >>> 32);
-	
+	public static final long RawTypeReference = ASTNode.Bit46L;
+	public static final long UnusedLabel = ASTNode.Bit47L;
+	public static final long ParameterAssignment = ASTNode.Bit48L;
+	public static final long FallthroughCase = ASTNode.Bit49L;
+	public static final long OverridingMethodWithoutSuperInvocation = ASTNode.Bit50L;
+	public static final long PotentialNullReference = ASTNode.Bit51L;
+	public static final long RedundantNullCheck = ASTNode.Bit52L;
+
+	// Map: String optionKey --> Long irritant>
+	private static Map OptionToIrritants;
+
 	// Default severity level for handlers
 	public long errorThreshold = 0;
-		
-	public long warningThreshold = 
-		MethodWithConstructorName 
-		| UsingDeprecatedAPI 
-		| MaskedCatchBlock 
+
+	public long warningThreshold =
+		MethodWithConstructorName
+		| UsingDeprecatedAPI
+		| MaskedCatchBlock
 		| OverriddenPackageDefaultMethod
 		| UnusedImport
 		| NonStaticAccessToStatic
@@ -205,36 +220,30 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		| AssertUsedAsAnIdentifier
 		| EnumUsedAsAnIdentifier
 		| UncheckedTypeOperation
+		| RawTypeReference
 		| MissingSerialVersion
 		| VarargsArgumentNeedCast
 		| ForbiddenReference
 		| DiscouragedReference
 		| AnnotationSuperInterface
-		| TypeParameterHiding
+		| TypeHiding
 		| FinalParameterBound
 		| UnhandledWarningToken
 		| UnusedLocalVariable
 		| UnusedPrivateMember
-		/*| NullReference*/;
-
-	// Debug attributes
-	public static final int Source = 1; // SourceFileAttribute
-	public static final int Lines = 2; // LineNumberAttribute
-	public static final int Vars = 4; // LocalVariableTableAttribute
+		| UnusedLabel
+		/*| NullReference -- keep JavaCore#getDefaultOptions comment in sync */;
 
 	// By default only lines and source attributes are generated.
-	public int produceDebugAttributes = Lines | Source;
+	public int produceDebugAttributes = ClassFileConstants.ATTR_SOURCE | ClassFileConstants.ATTR_LINES;
 
-	public long complianceLevel = JDK1_4; // by default be compliant with 1.4
-	public long sourceLevel = JDK1_3; //1.3 source behavior by default
-	public long targetJDK = JDK1_2; // default generates for JVM1.2
+	public long complianceLevel = ClassFileConstants.JDK1_4; // by default be compliant with 1.4
+	public long sourceLevel = ClassFileConstants.JDK1_3; //1.3 source behavior by default
+	public long targetJDK = ClassFileConstants.JDK1_2; // default generates for JVM1.2
 
-	// toggle private access emulation for 1.2 (constr. accessor has extra arg on constructor) or 1.3 (make private constructor default access when access needed)
-	public boolean isPrivateConstructorAccessChangingVisibility = false; // by default, follows 1.2
-	
 	// source encoding format
 	public String defaultEncoding = null; // will use the platform default encoding
-	
+
 	// print what unit is being processed
 	public boolean verbose = Compiler.DEBUG;
 
@@ -249,7 +258,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 
 	// max problems per compilation unit
 	public int maxProblemsPerUnit = 100; // no more than 100 problems per default
-	
+
 	// tags used to recognize tasks in comments
 	public char[][] taskTags = null;
 	public char[][] taskPriorites = null;
@@ -258,94 +267,121 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 	// deprecation report
 	public boolean reportDeprecationInsideDeprecatedCode = false;
 	public boolean reportDeprecationWhenOverridingDeprecatedMethod = false;
-	
+
 	// unused parameters report
 	public boolean reportUnusedParameterWhenImplementingAbstract = false;
 	public boolean reportUnusedParameterWhenOverridingConcrete = false;
+	public boolean reportUnusedParameterIncludeDocCommentReference = true;
 
 	// unused declaration of thrown exception
 	public boolean reportUnusedDeclaredThrownExceptionWhenOverriding = false;
-	
+
 	// constructor/setter parameter hiding
 	public boolean reportSpecialParameterHidingField = false;
 
 	// check javadoc comments tags
-	public int reportInvalidJavadocTagsVisibility = AccPrivate; 
-	public boolean reportInvalidJavadocTags = true;
-	public boolean reportInvalidJavadocTagsDeprecatedRef = true;
-	public boolean reportInvalidJavadocTagsNotVisibleRef = true;
+	public int reportInvalidJavadocTagsVisibility = ClassFileConstants.AccPublic;
+	public boolean reportInvalidJavadocTags = false;
+	public boolean reportInvalidJavadocTagsDeprecatedRef = false;
+	public boolean reportInvalidJavadocTagsNotVisibleRef = false;
 
 	// check missing javadoc tags
-	public int reportMissingJavadocTagsVisibility = AccPrivate; 
+	public int reportMissingJavadocTagsVisibility = ClassFileConstants.AccPublic;
 	public boolean reportMissingJavadocTagsOverriding = false;
 
 	// check missing javadoc comments
-	public int reportMissingJavadocCommentsVisibility = AccPublic; 
-	public boolean reportMissingJavadocCommentsOverriding = false; 
+	public int reportMissingJavadocCommentsVisibility = ClassFileConstants.AccPublic;
+	public boolean reportMissingJavadocCommentsOverriding = false;
 
 	// JSR bytecode inlining
 	public boolean inlineJsrBytecode = false;
-	
+
 	// javadoc comment support
 	public boolean docCommentSupport = false;
-	
+
 	// suppress warning annotation
 	public boolean suppressWarnings = true;
-	
-	/** 
+
+	// treat optional error as fatal or just like warning?
+	public boolean treatOptionalErrorAsFatal = true;
+
+	// parser perform statements recovery
+	public boolean performMethodsFullRecovery = true;
+
+	// parser perform statements recovery
+	public boolean performStatementsRecovery = true;
+
+	// store annotations
+	public boolean storeAnnotations = false;
+
+	// annotation processing
+	public boolean generateClassFiles = true;
+
+	// Enable annotation processing by default only in batch mode
+	public boolean processAnnotations = false;
+
+	/**
 	 * Initializing the compiler options with defaults
 	 */
 	public CompilerOptions(){
 		// use default options
 	}
 
-	/** 
+	/**
 	 * Initializing the compiler options with external settings
 	 * @param settings
 	 */
 	public CompilerOptions(Map settings){
 
 		if (settings == null) return;
-		set(settings);		
+		set(settings);
+	}
+
+	/**
+	 * @deprecated used to preserve 3.1 and 3.2M4 compatibility of some Compiler constructors
+	 */
+	public CompilerOptions(Map settings, boolean parseLiteralExpressionsAsConstants){
+		this(settings);
+		this.parseLiteralExpressionsAsConstants = parseLiteralExpressionsAsConstants;
 	}
 
 	public Map getMap() {
 		Map optionsMap = new HashMap(30);
-		optionsMap.put(OPTION_LocalVariableAttribute, (this.produceDebugAttributes & Vars) != 0 ? GENERATE : DO_NOT_GENERATE); 
-		optionsMap.put(OPTION_LineNumberAttribute, (this.produceDebugAttributes & Lines) != 0 ? GENERATE : DO_NOT_GENERATE);
-		optionsMap.put(OPTION_SourceFileAttribute, (this.produceDebugAttributes & Source) != 0 ? GENERATE : DO_NOT_GENERATE);
+		optionsMap.put(OPTION_LocalVariableAttribute, (this.produceDebugAttributes & ClassFileConstants.ATTR_VARS) != 0 ? GENERATE : DO_NOT_GENERATE);
+		optionsMap.put(OPTION_LineNumberAttribute, (this.produceDebugAttributes & ClassFileConstants.ATTR_LINES) != 0 ? GENERATE : DO_NOT_GENERATE);
+		optionsMap.put(OPTION_SourceFileAttribute, (this.produceDebugAttributes & ClassFileConstants.ATTR_SOURCE) != 0 ? GENERATE : DO_NOT_GENERATE);
 		optionsMap.put(OPTION_PreserveUnusedLocal, this.preserveAllLocalVariables ? PRESERVE : OPTIMIZE_OUT);
-		optionsMap.put(OPTION_DocCommentSupport, this.docCommentSupport ? ENABLED : DISABLED); 
-		optionsMap.put(OPTION_ReportMethodWithConstructorName, getSeverityString(MethodWithConstructorName)); 
-		optionsMap.put(OPTION_ReportOverridingPackageDefaultMethod, getSeverityString(OverriddenPackageDefaultMethod)); 
-		optionsMap.put(OPTION_ReportDeprecation, getSeverityString(UsingDeprecatedAPI)); 
-		optionsMap.put(OPTION_ReportDeprecationInDeprecatedCode, this.reportDeprecationInsideDeprecatedCode ? ENABLED : DISABLED); 
-		optionsMap.put(OPTION_ReportDeprecationWhenOverridingDeprecatedMethod, this.reportDeprecationWhenOverridingDeprecatedMethod ? ENABLED : DISABLED); 
-		optionsMap.put(OPTION_ReportHiddenCatchBlock, getSeverityString(MaskedCatchBlock)); 
-		optionsMap.put(OPTION_ReportUnusedLocal, getSeverityString(UnusedLocalVariable)); 
-		optionsMap.put(OPTION_ReportUnusedParameter, getSeverityString(UnusedArgument)); 
-		optionsMap.put(OPTION_ReportUnusedImport, getSeverityString(UnusedImport)); 
-		optionsMap.put(OPTION_ReportSyntheticAccessEmulation, getSeverityString(AccessEmulation)); 
-		optionsMap.put(OPTION_ReportNoEffectAssignment, getSeverityString(NoEffectAssignment)); 
-		optionsMap.put(OPTION_ReportNonExternalizedStringLiteral, getSeverityString(NonExternalizedString)); 
-		optionsMap.put(OPTION_ReportNoImplicitStringConversion, getSeverityString(NoImplicitStringConversion)); 
-		optionsMap.put(OPTION_ReportNonStaticAccessToStatic, getSeverityString(NonStaticAccessToStatic)); 
-		optionsMap.put(OPTION_ReportIndirectStaticAccess, getSeverityString(IndirectStaticAccess)); 
-		optionsMap.put(OPTION_ReportIncompatibleNonInheritedInterfaceMethod, getSeverityString(IncompatibleNonInheritedInterfaceMethod)); 
-		optionsMap.put(OPTION_ReportUnusedPrivateMember, getSeverityString(UnusedPrivateMember)); 
-		optionsMap.put(OPTION_ReportLocalVariableHiding, getSeverityString(LocalVariableHiding)); 
-		optionsMap.put(OPTION_ReportFieldHiding, getSeverityString(FieldHiding)); 
-		optionsMap.put(OPTION_ReportTypeParameterHiding, getSeverityString(TypeParameterHiding)); 
-		optionsMap.put(OPTION_ReportPossibleAccidentalBooleanAssignment, getSeverityString(AccidentalBooleanAssign)); 
-		optionsMap.put(OPTION_ReportEmptyStatement, getSeverityString(EmptyStatement)); 
-		optionsMap.put(OPTION_ReportAssertIdentifier, getSeverityString(AssertUsedAsAnIdentifier)); 
-		optionsMap.put(OPTION_ReportEnumIdentifier, getSeverityString(EnumUsedAsAnIdentifier)); 
-		optionsMap.put(OPTION_ReportUndocumentedEmptyBlock, getSeverityString(UndocumentedEmptyBlock)); 
-		optionsMap.put(OPTION_ReportUnnecessaryTypeCheck, getSeverityString(UnnecessaryTypeCheck)); 
-		optionsMap.put(OPTION_ReportUnnecessaryElse, getSeverityString(UnnecessaryElse)); 
-		optionsMap.put(OPTION_ReportAutoboxing, getSeverityString(Autoboxing)); 
-		optionsMap.put(OPTION_ReportAnnotationSuperInterface, getSeverityString(AnnotationSuperInterface)); 
-		optionsMap.put(OPTION_ReportIncompleteEnumSwitch, getSeverityString(IncompleteEnumSwitch)); 
+		optionsMap.put(OPTION_DocCommentSupport, this.docCommentSupport ? ENABLED : DISABLED);
+		optionsMap.put(OPTION_ReportMethodWithConstructorName, getSeverityString(MethodWithConstructorName));
+		optionsMap.put(OPTION_ReportOverridingPackageDefaultMethod, getSeverityString(OverriddenPackageDefaultMethod));
+		optionsMap.put(OPTION_ReportDeprecation, getSeverityString(UsingDeprecatedAPI));
+		optionsMap.put(OPTION_ReportDeprecationInDeprecatedCode, this.reportDeprecationInsideDeprecatedCode ? ENABLED : DISABLED);
+		optionsMap.put(OPTION_ReportDeprecationWhenOverridingDeprecatedMethod, this.reportDeprecationWhenOverridingDeprecatedMethod ? ENABLED : DISABLED);
+		optionsMap.put(OPTION_ReportHiddenCatchBlock, getSeverityString(MaskedCatchBlock));
+		optionsMap.put(OPTION_ReportUnusedLocal, getSeverityString(UnusedLocalVariable));
+		optionsMap.put(OPTION_ReportUnusedParameter, getSeverityString(UnusedArgument));
+		optionsMap.put(OPTION_ReportUnusedImport, getSeverityString(UnusedImport));
+		optionsMap.put(OPTION_ReportSyntheticAccessEmulation, getSeverityString(AccessEmulation));
+		optionsMap.put(OPTION_ReportNoEffectAssignment, getSeverityString(NoEffectAssignment));
+		optionsMap.put(OPTION_ReportNonExternalizedStringLiteral, getSeverityString(NonExternalizedString));
+		optionsMap.put(OPTION_ReportNoImplicitStringConversion, getSeverityString(NoImplicitStringConversion));
+		optionsMap.put(OPTION_ReportNonStaticAccessToStatic, getSeverityString(NonStaticAccessToStatic));
+		optionsMap.put(OPTION_ReportIndirectStaticAccess, getSeverityString(IndirectStaticAccess));
+		optionsMap.put(OPTION_ReportIncompatibleNonInheritedInterfaceMethod, getSeverityString(IncompatibleNonInheritedInterfaceMethod));
+		optionsMap.put(OPTION_ReportUnusedPrivateMember, getSeverityString(UnusedPrivateMember));
+		optionsMap.put(OPTION_ReportLocalVariableHiding, getSeverityString(LocalVariableHiding));
+		optionsMap.put(OPTION_ReportFieldHiding, getSeverityString(FieldHiding));
+		optionsMap.put(OPTION_ReportTypeParameterHiding, getSeverityString(TypeHiding));
+		optionsMap.put(OPTION_ReportPossibleAccidentalBooleanAssignment, getSeverityString(AccidentalBooleanAssign));
+		optionsMap.put(OPTION_ReportEmptyStatement, getSeverityString(EmptyStatement));
+		optionsMap.put(OPTION_ReportAssertIdentifier, getSeverityString(AssertUsedAsAnIdentifier));
+		optionsMap.put(OPTION_ReportEnumIdentifier, getSeverityString(EnumUsedAsAnIdentifier));
+		optionsMap.put(OPTION_ReportUndocumentedEmptyBlock, getSeverityString(UndocumentedEmptyBlock));
+		optionsMap.put(OPTION_ReportUnnecessaryTypeCheck, getSeverityString(UnnecessaryTypeCheck));
+		optionsMap.put(OPTION_ReportUnnecessaryElse, getSeverityString(UnnecessaryElse));
+		optionsMap.put(OPTION_ReportAutoboxing, getSeverityString(AutoBoxing));
+		optionsMap.put(OPTION_ReportAnnotationSuperInterface, getSeverityString(AnnotationSuperInterface));
+		optionsMap.put(OPTION_ReportIncompleteEnumSwitch, getSeverityString(IncompleteEnumSwitch));
 		optionsMap.put(OPTION_ReportInvalidJavadoc, getSeverityString(InvalidJavadoc));
 		optionsMap.put(OPTION_ReportInvalidJavadocTagsVisibility, getVisibilityString(this.reportInvalidJavadocTagsVisibility));
 		optionsMap.put(OPTION_ReportInvalidJavadocTags, this.reportInvalidJavadocTags ? ENABLED : DISABLED);
@@ -359,43 +395,195 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		optionsMap.put(OPTION_ReportMissingJavadocCommentsOverriding, this.reportMissingJavadocCommentsOverriding ? ENABLED : DISABLED);
 		optionsMap.put(OPTION_ReportFinallyBlockNotCompletingNormally, getSeverityString(FinallyBlockNotCompleting));
 		optionsMap.put(OPTION_ReportUnusedDeclaredThrownException, getSeverityString(UnusedDeclaredThrownException));
-		optionsMap.put(OPTION_ReportUnusedDeclaredThrownExceptionWhenOverriding, this.reportUnusedDeclaredThrownExceptionWhenOverriding ? ENABLED : DISABLED); 
+		optionsMap.put(OPTION_ReportUnusedDeclaredThrownExceptionWhenOverriding, this.reportUnusedDeclaredThrownExceptionWhenOverriding ? ENABLED : DISABLED);
 		optionsMap.put(OPTION_ReportUnqualifiedFieldAccess, getSeverityString(UnqualifiedFieldAccess));
 		optionsMap.put(OPTION_ReportUncheckedTypeOperation, getSeverityString(UncheckedTypeOperation));
+		optionsMap.put(OPTION_ReportRawTypeReference, getSeverityString(RawTypeReference));
 		optionsMap.put(OPTION_ReportFinalParameterBound, getSeverityString(FinalParameterBound));
 		optionsMap.put(OPTION_ReportMissingSerialVersion, getSeverityString(MissingSerialVersion));
 		optionsMap.put(OPTION_ReportForbiddenReference, getSeverityString(ForbiddenReference));
 		optionsMap.put(OPTION_ReportDiscouragedReference, getSeverityString(DiscouragedReference));
-		optionsMap.put(OPTION_ReportVarargsArgumentNeedCast, getSeverityString(VarargsArgumentNeedCast)); 
+		optionsMap.put(OPTION_ReportVarargsArgumentNeedCast, getSeverityString(VarargsArgumentNeedCast));
 		optionsMap.put(OPTION_ReportMissingOverrideAnnotation, getSeverityString(MissingOverrideAnnotation));
 		optionsMap.put(OPTION_ReportMissingDeprecatedAnnotation, getSeverityString(MissingDeprecatedAnnotation));
 		optionsMap.put(OPTION_ReportIncompleteEnumSwitch, getSeverityString(IncompleteEnumSwitch));
-		optionsMap.put(OPTION_Compliance, versionFromJdkLevel(this.complianceLevel)); 
-		optionsMap.put(OPTION_Source, versionFromJdkLevel(this.sourceLevel)); 
-		optionsMap.put(OPTION_TargetPlatform, versionFromJdkLevel(this.targetJDK)); 
+		optionsMap.put(OPTION_ReportUnusedLabel, getSeverityString(UnusedLabel));
+		optionsMap.put(OPTION_Compliance, versionFromJdkLevel(this.complianceLevel));
+		optionsMap.put(OPTION_Source, versionFromJdkLevel(this.sourceLevel));
+		optionsMap.put(OPTION_TargetPlatform, versionFromJdkLevel(this.targetJDK));
+		optionsMap.put(OPTION_FatalOptionalError, this.treatOptionalErrorAsFatal ? ENABLED : DISABLED);
 		if (this.defaultEncoding != null) {
-			optionsMap.put(OPTION_Encoding, this.defaultEncoding); 
+			optionsMap.put(OPTION_Encoding, this.defaultEncoding);
 		}
-		optionsMap.put(OPTION_TaskTags, this.taskTags == null ? "" : new String(CharOperation.concatWith(this.taskTags,','))); //$NON-NLS-1$
-		optionsMap.put(OPTION_TaskPriorities, this.taskPriorites == null ? "" : new String(CharOperation.concatWith(this.taskPriorites,','))); //$NON-NLS-1$
+		optionsMap.put(OPTION_TaskTags, this.taskTags == null ? Util.EMPTY_STRING : new String(CharOperation.concatWith(this.taskTags,',')));
+		optionsMap.put(OPTION_TaskPriorities, this.taskPriorites == null ? Util.EMPTY_STRING : new String(CharOperation.concatWith(this.taskPriorites,',')));
 		optionsMap.put(OPTION_TaskCaseSensitive, this.isTaskCaseSensitive ? ENABLED : DISABLED);
-		optionsMap.put(OPTION_ReportUnusedParameterWhenImplementingAbstract, this.reportUnusedParameterWhenImplementingAbstract ? ENABLED : DISABLED); 
-		optionsMap.put(OPTION_ReportUnusedParameterWhenOverridingConcrete, this.reportUnusedParameterWhenOverridingConcrete ? ENABLED : DISABLED); 
-		optionsMap.put(OPTION_ReportSpecialParameterHidingField, this.reportSpecialParameterHidingField ? ENABLED : DISABLED); 
+		optionsMap.put(OPTION_ReportUnusedParameterWhenImplementingAbstract, this.reportUnusedParameterWhenImplementingAbstract ? ENABLED : DISABLED);
+		optionsMap.put(OPTION_ReportUnusedParameterWhenOverridingConcrete, this.reportUnusedParameterWhenOverridingConcrete ? ENABLED : DISABLED);
+		optionsMap.put(OPTION_ReportUnusedParameterIncludeDocCommentReference, this.reportUnusedParameterIncludeDocCommentReference ? ENABLED : DISABLED);
+		optionsMap.put(OPTION_ReportSpecialParameterHidingField, this.reportSpecialParameterHidingField ? ENABLED : DISABLED);
 		optionsMap.put(OPTION_MaxProblemPerUnit, String.valueOf(this.maxProblemsPerUnit));
-		optionsMap.put(OPTION_InlineJsr, this.inlineJsrBytecode ? ENABLED : DISABLED); 
+		optionsMap.put(OPTION_InlineJsr, this.inlineJsrBytecode ? ENABLED : DISABLED);
 		optionsMap.put(OPTION_ReportNullReference, getSeverityString(NullReference));
-		optionsMap.put(OPTION_SuppressWarnings, this.suppressWarnings ? ENABLED : DISABLED); 
+		optionsMap.put(OPTION_ReportPotentialNullReference, getSeverityString(PotentialNullReference));
+		optionsMap.put(OPTION_ReportRedundantNullCheck, getSeverityString(RedundantNullCheck));
+		optionsMap.put(OPTION_SuppressWarnings, this.suppressWarnings ? ENABLED : DISABLED);
 		optionsMap.put(OPTION_ReportUnhandledWarningToken, getSeverityString(UnhandledWarningToken));
-		return optionsMap;		
+		optionsMap.put(OPTION_ReportParameterAssignment, getSeverityString(ParameterAssignment));
+		optionsMap.put(OPTION_ReportFallthroughCase, getSeverityString(FallthroughCase));
+		optionsMap.put(OPTION_ReportOverridingMethodWithoutSuperInvocation, getSeverityString(OverridingMethodWithoutSuperInvocation));
+		optionsMap.put(OPTION_GenerateClassFiles, this.generateClassFiles ? ENABLED : DISABLED);
+		optionsMap.put(OPTION_Process_Annotations, this.processAnnotations ? ENABLED : DISABLED);
+		return optionsMap;
 	}
-	
+
+	/**
+	 * Return the most specific option key controlling this irritant. Note that in some case, some irritant is controlled by
+	 * other master options (e.g. javadoc, deprecation, etc.).
+	 * This information is intended for grouping purpose (several problems governed by a rule)
+	 */
+	public static String optionKeyFromIrritant(long irritant) {
+		// keep in sync with warningTokens and warningTokenToIrritant
+		int irritantInt = (int) irritant;
+		if (irritantInt == irritant) {
+			switch (irritantInt) {
+				case (int) MethodWithConstructorName :
+					return OPTION_ReportMethodWithConstructorName;
+				case (int) OverriddenPackageDefaultMethod  :
+					return OPTION_ReportOverridingPackageDefaultMethod;
+				case (int) UsingDeprecatedAPI :
+				case (int) (InvalidJavadoc | UsingDeprecatedAPI) :
+					return OPTION_ReportDeprecation;
+				case (int) MaskedCatchBlock  :
+					return OPTION_ReportHiddenCatchBlock;
+				case (int) UnusedLocalVariable :
+					return OPTION_ReportUnusedLocal;
+				case (int) UnusedArgument :
+					return OPTION_ReportUnusedParameter;
+				case (int) NoImplicitStringConversion :
+					return OPTION_ReportNoImplicitStringConversion;
+				case (int) AccessEmulation :
+					return OPTION_ReportSyntheticAccessEmulation;
+				case (int) NonExternalizedString :
+					return OPTION_ReportNonExternalizedStringLiteral;
+				case (int) AssertUsedAsAnIdentifier :
+					return OPTION_ReportAssertIdentifier;
+				case (int) UnusedImport :
+					return OPTION_ReportUnusedImport;
+				case (int) NonStaticAccessToStatic :
+					return OPTION_ReportNonStaticAccessToStatic;
+				case (int) Task :
+					return OPTION_TaskTags;
+				case (int) NoEffectAssignment :
+					return OPTION_ReportNoEffectAssignment;
+				case (int) IncompatibleNonInheritedInterfaceMethod :
+					return OPTION_ReportIncompatibleNonInheritedInterfaceMethod;
+				case (int) UnusedPrivateMember :
+					return OPTION_ReportUnusedPrivateMember;
+				case (int) LocalVariableHiding :
+					return OPTION_ReportLocalVariableHiding;
+				case (int) FieldHiding :
+					return OPTION_ReportFieldHiding;
+				case (int) AccidentalBooleanAssign :
+					return OPTION_ReportPossibleAccidentalBooleanAssignment;
+				case (int) EmptyStatement :
+					return OPTION_ReportEmptyStatement;
+				case (int) MissingJavadocComments  :
+					return OPTION_ReportMissingJavadocComments;
+				case (int) MissingJavadocTags :
+					return OPTION_ReportMissingJavadocTags;
+				case (int) UnqualifiedFieldAccess :
+					return OPTION_ReportUnqualifiedFieldAccess;
+				case (int) UnusedDeclaredThrownException :
+					return OPTION_ReportUnusedDeclaredThrownExceptionWhenOverriding;
+				case (int) FinallyBlockNotCompleting :
+					return OPTION_ReportFinallyBlockNotCompletingNormally;
+				case (int) InvalidJavadoc :
+					return OPTION_ReportInvalidJavadoc;
+				case (int) UnnecessaryTypeCheck :
+					return OPTION_ReportUnnecessaryTypeCheck;
+				case (int) UndocumentedEmptyBlock :
+					return OPTION_ReportUndocumentedEmptyBlock;
+				case (int) IndirectStaticAccess :
+					return OPTION_ReportIndirectStaticAccess;
+				case (int) UnnecessaryElse  :
+					return OPTION_ReportUnnecessaryElse;
+				case (int) UncheckedTypeOperation :
+					return OPTION_ReportUncheckedTypeOperation;
+				case (int) FinalParameterBound :
+					return OPTION_ReportFinalParameterBound;
+			}
+		} else {
+			irritantInt = (int)(irritant >>> 32);
+			switch (irritantInt) {
+				case (int)(MissingSerialVersion >>> 32) :
+					return OPTION_ReportMissingSerialVersion ;
+				case (int)(EnumUsedAsAnIdentifier >>> 32) :
+					return OPTION_ReportEnumIdentifier;
+				case (int)(ForbiddenReference >>> 32) :
+					return OPTION_ReportForbiddenReference;
+				case (int)(VarargsArgumentNeedCast >>> 32) :
+					return OPTION_ReportVarargsArgumentNeedCast;
+				case (int)(NullReference >>> 32) :
+					return OPTION_ReportNullReference;
+				case (int)(PotentialNullReference >>> 32) :
+					return OPTION_ReportPotentialNullReference;
+				case (int)(RedundantNullCheck >>> 32) :
+					return OPTION_ReportRedundantNullCheck;
+				case (int)(AutoBoxing >>> 32) :
+					return OPTION_ReportAutoboxing;
+				case (int)(AnnotationSuperInterface >>> 32) :
+					return OPTION_ReportAnnotationSuperInterface;
+				case (int)(TypeHiding >>> 32) :
+					return OPTION_ReportTypeParameterHiding;
+				case (int)(MissingOverrideAnnotation >>> 32) :
+					return OPTION_ReportMissingOverrideAnnotation;
+				case (int)(IncompleteEnumSwitch >>> 32) :
+					return OPTION_ReportIncompleteEnumSwitch;
+				case (int)(MissingDeprecatedAnnotation >>> 32) :
+					return OPTION_ReportMissingDeprecatedAnnotation;
+				case (int)(DiscouragedReference >>> 32) :
+					return OPTION_ReportDiscouragedReference;
+				case (int)(UnhandledWarningToken >>> 32) :
+					return OPTION_ReportUnhandledWarningToken;
+				case (int)(RawTypeReference >>> 32) :
+					return OPTION_ReportRawTypeReference;
+				case (int)(UnusedLabel >>> 32) :
+					return OPTION_ReportUnusedLabel;
+				case (int)(ParameterAssignment>>> 32) :
+					return OPTION_ReportParameterAssignment;
+				case (int)(FallthroughCase >>> 32) :
+					return OPTION_ReportFallthroughCase;
+				case (int)(OverridingMethodWithoutSuperInvocation >>> 32) :
+					return OPTION_ReportOverridingMethodWithoutSuperInvocation;
+			}
+		}
+		return null;
+	}
+
+	public static long optionKeyToIrritant(String optionName) {
+		if (OptionToIrritants == null) {
+			long irritant = 0;
+			for (int i = 0; i < 64; i++) {
+				irritant <<= 1;
+				String optionKey = optionKeyFromIrritant(irritant);
+				if (optionKey == null) continue;
+				OptionToIrritants.put(optionKey, new Long(irritant));
+			}
+		}
+		Long irritant = (Long)OptionToIrritants.get(optionName);
+		return irritant == null ? 0 : irritant.longValue();
+	}
+
 	public int getSeverity(long irritant) {
-		if((this.errorThreshold & irritant) != 0)
-			return Error;
+		if((this.errorThreshold & irritant) != 0) {
+			return this.treatOptionalErrorAsFatal
+				? ProblemSeverities.Error | ProblemSeverities.Optional | ProblemSeverities.Fatal
+				: ProblemSeverities.Error | ProblemSeverities.Optional;
+		}
 		if((this.warningThreshold & irritant) != 0)
-			return Warning;
-		return Ignore;
+			return ProblemSeverities.Warning | ProblemSeverities.Optional;
+		return ProblemSeverities.Ignore;
 	}
 
 	public String getSeverityString(long irritant) {
@@ -405,42 +593,42 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 			return ERROR;
 		return IGNORE;
 	}
-	
+
 	public String getVisibilityString(int level) {
-		switch (level) {
-			case AccPublic:
+		switch (level & ExtraCompilerModifiers.AccVisibilityMASK) {
+			case ClassFileConstants.AccPublic:
 				return PUBLIC;
-			case AccProtected:
+			case ClassFileConstants.AccProtected:
 				return PROTECTED;
-			case AccPrivate:
+			case ClassFileConstants.AccPrivate:
 				return PRIVATE;
 			default:
 				return DEFAULT;
 		}
 	}
-	
+
 	public void set(Map optionsMap) {
 
 		Object optionValue;
 		if ((optionValue = optionsMap.get(OPTION_LocalVariableAttribute)) != null) {
 			if (GENERATE.equals(optionValue)) {
-				this.produceDebugAttributes |= Vars;
+				this.produceDebugAttributes |= ClassFileConstants.ATTR_VARS;
 			} else if (DO_NOT_GENERATE.equals(optionValue)) {
-				this.produceDebugAttributes &= ~Vars;
+				this.produceDebugAttributes &= ~ClassFileConstants.ATTR_VARS;
 			}
 		}
 		if ((optionValue = optionsMap.get(OPTION_LineNumberAttribute)) != null) {
 			if (GENERATE.equals(optionValue)) {
-				this.produceDebugAttributes |= Lines;
+				this.produceDebugAttributes |= ClassFileConstants.ATTR_LINES;
 			} else if (DO_NOT_GENERATE.equals(optionValue)) {
-				this.produceDebugAttributes &= ~Lines;
+				this.produceDebugAttributes &= ~ClassFileConstants.ATTR_LINES;
 			}
 		}
 		if ((optionValue = optionsMap.get(OPTION_SourceFileAttribute)) != null) {
 			if (GENERATE.equals(optionValue)) {
-				this.produceDebugAttributes |= Source;
+				this.produceDebugAttributes |= ClassFileConstants.ATTR_SOURCE;
 			} else if (DO_NOT_GENERATE.equals(optionValue)) {
-				this.produceDebugAttributes &= ~Source;
+				this.produceDebugAttributes &= ~ClassFileConstants.ATTR_SOURCE;
 			}
 		}
 		if ((optionValue = optionsMap.get(OPTION_PreserveUnusedLocal)) != null) {
@@ -482,14 +670,14 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		if ((optionValue = optionsMap.get(OPTION_TargetPlatform)) != null) {
 			long level = versionToJdkLevel(optionValue);
 			if (level != 0) this.targetJDK = level;
-			if (this.targetJDK >= JDK1_5) this.inlineJsrBytecode = true; // forced in 1.5 mode
+			if (this.targetJDK >= ClassFileConstants.JDK1_5) this.inlineJsrBytecode = true; // forced from 1.5 mode on
 		}
 		if ((optionValue = optionsMap.get(OPTION_Encoding)) != null) {
 			if (optionValue instanceof String) {
 				this.defaultEncoding = null;
 				String stringValue = (String) optionValue;
 				if (stringValue.length() > 0){
-					try { 
+					try {
 						new InputStreamReader(new ByteArrayInputStream(new byte[0]), stringValue);
 						this.defaultEncoding = stringValue;
 					} catch(UnsupportedEncodingException e){
@@ -497,10 +685,6 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 					}
 				}
 			}
-		}
-		if ((optionValue = optionsMap.get(OPTION_PrivateConstructorAccess)) != null) {
-			long level = versionToJdkLevel(optionValue);
-			if (level >= JDK1_3) this.isPrivateConstructorAccessChangingVisibility = true;
 		}
 		if ((optionValue = optionsMap.get(OPTION_ReportUnusedParameterWhenImplementingAbstract)) != null) {
 			if (ENABLED.equals(optionValue)) {
@@ -516,6 +700,13 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 				this.reportUnusedParameterWhenOverridingConcrete = false;
 			}
 		}
+		if ((optionValue = optionsMap.get(OPTION_ReportUnusedParameterIncludeDocCommentReference)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.reportUnusedParameterIncludeDocCommentReference = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.reportUnusedParameterIncludeDocCommentReference = false;
+			}
+		}		
 		if ((optionValue = optionsMap.get(OPTION_ReportSpecialParameterHidingField)) != null) {
 			if (ENABLED.equals(optionValue)) {
 				this.reportSpecialParameterHidingField = true;
@@ -531,7 +722,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 					if (val >= 0) this.maxProblemsPerUnit = val;
 				} catch(NumberFormatException e){
 					// ignore ill-formatted limit
-				}				
+				}
 			}
 		}
 		if ((optionValue = optionsMap.get(OPTION_TaskTags)) != null) {
@@ -562,7 +753,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 			}
 		}
 		if ((optionValue = optionsMap.get(OPTION_InlineJsr)) != null) {
-			if (this.targetJDK < JDK1_5) { // only optional if target < 1.5 (inlining on from 1.5 on)
+			if (this.targetJDK < ClassFileConstants.JDK1_5) { // only optional if target < 1.5 (inlining on from 1.5 on)
 				if (ENABLED.equals(optionValue)) {
 					this.inlineJsrBytecode = true;
 				} else if (DISABLED.equals(optionValue)) {
@@ -576,7 +767,14 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 			} else if (DISABLED.equals(optionValue)) {
 				this.suppressWarnings = false;
 			}
-		}		
+		}
+		if ((optionValue = optionsMap.get(OPTION_FatalOptionalError)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.treatOptionalErrorAsFatal = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.treatOptionalErrorAsFatal = false;
+			}
+		}
 		if ((optionValue = optionsMap.get(OPTION_ReportMethodWithConstructorName)) != null) updateSeverity(MethodWithConstructorName, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportOverridingPackageDefaultMethod)) != null) updateSeverity(OverriddenPackageDefaultMethod, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportDeprecation)) != null) updateSeverity(UsingDeprecatedAPI, optionValue);
@@ -590,7 +788,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		if ((optionValue = optionsMap.get(OPTION_ReportSyntheticAccessEmulation)) != null) updateSeverity(AccessEmulation, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportLocalVariableHiding)) != null) updateSeverity(LocalVariableHiding, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportFieldHiding)) != null) updateSeverity(FieldHiding, optionValue);
-		if ((optionValue = optionsMap.get(OPTION_ReportTypeParameterHiding)) != null) updateSeverity(TypeParameterHiding, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportTypeParameterHiding)) != null) updateSeverity(TypeHiding, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportPossibleAccidentalBooleanAssignment)) != null) updateSeverity(AccidentalBooleanAssign, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportEmptyStatement)) != null) updateSeverity(EmptyStatement, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportNonExternalizedStringLiteral)) != null) updateSeverity(NonExternalizedString, optionValue);
@@ -606,19 +804,26 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		if ((optionValue = optionsMap.get(OPTION_ReportUnqualifiedFieldAccess)) != null) updateSeverity(UnqualifiedFieldAccess, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportNoEffectAssignment)) != null) updateSeverity(NoEffectAssignment, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportUncheckedTypeOperation)) != null) updateSeverity(UncheckedTypeOperation, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportRawTypeReference)) != null) updateSeverity(RawTypeReference, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportFinalParameterBound)) != null) updateSeverity(FinalParameterBound, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportMissingSerialVersion)) != null) updateSeverity(MissingSerialVersion, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportForbiddenReference)) != null) updateSeverity(ForbiddenReference, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportDiscouragedReference)) != null) updateSeverity(DiscouragedReference, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportVarargsArgumentNeedCast)) != null) updateSeverity(VarargsArgumentNeedCast, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportNullReference)) != null) updateSeverity(NullReference, optionValue);
-		if ((optionValue = optionsMap.get(OPTION_ReportAutoboxing)) != null) updateSeverity(Autoboxing, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportPotentialNullReference)) != null) updateSeverity(PotentialNullReference, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportRedundantNullCheck)) != null) updateSeverity(RedundantNullCheck, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportAutoboxing)) != null) updateSeverity(AutoBoxing, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportAnnotationSuperInterface)) != null) updateSeverity(AnnotationSuperInterface, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportMissingOverrideAnnotation)) != null) updateSeverity(MissingOverrideAnnotation, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportMissingDeprecatedAnnotation)) != null) updateSeverity(MissingDeprecatedAnnotation, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportIncompleteEnumSwitch)) != null) updateSeverity(IncompleteEnumSwitch, optionValue);
 		if ((optionValue = optionsMap.get(OPTION_ReportUnhandledWarningToken)) != null) updateSeverity(UnhandledWarningToken, optionValue);
-		
+		if ((optionValue = optionsMap.get(OPTION_ReportUnusedLabel)) != null) updateSeverity(UnusedLabel, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportParameterAssignment)) != null) updateSeverity(ParameterAssignment, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportFallthroughCase)) != null) updateSeverity(FallthroughCase, optionValue);
+		if ((optionValue = optionsMap.get(OPTION_ReportOverridingMethodWithoutSuperInvocation)) != null) updateSeverity(OverridingMethodWithoutSuperInvocation, optionValue);
+
 		// Javadoc options
 		if ((optionValue = optionsMap.get(OPTION_DocCommentSupport)) != null) {
 			if (ENABLED.equals(optionValue)) {
@@ -632,13 +837,13 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		}
 		if ( (optionValue = optionsMap.get(OPTION_ReportInvalidJavadocTagsVisibility)) != null) {
 			if (PUBLIC.equals(optionValue)) {
-				this.reportInvalidJavadocTagsVisibility = AccPublic;
+				this.reportInvalidJavadocTagsVisibility = ClassFileConstants.AccPublic;
 			} else if (PROTECTED.equals(optionValue)) {
-				this.reportInvalidJavadocTagsVisibility = AccProtected;
+				this.reportInvalidJavadocTagsVisibility = ClassFileConstants.AccProtected;
 			} else if (DEFAULT.equals(optionValue)) {
-				this.reportInvalidJavadocTagsVisibility = AccDefault;
+				this.reportInvalidJavadocTagsVisibility = ClassFileConstants.AccDefault;
 			} else if (PRIVATE.equals(optionValue)) {
-				this.reportInvalidJavadocTagsVisibility = AccPrivate;
+				this.reportInvalidJavadocTagsVisibility = ClassFileConstants.AccPrivate;
 			}
 		}
 		if ((optionValue = optionsMap.get(OPTION_ReportInvalidJavadocTags)) != null) {
@@ -667,13 +872,13 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		}
 		if ((optionValue = optionsMap.get(OPTION_ReportMissingJavadocTagsVisibility)) != null) {
 			if (PUBLIC.equals(optionValue)) {
-				this.reportMissingJavadocTagsVisibility = AccPublic;
+				this.reportMissingJavadocTagsVisibility = ClassFileConstants.AccPublic;
 			} else if (PROTECTED.equals(optionValue)) {
-				this.reportMissingJavadocTagsVisibility = AccProtected;
+				this.reportMissingJavadocTagsVisibility = ClassFileConstants.AccProtected;
 			} else if (DEFAULT.equals(optionValue)) {
-				this.reportMissingJavadocTagsVisibility = AccDefault;
+				this.reportMissingJavadocTagsVisibility = ClassFileConstants.AccDefault;
 			} else if (PRIVATE.equals(optionValue)) {
-				this.reportMissingJavadocTagsVisibility = AccPrivate;
+				this.reportMissingJavadocTagsVisibility = ClassFileConstants.AccPrivate;
 			}
 		}
 		if ((optionValue = optionsMap.get(OPTION_ReportMissingJavadocTagsOverriding)) != null) {
@@ -688,13 +893,13 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		}
 		if ((optionValue = optionsMap.get(OPTION_ReportMissingJavadocCommentsVisibility)) != null) {
 			if (PUBLIC.equals(optionValue)) {
-				this.reportMissingJavadocCommentsVisibility = AccPublic;
+				this.reportMissingJavadocCommentsVisibility = ClassFileConstants.AccPublic;
 			} else if (PROTECTED.equals(optionValue)) {
-				this.reportMissingJavadocCommentsVisibility = AccProtected;
+				this.reportMissingJavadocCommentsVisibility = ClassFileConstants.AccProtected;
 			} else if (DEFAULT.equals(optionValue)) {
-				this.reportMissingJavadocCommentsVisibility = AccDefault;
+				this.reportMissingJavadocCommentsVisibility = ClassFileConstants.AccDefault;
 			} else if (PRIVATE.equals(optionValue)) {
-				this.reportMissingJavadocCommentsVisibility = AccPrivate;
+				this.reportMissingJavadocCommentsVisibility = ClassFileConstants.AccPrivate;
 			}
 		}
 		if ((optionValue = optionsMap.get(OPTION_ReportMissingJavadocCommentsOverriding)) != null) {
@@ -704,14 +909,31 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 				this.reportMissingJavadocCommentsOverriding = false;
 			}
 		}
+		if ((optionValue = optionsMap.get(OPTION_GenerateClassFiles)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.generateClassFiles = true;
+			} else if (DISABLED.equals(optionValue)) {
+				this.generateClassFiles = false;
+			}
+		}
+		if ((optionValue = optionsMap.get(OPTION_Process_Annotations)) != null) {
+			if (ENABLED.equals(optionValue)) {
+				this.processAnnotations = true;
+				this.storeAnnotations = true; // annotation processing requires annotation to be stored
+				this.docCommentSupport = true;  // annotation processing requires javadoc processing
+			} else if (DISABLED.equals(optionValue)) {
+				this.processAnnotations = false;
+				this.storeAnnotations = false;
+			}
+		}
 	}
 
 	public String toString() {
-	
+
 		StringBuffer buf = new StringBuffer("CompilerOptions:"); //$NON-NLS-1$
-		buf.append("\n\t- local variables debug attributes: ").append((this.produceDebugAttributes & Vars) != 0 ? "ON" : " OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-		buf.append("\n\t- line number debug attributes: ").append((this.produceDebugAttributes & Lines) != 0 ? "ON" : " OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
-		buf.append("\n\t- source debug attributes: ").append((this.produceDebugAttributes & Source) != 0 ? "ON" : " OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+		buf.append("\n\t- local variables debug attributes: ").append((this.produceDebugAttributes & ClassFileConstants.ATTR_VARS) != 0 ? "ON" : " OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+		buf.append("\n\t- line number debug attributes: ").append((this.produceDebugAttributes & ClassFileConstants.ATTR_LINES) != 0 ? "ON" : " OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+		buf.append("\n\t- source debug attributes: ").append((this.produceDebugAttributes & ClassFileConstants.ATTR_SOURCE) != 0 ? "ON" : " OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 		buf.append("\n\t- preserve all local variables: ").append(this.preserveAllLocalVariables ? "ON" : " OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 		buf.append("\n\t- method with constructor name: ").append(getSeverityString(MethodWithConstructorName)); //$NON-NLS-1$
 		buf.append("\n\t- overridden package default method: ").append(getSeverityString(OverriddenPackageDefaultMethod)); //$NON-NLS-1$
@@ -729,7 +951,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		buf.append("\n\t- unused private member: ").append(getSeverityString(UnusedPrivateMember)); //$NON-NLS-1$
 		buf.append("\n\t- local variable hiding another variable: ").append(getSeverityString(LocalVariableHiding)); //$NON-NLS-1$
 		buf.append("\n\t- field hiding another variable: ").append(getSeverityString(FieldHiding)); //$NON-NLS-1$
-		buf.append("\n\t- type parameter hiding another type: ").append(getSeverityString(TypeParameterHiding)); //$NON-NLS-1$
+		buf.append("\n\t- type hiding another type: ").append(getSeverityString(TypeHiding)); //$NON-NLS-1$
 		buf.append("\n\t- possible accidental boolean assignment: ").append(getSeverityString(AccidentalBooleanAssign)); //$NON-NLS-1$
 		buf.append("\n\t- superfluous semicolon: ").append(getSeverityString(EmptyStatement)); //$NON-NLS-1$
 		buf.append("\n\t- uncommented empty block: ").append(getSeverityString(UndocumentedEmptyBlock)); //$NON-NLS-1$
@@ -753,33 +975,41 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 		buf.append("\n\t- JDK compliance level: "+ versionFromJdkLevel(this.complianceLevel)); //$NON-NLS-1$
 		buf.append("\n\t- JDK source level: "+ versionFromJdkLevel(this.sourceLevel)); //$NON-NLS-1$
 		buf.append("\n\t- JDK target level: "+ versionFromJdkLevel(this.targetJDK)); //$NON-NLS-1$
-		buf.append("\n\t- private constructor access: ").append(this.isPrivateConstructorAccessChangingVisibility ? "extra argument" : "make default access"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 		buf.append("\n\t- verbose : ").append(this.verbose ? "ON" : "OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 		buf.append("\n\t- produce reference info : ").append(this.produceReferenceInfo ? "ON" : "OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 		buf.append("\n\t- parse literal expressions as constants : ").append(this.parseLiteralExpressionsAsConstants ? "ON" : "OFF"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 		buf.append("\n\t- encoding : ").append(this.defaultEncoding == null ? "<default>" : this.defaultEncoding); //$NON-NLS-1$ //$NON-NLS-2$
-		buf.append("\n\t- task tags: ").append(this.taskTags == null ? "" : new String(CharOperation.concatWith(this.taskTags,',')));  //$NON-NLS-1$ //$NON-NLS-2$
-		buf.append("\n\t- task priorities : ").append(this.taskPriorites == null ? "" : new String(CharOperation.concatWith(this.taskPriorites,','))); //$NON-NLS-1$ //$NON-NLS-2$
+		buf.append("\n\t- task tags: ").append(this.taskTags == null ? Util.EMPTY_STRING : new String(CharOperation.concatWith(this.taskTags,',')));  //$NON-NLS-1$
+		buf.append("\n\t- task priorities : ").append(this.taskPriorites == null ? Util.EMPTY_STRING : new String(CharOperation.concatWith(this.taskPriorites,','))); //$NON-NLS-1$
 		buf.append("\n\t- report deprecation inside deprecated code : ").append(this.reportDeprecationInsideDeprecatedCode ? ENABLED : DISABLED); //$NON-NLS-1$
 		buf.append("\n\t- report deprecation when overriding deprecated method : ").append(this.reportDeprecationWhenOverridingDeprecatedMethod ? ENABLED : DISABLED); //$NON-NLS-1$
 		buf.append("\n\t- report unused parameter when implementing abstract method : ").append(this.reportUnusedParameterWhenImplementingAbstract ? ENABLED : DISABLED); //$NON-NLS-1$
 		buf.append("\n\t- report unused parameter when overriding concrete method : ").append(this.reportUnusedParameterWhenOverridingConcrete ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t- report unused parameter include doc comment reference : ").append(this.reportUnusedParameterIncludeDocCommentReference ? ENABLED : DISABLED); //$NON-NLS-1$
 		buf.append("\n\t- report constructor/setter parameter hiding existing field : ").append(this.reportSpecialParameterHidingField ? ENABLED : DISABLED); //$NON-NLS-1$
 		buf.append("\n\t- inline JSR bytecode : ").append(this.inlineJsrBytecode ? ENABLED : DISABLED); //$NON-NLS-1$
 		buf.append("\n\t- unsafe type operation: ").append(getSeverityString(UncheckedTypeOperation)); //$NON-NLS-1$
+		buf.append("\n\t- unsafe raw type: ").append(getSeverityString(RawTypeReference)); //$NON-NLS-1$
 		buf.append("\n\t- final bound for type parameter: ").append(getSeverityString(FinalParameterBound)); //$NON-NLS-1$
 		buf.append("\n\t- missing serialVersionUID: ").append(getSeverityString(MissingSerialVersion)); //$NON-NLS-1$
 		buf.append("\n\t- varargs argument need cast: ").append(getSeverityString(VarargsArgumentNeedCast)); //$NON-NLS-1$
 		buf.append("\n\t- forbidden reference to type with access restriction: ").append(getSeverityString(ForbiddenReference)); //$NON-NLS-1$
 		buf.append("\n\t- discouraged reference to type with access restriction: ").append(getSeverityString(DiscouragedReference)); //$NON-NLS-1$
 		buf.append("\n\t- null reference: ").append(getSeverityString(NullReference)); //$NON-NLS-1$
-		buf.append("\n\t- autoboxing: ").append(getSeverityString(Autoboxing)); //$NON-NLS-1$
+		buf.append("\n\t- potential null reference: ").append(getSeverityString(PotentialNullReference)); //$NON-NLS-1$
+		buf.append("\n\t- redundant null check: ").append(getSeverityString(RedundantNullCheck)); //$NON-NLS-1$
+		buf.append("\n\t- autoboxing: ").append(getSeverityString(AutoBoxing)); //$NON-NLS-1$
 		buf.append("\n\t- annotation super interface: ").append(getSeverityString(AnnotationSuperInterface)); //$NON-NLS-1$
-		buf.append("\n\t- missing @Override annotation: ").append(getSeverityString(MissingOverrideAnnotation)); //$NON-NLS-1$		
-		buf.append("\n\t- missing @Deprecated annotation: ").append(getSeverityString(MissingDeprecatedAnnotation)); //$NON-NLS-1$		
+		buf.append("\n\t- missing @Override annotation: ").append(getSeverityString(MissingOverrideAnnotation)); //$NON-NLS-1$
+		buf.append("\n\t- missing @Deprecated annotation: ").append(getSeverityString(MissingDeprecatedAnnotation)); //$NON-NLS-1$
 		buf.append("\n\t- incomplete enum switch: ").append(getSeverityString(IncompleteEnumSwitch)); //$NON-NLS-1$
 		buf.append("\n\t- suppress warnings: ").append(this.suppressWarnings ? ENABLED : DISABLED); //$NON-NLS-1$
 		buf.append("\n\t- unhandled warning token: ").append(getSeverityString(UnhandledWarningToken)); //$NON-NLS-1$
+		buf.append("\n\t- unused label: ").append(getSeverityString(UnusedLabel)); //$NON-NLS-1$
+		buf.append("\n\t- treat optional error as fatal: ").append(this.treatOptionalErrorAsFatal ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t- parameter assignment: ").append(getSeverityString(ParameterAssignment)); //$NON-NLS-1$
+		buf.append("\n\t- generate class files: ").append(this.generateClassFiles ? ENABLED : DISABLED); //$NON-NLS-1$
+		buf.append("\n\t- process annotations: ").append(this.processAnnotations ? ENABLED : DISABLED); //$NON-NLS-1$
 		return buf.toString();
 	}
 
@@ -794,40 +1024,76 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 			this.errorThreshold &= ~irritant;
 			this.warningThreshold &= ~irritant;
 		}
-	}				
+	}
 	public static long versionToJdkLevel(Object versionID) {
-		if (VERSION_1_1.equals(versionID)) {
-			return JDK1_1;
-		} else if (VERSION_1_2.equals(versionID)) {
-			return JDK1_2;
-		} else if (VERSION_1_3.equals(versionID)) {
-			return JDK1_3;
-		} else if (VERSION_1_4.equals(versionID)) {
-			return JDK1_4;
-		} else if (VERSION_1_5.equals(versionID)) {
-			return JDK1_5;
+		if (versionID instanceof String) {
+			String version = (String) versionID;
+			// verification is optimized for all versions with same length and same "1." prefix
+			if (version.length() == 3 && version.charAt(0) == '1' && version.charAt(1) == '.') {
+				switch (version.charAt(2)) {
+					case '1':
+						return ClassFileConstants.JDK1_1;
+					case '2':
+						return ClassFileConstants.JDK1_2;
+					case '3':
+						return ClassFileConstants.JDK1_3;
+					case '4':
+						return ClassFileConstants.JDK1_4;
+					case '5':
+						return ClassFileConstants.JDK1_5;
+					case '6':
+						return ClassFileConstants.JDK1_6;
+					case '7':
+						return ClassFileConstants.JDK1_7;
+					default:
+						return 0; // unknown
+				}
+			}
+			if (VERSION_JSR14.equals(versionID)) {
+				return ClassFileConstants.JDK1_4;
+			}
 		}
 		return 0; // unknown
 	}
 
 	public static String versionFromJdkLevel(long jdkLevel) {
-		if (jdkLevel == JDK1_1) {
-			return VERSION_1_1;
-		} else if (jdkLevel == JDK1_2) {
-			return VERSION_1_2;
-		} else if (jdkLevel == JDK1_3) {
-			return VERSION_1_3;
-		} else if (jdkLevel == JDK1_4) {
-			return VERSION_1_4;
-		} else if (jdkLevel == JDK1_5) {
-			return VERSION_1_5;
+		switch ((int)(jdkLevel>>16)) {
+			case ClassFileConstants.MAJOR_VERSION_1_1 :
+				if (jdkLevel == ClassFileConstants.JDK1_1)
+					return VERSION_1_1;
+				break;
+			case ClassFileConstants.MAJOR_VERSION_1_2 :
+				if (jdkLevel == ClassFileConstants.JDK1_2)
+					return VERSION_1_2;
+				break;
+			case ClassFileConstants.MAJOR_VERSION_1_3 :
+				if (jdkLevel == ClassFileConstants.JDK1_3)
+					return VERSION_1_3;
+				break;
+			case ClassFileConstants.MAJOR_VERSION_1_4 :
+				if (jdkLevel == ClassFileConstants.JDK1_4)
+					return VERSION_1_4;
+				break;
+			case ClassFileConstants.MAJOR_VERSION_1_5 :
+				if (jdkLevel == ClassFileConstants.JDK1_5)
+					return VERSION_1_5;
+				break;
+			case ClassFileConstants.MAJOR_VERSION_1_6 :
+				if (jdkLevel == ClassFileConstants.JDK1_6)
+					return VERSION_1_6;
+				break;
+			case ClassFileConstants.MAJOR_VERSION_1_7 :
+				if (jdkLevel == ClassFileConstants.JDK1_7)
+					return VERSION_1_7;
+				break;
 		}
-		return ""; // unknown version //$NON-NLS-1$
+		return Util.EMPTY_STRING; // unknown version
 	}
-	
+
 	/**
 	 * Return all warning option names for use as keys in compiler options maps.
 	 * @return all warning option names
+	 * TODO (maxime) revise for ensuring completeness
 	 */
 	public static String[] warningOptionNames() {
 		String[] result = {
@@ -838,6 +1104,7 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 			OPTION_ReportDiscouragedReference,
 			OPTION_ReportEmptyStatement,
 			OPTION_ReportEnumIdentifier,
+			OPTION_ReportFallthroughCase,
 			OPTION_ReportFieldHiding,
 			OPTION_ReportFinalParameterBound,
 			OPTION_ReportFinallyBlockNotCompletingNormally,
@@ -859,7 +1126,10 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 			OPTION_ReportNonExternalizedStringLiteral,
 			OPTION_ReportNonStaticAccessToStatic,
 			OPTION_ReportNullReference,
+			OPTION_ReportPotentialNullReference,
+			OPTION_ReportRedundantNullCheck,
 			OPTION_ReportOverridingPackageDefaultMethod,
+			OPTION_ReportParameterAssignment,
 			OPTION_ReportPossibleAccidentalBooleanAssignment,
 			OPTION_ReportSyntheticAccessEmulation,
 			OPTION_ReportTypeParameterHiding,
@@ -875,11 +1145,13 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 			OPTION_ReportUnusedPrivateMember,
 			OPTION_ReportVarargsArgumentNeedCast,
 			OPTION_ReportUnhandledWarningToken,
+			OPTION_ReportOverridingMethodWithoutSuperInvocation
 		};
 		return result;
 	}
-	
+
 	public static String warningTokenFromIrritant(long irritant) {
+		// keep in sync with warningTokens and warningTokenToIrritant
 		int irritantInt = (int) irritant;
 		if (irritantInt == irritant) {
 			switch (irritantInt) {
@@ -894,8 +1166,11 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 					return "hiding"; //$NON-NLS-1$
 				case (int) NonExternalizedString :
 					return "nls"; //$NON-NLS-1$
+				case (int) UnnecessaryTypeCheck :
+					return "cast"; //$NON-NLS-1$
 				case (int) UnusedLocalVariable :
 				case (int) UnusedArgument :
+				case (int) UnusedImport :
 				case (int) UnusedPrivateMember:
 				case (int) UnusedDeclaredThrownException:
 					return "unused"; //$NON-NLS-1$
@@ -911,23 +1186,60 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 			}
 		} else {
 			irritantInt = (int)(irritant >>> 32);
-			// TODO (olivier) remove contants once http://gcc.gnu.org/bugzilla/show_bug.cgi?id=21540 is fixed
 			switch (irritantInt) {
-				case IntMissingSerialVersion :
+				case (int)(MissingSerialVersion >>> 32) :
 					return "serial"; //$NON-NLS-1$
-				case IntAutoBoxing :
+				case (int)(AutoBoxing >>> 32) :
 					return "boxing"; //$NON-NLS-1$
-				case IntTypeParameterHiding :
+				case (int)(TypeHiding >>> 32) :
 					return "hiding"; //$NON-NLS-1$
-				case IntIncompleteEnumSwitch :
+				case (int)(IncompleteEnumSwitch >>> 32) :
 					return "incomplete-switch"; //$NON-NLS-1$
-				case IntMissingDeprecatedAnnotation :
+				case (int)(MissingDeprecatedAnnotation >>> 32) :
 					return "dep-ann"; //$NON-NLS-1$
+				case (int)(RawTypeReference >>> 32):
+					return "unchecked"; //$NON-NLS-1$
+				case (int) (UnusedLabel >>> 32):
+					return "unused"; //$NON-NLS-1$
+				case (int) (DiscouragedReference >>> 32) :
+				case (int) (ForbiddenReference >>> 32) :
+					return "restriction"; //$NON-NLS-1$
+				case (int) (NullReference >>> 32) :
+				case (int) (PotentialNullReference >>> 32) :
+				case (int) (RedundantNullCheck >>> 32) :
+					return "null"; //$NON-NLS-1$
+				case (int) (FallthroughCase >>> 32) :
+					return "fallthrough"; //$NON-NLS-1$
+				case (int) (OverridingMethodWithoutSuperInvocation >>> 32) :
+					return "super"; //$NON-NLS-1$
 			}
 		}
 		return null;
 	}
+	// keep in sync with warningTokenToIrritant and warningTokenFromIrritant
+	public final static String[] warningTokens = {
+		"all", //$NON-NLS-1$
+		"boxing", //$NON-NLS-1$
+		"cast", //$NON-NLS-1$
+		"dep-ann", //$NON-NLS-1$
+		"deprecation", //$NON-NLS-1$
+		"fallthrough", //$NON-NLS-1$
+		"finally", //$NON-NLS-1$
+		"hiding", //$NON-NLS-1$
+		"incomplete-switch", //$NON-NLS-1$
+		"nls", //$NON-NLS-1$
+		"null", //$NON-NLS-1$
+		"restriction", //$NON-NLS-1$
+		"serial", //$NON-NLS-1$
+		"static-access", //$NON-NLS-1$
+		"super", //$NON-NLS-1$
+		"synthetic-access", //$NON-NLS-1$
+		"unchecked", //$NON-NLS-1$
+		"unqualified-field-access", //$NON-NLS-1$
+		"unused", //$NON-NLS-1$
+	};
 	public static long warningTokenToIrritant(String warningToken) {
+		// keep in sync with warningTokens and warningTokenFromIrritant
 		if (warningToken == null || warningToken.length() == 0) return 0;
 		switch (warningToken.charAt(0)) {
 			case 'a' :
@@ -936,7 +1248,11 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 				break;
 			case 'b' :
 				if ("boxing".equals(warningToken)) //$NON-NLS-1$
-					return Autoboxing;
+					return AutoBoxing;
+				break;
+			case 'c' :
+				if ("cast".equals(warningToken)) //$NON-NLS-1$
+					return UnnecessaryTypeCheck;
 				break;
 			case 'd' :
 				if ("deprecation".equals(warningToken)) //$NON-NLS-1$
@@ -945,12 +1261,14 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 					return MissingDeprecatedAnnotation;
 				break;
 			case 'f' :
+				if ("fallthrough".equals(warningToken)) //$NON-NLS-1$
+					return FallthroughCase;
 				if ("finally".equals(warningToken)) //$NON-NLS-1$
 					return FinallyBlockNotCompleting;
 				break;
 			case 'h' :
 				if ("hiding".equals(warningToken)) //$NON-NLS-1$
-					return FieldHiding | LocalVariableHiding | MaskedCatchBlock | TypeParameterHiding;
+					return FieldHiding | LocalVariableHiding | MaskedCatchBlock | TypeHiding;
 			case 'i' :
 				if ("incomplete-switch".equals(warningToken)) //$NON-NLS-1$
 					return IncompleteEnumSwitch;
@@ -958,6 +1276,12 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 			case 'n' :
 				if ("nls".equals(warningToken)) //$NON-NLS-1$
 					return NonExternalizedString;
+				if ("null".equals(warningToken)) //$NON-NLS-1$
+					return NullReference | PotentialNullReference | RedundantNullCheck;
+				break;
+			case 'r' :
+				if ("restriction".equals(warningToken)) //$NON-NLS-1$
+					return DiscouragedReference | ForbiddenReference;
 				break;
 			case 's' :
 				if ("serial".equals(warningToken)) //$NON-NLS-1$
@@ -966,12 +1290,15 @@ public class CompilerOptions implements ProblemReasons, ProblemSeverities, Class
 					return IndirectStaticAccess | NonStaticAccessToStatic;
 				if ("synthetic-access".equals(warningToken)) //$NON-NLS-1$
 					return AccessEmulation;
+				if ("super".equals(warningToken)) { //$NON-NLS-1$
+					return OverridingMethodWithoutSuperInvocation;
+				}
 				break;
 			case 'u' :
 				if ("unused".equals(warningToken)) //$NON-NLS-1$
-					return UnusedLocalVariable | UnusedArgument | UnusedPrivateMember | UnusedDeclaredThrownException;
+					return UnusedLocalVariable | UnusedArgument | UnusedPrivateMember | UnusedDeclaredThrownException | UnusedLabel | UnusedImport;
 				if ("unchecked".equals(warningToken)) //$NON-NLS-1$
-					return UncheckedTypeOperation;
+					return UncheckedTypeOperation | RawTypeReference;
 				if ("unqualified-field-access".equals(warningToken)) //$NON-NLS-1$
 					return UnqualifiedFieldAccess;
 				break;

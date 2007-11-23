@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,7 +12,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
-import org.eclipse.jdt.internal.compiler.impl.Constant;
+import org.eclipse.jdt.internal.compiler.impl.FloatConstant;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 import org.eclipse.jdt.internal.compiler.util.FloatUtil;
@@ -41,7 +41,7 @@ public class FloatLiteral extends NumberLiteral {
 					return;
 				}
 				value = v;
-				constant = Constant.fromValue(v);
+				constant = FloatConstant.fromValue(v);
 			} catch (NumberFormatException e1) {
 				// if the computation of the constant fails
 			}
@@ -89,7 +89,7 @@ public class FloatLiteral extends NumberLiteral {
 			}
 		}
 		value = floatValue;
-		constant = Constant.fromValue(value);
+		constant = FloatConstant.fromValue(value);
 	}
 	/**
 	 * Code generation for float literal
@@ -106,10 +106,10 @@ public class FloatLiteral extends NumberLiteral {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 	public TypeBinding literalType(BlockScope scope) {
-		return FloatBinding;
+		return TypeBinding.FLOAT;
 	}
-	public void traverse(ASTVisitor visitor, BlockScope blockScope) {
-		visitor.visit(this, blockScope);
-		visitor.endVisit(this, blockScope);
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
+		visitor.visit(this, scope);
+		visitor.endVisit(this, scope);
 	}
 }

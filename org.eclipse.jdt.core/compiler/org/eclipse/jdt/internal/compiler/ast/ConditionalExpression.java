@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -40,17 +40,14 @@ public class ConditionalExpression extends OperatorExpression {
 		sourceEnd = valueIfFalse.sourceEnd;
 	}
 
-	public FlowInfo analyseCode(
-		BlockScope currentScope,
-		FlowContext flowContext,
+public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext,
 		FlowInfo flowInfo) {
-
 		Constant cst = this.condition.optimizedBooleanConstant();
-		boolean isConditionOptimizedTrue = cst != NotAConstant && cst.booleanValue() == true;
-		boolean isConditionOptimizedFalse = cst != NotAConstant && cst.booleanValue() == false;
+		boolean isConditionOptimizedTrue = cst != Constant.NotAConstant && cst.booleanValue() == true;
+		boolean isConditionOptimizedFalse = cst != Constant.NotAConstant && cst.booleanValue() == false;
 
 		int mode = flowInfo.reachMode();
-		flowInfo = condition.analyseCode(currentScope, flowContext, flowInfo, cst == NotAConstant);
+		flowInfo = condition.analyseCode(currentScope, flowContext, flowInfo, cst == Constant.NotAConstant);
 		
 		// process the if-true part
 		FlowInfo trueFlowInfo = flowInfo.initsWhenTrue().copy();
@@ -77,23 +74,20 @@ public class ConditionalExpression extends OperatorExpression {
 		} else {
 			// if ((t && (v = t)) ? t : t && (v = f)) r = v;  -- ok
 			cst = this.optimizedIfTrueConstant;
-			boolean isValueIfTrueOptimizedTrue = cst != null && cst != NotAConstant && cst.booleanValue() == true;
-			boolean isValueIfTrueOptimizedFalse = cst != null && cst != NotAConstant && cst.booleanValue() == false;
+			boolean isValueIfTrueOptimizedTrue = cst != null && cst != Constant.NotAConstant && cst.booleanValue() == true;
+			boolean isValueIfTrueOptimizedFalse = cst != null && cst != Constant.NotAConstant && cst.booleanValue() == false;
 			
 			cst = this.optimizedIfFalseConstant;
-			boolean isValueIfFalseOptimizedTrue = cst != null && cst != NotAConstant && cst.booleanValue() == true;
-			boolean isValueIfFalseOptimizedFalse = cst != null && cst != NotAConstant && cst.booleanValue() == false;
+			boolean isValueIfFalseOptimizedTrue = cst != null && cst != Constant.NotAConstant && cst.booleanValue() == true;
+			boolean isValueIfFalseOptimizedFalse = cst != null && cst != Constant.NotAConstant && cst.booleanValue() == false;
 
-			UnconditionalFlowInfo trueInfoWhenTrue = trueFlowInfo.initsWhenTrue().copy().unconditionalInits();
+			UnconditionalFlowInfo trueInfoWhenTrue = trueFlowInfo.initsWhenTrue().unconditionalCopy();
+			UnconditionalFlowInfo falseInfoWhenTrue = falseFlowInfo.initsWhenTrue().unconditionalCopy();
+			UnconditionalFlowInfo trueInfoWhenFalse = trueFlowInfo.initsWhenFalse().unconditionalInits();
+			UnconditionalFlowInfo falseInfoWhenFalse = falseFlowInfo.initsWhenFalse().unconditionalInits();
 			if (isValueIfTrueOptimizedFalse) trueInfoWhenTrue.setReachMode(FlowInfo.UNREACHABLE); 
-
-			UnconditionalFlowInfo falseInfoWhenTrue = falseFlowInfo.initsWhenTrue().copy().unconditionalInits();
 			if (isValueIfFalseOptimizedFalse) falseInfoWhenTrue.setReachMode(FlowInfo.UNREACHABLE); 
-			
-			UnconditionalFlowInfo trueInfoWhenFalse = trueFlowInfo.initsWhenFalse().copy().unconditionalInits();
 			if (isValueIfTrueOptimizedTrue) trueInfoWhenFalse.setReachMode(FlowInfo.UNREACHABLE); 
-
-			UnconditionalFlowInfo falseInfoWhenFalse = falseFlowInfo.initsWhenFalse().copy().unconditionalInits();
 			if (isValueIfFalseOptimizedTrue) falseInfoWhenFalse.setReachMode(FlowInfo.UNREACHABLE); 
 
 			mergedInfo =
@@ -120,31 +114,27 @@ public class ConditionalExpression extends OperatorExpression {
 		boolean valueRequired) {
 
 		int pc = codeStream.position;
-		Label endifLabel, falseLabel;
-		if (constant != NotAConstant) {
+		BranchLabel endifLabel, falseLabel;
+		if (constant != Constant.NotAConstant) {
 			if (valueRequired)
 				codeStream.generateConstant(constant, implicitConversion);
 			codeStream.recordPositionsFrom(pc, this.sourceStart);
 			return;
 		}
-		Constant cst = condition.constant;
-		Constant condCst = condition.optimizedBooleanConstant();
-		boolean needTruePart =
-			!(((cst != NotAConstant) && (cst.booleanValue() == false))
-				|| ((condCst != NotAConstant) && (condCst.booleanValue() == false)));
-		boolean needFalsePart =
-			!(((cst != NotAConstant) && (cst.booleanValue() == true))
-				|| ((condCst != NotAConstant) && (condCst.booleanValue() == true)));
-		endifLabel = new Label(codeStream);
+		Constant cst = condition.optimizedBooleanConstant();
+		boolean needTruePart = !(cst != Constant.NotAConstant && cst.booleanValue() == false);
+		boolean needFalsePart = 	!(cst != Constant.NotAConstant && cst.booleanValue() == true);
+		endifLabel = new BranchLabel(codeStream);
 
 		// Generate code for the condition
-		boolean needConditionValue = (cst == NotAConstant) && (condCst == NotAConstant);
+		falseLabel = new BranchLabel(codeStream);
+		falseLabel.tagBits |= BranchLabel.USED;
 		condition.generateOptimizedBoolean(
 			currentScope,
 			codeStream,
 			null,
-			(falseLabel = new Label(codeStream)),
-			needConditionValue);
+			falseLabel,
+			cst == Constant.NotAConstant);
 
 		if (trueInitStateIndex != -1) {
 			codeStream.removeNotDefinitelyAssignedVariables(
@@ -162,21 +152,28 @@ public class ConditionalExpression extends OperatorExpression {
 				codeStream.updateLastRecordedEndPC(currentScope, position);
 				// Tune codestream stack size
 				if (valueRequired) {
-					codeStream.decrStackSize(this.resolvedType == LongBinding || this.resolvedType == DoubleBinding ? 2 : 1);
+					codeStream.decrStackSize(this.resolvedType == TypeBinding.LONG || this.resolvedType == TypeBinding.DOUBLE ? 2 : 1);
 				}
 			}
 		}
 		if (needFalsePart) {
-			falseLabel.place();
 			if (falseInitStateIndex != -1) {
 				codeStream.removeNotDefinitelyAssignedVariables(
 					currentScope,
 					falseInitStateIndex);
 				codeStream.addDefinitelyAssignedVariables(currentScope, falseInitStateIndex);
 			}
+			if (falseLabel.forwardReferenceCount() > 0) {
+				falseLabel.place();
+			}
 			valueIfFalse.generateCode(currentScope, codeStream, valueRequired);
-			// End of if statement
-			endifLabel.place();
+			if (valueRequired) {
+				codeStream.recordExpressionType(this.resolvedType);
+			}
+			if (needTruePart) {
+				// End of if statement
+				endifLabel.place();
+			}
 		}
 		// May loose some local variable initializations : affecting the local variable attributes
 		if (mergedInitStateIndex != -1) {
@@ -196,8 +193,8 @@ public class ConditionalExpression extends OperatorExpression {
 	public void generateOptimizedBoolean(
 		BlockScope currentScope,
 		CodeStream codeStream,
-		Label trueLabel,
-		Label falseLabel,
+		BranchLabel trueLabel,
+		BranchLabel falseLabel,
 		boolean valueRequired) {
 
 		if ((constant != Constant.NotAConstant) && (constant.typeID() == T_boolean) // constant
@@ -208,21 +205,21 @@ public class ConditionalExpression extends OperatorExpression {
 		Constant cst = condition.constant;
 		Constant condCst = condition.optimizedBooleanConstant();
 		boolean needTruePart =
-			!(((cst != NotAConstant) && (cst.booleanValue() == false))
-				|| ((condCst != NotAConstant) && (condCst.booleanValue() == false)));
+			!(((cst != Constant.NotAConstant) && (cst.booleanValue() == false))
+				|| ((condCst != Constant.NotAConstant) && (condCst.booleanValue() == false)));
 		boolean needFalsePart =
-			!(((cst != NotAConstant) && (cst.booleanValue() == true))
-				|| ((condCst != NotAConstant) && (condCst.booleanValue() == true)));
+			!(((cst != Constant.NotAConstant) && (cst.booleanValue() == true))
+				|| ((condCst != Constant.NotAConstant) && (condCst.booleanValue() == true)));
 
-		Label internalFalseLabel, endifLabel = new Label(codeStream);
+		BranchLabel internalFalseLabel, endifLabel = new BranchLabel(codeStream);
 
 		// Generate code for the condition
-		boolean needConditionValue = (cst == NotAConstant) && (condCst == NotAConstant);
+		boolean needConditionValue = (cst == Constant.NotAConstant) && (condCst == Constant.NotAConstant);
 		condition.generateOptimizedBoolean(
 				currentScope,
 				codeStream,
 				null,
-				internalFalseLabel = new Label(codeStream),
+				internalFalseLabel = new BranchLabel(codeStream),
 				needConditionValue);
 
 		if (trueInitStateIndex != -1) {
@@ -237,9 +234,28 @@ public class ConditionalExpression extends OperatorExpression {
 			
 			if (needFalsePart) {
 				// Jump over the else part
-				int position = codeStream.position;
-				codeStream.goto_(endifLabel);
-				codeStream.updateLastRecordedEndPC(currentScope, position);
+				JumpEndif: {
+					if (falseLabel == null) {
+						if (trueLabel != null) {
+							// implicit falling through the FALSE case
+							cst = this.optimizedIfTrueConstant;
+							boolean isValueIfTrueOptimizedTrue = cst != null && cst != Constant.NotAConstant && cst.booleanValue() == true;
+							if (isValueIfTrueOptimizedTrue) break JumpEndif; // no need to jump over, since branched to true already
+						}
+					} else {
+						// implicit falling through the TRUE case
+						if (trueLabel == null) {
+							cst = this.optimizedIfTrueConstant;
+							boolean isValueIfTrueOptimizedFalse = cst != null && cst != Constant.NotAConstant && cst.booleanValue() == false;
+							if (isValueIfTrueOptimizedFalse) break JumpEndif; // no need to jump over, since branched to false already
+						} else {
+							// no implicit fall through TRUE/FALSE --> should never occur
+						}
+					}
+					int position = codeStream.position;
+					codeStream.goto_(endifLabel);
+					codeStream.updateLastRecordedEndPC(currentScope, position);
+				}
 				// No need to decrement codestream stack size
 				// since valueIfTrue was already consumed by branch bytecode
 			}
@@ -262,6 +278,23 @@ public class ConditionalExpression extends OperatorExpression {
 		// no implicit conversion for boolean values
 		codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 	}
+	
+public int nullStatus(FlowInfo flowInfo) {
+	Constant cst = this.condition.optimizedBooleanConstant();
+	if (cst != Constant.NotAConstant) {
+		if (cst.booleanValue()) {
+			return valueIfTrue.nullStatus(flowInfo);
+		}
+		return valueIfFalse.nullStatus(flowInfo);
+	}
+	int ifTrueNullStatus = valueIfTrue.nullStatus(flowInfo),
+	    ifFalseNullStatus = valueIfFalse.nullStatus(flowInfo);
+	if (ifTrueNullStatus == ifFalseNullStatus) {
+		return ifTrueNullStatus;
+	}
+	return FlowInfo.UNKNOWN;
+	// cannot decide which branch to take, and they disagree
+}
 
 	public Constant optimizedBooleanConstant() {
 
@@ -277,16 +310,16 @@ public class ConditionalExpression extends OperatorExpression {
 
 	public TypeBinding resolveType(BlockScope scope) {
 		// JLS3 15.25
-		constant = NotAConstant;
+		constant = Constant.NotAConstant;
 		LookupEnvironment env = scope.environment();
 		boolean use15specifics = scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5;
-		TypeBinding conditionType = condition.resolveTypeExpecting(scope, BooleanBinding);
-		condition.computeConversion(scope, BooleanBinding, conditionType);
+		TypeBinding conditionType = condition.resolveTypeExpecting(scope, TypeBinding.BOOLEAN);
+		condition.computeConversion(scope, TypeBinding.BOOLEAN, conditionType);
 		
-		if (valueIfTrue instanceof CastExpression) valueIfTrue.bits |= IgnoreNeedForCastCheckMASK; // will check later on
+		if (valueIfTrue instanceof CastExpression) valueIfTrue.bits |= DisableUnnecessaryCastCheck; // will check later on
 		TypeBinding originalValueIfTrueType = valueIfTrue.resolveType(scope);
 
-		if (valueIfFalse instanceof CastExpression) valueIfFalse.bits |= IgnoreNeedForCastCheckMASK; // will check later on
+		if (valueIfFalse instanceof CastExpression) valueIfFalse.bits |= DisableUnnecessaryCastCheck; // will check later on
 		TypeBinding originalValueIfFalseType = valueIfFalse.resolveType(scope);
 
 		if (conditionType == null || originalValueIfTrueType == null || originalValueIfFalseType == null)
@@ -298,9 +331,9 @@ public class ConditionalExpression extends OperatorExpression {
 			if (valueIfTrueType.isBaseType()) {
 				if (valueIfFalseType.isBaseType()) {
 					// bool ? baseType : baseType
-					if (valueIfTrueType == NullBinding) {  // bool ? null : 12 --> Integer
+					if (valueIfTrueType == TypeBinding.NULL) {  // bool ? null : 12 --> Integer
 						valueIfFalseType = env.computeBoxingType(valueIfFalseType); // boxing
-					} else if (valueIfFalseType == NullBinding) {  // bool ? 12 : null --> Integer
+					} else if (valueIfFalseType == TypeBinding.NULL) {  // bool ? 12 : null --> Integer
 						valueIfTrueType = env.computeBoxingType(valueIfTrueType); // boxing
 					}
 				} else {
@@ -308,7 +341,7 @@ public class ConditionalExpression extends OperatorExpression {
 					TypeBinding unboxedIfFalseType = valueIfFalseType.isBaseType() ? valueIfFalseType : env.computeBoxingType(valueIfFalseType);
 					if (valueIfTrueType.isNumericType() && unboxedIfFalseType.isNumericType()) {
 						valueIfFalseType = unboxedIfFalseType; // unboxing
-					} else if (valueIfTrueType != NullBinding) {  // bool ? 12 : new Integer(12) --> int
+					} else if (valueIfTrueType != TypeBinding.NULL) {  // bool ? 12 : new Integer(12) --> int
 						valueIfFalseType = env.computeBoxingType(valueIfFalseType); // unboxing
 					}
 				}
@@ -317,7 +350,7 @@ public class ConditionalExpression extends OperatorExpression {
 					TypeBinding unboxedIfTrueType = valueIfTrueType.isBaseType() ? valueIfTrueType : env.computeBoxingType(valueIfTrueType);
 					if (unboxedIfTrueType.isNumericType() && valueIfFalseType.isNumericType()) {
 						valueIfTrueType = unboxedIfTrueType; // unboxing
-					} else if (valueIfFalseType != NullBinding) {  // bool ? new Integer(12) : 12 --> int
+					} else if (valueIfFalseType != TypeBinding.NULL) {  // bool ? new Integer(12) : 12 --> int
 						valueIfTrueType = env.computeBoxingType(valueIfTrueType); // unboxing
 					}					
 			} else {
@@ -332,9 +365,9 @@ public class ConditionalExpression extends OperatorExpression {
 		}
 		// Propagate the constant value from the valueIfTrue and valueIFFalse expression if it is possible
 		Constant condConstant, trueConstant, falseConstant;
-		if ((condConstant = condition.constant) != NotAConstant
-			&& (trueConstant = valueIfTrue.constant) != NotAConstant
-			&& (falseConstant = valueIfFalse.constant) != NotAConstant) {
+		if ((condConstant = condition.constant) != Constant.NotAConstant
+			&& (trueConstant = valueIfTrue.constant) != Constant.NotAConstant
+			&& (falseConstant = valueIfFalse.constant) != Constant.NotAConstant) {
 			// all terms are constant expression so we can propagate the constant
 			// from valueIFTrue or valueIfFalse to the receiver constant
 			constant = condConstant.booleanValue() ? trueConstant : falseConstant;
@@ -342,15 +375,15 @@ public class ConditionalExpression extends OperatorExpression {
 		if (valueIfTrueType == valueIfFalseType) { // harmed the implicit conversion 
 			valueIfTrue.computeConversion(scope, valueIfTrueType, originalValueIfTrueType);
 			valueIfFalse.computeConversion(scope, valueIfFalseType, originalValueIfFalseType);
-			if (valueIfTrueType == BooleanBinding) {
+			if (valueIfTrueType == TypeBinding.BOOLEAN) {
 				this.optimizedIfTrueConstant = valueIfTrue.optimizedBooleanConstant();
 				this.optimizedIfFalseConstant = valueIfFalse.optimizedBooleanConstant();
-				if (this.optimizedIfTrueConstant != NotAConstant 
-						&& this.optimizedIfFalseConstant != NotAConstant
+				if (this.optimizedIfTrueConstant != Constant.NotAConstant 
+						&& this.optimizedIfFalseConstant != Constant.NotAConstant
 						&& this.optimizedIfTrueConstant.booleanValue() == this.optimizedIfFalseConstant.booleanValue()) {
 					// a ? true : true  /   a ? false : false
 					this.optimizedBooleanConstant = optimizedIfTrueConstant;
-				} else if ((condConstant = condition.optimizedBooleanConstant()) != NotAConstant) { // Propagate the optimized boolean constant if possible
+				} else if ((condConstant = condition.optimizedBooleanConstant()) != Constant.NotAConstant) { // Propagate the optimized boolean constant if possible
 					this.optimizedBooleanConstant = condConstant.booleanValue()
 						? this.optimizedIfTrueConstant
 						: this.optimizedIfFalseConstant;
@@ -362,24 +395,24 @@ public class ConditionalExpression extends OperatorExpression {
 		// Numeric types
 		if (valueIfTrueType.isNumericType() && valueIfFalseType.isNumericType()) {
 			// (Short x Byte) or (Byte x Short)"
-			if ((valueIfTrueType == ByteBinding && valueIfFalseType == ShortBinding)
-				|| (valueIfTrueType == ShortBinding && valueIfFalseType == ByteBinding)) {
-				valueIfTrue.computeConversion(scope, ShortBinding, originalValueIfTrueType);
-				valueIfFalse.computeConversion(scope, ShortBinding, originalValueIfFalseType);
-				return this.resolvedType = ShortBinding;
+			if ((valueIfTrueType == TypeBinding.BYTE && valueIfFalseType == TypeBinding.SHORT)
+				|| (valueIfTrueType == TypeBinding.SHORT && valueIfFalseType == TypeBinding.BYTE)) {
+				valueIfTrue.computeConversion(scope, TypeBinding.SHORT, originalValueIfTrueType);
+				valueIfFalse.computeConversion(scope, TypeBinding.SHORT, originalValueIfFalseType);
+				return this.resolvedType = TypeBinding.SHORT;
 			}
 			// <Byte|Short|Char> x constant(Int)  ---> <Byte|Short|Char>   and reciprocally
-			if ((valueIfTrueType == ByteBinding || valueIfTrueType == ShortBinding || valueIfTrueType == CharBinding)
-					&& (valueIfFalseType == IntBinding
+			if ((valueIfTrueType == TypeBinding.BYTE || valueIfTrueType == TypeBinding.SHORT || valueIfTrueType == TypeBinding.CHAR)
+					&& (valueIfFalseType == TypeBinding.INT
 						&& valueIfFalse.isConstantValueOfTypeAssignableToType(valueIfFalseType, valueIfTrueType))) {
 				valueIfTrue.computeConversion(scope, valueIfTrueType, originalValueIfTrueType);
 				valueIfFalse.computeConversion(scope, valueIfTrueType, originalValueIfFalseType);
 				return this.resolvedType = valueIfTrueType;
 			}
-			if ((valueIfFalseType == ByteBinding
-					|| valueIfFalseType == ShortBinding
-					|| valueIfFalseType == CharBinding)
-					&& (valueIfTrueType == IntBinding
+			if ((valueIfFalseType == TypeBinding.BYTE
+					|| valueIfFalseType == TypeBinding.SHORT
+					|| valueIfFalseType == TypeBinding.CHAR)
+					&& (valueIfTrueType == TypeBinding.INT
 						&& valueIfTrue.isConstantValueOfTypeAssignableToType(valueIfTrueType, valueIfFalseType))) {
 				valueIfTrue.computeConversion(scope, valueIfFalseType, originalValueIfTrueType);
 				valueIfFalse.computeConversion(scope, valueIfFalseType, originalValueIfFalseType);
@@ -389,38 +422,39 @@ public class ConditionalExpression extends OperatorExpression {
 			// int
 			if (BaseTypeBinding.isNarrowing(valueIfTrueType.id, T_int)
 					&& BaseTypeBinding.isNarrowing(valueIfFalseType.id, T_int)) {
-				valueIfTrue.computeConversion(scope, IntBinding, originalValueIfTrueType);
-				valueIfFalse.computeConversion(scope, IntBinding, originalValueIfFalseType);
-				return this.resolvedType = IntBinding;
+				valueIfTrue.computeConversion(scope, TypeBinding.INT, originalValueIfTrueType);
+				valueIfFalse.computeConversion(scope, TypeBinding.INT, originalValueIfFalseType);
+				return this.resolvedType = TypeBinding.INT;
 			}
 			// long
 			if (BaseTypeBinding.isNarrowing(valueIfTrueType.id, T_long)
 					&& BaseTypeBinding.isNarrowing(valueIfFalseType.id, T_long)) {
-				valueIfTrue.computeConversion(scope, LongBinding, originalValueIfTrueType);
-				valueIfFalse.computeConversion(scope, LongBinding, originalValueIfFalseType);
-				return this.resolvedType = LongBinding;
+				valueIfTrue.computeConversion(scope, TypeBinding.LONG, originalValueIfTrueType);
+				valueIfFalse.computeConversion(scope, TypeBinding.LONG, originalValueIfFalseType);
+				return this.resolvedType = TypeBinding.LONG;
 			}
 			// float
 			if (BaseTypeBinding.isNarrowing(valueIfTrueType.id, T_float)
 					&& BaseTypeBinding.isNarrowing(valueIfFalseType.id, T_float)) {
-				valueIfTrue.computeConversion(scope, FloatBinding, originalValueIfTrueType);
-				valueIfFalse.computeConversion(scope, FloatBinding, originalValueIfFalseType);
-				return this.resolvedType = FloatBinding;
+				valueIfTrue.computeConversion(scope, TypeBinding.FLOAT, originalValueIfTrueType);
+				valueIfFalse.computeConversion(scope, TypeBinding.FLOAT, originalValueIfFalseType);
+				return this.resolvedType = TypeBinding.FLOAT;
 			}
 			// double
-			valueIfTrue.computeConversion(scope, DoubleBinding, originalValueIfTrueType);
-			valueIfFalse.computeConversion(scope, DoubleBinding, originalValueIfFalseType);
-			return this.resolvedType = DoubleBinding;
+			valueIfTrue.computeConversion(scope, TypeBinding.DOUBLE, originalValueIfTrueType);
+			valueIfFalse.computeConversion(scope, TypeBinding.DOUBLE, originalValueIfFalseType);
+			return this.resolvedType = TypeBinding.DOUBLE;
 		}
 		// Type references (null null is already tested)
-		if (valueIfTrueType.isBaseType() && valueIfTrueType != NullBinding) {
+		if (valueIfTrueType.isBaseType() && valueIfTrueType != TypeBinding.NULL) {
 			if (use15specifics) {
 				valueIfTrueType = env.computeBoxingType(valueIfTrueType);
 			} else {
 				scope.problemReporter().conditionalArgumentsIncompatibleTypes(this, valueIfTrueType, valueIfFalseType);
 				return null;
 			}
-		} else if (valueIfFalseType.isBaseType() && valueIfFalseType != NullBinding) {
+		} 
+		if (valueIfFalseType.isBaseType() && valueIfFalseType != TypeBinding.NULL) {
 			if (use15specifics) {
 				valueIfFalseType = env.computeBoxingType(valueIfFalseType);
 			} else {
@@ -431,9 +465,9 @@ public class ConditionalExpression extends OperatorExpression {
 		if (use15specifics) {
 			// >= 1.5 : LUB(operand types) must exist
 			TypeBinding commonType = null;
-			if (valueIfTrueType == NullBinding) {
+			if (valueIfTrueType == TypeBinding.NULL) {
 				commonType = valueIfFalseType;
-			} else if (valueIfFalseType == NullBinding) {
+			} else if (valueIfFalseType == TypeBinding.NULL) {
 				commonType = valueIfTrueType;
 			} else {
 				commonType = scope.lowerUpperBound(new TypeBinding[] { valueIfTrueType, valueIfFalseType });

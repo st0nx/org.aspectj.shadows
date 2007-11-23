@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,6 +14,7 @@ import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 
 public class IntLiteral extends NumberLiteral {
 	public int value;
@@ -21,7 +22,7 @@ public class IntLiteral extends NumberLiteral {
 	public static final IntLiteral
 		One = new IntLiteral(new char[]{'1'},0,0,1);//used for ++ and -- 
 
-	static final Constant FORMAT_ERROR = new DoubleConstant(1.0/0.0); // NaN;
+	static final Constant FORMAT_ERROR = DoubleConstant.fromValue(1.0/0.0); // NaN;
 public IntLiteral(char[] token, int s, int e) {
 	super(token, s,e);
 }
@@ -37,7 +38,7 @@ public IntLiteral(int intValue) {
 	//	sourceStart = 0;
 	//	sourceEnd = 0;
 	super(null,0,0);
-	constant = Constant.fromValue(intValue);
+	constant = IntConstant.fromValue(intValue);
 	value = intValue;
 	
 }
@@ -47,13 +48,13 @@ public void computeConstant() {
 	//notice that Integer.MIN_VALUE  == -2147483648
 
 	long MAX = Integer.MAX_VALUE;
-	if (this == One) {	constant = Constant.One; return ;}
+	if (this == One) {	constant = IntConstant.fromValue(1); return ;}
 	
 	int length = source.length;
 	long computedValue = 0L;
 	if (source[0] == '0')
 	{	MAX = 0xFFFFFFFFL ; //a long in order to be positive ! 	
-		if (length == 1) {	constant = Constant.fromValue(0); return ;}
+		if (length == 1) {	constant = IntConstant.fromValue(0); return ;}
 		final int shift,radix;
 		int j ;
 		if ( (source[1] == 'x') || (source[1] == 'X') )
@@ -64,12 +65,12 @@ public void computeConstant() {
 		{	j++; //jump over redondant zero
 			if (j == length)
 			{	//watch for 000000000000000000
-				constant = Constant.fromValue(value = (int)computedValue);
+				constant = IntConstant.fromValue(value = (int)computedValue);
 				return ;}}
 		
 		while (j<length)
 		{	int digitValue ;
-			if ((digitValue = Character.digit(source[j++],radix))	< 0 ) 	
+			if ((digitValue = ScannerHelper.digit(source[j++],radix))	< 0 ) 	
 			{	constant = FORMAT_ERROR; return ;}
 			computedValue = (computedValue<<shift) | digitValue ;
 			if (computedValue > MAX) return /*constant stays null*/ ;}}
@@ -77,12 +78,12 @@ public void computeConstant() {
 	{	//-----------regular case : radix = 10-----------
 		for (int i = 0 ; i < length;i++)
 		{	int digitValue ;
-			if ((digitValue = Character.digit(source[i],10))	< 0 ) 
+			if ((digitValue = ScannerHelper.digit(source[i],10))	< 0 ) 
 			{	constant = FORMAT_ERROR; return ;}
 			computedValue = 10*computedValue + digitValue;
 			if (computedValue > MAX) return /*constant stays null*/ ; }}
 
-	constant = Constant.fromValue(value = (int)computedValue);
+	constant = IntConstant.fromValue(value = (int)computedValue);
 		
 }
 /**
@@ -100,7 +101,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 	codeStream.recordPositionsFrom(pc, this.sourceStart);
 }
 public TypeBinding literalType(BlockScope scope) {
-	return IntBinding;
+	return TypeBinding.INT;
 }
 public final boolean mayRepresentMIN_VALUE(){
 	//a special autorized int literral is 2147483648
@@ -118,14 +119,16 @@ public final boolean mayRepresentMIN_VALUE(){
 			(source[6] == '3') &&
 			(source[7] == '6') &&			
 			(source[8] == '4') &&
-			(source[9] == '8'));}
+			(source[9] == '8') &&
+			(((this.bits & ASTNode.ParenthesizedMASK) >> ASTNode.ParenthesizedSHIFT) == 0));
+}
 public TypeBinding resolveType(BlockScope scope) {
 	// the format may be incorrect while the scanner could detect
 	// such an error only on painfull tests...easier and faster here
 
 	TypeBinding tb = super.resolveType(scope);
 	if (constant == FORMAT_ERROR) {
-		constant = NotAConstant;
+		constant = Constant.NotAConstant;
 		scope.problemReporter().constantOutOfFormat(this);
 		this.resolvedType = null;
 		return null;

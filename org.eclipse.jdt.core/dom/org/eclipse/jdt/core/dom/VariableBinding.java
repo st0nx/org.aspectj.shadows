@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,9 +14,10 @@ package org.eclipse.jdt.core.dom;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.util.IModifierConstants;
-import org.eclipse.jdt.internal.compiler.env.IConstants;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TagBits;
 import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
 import org.eclipse.jdt.internal.core.JavaElement;
 import org.eclipse.jdt.internal.core.LocalVariable;
@@ -28,7 +29,7 @@ class VariableBinding implements IVariableBinding {
 
 	private static final int VALID_MODIFIERS = Modifier.PUBLIC | Modifier.PROTECTED | Modifier.PRIVATE |
 		Modifier.STATIC | Modifier.FINAL | Modifier.TRANSIENT | Modifier.VOLATILE;
-	
+
 	private org.eclipse.jdt.internal.compiler.lookup.VariableBinding binding;
 	private ITypeBinding declaringClass;
 	private String key;
@@ -41,14 +42,29 @@ class VariableBinding implements IVariableBinding {
 		this.binding = binding;
 	}
 
+	public IAnnotationBinding[] getAnnotations() {
+		org.eclipse.jdt.internal.compiler.lookup.AnnotationBinding[] internalAnnotations = this.binding.getAnnotations();
+		// the variable is not an enum constant nor a field nor an argument.
+		int length = internalAnnotations == null ? 0 : internalAnnotations.length;
+		IAnnotationBinding[] domInstances =
+			length == 0 ? AnnotationBinding.NoAnnotations : new AnnotationBinding[length];
+		for (int i = 0; i < length; i++) {
+			final IAnnotationBinding annotationInstance = this.resolver.getAnnotationInstance(internalAnnotations[i]);
+			if (annotationInstance == null) {// not resolving binding
+				return AnnotationBinding.NoAnnotations;
+			}
+			domInstances[i] = annotationInstance;
+		}
+		return domInstances;
+	}
+
 	/* (non-Javadoc)
 	 * @see IVariableBinding#getConstantValue()
 	 * @since 3.0
 	 */
 	public Object getConstantValue() {
-		if (!this.binding.isConstantValue()) return null;
 		Constant c = this.binding.constant();
-		if (c == null) return null;
+		if (c == null || c == Constant.NotAConstant) return null;
 		switch (c.typeID()) {
 			case TypeIds.T_boolean:
 				return Boolean.valueOf(c.booleanValue());
@@ -110,18 +126,6 @@ class VariableBinding implements IVariableBinding {
 	}
 
 	/*
-	 * @see IVariableBinding#getVariableDeclaration()
-	 * @since 3.1
-	 */
-	public IVariableBinding getVariableDeclaration() {
-		if (this.isField()) {
-			FieldBinding fieldBinding = (FieldBinding) this.binding;
-			return this.resolver.getVariableBinding(fieldBinding.original());
-		}
-		return this;
-	}
-	
-	/*
 	 * @see IBinding#getJavaElement()
 	 */
 	public IJavaElement getJavaElement() {
@@ -130,7 +134,57 @@ class VariableBinding implements IVariableBinding {
 			return null;
 		return element.resolved(this.binding);
 	}
-	
+
+	/*
+	 * @see IBinding#getKey()
+	 */
+	public String getKey() {
+		if (this.key == null) {
+			this.key = new String(this.binding.computeUniqueKey());
+		}
+		return this.key;
+	}
+
+	/*
+	 * @see IBinding#getKind()
+	 */
+	public int getKind() {
+		return IBinding.VARIABLE;
+	}
+
+	/*
+	 * @see IBinding#getModifiers()
+	 */
+	public int getModifiers() {
+		if (isField()) {
+			return ((FieldBinding) this.binding).getAccessFlags() & VALID_MODIFIERS;
+		}
+		if (binding.isFinal()) {
+			return IModifierConstants.ACC_FINAL;
+		}
+		return Modifier.NONE;
+	}
+
+	/*
+	 * @see IBinding#getName()
+	 */
+	public String getName() {
+		if (this.name == null) {
+			this.name = new String(this.binding.name);
+		}
+		return this.name;
+	}
+
+	/*
+	 * @see IVariableBinding#getType()
+	 */
+	public ITypeBinding getType() {
+		if (this.type == null) {
+			this.type = this.resolver.getTypeBinding(this.binding.type);
+		}
+		return this.type;
+	}
+
 	private JavaElement getUnresolvedJavaElement() {
 		if (isField()) {
 			// field
@@ -167,57 +221,19 @@ class VariableBinding implements IVariableBinding {
 		char[] typeSig = this.binding.type.genericTypeSignature();
 		return new LocalVariable(method, localVar.getName().getIdentifier(), sourceStart, sourceStart+sourceLength-1, nameStart, nameStart+nameLength-1, new String(typeSig));
 	}
-	
-	/*
-	 * @see IBinding#getKey()
-	 */
-	public String getKey() {
-		if (this.key == null) {
-			this.key = new String(this.binding.computeUniqueKey());
-		}
-		return this.key;
-	}
 
 	/*
-	 * @see IBinding#getKind()
+	 * @see IVariableBinding#getVariableDeclaration()
+	 * @since 3.1
 	 */
-	public int getKind() {
-		return IBinding.VARIABLE;
+	public IVariableBinding getVariableDeclaration() {
+		if (this.isField()) {
+			FieldBinding fieldBinding = (FieldBinding) this.binding;
+			return this.resolver.getVariableBinding(fieldBinding.original());
+		}
+		return this;
 	}
 
-	/*
-	 * @see IBinding#getModifiers()
-	 */
-	public int getModifiers() {
-		if (isField()) {
-			return ((FieldBinding) this.binding).getAccessFlags() & VALID_MODIFIERS;
-		}
-		if (binding.isFinal()) {
-			return IModifierConstants.ACC_FINAL;
-		}
-		return 0;
-	}
-
-	/*
-	 * @see IBinding#getName()
-	 */
-	public String getName() {
-		if (this.name == null) {
-			this.name = new String(this.binding.name);
-		}
-		return this.name;
-	}
-	
-	/*
-	 * @see IVariableBinding#getType()
-	 */
-	public ITypeBinding getType() {
-		if (type == null) {
-			type = this.resolver.getTypeBinding(this.binding.type);
-		}
-		return type;
-	}
-	
 	/*
 	 * @see IVariableBinding#getVariableId()
 	 */
@@ -225,6 +241,12 @@ class VariableBinding implements IVariableBinding {
 		return this.binding.id;
 	}
 
+	/*
+	 * @see IVariableBinding#isParameter()
+	 */
+	public boolean isParameter() {
+		return (this.binding.tagBits & TagBits.IsArgument) != 0;
+	}
 	/*
 	 * @see IBinding#isDeprecated()
 	 */
@@ -234,7 +256,15 @@ class VariableBinding implements IVariableBinding {
 		}
 		return false;
 	}
-	
+
+	/*
+	 * @see IVariableBinding#isEnumConstant()
+	 * @since 3.1
+	 */
+	public boolean isEnumConstant() {
+		return (this.binding.modifiers & ClassFileConstants.AccEnum) != 0;
+	}
+
 	/*
 	 * @see IBinding#isEqualTo(Binding)
 	 * @since 3.1
@@ -282,14 +312,6 @@ class VariableBinding implements IVariableBinding {
 	}
 
 	/*
-	 * @see IVariableBinding#isEnumConstant()
-	 * @since 3.1
-	 */
-	public boolean isEnumConstant() {
-		return (this.binding.modifiers & IConstants.AccEnum) != 0;
-	}
-
-	/*
 	 * @see IBinding#isSynthetic()
 	 */
 	public boolean isSynthetic() {
@@ -299,7 +321,15 @@ class VariableBinding implements IVariableBinding {
 		return false;
 	}
 
-	/* 
+	/*
+	 * (non-Javadoc)
+	 * @see org.eclipse.jdt.core.dom.IBinding#isRecovered()
+	 */
+	public boolean isRecovered() {
+		return false;
+	}
+
+	/*
 	 * For debugging purpose only.
 	 * @see java.lang.Object#toString()
 	 */

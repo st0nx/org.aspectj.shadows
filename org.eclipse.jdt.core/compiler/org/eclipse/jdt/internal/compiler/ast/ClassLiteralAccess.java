@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,6 +14,7 @@ import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class ClassLiteralAccess extends Expression {
@@ -22,9 +23,10 @@ public class ClassLiteralAccess extends Expression {
 	public TypeBinding targetType;
 	FieldBinding syntheticField;
 
-	public ClassLiteralAccess(int sourceEnd, TypeReference t) {
-		type = t;
-		this.sourceStart = t.sourceStart;
+	public ClassLiteralAccess(int sourceEnd, TypeReference type) {
+		this.type = type;
+		type.bits |= IgnoreRawTypeCheck; // no need to worry about raw type usage
+		this.sourceStart = type.sourceStart;
 		this.sourceEnd = sourceEnd;
 	}
 
@@ -34,12 +36,11 @@ public class ClassLiteralAccess extends Expression {
 		FlowInfo flowInfo) {
 
 		// if reachable, request the addition of a synthetic field for caching the class descriptor
-		SourceTypeBinding sourceType =
-			currentScope.outerMostMethodScope().enclosingSourceType();
-		if ((!(sourceType.isInterface()
-				// no field generated in interface case (would'nt verify) see 1FHHEZL
-				|| sourceType.isBaseType()))
-				&& currentScope.compilerOptions().sourceLevel <= ClassFileConstants.JDK1_5) {
+		SourceTypeBinding sourceType = currentScope.outerMostClassScope().enclosingSourceType();
+		// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=22334
+		if (!sourceType.isInterface()
+				&& !sourceType.isBaseType()
+				&& currentScope.compilerOptions().sourceLevel < ClassFileConstants.JDK1_5) {
 			syntheticField = sourceType.addSyntheticFieldForClassLiteral(targetType, currentScope);
 		}
 		return flowInfo;
@@ -73,20 +74,25 @@ public class ClassLiteralAccess extends Expression {
 
 	public TypeBinding resolveType(BlockScope scope) {
 
-		constant = NotAConstant;
+		constant = Constant.NotAConstant;
 		if ((targetType = type.resolveType(scope, true /* check bounds*/)) == null)
 			return null;
 
-		if (targetType.isArrayType()
-			&& ((ArrayBinding) targetType).leafComponentType == VoidBinding) {
-			scope.problemReporter().cannotAllocateVoidArray(this);
-			return null;
-		} else if (targetType.isTypeVariable()) {
+		if (targetType.isArrayType()) {
+			ArrayBinding arrayBinding = (ArrayBinding) this.targetType;
+			TypeBinding leafComponentType = arrayBinding.leafComponentType;
+			if (leafComponentType == TypeBinding.VOID) {
+				scope.problemReporter().cannotAllocateVoidArray(this);
+				return null;
+			} else if (leafComponentType.isTypeVariable()) {
+				scope.problemReporter().illegalClassLiteralForTypeVariable((TypeVariableBinding)leafComponentType, this);
+			}
+		} else if (this.targetType.isTypeVariable()) {
 			scope.problemReporter().illegalClassLiteralForTypeVariable((TypeVariableBinding)targetType, this);
 		}
 		ReferenceBinding classType = scope.getJavaLangClass();
 		if (classType.isGenericType()) {
-		    // Integer.class --> Class<Integer>, perform boxing of base types (int.class --> Class<Integer>)
+			// Integer.class --> Class<Integer>, perform boxing of base types (int.class --> Class<Integer>)
 			TypeBinding boxedType = null;
 			if (targetType.id == T_void) {
 				boxedType = scope.environment().getType(JAVA_LANG_VOID);
@@ -96,9 +102,9 @@ public class ClassLiteralAccess extends Expression {
 			} else {
 				boxedType = scope.boxing(targetType);
 			}
-		    this.resolvedType = scope.environment().createParameterizedType(classType, new TypeBinding[]{ boxedType }, null/*not a member*/);
+			this.resolvedType = scope.environment().createParameterizedType(classType, new TypeBinding[]{ boxedType }, null/*not a member*/);
 		} else {
-		    this.resolvedType = classType;
+			this.resolvedType = classType;
 		}
 		return this.resolvedType;
 	}

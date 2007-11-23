@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,13 +7,14 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Matt McCutchen - add check for EOF handling
  *******************************************************************************/
-
 package org.eclipse.jdt.internal.formatter.comment;
-
 
 import java.io.IOException;
 import java.io.Reader;
+
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 
 /**
  * Reads the text contents from a reader and computes for each character
@@ -88,10 +89,10 @@ public abstract class SubstitutionTextReader extends Reader {
 			if (ch == -1) {
 				ch= fReader.read();
 			}
-			if (fSkipWhiteSpace && Character.isWhitespace((char)ch)) {
+			if (fSkipWhiteSpace && ScannerHelper.isWhitespace((char)ch)) {
 				do {
 					ch= fReader.read();
-				} while (Character.isWhitespace((char)ch));
+				} while (ScannerHelper.isWhitespace((char)ch));
 				if (ch != -1) {
 					fCharAfterWhiteSpace= ch;
 					return ' ';
@@ -111,7 +112,7 @@ public abstract class SubstitutionTextReader extends Reader {
 		do {
 			
 			c= nextChar();
-			while (!fReadFromBuffer) {
+			while (!fReadFromBuffer && c != -1) {
 				String s= computeSubstitution(c);
 				if (s == null)
 					break;

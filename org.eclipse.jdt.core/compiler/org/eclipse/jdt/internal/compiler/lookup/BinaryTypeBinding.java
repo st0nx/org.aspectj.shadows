@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,12 +14,10 @@ import java.util.ArrayList;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
-import org.eclipse.jdt.internal.compiler.env.IBinaryField;
-import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
-import org.eclipse.jdt.internal.compiler.env.IBinaryNestedType;
-import org.eclipse.jdt.internal.compiler.env.IBinaryType;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
+import org.eclipse.jdt.internal.compiler.env.*;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
+import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 
 /*
 Not all fields defined by this type are initialized when it is created.
@@ -32,20 +30,68 @@ Non-public fields have accessors which should be used everywhere you expect the 
 null is NOT a valid value for a non-public field... it just means the field is not initialized.
 */
 
-public final class BinaryTypeBinding extends ReferenceBinding {
+public class BinaryTypeBinding extends ReferenceBinding {
 
-// all of these fields are ONLY guaranteed to be initialized if accessed using their public accessor method
-private ReferenceBinding superclass;
-private ReferenceBinding enclosingType;
-private ReferenceBinding[] superInterfaces;
-private FieldBinding[] fields;
-private MethodBinding[] methods;
-private ReferenceBinding[] memberTypes;
-protected TypeVariableBinding[] typeVariables;
+	// all of these fields are ONLY guaranteed to be initialized if accessed using their public accessor method
+	protected ReferenceBinding superclass;
+	protected ReferenceBinding enclosingType;
+	protected ReferenceBinding[] superInterfaces;
+	protected FieldBinding[] fields;
+	protected MethodBinding[] methods;
+	protected ReferenceBinding[] memberTypes;
+	protected TypeVariableBinding[] typeVariables;
 
-// For the link with the principle structure
-private LookupEnvironment environment;
+	// For the link with the principle structure
+	protected LookupEnvironment environment;
 
+	protected SimpleLookupTable storedAnnotations = null; // keys are this ReferenceBinding & its fields and methods, value is an AnnotationHolder
+
+static Object convertMemberValue(Object binaryValue, LookupEnvironment env) {
+	if (binaryValue == null) return null;
+	if (binaryValue instanceof Constant)
+		return binaryValue;
+	if (binaryValue instanceof ClassSignature)
+		return env.getTypeFromSignature(((ClassSignature) binaryValue).getTypeName(), 0, -1, false, null);
+	if (binaryValue instanceof IBinaryAnnotation)
+		return createAnnotation((IBinaryAnnotation) binaryValue, env);
+	if (binaryValue instanceof EnumConstantSignature) {
+		EnumConstantSignature ref = (EnumConstantSignature) binaryValue;
+		ReferenceBinding enumType =
+			(ReferenceBinding) env.getTypeFromSignature(ref.getTypeName(), 0, -1, false, null);
+		enumType = resolveType(enumType, env, false);
+		return enumType.getField(ref.getEnumConstantName(), false);
+	}
+	if (binaryValue instanceof Object[]) {
+		Object[] objects = (Object[]) binaryValue;
+		int length = objects.length;
+		if (length == 0) return objects;
+		Object[] values = new Object[length];
+		for (int i = 0; i < length; i++)
+			values[i] = convertMemberValue(objects[i], env);
+		return values;
+	}
+
+	// should never reach here.
+	throw new IllegalStateException();
+}
+static AnnotationBinding createAnnotation(IBinaryAnnotation annotationInfo, LookupEnvironment env) {
+	IBinaryElementValuePair[] binaryPairs = annotationInfo.getElementValuePairs();
+	int length = binaryPairs == null ? 0 : binaryPairs.length;
+	ElementValuePair[] pairs = length == 0 ? Binding.NO_ELEMENT_VALUE_PAIRS : new ElementValuePair[length];
+	for (int i = 0; i < length; i++)
+		pairs[i] = new ElementValuePair(binaryPairs[i].getName(), convertMemberValue(binaryPairs[i].getValue(), env), null);
+
+	char[] typeName = annotationInfo.getTypeName();
+	ReferenceBinding annotationType = env.getTypeFromConstantPoolName(typeName, 1, typeName.length - 1, false);
+	return new UnresolvedAnnotationBinding(annotationType, pairs, env);
+}
+public static AnnotationBinding[] createAnnotations(IBinaryAnnotation[] annotationInfos, LookupEnvironment env) {
+	int length = annotationInfos == null ? 0 : annotationInfos.length;
+	AnnotationBinding[] result = length == 0 ? Binding.NO_ANNOTATIONS : new AnnotationBinding[length];
+	for (int i = 0; i < length; i++)
+		result[i] = createAnnotation(annotationInfos[i], env);
+	return result;
+}
 public static ReferenceBinding resolveType(ReferenceBinding type, LookupEnvironment environment, boolean convertGenericToRawType) {
 	if (type instanceof UnresolvedReferenceBinding)
 		return ((UnresolvedReferenceBinding) type).resolve(environment, convertGenericToRawType);
@@ -55,7 +101,7 @@ public static ReferenceBinding resolveType(ReferenceBinding type, LookupEnvironm
 		return ((WildcardBinding) type).resolve();
 
 	if (convertGenericToRawType) // raw reference to generic ?
-		return (ReferenceBinding) environment.convertToRawType(type);
+		return (ReferenceBinding) environment.convertUnresolvedBinaryToRawType(type);
 	return type;
 }
 public static TypeBinding resolveType(TypeBinding type, LookupEnvironment environment, ParameterizedTypeBinding parameterizedType, int rank) {
@@ -77,7 +123,7 @@ public static TypeBinding resolveType(TypeBinding type, LookupEnvironment enviro
 						
 		case Binding.GENERIC_TYPE :
 			if (parameterizedType == null) // raw reference to generic ?
-				return environment.convertToRawType(type);
+				return environment.convertUnresolvedBinaryToRawType(type);
 			break;
 			
 		default:			
@@ -86,24 +132,25 @@ public static TypeBinding resolveType(TypeBinding type, LookupEnvironment enviro
 	}
 	return type;
 }
-// resolve hierarchy types in 2 steps by first resolving any UnresolvedTypes
-static ReferenceBinding resolveUnresolvedType(ReferenceBinding type, LookupEnvironment environment, boolean convertGenericToRawType) {
-	if (type instanceof UnresolvedReferenceBinding)
-		return ((UnresolvedReferenceBinding) type).resolve(environment, convertGenericToRawType);
 
-	if (type.isParameterizedType())
-		resolveUnresolvedType(((ParameterizedTypeBinding) type).type, environment, false); // still part of parameterized type ref
-	else if (type.isWildcard())
-		resolveType(((WildcardBinding) type).genericType, environment, null, 0);
-	return type;
+/**
+ * Default empty constructor for subclasses only.
+ */
+protected BinaryTypeBinding() {
+	// only for subclasses
 }
 
-
+/**
+ * Standard constructor for creating binary type bindings from binary models (classfiles)
+ * @param packageBinding
+ * @param binaryType
+ * @param environment
+ */
 public BinaryTypeBinding(PackageBinding packageBinding, IBinaryType binaryType, LookupEnvironment environment) {
 	this.compoundName = CharOperation.splitOn('/', binaryType.getName());
 	computeId();
 
-	this.tagBits |= IsBinaryBinding;
+	this.tagBits |= TagBits.IsBinaryBinding;
 	this.environment = environment;
 	this.fPackage = packageBinding;
 	this.fileName = binaryType.getFileName();
@@ -111,47 +158,49 @@ public BinaryTypeBinding(PackageBinding packageBinding, IBinaryType binaryType, 
 	char[] typeSignature = environment.globalOptions.sourceLevel >= ClassFileConstants.JDK1_5 ? binaryType.getGenericSignature() : null;
 	this.typeVariables = typeSignature != null && typeSignature.length > 0 && typeSignature[0] == '<'
 		? null // is initialized in cachePartsFrom (called from LookupEnvironment.createBinaryTypeFrom())... must set to null so isGenericType() answers true
-		: NoTypeVariables;
+		: Binding.NO_TYPE_VARIABLES;
 
-	// source name must be one name without "$".
-	char[] possibleSourceName = this.compoundName[this.compoundName.length - 1];
-	int start = CharOperation.lastIndexOf('$', possibleSourceName) + 1;
-	if (start == 0) {
-		this.sourceName = possibleSourceName;
-	} else {
-		this.sourceName = new char[possibleSourceName.length - start];
-		System.arraycopy(possibleSourceName, start, this.sourceName, 0, this.sourceName.length);
-	}
-
+	this.sourceName = binaryType.getSourceName();
 	this.modifiers = binaryType.getModifiers();
-	if (binaryType.getKind() == IGenericType.INTERFACE_DECL)
-		this.modifiers |= AccInterface;
+
+	if ((binaryType.getTagBits() & TagBits.HasInconsistentHierarchy) != 0)
+		this.tagBits |= TagBits.HierarchyHasProblems;
 		
 	if (binaryType.isAnonymous()) {
-		this.tagBits |= AnonymousTypeMask;
+		this.tagBits |= TagBits.AnonymousTypeMask;
 	} else if (binaryType.isLocal()) {
-		this.tagBits |= LocalTypeMask;
+		this.tagBits |= TagBits.LocalTypeMask;
 	} else if (binaryType.isMember()) {
-		this.tagBits |= MemberTypeMask;
+		this.tagBits |= TagBits.MemberTypeMask;
 	}
 	// need enclosing type to access type variables
 	char[] enclosingTypeName = binaryType.getEnclosingTypeName();
 	if (enclosingTypeName != null) {
 		// attempt to find the enclosing type if it exists in the cache (otherwise - resolve it when requested)
 		this.enclosingType = environment.getTypeFromConstantPoolName(enclosingTypeName, 0, -1, true); // pretend parameterized to avoid raw
-		this.tagBits |= MemberTypeMask;   // must be a member type not a top-level or local type
-		this.tagBits |= 	HasUnresolvedEnclosingType;
+		this.tagBits |= TagBits.MemberTypeMask;   // must be a member type not a top-level or local type
+		this.tagBits |= 	TagBits.HasUnresolvedEnclosingType;
 		if (this.enclosingType().isStrictfp())
-			this.modifiers |= AccStrictfp;
+			this.modifiers |= ClassFileConstants.AccStrictfp;
 		if (this.enclosingType().isDeprecated())
-			this.modifiers |= AccDeprecatedImplicitly;
+			this.modifiers |= ExtraCompilerModifiers.AccDeprecatedImplicitly;
 	}	
 }
 
+/**
+ * @see org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding#availableMethods()
+ */
 public FieldBinding[] availableFields() {
-	if ((tagBits & AreFieldsComplete) != 0)
+	if ((this.tagBits & TagBits.AreFieldsComplete) != 0)
 		return fields;
 
+	// lazily sort fields
+	if ((this.tagBits & TagBits.AreFieldsSorted) == 0) {
+		int length = this.fields.length;
+		if (length > 1)
+			ReferenceBinding.sortFields(this.fields, 0, length);
+		this.tagBits |= TagBits.AreFieldsSorted;
+	}
 	FieldBinding[] availableFields = new FieldBinding[fields.length];
 	int count = 0;
 	for (int i = 0; i < fields.length; i++) {
@@ -166,10 +215,21 @@ public FieldBinding[] availableFields() {
 		System.arraycopy(availableFields, 0, availableFields = new FieldBinding[count], 0, count);
 	return availableFields;
 }
+
+/**
+ * @see org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding#availableMethods()
+ */
 public MethodBinding[] availableMethods() {
-	if ((tagBits & AreMethodsComplete) != 0)
+	if ((this.tagBits & TagBits.AreMethodsComplete) != 0)
 		return methods;
 
+	// lazily sort methods
+	if ((this.tagBits & TagBits.AreMethodsSorted) == 0) {
+		int length = this.methods.length;
+		if (length > 1)
+			ReferenceBinding.sortMethods(this.methods, 0, length);
+		this.tagBits |= TagBits.AreMethodsSorted;
+	}
 	MethodBinding[] availableMethods = new MethodBinding[methods.length];
 	int count = 0;
 	for (int i = 0; i < methods.length; i++) {
@@ -187,8 +247,22 @@ public MethodBinding[] availableMethods() {
 void cachePartsFrom(IBinaryType binaryType, boolean needFieldsAndMethods) {
 	// default initialization for super-interfaces early, in case some aborting compilation error occurs,
 	// and still want to use binaries passed that point (e.g. type hierarchy resolver, see bug 63748).
-	this.typeVariables = NoTypeVariables;
-	this.superInterfaces = NoSuperInterfaces;
+	this.typeVariables = Binding.NO_TYPE_VARIABLES;
+	this.superInterfaces = Binding.NO_SUPERINTERFACES;
+
+	// must retrieve member types in case superclass/interfaces need them
+	this.memberTypes = Binding.NO_MEMBER_TYPES;
+	IBinaryNestedType[] memberTypeStructures = binaryType.getMemberTypes();
+	if (memberTypeStructures != null) {
+		int size = memberTypeStructures.length;
+		if (size > 0) {
+			this.memberTypes = new ReferenceBinding[size];
+			for (int i = 0; i < size; i++)
+				// attempt to find each member type if it exists in the cache (otherwise - resolve it when requested)
+				this.memberTypes[i] = environment.getTypeFromConstantPoolName(memberTypeStructures[i].getName(), 0, -1, false);
+			this.tagBits |= 	TagBits.HasUnresolvedMemberTypes;
+		}
+	}
 
 	long sourceLevel = environment.globalOptions.sourceLevel;
 	char[] typeSignature = null;
@@ -201,10 +275,10 @@ void cachePartsFrom(IBinaryType binaryType, boolean needFieldsAndMethods) {
 		if (superclassName != null) {
 			// attempt to find the superclass if it exists in the cache (otherwise - resolve it when requested)
 			this.superclass = environment.getTypeFromConstantPoolName(superclassName, 0, -1, false);
-			this.tagBits |= 	HasUnresolvedSuperclass;
+			this.tagBits |= TagBits.HasUnresolvedSuperclass;
 		}
 
-		this.superInterfaces = NoSuperInterfaces;
+		this.superInterfaces = Binding.NO_SUPERINTERFACES;
 		char[][] interfaceNames = binaryType.getInterfaceNames();
 		if (interfaceNames != null) {
 			int size = interfaceNames.length;
@@ -213,7 +287,7 @@ void cachePartsFrom(IBinaryType binaryType, boolean needFieldsAndMethods) {
 				for (int i = 0; i < size; i++)
 					// attempt to find each superinterface if it exists in the cache (otherwise - resolve it when requested)
 					this.superInterfaces[i] = environment.getTypeFromConstantPoolName(interfaceNames[i], 0, -1, false);
-				this.tagBits |= 	HasUnresolvedSuperinterfaces;
+				this.tagBits |= TagBits.HasUnresolvedSuperinterfaces;
 			}
 		}
 	} else {
@@ -222,39 +296,26 @@ void cachePartsFrom(IBinaryType binaryType, boolean needFieldsAndMethods) {
 		if (wrapper.signature[wrapper.start] == '<') {
 			// ParameterPart = '<' ParameterSignature(s) '>'
 			wrapper.start++; // skip '<'
-			this.typeVariables = createTypeVariables(wrapper, this);
+			this.typeVariables = createTypeVariables(wrapper, true);
 			wrapper.start++; // skip '>'
-			this.tagBits |=  HasUnresolvedTypeVariables;
-			this.modifiers |= AccGenericSignature;
+			this.tagBits |=  TagBits.HasUnresolvedTypeVariables;
+			this.modifiers |= ExtraCompilerModifiers.AccGenericSignature;
 		}
 
 		// attempt to find the superclass if it exists in the cache (otherwise - resolve it when requested)
-		this.superclass = (ReferenceBinding) environment.getTypeFromTypeSignature(wrapper, NoTypeVariables, this);
-		this.tagBits |= 	HasUnresolvedSuperclass;
+		this.superclass = (ReferenceBinding) environment.getTypeFromTypeSignature(wrapper, Binding.NO_TYPE_VARIABLES, this);
+		this.tagBits |= TagBits.HasUnresolvedSuperclass;
 
-		this.superInterfaces = NoSuperInterfaces;
+		this.superInterfaces = Binding.NO_SUPERINTERFACES;
 		if (!wrapper.atEnd()) {
 			// attempt to find each superinterface if it exists in the cache (otherwise - resolve it when requested)
 			java.util.ArrayList types = new java.util.ArrayList(2);
 			do {
-				types.add(environment.getTypeFromTypeSignature(wrapper, NoTypeVariables, this));
+				types.add(environment.getTypeFromTypeSignature(wrapper, Binding.NO_TYPE_VARIABLES, this));
 			} while (!wrapper.atEnd());
 			this.superInterfaces = new ReferenceBinding[types.size()];
 			types.toArray(this.superInterfaces);
-			this.tagBits |= 	HasUnresolvedSuperinterfaces;
-		}
-	}
-
-	this.memberTypes = NoMemberTypes;
-	IBinaryNestedType[] memberTypeStructures = binaryType.getMemberTypes();
-	if (memberTypeStructures != null) {
-		int size = memberTypeStructures.length;
-		if (size > 0) {
-			this.memberTypes = new ReferenceBinding[size];
-			for (int i = 0; i < size; i++)
-				// attempt to find each member type if it exists in the cache (otherwise - resolve it when requested)
-				this.memberTypes[i] = environment.getTypeFromConstantPoolName(memberTypeStructures[i].getName(), 0, -1, false);
-			this.tagBits |= 	HasUnresolvedMemberTypes;
+			this.tagBits |= TagBits.HasUnresolvedSuperinterfaces;
 		}
 	}
 
@@ -262,50 +323,68 @@ void cachePartsFrom(IBinaryType binaryType, boolean needFieldsAndMethods) {
 		createFields(binaryType.getFields(), sourceLevel);
 		createMethods(binaryType.getMethods(), sourceLevel);
 	} else { // protect against incorrect use of the needFieldsAndMethods flag, see 48459
-		this.fields = NoFields;
-		this.methods = NoMethods;
+		this.fields = Binding.NO_FIELDS;
+		this.methods = Binding.NO_METHODS;
 	}
+	if (this.environment.globalOptions.storeAnnotations)
+		setAnnotations(createAnnotations(binaryType.getAnnotations(), this.environment));	
 }
 private void createFields(IBinaryField[] iFields, long sourceLevel) {
-	this.fields = NoFields;
+	this.fields = Binding.NO_FIELDS;
 	if (iFields != null) {
 		int size = iFields.length;
 		if (size > 0) {
 			this.fields = new FieldBinding[size];
 			boolean use15specifics = sourceLevel >= ClassFileConstants.JDK1_5;
 			boolean isViewedAsDeprecated = isViewedAsDeprecated();
+			boolean hasRestrictedAccess = hasRestrictedAccess();
+			int firstAnnotatedFieldIndex = -1;
 			for (int i = 0; i < size; i++) {
 				IBinaryField binaryField = iFields[i];
 				char[] fieldSignature = use15specifics ? binaryField.getGenericSignature() : null;
 				TypeBinding type = fieldSignature == null 
 					? environment.getTypeFromSignature(binaryField.getTypeName(), 0, -1, false, this) 
-					: environment.getTypeFromTypeSignature(new SignatureWrapper(fieldSignature), NoTypeVariables, this);
+					: environment.getTypeFromTypeSignature(new SignatureWrapper(fieldSignature), Binding.NO_TYPE_VARIABLES, this);
 				FieldBinding field = 
 					new FieldBinding(
 						binaryField.getName(), 
 						type, 
-						binaryField.getModifiers() | AccUnresolved, 
+						binaryField.getModifiers() | ExtraCompilerModifiers.AccUnresolved, 
 						this, 
 						binaryField.getConstant());
+				if (firstAnnotatedFieldIndex < 0
+						&& this.environment.globalOptions.storeAnnotations 
+						&& binaryField.getAnnotations() != null) {
+					firstAnnotatedFieldIndex = i;
+				}
 				field.id = i; // ordinal
 				if (use15specifics)
 					field.tagBits |= binaryField.getTagBits();
 				if (isViewedAsDeprecated && !field.isDeprecated())
-					field.modifiers |= AccDeprecatedImplicitly;
+					field.modifiers |= ExtraCompilerModifiers.AccDeprecatedImplicitly;
+				if (hasRestrictedAccess)
+					field.modifiers |= ExtraCompilerModifiers.AccRestrictedAccess;
 				if (fieldSignature != null)
-					field.modifiers |= AccGenericSignature;
+					field.modifiers |= ExtraCompilerModifiers.AccGenericSignature;
 				this.fields[i] = field;
+			}
+			// second pass for reifying annotations, since may refer to fields being constructed (147875)
+			if (firstAnnotatedFieldIndex >= 0) {
+				for (int i = firstAnnotatedFieldIndex; i <size; i++) {
+					this.fields[i].setAnnotations(createAnnotations(iFields[i].getAnnotations(), this.environment));
+				}
 			}
 		}
 	}
 }
 private MethodBinding createMethod(IBinaryMethod method, long sourceLevel) {
-	int methodModifiers = method.getModifiers() | AccUnresolved;
+	int methodModifiers = method.getModifiers() | ExtraCompilerModifiers.AccUnresolved;
 	if (sourceLevel < ClassFileConstants.JDK1_5)
-		methodModifiers &= ~AccVarargs; // vararg methods are not recognized until 1.5
-	ReferenceBinding[] exceptions = NoExceptions;
-	TypeBinding[] parameters = NoParameters;
-	TypeVariableBinding[] typeVars = NoTypeVariables;
+		methodModifiers &= ~ClassFileConstants.AccVarargs; // vararg methods are not recognized until 1.5
+	ReferenceBinding[] exceptions = Binding.NO_EXCEPTIONS;
+	TypeBinding[] parameters = Binding.NO_PARAMETERS;
+	TypeVariableBinding[] typeVars = Binding.NO_TYPE_VARIABLES;
+	AnnotationBinding[][] paramAnnotations = null; 
 	TypeBinding returnType = null;
 
 	final boolean use15specifics = sourceLevel >= ClassFileConstants.JDK1_5;
@@ -328,6 +407,8 @@ private MethodBinding createMethod(IBinaryMethod method, long sourceLevel) {
 		int size = numOfParams - startIndex;
 		if (size > 0) {
 			parameters = new TypeBinding[size];
+			if (this.environment.globalOptions.storeAnnotations)
+				paramAnnotations = new AnnotationBinding[size][];
 			index = 1;
 			int end = 0;   // first character is always '(' so skip it
 			for (int i = 0; i < numOfParams; i++) {
@@ -335,8 +416,13 @@ private MethodBinding createMethod(IBinaryMethod method, long sourceLevel) {
 				if (nextChar == 'L')
 					while ((nextChar = methodDescriptor[++end]) != ';'){/*empty*/}
 
-				if (i >= startIndex)   // skip the synthetic arg if necessary
+				if (i >= startIndex) {   // skip the synthetic arg if necessary
 					parameters[i - startIndex] = environment.getTypeFromSignature(methodDescriptor, index, end, false, this);
+					// 'paramAnnotations' line up with 'parameters'
+					// int parameter to method.getParameterAnnotations() include the synthetic arg
+					if (paramAnnotations != null)
+						paramAnnotations[i - startIndex] = createAnnotations(method.getParameterAnnotations(i), this.environment);
+				}
 				index = end + 1;
 			}
 		}
@@ -354,14 +440,14 @@ private MethodBinding createMethod(IBinaryMethod method, long sourceLevel) {
 		if (!method.isConstructor())
 			returnType = environment.getTypeFromSignature(methodDescriptor, index + 1, -1, false, this);   // index is currently pointing at the ')'
 	} else {
-		methodModifiers |= AccGenericSignature;
+		methodModifiers |= ExtraCompilerModifiers.AccGenericSignature;
 		// MethodTypeSignature = ParameterPart(optional) '(' TypeSignatures ')' return_typeSignature ['^' TypeSignature (optional)]
 		SignatureWrapper wrapper = new SignatureWrapper(methodSignature);
 		if (wrapper.signature[wrapper.start] == '<') {
 			// <A::Ljava/lang/annotation/Annotation;>(Ljava/lang/Class<TA;>;)TA;
 			// ParameterPart = '<' ParameterSignature(s) '>'
 			wrapper.start++; // skip '<'
-			typeVars = createTypeVariables(wrapper, this);
+			typeVars = createTypeVariables(wrapper, false);
 			wrapper.start++; // skip '>'
 		}
 
@@ -374,16 +460,22 @@ private MethodBinding createMethod(IBinaryMethod method, long sourceLevel) {
 				while (wrapper.signature[wrapper.start] != ')')
 					types.add(environment.getTypeFromTypeSignature(wrapper, typeVars, this));
 				wrapper.start++; // skip ')'
-				parameters = new TypeBinding[types.size()];
+				int numParam = types.size();
+				parameters = new TypeBinding[numParam];
 				types.toArray(parameters);
+				if (this.environment.globalOptions.storeAnnotations) {
+					paramAnnotations = new AnnotationBinding[numParam][];
+					for (int i = 0; i < numParam; i++)
+						paramAnnotations[i] = createAnnotations(method.getParameterAnnotations(i), this.environment);
+				}
 			}
 		}
 
-		if (!method.isConstructor())
-			returnType = environment.getTypeFromTypeSignature(wrapper, typeVars, this);
+		// always retrieve return type (for constructors, its V for void - will be ignored)
+		returnType = environment.getTypeFromTypeSignature(wrapper, typeVars, this);
 
 		if (!wrapper.atEnd() && wrapper.signature[wrapper.start] == '^') {
-			// attempt to find each superinterface if it exists in the cache (otherwise - resolve it when requested)
+			// attempt to find each exception if it exists in the cache (otherwise - resolve it when requested)
 			java.util.ArrayList types = new java.util.ArrayList(2);
 			do {
 				wrapper.start++; // skip '^'
@@ -407,6 +499,12 @@ private MethodBinding createMethod(IBinaryMethod method, long sourceLevel) {
 	MethodBinding result = method.isConstructor()
 		? new MethodBinding(methodModifiers, parameters, exceptions, this)
 		: new MethodBinding(methodModifiers, method.getSelector(), returnType, parameters, exceptions, this);
+	if (this.environment.globalOptions.storeAnnotations)
+		result.setAnnotations(
+			createAnnotations(method.getAnnotations(), this.environment),
+			paramAnnotations,
+			isAnnotationType() ? convertMemberValue(method.getDefaultValue(), this.environment) : null);
+
 	if (use15specifics)
 		result.tagBits |= method.getTagBits();
 	result.typeVariables = typeVars;
@@ -423,9 +521,13 @@ private void createMethods(IBinaryMethod[] iMethods, long sourceLevel) {
 	int[] toSkip = null;
 	if (iMethods != null) {
 		total = initialTotal = iMethods.length;
+		boolean keepBridgeMethods = sourceLevel < ClassFileConstants.JDK1_5
+			&& this.environment.globalOptions.complianceLevel >= ClassFileConstants.JDK1_5;
 		for (int i = total; --i >= 0;) {
 			IBinaryMethod method = iMethods[i];
-			if ((method.getModifiers() & AccSynthetic) != 0) {
+			if ((method.getModifiers() & ClassFileConstants.AccSynthetic) != 0) {
+				if (keepBridgeMethods && (method.getModifiers() & ClassFileConstants.AccBridge) != 0)
+					continue; // want to see bridge methods as real methods
 				// discard synthetics methods
 				if (toSkip == null) toSkip = new int[iMethods.length];
 				toSkip[i] = -1;
@@ -441,17 +543,20 @@ private void createMethods(IBinaryMethod[] iMethods, long sourceLevel) {
 		}
 	}
 	if (total == 0) {
-		this.methods = NoMethods;
+		this.methods = Binding.NO_METHODS;
 		return;
 	}
 
 	boolean isViewedAsDeprecated = isViewedAsDeprecated();
+	boolean hasRestrictedAccess = hasRestrictedAccess();
 	this.methods = new MethodBinding[total];
 	if (total == initialTotal) {
 		for (int i = 0; i < initialTotal; i++) {
 			MethodBinding method = createMethod(iMethods[i], sourceLevel);
 			if (isViewedAsDeprecated && !method.isDeprecated())
-				method.modifiers |= AccDeprecatedImplicitly;
+				method.modifiers |= ExtraCompilerModifiers.AccDeprecatedImplicitly;
+			if (hasRestrictedAccess)
+				method.modifiers |= ExtraCompilerModifiers.AccRestrictedAccess;
 			this.methods[i] = method;
 		}
 	} else {
@@ -459,13 +564,15 @@ private void createMethods(IBinaryMethod[] iMethods, long sourceLevel) {
 			if (iClinit != i && (toSkip == null || toSkip[i] != -1)) {
 				MethodBinding method = createMethod(iMethods[i], sourceLevel);
 				if (isViewedAsDeprecated && !method.isDeprecated())
-					method.modifiers |= AccDeprecatedImplicitly;
+					method.modifiers |= ExtraCompilerModifiers.AccDeprecatedImplicitly;
+				if (hasRestrictedAccess)
+					method.modifiers |= ExtraCompilerModifiers.AccRestrictedAccess;
 				this.methods[index++] = method;
 			}
 		}
 	}
 }
-private TypeVariableBinding[] createTypeVariables(SignatureWrapper wrapper, Binding declaringElement) {
+private TypeVariableBinding[] createTypeVariables(SignatureWrapper wrapper, boolean assignVariables) {
 	// detect all type variables first
 	char[] typeSignature = wrapper.signature;
 	int depth = 0, length = typeSignature.length;
@@ -492,7 +599,7 @@ private TypeVariableBinding[] createTypeVariables(SignatureWrapper wrapper, Bind
 						pendingVariable = false;
 						int colon = CharOperation.indexOf(':', typeSignature, i);
 						char[] variableName = CharOperation.subarray(typeSignature, i, colon);
-						variables.add(new TypeVariableBinding(variableName, declaringElement, rank++));
+						variables.add(new TypeVariableBinding(variableName, this, rank++));
 					}
 			}
 		}
@@ -500,6 +607,10 @@ private TypeVariableBinding[] createTypeVariables(SignatureWrapper wrapper, Bind
 	// initialize type variable bounds - may refer to forward variables
 	TypeVariableBinding[] result;
 	variables.toArray(result = new TypeVariableBinding[rank]);
+	// when creating the type variables for a type, the type must remember them before initializing each variable
+	// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=163680
+	if (assignVariables)
+		this.typeVariables = result;
 	for (int i = 0; i < rank; i++) {
 		initializeTypeVariable(result[i], result, wrapper);
 	}
@@ -510,24 +621,29 @@ private TypeVariableBinding[] createTypeVariables(SignatureWrapper wrapper, Bind
 * NOTE: enclosingType of a binary type is resolved when needed
 */
 public ReferenceBinding enclosingType() {
-	if ((this.tagBits & HasUnresolvedEnclosingType) == 0)
+	if ((this.tagBits & TagBits.HasUnresolvedEnclosingType) == 0)
 		return this.enclosingType;
-
-	this.enclosingType = resolveUnresolvedType(this.enclosingType, this.environment, false); // no raw conversion for now
-	this.tagBits &= ~HasUnresolvedEnclosingType;
 
 	// finish resolving the type
 	this.enclosingType = resolveType(this.enclosingType, this.environment, false);
+	this.tagBits &= ~TagBits.HasUnresolvedEnclosingType;
 	return this.enclosingType;
 }
 // NOTE: the type of each field of a binary type is resolved when needed
 public FieldBinding[] fields() {
-	if ((tagBits & AreFieldsComplete) != 0)
+	if ((this.tagBits & TagBits.AreFieldsComplete) != 0)
 		return fields;
 
+	// lazily sort fields
+	if ((this.tagBits & TagBits.AreFieldsSorted) == 0) {
+		int length = this.fields.length;
+		if (length > 1)
+			ReferenceBinding.sortFields(this.fields, 0, length);
+		this.tagBits |= TagBits.AreFieldsSorted;
+	}
 	for (int i = fields.length; --i >= 0;)
 		resolveTypeFor(fields[i]);
-	tagBits |= AreFieldsComplete;
+	this.tagBits |= TagBits.AreFieldsComplete;
 	return fields;
 }
 /**
@@ -536,44 +652,65 @@ public FieldBinding[] fields() {
 public char[] genericTypeSignature() {
 	return computeGenericTypeSignature(this.typeVariables);
 }
-// NOTE: the return type, arg & exception types of each method of a binary type are resolved when needed
+//NOTE: the return type, arg & exception types of each method of a binary type are resolved when needed
 public MethodBinding getExactConstructor(TypeBinding[] argumentTypes) {
+
+	// lazily sort methods
+	if ((this.tagBits & TagBits.AreMethodsSorted) == 0) {
+		int length = this.methods.length;
+		if (length > 1)
+			ReferenceBinding.sortMethods(this.methods, 0, length);
+		this.tagBits |= TagBits.AreMethodsSorted;
+	}
 	int argCount = argumentTypes.length;
-	nextMethod : for (int m = methods.length; --m >= 0;) {
-		MethodBinding method = methods[m];
-		if (method.selector == TypeConstants.INIT && method.parameters.length == argCount) {
-			resolveTypesFor(method);
-			TypeBinding[] toMatch = method.parameters;
-			for (int p = 0; p < argCount; p++)
-				if (toMatch[p] != argumentTypes[p])
-					continue nextMethod;
-			return method;
-		}
+	long range;
+	if ((range = ReferenceBinding.binarySearch(TypeConstants.INIT, this.methods)) >= 0) {
+		nextMethod: for (int imethod = (int)range, end = (int)(range >> 32); imethod <= end; imethod++) {	
+			MethodBinding method = methods[imethod];
+			if (method.parameters.length == argCount) {
+				resolveTypesFor(method);
+				TypeBinding[] toMatch = method.parameters;
+				for (int iarg = 0; iarg < argCount; iarg++)
+					if (toMatch[iarg] != argumentTypes[iarg])
+						continue nextMethod;
+				return method;
+			}
+		}	
 	}
 	return null;
 }
-// NOTE: the return type, arg & exception types of each method of a binary type are resolved when needed
-// searches up the hierarchy as long as no potential (but not exact) match was found.
+
+//NOTE: the return type, arg & exception types of each method of a binary type are resolved when needed
+//searches up the hierarchy as long as no potential (but not exact) match was found.
 public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes, CompilationUnitScope refScope) {
 	// sender from refScope calls recordTypeReference(this)
+	
+	// lazily sort methods
+	if ((this.tagBits & TagBits.AreMethodsSorted) == 0) {
+		int length = this.methods.length;
+		if (length > 1)
+			ReferenceBinding.sortMethods(this.methods, 0, length);
+		this.tagBits |= TagBits.AreMethodsSorted;
+	}
+
 	int argCount = argumentTypes.length;
-	int selectorLength = selector.length;
 	boolean foundNothing = true;
-	nextMethod : for (int m = methods.length; --m >= 0;) {
-		MethodBinding method = methods[m];
-		if (method.selector.length == selectorLength && CharOperation.equals(method.selector, selector)) {
+
+	long range;
+	if ((range = ReferenceBinding.binarySearch(selector, this.methods)) >= 0) {
+		nextMethod: for (int imethod = (int)range, end = (int)(range >> 32); imethod <= end; imethod++) {	
+			MethodBinding method = methods[imethod];
 			foundNothing = false; // inner type lookups must know that a method with this name exists
 			if (method.parameters.length == argCount) {
 				resolveTypesFor(method);
 				TypeBinding[] toMatch = method.parameters;
-				for (int p = 0; p < argCount; p++)
-					if (toMatch[p] != argumentTypes[p])
+				for (int iarg = 0; iarg < argCount; iarg++)
+					if (toMatch[iarg] != argumentTypes[iarg])
 						continue nextMethod;
 				return method;
 			}
 		}
 	}
-
 	if (foundNothing) {
 		if (isInterface()) {
 			 if (superInterfaces().length == 1) { // ensure superinterfaces are resolved before checking
@@ -589,15 +726,17 @@ public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes
 	}
 	return null;
 }
-// NOTE: the type of a field of a binary type is resolved when needed
+//NOTE: the type of a field of a binary type is resolved when needed
 public FieldBinding getField(char[] fieldName, boolean needResolve) {
-	int fieldLength = fieldName.length;
-	for (int f = fields.length; --f >= 0;) {
-		char[] name = fields[f].name;
-		if (name.length == fieldLength && CharOperation.equals(name, fieldName))
-			return needResolve ? resolveTypeFor(fields[f]) : fields[f];
+	// lazily sort fields
+	if ((this.tagBits & TagBits.AreFieldsSorted) == 0) {
+		int length = this.fields.length;
+		if (length > 1)
+			ReferenceBinding.sortFields(this.fields, 0, length);
+		this.tagBits |= TagBits.AreFieldsSorted;
 	}
-	return null;
+	FieldBinding field = ReferenceBinding.binarySearch(fieldName, this.fields);
+	return needResolve && field != null ? resolveTypeFor(field) : field;
 }
 /**
  *  Rewrite of default getMemberType to avoid resolving eagerly all member types when one is requested
@@ -619,30 +758,38 @@ public ReferenceBinding getMemberType(char[] typeName) {
 }
 // NOTE: the return type, arg & exception types of each method of a binary type are resolved when needed
 public MethodBinding[] getMethods(char[] selector) {
-	int count = 0;
-	int lastIndex = -1;
-	int selectorLength = selector.length;
-	for (int m = 0, length = methods.length; m < length; m++) {
-		MethodBinding method = methods[m];
-		if (method.selector.length == selectorLength && CharOperation.equals(method.selector, selector)) {
-			resolveTypesFor(method);
-			count++;
-			lastIndex = m;
+	if ((this.tagBits & TagBits.AreMethodsComplete) != 0) {
+		long range;
+		if ((range = ReferenceBinding.binarySearch(selector, this.methods)) >= 0) {
+			int start = (int) range, end = (int) (range >> 32);
+			int length = end - start + 1;
+			if ((this.tagBits & TagBits.AreMethodsComplete) != 0) {
+				// simply clone method subset
+				MethodBinding[] result;				
+				System.arraycopy(this.methods, start, result = new MethodBinding[length], 0, length);
+				return result;
+			}
 		}
+		return Binding.NO_METHODS;
 	}
-	if (count == 1)
-		return new MethodBinding[] {methods[lastIndex]};
-	if (count > 0) {
-		MethodBinding[] result = new MethodBinding[count];
-		count = 0;
-		for (int m = 0; m <= lastIndex; m++) {
-			MethodBinding method = methods[m];
-			if (method.selector.length == selectorLength && CharOperation.equals(method.selector, selector))
-				result[count++] = method;
-		}
+	// lazily sort methods
+	if ((this.tagBits & TagBits.AreMethodsSorted) == 0) {
+		int length = this.methods.length;
+		if (length > 1)
+			ReferenceBinding.sortMethods(this.methods, 0, length);
+		this.tagBits |= TagBits.AreMethodsSorted;
+	}
+	long range;
+	if ((range = ReferenceBinding.binarySearch(selector, this.methods)) >= 0) {
+		int start = (int) range, end = (int) (range >> 32);
+		int length = end - start + 1;
+		MethodBinding[] result = new MethodBinding[length];
+		// iterate methods to resolve them
+		for (int i = start, index = 0; i <= end; i++, index++)
+			result[index] = resolveTypesFor(methods[i]);
 		return result;
 	}
-	return NoMethods;
+	return Binding.NO_METHODS;
 }
 public boolean hasMemberTypes() {
     return this.memberTypes.length > 0;
@@ -661,14 +808,14 @@ private void initializeTypeVariable(TypeVariableBinding variable, TypeVariableBi
 	wrapper.start = colon + 1; // skip name + ':'
 	ReferenceBinding type, firstBound = null;
 	if (wrapper.signature[wrapper.start] == ':') {
-		type = environment.getType(JAVA_LANG_OBJECT);
+		type = environment.getResolvedType(TypeConstants.JAVA_LANG_OBJECT, null);
 	} else {
 		type = (ReferenceBinding) environment.getTypeFromTypeSignature(wrapper, existingVariables, this);
 		firstBound = type;
 	}
 
 	// variable is visible to its bounds
-	variable.modifiers |= AccUnresolved;
+	variable.modifiers |= ExtraCompilerModifiers.AccUnresolved;
 	variable.superclass = type;
 
 	ReferenceBinding[] bounds = null;
@@ -682,10 +829,9 @@ private void initializeTypeVariable(TypeVariableBinding variable, TypeVariableBi
 		types.toArray(bounds);
 	}
 
-	variable.superInterfaces = bounds == null ? NoSuperInterfaces : bounds;
+	variable.superInterfaces = bounds == null ? Binding.NO_SUPERINTERFACES : bounds;
 	if (firstBound == null) {
 		firstBound = variable.superInterfaces.length == 0 ? null : variable.superInterfaces[0];
-		variable.modifiers |= AccInterface;
 	}
 	variable.firstBound = firstBound;
 }
@@ -705,46 +851,50 @@ public boolean isEquivalentTo(TypeBinding otherType) {
 	return false;
 }
 public boolean isGenericType() {
-    return this.typeVariables != NoTypeVariables;
+    return this.typeVariables != Binding.NO_TYPE_VARIABLES;
 }
 public int kind() {
-	if (this.typeVariables != NoTypeVariables)
+	if (this.typeVariables != Binding.NO_TYPE_VARIABLES)
 		return Binding.GENERIC_TYPE;
 	return Binding.TYPE;
 }	
 // NOTE: member types of binary types are resolved when needed
 public ReferenceBinding[] memberTypes() {
- 	if ((this.tagBits & HasUnresolvedMemberTypes) == 0)
+ 	if ((this.tagBits & TagBits.HasUnresolvedMemberTypes) == 0)
 		return this.memberTypes;
 
 	for (int i = this.memberTypes.length; --i >= 0;)
-		this.memberTypes[i] = resolveUnresolvedType(this.memberTypes[i], this.environment, false); // no raw conversion for now
-	this.tagBits &= ~HasUnresolvedMemberTypes;
-
-	for (int i = this.memberTypes.length; --i >= 0;)
 		this.memberTypes[i] = resolveType(this.memberTypes[i], this.environment, false); // no raw conversion for now
+	this.tagBits &= ~TagBits.HasUnresolvedMemberTypes;
 	return this.memberTypes;
 }
 // NOTE: the return type, arg & exception types of each method of a binary type are resolved when needed
 public MethodBinding[] methods() {
-	if ((tagBits & AreMethodsComplete) != 0)
+	if ((this.tagBits & TagBits.AreMethodsComplete) != 0)
 		return methods;
 
+	// lazily sort methods
+	if ((this.tagBits & TagBits.AreMethodsSorted) == 0) {
+		int length = this.methods.length;
+		if (length > 1)
+			ReferenceBinding.sortMethods(this.methods, 0, length);
+		this.tagBits |= TagBits.AreMethodsSorted;
+	}
 	for (int i = methods.length; --i >= 0;)
 		resolveTypesFor(methods[i]);
-	tagBits |= AreMethodsComplete;
+	this.tagBits |= TagBits.AreMethodsComplete;
 	return methods;
 }
 private FieldBinding resolveTypeFor(FieldBinding field) {
-	if ((field.modifiers & AccUnresolved) == 0)
+	if ((field.modifiers & ExtraCompilerModifiers.AccUnresolved) == 0)
 		return field;
 
 	field.type = resolveType(field.type, this.environment, null, 0);
-	field.modifiers &= ~AccUnresolved;
+	field.modifiers &= ~ExtraCompilerModifiers.AccUnresolved;
 	return field;
 }
 MethodBinding resolveTypesFor(MethodBinding method) {
-	if ((method.modifiers & AccUnresolved) == 0)
+	if ((method.modifiers & ExtraCompilerModifiers.AccUnresolved) == 0)
 		return method;
 
 	if (!method.isConstructor())
@@ -755,44 +905,55 @@ MethodBinding resolveTypesFor(MethodBinding method) {
 		method.thrownExceptions[i] = resolveType(method.thrownExceptions[i], this.environment, true);
 	for (int i = method.typeVariables.length; --i >= 0;)
 		method.typeVariables[i].resolve(this.environment);
-	method.modifiers &= ~AccUnresolved;
+	method.modifiers &= ~ExtraCompilerModifiers.AccUnresolved;
 	return method;
+}
+AnnotationBinding[] retrieveAnnotations(Binding binding) {
+	return AnnotationBinding.addStandardAnnotations(super.retrieveAnnotations(binding), binding.getAnnotationTagBits(), this.environment);
+}
+SimpleLookupTable storedAnnotations(boolean forceInitialize) {
+	if (forceInitialize && this.storedAnnotations == null) {
+		if (!this.environment.globalOptions.storeAnnotations)
+			return null; // not supported during this compile
+		this.storedAnnotations = new SimpleLookupTable(3);
+	}
+	return this.storedAnnotations;
 }
 /* Answer the receiver's superclass... null if the receiver is Object or an interface.
 *
 * NOTE: superclass of a binary type is resolved when needed
 */
 public ReferenceBinding superclass() {
-	if ((this.tagBits & HasUnresolvedSuperclass) == 0)
+	if ((this.tagBits & TagBits.HasUnresolvedSuperclass) == 0)
 		return this.superclass;
-
-	this.superclass = resolveUnresolvedType(this.superclass, this.environment, true);
-	this.tagBits &= ~HasUnresolvedSuperclass;
 
 	// finish resolving the type
 	this.superclass = resolveType(this.superclass, this.environment, true);
+	this.tagBits &= ~TagBits.HasUnresolvedSuperclass;
+	if (this.superclass.problemId() == ProblemReasons.NotFound)
+		this.tagBits |= TagBits.HierarchyHasProblems; // propagate type inconsistency
 	return this.superclass;
 }
 // NOTE: superInterfaces of binary types are resolved when needed
 public ReferenceBinding[] superInterfaces() {
-	if ((this.tagBits & HasUnresolvedSuperinterfaces) == 0)
+	if ((this.tagBits & TagBits.HasUnresolvedSuperinterfaces) == 0)
 		return this.superInterfaces;
 
-	for (int i = this.superInterfaces.length; --i >= 0;)
-		this.superInterfaces[i] = resolveUnresolvedType(this.superInterfaces[i], this.environment, true);
-	this.tagBits &= ~HasUnresolvedSuperinterfaces;
-
-	for (int i = this.superInterfaces.length; --i >= 0;)
+	for (int i = this.superInterfaces.length; --i >= 0;) {
 		this.superInterfaces[i] = resolveType(this.superInterfaces[i], this.environment, true);
+		if (this.superInterfaces[i].problemId() == ProblemReasons.NotFound)
+			this.tagBits |= TagBits.HierarchyHasProblems; // propagate type inconsistency
+	}
+	this.tagBits &= ~TagBits.HasUnresolvedSuperinterfaces;
 	return this.superInterfaces;
 }
 public TypeVariableBinding[] typeVariables() {
- 	if ((this.tagBits & HasUnresolvedTypeVariables) == 0)
+ 	if ((this.tagBits & TagBits.HasUnresolvedTypeVariables) == 0)
 		return this.typeVariables;
 
  	for (int i = this.typeVariables.length; --i >= 0;)
 		this.typeVariables[i].resolve(this.environment);
-	this.tagBits &= ~HasUnresolvedTypeVariables;
+	this.tagBits &= ~TagBits.HasUnresolvedTypeVariables;
 	return this.typeVariables;
 }
 public String toString() {
@@ -816,7 +977,7 @@ public String toString() {
 	buffer.append((superclass != null) ? superclass.debugName() : "NULL TYPE"); //$NON-NLS-1$
 
 	if (superInterfaces != null) {
-		if (superInterfaces != NoSuperInterfaces) {
+		if (superInterfaces != Binding.NO_SUPERINTERFACES) {
 			buffer.append("\n\timplements : "); //$NON-NLS-1$
 			for (int i = 0, length = superInterfaces.length; i < length; i++) {
 				if (i  > 0)
@@ -834,7 +995,7 @@ public String toString() {
 	}
 
 	if (fields != null) {
-		if (fields != NoFields) {
+		if (fields != Binding.NO_FIELDS) {
 			buffer.append("\n/*   fields   */"); //$NON-NLS-1$
 			for (int i = 0, length = fields.length; i < length; i++)
 				buffer.append((fields[i] != null) ? "\n" + fields[i].toString() : "\nNULL FIELD"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -844,7 +1005,7 @@ public String toString() {
 	}
 
 	if (methods != null) {
-		if (methods != NoMethods) {
+		if (methods != Binding.NO_METHODS) {
 			buffer.append("\n/*   methods   */"); //$NON-NLS-1$
 			for (int i = 0, length = methods.length; i < length; i++)
 				buffer.append((methods[i] != null) ? "\n" + methods[i].toString() : "\nNULL METHOD"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -854,7 +1015,7 @@ public String toString() {
 	}
 
 	if (memberTypes != null) {
-		if (memberTypes != NoMemberTypes) {
+		if (memberTypes != Binding.NO_MEMBER_TYPES) {
 			buffer.append("\n/*   members   */"); //$NON-NLS-1$
 			for (int i = 0, length = memberTypes.length; i < length; i++)
 				buffer.append((memberTypes[i] != null) ? "\n" + memberTypes[i].toString() : "\nNULL TYPE"); //$NON-NLS-1$ //$NON-NLS-2$

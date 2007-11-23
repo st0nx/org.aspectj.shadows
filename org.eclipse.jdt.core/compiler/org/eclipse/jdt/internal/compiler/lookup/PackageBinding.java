@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,7 +16,7 @@ import org.eclipse.jdt.internal.compiler.util.HashtableOfType;
 
 public class PackageBinding extends Binding implements TypeConstants {
 	public long tagBits = 0; // See values in the interface TagBits below
-	
+
 	public char[][] compoundName;
 	PackageBinding parent;
 	public LookupEnvironment environment;
@@ -135,7 +135,7 @@ ReferenceBinding getType(char[] name) {
 
 	typeBinding = BinaryTypeBinding.resolveType(typeBinding, environment, false); // no raw conversion for now
 	if (typeBinding.isNestedType())
-		return new ProblemReferenceBinding(name, typeBinding, InternalNameProvided);
+		return new ProblemReferenceBinding(name, typeBinding, ProblemReasons.InternalNameProvided);
 	return typeBinding;
 }
 /* Answer the type named name if it exists in the cache.
@@ -166,7 +166,7 @@ public Binding getTypeOrPackage(char[] name) {
 	if (typeBinding != null && typeBinding != LookupEnvironment.TheNotFoundType) {
 		typeBinding = BinaryTypeBinding.resolveType(typeBinding, environment, false); // no raw conversion for now
 		if (typeBinding.isNestedType())
-			return new ProblemReferenceBinding(name, typeBinding, InternalNameProvided);
+			return new ProblemReferenceBinding(name, typeBinding, ProblemReasons.InternalNameProvided);
 		return typeBinding;
 	}
 
@@ -177,7 +177,7 @@ public Binding getTypeOrPackage(char[] name) {
 	if (typeBinding == null) { // have not looked for it before
 		if ((typeBinding = environment.askForType(this, name)) != null) {
 			if (typeBinding.isNestedType())
-				return new ProblemReferenceBinding(name, typeBinding, InternalNameProvided);
+				return new ProblemReferenceBinding(name, typeBinding, ProblemReasons.InternalNameProvided);
 			return typeBinding;
 		}
 

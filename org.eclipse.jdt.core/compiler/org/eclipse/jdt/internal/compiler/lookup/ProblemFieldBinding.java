@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,17 +10,12 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
-import org.eclipse.jdt.core.compiler.CharOperation;
-
 public class ProblemFieldBinding extends FieldBinding {
 	private int problemId;
 	public FieldBinding closestMatch;
 		
 // NOTE: must only answer the subset of the name related to the problem
 
-public ProblemFieldBinding(FieldBinding closestMatch, char[][] compoundName, int problemId) {
-	this(closestMatch, closestMatch == null ? null : closestMatch.declaringClass, CharOperation.concatWith(compoundName, '.'), problemId);
-}
 public ProblemFieldBinding(ReferenceBinding declaringClass, char[] name, int problemId) {
 	this(null, declaringClass, name, problemId);
 }

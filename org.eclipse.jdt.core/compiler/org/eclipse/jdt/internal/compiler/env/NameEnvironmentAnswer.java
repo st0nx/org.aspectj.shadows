@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -84,5 +84,21 @@ public class NameEnvironmentAnswer {
 	 */
 	public boolean isSourceType() {
 		return this.sourceTypes != null;
+	}
+	
+	public boolean ignoreIfBetter() {
+		return this.accessRestriction != null && this.accessRestriction.ignoreIfBetter();
+	}
+	
+	/*
+	 * Returns whether this answer is better than the other awswer.
+	 * (accessible is better than discouraged, which is better than
+	 * non-accessible)
+	 */
+	public boolean isBetter(NameEnvironmentAnswer otherAnswer) {
+		if (otherAnswer == null) return true;
+		if (this.accessRestriction == null) return true;
+		return otherAnswer.accessRestriction != null 
+			&& this.accessRestriction.getProblemId() < otherAnswer.accessRestriction.getProblemId();
 	}
 }

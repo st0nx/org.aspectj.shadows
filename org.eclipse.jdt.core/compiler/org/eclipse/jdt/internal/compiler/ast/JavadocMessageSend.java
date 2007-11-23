@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,6 +12,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 
@@ -19,7 +20,6 @@ public class JavadocMessageSend extends MessageSend {
 
 	public int tagSourceStart, tagSourceEnd;
 	public int tagValue;
-	public boolean superAccess = false;
 
 	public JavadocMessageSend(char[] name, long pos) {
 		this.selector = name;
@@ -39,7 +39,7 @@ public class JavadocMessageSend extends MessageSend {
 	private TypeBinding internalResolveType(Scope scope) {
 		// Answer the signature return type
 		// Base type promotion
-		this.constant = NotAConstant;
+		this.constant = Constant.NotAConstant;
 		if (this.receiver == null) {
 			this.actualReceiverType = scope.enclosingSourceType();
 		} else if (scope.kind == Scope.CLASS_SCOPE) {
@@ -50,7 +50,7 @@ public class JavadocMessageSend extends MessageSend {
 
 		// will check for null after args are resolved
 		
-		TypeBinding[] argumentTypes = NoParameters;
+		TypeBinding[] argumentTypes = Binding.NO_PARAMETERS;
 		boolean hasArgsTypeVar = false;
 		if (this.arguments != null) {
 			boolean argHasError = false; // typeChecks all arguments 
@@ -80,7 +80,9 @@ public class JavadocMessageSend extends MessageSend {
 		}
 		this.actualReceiverType = scope.environment().convertToRawType(this.receiver.resolvedType);
 		SourceTypeBinding enclosingType = scope.enclosingSourceType();
-		this.superAccess = enclosingType==null ? false : enclosingType.isCompatibleWith(this.actualReceiverType);
+		if (enclosingType==null ? false : enclosingType.isCompatibleWith(this.actualReceiverType)) {
+			this.bits |= ASTNode.SuperAccess;
+		}
 
 		// base type cannot receive any message
 		if (this.actualReceiverType.isBaseType()) {
@@ -119,6 +121,7 @@ public class JavadocMessageSend extends MessageSend {
 				case ProblemReasons.NonStaticReferenceInConstructorInvocation:
 				case ProblemReasons.NonStaticReferenceInStaticContext:
 				case ProblemReasons.InheritedNameHidesEnclosingName : 
+				case ProblemReasons.Ambiguous: 
 					MethodBinding closestMatch = ((ProblemMethodBinding)this.binding).closestMatch;
 					if (closestMatch != null) {
 						this.binding = closestMatch; // ignore problem if can reach target method through it
@@ -136,7 +139,7 @@ public class JavadocMessageSend extends MessageSend {
 			}
 			scope.problemReporter().javadocInvalidMethod(this, this.binding, scope.getDeclarationModifiers());
 			// record the closest match, for clients who may still need hint about possible method match
-			if (this.binding instanceof ProblemMethodBinding){
+			if (this.binding instanceof ProblemMethodBinding) {
 				MethodBinding closestMatch = ((ProblemMethodBinding)this.binding).closestMatch;
 				if (closestMatch != null) this.binding = closestMatch;
 			}
@@ -150,21 +153,17 @@ public class JavadocMessageSend extends MessageSend {
 				MethodBinding problem = new ProblemMethodBinding(this.binding, this.selector, argumentTypes, ProblemReasons.NotFound);
 				scope.problemReporter().javadocInvalidMethod(this, problem, scope.getDeclarationModifiers());
 			}
-		} else if (this.binding instanceof ParameterizedMethodBinding && this.actualReceiverType instanceof ReferenceBinding) {
-			ParameterizedMethodBinding paramMethodBinding = (ParameterizedMethodBinding) this.binding;
-			if (paramMethodBinding.hasSubstitutedParameters()) {
-				int length = argumentTypes.length;
-				for (int i=0; i<length; i++) {
-					if (paramMethodBinding.parameters[i] != argumentTypes[i] &&
-							paramMethodBinding.parameters[i].erasure() != argumentTypes[i].erasure()) {
-						MethodBinding problem = new ProblemMethodBinding(this.binding, this.selector, argumentTypes, ProblemReasons.NotFound);
-						scope.problemReporter().javadocInvalidMethod(this, problem, scope.getDeclarationModifiers());
-						break;
-					}
+		} else {
+			int length = argumentTypes.length;
+			for (int i=0; i<length; i++) {
+				if (this.binding.parameters[i].erasure() != argumentTypes[i].erasure()) {
+					MethodBinding problem = new ProblemMethodBinding(this.binding, this.selector, argumentTypes, ProblemReasons.NotFound);
+					scope.problemReporter().javadocInvalidMethod(this, problem, scope.getDeclarationModifiers());
+					break;
 				}
 			}
 		}
-		if (isMethodUseDeprecated(this.binding, scope)) {
+		if (isMethodUseDeprecated(this.binding, scope, true)) {
 			scope.problemReporter().javadocDeprecatedMethod(this.binding, this, scope.getDeclarationModifiers());
 		}
 
@@ -175,7 +174,7 @@ public class JavadocMessageSend extends MessageSend {
 	 * @see org.eclipse.jdt.internal.compiler.lookup.InvocationSite#isSuperAccess()
 	 */
 	public boolean isSuperAccess() {
-		return this.superAccess;
+		return (this.bits & ASTNode.SuperAccess) != 0;
 	}
 
 	public StringBuffer printExpression(int indent, StringBuffer output){
@@ -217,5 +216,22 @@ public class JavadocMessageSend extends MessageSend {
 			}
 		}
 		visitor.endVisit(this, blockScope);
+	}
+	/* (non-Javadoc)
+	 * Redefine to capture javadoc specific signatures
+	 * @see org.eclipse.jdt.internal.compiler.ast.ASTNode#traverse(org.eclipse.jdt.internal.compiler.ASTVisitor, org.eclipse.jdt.internal.compiler.lookup.BlockScope)
+	 */
+	public void traverse(ASTVisitor visitor, ClassScope scope) {
+		if (visitor.visit(this, scope)) {
+			if (this.receiver != null) {
+				this.receiver.traverse(visitor, scope);
+			}
+			if (this.arguments != null) {
+				int argumentsLength = this.arguments.length;
+				for (int i = 0; i < argumentsLength; i++)
+					this.arguments[i].traverse(visitor, scope);
+			}
+		}
+		visitor.endVisit(this, scope);
 	}
 }

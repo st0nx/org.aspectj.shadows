@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,7 +13,6 @@ package org.eclipse.jdt.internal.compiler.lookup;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.CaseStatement;
-import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 
 public final class LocalTypeBinding extends NestedTypeBinding {
 	final static char[] LocalTypePrefix = { '$', 'L', 'o', 'c', 'a', 'l', '$' };
@@ -21,7 +20,7 @@ public final class LocalTypeBinding extends NestedTypeBinding {
 	private InnerEmulationDependency[] dependents;
 	public ArrayBinding[] localArrayBindings; // used to cache array bindings of various dimensions for this local type
 	public CaseStatement enclosingCase; // from 1.4 on, local types should not be accessed across switch case blocks (52221)
-	int sourceStart; // used by computeUniqueKey to uniquely identify this binding
+	public int sourceStart; // used by computeUniqueKey to uniquely identify this binding
 	public MethodBinding enclosingMethod;
 	
 public LocalTypeBinding(ClassScope scope, SourceTypeBinding enclosingType, CaseStatement switchCase) {
@@ -30,10 +29,10 @@ public LocalTypeBinding(ClassScope scope, SourceTypeBinding enclosingType, CaseS
 		scope,
 		enclosingType);
 	
-	if (this.sourceName == TypeDeclaration.ANONYMOUS_EMPTY_NAME)
-		this.tagBits |= AnonymousTypeMask;
+	if (this.sourceName == CharOperation.NO_CHAR)
+		this.tagBits |= TagBits.AnonymousTypeMask;
 	else
-		this.tagBits |= LocalTypeMask;
+		this.tagBits |= TagBits.LocalTypeMask;
 	this.enclosingCase = switchCase;
 	this.sourceStart = scope.referenceContext.sourceStart;
 	MethodScope methodScope = scope.enclosingMethodScope();
@@ -65,23 +64,36 @@ public void addInnerEmulationDependent(BlockScope dependentScope, boolean wasEnc
 public char[] computeUniqueKey(boolean isLeaf) {
 	char[] outerKey = outermostEnclosingType().computeUniqueKey(isLeaf);
 	int semicolon = CharOperation.lastIndexOf(';', outerKey);
-	
+
+	StringBuffer sig = new StringBuffer();
+	sig.append(outerKey, 0, semicolon);
+
 	// insert $sourceStart
-	return CharOperation.concat(
-			CharOperation.concat(
-					CharOperation.subarray(outerKey, 0, semicolon),
-					String.valueOf(this.sourceStart).toCharArray(),
-					'$'),
-			CharOperation.subarray(outerKey, semicolon, outerKey.length));
+	sig.append('$');
+	sig.append(String.valueOf(this.sourceStart));
+	
+	// insert $LocalName if local
+	if (!isAnonymousType()) {
+		sig.append('$');
+		sig.append(this.sourceName);
+	}
+	
+	// insert remaining from outer key
+	sig.append(outerKey, semicolon, outerKey.length-semicolon);
+	
+	int sigLength = sig.length();
+	char[] uniqueKey = new char[sigLength];
+	sig.getChars(0, sigLength, uniqueKey, 0);			
+	return uniqueKey;
 }
 
 public char[] constantPoolName() /* java/lang/Object */ {
 	return constantPoolName;
 }
 
-ArrayBinding createArrayType(int dimensionCount) {
+ArrayBinding createArrayType(int dimensionCount, LookupEnvironment lookupEnvironment) {
 	if (localArrayBindings == null) {
-		localArrayBindings = new ArrayBinding[] {new ArrayBinding(this, dimensionCount, scope.environment())};
+		localArrayBindings = new ArrayBinding[] {new ArrayBinding(this, dimensionCount, lookupEnvironment)};
 		return localArrayBindings[0];
 	}
 
@@ -93,7 +105,7 @@ ArrayBinding createArrayType(int dimensionCount) {
 
 	// no matching array
 	System.arraycopy(localArrayBindings, 0, localArrayBindings = new ArrayBinding[length + 1], 0, length); 
-	return localArrayBindings[length] = new ArrayBinding(this, dimensionCount, scope.environment());
+	return localArrayBindings[length] = new ArrayBinding(this, dimensionCount, lookupEnvironment);
 }
 
 /*
@@ -114,7 +126,7 @@ public char[] genericTypeSignature() {
 public char[] readableName() /*java.lang.Object,  p.X<T> */ {
     char[] readableName;
 	if (isAnonymousType()) {
-		if (superInterfaces == NoSuperInterfaces)
+		if (superInterfaces == Binding.NO_SUPERINTERFACES)
 			readableName = CharOperation.concat(TypeConstants.ANONYM_PREFIX, superclass.readableName(), TypeConstants.ANONYM_SUFFIX);
 		else
 			readableName = CharOperation.concat(TypeConstants.ANONYM_PREFIX, superInterfaces[0].readableName(), TypeConstants.ANONYM_SUFFIX);
@@ -124,7 +136,7 @@ public char[] readableName() /*java.lang.Object,  p.X<T> */ {
 		readableName = this.sourceName;
 	}    
 	TypeVariableBinding[] typeVars;
-	if ((typeVars = this.typeVariables()) != NoTypeVariables) {
+	if ((typeVars = this.typeVariables()) != Binding.NO_TYPE_VARIABLES) {
 	    StringBuffer nameBuffer = new StringBuffer(10);
 	    nameBuffer.append(readableName).append('<');
 	    for (int i = 0, length = typeVars.length; i < length; i++) {
@@ -142,7 +154,7 @@ public char[] readableName() /*java.lang.Object,  p.X<T> */ {
 public char[] shortReadableName() /*Object*/ {
     char[] shortReadableName;
 	if (isAnonymousType()) {
-		if (superInterfaces == NoSuperInterfaces)
+		if (superInterfaces == Binding.NO_SUPERINTERFACES)
 			shortReadableName = CharOperation.concat(TypeConstants.ANONYM_PREFIX, superclass.shortReadableName(), TypeConstants.ANONYM_SUFFIX);
 		else
 			shortReadableName = CharOperation.concat(TypeConstants.ANONYM_PREFIX, superInterfaces[0].shortReadableName(), TypeConstants.ANONYM_SUFFIX);
@@ -152,7 +164,7 @@ public char[] shortReadableName() /*Object*/ {
 		shortReadableName = sourceName;
 	}
 	TypeVariableBinding[] typeVars;
-	if ((typeVars = this.typeVariables()) != NoTypeVariables) {
+	if ((typeVars = this.typeVariables()) != Binding.NO_TYPE_VARIABLES) {
 	    StringBuffer nameBuffer = new StringBuffer(10);
 	    nameBuffer.append(shortReadableName).append('<');
 	    for (int i = 0, length = typeVars.length; i < length; i++) {
@@ -169,16 +181,29 @@ public char[] shortReadableName() /*Object*/ {
 
 // Record that the type is a local member type
 public void setAsMemberType() {
-	tagBits |= MemberTypeMask;
+	this.tagBits |= TagBits.MemberTypeMask;
 }
 
 public void setConstantPoolName(char[] computedConstantPoolName) /* java/lang/Object */ {
 	this.constantPoolName = computedConstantPoolName;
 }
-
+/*
+ * Overriden for code assist. In this case, the constantPoolName() has not been computed yet.
+ * Slam the source name so that the signature is syntactically correct.
+ * (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=102284)
+ */
+public char[] signature() {
+	if (this.signature == null && constantPoolName() == null) {
+		if (isAnonymousType())
+			setConstantPoolName(superclass().sourceName());
+		else
+			setConstantPoolName(sourceName());
+	}
+	return super.signature();
+}
 public char[] sourceName() {
 	if (isAnonymousType()) {
-		if (superInterfaces == NoSuperInterfaces)
+		if (superInterfaces == Binding.NO_SUPERINTERFACES)
 			return CharOperation.concat(TypeConstants.ANONYM_PREFIX, superclass.sourceName(), TypeConstants.ANONYM_SUFFIX);
 		else
 			return CharOperation.concat(TypeConstants.ANONYM_PREFIX, superInterfaces[0].sourceName(), TypeConstants.ANONYM_SUFFIX);

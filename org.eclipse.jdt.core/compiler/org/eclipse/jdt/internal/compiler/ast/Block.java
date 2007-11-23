@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -49,7 +49,7 @@ public class Block extends Statement {
 	 */
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 
-		if ((bits & IsReachableMASK) == 0) {
+		if ((bits & IsReachable) == 0) {
 			return;
 		}
 		int pc = codeStream.position;
@@ -89,7 +89,7 @@ public class Block extends Statement {
 
 	public void resolve(BlockScope upperScope) {
 
-		if ((this.bits & UndocumentedEmptyBlockMASK) != 0) {
+		if ((this.bits & UndocumentedEmptyBlock) != 0) {
 			upperScope.problemReporter().undocumentedEmptyBlock(this.sourceStart, this.sourceEnd);
 		}
 		if (statements != null) {
@@ -105,7 +105,7 @@ public class Block extends Statement {
 
 	public void resolveUsing(BlockScope givenScope) {
 
-		if ((this.bits & UndocumentedEmptyBlockMASK) != 0) {
+		if ((this.bits & UndocumentedEmptyBlock) != 0) {
 			givenScope.problemReporter().undocumentedEmptyBlock(this.sourceStart, this.sourceEnd);
 		}
 		// this optimized resolve(...) is sent only on none empty blocks
@@ -133,7 +133,7 @@ public class Block extends Statement {
 	/**
 	 * Dispatch the call on its last statement.
 	 */
-	public void branchChainTo(Label label) {
+	public void branchChainTo(BranchLabel label) {
 		 if (this.statements != null) {
 		 	this.statements[statements.length - 1].branchChainTo(label);
 		 }

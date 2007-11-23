@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -52,7 +52,7 @@ public class ReturnStatement extends Statement {
 	 * Clients must not modify the result.
 	 * 
 	 * @param apiLevel the API level; one of the
-	 * <code>AST.JLS&ast;</code> constants
+	 * <code>AST.JLS*</code> constants
 	 * @return a list of property descriptors (element type: 
 	 * {@link StructuralPropertyDescriptor})
 	 * @since 3.0

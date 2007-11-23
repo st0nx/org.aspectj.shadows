@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,10 +10,13 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+// TODO should rename into TypeNames (once extracted last non name constants)
 public interface TypeConstants {
+	
 	char[] JAVA = "java".toCharArray(); //$NON-NLS-1$
 	char[] LANG = "lang".toCharArray(); //$NON-NLS-1$
 	char[] IO = "io".toCharArray(); //$NON-NLS-1$
+	char[] UTIL = "util".toCharArray(); //$NON-NLS-1$
 	char[] ANNOTATION = "annotation".toCharArray(); //$NON-NLS-1$
 	char[] REFLECT = "reflect".toCharArray(); //$NON-NLS-1$
 	char[] LENGTH = "length".toCharArray(); //$NON-NLS-1$
@@ -41,7 +44,8 @@ public interface TypeConstants {
     char[] WILDCARD_MINUS = { '-' };
     char[] WILDCARD_STAR = { '*' };
     char[] WILDCARD_PLUS = { '+' };
-    char[] WILDCARD_CAPTURE_NAME = "capture-of ".toCharArray(); //$NON-NLS-1$
+    char[] WILDCARD_CAPTURE_NAME_PREFIX = "capture#".toCharArray(); //$NON-NLS-1$
+    char[] WILDCARD_CAPTURE_NAME_SUFFIX = "-of ".toCharArray(); //$NON-NLS-1$
 	char[] WILDCARD_CAPTURE = { '!' };
 	char[] BYTE = "byte".toCharArray(); //$NON-NLS-1$
 	char[] SHORT = "short".toCharArray(); //$NON-NLS-1$
@@ -69,7 +73,7 @@ public interface TypeConstants {
     char[] UPPER_LOCAL_VARIABLE = "LOCAL_VARIABLE".toCharArray(); //$NON-NLS-1$
     char[] UPPER_ANNOTATION_TYPE = "ANNOTATION_TYPE".toCharArray(); //$NON-NLS-1$
     char[] UPPER_PACKAGE = "PACKAGE".toCharArray(); //$NON-NLS-1$
-    
+ 
 	// Constant compound names
 	char[][] JAVA_LANG = {JAVA, LANG};
 	char[][] JAVA_IO = {JAVA, IO};
@@ -103,7 +107,7 @@ public interface TypeConstants {
 	char[][] JAVA_LANG_DOUBLE = {JAVA, LANG, "Double".toCharArray()}; //$NON-NLS-1$
 	char[][] JAVA_LANG_BOOLEAN = {JAVA, LANG, "Boolean".toCharArray()}; //$NON-NLS-1$
 	char[][] JAVA_LANG_VOID = {JAVA, LANG, "Void".toCharArray()}; //$NON-NLS-1$
-	char[][] JAVA_UTIL_ITERATOR = {JAVA, "util".toCharArray(), "Iterator".toCharArray()}; //$NON-NLS-1$//$NON-NLS-2$
+	char[][] JAVA_UTIL_ITERATOR = {JAVA, UTIL, "Iterator".toCharArray()}; //$NON-NLS-1$
 	char[][] JAVA_LANG_DEPRECATED = {JAVA, LANG, "Deprecated".toCharArray()}; //$NON-NLS-1$
 	char[][] JAVA_LANG_ANNOTATION_DOCUMENTED = {JAVA, LANG, ANNOTATION, "Documented".toCharArray()}; //$NON-NLS-1$
 	char[][] JAVA_LANG_ANNOTATION_INHERITED = {JAVA, LANG, ANNOTATION, "Inherited".toCharArray()}; //$NON-NLS-1$
@@ -113,34 +117,24 @@ public interface TypeConstants {
 	char[][] JAVA_LANG_ANNOTATION_TARGET = {JAVA, LANG, ANNOTATION, "Target".toCharArray()}; //$NON-NLS-1$
 	char[][] JAVA_LANG_ANNOTATION_RETENTIONPOLICY = {JAVA, LANG, ANNOTATION, "RetentionPolicy".toCharArray()}; //$NON-NLS-1$
 	char[][] JAVA_LANG_ANNOTATION_ELEMENTTYPE = {JAVA, LANG, ANNOTATION, "ElementType".toCharArray()}; //$NON-NLS-1$
+	char[][] JAVA_LANG_REFLECT_FIELD = new char[][] {JAVA, LANG, REFLECT, "Field".toCharArray()}; //$NON-NLS-1$
+	char[][] JAVA_LANG_REFLECT_METHOD = new char[][] {JAVA, LANG, REFLECT, "Method".toCharArray()}; //$NON-NLS-1$
+	char[][] JAVA_IO_OBJECTSTREAMEXCEPTION = new char[][] { JAVA, IO, "ObjectStreamException".toCharArray()};//$NON-NLS-1$
+	char[][] JAVA_IO_EXTERNALIZABLE = {JAVA, IO, "Externalizable".toCharArray()}; //$NON-NLS-1$
+	char[][] JAVA_IO_IOEXCEPTION = new char[][] { JAVA, IO, "IOException".toCharArray()};//$NON-NLS-1$
+	char[][] JAVA_IO_OBJECTOUTPUTSTREAM = new char[][] { JAVA, IO, "ObjectOutputStream".toCharArray()}; //$NON-NLS-1$
+	char[][] JAVA_IO_OBJECTINPUTSTREAM = new char[][] { JAVA, IO, "ObjectInputStream".toCharArray()}; //$NON-NLS-1$
 	
-
-	// Constants used by the flow analysis
-	int EqualOrMoreSpecific = -1;
-	int NotRelated = 0;
-	int MoreGeneric = 1;
-	
-    // Constraints for generic type argument inference
+	// Constraints for generic type argument inference
     int CONSTRAINT_EQUAL = 0;		// Actual = Formal
     int CONSTRAINT_EXTENDS = 1;	// Actual << Formal
     int CONSTRAINT_SUPER = 2;		// Actual >> Formal
-	
+
 	// Constants used to perform bound checks
 	int OK = 0;
 	int UNCHECKED = 1;
 	int MISMATCH = 2;
 
-	// Shared binding collections
-	TypeBinding[] NoTypes = new TypeBinding[0];
-	TypeBinding[] NoParameters = new TypeBinding[0];
-	ReferenceBinding[] NoExceptions = new ReferenceBinding[0];
-	ReferenceBinding[] AnyException = new ReferenceBinding[] { null }; // special handler for all exceptions
-	FieldBinding[] NoFields = new FieldBinding[0];
-	MethodBinding[] NoMethods = new MethodBinding[0];
-	ReferenceBinding[] NoSuperInterfaces = new ReferenceBinding[0];
-	ReferenceBinding[] NoMemberTypes = new ReferenceBinding[0];
-	TypeVariableBinding[] NoTypeVariables = new TypeVariableBinding[0];
-	
 	// Synthetics
 	char[] INIT = "<init>".toCharArray(); //$NON-NLS-1$
 	char[] CLINIT = "<clinit>".toCharArray(); //$NON-NLS-1$

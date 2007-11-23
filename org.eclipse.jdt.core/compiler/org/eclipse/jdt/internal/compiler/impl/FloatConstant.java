@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,7 +14,11 @@ public class FloatConstant extends Constant {
 	
 	float value;
 	
-	public FloatConstant(float value) {
+	public static Constant fromValue(float value) {
+		return new FloatConstant(value);
+	}
+
+	private FloatConstant(float value) {
 		this.value = value;
 	}
 	
@@ -47,9 +51,7 @@ public class FloatConstant extends Constant {
 	}
 	
 	public String stringValue() {
-		String s = Float.toString(value);
-		if (s == null) return "null"; //$NON-NLS-1$
-		return s;
+		return String.valueOf(this.value);
 	}
 
 	public String toString() {

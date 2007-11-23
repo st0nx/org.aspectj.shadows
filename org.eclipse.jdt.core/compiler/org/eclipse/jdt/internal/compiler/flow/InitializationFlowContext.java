@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,6 +11,7 @@
 package org.eclipse.jdt.internal.compiler.flow;
 
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
@@ -33,7 +34,7 @@ public class InitializationFlowContext extends ExceptionHandlingFlowContext {
 		super(
 			parent,
 			associatedNode,
-			NoExceptions, // no exception allowed by default
+			Binding.NO_EXCEPTIONS, // no exception allowed by default
 			scope, 
 			FlowInfo.DEAD_END);
 	}

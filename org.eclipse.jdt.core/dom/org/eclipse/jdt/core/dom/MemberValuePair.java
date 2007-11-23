@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * Copyright (c) 2004, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -80,7 +80,7 @@ public class MemberValuePair extends ASTNode {
 	 * legal expression.
 	 */
 	private Expression value = null;
-
+	
 	/**
 	 * Creates a new AST node for a member value pair owned by the given 
 	 * AST. By default, the node has an unspecified (but legal) member
@@ -185,6 +185,21 @@ public class MemberValuePair extends ASTNode {
 		return this.name;
 	}
 	
+	/**
+	 * Resolves and returns the member value pair binding for this member value pair.
+	 * <p>
+	 * Note that bindings are generally unavailable unless requested when the
+	 * AST is being built.
+	 * </p>
+	 * 
+	 * @return the binding, or <code>null</code> if the binding cannot be 
+	 *    resolved
+	 * @since 3.2
+	 */	
+	public final IMemberValuePairBinding resolveMemberValuePairBinding() {
+		return this.ast.getBindingResolver().resolveMemberValuePair(this);
+	}
+
 	/**
 	 * Sets the member name.
 	 * 

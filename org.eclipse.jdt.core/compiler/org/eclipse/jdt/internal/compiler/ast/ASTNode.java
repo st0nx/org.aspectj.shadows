@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,56 +7,56 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Matt McCutchen
+ *     		Partial fix for https://bugs.eclipse.org/bugs/show_bug.cgi?id=122995.
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
-import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 
-public abstract class ASTNode implements BaseTypes, CompilerModifiers, TypeConstants, TypeIds {
-	
+public abstract class ASTNode implements TypeConstants, TypeIds {
+
 	public int sourceStart, sourceEnd;
 
-	//some global provision for the hierarchy
-	public final static Constant NotAConstant = Constant.NotAConstant;
+	// storage for internal flags (32 bits)				BIT USAGE
+	public final static int Bit1 = 0x1;					// return type (operator) | name reference kind (name ref) | add assertion (type decl) | useful empty statement (empty statement)
+	public final static int Bit2 = 0x2;					// return type (operator) | name reference kind (name ref) | has local type (type, method, field decl)
+	public final static int Bit3 = 0x4;					// return type (operator) | name reference kind (name ref) | implicit this (this ref)
+	public final static int Bit4 = 0x8;					// return type (operator) | first assignment to local (name ref,local decl) | undocumented empty block (block, type and method decl)
+	public final static int Bit5 = 0x10;				// value for return (expression) | has all method bodies (unit) | supertype ref (type ref) | resolved (field decl)
+	public final static int Bit6 = 0x20;				// depth (name ref, msg) | ignore need cast check (cast expression) | error in signature (method declaration/ initializer)
+	public final static int Bit7 = 0x40;				// depth (name ref, msg) | operator (operator) | need runtime checkcast (cast expression) | label used (labelStatement) | needFreeReturn (AbstractMethodDeclaration)
+	public final static int Bit8 = 0x80;				// depth (name ref, msg) | operator (operator) | unsafe cast (cast expression) | is default constructor (constructor declaration)
+	public final static int Bit9 = 0x100;				// depth (name ref, msg) | operator (operator) | is local type (type decl)
+	public final static int Bit10= 0x200;				// depth (name ref, msg) | operator (operator) | is anonymous type (type decl)
+	public final static int Bit11 = 0x400;				// depth (name ref, msg) | operator (operator) | is member type (type decl)
+	public final static int Bit12 = 0x800;				// depth (name ref, msg) | operator (operator) | has abstract methods (type decl)
+	public final static int Bit13 = 0x1000;				// depth (name ref, msg) | is secondary type (type decl)
+	public final static int Bit14 = 0x2000;				// strictly assigned (reference lhs) | discard enclosing instance (explicit constr call) | hasBeenGenerated (type decl)
+	public final static int Bit15 = 0x4000;				// is unnecessary cast (expression) | is varargs (type ref) | isSubRoutineEscaping (try statement) | superAccess (javadoc allocation expression/javadoc message send/javadoc return statement)
+	public final static int Bit16 = 0x8000;				// in javadoc comment (name ref, type ref, msg)
+	public final static int Bit17 = 0x10000;			// compound assigned (reference lhs)
+	public final static int Bit18 = 0x20000;			// non null (expression) | onDemand (import reference)
+	public final static int Bit19 = 0x40000;			// didResolve (parameterized qualified type ref/parameterized single type ref)  | empty (javadoc return statement)
+	public final static int Bit20 = 0x80000;
+	public final static int Bit21 = 0x100000;
+	public final static int Bit22 = 0x200000;			// parenthesis count (expression) | used (import reference)
+	public final static int Bit23 = 0x400000;			// parenthesis count (expression)
+	public final static int Bit24 = 0x800000;			// parenthesis count (expression)
+	public final static int Bit25 = 0x1000000;			// parenthesis count (expression)
+	public final static int Bit26 = 0x2000000;			// parenthesis count (expression)
+	public final static int Bit27 = 0x4000000;			// parenthesis count (expression)
+	public final static int Bit28 = 0x8000000;			// parenthesis count (expression)
+	public final static int Bit29 = 0x10000000;			// parenthesis count (expression)
+	public final static int Bit30 = 0x20000000;			// elseif (if statement) | try block exit (try statement) | fall-through (case statement) | ignore no effect assign (expression ref) | needScope (for statement) | isAnySubRoutineEscaping (return statement) | blockExit (synchronized statement)
+	public final static int Bit31 = 0x40000000;			// local declaration reachable (local decl) | ignore raw type check (type ref) | discard entire assignment (assignment) | isSynchronized (return statement) | thenExit (if statement) 
+	public final static int Bit32 = 0x80000000;			// reachable (statement)
 
-	// storage for internal flags (32 bits)						BIT USAGE
-	public final static int Bit1 = 0x1; 						// return type (operator) | name reference kind (name ref) | add assertion (type decl) | useful empty statement (empty statement)
-	public final static int Bit2 = 0x2; 						// return type (operator) | name reference kind (name ref) | has local type (type, method, field decl)
-	public final static int Bit3 = 0x4; 						// return type (operator) | name reference kind (name ref) | implicit this (this ref)
-	public final static int Bit4 = 0x8; 						// return type (operator) | first assignment to local (local decl) | undocumented empty block (block, type and method decl)
-	public final static int Bit5 = 0x10; 						// value for return (expression) | has all method bodies (unit) | supertype ref (type ref)
-	public final static int Bit6 = 0x20; 						// depth (name ref, msg) | only value required (binary expression) | ignore need cast check (cast expression)
-	public final static int Bit7 = 0x40; 						// depth (name ref, msg) | operator (operator) | need runtime checkcast (cast expression)
-	public final static int Bit8 = 0x80; 						// depth (name ref, msg) | operator (operator) | unsafe cast (cast expression)
-	public final static int Bit9 = 0x100; 					// depth (name ref, msg) | operator (operator) | is local type (type decl)
-	public final static int Bit10= 0x200; 					// depth (name ref, msg) | operator (operator) | is anonymous type (type decl)
-	public final static int Bit11 = 0x400; 					// depth (name ref, msg) | operator (operator) | is member type (type decl)
-	public final static int Bit12 = 0x800; 					// depth (name ref, msg) | operator (operator) | has abstract methods (type decl)
-	public final static int Bit13 = 0x1000; 				// depth (name ref, msg) 
-	public final static int Bit14 = 0x2000; 				// strictly assigned (reference lhs)
-	public final static int Bit15 = 0x4000; 				// is unnecessary cast (expression)
-	public final static int Bit16 = 0x8000; 				// in javadoc comment (name ref, type ref, msg)
-	public final static int Bit17 = 0x10000; 				// compound assigned (reference lhs)
-	public final static int Bit18 = 0x20000; 				
-	public final static int Bit19 = 0x40000; 
-	public final static int Bit20 = 0x80000; 
-	public final static int Bit21 = 0x100000; 		
-	public final static int Bit22 = 0x200000; 			// parenthesis count (expression)
-	public final static int Bit23 = 0x400000; 			// parenthesis count (expression)
-	public final static int Bit24 = 0x800000; 			// parenthesis count (expression)
-	public final static int Bit25 = 0x1000000; 			// parenthesis count (expression)
-	public final static int Bit26 = 0x2000000; 			// parenthesis count (expression)
-	public final static int Bit27 = 0x4000000; 			// parenthesis count (expression)
-	public final static int Bit28 = 0x8000000; 			// parenthesis count (expression)
-	public final static int Bit29 = 0x10000000; 		// parenthesis count (expression)
-	public final static int Bit30 = 0x20000000; 		// assignment with no effect (assignment) | elseif (if statement)
-	public final static int Bit31 = 0x40000000; 		// local declaration reachable (local decl)
-	public final static int Bit32 = 0x80000000; 		// reachable (statement)
-
-	public final static long Bit32L = 0x80000000L; 		
+	public final static long Bit32L = 0x80000000L;
 	public final static long Bit33L = 0x100000000L;
 	public final static long Bit34L = 0x200000000L;
 	public final static long Bit35L = 0x400000000L;
@@ -81,114 +81,174 @@ public abstract class ASTNode implements BaseTypes, CompilerModifiers, TypeConst
 	public final static long Bit54L = 0x20000000000000L;
 	public final static long Bit55L = 0x40000000000000L;
 	public final static long Bit56L = 0x80000000000000L;
+	public final static long Bit57L = 0x100000000000000L;
+	public final static long Bit58L = 0x200000000000000L;
+	public final static long Bit59L = 0x400000000000000L;
+	public final static long Bit60L = 0x800000000000000L;
+	public final static long Bit61L = 0x1000000000000000L;
+	public final static long Bit62L = 0x2000000000000000L;
+	public final static long Bit63L = 0x4000000000000000L;
+	public final static long Bit64L = 0x8000000000000000L;
 
-	public int bits = IsReachableMASK; 				// reachable by default
+	public int bits = IsReachable; 				// reachable by default
 
-	// for operators 
-	public static final int ReturnTypeIDMASK = Bit1|Bit2|Bit3|Bit4; 
+	// for operators
+	public static final int ReturnTypeIDMASK = Bit1|Bit2|Bit3|Bit4;
 	public static final int OperatorSHIFT = 6;	// Bit7 -> Bit12
 	public static final int OperatorMASK = Bit7|Bit8|Bit9|Bit10|Bit11|Bit12; // 6 bits for operator ID
 
 	// for binary expressions
-	public static final int ValueForReturnMASK = Bit5; 
-	public static final int OnlyValueRequiredMASK = Bit6; 
+	public static final int IsReturnedValue = Bit5;
 
 	// for cast expressions
-	public static final int UnnecessaryCastMASK = Bit15;
-	public static final int IgnoreNeedForCastCheckMASK = Bit6;
-	public static final int NeedRuntimeCheckCastMASK = Bit7;
-	public static final int UnsafeCastMask = Bit8;
-	
-	// for name references 
-	public static final int RestrictiveFlagMASK = Bit1|Bit2|Bit3;	
-	public static final int FirstAssignmentToLocalMASK = Bit4;
-	
+	public static final int UnnecessaryCast = Bit15;
+	public static final int DisableUnnecessaryCastCheck = Bit6;
+	public static final int GenerateCheckcast = Bit7;
+	public static final int UnsafeCast = Bit8;
+
+	// for name references
+	public static final int RestrictiveFlagMASK = Bit1|Bit2|Bit3;
+
+	// for name refs or local decls
+	public static final int FirstAssignmentToLocal = Bit4;
+
 	// for this reference
-	public static final int IsImplicitThisMask = Bit3; 
+	public static final int IsImplicitThis = Bit3;
 
 	// for single name references
 	public static final int DepthSHIFT = 5;	// Bit6 -> Bit13
 	public static final int DepthMASK = Bit6|Bit7|Bit8|Bit9|Bit10|Bit11|Bit12|Bit13; // 8 bits for actual depth value (max. 255)
 
-	// for statements 
-	public static final int IsReachableMASK = Bit32; 
-	public static final int IsLocalDeclarationReachableMASK = Bit31; 
+	// for statements
+	public static final int IsReachable = Bit32;
+	public static final int LabelUsed = Bit7;
+	public static final int DocumentedFallthrough = Bit30;
+
+	// local decls
+	public static final int IsLocalDeclarationReachable = Bit31;
+
+	// try statements
+	public static final int IsSubRoutineEscaping = Bit15;
+	public static final int IsTryBlockExiting = Bit30;
 
 	// for type declaration
-	public static final int AddAssertionMASK = Bit1;
-	public static final int IsLocalTypeMASK = Bit9;
-	public static final int IsAnonymousTypeMASK = Bit10; // used to test for anonymous 
-	public static final int AnonymousAndLocalMask = IsAnonymousTypeMASK | IsLocalTypeMASK; // used to set anonymous marker
-	public static final int IsMemberTypeMASK = Bit11; // local member do not know it is local at parse time (need to look at binding)
+	public static final int ContainsAssertion = Bit1;
+	public static final int IsLocalType = Bit9;
+	public static final int IsAnonymousType = Bit10; // used to test for anonymous
+	public static final int IsMemberType = Bit11; // local member do not know it is local at parse time (need to look at binding)
 	public static final int HasAbstractMethods = Bit12; // used to promote abstract enums
-	
-	// for type, method and field declarations 
-	public static final int HasLocalTypeMASK = Bit2; // cannot conflict with AddAssertionMASK
+	public static final int IsSecondaryType = Bit13; // used to test for secondary
+	public static final int HasBeenGenerated = Bit14;
 
-	// for expression 
+	// for type, method and field declarations
+	public static final int HasLocalType = Bit2; // cannot conflict with AddAssertionMASK
+	public static final int HasBeenResolved = Bit5; // field decl only (to handle forward references)
+
+	// for expression
 	public static final int ParenthesizedSHIFT = 21; // Bit22 -> Bit29
 	public static final int ParenthesizedMASK = Bit22|Bit23|Bit24|Bit25|Bit26|Bit27|Bit28|Bit29; // 8 bits for parenthesis count value (max. 255)
+	public static final int IgnoreNoEffectAssignCheck = Bit30;
 
-	// for assignment
-	public static final int IsAssignmentWithNoEffectMASK = Bit30;	
-	
 	// for references on lhs of assignment
-	public static final int IsStrictlyAssignedMASK = Bit14; // set only for true assignments, as opposed to compound ones
-	public static final int IsCompoundAssignedMASK = Bit17; // set only for compound assignments, as opposed to other ones
+	public static final int IsStrictlyAssigned = Bit14; // set only for true assignments, as opposed to compound ones
+	public static final int IsCompoundAssigned = Bit17; // set only for compound assignments, as opposed to other ones
 
+	// for explicit constructor call
+	public static final int DiscardEnclosingInstance = Bit14; // used for codegen
+	
 	// for empty statement
-	public static final int IsUsefulEmptyStatementMASK = Bit1;
+	public static final int IsUsefulEmptyStatement = Bit1;
 
 	// for block and method declaration
-	public static final int UndocumentedEmptyBlockMASK = Bit4;
+	public static final int UndocumentedEmptyBlock = Bit4;
+	public static final int OverridingMethodWithSupercall = Bit5;
+
+	// for initializer and method declaration
+	public static final int ErrorInSignature = Bit6;
+	
+	// for abstract method declaration
+	public static final int NeedFreeReturn = Bit7; // abstract method declaration
+
+	// for constructor declaration
+	public static final int IsDefaultConstructor = Bit8;
 
 	// for compilation unit
 	public static final int HasAllMethodBodies = Bit5;
-	
+	public static final int IsImplicitUnit = Bit1;
+
 	// for references in Javadoc comments
 	public static final int InsideJavadoc = Bit16;
-	
+
+	// for javadoc allocation expression/javadoc message send/javadoc return statement
+	public static final int SuperAccess = Bit15;
+
+	// for javadoc return statement
+	public static final int Empty = Bit19;
+
 	// for if statement
 	public static final int IsElseIfStatement = Bit30;
-	
+	public static final int ThenExit = Bit31;
+
 	// for type reference
 	public static final int IsSuperType = Bit5;
-	
-	// for variable argument
 	public static final int IsVarArgs = Bit15;
-	
+	public static final int IgnoreRawTypeCheck = Bit31;
+
 	// for array initializer
 	public static final int IsAnnotationDefaultValue = Bit1;
+
+	// for null reference analysis
+	public static final int IsNonNull = Bit18;
+
+	// for for statement
+	public static final int NeededScope = Bit30;
+
+	// for import reference
+	public static final int OnDemand = Bit18;
+	public static final int Used = Bit2;
 	
+	// for parameterized qualified/single type ref
+	public static final int DidResolve = Bit19;
+	
+	// for return statement
+	public static final int IsAnySubRoutineEscaping = Bit30;
+	public static final int IsSynchronized = Bit31;
+	
+	// for synchronized statement
+	public static final int BlockExit = Bit30;
+	
+	// constants used when checking invocation arguments
+	public static final int INVOCATION_ARGUMENT_OK = 0;
+	public static final int INVOCATION_ARGUMENT_UNCHECKED = 1;
+	public static final int INVOCATION_ARGUMENT_WILDCARD = 2;
+
 	public ASTNode() {
 
 		super();
 	}
-	private static boolean checkInvocationArgument(BlockScope scope, Expression argument, TypeBinding parameterType, TypeBinding argumentType, TypeBinding originalParameterType) {
+	private static int checkInvocationArgument(BlockScope scope, Expression argument, TypeBinding parameterType, TypeBinding argumentType, TypeBinding originalParameterType) {
 		argument.computeConversion(scope, parameterType, argumentType);
 
-		if (argumentType != NullBinding && parameterType.isWildcard()) {
+		if (argumentType != TypeBinding.NULL && parameterType.isWildcard()) {
 			WildcardBinding wildcard = (WildcardBinding) parameterType;
 			if (wildcard.boundKind != Wildcard.SUPER && wildcard.otherBounds == null) // lub wildcards are tolerated
-		    	return true; // unsafeWildcardInvocation
+		    	return INVOCATION_ARGUMENT_WILDCARD;
 		}
 		TypeBinding checkedParameterType = originalParameterType == null ? parameterType : originalParameterType;
-		if (argumentType != checkedParameterType) {
-			if (argumentType.needsUncheckedConversion(checkedParameterType)) {
-				scope.problemReporter().unsafeTypeConversion(argument, argumentType, checkedParameterType);
-			}
+		if (argumentType != checkedParameterType && argumentType.needsUncheckedConversion(checkedParameterType)) {
+			scope.problemReporter().unsafeTypeConversion(argument, argumentType, checkedParameterType);
+			return INVOCATION_ARGUMENT_UNCHECKED;
 		}
-		return false;
+		return INVOCATION_ARGUMENT_OK;
 	}
 	public static void checkInvocationArguments(BlockScope scope, Expression receiver, TypeBinding receiverType, MethodBinding method, Expression[] arguments, TypeBinding[] argumentTypes, boolean argsContainCast, InvocationSite invocationSite) {
-		boolean unsafeWildcardInvocation = false;
 		TypeBinding[] params = method.parameters;
 		int paramLength = params.length;
-		boolean isRawMemberInvocation = !method.isStatic() 
-				&& !receiverType.isUnboundWildcard() 
-				&& method.declaringClass.isRawType() 
+		boolean isRawMemberInvocation = !method.isStatic()
+				&& !receiverType.isUnboundWildcard()
+				&& method.declaringClass.isRawType()
 				&& method.hasSubstitutedParameters();
-		
+
 		MethodBinding rawOriginalGenericMethod = null;
 		if (!isRawMemberInvocation) {
 			if (method instanceof ParameterizedGenericMethodBinding) {
@@ -198,60 +258,73 @@ public abstract class ASTNode implements BaseTypes, CompilerModifiers, TypeConst
 				}
 			}
 		}
-		if (arguments != null) {
+		int invocationStatus = INVOCATION_ARGUMENT_OK;
+		if (arguments == null) {
+			if (method.isVarargs()) {
+				TypeBinding parameterType = ((ArrayBinding) params[paramLength-1]).elementsType(); // no element was supplied for vararg parameter
+		    	if (!parameterType.isReifiable()) {
+				    scope.problemReporter().unsafeGenericArrayForVarargs(parameterType, (ASTNode)invocationSite);
+		    	}
+			}
+		} else {
 			if (method.isVarargs()) {
 				// 4 possibilities exist for a call to the vararg method foo(int i, long ... value) : foo(1), foo(1, 2), foo(1, 2, 3, 4) & foo(1, new long[] {1, 2})
 				int lastIndex = paramLength - 1;
 				for (int i = 0; i < lastIndex; i++) {
 					TypeBinding originalRawParam = rawOriginalGenericMethod == null ? null : rawOriginalGenericMethod.parameters[i];
-				    if (checkInvocationArgument(scope, arguments[i], params[i] , argumentTypes[i], originalRawParam)) {
-					    unsafeWildcardInvocation = true;
-				    }
+					invocationStatus |= checkInvocationArgument(scope, arguments[i], params[i] , argumentTypes[i], originalRawParam);
 				}
 			   int argLength = arguments.length;
 			   if (lastIndex < argLength) { // vararg argument was provided
 				   	TypeBinding parameterType = params[lastIndex];
 					TypeBinding originalRawParam = null;
-	
+
 				    if (paramLength != argLength || parameterType.dimensions() != argumentTypes[lastIndex].dimensions()) {
 				    	parameterType = ((ArrayBinding) parameterType).elementsType(); // single element was provided for vararg parameter
+				    	if (!parameterType.isReifiable()) {
+						    scope.problemReporter().unsafeGenericArrayForVarargs(parameterType, (ASTNode)invocationSite);
+				    	}
 						originalRawParam = rawOriginalGenericMethod == null ? null : ((ArrayBinding)rawOriginalGenericMethod.parameters[lastIndex]).elementsType();
 				    }
 					for (int i = lastIndex; i < argLength; i++) {
-					    if (checkInvocationArgument(scope, arguments[i], parameterType, argumentTypes[i], originalRawParam))
-						    unsafeWildcardInvocation = true;
+						invocationStatus |= checkInvocationArgument(scope, arguments[i], parameterType, argumentTypes[i], originalRawParam);
 					}
 				}
-	
+
 			   if (paramLength == argumentTypes.length) { // 70056
-					int varargIndex = paramLength - 1;
-					ArrayBinding varargType = (ArrayBinding) params[varargIndex];
-					TypeBinding lastArgType = argumentTypes[varargIndex];
-					if (lastArgType == NullBinding) {
-						if (!(varargType.leafComponentType().isBaseType() && varargType.dimensions() == 1))
+					int varargsIndex = paramLength - 1;
+					ArrayBinding varargsType = (ArrayBinding) params[varargsIndex];
+					TypeBinding lastArgType = argumentTypes[varargsIndex];
+					int dimensions;
+					if (lastArgType == TypeBinding.NULL) {
+						if (!(varargsType.leafComponentType().isBaseType() && varargsType.dimensions() == 1))
 							scope.problemReporter().varargsArgumentNeedCast(method, lastArgType, invocationSite);
-					} else if (varargType.dimensions <= lastArgType.dimensions()) {
-						int dimensions = lastArgType.dimensions();
-						if (lastArgType.leafComponentType().isBaseType())
+					} else if (varargsType.dimensions <= (dimensions = lastArgType.dimensions())) {
+						if (lastArgType.leafComponentType().isBaseType()) {
 							dimensions--;
-						if (varargType.dimensions < dimensions)
+						}
+						if (varargsType.dimensions < dimensions) {
 							scope.problemReporter().varargsArgumentNeedCast(method, lastArgType, invocationSite);
-						else if (varargType.dimensions == dimensions && varargType.leafComponentType != lastArgType.leafComponentType())
+						} else if (varargsType.dimensions == dimensions
+										&& lastArgType != varargsType
+										&& lastArgType.leafComponentType().erasure() != varargsType.leafComponentType.erasure()
+										&& lastArgType.isCompatibleWith(varargsType.elementsType())
+										&& lastArgType.isCompatibleWith(varargsType)) {
 							scope.problemReporter().varargsArgumentNeedCast(method, lastArgType, invocationSite);
+						}
 					}
 				}
 			} else {
 				for (int i = 0; i < paramLength; i++) {
 					TypeBinding originalRawParam = rawOriginalGenericMethod == null ? null : rawOriginalGenericMethod.parameters[i];
-				    if (checkInvocationArgument(scope, arguments[i], params[i], argumentTypes[i], originalRawParam))
-					    unsafeWildcardInvocation = true;
+					invocationStatus |= checkInvocationArgument(scope, arguments[i], params[i], argumentTypes[i], originalRawParam);
 				}
 			}
 			if (argsContainCast) {
 				CastExpression.checkNeedForArgumentCasts(scope, receiver, receiverType, method, arguments, argumentTypes, invocationSite);
 			}
 		}
-		if (unsafeWildcardInvocation) {
+		if ((invocationStatus & INVOCATION_ARGUMENT_WILDCARD) != 0) {
 		    scope.problemReporter().wildcardInvocation((ASTNode)invocationSite, receiverType, method, argumentTypes);
 		} else if (!method.isStatic() && !receiverType.isUnboundWildcard() && method.declaringClass.isRawType() && method.hasSubstitutedParameters()) {
 		    scope.problemReporter().unsafeRawInvocation((ASTNode)invocationSite, method);
@@ -262,44 +335,80 @@ public abstract class ASTNode implements BaseTypes, CompilerModifiers, TypeConst
 	public ASTNode concreteStatement() {
 		return this;
 	}
-	
+
 	public final boolean isFieldUseDeprecated(FieldBinding field, Scope scope, boolean isStrictlyAssigned) {
-	
+
 		if (!isStrictlyAssigned && (field.isPrivate() || (field.declaringClass != null && field.declaringClass.isLocalType())) && !scope.isDefinedInField(field)) {
-			// ignore cases where field is used from within inside itself 
-			field.original().modifiers |= AccLocallyUsed;
+			// ignore cases where field is used from within inside itself
+			field.original().modifiers |= ExtraCompilerModifiers.AccLocallyUsed;
 		}
-	
+
+		if ((field.modifiers & ExtraCompilerModifiers.AccRestrictedAccess) != 0) {
+			AccessRestriction restriction =
+				scope.environment().getAccessRestriction(field.declaringClass.erasure());
+			if (restriction != null) {
+				scope.problemReporter().forbiddenReference(field, this,
+						restriction.getFieldAccessMessageTemplate(), restriction.getProblemId());
+			}
+		}
+
 		if (!field.isViewedAsDeprecated()) return false;
-	
+
 		// inside same unit - no report
 		if (scope.isDefinedInSameUnit(field.declaringClass)) return false;
-		
+
 		// if context is deprecated, may avoid reporting
 		if (!scope.compilerOptions().reportDeprecationInsideDeprecatedCode && scope.isInsideDeprecatedCode()) return false;
 		return true;
 	}
 
 	public boolean isImplicitThis() {
-		
+
 		return false;
 	}
-	
+
 	/* Answer true if the method use is considered deprecated.
 	* An access in the same compilation unit is allowed.
 	*/
-	public final boolean isMethodUseDeprecated(MethodBinding method, Scope scope) {
-
+	public final boolean isMethodUseDeprecated(MethodBinding method, Scope scope,
+			boolean isExplicitUse) {
 		if ((method.isPrivate() || method.declaringClass.isLocalType()) && !scope.isDefinedInMethod(method)) {
 			// ignore cases where method is used from within inside itself (e.g. direct recursions)
-			method.original().modifiers |= AccLocallyUsed;
+			method.original().modifiers |= ExtraCompilerModifiers.AccLocallyUsed;
 		}
-		
+
+		// TODO (maxime) consider separating concerns between deprecation and access restriction.
+		// 				 Caveat: this was not the case when access restriction funtion was added.
+		if (isExplicitUse && (method.modifiers & ExtraCompilerModifiers.AccRestrictedAccess) != 0) {
+			// note: explicit constructors calls warnings are kept despite the 'new C1()' case (two
+			//       warnings, one on type, the other on constructor), because of the 'super()' case.
+			AccessRestriction restriction =
+				scope.environment().getAccessRestriction(method.declaringClass.erasure());
+			if (restriction != null) {
+				if (method.isConstructor()) {
+					scope.problemReporter().forbiddenReference(method, this,
+							restriction.getConstructorAccessMessageTemplate(),
+							restriction.getProblemId());
+				}
+				else {
+					scope.problemReporter().forbiddenReference(method, this,
+							restriction.getMethodAccessMessageTemplate(),
+							restriction.getProblemId());
+				}
+			}
+		}
+
 		if (!method.isViewedAsDeprecated()) return false;
 
 		// inside same unit - no report
 		if (scope.isDefinedInSameUnit(method.declaringClass)) return false;
-		
+
+		// non explicit use and non explicitly deprecated - no report
+		if (!isExplicitUse &&
+				(method.modifiers & ClassFileConstants.AccDeprecated) == 0) {
+			return false;
+		}
+
 		// if context is deprecated, may avoid reporting
 		if (!scope.compilerOptions().reportDeprecationInsideDeprecatedCode && scope.isInsideDeprecatedCode()) return false;
 		return true;
@@ -327,22 +436,26 @@ public abstract class ASTNode implements BaseTypes, CompilerModifiers, TypeConst
 
 		ReferenceBinding refType = (ReferenceBinding) type;
 
-		if ((refType.isPrivate() /*|| refType.isLocalType()*/) && !scope.isDefinedInType(refType)) {
-			// ignore cases where type is used from within inside itself 
-			((ReferenceBinding)refType.erasure()).modifiers |= AccLocallyUsed;
+		if ((refType.isPrivate() || refType.isLocalType()) && !scope.isDefinedInType(refType)) {
+			// ignore cases where type is used from within inside itself
+			((ReferenceBinding)refType.erasure()).modifiers |= ExtraCompilerModifiers.AccLocallyUsed;
 		}
-		
+
 		if (refType.hasRestrictedAccess()) {
-			AccessRestriction restriction = scope.environment().getAccessRestriction(type);
+			AccessRestriction restriction = scope.environment().getAccessRestriction(type.erasure());
 			if (restriction != null) {
 				scope.problemReporter().forbiddenReference(type, this, restriction.getMessageTemplate(), restriction.getProblemId());
 			}
 		}
+
+		// force annotations resolution before deciding whether the type may be deprecated
+		refType.initializeDeprecatedAnnotationTagBits();
+
 		if (!refType.isViewedAsDeprecated()) return false;
-		
+
 		// inside same unit - no report
 		if (scope.isDefinedInSameUnit(refType)) return false;
-		
+
 		// if context is deprecated, may avoid reporting
 		if (!scope.compilerOptions().reportDeprecationInsideDeprecatedCode && scope.isInsideDeprecatedCode()) return false;
 		return true;
@@ -358,7 +471,7 @@ public abstract class ASTNode implements BaseTypes, CompilerModifiers, TypeConst
 		}
 		return output;
 	}
-	
+
 	public static StringBuffer printIndent(int indent, StringBuffer output) {
 
 		for (int i = indent; i > 0; i--) output.append("  "); //$NON-NLS-1$
@@ -367,74 +480,119 @@ public abstract class ASTNode implements BaseTypes, CompilerModifiers, TypeConst
 
 	public static StringBuffer printModifiers(int modifiers, StringBuffer output) {
 
-		if ((modifiers & AccPublic) != 0)
+		if ((modifiers & ClassFileConstants.AccPublic) != 0)
 			output.append("public "); //$NON-NLS-1$
-		if ((modifiers & AccPrivate) != 0)
+		if ((modifiers & ClassFileConstants.AccPrivate) != 0)
 			output.append("private "); //$NON-NLS-1$
-		if ((modifiers & AccProtected) != 0)
+		if ((modifiers & ClassFileConstants.AccProtected) != 0)
 			output.append("protected "); //$NON-NLS-1$
-		if ((modifiers & AccStatic) != 0)
+		if ((modifiers & ClassFileConstants.AccStatic) != 0)
 			output.append("static "); //$NON-NLS-1$
-		if ((modifiers & AccFinal) != 0)
+		if ((modifiers & ClassFileConstants.AccFinal) != 0)
 			output.append("final "); //$NON-NLS-1$
-		if ((modifiers & AccSynchronized) != 0)
+		if ((modifiers & ClassFileConstants.AccSynchronized) != 0)
 			output.append("synchronized "); //$NON-NLS-1$
-		if ((modifiers & AccVolatile) != 0)
+		if ((modifiers & ClassFileConstants.AccVolatile) != 0)
 			output.append("volatile "); //$NON-NLS-1$
-		if ((modifiers & AccTransient) != 0)
+		if ((modifiers & ClassFileConstants.AccTransient) != 0)
 			output.append("transient "); //$NON-NLS-1$
-		if ((modifiers & AccNative) != 0)
+		if ((modifiers & ClassFileConstants.AccNative) != 0)
 			output.append("native "); //$NON-NLS-1$
-		if ((modifiers & AccAbstract) != 0)
+		if ((modifiers & ClassFileConstants.AccAbstract) != 0)
 			output.append("abstract "); //$NON-NLS-1$
 		return output;
 	}
-	
+
 	/**
-	 * Resolve annotations, and check duplicates, answers combined tagBits 
+	 * Resolve annotations, and check duplicates, answers combined tagBits
 	 * for recognized standard annotations
 	 */
 	public static void resolveAnnotations(BlockScope scope, Annotation[] annotations, Binding recipient) {
+		AnnotationBinding[] instances = null;
+		int length = annotations == null ? 0 : annotations.length;
 		if (recipient != null) {
 			switch (recipient.kind()) {
 				case Binding.PACKAGE :
 					PackageBinding packageBinding = (PackageBinding) recipient;
 					if ((packageBinding.tagBits & TagBits.AnnotationResolved) != 0) return;
-					packageBinding.tagBits |= TagBits.AnnotationResolved;
+					packageBinding.tagBits |= (TagBits.AnnotationResolved | TagBits.DeprecatedAnnotationResolved);
 					break;
 				case Binding.TYPE :
 				case Binding.GENERIC_TYPE :
-				case Binding.TYPE_PARAMETER :
 					ReferenceBinding type = (ReferenceBinding) recipient;
 					if ((type.tagBits & TagBits.AnnotationResolved) != 0) return;
-					type.tagBits |= TagBits.AnnotationResolved;
+					type.tagBits |= (TagBits.AnnotationResolved | TagBits.DeprecatedAnnotationResolved);
+					if (length > 0) {
+						instances = new AnnotationBinding[length];
+						type.setAnnotations(instances);
+					}
 					break;
 				case Binding.METHOD :
 					MethodBinding method = (MethodBinding) recipient;
 					if ((method.tagBits & TagBits.AnnotationResolved) != 0) return;
-					method.tagBits |= TagBits.AnnotationResolved;
+					method.tagBits |= (TagBits.AnnotationResolved | TagBits.DeprecatedAnnotationResolved);
+					if (length > 0) {
+						instances = new AnnotationBinding[length];
+						method.setAnnotations(instances);
+					}
 					break;
 				case Binding.FIELD :
 					FieldBinding field = (FieldBinding) recipient;
 					if ((field.tagBits & TagBits.AnnotationResolved) != 0) return;
-					field.tagBits |= TagBits.AnnotationResolved;
+					field.tagBits |= (TagBits.AnnotationResolved | TagBits.DeprecatedAnnotationResolved);
+					if (length > 0) {
+						instances = new AnnotationBinding[length];
+						field.setAnnotations(instances);
+					}
 					break;
 				case Binding.LOCAL :
 					LocalVariableBinding local = (LocalVariableBinding) recipient;
 					if ((local.tagBits & TagBits.AnnotationResolved) != 0) return;
-					local.tagBits |= TagBits.AnnotationResolved;
+					local.tagBits |= (TagBits.AnnotationResolved | TagBits.DeprecatedAnnotationResolved);
+					if (length > 0) {
+						instances = new AnnotationBinding[length];
+						local.setAnnotations(instances);
+					}
 					break;
-			}			
+				default :
+					return;
+			}
 		}
-		if (annotations == null) 
+		if (annotations == null)
 			return;
-		int length = annotations.length;
 		TypeBinding[] annotationTypes = new TypeBinding[length];
 		for (int i = 0; i < length; i++) {
 			Annotation annotation = annotations[i];
-			annotation.recipient = recipient;
-			annotationTypes[i] = annotation.resolveType(scope);
-			
+			final Binding annotationRecipient = annotation.recipient;
+			if (annotationRecipient != null && recipient != null) {
+				// only local and field can share annnotations
+				switch (recipient.kind()) {
+					case Binding.FIELD :
+						FieldBinding field = (FieldBinding) recipient;
+						field.tagBits = ((FieldBinding) annotationRecipient).tagBits;
+						break;
+					case Binding.LOCAL :
+						LocalVariableBinding local = (LocalVariableBinding) recipient;
+						local.tagBits = ((LocalVariableBinding) annotationRecipient).tagBits;
+						break;
+				}
+				if (instances != null) {
+					// need to fill the instances array
+					instances[0] = annotation.getCompilerAnnotation();
+					for (int j = 1; j < length; j++) {
+						Annotation annot = annotations[j];
+						instances[j] = annot.getCompilerAnnotation();
+					}
+				}
+				return;
+			} else {
+				annotation.recipient = recipient;
+				annotationTypes[i] = annotation.resolveType(scope);
+				// null if receiver is a package binding
+				if (instances != null) {
+					instances[i] = annotation.getCompilerAnnotation();
+				}
+			}
 		}
 		// check duplicate annotations
 		for (int i = 0; i < length; i++) {
@@ -453,7 +611,106 @@ public abstract class ASTNode implements BaseTypes, CompilerModifiers, TypeConst
 			}
 		}
 	}
-	
+
+/**
+ * Figures if @Deprecated annotation is specified, do not resolve entire annotations.
+ */
+public static void resolveDeprecatedAnnotations(BlockScope scope, Annotation[] annotations, Binding recipient) {
+	if (recipient != null) {
+		int kind = recipient.kind();
+		if (annotations != null) {
+			int length;
+			if ((length = annotations.length) >= 0) {
+				switch (kind) {
+					case Binding.PACKAGE :
+						PackageBinding packageBinding = (PackageBinding) recipient;
+						if ((packageBinding.tagBits & TagBits.DeprecatedAnnotationResolved) != 0) return;
+						break;
+					case Binding.TYPE :
+					case Binding.GENERIC_TYPE :
+						ReferenceBinding type = (ReferenceBinding) recipient;
+						if ((type.tagBits & TagBits.DeprecatedAnnotationResolved) != 0) return;
+						break;
+					case Binding.METHOD :
+						MethodBinding method = (MethodBinding) recipient;
+						if ((method.tagBits & TagBits.DeprecatedAnnotationResolved) != 0) return;
+						break;
+					case Binding.FIELD :
+						FieldBinding field = (FieldBinding) recipient;
+						if ((field.tagBits & TagBits.DeprecatedAnnotationResolved) != 0) return;
+						break;
+					case Binding.LOCAL :
+						LocalVariableBinding local = (LocalVariableBinding) recipient;
+						if ((local.tagBits & TagBits.DeprecatedAnnotationResolved) != 0) return;
+						break;
+					default :
+						return;
+				}
+				for (int i = 0; i < length; i++) {
+					TypeReference annotationTypeRef = annotations[i].type;
+					// only resolve type name if 'Deprecated' last token
+					if (!CharOperation.equals(TypeConstants.JAVA_LANG_DEPRECATED[2], annotationTypeRef.getLastToken())) return;
+					TypeBinding annotationType = annotations[i].type.resolveType(scope);
+					if(annotationType != null && annotationType.isValidBinding() && annotationType.id == TypeIds.T_JavaLangDeprecated) {
+						switch (kind) {
+							case Binding.PACKAGE :
+								PackageBinding packageBinding = (PackageBinding) recipient;
+								packageBinding.tagBits |= (TagBits.AnnotationDeprecated | TagBits.DeprecatedAnnotationResolved);
+								return;
+							case Binding.TYPE :
+							case Binding.GENERIC_TYPE :
+							case Binding.TYPE_PARAMETER :
+								ReferenceBinding type = (ReferenceBinding) recipient;
+								type.tagBits |= (TagBits.AnnotationDeprecated | TagBits.DeprecatedAnnotationResolved);
+								return;
+							case Binding.METHOD :
+								MethodBinding method = (MethodBinding) recipient;
+								method.tagBits |= (TagBits.AnnotationDeprecated | TagBits.DeprecatedAnnotationResolved);
+								return;
+							case Binding.FIELD :
+								FieldBinding field = (FieldBinding) recipient;
+								field.tagBits |= (TagBits.AnnotationDeprecated | TagBits.DeprecatedAnnotationResolved);
+								return;
+							case Binding.LOCAL :
+								LocalVariableBinding local = (LocalVariableBinding) recipient;
+								local.tagBits |= (TagBits.AnnotationDeprecated | TagBits.DeprecatedAnnotationResolved);
+								return;
+							default:
+								return;
+						}
+					}
+				}
+			}
+		}
+		switch (kind) {
+			case Binding.PACKAGE :
+				PackageBinding packageBinding = (PackageBinding) recipient;
+				packageBinding.tagBits |= TagBits.DeprecatedAnnotationResolved;
+				return;
+			case Binding.TYPE :
+			case Binding.GENERIC_TYPE :
+			case Binding.TYPE_PARAMETER :
+				ReferenceBinding type = (ReferenceBinding) recipient;
+				type.tagBits |= TagBits.DeprecatedAnnotationResolved;
+				return;
+			case Binding.METHOD :
+				MethodBinding method = (MethodBinding) recipient;
+				method.tagBits |= TagBits.DeprecatedAnnotationResolved;
+				return;
+			case Binding.FIELD :
+				FieldBinding field = (FieldBinding) recipient;
+				field.tagBits |= TagBits.DeprecatedAnnotationResolved;
+				return;
+			case Binding.LOCAL :
+				LocalVariableBinding local = (LocalVariableBinding) recipient;
+				local.tagBits |= TagBits.DeprecatedAnnotationResolved;
+				return;
+			default:
+				return;
+		}
+	}
+}
+
 	public int sourceStart() {
 		return this.sourceStart;
 	}

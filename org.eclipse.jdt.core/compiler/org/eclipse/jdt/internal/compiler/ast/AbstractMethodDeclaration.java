@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,6 +15,7 @@ import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
 import org.eclipse.jdt.internal.compiler.flow.InitializationFlowContext;
 import org.eclipse.jdt.internal.compiler.impl.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
@@ -39,15 +40,12 @@ public abstract class AbstractMethodDeclaration
 	public int explicitDeclarations;
 	public MethodBinding binding;
 	public boolean ignoreFurtherInvestigation = false;
-	public boolean needFreeReturn = false;
 	
 	public Javadoc javadoc;
 	
 	public int bodyStart;
 	public int bodyEnd = -1;
 	public CompilationResult compilationResult;
-	
-	public boolean errorInSignature = false; 
 	
 	AbstractMethodDeclaration(CompilationResult compilationResult){
 		this.compilationResult = compilationResult;
@@ -56,7 +54,7 @@ public abstract class AbstractMethodDeclaration
 	/*
 	 *	We cause the compilation task to abort to a given extent.
 	 */
-	public void abort(int abortLevel, IProblem problem) {
+	public void abort(int abortLevel, CategorizedProblem problem) {
 
 		switch (abortLevel) {
 			case AbortCompilation :
@@ -72,7 +70,7 @@ public abstract class AbstractMethodDeclaration
 
 	public abstract void analyseCode(ClassScope classScope, InitializationFlowContext initializationContext, FlowInfo info);
 
-		/**
+	/**
 	 * Bind and add argument's binding into the scope of the method
 	 */
 	public void bindArguments() {
@@ -86,13 +84,19 @@ public abstract class AbstractMethodDeclaration
 				return;
 			}
 			boolean used = this.binding.isAbstract() || this.binding.isNative();
+			AnnotationBinding[][] paramAnnotations = null;
 			for (int i = 0, length = this.arguments.length; i < length; i++) {
 				Argument argument = this.arguments[i];
 				argument.bind(this.scope, this.binding.parameters[i], used);
 				if (argument.annotations != null) {
 					this.binding.tagBits |= TagBits.HasParameterAnnotations;
+					if (paramAnnotations == null)
+						paramAnnotations = new AnnotationBinding[length][];
+					paramAnnotations[i] = argument.binding.getAnnotations();
 				}
 			}
+			if (paramAnnotations != null)
+				this.binding.setParameterAnnotations(paramAnnotations);
 		}
 	}
 
@@ -130,7 +134,7 @@ public abstract class AbstractMethodDeclaration
 						if (CharOperation.equals(thrownException.getTypeName(), bindingCompoundName)) {
 							thrownException.resolvedType = thrownExceptionBinding;
 							bindingIndex++;
-						}						
+						}
 					}
 				}
 			}
@@ -156,9 +160,9 @@ public abstract class AbstractMethodDeclaration
 			if (this.binding == null)
 				return; // handle methods with invalid signature or duplicates
 			int problemsLength;
-			IProblem[] problems =
+			CategorizedProblem[] problems =
 				this.scope.referenceCompilationUnit().compilationResult.getProblems();
-			IProblem[] problemsCopy = new IProblem[problemsLength = problems.length];
+			CategorizedProblem[] problemsCopy = new CategorizedProblem[problemsLength = problems.length];
 			System.arraycopy(problems, 0, problemsCopy, 0, problemsLength);
 			classFile.addProblemMethod(this, this.binding, problemsCopy);
 			return;
@@ -178,18 +182,18 @@ public abstract class AbstractMethodDeclaration
 					this.generateCode(classFile); // restart method generation
 				} catch (AbortMethod e2) {
 					int problemsLength;
-					IProblem[] problems =
+					CategorizedProblem[] problems =
 						this.scope.referenceCompilationUnit().compilationResult.getAllProblems();
-					IProblem[] problemsCopy = new IProblem[problemsLength = problems.length];
+					CategorizedProblem[] problemsCopy = new CategorizedProblem[problemsLength = problems.length];
 					System.arraycopy(problems, 0, problemsCopy, 0, problemsLength);
 					classFile.addProblemMethod(this, this.binding, problemsCopy, problemResetPC);
 				}
 			} else {
 				// produce a problem method accounting for this fatal error
 				int problemsLength;
-				IProblem[] problems =
+				CategorizedProblem[] problems =
 					this.scope.referenceCompilationUnit().compilationResult.getAllProblems();
-				IProblem[] problemsCopy = new IProblem[problemsLength = problems.length];
+				CategorizedProblem[] problemsCopy = new CategorizedProblem[problemsLength = problems.length];
 				System.arraycopy(problems, 0, problemsCopy, 0, problemsLength);
 				classFile.addProblemMethod(this, this.binding, problemsCopy, problemResetPC);
 			}
@@ -221,7 +225,7 @@ public abstract class AbstractMethodDeclaration
 				for (int i = 0, max = this.statements.length; i < max; i++)
 					this.statements[i].generateCode(this.scope, codeStream);
 			}
-			if (this.needFreeReturn) {
+			if ((this.bits & ASTNode.NeedFreeReturn) != 0) {
 				codeStream.return_();
 			}
 			// local variable attributes
@@ -245,7 +249,7 @@ public abstract class AbstractMethodDeclaration
 		int size = 1; // an abstact method or a native method cannot be static
 		for (int i = 0, max = parameters.length; i < max; i++) {
 			TypeBinding parameter = parameters[i];
-			if (parameter == LongBinding || parameter == DoubleBinding) {
+			if (parameter == TypeBinding.LONG || parameter == TypeBinding.DOUBLE) {
 				size += 2;
 			} else {
 				size++;
@@ -264,7 +268,7 @@ public abstract class AbstractMethodDeclaration
 
 		if (this.binding != null)
 			return this.binding.isAbstract();
-		return (this.modifiers & AccAbstract) != 0;
+		return (this.modifiers & ClassFileConstants.AccAbstract) != 0;
 	}
 
 	public boolean isAnnotationMethod() {
@@ -301,14 +305,14 @@ public abstract class AbstractMethodDeclaration
 
 		if (this.binding != null)
 			return this.binding.isNative();
-		return (this.modifiers & AccNative) != 0;
+		return (this.modifiers & ClassFileConstants.AccNative) != 0;
 	}
 
 	public boolean isStatic() {
 
 		if (this.binding != null)
 			return this.binding.isStatic();
-		return (this.modifiers & AccStatic) != 0;
+		return (this.modifiers & ClassFileConstants.AccStatic) != 0;
 	}
 
 	/**
@@ -331,7 +335,7 @@ public abstract class AbstractMethodDeclaration
 		
 		TypeParameter[] typeParams = typeParameters();
 		if (typeParams != null) {
-			output.append('<');//$NON-NLS-1$
+			output.append('<');
 			int max = typeParams.length - 1;
 			for (int j = 0; j < max; j++) {
 				typeParams[j].print(0, output);
@@ -362,7 +366,7 @@ public abstract class AbstractMethodDeclaration
 
 	public StringBuffer printBody(int indent, StringBuffer output) {
 
-		if (isAbstract() || (this.modifiers & AccSemicolonBody) != 0) 
+		if (isAbstract() || (this.modifiers & ExtraCompilerModifiers.AccSemicolonBody) != 0) 
 			return output.append(';');
 
 		output.append(" {"); //$NON-NLS-1$
@@ -372,7 +376,7 @@ public abstract class AbstractMethodDeclaration
 				this.statements[i].printStatement(indent, output); 
 			}
 		}
-		output.append('\n'); //$NON-NLS-1$
+		output.append('\n');
 		printIndent(indent == 0 ? 0 : indent - 1, output).append('}');
 		return output;
 	}
@@ -394,6 +398,13 @@ public abstract class AbstractMethodDeclaration
 			resolveJavadoc();
 			resolveAnnotations(scope, this.annotations, this.binding);
 			resolveStatements();
+			// check @Deprecated annotation presence
+			if (this.binding != null
+					&& (this.binding.getAnnotationTagBits() & TagBits.AnnotationDeprecated) == 0
+					&& (this.binding.modifiers & ClassFileConstants.AccDeprecated) != 0
+					&& this.scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5) {
+				this.scope.problemReporter().missingDeprecatedAnnotationForMethod(this);
+			}			
 		} catch (AbortMethod e) {	// ========= abort on fatal error =============
 			this.ignoreFurtherInvestigation = true;
 		} 
@@ -417,7 +428,7 @@ public abstract class AbstractMethodDeclaration
 			for (int i = 0, length = this.statements.length; i < length; i++) {
 				this.statements[i].resolve(this.scope);
 			}
-		} else if ((this.bits & UndocumentedEmptyBlockMASK) != 0) {
+		} else if ((this.bits & UndocumentedEmptyBlock) != 0) {
 			this.scope.problemReporter().undocumentedEmptyBlock(this.bodyStart-1, this.bodyEnd+1);
 		}
 	}

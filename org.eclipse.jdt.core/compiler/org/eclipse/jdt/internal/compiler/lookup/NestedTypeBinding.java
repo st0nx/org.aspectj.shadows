@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,7 +21,7 @@ public class NestedTypeBinding extends SourceTypeBinding {
 	
 	public NestedTypeBinding(char[][] typeName, ClassScope scope, SourceTypeBinding enclosingType) {
 		super(typeName, enclosingType.fPackage, scope);
-		this.tagBits |= IsNestedType;
+		this.tagBits |= TagBits.IsNestedType;
 		this.enclosingType = enclosingType;
 	}
 	
@@ -122,7 +122,7 @@ public class NestedTypeBinding extends SourceTypeBinding {
 			if (slotSize + 1 > 0xFF) { // no more than 255 words of arguments
 				this.scope.problemReporter().noMoreAvailableSpaceForArgument(argument, this.scope.referenceType()); 
 			}
-			if ((argument.type == LongBinding) || (argument.type == DoubleBinding)){
+			if ((argument.type == TypeBinding.LONG) || (argument.type == TypeBinding.DOUBLE)){
 				slotSize += 2;
 			} else {
 				slotSize ++;
@@ -135,7 +135,7 @@ public class NestedTypeBinding extends SourceTypeBinding {
 			for (int i = 0; i < outerLocalsCount; i++){
 			SyntheticArgumentBinding argument = this.outerLocalVariables[i];
 			// do NOT position the outerlocal synthetic arg yet,  since will be appended to user arguments
-			if ((argument.type == LongBinding) || (argument.type == DoubleBinding)){
+			if ((argument.type == TypeBinding.LONG) || (argument.type == TypeBinding.DOUBLE)){
 				slotSize += 2;
 			} else {
 				slotSize ++;
@@ -209,7 +209,7 @@ public class NestedTypeBinding extends SourceTypeBinding {
 		if (!onlyExactMatch){
 			for (int i = enclosingInstances.length; --i >= 0;)
 				if (enclosingInstances[i].actualOuterLocalVariable == null)
-					if (((ReferenceBinding)enclosingInstances[i].type).findSuperTypeWithSameErasure(targetEnclosingType) != null)
+					if (enclosingInstances[i].type.findSuperTypeWithSameErasure(targetEnclosingType) != null)
 						return enclosingInstances[i];
 		}
 		return null;

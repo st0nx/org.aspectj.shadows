@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -25,8 +25,6 @@ public class IfStatement extends Statement {
 	public Statement thenStatement;
 	public Statement elseStatement;
 
-	boolean thenExit;
-
 	// for local variables table attributes
 	int thenInitStateIndex = -1;
 	int elseInitStateIndex = -1;
@@ -37,7 +35,7 @@ public class IfStatement extends Statement {
 		this.condition = condition;
 		this.thenStatement = thenStatement;
 		// remember useful empty statement
-		if (thenStatement instanceof EmptyStatement) thenStatement.bits |= IsUsefulEmptyStatementMASK;
+		if (thenStatement instanceof EmptyStatement) thenStatement.bits |= IsUsefulEmptyStatement;
 		this.sourceStart = sourceStart;
 		this.sourceEnd = sourceEnd;
 	}
@@ -47,9 +45,10 @@ public class IfStatement extends Statement {
 		this.condition = condition;
 		this.thenStatement = thenStatement;
 		// remember useful empty statement
-		if (thenStatement instanceof EmptyStatement) thenStatement.bits |= IsUsefulEmptyStatementMASK;
+		if (thenStatement instanceof EmptyStatement) thenStatement.bits |= IsUsefulEmptyStatement;
 		this.elseStatement = elseStatement;
 		if (elseStatement instanceof IfStatement) elseStatement.bits |= IsElseIfStatement;
+		if (elseStatement instanceof EmptyStatement) elseStatement.bits |= IsUsefulEmptyStatement;
 		this.sourceStart = sourceStart;
 		this.sourceEnd = sourceEnd;
 	}
@@ -60,22 +59,22 @@ public class IfStatement extends Statement {
 		FlowInfo flowInfo) {
 
 		// process the condition
-		flowInfo = condition.analyseCode(currentScope, flowContext, flowInfo);
+		FlowInfo conditionFlowInfo =
+			condition.analyseCode(currentScope, flowContext, flowInfo);
 
 		Constant cst = this.condition.optimizedBooleanConstant();
-		boolean isConditionOptimizedTrue = cst != NotAConstant && cst.booleanValue() == true;
-		boolean isConditionOptimizedFalse = cst != NotAConstant && cst.booleanValue() == false;
+		boolean isConditionOptimizedTrue = cst != Constant.NotAConstant && cst.booleanValue() == true;
+		boolean isConditionOptimizedFalse = cst != Constant.NotAConstant && cst.booleanValue() == false;
 		
 		// process the THEN part
-		FlowInfo thenFlowInfo = flowInfo.initsWhenTrue().copy();
+		FlowInfo thenFlowInfo = conditionFlowInfo.safeInitsWhenTrue();
 		if (isConditionOptimizedFalse) {
 			thenFlowInfo.setReachMode(FlowInfo.UNREACHABLE); 
 		}
-		FlowInfo elseFlowInfo = flowInfo.initsWhenFalse().copy();
+		FlowInfo elseFlowInfo = conditionFlowInfo.initsWhenFalse();
 		if (isConditionOptimizedTrue) {
 			elseFlowInfo.setReachMode(FlowInfo.UNREACHABLE); 
 		}
-		this.condition.checkNullComparison(currentScope, flowContext, flowInfo, thenFlowInfo, elseFlowInfo);
 		if (this.thenStatement != null) {
 			// Save info for code gen
 			thenInitStateIndex =
@@ -86,7 +85,9 @@ public class IfStatement extends Statement {
 			}
 		}
 		// code gen: optimizing the jump around the ELSE part
-		this.thenExit =  !thenFlowInfo.isReachable();
+		if ((thenFlowInfo.tagBits & FlowInfo.UNREACHABLE) != 0) {
+			this.bits |= ASTNode.ThenExit;
+		}
 
 		// process the ELSE part
 		if (this.elseStatement != null) {
@@ -107,11 +108,11 @@ public class IfStatement extends Statement {
 
 		// merge THEN & ELSE initializations
 		FlowInfo mergedInfo = FlowInfo.mergedOptimizedBranches(
-				thenFlowInfo, 
-				isConditionOptimizedTrue, 
-				elseFlowInfo, 
-				isConditionOptimizedFalse,
-				true /*if(true){ return; }  fake-reachable(); */);
+			thenFlowInfo, 
+			isConditionOptimizedTrue, 
+			elseFlowInfo, 
+			isConditionOptimizedFalse,
+			true /*if(true){ return; }  fake-reachable(); */);
 		mergedInitStateIndex = currentScope.methodScope().recordInitializationStates(mergedInfo);
 		return mergedInfo;
 	}
@@ -124,33 +125,32 @@ public class IfStatement extends Statement {
 	 */
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 
-		if ((this.bits & IsReachableMASK) == 0) {
+		if ((this.bits & IsReachable) == 0) {
 			return;
 		}
 		int pc = codeStream.position;
-		Label endifLabel = new Label(codeStream);
+		BranchLabel endifLabel = new BranchLabel(codeStream);
 
 		// optimizing the then/else part code gen
 		Constant cst;
 		boolean hasThenPart = 
-			!(((cst = this.condition.optimizedBooleanConstant()) != NotAConstant
+			!(((cst = this.condition.optimizedBooleanConstant()) != Constant.NotAConstant
 					&& cst.booleanValue() == false)
 				|| this.thenStatement == null
 				|| this.thenStatement.isEmptyBlock());
 		boolean hasElsePart =
-			!((cst != NotAConstant && cst.booleanValue() == true)
+			!((cst != Constant.NotAConstant && cst.booleanValue() == true)
 				|| this.elseStatement == null
 				|| this.elseStatement.isEmptyBlock());
-
 		if (hasThenPart) {
-			Label falseLabel;
+			BranchLabel falseLabel = null;
 			// generate boolean condition
 			this.condition.generateOptimizedBoolean(
 				currentScope,
 				codeStream,
 				null,
-				(falseLabel = new Label(codeStream)),
-				true);
+				hasElsePart ? (falseLabel = new BranchLabel(codeStream)) : endifLabel,
+				true/*cst == Constant.NotAConstant*/);
 			// May loose some local variable initializations : affecting the local variable attributes
 			if (thenInitStateIndex != -1) {
 				codeStream.removeNotDefinitelyAssignedVariables(currentScope, thenInitStateIndex);
@@ -159,31 +159,34 @@ public class IfStatement extends Statement {
 			// generate then statement
 			this.thenStatement.generateCode(currentScope, codeStream);
 			// jump around the else statement
-			if (hasElsePart && !thenExit) {
-				this.thenStatement.branchChainTo(endifLabel);
-				int position = codeStream.position;
-				codeStream.goto_(endifLabel);
-				codeStream.updateLastRecordedEndPC((this.thenStatement instanceof Block) ? ((Block) this.thenStatement).scope : currentScope, position);
-				//goto is tagged as part of the thenAction block
-			}
-			falseLabel.place();
-		} else {
 			if (hasElsePart) {
-				// generate boolean condition
-				this.condition.generateOptimizedBoolean(
-					currentScope,
-					codeStream,
-					endifLabel,
-					null,
-					true);
-			} else {
-				// generate condition side-effects
-				this.condition.generateCode(currentScope, codeStream, false);
-				codeStream.recordPositionsFrom(pc, this.sourceStart);
+				if ((this.bits & ASTNode.ThenExit) == 0) {
+					this.thenStatement.branchChainTo(endifLabel);
+					int position = codeStream.position;
+					codeStream.goto_(endifLabel);
+					//goto is tagged as part of the thenAction block
+					codeStream.updateLastRecordedEndPC((this.thenStatement instanceof Block) ? ((Block) this.thenStatement).scope : currentScope, position);
+					// generate else statement
+				}
+				// May loose some local variable initializations : affecting the local variable attributes
+				if (elseInitStateIndex != -1) {
+					codeStream.removeNotDefinitelyAssignedVariables(
+						currentScope,
+						elseInitStateIndex);
+					codeStream.addDefinitelyAssignedVariables(currentScope, elseInitStateIndex);
+				}
+				if (falseLabel != null) falseLabel.place();
+				this.elseStatement.generateCode(currentScope, codeStream);
 			}
-		}
-		// generate else statement
-		if (hasElsePart) {
+		} else if (hasElsePart) {
+			// generate boolean condition
+			this.condition.generateOptimizedBoolean(
+				currentScope,
+				codeStream,
+				endifLabel,
+				null,
+				true/*cst == Constant.NotAConstant*/);
+			// generate else statement
 			// May loose some local variable initializations : affecting the local variable attributes
 			if (elseInitStateIndex != -1) {
 				codeStream.removeNotDefinitelyAssignedVariables(
@@ -192,14 +195,19 @@ public class IfStatement extends Statement {
 				codeStream.addDefinitelyAssignedVariables(currentScope, elseInitStateIndex);
 			}
 			this.elseStatement.generateCode(currentScope, codeStream);
+		} else {
+			// generate condition side-effects
+			this.condition.generateCode(currentScope, codeStream, false);
+			codeStream.recordPositionsFrom(pc, this.sourceStart);
 		}
-		endifLabel.place();
 		// May loose some local variable initializations : affecting the local variable attributes
 		if (mergedInitStateIndex != -1) {
 			codeStream.removeNotDefinitelyAssignedVariables(
 				currentScope,
 				mergedInitStateIndex);
+			codeStream.addDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);
 		}
+		endifLabel.place();
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 
@@ -219,7 +227,7 @@ public class IfStatement extends Statement {
 
 	public void resolve(BlockScope scope) {
 
-		TypeBinding type = condition.resolveTypeExpecting(scope, BooleanBinding);
+		TypeBinding type = condition.resolveTypeExpecting(scope, TypeBinding.BOOLEAN);
 		condition.computeConversion(scope, type, type);
 		if (thenStatement != null)
 			thenStatement.resolve(scope);

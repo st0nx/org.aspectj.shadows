@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,8 +11,10 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class CompoundAssignment extends Assignment implements OperatorIds {
@@ -27,18 +29,21 @@ public class CompoundAssignment extends Assignment implements OperatorIds {
 		//but is build as an expression ==> the checkcast cannot fail
 	
 		super(lhs, expression, sourceEnd);
-		lhs.bits &= ~IsStrictlyAssignedMASK; // tag lhs as NON assigned - it is also a read access
-		lhs.bits |= IsCompoundAssignedMASK; // tag lhs as assigned by compound
+		lhs.bits &= ~IsStrictlyAssigned; // tag lhs as NON assigned - it is also a read access
+		lhs.bits |= IsCompoundAssigned; // tag lhs as assigned by compound
 		this.operator = operator ;
 	}
 	
-	public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, FlowInfo flowInfo) {
-		// record setting a variable: various scenarii are possible, setting an array reference, 
-		// a field reference, a blank final field reference, a field of an enclosing instance or 
-		// just a local variable.
-	
-		return  ((Reference) lhs).analyseAssignment(currentScope, flowContext, flowInfo, this, true).unconditionalInits();
+public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, 
+		FlowInfo flowInfo) {
+	// record setting a variable: various scenarii are possible, setting an array reference, 
+	// a field reference, a blank final field reference, a field of an enclosing instance or 
+	// just a local variable.
+	if (this.resolvedType.id != T_JavaLangString) {
+		lhs.checkNPE(currentScope, flowContext, flowInfo);
 	}
+	return  ((Reference) lhs).analyseAssignment(currentScope, flowContext, flowInfo, this, true).unconditionalInits();
+}
 	
 	public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean valueRequired) {
 	
@@ -54,9 +59,10 @@ public class CompoundAssignment extends Assignment implements OperatorIds {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 	
-	public int nullStatus(FlowInfo flowInfo) {
-		return FlowInfo.NON_NULL;
-	}
+public int nullStatus(FlowInfo flowInfo) {
+	return FlowInfo.NON_NULL;
+	// we may have complained on checkNPE, but we avoid duplicate error 
+}
 	
 	public String operatorToString() {
 		switch (operator) {
@@ -93,7 +99,7 @@ public class CompoundAssignment extends Assignment implements OperatorIds {
 	}
 	
 	public TypeBinding resolveType(BlockScope scope) {
-		constant = NotAConstant;
+		constant = Constant.NotAConstant;
 		if (!(this.lhs instanceof Reference) || this.lhs.isThis()) {
 			scope.problemReporter().expressionShouldBeAVariable(this.lhs);
 			return null;
@@ -106,7 +112,7 @@ public class CompoundAssignment extends Assignment implements OperatorIds {
 		// autoboxing support
 		LookupEnvironment env = scope.environment();
 		TypeBinding lhsType = originalLhsType, expressionType = originalExpressionType;
-		boolean use15specifics = scope.compilerOptions().sourceLevel >= JDK1_5;
+		boolean use15specifics = scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5;
 		boolean unboxedLhs = false;
 		if (use15specifics) {
 			if (!lhsType.isBaseType() && expressionType.id != T_JavaLangString && expressionType.id != T_null) {

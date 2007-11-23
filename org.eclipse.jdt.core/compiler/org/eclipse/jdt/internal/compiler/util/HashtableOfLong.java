@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -34,30 +34,39 @@ public HashtableOfLong(int size) {
 	this.valueTable = new Object[extraRoom];
 }
 public boolean containsKey(long key) {
-	int index = ((int)(key >>> 32)) % valueTable.length;
+	int length = keyTable.length,
+		index = ((int)(key >>> 32)) % length;
 	long currentKey;
 	while ((currentKey = keyTable[index]) != 0) {
 		if (currentKey == key)
 			return true;
-		index = (index + 1) % keyTable.length;
+		if (++index == length) {
+			index = 0;
+		}
 	}
 	return false;
 }
 public Object get(long key) {
-	int index = ((int)(key >>> 32)) % valueTable.length;
+	int length = keyTable.length,
+		index = ((int)(key >>> 32)) % length;
 	long currentKey;
 	while ((currentKey = keyTable[index]) != 0) {
 		if (currentKey == key)  return valueTable[index];
-		index = (index + 1) % keyTable.length;
+		if (++index == length) {
+			index = 0;
+		}
 	}
 	return null;
 }
 public Object put(long key, Object value) {
-	int index = ((int)(key >>> 32)) % valueTable.length;
+	int length = keyTable.length,
+		index = ((int)(key >>> 32)) % length;
 	long currentKey;
 	while ((currentKey = keyTable[index]) != 0) {
 		if (currentKey == key)  return valueTable[index] = value;
-		index = (index + 1) % keyTable.length;
+		if (++index == length) {
+			index = 0;
+		}
 	}
 	keyTable[index] = key;
 	valueTable[index] = value;

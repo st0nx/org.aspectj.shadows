@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,15 +10,39 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.core.compiler.*;
-import org.eclipse.jdt.internal.compiler.*;
-import org.eclipse.jdt.internal.compiler.impl.*;
-import org.eclipse.jdt.internal.compiler.lookup.*;
-import org.eclipse.jdt.internal.compiler.problem.*;
+import java.util.Arrays;
+import java.util.Comparator;
+
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.ClassFile;
+import org.eclipse.jdt.internal.compiler.CompilationResult;
+import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
+import org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope;
+import org.eclipse.jdt.internal.compiler.lookup.ImportBinding;
+import org.eclipse.jdt.internal.compiler.lookup.LocalTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.MethodScope;
+import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
+import org.eclipse.jdt.internal.compiler.parser.NLSTag;
+import org.eclipse.jdt.internal.compiler.problem.AbortCompilationUnit;
+import org.eclipse.jdt.internal.compiler.problem.AbortMethod;
+import org.eclipse.jdt.internal.compiler.problem.AbortType;
+import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
+import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 
 public class CompilationUnitDeclaration
 	extends ASTNode
 	implements ProblemSeverities, ReferenceContext {
+
+	private static final Comparator STRING_LITERAL_COMPARATOR = new Comparator() {
+		public int compare(Object o1, Object o2) {
+			StringLiteral literal1 = (StringLiteral) o1;
+			StringLiteral literal2 = (StringLiteral) o2;
+			return literal1.sourceStart - literal2.sourceStart;
+		}
+	};
+	private static final int STRING_LITERALS_INCREMENT = 10;
 
 	public ImportReference currentPackage;
 	public ImportReference[] imports;
@@ -33,11 +57,15 @@ public class CompilationUnitDeclaration
 
 	public LocalTypeBinding[] localTypes;
 	public int localTypeCount = 0;
-	
+
 	public boolean isPropagatingInnerClassEmulation;
 
 	public Javadoc javadoc; // 1.5 addition for package-info.java
-	
+
+	public NLSTag[] nlsTags;
+	private StringLiteral[] stringLiterals;
+	private int stringLiteralsPtr;
+
 	public CompilationUnitDeclaration(
 		ProblemReporter problemReporter,
 		CompilationResult compilationResult,
@@ -49,13 +77,12 @@ public class CompilationUnitDeclaration
 		//by definition of a compilation unit....
 		sourceStart = 0;
 		sourceEnd = sourceLength - 1;
-
 	}
 
 	/*
 	 *	We cause the compilation task to abort to a given extent.
 	 */
-	public void abort(int abortLevel, IProblem problem) {
+	public void abort(int abortLevel, CategorizedProblem problem) {
 
 		switch (abortLevel) {
 			case AbortType :
@@ -104,13 +131,15 @@ public class CompilationUnitDeclaration
 				localType.enclosingCase = null;
 			}
 		}
+
+		compilationResult.recoveryScannerData = null; // recovery is already done
+
 		ClassFile[] classFiles = compilationResult.getClassFiles();
 		for (int i = 0, max = classFiles.length; i < max; i++) {
 			// clear the classFile back pointer to the bindings
 			ClassFile classFile = classFiles[i];
 			// null out the classfile backpointer to a type binding
 			classFile.referenceBinding = null;
-			classFile.codeStream = null; // codeStream holds onto ast and scopes
 			classFile.innerClassesBindings = null;
 		}
 	}
@@ -120,6 +149,8 @@ public class CompilationUnitDeclaration
 				cleanUp(type.memberTypes[i]);
 			}
 		}
+		if (type.binding != null && type.binding.isAnnotationType())
+			compilationResult.hasAnnotations = true;
 		if (type.binding != null) {
 			// null out the type's scope backpointers
 			type.binding.scope = null;
@@ -127,18 +158,18 @@ public class CompilationUnitDeclaration
 	}
 
 	public void checkUnusedImports(){
-		
+
 		if (this.scope.imports != null){
 			for (int i = 0, max = this.scope.imports.length; i < max; i++){
 				ImportBinding importBinding = this.scope.imports[i];
 				ImportReference importReference = importBinding.reference;
-				if (importReference != null && !importReference.used){
+				if (importReference != null && ((importReference.bits & ASTNode.Used) == 0)){
 					scope.problemReporter().unusedImport(importReference);
 				}
 			}
 		}
 	}
-	
+
 	public CompilationResult compilationResult() {
 		return this.compilationResult;
 	}
@@ -175,7 +206,7 @@ public class CompilationUnitDeclaration
 			}
 			return;
 		}
-		if (this.isPackageInfo() && this.types != null && this.currentPackage.annotations != null) {
+		if (this.isPackageInfo() && this.types != null && this.currentPackage!= null && this.currentPackage.annotations != null) {
 			types[0].annotations = this.currentPackage.annotations;
 		}
 		try {
@@ -218,11 +249,9 @@ public class CompilationUnitDeclaration
 	}
 
 	public boolean isPackageInfo() {
-		return CharOperation.equals(this.getMainTypeName(), TypeConstants.PACKAGE_INFO_NAME)
-			&& this.currentPackage != null
-			&& (this.currentPackage.annotations != null || this.javadoc != null);
+		return CharOperation.equals(this.getMainTypeName(), TypeConstants.PACKAGE_INFO_NAME);
 	}
-	
+
 	public boolean hasErrors() {
 		return this.ignoreFurtherInvestigation;
 	}
@@ -236,7 +265,11 @@ public class CompilationUnitDeclaration
 		if (imports != null)
 			for (int i = 0; i < imports.length; i++) {
 				printIndent(indent, output).append("import "); //$NON-NLS-1$
-				imports[i].print(0, output).append(";\n"); //$NON-NLS-1$ 
+				ImportReference currentImport = imports[i];
+				if (currentImport.isStatic()) {
+					output.append("static "); //$NON-NLS-1$
+				}
+				currentImport.print(0, output).append(";\n"); //$NON-NLS-1$
 			}
 
 		if (types != null) {
@@ -246,7 +279,7 @@ public class CompilationUnitDeclaration
 		}
 		return output;
 	}
-	
+
 	/*
 	 * Force inner local types to update their innerclass emulation
 	 */
@@ -254,13 +287,31 @@ public class CompilationUnitDeclaration
 
 		isPropagatingInnerClassEmulation = true;
 		for (int i = 0, max = this.localTypeCount; i < max; i++) {
-				
+
 			LocalTypeBinding localType = localTypes[i];
 			// only propagate for reachable local types
-			if ((localType.scope.referenceType().bits & IsReachableMASK) != 0) {
+			if ((localType.scope.referenceType().bits & IsReachable) != 0) {
 				localType.updateInnerEmulationDependents();
 			}
 		}
+	}
+
+	public void recordStringLiteral(StringLiteral literal) {
+		if (this.stringLiterals == null) {
+			this.stringLiterals = new StringLiteral[STRING_LITERALS_INCREMENT];
+			this.stringLiteralsPtr = 0;
+		} else {
+			int stackLength = this.stringLiterals.length;
+			if (this.stringLiteralsPtr == stackLength) {
+				System.arraycopy(
+					this.stringLiterals,
+					0,
+					this.stringLiterals = new StringLiteral[stackLength + STRING_LITERALS_INCREMENT],
+					0,
+					stackLength);
+			}
+		}
+		this.stringLiterals[this.stringLiteralsPtr++] = literal;
 	}
 
 	/*
@@ -281,20 +332,30 @@ public class CompilationUnitDeclaration
 		int startingTypeIndex = 0;
 		boolean isPackageInfo = isPackageInfo();
 		if (this.types != null && isPackageInfo) {
-            // resolve synthetic type declaration
+			// resolve synthetic type declaration
 			final TypeDeclaration syntheticTypeDeclaration = types[0];
 			// set empty javadoc to avoid missing warning (see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=95286)
-			syntheticTypeDeclaration.javadoc = new Javadoc(syntheticTypeDeclaration.declarationSourceStart, syntheticTypeDeclaration.declarationSourceStart);
+			if (syntheticTypeDeclaration.javadoc == null) {
+				syntheticTypeDeclaration.javadoc = new Javadoc(syntheticTypeDeclaration.declarationSourceStart, syntheticTypeDeclaration.declarationSourceStart);
+			}
 			syntheticTypeDeclaration.resolve(this.scope);
 			// resolve annotations if any
-			if (this.currentPackage.annotations != null) {
+			if (this.currentPackage!= null && this.currentPackage.annotations != null) {
 				resolveAnnotations(syntheticTypeDeclaration.staticInitializerScope, this.currentPackage.annotations, this.scope.fPackage);
 			}
-			// resolve javadoc package if any
+			/*
+			 * resolve javadoc package if any
+			 * we do it now and the javadoc in the fake type won't be resolved
+			 */
 			if (this.javadoc != null) {
 				this.javadoc.resolve(syntheticTypeDeclaration.staticInitializerScope);
-    		}
+			}
 			startingTypeIndex = 1;
+		} else {
+			// resolve compilation unit javadoc package if any
+			if (this.javadoc != null) {
+				this.javadoc.resolve(this.scope);
+			}
 		}
 		if (this.currentPackage != null && this.currentPackage.annotations != null && !isPackageInfo) {
 			scope.problemReporter().invalidFileNameForPackageAnnotations(this.currentPackage.annotations[0]);
@@ -306,9 +367,109 @@ public class CompilationUnitDeclaration
 				}
 			}
 			if (!this.compilationResult.hasErrors()) checkUnusedImports();
+			reportNLSProblems();
 		} catch (AbortCompilationUnit e) {
 			this.ignoreFurtherInvestigation = true;
 			return;
+		}
+	}
+
+	private void reportNLSProblems() {
+		if (this.nlsTags != null || this.stringLiterals != null) {
+			final int stringLiteralsLength = this.stringLiteralsPtr;
+			final int nlsTagsLength = this.nlsTags == null ? 0 : this.nlsTags.length;
+			if (stringLiteralsLength == 0) {
+				if (nlsTagsLength != 0) {
+					for (int i = 0; i < nlsTagsLength; i++) {
+						NLSTag tag = this.nlsTags[i];
+						if (tag != null) {
+							scope.problemReporter().unnecessaryNLSTags(tag.start, tag.end);
+						}
+					}
+				}
+			} else if (nlsTagsLength == 0) {
+				// resize string literals
+				if (this.stringLiterals.length != stringLiteralsLength) {
+					System.arraycopy(this.stringLiterals, 0, (stringLiterals = new StringLiteral[stringLiteralsLength]), 0, stringLiteralsLength);
+				}
+				Arrays.sort(this.stringLiterals, STRING_LITERAL_COMPARATOR);
+				for (int i = 0; i < stringLiteralsLength; i++) {
+					scope.problemReporter().nonExternalizedStringLiteral(this.stringLiterals[i]);
+				}
+			} else {
+				// need to iterate both arrays to find non matching elements
+				if (this.stringLiterals.length != stringLiteralsLength) {
+					System.arraycopy(this.stringLiterals, 0, (stringLiterals = new StringLiteral[stringLiteralsLength]), 0, stringLiteralsLength);
+				}
+				Arrays.sort(this.stringLiterals, STRING_LITERAL_COMPARATOR);
+				int indexInLine = 1;
+				int lastLineNumber = -1;
+				StringLiteral literal = null;
+				int index = 0;
+				int i = 0;
+				stringLiteralsLoop: for (; i < stringLiteralsLength; i++) {
+					literal = this.stringLiterals[i];
+					final int literalLineNumber = literal.lineNumber;
+					if (lastLineNumber != literalLineNumber) {
+						indexInLine = 1;
+						lastLineNumber = literalLineNumber;
+					} else {
+						indexInLine++;
+					}
+					if (index < nlsTagsLength) {
+						nlsTagsLoop: for (; index < nlsTagsLength; index++) {
+							NLSTag tag = this.nlsTags[index];
+							if (tag == null) continue nlsTagsLoop;
+							int tagLineNumber = tag.lineNumber;
+							if (literalLineNumber < tagLineNumber) {
+								scope.problemReporter().nonExternalizedStringLiteral(literal);
+								continue stringLiteralsLoop;
+							} else if (literalLineNumber == tagLineNumber) {
+								if (tag.index == indexInLine) {
+									this.nlsTags[index] = null;
+									index++;
+									continue stringLiteralsLoop;
+								} else {
+									nlsTagsLoop2: for (int index2 = index + 1; index2 < nlsTagsLength; index2++) {
+										NLSTag tag2 = this.nlsTags[index2];
+										if (tag2 == null) continue nlsTagsLoop2;
+										int tagLineNumber2 = tag2.lineNumber;
+										if (literalLineNumber == tagLineNumber2) {
+											if (tag2.index == indexInLine) {
+												this.nlsTags[index2] = null;
+												continue stringLiteralsLoop;
+											} else {
+												continue nlsTagsLoop2;
+											}
+										} else {
+											scope.problemReporter().nonExternalizedStringLiteral(literal);
+											continue stringLiteralsLoop;
+										}
+									}
+									scope.problemReporter().nonExternalizedStringLiteral(literal);
+									continue stringLiteralsLoop;
+								}
+							} else {
+								scope.problemReporter().unnecessaryNLSTags(tag.start, tag.end);
+								continue nlsTagsLoop;
+							}
+						}
+					}
+					// all nls tags have been processed, so remaining string literals are not externalized
+					break stringLiteralsLoop;
+				}
+				for (; i < stringLiteralsLength; i++) {
+					scope.problemReporter().nonExternalizedStringLiteral(this.stringLiterals[i]);
+				}
+				if (index < nlsTagsLength) {
+					for (; index < nlsTagsLength; index++) {
+						NLSTag tag = this.nlsTags[index];
+						if (tag != null) {
+							scope.problemReporter().unnecessaryNLSTags(tag.start, tag.end);
+						}
+					}
+				}
+			}
 		}
 	}
 
@@ -324,8 +485,26 @@ public class CompilationUnitDeclaration
 			return;
 		try {
 			if (visitor.visit(this, this.scope)) {
-				if (currentPackage != null) {
-					currentPackage.traverse(visitor, this.scope);
+				if (this.types != null && isPackageInfo()) {
+		            // resolve synthetic type declaration
+					final TypeDeclaration syntheticTypeDeclaration = types[0];
+					// resolve javadoc package if any
+					final MethodScope methodScope = syntheticTypeDeclaration.staticInitializerScope;
+					if (this.javadoc != null) {
+						this.javadoc.traverse(visitor, methodScope);
+					}
+					if (this.currentPackage != null) {
+						final Annotation[] annotations = this.currentPackage.annotations;
+						if (annotations != null) {
+							int annotationsLength = annotations.length;
+							for (int i = 0; i < annotationsLength; i++) {
+								annotations[i].traverse(visitor, methodScope);
+							}
+						}
+					}
+				}
+				if (this.currentPackage != null) {
+					this.currentPackage.traverse(visitor, this.scope);
 				}
 				if (imports != null) {
 					int importLength = imports.length;

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,6 +7,7 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Matt McCutchen - fix for bug 198153
  *******************************************************************************/
 package org.eclipse.jdt.internal.formatter.comment;
 
@@ -14,6 +15,8 @@ import java.io.IOException;
 import java.io.Reader;
 import java.util.HashMap;
 import java.util.Map;
+
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 
 /**
  * <code>SubstitutionTextReader</code> that will substitute plain text values
@@ -73,7 +76,7 @@ public class HTMLEntity2JavaReader extends SubstitutionTextReader {
 				} else {
 					ch= Integer.parseInt(symbol.substring(1), 10);
 				}
-				return " " + (char) ch; //$NON-NLS-1$
+				return String.valueOf((char) ch);
 			} catch (NumberFormatException e) {
 				// ignore
 			}
@@ -96,7 +99,7 @@ public class HTMLEntity2JavaReader extends SubstitutionTextReader {
 	private String processEntity() throws IOException {
 		StringBuffer buf= new StringBuffer();
 		int ch= nextChar();
-		while (Character.isLetterOrDigit((char) ch) || ch == '#') {
+		while (ScannerHelper.isLetterOrDigit((char) ch) || ch == '#') {
 			buf.append((char) ch);
 			ch= nextChar();
 		}

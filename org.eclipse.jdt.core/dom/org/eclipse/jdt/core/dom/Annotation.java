@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2005 IBM Corporation and others.
+ * Copyright (c) 2004, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -164,5 +164,18 @@ public abstract class Annotation extends Expression implements IExtendedModifier
 	int memSize() {
 		return BASE_NODE_SIZE + 1 * 4;
 	}
-}
 
+	/**
+	 * Resolves and returns the resolved annotation for this annotation.
+	 * <p>
+	 * Note that bindings (which includes resolved annotations) are generally unavailable unless
+	 * requested when the AST is being built.
+	 * </p>
+	 * 
+	 * @return the resolved annotation, or <code>null</code> if the annotation cannot be resolved
+	 * @since 3.2
+	 */	
+	public IAnnotationBinding resolveAnnotationBinding() {
+	    return this.ast.getBindingResolver().resolveAnnotation(this);
+	}
+}

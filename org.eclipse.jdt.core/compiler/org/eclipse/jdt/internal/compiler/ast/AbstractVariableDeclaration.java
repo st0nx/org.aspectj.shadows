@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -70,7 +70,16 @@ public abstract class AbstractVariableDeclaration extends Statement implements I
 	}
 
 	public StringBuffer printStatement(int indent, StringBuffer output) {
-
+		printAsExpression(indent, output);
+		switch(getKind()) {
+			case ENUM_CONSTANT:
+				return output.append(',');
+			default:
+				return output.append(';');
+		}
+	}
+	
+	public StringBuffer printAsExpression(int indent, StringBuffer output) {
 		printIndent(indent, output);
 		printModifiers(this.modifiers, output);
 		if (this.annotations != null) printAnnotations(this.annotations, output);
@@ -84,14 +93,14 @@ public abstract class AbstractVariableDeclaration extends Statement implements I
 				if (initialization != null) {
 					initialization.printExpression(indent, output);
 				}
-				return output.append(',');
+				break;
 			default:
 				if (initialization != null) {
 					output.append(" = "); //$NON-NLS-1$
 					initialization.printExpression(indent, output);
 				}
-				return output.append(';');
 		}
+		return output;
 	}
 
 	public void resolve(BlockScope scope) {

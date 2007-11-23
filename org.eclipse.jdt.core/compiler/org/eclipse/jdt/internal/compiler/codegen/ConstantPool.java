@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,10 +10,9 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.codegen;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ClassFile;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
-import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
-import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
@@ -75,8 +74,6 @@ public class ConstantPool implements ClassFileConstants, TypeIds {
 	public static final char[] doubleDoubleSignature = "(D)Ljava/lang/Double;".toCharArray(); //$NON-NLS-1$
 	public static final char[] DOUBLEVALUE_DOUBLE_METHOD_NAME = "doubleValue".toCharArray(); //$NON-NLS-1$
 	public static final char[] DOUBLEVALUE_DOUBLE_METHOD_SIGNATURE = "()D".toCharArray(); //$NON-NLS-1$
-	public static final char[] Equals = "equals".toCharArray(); //$NON-NLS-1$
-	public static final char[] EqualsSignature = "(Ljava/lang/Object;)Z".toCharArray(); //$NON-NLS-1$
 	public static final char[] Exit = "exit".toCharArray(); //$NON-NLS-1$
 	public static final char[] ExitIntSignature = "(I)V".toCharArray(); //$NON-NLS-1$
 	public static final char[] FloatConstrSignature = "(F)V".toCharArray(); //$NON-NLS-1$
@@ -132,8 +129,6 @@ public class ConstantPool implements ClassFileConstants, TypeIds {
 	public static final char[][] JAVA_LANG_REFLECT_ACCESSIBLEOBJECT = new char[][] {TypeConstants.JAVA, TypeConstants.LANG, TypeConstants.REFLECT, "AccessibleObject".toCharArray()}; //$NON-NLS-1$
 	public static final char[][] JAVA_LANG_REFLECT_ARRAY = new char[][] {TypeConstants.JAVA, TypeConstants.LANG, TypeConstants.REFLECT, "Array".toCharArray()}; //$NON-NLS-1$
 	// predefined type constant names
-	public static final char[][] JAVA_LANG_REFLECT_FIELD = new char[][] {TypeConstants.JAVA, TypeConstants.LANG, TypeConstants.REFLECT, "Field".toCharArray()}; //$NON-NLS-1$
-	public static final char[][] JAVA_LANG_REFLECT_METHOD = new char[][] {TypeConstants.JAVA, TypeConstants.LANG, TypeConstants.REFLECT, "Method".toCharArray()}; //$NON-NLS-1$
 	public static final char[] JavaIoPrintStreamSignature = "Ljava/io/PrintStream;".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangAssertionErrorConstantPoolName = "java/lang/AssertionError".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangBooleanConstantPoolName = "java/lang/Boolean".toCharArray(); //$NON-NLS-1$
@@ -143,10 +138,10 @@ public class ConstantPool implements ClassFileConstants, TypeIds {
 	public static final char[] JavaLangClassNotFoundExceptionConstantPoolName = "java/lang/ClassNotFoundException".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangClassSignature = "Ljava/lang/Class;".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangDoubleConstantPoolName = "java/lang/Double".toCharArray(); //$NON-NLS-1$
+	public static final char[] JavaLangEnumConstantPoolName = "java/lang/Enum".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangErrorConstantPoolName = "java/lang/Error".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangExceptionConstantPoolName = "java/lang/Exception".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangFloatConstantPoolName = "java/lang/Float".toCharArray(); //$NON-NLS-1$
-	public static final char[] JavaLangIllegalArgumentExceptionConstantPoolName = "java/lang/IllegalArgumentException".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangIntegerConstantPoolName = "java/lang/Integer".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangLongConstantPoolName = "java/lang/Long".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangNoClassDefFoundErrorConstantPoolName = "java/lang/NoClassDefFoundError".toCharArray(); //$NON-NLS-1$
@@ -154,7 +149,7 @@ public class ConstantPool implements ClassFileConstants, TypeIds {
 	public static final char[] JavaLangObjectConstantPoolName = "java/lang/Object".toCharArray(); //$NON-NLS-1$
 	public static final char[] JAVALANGREFLECTACCESSIBLEOBJECT_CONSTANTPOOLNAME = "java/lang/reflect/AccessibleObject".toCharArray(); //$NON-NLS-1$
 	public static final char[] JAVALANGREFLECTARRAY_CONSTANTPOOLNAME = "java/lang/reflect/Array".toCharArray(); //$NON-NLS-1$
-	public static final char[] JavaLangReflectConstructor = "java/lang/reflect/Constructor".toCharArray();   //$NON-NLS-1$
+	public static final char[] JavaLangReflectConstructorConstantPoolName = "java/lang/reflect/Constructor".toCharArray();   //$NON-NLS-1$
 	public static final char[] JavaLangReflectConstructorNewInstanceSignature = "([Ljava/lang/Object;)Ljava/lang/Object;".toCharArray(); //$NON-NLS-1$
 	public static final char[] JAVALANGREFLECTFIELD_CONSTANTPOOLNAME = "java/lang/reflect/Field".toCharArray(); //$NON-NLS-1$
 	public static final char[] JAVALANGREFLECTMETHOD_CONSTANTPOOLNAME = "java/lang/reflect/Method".toCharArray(); //$NON-NLS-1$
@@ -163,6 +158,7 @@ public class ConstantPool implements ClassFileConstants, TypeIds {
 	public static final char[] JavaLangStringBuilderConstantPoolName = "java/lang/StringBuilder".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangStringConstantPoolName = "java/lang/String".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangStringSignature = "Ljava/lang/String;".toCharArray(); //$NON-NLS-1$
+	public static final char[] JavaLangObjectSignature = "Ljava/lang/Object;".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangSystemConstantPoolName = "java/lang/System".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangThrowableConstantPoolName = "java/lang/Throwable".toCharArray(); //$NON-NLS-1$
 	public static final char[] JavaLangVoidConstantPoolName = "java/lang/Void".toCharArray(); //$NON-NLS-1$
@@ -171,8 +167,6 @@ public class ConstantPool implements ClassFileConstants, TypeIds {
 	public static final char[] longLongSignature = "(J)Ljava/lang/Long;".toCharArray(); //$NON-NLS-1$
 	public static final char[] LONGVALUE_LONG_METHOD_NAME = "longValue".toCharArray(); //$NON-NLS-1$
 	public static final char[] LONGVALUE_LONG_METHOD_SIGNATURE = "()J".toCharArray(); //$NON-NLS-1$
-	public static final char[] Name = "name".toCharArray(); //$NON-NLS-1$
-	public static final char[] NameSignature = "()Ljava/lang/String;".toCharArray(); //$NON-NLS-1$
 	public static final char[] NewInstance = "newInstance".toCharArray(); //$NON-NLS-1$
 	public static final char[] NewInstanceSignature = "(Ljava/lang/Class;[I)Ljava/lang/Object;".toCharArray(); //$NON-NLS-1$
 	public static final char[] Next = "next".toCharArray();//$NON-NLS-1$
@@ -235,13 +229,14 @@ public class ConstantPool implements ClassFileConstants, TypeIds {
 	public static final char[] ValueOfIntSignature = "(I)Ljava/lang/String;".toCharArray(); //$NON-NLS-1$
 	public static final char[] ValueOfLongSignature = "(J)Ljava/lang/String;".toCharArray(); //$NON-NLS-1$
 	public static final char[] ValueOfObjectSignature = "(Ljava/lang/Object;)Ljava/lang/String;".toCharArray(); //$NON-NLS-1$
+	public static final char[] ValueOfStringClassSignature = "(Ljava/lang/Class;Ljava/lang/String;)Ljava/lang/Enum;".toCharArray(); //$NON-NLS-1$
 	public static final char[] JAVA_LANG_ANNOTATION_DOCUMENTED = "Ljava/lang/annotation/Documented;".toCharArray(); //$NON-NLS-1$
 	public static final char[] JAVA_LANG_ANNOTATION_ELEMENTTYPE = "Ljava/lang/annotation/ElementType;".toCharArray(); //$NON-NLS-1$
 	public static final char[] JAVA_LANG_ANNOTATION_RETENTION = "Ljava/lang/annotation/Retention;".toCharArray(); //$NON-NLS-1$
 	public static final char[] JAVA_LANG_ANNOTATION_RETENTIONPOLICY = "Ljava/lang/annotation/RetentionPolicy;".toCharArray(); //$NON-NLS-1$
 	public static final char[] JAVA_LANG_ANNOTATION_TARGET = "Ljava/lang/annotation/Target;".toCharArray(); //$NON-NLS-1$
 	public static final char[] JAVA_LANG_DEPRECATED = "Ljava/lang/Deprecated;".toCharArray(); //$NON-NLS-1$
-	public static final char[] JAVA_LANG_ANNOTATION_INHERITED = "Ljava/lang/Inherited;".toCharArray(); //$NON-NLS-1$
+	public static final char[] JAVA_LANG_ANNOTATION_INHERITED = "Ljava/lang/annotation/Inherited;".toCharArray(); //$NON-NLS-1$
 /**
  * ConstantPool constructor comment.
  */
@@ -251,11 +246,14 @@ public ConstantPool(ClassFile classFile) {
 	this.methodsAndFieldsCache = new HashtableOfObject(METHODS_AND_FIELDS_INITIAL_SIZE);
 	this.classCache = new CharArrayCache(CLASS_INITIAL_SIZE);
 	this.nameAndTypeCacheForFieldsAndMethods = new HashtableOfObject(NAMEANDTYPE_INITIAL_SIZE);
-	this.poolContent = classFile.header;
-	this.currentOffset = classFile.headerOffset;
+	initialize(classFile);
+}
+public void initialize(ClassFile givenClassFile) {
+	this.poolContent = givenClassFile.header;
+	this.currentOffset = givenClassFile.headerOffset;
 	// currentOffset is initialized to 0 by default
 	this.currentIndex = 1;
-	this.classFile = classFile;
+	this.classFile = givenClassFile;
 }
 /**
  * Return the content of the receiver
@@ -264,54 +262,36 @@ public byte[] dumpBytes() {
 	System.arraycopy(poolContent, 0, (poolContent = new byte[currentOffset]), 0, currentOffset);
 	return poolContent;
 }
-private int getFromCache(char[] declaringClass, char[] name, char[] signature) {
-	HashtableOfObject value = (HashtableOfObject) this.methodsAndFieldsCache.get(declaringClass);
-	if (value == null) {
-		return -1;
-	}
-	CharArrayCache value2 = (CharArrayCache) value.get(name);
-	if (value2 == null) {
-		return -1;
-	}
-	return value2.get(signature);
-}
-private int getFromNameAndTypeCache(char[] name, char[] signature) {
-	CharArrayCache value = (CharArrayCache) this.nameAndTypeCacheForFieldsAndMethods.get(name);
-	if (value == null) {
-		return -1;
-	}
-	return value.get(signature);
-}
 public int literalIndex(byte[] utf8encoding, char[] stringCharArray) {
 	int index;
-	if ((index = UTF8Cache.get(stringCharArray)) < 0) {
+	if ((index = UTF8Cache.putIfAbsent(stringCharArray, this.currentIndex)) < 0) {
 		// The entry doesn't exit yet
-		index = UTF8Cache.put(stringCharArray, currentIndex);
-		if (index > 0xFFFF){
+		if ((index = -index)> 0xFFFF) {
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
 		currentIndex++;
 		// Write the tag first
 		writeU1(Utf8Tag);
-		// Then the size of the stringName array
-		//writeU2(utf8Constant.length);
-		int savedCurrentOffset = currentOffset;
 		int utf8encodingLength = utf8encoding.length;
 		if (currentOffset + 2 + utf8encodingLength >= poolContent.length) {
 			// we need to resize the poolContent array because we won't have
 			// enough space to write the length
 			resizePoolContents(2 + utf8encodingLength);
 		}
-		currentOffset += 2;
+		poolContent[currentOffset++] = (byte) (utf8encodingLength >> 8);
+		poolContent[currentOffset++] = (byte) utf8encodingLength;
 		// add in once the whole byte array
 		System.arraycopy(utf8encoding, 0, poolContent, currentOffset, utf8encodingLength);
 		currentOffset += utf8encodingLength;
-		// Now we know the length that we have to write in the constant pool
-		// we use savedCurrentOffset to do that
-		poolContent[savedCurrentOffset] = (byte) (utf8encodingLength >> 8);
-		poolContent[savedCurrentOffset + 1] = (byte) utf8encodingLength;
 	}
 	return index;
+}
+public int literalIndex(TypeBinding binding) {
+	TypeBinding typeBinding = binding.leafComponentType();
+	if (typeBinding.isNestedType()) {
+		this.classFile.recordInnerClasses(typeBinding);
+	}
+	return literalIndex(binding.signature());
 }
 /**
  * This method returns the index into the constantPool corresponding to the type descriptor.
@@ -321,7 +301,8 @@ public int literalIndex(byte[] utf8encoding, char[] stringCharArray) {
  */
 public int literalIndex(char[] utf8Constant) {
 	int index;
-	if ((index = UTF8Cache.get(utf8Constant)) < 0) {
+	if ((index = UTF8Cache.putIfAbsent(utf8Constant, this.currentIndex)) < 0) {
+		index = -index;
 		// The entry doesn't exit yet
 		// Write the tag first
 		writeU1(Utf8Tag);
@@ -340,7 +321,7 @@ public int literalIndex(char[] utf8Constant) {
 				// we only need one byte: ASCII table
 				writeU1(current);
 				length++;
-			} else
+			} else {
 				if (current > 0x07FF) {
 					// we need 3 bytes
 					length += 3;
@@ -354,12 +335,12 @@ public int literalIndex(char[] utf8Constant) {
 					writeU1(0xC0 | ((current >> 6) & 0x1F)); // 0xC0 = 1100 0000
 					writeU1(0x80 | (current & 0x3F)); // 0x80 = 1000 0000
 				}
+			}
 		}
 		if (length >= 65535) {
 			currentOffset = savedCurrentOffset - 1;
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceForConstant(this.classFile.referenceBinding.scope.referenceType());
 		}
-		index = UTF8Cache.put(utf8Constant, currentIndex);
 		if (index > 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
@@ -373,18 +354,24 @@ public int literalIndex(char[] utf8Constant) {
 }
 public int literalIndex(char[] stringCharArray, byte[] utf8encoding) {
 	int index;
-	int stringIndex;
-	if ((index = stringCache.get(stringCharArray)) < 0) {
+	if ((index = stringCache.putIfAbsent(stringCharArray, this.currentIndex)) < 0) {
 		// The entry doesn't exit yet
-		stringIndex = literalIndex(utf8encoding, stringCharArray);
-		index = stringCache.put(stringCharArray, currentIndex++);
-		if (index > 0xFFFF){
+		this.currentIndex++;
+		if ((index = -index) > 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
 		// Write the tag first
 		writeU1(StringTag);
 		// Then the string index
-		writeU2(stringIndex);
+		int stringIndexOffset = this.currentOffset;
+		if (currentOffset + 2 >= poolContent.length) {
+			resizePoolContents(2);
+		}
+		currentOffset+=2;
+
+		final int stringIndex = literalIndex(utf8encoding, stringCharArray);
+		poolContent[stringIndexOffset++] = (byte) (stringIndex >> 8);
+		poolContent[stringIndexOffset] = (byte) stringIndex;
 	}
 	return index;
 }
@@ -406,12 +393,11 @@ public int literalIndex(double key) {
 	if (doubleCache == null) {
 			doubleCache = new DoubleCache(DOUBLE_INITIAL_SIZE);
 	}
-	if ((index = doubleCache.get(key)) < 0) {
-		index = doubleCache.put(key, currentIndex++);
-		if (index > 0xFFFF){
+	if ((index = doubleCache.putIfAbsent(key, this.currentIndex)) < 0) {
+		if ((index = -index)> 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
-		currentIndex++; // a double needs an extra place into the constant pool
+		this.currentIndex += 2; // a double needs an extra place into the constant pool
 		// Write the double into the constant pool
 		// First add the tag
 		writeU1(DoubleTag);
@@ -421,9 +407,14 @@ public int literalIndex(double key) {
 		if (currentOffset + 8 >= length) {
 			resizePoolContents(8);
 		}
-		for (int i = 0; i < 8; i++) {
-			poolContent[currentOffset++] = (byte) (temp >>> (56 - (i << 3)));
-		}
+		poolContent[currentOffset++] = (byte) (temp >>> 56);
+		poolContent[currentOffset++] = (byte) (temp >>> 48);
+		poolContent[currentOffset++] = (byte) (temp >>> 40);
+		poolContent[currentOffset++] = (byte) (temp >>> 32);
+		poolContent[currentOffset++] = (byte) (temp >>> 24);
+		poolContent[currentOffset++] = (byte) (temp >>> 16);
+		poolContent[currentOffset++] = (byte) (temp >>> 8);
+		poolContent[currentOffset++] = (byte) temp;
 	}
 	return index;
 }
@@ -443,11 +434,11 @@ public int literalIndex(float key) {
 	if (floatCache == null) {
 		floatCache = new FloatCache(FLOAT_INITIAL_SIZE);
 	}
-	if ((index = floatCache.get(key)) < 0) {
-		index = floatCache.put(key, currentIndex++);
-		if (index > 0xFFFF){
+	if ((index = floatCache.putIfAbsent(key, this.currentIndex)) < 0) {
+		if ((index = -index) > 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
+		this.currentIndex++;
 		// Write the float constant entry into the constant pool
 		// First add the tag
 		writeU1(FloatTag);
@@ -456,9 +447,10 @@ public int literalIndex(float key) {
 		if (currentOffset + 4 >= poolContent.length) {
 			resizePoolContents(4);
 		}
-		for (int i = 0; i < 4; i++) {
-			poolContent[currentOffset++] = (byte) (temp >>> (24 - i * 8));
-		}
+		poolContent[currentOffset++] = (byte) (temp >>> 24);
+		poolContent[currentOffset++] = (byte) (temp >>> 16);
+		poolContent[currentOffset++] = (byte) (temp >>> 8);
+		poolContent[currentOffset++] = (byte) temp;
 	}
 	return index;
 }
@@ -478,21 +470,22 @@ public int literalIndex(int key) {
 	if (intCache == null) {
 		intCache = new IntegerCache(INT_INITIAL_SIZE);
 	}
-	if ((index = intCache.get(key)) < 0) {
-		index = intCache.put(key, currentIndex++);
-		if (index > 0xFFFF){
+	if ((index = intCache.putIfAbsent(key, this.currentIndex)) < 0) {
+		this.currentIndex++;
+		if ((index = -index) > 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
-		// Write the integer constant entry into the constant pool
+	// Write the integer constant entry into the constant pool
 		// First add the tag
 		writeU1(IntegerTag);
 		// Then add the 4 bytes representing the int
 		if (currentOffset + 4 >= poolContent.length) {
 			resizePoolContents(4);
 		}
-		for (int i = 0; i < 4; i++) {
-			poolContent[currentOffset++] = (byte) (key >>> (24 - i * 8));
-		}
+		poolContent[currentOffset++] = (byte) (key >>> 24);
+		poolContent[currentOffset++] = (byte) (key >>> 16);
+		poolContent[currentOffset++] = (byte) (key >>> 8);
+		poolContent[currentOffset++] = (byte) key;
 	}
 	return index;
 }
@@ -514,12 +507,11 @@ public int literalIndex(long key) {
 	if (longCache == null) {
 		longCache = new LongCache(LONG_INITIAL_SIZE);
 	}
-	if ((index = longCache.get(key)) < 0) {
-		index = longCache.put(key, currentIndex++);
-		if (index > 0xFFFF){
+	if ((index = longCache.putIfAbsent(key, this.currentIndex)) < 0) {
+		if ((index = -index) > 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
-		currentIndex++; // long value need an extra place into thwe constant pool
+		this.currentIndex+= 2; // long value need an extra place into thwe constant pool
 		// Write the long into the constant pool
 		// First add the tag
 		writeU1(LongTag);
@@ -527,9 +519,14 @@ public int literalIndex(long key) {
 		if (currentOffset + 8 >= poolContent.length) {
 			resizePoolContents(8);
 		}
-		for (int i = 0; i < 8; i++) {
-			poolContent[currentOffset++] = (byte) (key >>> (56 - (i << 3)));
-		}
+		poolContent[currentOffset++] = (byte) (key >>> 56);
+		poolContent[currentOffset++] = (byte) (key >>> 48);
+		poolContent[currentOffset++] = (byte) (key >>> 40);
+		poolContent[currentOffset++] = (byte) (key >>> 32);
+		poolContent[currentOffset++] = (byte) (key >>> 24);
+		poolContent[currentOffset++] = (byte) (key >>> 16);
+		poolContent[currentOffset++] = (byte) (key >>> 8);
+		poolContent[currentOffset++] = (byte) key;
 	}
 	return index;
 }
@@ -542,211 +539,142 @@ public int literalIndex(long key) {
 public int literalIndex(String stringConstant) {
 	int index;
 	char[] stringCharArray = stringConstant.toCharArray();
-	if ((index = stringCache.get(stringCharArray)) < 0) {
+	if ((index = stringCache.putIfAbsent(stringCharArray, this.currentIndex)) < 0) {
 		// The entry doesn't exit yet
-		int stringIndex = literalIndex(stringCharArray);
-		index = stringCache.put(stringCharArray, currentIndex++);
-		if (index > 0xFFFF){
+		currentIndex++;
+		if ((index  = -index)> 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
 		// Write the tag first
 		writeU1(StringTag);
 		// Then the string index
-		writeU2(stringIndex);
-	}
-	return index;
-}
-/**
- * This method returns the index into the constantPool 
- * corresponding to the field binding aFieldBinding.
- *
- * @param aFieldBinding FieldBinding
- * @return <CODE>int</CODE>
- */
-public int literalIndex(FieldBinding aFieldBinding) {
-	int index;
-	final char[] name = aFieldBinding.name;
-	final char[] signature = aFieldBinding.type.signature();
-	final char[] declaringClassConstantPoolName = aFieldBinding.declaringClass.constantPoolName();
-	if ((index = getFromCache(declaringClassConstantPoolName, name, signature)) < 0) {
-		// The entry doesn't exit yet
-		int classIndex = literalIndexForType(declaringClassConstantPoolName);
-		int nameAndTypeIndex = literalIndexForFields(literalIndex(name), literalIndex(signature), name, signature);
-		index = putInCache(declaringClassConstantPoolName, name, signature, currentIndex++);
-		if (index > 0xFFFF){
-			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
+		int stringIndexOffset = this.currentOffset;
+		if (currentOffset + 2 >= poolContent.length) {
+			resizePoolContents(2);
 		}
-		writeU1(FieldRefTag);
-		writeU2(classIndex);
-		writeU2(nameAndTypeIndex);
+		currentOffset+=2;
+		final int stringIndex = literalIndex(stringCharArray);
+		poolContent[stringIndexOffset++] = (byte) (stringIndex >> 8);
+		poolContent[stringIndexOffset] = (byte) stringIndex;
 	}
 	return index;
 }
-/**
- * This method returns the index into the constantPool corresponding to the 
- * method descriptor. It can be either an interface method reference constant
- * or a method reference constant.
- * Note: uses the method binding #constantPoolDeclaringClass which could be an array type
- * for the array clone method (see UpdatedMethodDeclaration).
- * @param aMethodBinding MethodBinding
- * @return <CODE>int</CODE>
- */
-public int literalIndex(MethodBinding aMethodBinding) {
-	int index;
-	final TypeBinding constantPoolDeclaringClass = aMethodBinding.constantPoolDeclaringClass();
-	final char[] declaringClassConstantPoolName = constantPoolDeclaringClass.constantPoolName();
-	final char[] selector = aMethodBinding.selector;
-	final char[] signature = aMethodBinding.signature();
-	if ((index = getFromCache(declaringClassConstantPoolName, selector, signature)) < 0) {
-		int classIndex = literalIndexForType(constantPoolDeclaringClass.constantPoolName());
-		int nameAndTypeIndex = literalIndexForMethods(literalIndex(selector), literalIndex(signature), selector, signature);
-		index = putInCache(declaringClassConstantPoolName, selector, signature, currentIndex++);
-		if (index > 0xFFFF){
-			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
-		}
-		// Write the interface method ref constant into the constant pool
-		// First add the tag
-		writeU1(constantPoolDeclaringClass.isInterface() || constantPoolDeclaringClass.isAnnotationType() ? InterfaceMethodRefTag : MethodRefTag);
-		// Then write the class index
-		writeU2(classIndex);
-		// The write the nameAndType index
-		writeU2(nameAndTypeIndex);
-	}
-	return index;
-}
-/**
- * This method returns the index into the constantPool corresponding to the type descriptor 
- * corresponding to a type constant pool name.
- */
 public int literalIndexForType(final char[] constantPoolName) {
 	int index;
-	if ((index = classCache.get(constantPoolName)) < 0) {
+	if ((index = classCache.putIfAbsent(constantPoolName, this.currentIndex)) < 0) {
 		// The entry doesn't exit yet
-		int nameIndex = literalIndex(constantPoolName);
-		index = classCache.put(constantPoolName, currentIndex++);
-		if (index > 0xFFFF){
+		this.currentIndex++;
+		if ((index = -index) > 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
 		writeU1(ClassTag);
-		// Then add the 8 bytes representing the long
-		writeU2(nameIndex);
+
+		// Then the name index
+		int nameIndexOffset = this.currentOffset;
+		if (currentOffset + 2 >= poolContent.length) {
+			resizePoolContents(2);
+		}
+		currentOffset+=2;
+		final int nameIndex = literalIndex(constantPoolName);
+		poolContent[nameIndexOffset++] = (byte) (nameIndex >> 8);
+		poolContent[nameIndexOffset] = (byte) nameIndex;
 	}
 	return index;
 }
+/*
+ * This method returns the index into the constantPool corresponding to the type descriptor 
+ * corresponding to a type constant pool name
+ * binding must not be an array type.
+ */
+public int literalIndexForType(final TypeBinding binding) {
+	TypeBinding typeBinding = binding.leafComponentType();
+	if (typeBinding.isNestedType()) {
+		this.classFile.recordInnerClasses(typeBinding);
+	}
+	return this.literalIndexForType(binding.constantPoolName());
+}
 public int literalIndexForMethod(char[] declaringClass, char[] selector, char[] signature, boolean isInterface) {
-	int index = getFromCache(declaringClass, selector, signature);
-	if (index == -1) {
-		int classIndex;
-		if ((classIndex = classCache.get(declaringClass)) < 0) {
-			// The entry doesn't exit yet
-			int nameIndex = literalIndex(declaringClass);
-			classIndex = classCache.put(declaringClass, this.currentIndex++);
-			if (index > 0xFFFF){
-				this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
-			}
-			writeU1(ClassTag);
-			// Then add the 8 bytes representing the long
-			writeU2(nameIndex);
-		}
-		int nameAndTypeIndex = literalIndexForMethod(selector, signature);
-		index = putInCache(declaringClass, selector, signature, currentIndex++);
-		if (index > 0xFFFF){
+	int index;
+	if ((index = putInCacheIfAbsent(declaringClass, selector, signature, this.currentIndex)) < 0) {
+		// it doesn't exist yet
+		this.currentIndex++;
+		if ((index = -index) > 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
 		// Write the interface method ref constant into the constant pool
 		// First add the tag
 		writeU1(isInterface ? InterfaceMethodRefTag : MethodRefTag);
-		// Then write the class index
-		writeU2(classIndex);
-		// The write the nameAndType index
-		writeU2(nameAndTypeIndex);		
+
+		int classIndexOffset = this.currentOffset;
+		if (currentOffset + 4 >= poolContent.length) {
+			resizePoolContents(4);
+		}
+		currentOffset+=4;
+		
+		final int classIndex = literalIndexForType(declaringClass);
+		final int nameAndTypeIndex = literalIndexForNameAndType(selector, signature);
+
+		poolContent[classIndexOffset++] = (byte) (classIndex >> 8);
+		poolContent[classIndexOffset++] = (byte) classIndex;
+		poolContent[classIndexOffset++] = (byte) (nameAndTypeIndex >> 8);
+		poolContent[classIndexOffset] = (byte) nameAndTypeIndex;
 	}
 	return index;
 }
-private int literalIndexForField(char[] name, char[] signature) {
-	int index = getFromNameAndTypeCache(name, signature);
-	if (index == -1) {
-		// The entry doesn't exit yet
-		int nameIndex = literalIndex(name);
-		int typeIndex = literalIndex(signature);
-		index = putInNameAndTypeCache(name, signature, currentIndex++);
-		if (index > 0xFFFF){
-			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
-		}
-		writeU1(NameAndTypeTag);
-		writeU2(nameIndex);
-		writeU2(typeIndex);
+public int literalIndexForMethod(TypeBinding binding, char[] selector, char[] signature, boolean isInterface) {
+	if (binding.isNestedType()) {
+		this.classFile.recordInnerClasses(binding);
 	}
-	return index;
+	return this.literalIndexForMethod(binding.constantPoolName(), selector, signature, isInterface);
 }
-public int literalIndexForMethod(char[] selector, char[] signature) {
-	int index = getFromNameAndTypeCache(selector, signature);
-	if (index == -1) {
+public int literalIndexForNameAndType(char[] name, char[] signature) {
+	int index;
+	if ((index = putInNameAndTypeCacheIfAbsent(name, signature, currentIndex)) < 0) {
 		// The entry doesn't exit yet
-		int nameIndex = literalIndex(selector);
-		int typeIndex = literalIndex(signature);
-		index = putInNameAndTypeCache(selector, signature, currentIndex++);
-		if (index > 0xFFFF){
+		currentIndex++;
+		if ((index = -index) > 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
 		writeU1(NameAndTypeTag);
-		writeU2(nameIndex);
-		writeU2(typeIndex);
+		int nameIndexOffset = this.currentOffset;
+		if (currentOffset + 4 >= poolContent.length) {
+			resizePoolContents(4);
+		}
+		currentOffset+=4;
+		
+		final int nameIndex = literalIndex(name);
+		final int typeIndex = literalIndex(signature);
+		poolContent[nameIndexOffset++] = (byte) (nameIndex >> 8);
+		poolContent[nameIndexOffset++] = (byte) nameIndex;
+		poolContent[nameIndexOffset++] = (byte) (typeIndex >> 8);
+		poolContent[nameIndexOffset] = (byte) typeIndex;
 	}
 	return index;
 }
 public int literalIndexForField(char[] declaringClass, char[] name, char[] signature) {
-	int index = getFromCache(declaringClass, name, signature);
-	if (index == -1) {
-		int classIndex;
-		if ((classIndex = classCache.get(declaringClass)) < 0) {
-			// The entry doesn't exit yet
-			int nameIndex = literalIndex(declaringClass);
-			classIndex = classCache.put(declaringClass, this.currentIndex++);
-			if (index > 0xFFFF){
-				this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
-			}
-			writeU1(ClassTag);
-			// Then add the 8 bytes representing the long
-			writeU2(nameIndex);
-		}
-		int nameAndTypeIndex = literalIndexForField(name, signature);
-		index = putInCache(declaringClass, name, signature, currentIndex++);
-		if (index > 0xFFFF){
+	int index;
+	if ((index = putInCacheIfAbsent(declaringClass, name, signature, this.currentIndex)) < 0) {
+		this.currentIndex++;
+		// doesn't exist yet
+		if ((index = -index) > 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
 		// Write the interface method ref constant into the constant pool
 		// First add the tag
 		writeU1(FieldRefTag);
-		// Then write the class index
-		writeU2(classIndex);
-		// The write the nameAndType index
-		writeU2(nameAndTypeIndex);		
-	}
-	return index;
-}
-/**
- * This method returns the index into the constantPool corresponding 
- * nameAndType constant with nameIndex, typeIndex.
- *
- * @param nameIndex the given name index
- * @param typeIndex the given type index
- * @param name the given field name
- * @param signature the given field signature
- * @return the index into the constantPool corresponding 
- * nameAndType constant with nameIndex, typeInde
- */
-private int literalIndexForFields(int nameIndex, int typeIndex, char[] name, char[] signature) {
-	int index;
-	if ((index = getFromNameAndTypeCache(name, signature)) == -1) {
-		// The entry doesn't exit yet
-		index = putInNameAndTypeCache(name, signature, currentIndex++);
-		if (index > 0xFFFF){
-			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
+		int classIndexOffset = this.currentOffset;
+		if (currentOffset + 4 >= poolContent.length) {
+			resizePoolContents(4);
 		}
-		writeU1(NameAndTypeTag);
-		writeU2(nameIndex);
-		writeU2(typeIndex);
+		currentOffset+=4;
+		
+		final int classIndex = literalIndexForType(declaringClass);
+		final int nameAndTypeIndex = literalIndexForNameAndType(name, signature);
+
+		poolContent[classIndexOffset++] = (byte) (classIndex >> 8);
+		poolContent[classIndexOffset++] = (byte) classIndex;
+		poolContent[classIndexOffset++] = (byte) (nameAndTypeIndex >> 8);
+		poolContent[classIndexOffset] = (byte) nameAndTypeIndex;		
 	}
 	return index;
 }
@@ -757,16 +685,30 @@ private int literalIndexForFields(int nameIndex, int typeIndex, char[] name, cha
  * @return <CODE>int</CODE>
  */
 public int literalIndexForLdc(char[] stringCharArray) {
+	int savedCurrentIndex = this.currentIndex;
+	int savedCurrentOffset = this.currentOffset;
 	int index;
-	if ((index = stringCache.get(stringCharArray)) < 0) {
-		int stringIndex;
+	if ((index = stringCache.putIfAbsent(stringCharArray, this.currentIndex)) < 0) {
 		// The entry doesn't exit yet
-		if ((stringIndex = UTF8Cache.get(stringCharArray)) < 0) {
+		this.currentIndex++;
+		// Write the tag first
+		writeU1(StringTag);
+		
+		// Then the string index
+		int stringIndexOffset = this.currentOffset;
+		if (currentOffset + 2 >= poolContent.length) {
+			resizePoolContents(2);
+		}
+		currentOffset+=2;
+
+		int stringIndex;
+		if ((stringIndex = UTF8Cache.putIfAbsent(stringCharArray, this.currentIndex)) < 0) {
 			// The entry doesn't exit yet
+			this.currentIndex++;
 			// Write the tag first
 			writeU1(Utf8Tag);
 			// Then the size of the stringName array
-			int savedCurrentOffset = currentOffset;
+			int lengthOffset = currentOffset;
 			if (currentOffset + 2 >= poolContent.length) {
 				// we need to resize the poolContent array because we won't have
 				// enough space to write the length
@@ -778,105 +720,123 @@ public int literalIndexForLdc(char[] stringCharArray) {
 				char current = stringCharArray[i];
 				if ((current >= 0x0001) && (current <= 0x007F)) {
 					// we only need one byte: ASCII table
-					writeU1(current);
 					length++;
+					if (currentOffset + 1 >= poolContent.length) {
+						// we need to resize the poolContent array because we won't have
+						// enough space to write the length
+						resizePoolContents(1);
+					}
+					poolContent[currentOffset++] = (byte)(current);
 				} else
 					if (current > 0x07FF) {
 						// we need 3 bytes
 						length += 3;
-						writeU1(0xE0 | ((current >> 12) & 0x0F)); // 0xE0 = 1110 0000
-						writeU1(0x80 | ((current >> 6) & 0x3F)); // 0x80 = 1000 0000
-						writeU1(0x80 | (current & 0x3F)); // 0x80 = 1000 0000
+						if (currentOffset + 3 >= poolContent.length) {
+							// we need to resize the poolContent array because we won't have
+							// enough space to write the length
+							resizePoolContents(3);
+						}
+						poolContent[currentOffset++] = (byte) (0xE0 | ((current >> 12) & 0x0F)); // 0xE0 = 1110 0000
+						poolContent[currentOffset++] = (byte) (0x80 | ((current >> 6) & 0x3F)); // 0x80 = 1000 0000
+						poolContent[currentOffset++] = (byte) (0x80 | (current & 0x3F)); // 0x80 = 1000 0000
 					} else {
+						if (currentOffset + 2 >= poolContent.length) {
+							// we need to resize the poolContent array because we won't have
+							// enough space to write the length
+							resizePoolContents(2);
+						}
 						// we can be 0 or between 0x0080 and 0x07FF
 						// In that case we only need 2 bytes
 						length += 2;
-						writeU1(0xC0 | ((current >> 6) & 0x1F)); // 0xC0 = 1100 0000
-						writeU1(0x80 | (current & 0x3F)); // 0x80 = 1000 0000
+						poolContent[currentOffset++] = (byte) (0xC0 | ((current >> 6) & 0x1F)); // 0xC0 = 1100 0000
+						poolContent[currentOffset++] = (byte) (0x80 | (current & 0x3F)); // 0x80 = 1000 0000
 					}
 			}
 			if (length >= 65535) {
-				currentOffset = savedCurrentOffset - 1;
-				return -1;
-			}
-			stringIndex = UTF8Cache.put(stringCharArray, currentIndex++);
-			// Now we know the length that we have to write in the constant pool
-			// we use savedCurrentOffset to do that
-			if (length > 65535) {
+				this.currentOffset = savedCurrentOffset;
+				this.currentIndex = savedCurrentIndex;
+				this.stringCache.remove(stringCharArray);
+				this.UTF8Cache.remove(stringCharArray);
 				return 0;
 			}
-			poolContent[savedCurrentOffset] = (byte) (length >> 8);
-			poolContent[savedCurrentOffset + 1] = (byte) length;
+			poolContent[lengthOffset++] = (byte) (length >> 8);
+			poolContent[lengthOffset] = (byte) length;
+			stringIndex = -stringIndex;
 		}
-		index = stringCache.put(stringCharArray, currentIndex++);
-		if (index > 0xFFFF){
+		if ((index = -index) > 0xFFFF){
 			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
 		}
-		// Write the tag first
-		writeU1(StringTag);
-		// Then the string index
-		writeU2(stringIndex);
+		poolContent[stringIndexOffset++] = (byte) (stringIndex >> 8);
+		poolContent[stringIndexOffset] = (byte) stringIndex;
 	}
 	return index;
 }
 /**
- * This method returns the index into the constantPool corresponding 
- * nameAndType constant with nameIndex, typeIndex.
- *
- * @param nameIndex the given name index
- * @param typeIndex the given type index
- * @param selector the given method selector
- * @param signature the given method signature
- * @return <CODE>int</CODE>
+ * @param key1 the given name
+ * @param key2 the given signature
+ * @param value the given index
+ * @return the new index
  */
-public int literalIndexForMethods(int nameIndex, int typeIndex, char[] selector, char[] signature) {
-	int index;
-	if ((index = getFromNameAndTypeCache(selector, signature)) == -1) {
-		// The entry doesn't exit yet
-		index = putInNameAndTypeCache(selector, signature, currentIndex++);
-		if (index > 0xFFFF){
-			this.classFile.referenceBinding.scope.problemReporter().noMoreAvailableSpaceInConstantPool(this.classFile.referenceBinding.scope.referenceType());
+private int putInNameAndTypeCacheIfAbsent(final char[] key1, final char[] key2, int value) {
+	int index ;
+	Object key1Value = this.nameAndTypeCacheForFieldsAndMethods.get(key1);
+	if (key1Value == null) {
+		CachedIndexEntry cachedIndexEntry = new CachedIndexEntry(key2, value);
+		index = -value;
+		this.nameAndTypeCacheForFieldsAndMethods.put(key1, cachedIndexEntry);
+	} else if (key1Value instanceof CachedIndexEntry) {
+		// adding a second entry
+		CachedIndexEntry entry = (CachedIndexEntry) key1Value;
+		if (CharOperation.equals(key2, entry.signature)) {
+			index = entry.index;
+		} else {
+			CharArrayCache charArrayCache = new CharArrayCache();
+			charArrayCache.putIfAbsent(entry.signature, entry.index);
+			index = charArrayCache.putIfAbsent(key2, value);
+			this.nameAndTypeCacheForFieldsAndMethods.put(key1, charArrayCache);			
 		}
-		writeU1(NameAndTypeTag);
-		writeU2(nameIndex);
-		writeU2(typeIndex);
-	}
-	return index;
-}
-private int putInNameAndTypeCache(final char[] key1, final char[] key2, int index) {
-	CharArrayCache value = (CharArrayCache) this.nameAndTypeCacheForFieldsAndMethods.get(key1);
-	if (value == null) {
-		CharArrayCache charArrayCache = new CharArrayCache();
-		charArrayCache.put(key2, index);
-		this.nameAndTypeCacheForFieldsAndMethods.put(key1, charArrayCache);
 	} else {
-		value.put(key2, index);
+		CharArrayCache charArrayCache = (CharArrayCache) key1Value;
+		index = charArrayCache.putIfAbsent(key2, value);
 	}
 	return index;
 }
 /**
- * @param key1
- * @param key2
- * @param key3
- * @param index
+ * @param key1 the given declaring class name
+ * @param key2 the given field name or method selector
+ * @param key3 the given signature
+ * @param value the new index
  * @return the given index
  */
-private int putInCache(final char[] key1, final char[] key2, final char[] key3, int index) {
-	HashtableOfObject value = (HashtableOfObject) this.methodsAndFieldsCache.get(key1);
-	if (value == null) {
-		value = new HashtableOfObject();
-		this.methodsAndFieldsCache.put(key1, value);
-		CharArrayCache charArrayCache = new CharArrayCache();
-		charArrayCache.put(key3, index);
-		value.put(key2, charArrayCache);
+private int putInCacheIfAbsent(final char[] key1, final char[] key2, final char[] key3, int value) {
+	int index;
+	HashtableOfObject key1Value = (HashtableOfObject) this.methodsAndFieldsCache.get(key1);
+	if (key1Value == null) {
+		key1Value = new HashtableOfObject();
+		this.methodsAndFieldsCache.put(key1, key1Value);
+		CachedIndexEntry cachedIndexEntry = new CachedIndexEntry(key3, value);
+		index = -value;
+		key1Value.put(key2, cachedIndexEntry);
 	} else {
-		CharArrayCache charArrayCache = (CharArrayCache) value.get(key2);
-		if (charArrayCache == null) {
-			charArrayCache = new CharArrayCache();
-			charArrayCache.put(key3, index);
-			value.put(key2, charArrayCache);
+		Object key2Value = key1Value.get(key2);
+		if (key2Value == null) {
+			CachedIndexEntry cachedIndexEntry = new CachedIndexEntry(key3, value);
+			index = -value;
+			key1Value.put(key2, cachedIndexEntry);
+		} else if (key2Value instanceof CachedIndexEntry) {
+			// adding a second entry
+			CachedIndexEntry entry = (CachedIndexEntry) key2Value;
+			if (CharOperation.equals(key3, entry.signature)) {
+				index = entry.index;
+			} else {
+				CharArrayCache charArrayCache = new CharArrayCache();
+				charArrayCache.putIfAbsent(entry.signature, entry.index);
+				index = charArrayCache.putIfAbsent(key3, value);				
+				key1Value.put(key2, charArrayCache);
+			}
 		} else {
-			charArrayCache.put(key3, index);			
+			CharArrayCache charArrayCache = (CharArrayCache) key2Value;
+			index = charArrayCache.putIfAbsent(key3, value);			
 		}
 	}
 	return index;
@@ -931,8 +891,20 @@ protected final void writeU2(int value) {
 	if (currentOffset + 2 >= poolContent.length) {
 		resizePoolContents(2);
 	}
-	//first byte
-	poolContent[currentOffset++] = (byte) (value >> 8);
+	poolContent[currentOffset++] = (byte) (value >>> 8);
 	poolContent[currentOffset++] = (byte) value;
+}
+public void reset() {
+	if (this.doubleCache != null) this.doubleCache.clear();
+	if (this.floatCache != null) this.floatCache.clear();
+	if (this.intCache != null) this.intCache.clear();
+	if (this.longCache != null) this.longCache.clear();
+	this.UTF8Cache.clear();
+	this.stringCache.clear();
+	this.methodsAndFieldsCache.clear();
+	this.classCache.clear();
+	this.nameAndTypeCacheForFieldsAndMethods.clear();
+	this.currentIndex = 1;
+	this.currentOffset = 0;
 }
 }

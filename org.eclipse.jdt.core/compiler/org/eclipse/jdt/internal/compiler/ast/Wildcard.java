@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -85,6 +85,20 @@ public class Wildcard extends SingleTypeReference {
 		return output;
 	}	
 	
+	// only invoked for improving resilience when unable to bind generic type from parameterized reference
+	public TypeBinding resolveType(BlockScope scope, boolean checkBounds) {
+		if (this.bound != null) {
+			this.bound.resolveType(scope, checkBounds);
+		}
+		return null;
+	}
+	// only invoked for improving resilience when unable to bind generic type from parameterized reference
+	public TypeBinding resolveType(ClassScope scope) {
+		if (this.bound != null) {
+			this.bound.resolveType(scope);
+		}
+		return null;
+	}
 	public TypeBinding resolveTypeArgument(BlockScope blockScope, ReferenceBinding genericType, int rank) {
 	    return internalResolveType(blockScope, genericType, rank);
 	}

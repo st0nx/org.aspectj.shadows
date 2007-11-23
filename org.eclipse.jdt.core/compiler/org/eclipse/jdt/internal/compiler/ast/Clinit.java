@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,13 +11,23 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
-import org.eclipse.jdt.internal.compiler.*;
-import org.eclipse.jdt.internal.compiler.codegen.*;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
-import org.eclipse.jdt.internal.compiler.flow.*;
-import org.eclipse.jdt.internal.compiler.lookup.*;
-import org.eclipse.jdt.internal.compiler.parser.*;
-import org.eclipse.jdt.internal.compiler.problem.*;
+import org.eclipse.jdt.internal.compiler.ClassFile;
+import org.eclipse.jdt.internal.compiler.CompilationResult;
+import org.eclipse.jdt.internal.compiler.codegen.BranchLabel;
+import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
+import org.eclipse.jdt.internal.compiler.codegen.ConstantPool;
+import org.eclipse.jdt.internal.compiler.flow.ExceptionHandlingFlowContext;
+import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
+import org.eclipse.jdt.internal.compiler.flow.InitializationFlowContext;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
+import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
+import org.eclipse.jdt.internal.compiler.lookup.ClassScope;
+import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
+import org.eclipse.jdt.internal.compiler.lookup.MethodScope;
+import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
+import org.eclipse.jdt.internal.compiler.parser.Parser;
+import org.eclipse.jdt.internal.compiler.problem.AbortMethod;
 
 public class Clinit extends AbstractMethodDeclaration {
 	
@@ -42,12 +52,14 @@ public class Clinit extends AbstractMethodDeclaration {
 				new ExceptionHandlingFlowContext(
 					staticInitializerFlowContext.parent,
 					this,
-					NoExceptions,
+					Binding.NO_EXCEPTIONS,
 					scope,
 					FlowInfo.DEAD_END);
 
 			// check for missing returning path
-			this.needFreeReturn = flowInfo.isReachable();
+			if ((flowInfo.tagBits & FlowInfo.UNREACHABLE) == 0) {
+				this.bits |= ASTNode.NeedFreeReturn;
+			}
 
 			// check missing blank final field initializations
 			flowInfo = flowInfo.mergedWith(staticInitializerFlowContext.initsOnReturn);
@@ -149,13 +161,14 @@ public class Clinit extends AbstractMethodDeclaration {
 		if (this.assertionSyntheticFieldBinding != null) {
 			// generate code related to the activation of assertion for this class
 			codeStream.generateClassLiteralAccessForType(
-					classScope.enclosingSourceType(),
-				classLiteralSyntheticField);
+					classScope.outerMostClassScope().enclosingSourceType(),
+					this.classLiteralSyntheticField);
 			codeStream.invokeJavaLangClassDesiredAssertionStatus();
-			Label falseLabel = new Label(codeStream);
+			BranchLabel falseLabel = new BranchLabel(codeStream);
 			codeStream.ifne(falseLabel);
 			codeStream.iconst_1();
-			Label jumpLabel = new Label(codeStream);
+			BranchLabel jumpLabel = new BranchLabel(codeStream);
+			codeStream.decrStackSize(1);
 			codeStream.goto_(jumpLabel);
 			falseLabel.place();
 			codeStream.iconst_0();
@@ -165,7 +178,7 @@ public class Clinit extends AbstractMethodDeclaration {
 		// generate static fields/initializers/enum constants
 		final FieldDeclaration[] fieldDeclarations = declaringType.fields;
 		BlockScope lastInitializerScope = null;
-		if (declaringType.kind() == IGenericType.ENUM_DECL) {
+		if (TypeDeclaration.kind(declaringType.modifiers) == TypeDeclaration.ENUM_DECL) {
 			int enumCount = 0;
 			int remainingFieldCount = 0;
 			if (fieldDeclarations != null) {
@@ -182,11 +195,11 @@ public class Clinit extends AbstractMethodDeclaration {
 				}
 			}
 			// enum need to initialize $VALUES synthetic cache of enum constants
+			// $VALUES := new <EnumType>[<enumCount>]
+			codeStream.generateInlinedValue(enumCount);
+			codeStream.anewarray(declaringType.binding);
 			if (enumCount > 0) {
 				if (fieldDeclarations != null) {
-					// $VALUES := new <EnumType>[<enumCount>]
-					codeStream.generateInlinedValue(enumCount);
-					codeStream.anewarray(declaringType.binding);
 					for (int i = 0, max = fieldDeclarations.length; i < max; i++) {
 						FieldDeclaration fieldDecl = fieldDeclarations[i];
 						// $VALUES[i] = <enum-constant-i>
@@ -197,9 +210,9 @@ public class Clinit extends AbstractMethodDeclaration {
 							codeStream.aastore();
 						}
 					}
-					codeStream.putstatic(declaringType.enumValuesSyntheticfield);
 				}
 			}
+			codeStream.putstatic(declaringType.enumValuesSyntheticfield);
 			if (remainingFieldCount != 0) {
 				// if fields that are not enum constants need to be generated (static initializer/static field)
 				for (int i = 0, max = fieldDeclarations.length; i < max; i++) {
@@ -253,7 +266,7 @@ public class Clinit extends AbstractMethodDeclaration {
 			// reset the constant pool to its state before the clinit
 			constantPool.resetForClinit(constantPoolIndex, constantPoolOffset);
 		} else {
-			if (this.needFreeReturn) {
+			if ((this.bits & ASTNode.NeedFreeReturn) != 0) {
 				int before = codeStream.position;
 				codeStream.return_();
 				if (lastInitializerScope != null) {
@@ -311,11 +324,13 @@ public class Clinit extends AbstractMethodDeclaration {
 		this.assertionSyntheticFieldBinding = assertionSyntheticFieldBinding;
 
 		// we need to add the field right now, because the field infos are generated before the methods
-		SourceTypeBinding sourceType =
-			this.scope.outerMostMethodScope().enclosingSourceType();
 		if (needClassLiteralField) {
-			this.classLiteralSyntheticField =
-				sourceType.addSyntheticFieldForClassLiteral(sourceType, scope);
+			SourceTypeBinding sourceType =
+				this.scope.outerMostClassScope().enclosingSourceType();
+			// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=22334
+			if (!sourceType.isInterface() && !sourceType.isBaseType()) {			
+				this.classLiteralSyntheticField = sourceType.addSyntheticFieldForClassLiteral(sourceType, scope);
+			}
 		}
 	}
 

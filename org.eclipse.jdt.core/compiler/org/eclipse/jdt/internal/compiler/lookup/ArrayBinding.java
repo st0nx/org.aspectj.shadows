@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,14 +10,14 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
-import java.util.Map;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 
 public final class ArrayBinding extends TypeBinding {
 	// creation and initialization of the length field
 	// the declaringClass of this field is intentionally set to null so it can be distinguished.
-	public static final FieldBinding ArrayLength = new FieldBinding(LENGTH, IntBinding, AccPublic | AccFinal, null, Constant.NotAConstant);
+	public static final FieldBinding ArrayLength = new FieldBinding(TypeConstants.LENGTH, TypeBinding.INT, ClassFileConstants.AccPublic | ClassFileConstants.AccFinal, null, Constant.NotAConstant);
 
 	public TypeBinding leafComponentType;
 	public int dimensions;
@@ -26,33 +26,37 @@ public final class ArrayBinding extends TypeBinding {
 	char[] genericTypeSignature;
 	
 public ArrayBinding(TypeBinding type, int dimensions, LookupEnvironment environment) {
-	this.tagBits |= IsArrayType;
+	this.tagBits |= TagBits.IsArrayType;
 	this.leafComponentType = type;
 	this.dimensions = dimensions;
 	this.environment = environment;
 	if (type instanceof UnresolvedReferenceBinding)
-		((UnresolvedReferenceBinding) type).addWrapper(this);
+		((UnresolvedReferenceBinding) type).addWrapper(this, environment);
 	else
-    	this.tagBits |= type.tagBits & (HasTypeVariable | HasDirectWildcard);
+    	this.tagBits |= type.tagBits & (TagBits.HasTypeVariable | TagBits.HasDirectWildcard);
 }
 
 /**
  * Collect the substitutes into a map for certain type variables inside the receiver type
  * e.g.   Collection<T>.collectSubstitutes(Collection<List<X>>, Map), will populate Map with: T --> List<X>
- */
-public void collectSubstitutes(Scope scope, TypeBinding otherType, Map substitutes, int constraint) {
+ * Constraints:
+ *   A << F   corresponds to:   F.collectSubstitutes(..., A, ..., CONSTRAINT_EXTENDS (1))
+ *   A = F   corresponds to:      F.collectSubstitutes(..., A, ..., CONSTRAINT_EQUAL (0))
+ *   A >> F   corresponds to:   F.collectSubstitutes(..., A, ..., CONSTRAINT_SUPER (2))
+*/
+public void collectSubstitutes(Scope scope, TypeBinding actualType, InferenceContext inferenceContext, int constraint) {
 	
 	if ((this.tagBits & TagBits.HasTypeVariable) == 0) return;
-	if (otherType == NullBinding) return;
+	if (actualType == TypeBinding.NULL) return;
 	
-	switch(otherType.kind()) {
+	switch(actualType.kind()) {
 		case Binding.ARRAY_TYPE :
-	        int otherDim = otherType.dimensions();
-	        if (otherDim == this.dimensions) {
-			    this.leafComponentType.collectSubstitutes(scope, otherType.leafComponentType(), substitutes, constraint);
-	        } else if (otherDim > this.dimensions) {
-	            ArrayBinding otherReducedType = this.environment.createArrayType(otherType.leafComponentType(), otherDim - this.dimensions);
-	            this.leafComponentType.collectSubstitutes(scope, otherReducedType, substitutes, constraint);
+	        int actualDim = actualType.dimensions();
+	        if (actualDim == this.dimensions) {
+			    this.leafComponentType.collectSubstitutes(scope, actualType.leafComponentType(), inferenceContext, constraint);
+	        } else if (actualDim > this.dimensions) {
+	            ArrayBinding actualReducedType = this.environment.createArrayType(actualType.leafComponentType(), actualDim - this.dimensions);
+	            this.leafComponentType.collectSubstitutes(scope, actualReducedType, inferenceContext, constraint);
 	        }
 			break;
 		case Binding.TYPE_PARAMETER :
@@ -117,31 +121,6 @@ public LookupEnvironment environment() {
     return this.environment;
 }
 
-/**
- * Find supertype which erases to a given type, or null if not found
- */
-public TypeBinding findSuperTypeWithSameErasure(TypeBinding otherType) {
-
-	if (this == otherType) return this;
-	int otherDim = otherType.dimensions();
-	if (this.dimensions != otherDim) {
-		switch(otherType.id) {
-			case T_JavaLangObject :
-			case T_JavaIoSerializable :
-			case T_JavaLangCloneable :
-				return otherType;
-		}
-		if (otherDim < this.dimensions & otherType.leafComponentType().id == T_JavaLangObject) {
-			return otherType; // X[][] has Object[] as an implicit supertype
-		}
-		return null;
-	}
-	if (!(this.leafComponentType instanceof ReferenceBinding)) return null;
-	TypeBinding leafSuperType = ((ReferenceBinding)this.leafComponentType).findSuperTypeWithSameErasure(otherType.leafComponentType());
-	if (leafSuperType == null) return null;
-	return environment().createArrayType(leafSuperType, this.dimensions);	
-}
-
 public char[] genericTypeSignature() {
 	
     if (this.genericTypeSignature == null) {
@@ -197,9 +176,9 @@ public boolean isCompatibleWith(TypeBinding otherType) {
 	//Check dimensions - Java does not support explicitly sized dimensions for types.
 	//However, if it did, the type checking support would go here.
 	switch (otherType.leafComponentType().id) {
-	    case T_JavaLangObject :
-	    case T_JavaLangCloneable :
-	    case T_JavaIoSerializable :
+	    case TypeIds.T_JavaLangObject :
+	    case TypeIds.T_JavaLangCloneable :
+	    case TypeIds.T_JavaIoSerializable :
 	        return true;
 	}
 	return false;
@@ -260,8 +239,8 @@ public char[] sourceName() {
 }
 public void swapUnresolved(UnresolvedReferenceBinding unresolvedType, ReferenceBinding resolvedType, LookupEnvironment env) {
 	if (this.leafComponentType == unresolvedType) {
-		this.leafComponentType = env.convertToRawType(resolvedType);
-		this.tagBits |= this.leafComponentType.tagBits & (HasTypeVariable | HasDirectWildcard);
+		this.leafComponentType = env.convertUnresolvedBinaryToRawType(resolvedType);
+		this.tagBits |= this.leafComponentType.tagBits & (TagBits.HasTypeVariable | TagBits.HasDirectWildcard);
 	}
 }
 public String toString() {

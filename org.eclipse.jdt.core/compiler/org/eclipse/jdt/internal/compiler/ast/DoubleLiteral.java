@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -39,7 +39,7 @@ public class DoubleLiteral extends NumberLiteral {
 					return;
 				}
 				value = v;
-				constant = Constant.fromValue(v);
+				constant = DoubleConstant.fromValue(v);
 			} catch (NumberFormatException e1) {
 				// if the computation of the constant fails
 			}
@@ -87,7 +87,7 @@ public class DoubleLiteral extends NumberLiteral {
 			}
 		}
 		value = doubleValue;
-		constant = Constant.fromValue(value);
+		constant = DoubleConstant.fromValue(value);
 	}
 	/**
 	 * Code generation for the double literak
@@ -104,10 +104,10 @@ public class DoubleLiteral extends NumberLiteral {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 	public TypeBinding literalType(BlockScope scope) {
-		return DoubleBinding;
+		return TypeBinding.DOUBLE;
 	}
-	public void traverse(ASTVisitor visitor, BlockScope blockScope) {
-		visitor.visit(this, blockScope);
-		visitor.endVisit(this, blockScope);
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
+		visitor.visit(this, scope);
+		visitor.endVisit(this, scope);
 	}
 }

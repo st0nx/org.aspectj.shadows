@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -25,12 +25,18 @@ public class SwitchStatement extends Statement {
 	public Statement[] statements;
 	public BlockScope scope;
 	public int explicitDeclarations;
-	public Label breakLabel;
+	public BranchLabel breakLabel;
 	public CaseStatement[] cases;
 	public CaseStatement defaultCase;
 	public int blockStart;
 	public int caseCount;
 	int[] constants;
+	
+	// fallthrough
+	public final static int CASE = 0;
+	public final static int FALLTHROUGH = 1;
+	public final static int ESCAPING = 2;
+	
 	
 	public SyntheticMethodBinding synthetic; // use for switch on enums types
 	
@@ -46,7 +52,7 @@ public class SwitchStatement extends Statement {
 	    try {
 			flowInfo = expression.analyseCode(currentScope, flowContext, flowInfo);
 			SwitchFlowContext switchContext =
-				new SwitchFlowContext(flowContext, this, (breakLabel = new Label()));
+				new SwitchFlowContext(flowContext, this, (breakLabel = new BranchLabel()));
 	
 			// analyse the block by considering specially the case/default statements (need to bind them 
 			// to the entry point)
@@ -57,20 +63,36 @@ public class SwitchStatement extends Statement {
 			int caseIndex = 0;
 			if (statements != null) {
 				boolean didAlreadyComplain = false;
+				int fallThroughState = CASE;
 				for (int i = 0, max = statements.length; i < max; i++) {
 					Statement statement = statements[i];
 					if ((caseIndex < caseCount) && (statement == cases[caseIndex])) { // statement is a case
 						this.scope.enclosingCase = cases[caseIndex]; // record entering in a switch case block
 						caseIndex++;
-						caseInits = caseInits.mergedWith(flowInfo.copy().unconditionalInits());
+						if (fallThroughState == FALLTHROUGH
+								&& (statement.bits & ASTNode.DocumentedFallthrough) == 0) { // the case is not fall-through protected by a line comment
+							scope.problemReporter().possibleFallThroughCase(this.scope.enclosingCase);
+						}
+						caseInits = caseInits.mergedWith(flowInfo.unconditionalInits());
 						didAlreadyComplain = false; // reset complaint
+						fallThroughState = CASE;
 					} else if (statement == defaultCase) { // statement is the default case
 						this.scope.enclosingCase = defaultCase; // record entering in a switch case block
-						caseInits = caseInits.mergedWith(flowInfo.copy().unconditionalInits());
+						if (fallThroughState == FALLTHROUGH 
+								&& (statement.bits & ASTNode.DocumentedFallthrough) == 0) {
+							scope.problemReporter().possibleFallThroughCase(this.scope.enclosingCase);
+						}
+						caseInits = caseInits.mergedWith(flowInfo.unconditionalInits());
 						didAlreadyComplain = false; // reset complaint
+						fallThroughState = CASE;
+					} else {
+						fallThroughState = FALLTHROUGH; // reset below if needed
 					}
 					if (!statement.complainIfUnreachable(caseInits, scope, didAlreadyComplain)) {
 						caseInits = statement.analyseCode(scope, switchContext, caseInits);
+						if (caseInits == FlowInfo.DEAD_END) {
+							fallThroughState = ESCAPING;
+						}
 					} else {
 						didAlreadyComplain = true;
 					}
@@ -111,7 +133,7 @@ public class SwitchStatement extends Statement {
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 
 	    try {
-			if ((bits & IsReachableMASK) == 0) {
+			if ((bits & IsReachable) == 0) {
 				return;
 			}
 			int pc = codeStream.position;
@@ -122,8 +144,10 @@ public class SwitchStatement extends Statement {
 			boolean needSwitch = this.caseCount != 0;
 			for (int i = 0; i < caseCount; i++) {
 				cases[i].targetLabel = (caseLabels[i] = new CaseLabel(codeStream));
+				caseLabels[i].tagBits |= BranchLabel.USED;
 			}
 			CaseLabel defaultLabel = new CaseLabel(codeStream);
+			if (needSwitch) defaultLabel.tagBits |= BranchLabel.USED;
 			if (defaultCase != null) {
 				defaultCase.targetLabel = defaultLabel;
 			}
@@ -202,11 +226,6 @@ public class SwitchStatement extends Statement {
 					statement.generateCode(scope, codeStream);
 				}
 			}
-			// place the trailing labels (for break and default case)
-			this.breakLabel.place();
-			if (defaultCase == null) {
-				defaultLabel.place();
-			}
 			// May loose some local variable initializations : affecting the local variable attributes
 			if (mergedInitStateIndex != -1) {
 				codeStream.removeNotDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);
@@ -214,6 +233,13 @@ public class SwitchStatement extends Statement {
 			}
 			if (scope != currentScope) {
 				codeStream.exitUserScope(this.scope);
+			}
+			// place the trailing labels (for break and default case)
+			this.breakLabel.place();
+			if (defaultCase == null) {
+				// we want to force an line number entry to get an end position after the switch statement
+				codeStream.recordPositionsFrom(codeStream.position, this.sourceEnd, true);
+				defaultLabel.place();
 			}
 			codeStream.recordPositionsFrom(pc, this.sourceStart);
 	    } finally {
@@ -244,25 +270,24 @@ public class SwitchStatement extends Statement {
 	    try {
 			boolean isEnumSwitch = false;
 			TypeBinding expressionType = expression.resolveType(upperScope);
-			if (expressionType == null)
-				return;
-			expression.computeConversion(upperScope, expressionType, expressionType);
-			checkType: {
-				if (expressionType.isBaseType()) {
-					if (expression.isConstantValueOfTypeAssignableToType(expressionType, IntBinding))
+			if (expressionType != null) {
+				expression.computeConversion(upperScope, expressionType, expressionType);
+				checkType: {
+					if (expressionType.isBaseType()) {
+						if (expression.isConstantValueOfTypeAssignableToType(expressionType, TypeBinding.INT))
+							break checkType;
+						if (expressionType.isCompatibleWith(TypeBinding.INT))
+							break checkType;
+					} else if (expressionType.isEnum()) {
+						isEnumSwitch = true;
 						break checkType;
-					if (expressionType.isCompatibleWith(IntBinding))
+					} else if (upperScope.isBoxingCompatibleWith(expressionType, TypeBinding.INT)) {
+						expression.computeConversion(upperScope, TypeBinding.INT, expressionType);
 						break checkType;
-				} else if (expressionType.isEnum()) {
-					isEnumSwitch = true;
-					break checkType;
-				} else if (upperScope.isBoxingCompatibleWith(expressionType, IntBinding)) {
-					expression.computeConversion(upperScope, IntBinding, expressionType);
-					break checkType;
+					}
+					upperScope.problemReporter().incorrectSwitchType(expression, expressionType);
+					expressionType = null; // fault-tolerance: ignore type mismatch from constants from hereon
 				}
-				upperScope.problemReporter().incorrectSwitchType(expression, expressionType);
-				// TODO (philippe) could keep analyzing switch statements in case of error
-				return;
 			}
 			if (statements != null) {
 				scope = /*explicitDeclarations == 0 ? upperScope : */new BlockScope(upperScope);
@@ -310,7 +335,7 @@ public class SwitchStatement extends Statement {
 					System.arraycopy(this.constants, 0, this.constants = new int[counter], 0, counter);
 				}
 			} else {
-				if ((this.bits & UndocumentedEmptyBlockMASK) != 0) {
+				if ((this.bits & UndocumentedEmptyBlock) != 0) {
 					upperScope.problemReporter().undocumentedEmptyBlock(this.blockStart, this.sourceEnd);
 				}
 			}
@@ -323,10 +348,11 @@ public class SwitchStatement extends Statement {
 					FieldBinding[] enumFields = ((ReferenceBinding)expressionType.erasure()).fields();
 					for (int i = 0, max = enumFields.length; i <max; i++) {
 						FieldBinding enumConstant = enumFields[i];
-						if ((enumConstant.modifiers & AccEnum) == 0) continue;
+						if ((enumConstant.modifiers & ClassFileConstants.AccEnum) == 0) continue;
 						findConstant : {
 							for (int j = 0; j < caseCount; j++) {
-								if (enumConstant.id == this.constants[j]) break findConstant;
+								if ((enumConstant.id + 1) == this.constants[j]) // zero should not be returned see bug 141810
+									break findConstant;
 							}
 							// enum constant did not get referenced from switch
 							upperScope.problemReporter().missingEnumConstantCase(this, enumConstant);
@@ -357,15 +383,15 @@ public class SwitchStatement extends Statement {
 	/**
 	 * Dispatch the call on its last statement.
 	 */
-	public void branchChainTo(Label label) {
+	public void branchChainTo(BranchLabel label) {
 		
 		// in order to improve debug attributes for stepping (11431)
 		// we want to inline the jumps to #breakLabel which already got
 		// generated (if any), and have them directly branch to a better
 		// location (the argument label).
 		// we know at this point that the breakLabel already got placed
-		if (this.breakLabel.hasForwardReferences()) {
-			label.appendForwardReferencesFrom(this.breakLabel);
+		if (this.breakLabel.forwardReferenceCount() > 0) {
+			label.becomeDelegateFor(this.breakLabel);
 		}
 	}
 }

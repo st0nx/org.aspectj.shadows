@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,26 +26,34 @@ public interface TagBits {
 	long AnonymousTypeMask = LocalTypeMask | IsAnonymousType;
 	long IsBinaryBinding = ASTNode.Bit7;
 	
+	long HasInconsistentHierarchy = ASTNode.Bit8; // for binary type binding only
+	
 	// for the type cycle hierarchy check used by ClassScope
 	long BeginHierarchyCheck = ASTNode.Bit9;  // type
 	long EndHierarchyCheck = ASTNode.Bit10; // type
+	long ContainsNestedTypesInSignature = ASTNode.Bit10; // method
 	long HasParameterAnnotations = ASTNode.Bit11; // method
 	
 	// test bit to see if default abstract methods were computed
-	long KnowsDefaultAbstractMethods = ASTNode.Bit11;
+	long KnowsDefaultAbstractMethods = ASTNode.Bit11; // type
 
-	// Reusable bit currently used by Scopes
-	long InterfaceVisited = ASTNode.Bit12;
+	long IsArgument = ASTNode.Bit11; // local
+	long ClearPrivateModifier = ASTNode.Bit11; // constructor binding
 
 	// test bits to see if parts of binary types are faulted
-	long AreFieldsComplete = ASTNode.Bit13;
-	long AreMethodsComplete = ASTNode.Bit14;
+	long AreFieldsSorted = ASTNode.Bit13;
+	long AreFieldsComplete = ASTNode.Bit14; // sorted and all resolved
+	long AreMethodsSorted = ASTNode.Bit15;
+	long AreMethodsComplete = ASTNode.Bit16; // sorted and all resolved
 
 	// test bit to avoid asking a type for a member type (includes inherited member types)
-	long HasNoMemberTypes = ASTNode.Bit15;
+	long HasNoMemberTypes = ASTNode.Bit17;
 
 	// test bit to identify if the type's hierarchy is inconsistent
-	long HierarchyHasProblems = ASTNode.Bit16;
+	long HierarchyHasProblems = ASTNode.Bit18;
+
+	// test bit to identify if the type's type variables have been connected
+	long TypeVariablesAreConnected = ASTNode.Bit19;
 
 	// set for parameterized type with successfull bound check
 	long PassedBoundCheck = ASTNode.Bit23;
@@ -70,29 +78,36 @@ public interface TagBits {
 	// standard annotations
 	// 9-bits for targets
 	long AnnotationResolved = ASTNode.Bit34L;
-	long AnnotationTarget = ASTNode.Bit35L; // @Target({}) only sets this bit
-	long AnnotationForType = ASTNode.Bit36L;
-	long AnnotationForField = ASTNode.Bit37L;
-	long AnnotationForMethod = ASTNode.Bit38L;
-	long AnnotationForParameter = ASTNode.Bit39L;
-	long AnnotationForConstructor = ASTNode.Bit40L;
-	long AnnotationForLocalVariable = ASTNode.Bit41L;
-	long AnnotationForAnnotationType = ASTNode.Bit42L;
-	long AnnotationForPackage = ASTNode.Bit43L;
+	long DeprecatedAnnotationResolved = ASTNode.Bit35L;
+	long AnnotationTarget = ASTNode.Bit36L; // @Target({}) only sets this bit
+	long AnnotationForType = ASTNode.Bit37L;
+	long AnnotationForField = ASTNode.Bit38L;
+	long AnnotationForMethod = ASTNode.Bit39L;
+	long AnnotationForParameter = ASTNode.Bit40L;
+	long AnnotationForConstructor = ASTNode.Bit41L;
+	long AnnotationForLocalVariable = ASTNode.Bit42L;
+	long AnnotationForAnnotationType = ASTNode.Bit43L;
+	long AnnotationForPackage = ASTNode.Bit44L;
 	long AnnotationTargetMASK = AnnotationTarget
 				| AnnotationForType | AnnotationForField
 				| AnnotationForMethod | AnnotationForParameter
 				| AnnotationForConstructor | AnnotationForLocalVariable
 				| AnnotationForAnnotationType | AnnotationForPackage;
 	// 2-bits for retention (should check (tagBits & RetentionMask) == RuntimeRetention
-	long AnnotationSourceRetention = ASTNode.Bit44L;
-	long AnnotationClassRetention = ASTNode.Bit45L;
+	long AnnotationSourceRetention = ASTNode.Bit45L;
+	long AnnotationClassRetention = ASTNode.Bit46L;
 	long AnnotationRuntimeRetention = AnnotationSourceRetention | AnnotationClassRetention;
 	long AnnotationRetentionMASK = AnnotationSourceRetention | AnnotationClassRetention | AnnotationRuntimeRetention;
 	// marker annotations
-	long AnnotationDeprecated = ASTNode.Bit46L;
-	long AnnotationDocumented = ASTNode.Bit47L;
-	long AnnotationInherited = ASTNode.Bit48L;
-	long AnnotationOverride = ASTNode.Bit49L;
-	long AnnotationSuppressWarnings = ASTNode.Bit50L;
+	long AnnotationDeprecated = ASTNode.Bit47L;
+	long AnnotationDocumented = ASTNode.Bit48L;
+	long AnnotationInherited = ASTNode.Bit49L;
+	long AnnotationOverride = ASTNode.Bit50L;
+	long AnnotationSuppressWarnings = ASTNode.Bit51L;
+	long AllStandardAnnotationsMask = AnnotationTargetMASK | AnnotationRetentionMASK | AnnotationDeprecated | AnnotationDocumented | AnnotationInherited |  AnnotationOverride | AnnotationSuppressWarnings;
+	
+	long DefaultValueResolved = ASTNode.Bit52L;
+	
+	// set when type contains non-private constructor(s)
+	long HasNonPrivateConstructor = ASTNode.Bit53L;
 }

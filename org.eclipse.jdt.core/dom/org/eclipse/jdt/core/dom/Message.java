@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -101,7 +101,7 @@ public class Message {
 	 * @return the 0-based character index, or <code>-1</code>
 	 *    if no source position information is recorded for this
 	 *    message
-	 * @deprecated Use getStartPosition() instead.
+	 * @deprecated Use {@link #getStartPosition()} instead.
 	 * @see #getLength()
 	 */
 	public int getSourcePosition() {

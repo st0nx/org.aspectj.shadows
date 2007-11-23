@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,7 +13,6 @@ package org.eclipse.jdt.internal.eval;
 import java.util.Map;
 
 import org.eclipse.jdt.core.compiler.*;
-import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.ClassFile;
 import org.eclipse.jdt.internal.compiler.Compiler;
 import org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies;
@@ -23,6 +22,7 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 
 /**
  * A code snippet evaluator compiles and returns class file for a code snippet.
@@ -54,7 +54,7 @@ CodeSnippetEvaluator(char[] codeSnippet, EvaluationContext context, INameEnviron
 /**
  * @see org.eclipse.jdt.internal.eval.Evaluator
  */
-protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, IProblem problem, char[] cuSource) {
+protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, CategorizedProblem problem, char[] cuSource) {
 	CodeSnippetToCuMapper sourceMapper = getMapper();
 	int pbLineNumber = problem.getSourceLineNumber();
 	int evaluationType = sourceMapper.getEvaluationType(pbLineNumber);
@@ -95,7 +95,7 @@ protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, IProbl
 
 	EvaluationResult result = (EvaluationResult)resultsByIDs.get(evaluationID);
 	if (result == null) {
-		resultsByIDs.put(evaluationID, new EvaluationResult(evaluationID, evaluationType, new IProblem[] {problem}));
+		resultsByIDs.put(evaluationID, new EvaluationResult(evaluationID, evaluationType, new CategorizedProblem[] {problem}));
 	} else {
 		result.addProblem(problem);
 	}
@@ -116,11 +116,14 @@ Compiler getCompiler(ICompilerRequestor compilerRequestor) {
 		// use a regular compiler and feed its lookup environment with 
 		// the code snippet support classes
 
+		CompilerOptions compilerOptions = new CompilerOptions(this.options);
+		compilerOptions.performMethodsFullRecovery = true;
+		compilerOptions.performStatementsRecovery = true;
 		compiler = 
 			new CodeSnippetCompiler(
 				this.environment, 
 				DefaultErrorHandlingPolicies.exitAfterAllProblems(), 
-				this.options, 
+				compilerOptions, 
 				compilerRequestor, 
 				this.problemFactory,
 				this.context,
@@ -150,10 +153,13 @@ Compiler getCompiler(ICompilerRequestor compilerRequestor) {
 		// use a wrapped environment so that if the code snippet classes are not found
 		// then a default implementation is provided.
 
+		CompilerOptions compilerOptions = new CompilerOptions(this.options);
+		compilerOptions.performMethodsFullRecovery = true;
+		compilerOptions.performStatementsRecovery = true;
 		compiler = new Compiler(
 			getWrapperEnvironment(), 
 			DefaultErrorHandlingPolicies.exitAfterAllProblems(), 
-			this.options, 
+			compilerOptions, 
 			compilerRequestor, 
 			this.problemFactory);
 	}

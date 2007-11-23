@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,18 +16,18 @@ import org.eclipse.jdt.internal.compiler.ast.AbstractVariableDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Block;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Initializer;
+import org.eclipse.jdt.internal.compiler.ast.QualifiedAllocationExpression;
 import org.eclipse.jdt.internal.compiler.ast.Statement;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeParameter;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
-import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 
 /**
  * Internal type structure for parsing recovery 
  */
 
-public class RecoveredType extends RecoveredStatement implements TerminalTokens, CompilerModifiers {
+public class RecoveredType extends RecoveredStatement implements TerminalTokens {
 	public TypeDeclaration typeDeclaration;
 
 	public RecoveredType[] memberTypes;
@@ -42,6 +42,9 @@ public class RecoveredType extends RecoveredStatement implements TerminalTokens,
 	
 	public boolean insideEnumConstantPart = false;
 	
+	public TypeParameter[] pendingTypeParameters;
+	public int pendingTypeParametersStart;
+	
 public RecoveredType(TypeDeclaration typeDeclaration, RecoveredElement parent, int bracketBalance){
 	super(typeDeclaration, parent, bracketBalance);
 	this.typeDeclaration = typeDeclaration;
@@ -51,10 +54,12 @@ public RecoveredType(TypeDeclaration typeDeclaration, RecoveredElement parent, i
 	} else {
 		this.foundOpeningBrace = !bodyStartsAtHeaderEnd();
 	}
-	this.insideEnumConstantPart = typeDeclaration.kind() == IGenericType.ENUM_DECL;
+	this.insideEnumConstantPart = TypeDeclaration.kind(typeDeclaration.modifiers) == TypeDeclaration.ENUM_DECL;
 	if(this.foundOpeningBrace) {
 		this.bracketBalance++;
 	}
+	
+	this.preserveContent = this.parser().methodRecoveryActivated || this.parser().statementRecoveryActivated;
 }
 public RecoveredElement add(AbstractMethodDeclaration methodDeclaration, int bracketBalanceValue) {
 
@@ -62,6 +67,7 @@ public RecoveredElement add(AbstractMethodDeclaration methodDeclaration, int bra
 		it must be belonging to an enclosing type */
 	if (typeDeclaration.declarationSourceEnd != 0 
 		&& methodDeclaration.declarationSourceStart > typeDeclaration.declarationSourceEnd){
+		this.pendingTypeParameters = null;
 		return this.parent.add(methodDeclaration, bracketBalanceValue);
 	}
 
@@ -81,6 +87,11 @@ public RecoveredElement add(AbstractMethodDeclaration methodDeclaration, int bra
 	RecoveredMethod element = new RecoveredMethod(methodDeclaration, this, bracketBalanceValue, this.recoveringParser);
 	methods[methodCount++] = element;
 	
+	if(this.pendingTypeParameters != null) {
+		element.attach(this.pendingTypeParameters, this.pendingTypeParametersStart);
+		this.pendingTypeParameters = null;
+	}
+	
 	this.insideEnumConstantPart = false;
 
 	/* consider that if the opening brace was not found, it is there */
@@ -93,13 +104,16 @@ public RecoveredElement add(AbstractMethodDeclaration methodDeclaration, int bra
 	return this;
 }
 public RecoveredElement add(Block nestedBlockDeclaration,int bracketBalanceValue) {
-	int modifiers = AccDefault;
+	this.pendingTypeParameters = null;
+	
+	int modifiers = ClassFileConstants.AccDefault;
 	if(this.parser().recoveredStaticInitializerStart != 0) {
-		modifiers = AccStatic;
+		modifiers = ClassFileConstants.AccStatic;
 	}
 	return this.add(new Initializer(nestedBlockDeclaration, modifiers), bracketBalanceValue);
 }
 public RecoveredElement add(FieldDeclaration fieldDeclaration, int bracketBalanceValue) {
+	this.pendingTypeParameters = null;
 	
 	/* do not consider a field starting passed the type end (if set)
 	it must be belonging to an enclosing type */
@@ -145,7 +159,8 @@ public RecoveredElement add(FieldDeclaration fieldDeclaration, int bracketBalanc
 	return this;
 }
 public RecoveredElement add(TypeDeclaration memberTypeDeclaration, int bracketBalanceValue) {
-
+	this.pendingTypeParameters = null;
+	
 	/* do not consider a type starting passed the type end (if set)
 		it must be belonging to an enclosing type */
 	if (typeDeclaration.declarationSourceEnd != 0 
@@ -155,7 +170,7 @@ public RecoveredElement add(TypeDeclaration memberTypeDeclaration, int bracketBa
 	
 	this.insideEnumConstantPart = false;
 	
-	if ((memberTypeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0){
+	if ((memberTypeDeclaration.bits & ASTNode.IsAnonymousType) != 0){
 		if (this.methodCount > 0) {
 			// add it to the last method body
 			RecoveredMethod lastMethod = this.methods[this.methodCount-1];
@@ -193,6 +208,10 @@ public RecoveredElement add(TypeDeclaration memberTypeDeclaration, int bracketBa
 	/* if member type not finished, then member type becomes current */
 	if (memberTypeDeclaration.declarationSourceEnd == 0) return element;
 	return this;
+}
+public void add(TypeParameter[] parameters, int startPos) {
+	this.pendingTypeParameters = parameters;
+	this.pendingTypeParametersStart = startPos;
 }
 /*
  * Answer the body end of the corresponding parse node
@@ -248,7 +267,7 @@ public int sourceEnd(){
 public String toString(int tab) {
 	StringBuffer result = new StringBuffer(tabString(tab));
 	result.append("Recovered type:\n"); //$NON-NLS-1$
-	if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0) {
+	if ((typeDeclaration.bits & ASTNode.IsAnonymousType) != 0) {
 		result.append(tabString(tab));
 		result.append(" "); //$NON-NLS-1$
 	}
@@ -283,19 +302,24 @@ public void updateBodyStart(int bodyStart){
 public Statement updatedStatement(){
 
 	// ignore closed anonymous type
-	if ((typeDeclaration.bits & ASTNode.IsAnonymousTypeMASK) != 0 && !this.preserveContent){
+	if ((typeDeclaration.bits & ASTNode.IsAnonymousType) != 0 && !this.preserveContent){
 		return null;
 	}
 		
 	TypeDeclaration updatedType = this.updatedTypeDeclaration();
-	if ((updatedType.bits & ASTNode.IsAnonymousTypeMASK) != 0){
+	if ((updatedType.bits & ASTNode.IsAnonymousType) != 0){
 		/* in presence of an anonymous type, we want the full allocation expression */
-		return updatedType.allocation;
+		QualifiedAllocationExpression allocation = updatedType.allocation;
+		
+		if (allocation.statementEnd == -1) {
+			allocation.statementEnd = updatedType.declarationSourceEnd;
+		}
+		return allocation;
 	}
 	return updatedType;
 }
 public TypeDeclaration updatedTypeDeclaration(){
-
+	int lastEnd = typeDeclaration.bodyStart;
 	/* update member types */
 	if (memberTypeCount > 0){
 		int existingCount = typeDeclaration.memberTypes == null ? 0 : typeDeclaration.memberTypes.length;
@@ -313,6 +337,9 @@ public TypeDeclaration updatedTypeDeclaration(){
 			memberTypeDeclarations[existingCount + i] = memberTypes[i].updatedTypeDeclaration();
 		}
 		typeDeclaration.memberTypes = memberTypeDeclarations;
+		if(memberTypeDeclarations[memberTypeDeclarations.length - 1].declarationSourceEnd > lastEnd) {
+			lastEnd = memberTypeDeclarations[memberTypeDeclarations.length - 1].declarationSourceEnd;
+		}
 	}
 	/* update fields */
 	if (fieldCount > 0){
@@ -331,6 +358,9 @@ public TypeDeclaration updatedTypeDeclaration(){
 			fieldDeclarations[existingCount + i] = fields[i].updatedFieldDeclaration();
 		}
 		typeDeclaration.fields = fieldDeclarations;
+		if(fieldDeclarations[fieldDeclarations.length - 1].declarationSourceEnd > lastEnd) {
+			lastEnd = fieldDeclarations[fieldDeclarations.length - 1].declarationSourceEnd;
+		}
 	}
 	/* update methods */
 	int existingCount = typeDeclaration.methods == null ? 0 : typeDeclaration.methods.length;
@@ -358,6 +388,9 @@ public TypeDeclaration updatedTypeDeclaration(){
 			methodDeclarations[existingCount + i] = updatedMethod;			
 		}
 		typeDeclaration.methods = methodDeclarations;
+		if(methodDeclarations[methodDeclarations.length - 1].declarationSourceEnd > lastEnd) {
+			lastEnd = methodDeclarations[methodDeclarations.length - 1].declarationSourceEnd;
+		}
 		if (hasAbstractMethods) typeDeclaration.bits |= ASTNode.HasAbstractMethods;
 		hasConstructor = typeDeclaration.checkConstructors(this.parser());
 	} else {
@@ -393,7 +426,11 @@ public TypeDeclaration updatedTypeDeclaration(){
 		}
 		typeDeclaration.methods = methodDeclarations;
 	} else {
-		if (!hasConstructor && typeDeclaration.kind() != IGenericType.INTERFACE_DECL && typeDeclaration.kind() != IGenericType.ANNOTATION_TYPE_DECL) {// if was already reduced, then constructor
+		int kind = TypeDeclaration.kind(typeDeclaration.modifiers);
+		if (!hasConstructor &&
+				kind != TypeDeclaration.INTERFACE_DECL &&
+				kind != TypeDeclaration.ANNOTATION_TYPE_DECL &&
+				typeDeclaration.allocation == null) {// if was already reduced, then constructor
 			boolean insideFieldInitializer = false;
 			RecoveredElement parentElement = this.parent; 
 			while (parentElement != null){
@@ -407,9 +444,13 @@ public TypeDeclaration updatedTypeDeclaration(){
 		} 
 	}
 	if (parent instanceof RecoveredType){
-		typeDeclaration.bits |= ASTNode.IsMemberTypeMASK;
+		typeDeclaration.bits |= ASTNode.IsMemberType;
 	} else if (parent instanceof RecoveredMethod){
-		typeDeclaration.bits |= ASTNode.IsLocalTypeMASK;
+		typeDeclaration.bits |= ASTNode.IsLocalType;
+	}
+	if(typeDeclaration.declarationSourceEnd == 0) {
+		typeDeclaration.declarationSourceEnd = lastEnd;
+		typeDeclaration.bodyEnd = lastEnd;
 	}
 	return typeDeclaration;
 }
@@ -514,9 +555,9 @@ public RecoveredElement updateOnOpeningBrace(int braceStart, int braceEnd){
 		block.sourceStart = parser.scanner.startPosition;
 		Initializer init;
 		if (parser.recoveredStaticInitializerStart == 0){
-			init = new Initializer(block, AccDefault);
+			init = new Initializer(block, ClassFileConstants.AccDefault);
 		} else {
-			init = new Initializer(block, AccStatic);
+			init = new Initializer(block, ClassFileConstants.AccStatic);
 			init.declarationSourceStart = parser.recoveredStaticInitializerStart;
 		}
 		init.bodyStart = parser.scanner.currentPosition;

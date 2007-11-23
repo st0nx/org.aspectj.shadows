@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004 IBM Corporation and others.
+ * Copyright (c) 2004, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -72,6 +72,10 @@ public class CompletionOnParameterizedQualifiedTypeReference extends Parameteriz
 		return this.kind == K_EXCEPTION;
 	}
 	
+	public boolean isSuperType(){
+		return this.kind == K_CLASS || this.kind == K_INTERFACE;
+	}
+	
 	public TypeBinding resolveType(BlockScope scope, boolean checkBounds) {
 		super.resolveType(scope, checkBounds);
 		throw new CompletionNodeFound(this, this.resolvedType, scope);
@@ -102,7 +106,7 @@ public class CompletionOnParameterizedQualifiedTypeReference extends Parameteriz
 			output.append(tokens[i]);
 			TypeReference[] typeArgument = typeArguments[i];
 			if (typeArgument != null) {
-				output.append('<');//$NON-NLS-1$
+				output.append('<');
 				int max = typeArgument.length - 1;
 				for (int j = 0; j < max; j++) {
 					typeArgument[j].print(0, output);
@@ -116,7 +120,7 @@ public class CompletionOnParameterizedQualifiedTypeReference extends Parameteriz
 		output.append(tokens[length - 1]);
 		TypeReference[] typeArgument = typeArguments[length - 1];
 		if (typeArgument != null) {
-			output.append('<');//$NON-NLS-1$
+			output.append('<');
 			int max = typeArgument.length - 1;
 			for (int j = 0; j < max; j++) {
 				typeArgument[j].print(0, output);

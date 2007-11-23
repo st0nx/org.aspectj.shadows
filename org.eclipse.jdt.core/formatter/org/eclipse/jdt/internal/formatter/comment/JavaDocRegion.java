@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,6 +26,7 @@ import org.eclipse.jface.text.Position;
 import org.eclipse.jface.text.TextUtilities;
 
 import org.eclipse.jdt.core.formatter.CodeFormatter;
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.formatter.CodeFormatterVisitor;
 
 
@@ -55,8 +56,9 @@ public class JavaDocRegion extends MultiCommentRegion implements IJavaDocTagCons
 	public JavaDocRegion(final IDocument document, final Position position, final CodeFormatterVisitor formatter) {
 		super(document, position, formatter);
 
-		fFormatSource= this.preferences.comment_format_source;
-		fFormatHtml= this.preferences.comment_format_html;
+		fFormatSource = this.preferences.comment_format_source;
+		fFormatHtml = this.preferences.comment_format_html;
+		fClear = this.preferences.comment_clear_blank_lines_in_javadoc_comment;
 	}
 
 	/*
@@ -119,7 +121,7 @@ public class JavaDocRegion extends MultiCommentRegion implements IJavaDocTagCons
 							 */
 							position= null;
 							end= getOffset() + getLength() - MultiCommentLine.MULTI_COMMENT_END_PREFIX.trim().length();
-							while (end > begin && Character.isWhitespace(document.getChar(end - 1)))
+							while (end > begin && ScannerHelper.isWhitespace(document.getChar(end - 1)))
 								end--;
 						}
 						
@@ -164,7 +166,7 @@ public class JavaDocRegion extends MultiCommentRegion implements IJavaDocTagCons
 			}
 			int prefixOffset= buffer.indexOf(contentPrefix, lineOffset);
 			if (prefixOffset >= 0 && buffer.substring(lineOffset, prefixOffset).trim().length() == 0)
-				buffer.delete(lineOffset, prefixOffset + contentPrefix.length());
+				buffer.delete(lineOffset, prefixOffset + contentPrefix.length() + 1);
 		}
 		
 		return convertHtml2Java(buffer.toString());
@@ -238,7 +240,7 @@ public class JavaDocRegion extends MultiCommentRegion implements IJavaDocTagCons
 	/*
 	 * @see org.eclipse.jdt.internal.corext.text.comment.MultiCommentRegion#markHtmlTag(org.eclipse.jdt.internal.corext.text.comment.CommentRange, java.lang.String)
 	 */
-	protected final void markHtmlTag(final CommentRange range, final String token) {
+	protected final void markHtmlTag(final CommentRange range, final char[] token) {
 
 		if (range.hasAttribute(COMMENT_HTML)) {
 
@@ -258,11 +260,11 @@ public class JavaDocRegion extends MultiCommentRegion implements IJavaDocTagCons
 	/*
 	 * @see org.eclipse.jdt.internal.corext.text.comment.MultiCommentRegion#markJavadocTag(org.eclipse.jdt.internal.corext.text.comment.CommentRange, java.lang.String)
 	 */
-	protected final void markJavadocTag(final CommentRange range, final String token) {
+	protected final void markJavadocTag(final CommentRange range, final char[] token) {
 
 		range.markPrefixTag(JAVADOC_PARAM_TAGS, COMMENT_TAG_PREFIX, token, COMMENT_PARAMETER);
 
-		if (token.charAt(0) == JAVADOC_TAG_PREFIX && !range.hasAttribute(COMMENT_PARAMETER))
+		if (token[0] == JAVADOC_TAG_PREFIX && !range.hasAttribute(COMMENT_PARAMETER))
 			range.setAttribute(COMMENT_ROOT);
 	}
 
@@ -275,11 +277,11 @@ public class JavaDocRegion extends MultiCommentRegion implements IJavaDocTagCons
 	 * @param html <code>true</code> iff the HTML tags in this HTML range
 	 *                should be marked too, <code>false</code> otherwise
 	 */
-	protected final void markTagRanges(final String[] tags, final int attribute, final boolean html) {
+	protected final void markTagRanges(final char[][] tags, final int attribute, final boolean html) {
 		
 		int level= 0;
 		int count= 0;
-		String token= null;
+		char[] token= null;
 		CommentRange current= null;
 		
 		for (int index= 0; index < tags.length; index++) {
@@ -292,7 +294,7 @@ public class JavaDocRegion extends MultiCommentRegion implements IJavaDocTagCons
 				
 				if (count > 0 || level > 0) { // PR44035: when inside a tag, mark blank lines as well to get proper snippet formatting
 					
-					token= getText(current.getOffset(), current.getLength());
+					token= getText(current.getOffset(), current.getLength()).toCharArray();
 					level= current.markTagRange(token, tags[index], level, attribute, html);
 				}
 			}

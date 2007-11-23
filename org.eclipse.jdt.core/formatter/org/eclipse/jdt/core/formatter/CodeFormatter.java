@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.core.formatter;
 
+import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.text.edits.TextEdit;
 
 /**
@@ -63,10 +64,10 @@ public abstract class CodeFormatter {
 	/** 
 	 * Format <code>source</code>,
 	 * and returns a text edit that correspond to the difference between the given string and the formatted string.
-	 * It returns null if the given string cannot be formatted.
+	 * <p>It returns null if the given string cannot be formatted.</p>
 	 * 
-	 * If the offset position is matching a whitespace, the result can include whitespaces. It would be up to the
-	 * caller to get rid of preceeding whitespaces.
+	 * <p>If the offset position is matching a whitespace, the result can include whitespaces. It would be up to the
+	 * caller to get rid of preceeding whitespaces.</p>
 	 * 
 	 * @param kind Use to specify the kind of the code snippet to format. It can be any of these:
 	 *        K_EXPRESSION, K_STATEMENTS, K_CLASS_BODY_DECLARATIONS, K_COMPILATION_UNIT, K_UNKNOWN,
@@ -84,4 +85,20 @@ public abstract class CodeFormatter {
 	 * length is greater than source length.
 	 */
 	public abstract TextEdit format(int kind, String source, int offset, int length, int indentationLevel, String lineSeparator);
+	
+	/**
+	 * Answers the string that corresponds to the indentation to the given indentation level or an empty string
+	 * if the indentation cannot be computed.
+	 * <p>This method needs to be overriden in a subclass.</p>
+	 * 
+	 * <p>The default implementation returns an empty string.</p>
+	 * 
+	 * @param indentationLevel the given indentation level
+	 * @return the string corresponding to the right indentation level
+	 * @exception IllegalArgumentException if the given indentation level is lower than zero
+	 * @since 3.2
+	 */
+	public String createIndentationString(int indentationLevel) {
+		return Util.EMPTY_STRING;
+	}
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -59,7 +59,7 @@ public class AnnotationMethodDeclaration extends MethodDeclaration {
 		
 		TypeParameter[] typeParams = typeParameters();
 		if (typeParams != null) {
-			output.append('<');//$NON-NLS-1$
+			output.append('<');
 			int max = typeParams.length - 1;
 			for (int j = 0; j < max; j++) {
 				typeParams[j].print(0, output);
@@ -136,6 +136,9 @@ public class AnnotationMethodDeclaration extends MethodDeclaration {
 				MemberValuePair pair = new MemberValuePair(this.selector, this.sourceStart, this.sourceEnd, this.defaultValue);
 				pair.binding = this.binding;
 				pair.resolveTypeExpecting(scope, returnTypeBinding);
+				this.binding.setDefaultValue(org.eclipse.jdt.internal.compiler.lookup.ElementValuePair.getValue(this.defaultValue));
+			} else { // let it know it does not have a default value so it won't try to find it
+				this.binding.setDefaultValue(null);
 			}
 		}
 	}

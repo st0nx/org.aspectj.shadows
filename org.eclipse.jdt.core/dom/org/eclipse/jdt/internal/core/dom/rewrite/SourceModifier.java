@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,6 +13,7 @@ package org.eclipse.jdt.internal.core.dom.rewrite;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.eclipse.jdt.core.formatter.IndentManipulation;
 import org.eclipse.text.edits.ISourceModifier;
 import org.eclipse.text.edits.ReplaceEdit;
 
@@ -38,10 +39,10 @@ public class SourceModifier implements ISourceModifier {
 	
 	public ReplaceEdit[] getModifications(String source) {
 		List result= new ArrayList();
-		int destIndentLevel= Indents.computeIndentUnits(this.destinationIndent, this.tabWidth, this.indentWidth);
+		int destIndentLevel= IndentManipulation.measureIndentUnits(this.destinationIndent, this.tabWidth, this.indentWidth);
 		if (destIndentLevel == this.sourceIndentLevel) {
 			return (ReplaceEdit[])result.toArray(new ReplaceEdit[result.size()]);
 		}
-		return Indents.getChangeIndentEdits(source, this.sourceIndentLevel, this.tabWidth, this.indentWidth, this.destinationIndent);
+		return IndentManipulation.getChangeIndentEdits(source, this.sourceIndentLevel, this.tabWidth, this.indentWidth, this.destinationIndent);
 	}
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,6 +11,7 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class JavadocImplicitTypeReference extends TypeReference {
@@ -34,10 +35,14 @@ public class JavadocImplicitTypeReference extends TypeReference {
 	 * @see org.eclipse.jdt.internal.compiler.ast.TypeReference#getTypeBinding(org.eclipse.jdt.internal.compiler.lookup.Scope)
 	 */
 	protected TypeBinding getTypeBinding(Scope scope) {
-		this.constant = NotAConstant;
+		this.constant = Constant.NotAConstant;
 		return this.resolvedType = scope.enclosingSourceType();
 	}
 
+	public char[] getLastToken() {
+		return this.token;
+	}
+	
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.ast.TypeReference#getTypeName()
 	 */
@@ -58,7 +63,7 @@ public class JavadocImplicitTypeReference extends TypeReference {
 	 */
 	private TypeBinding internalResolveType(Scope scope) {
 		// handle the error here
-		this.constant = NotAConstant;
+		this.constant = Constant.NotAConstant;
 		if (this.resolvedType != null) // is a shared type reference which was already resolved
 			return this.resolvedType.isValidBinding() ? this.resolvedType : null; // already reported error
 
@@ -70,8 +75,15 @@ public class JavadocImplicitTypeReference extends TypeReference {
 			return null;
 		}
 		if (isTypeUseDeprecated(this.resolvedType, scope))
-			reportDeprecatedType(scope);
+			reportDeprecatedType(this.resolvedType, scope);
 		return this.resolvedType;
+	}
+
+	protected void reportInvalidType(Scope scope) {
+		scope.problemReporter().javadocInvalidType(this, this.resolvedType, scope.getDeclarationModifiers());
+	}
+	protected void reportDeprecatedType(TypeBinding type, Scope scope) {
+		scope.problemReporter().javadocDeprecatedType(type, this, scope.getDeclarationModifiers());
 	}
 
 	public TypeBinding resolveType(BlockScope blockScope, boolean checkBounds) {
@@ -82,12 +94,14 @@ public class JavadocImplicitTypeReference extends TypeReference {
 		return internalResolveType(classScope);
 	}
 
-	public void traverse(ASTVisitor visitor, BlockScope classScope) {
-		// Do nothing
+	public void traverse(ASTVisitor visitor, BlockScope scope) {
+		visitor.visit(this, scope);
+		visitor.endVisit(this, scope);
 	}
 
-	public void traverse(ASTVisitor visitor, ClassScope classScope) {
-		// Do nothing
+	public void traverse(ASTVisitor visitor, ClassScope scope) {
+		visitor.visit(this, scope);
+		visitor.endVisit(this, scope);
 	}
 
 	public StringBuffer printExpression(int indent, StringBuffer output) {

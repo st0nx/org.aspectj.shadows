@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
+import org.eclipse.jdt.core.CompletionContext;
 import org.eclipse.jdt.core.CompletionProposal;
 import org.eclipse.jdt.core.CompletionRequestor;
 import org.eclipse.jdt.core.Flags;
@@ -163,22 +164,24 @@ public CompletionRequestor getCompletionRequestor(final CompletionRequestor orig
 						if (CharOperation.equals(packageName, CodeSnippetToCuMapper.this.snippetPackageName) 
 								&& (CharOperation.equals(className, CodeSnippetToCuMapper.this.snippetClassName)
 									|| CharOperation.equals(className, CodeSnippetToCuMapper.this.snippetVarClassName))) return;
+						
+						if (CharOperation.equals(packageName, PACKAGE_NAME) 
+								&& CharOperation.equals(className, ROOT_CLASS_NAME)) return;
 					}
 					break;
 				case CompletionProposal.METHOD_REF:
 				case CompletionProposal.METHOD_DECLARATION:
 					// Remove completion on generated method
-					char[] declaringTypePackageName = Signature.getSignatureSimpleName(proposal.getDeclarationSignature());
+					char[] declaringTypePackageName = Signature.getSignatureQualifier(proposal.getDeclarationSignature());
 					char[] declaringTypeName = Signature.getSignatureSimpleName(proposal.getDeclarationSignature());
-					char[] selector = proposal.getName();
+					
 					if (CharOperation.equals(declaringTypePackageName, CodeSnippetToCuMapper.this.snippetPackageName) 
-							&& CharOperation.equals(declaringTypeName, CodeSnippetToCuMapper.this.snippetClassName)
-							&& CharOperation.equals(selector, "run".toCharArray())) return; //$NON-NLS-1$
+							&& CharOperation.equals(declaringTypeName, CodeSnippetToCuMapper.this.snippetClassName)) return;
+					
+					if (CharOperation.equals(declaringTypePackageName, PACKAGE_NAME) 
+							&& CharOperation.equals(declaringTypeName, ROOT_CLASS_NAME)) return;
 					break;
 			}
-			proposal.setReplaceRange(
-					proposal.getReplaceStart() - CodeSnippetToCuMapper.this.startPosOffset,
-					proposal.getReplaceEnd() - CodeSnippetToCuMapper.this.startPosOffset);
 			originalRequestor.accept(proposal);
 		}
 		
@@ -187,6 +190,34 @@ public CompletionRequestor getCompletionRequestor(final CompletionRequestor orig
 			problem.setSourceEnd(problem.getSourceEnd() - CodeSnippetToCuMapper.this.startPosOffset);
 			problem.setSourceLineNumber(problem.getSourceLineNumber() -  CodeSnippetToCuMapper.this.lineNumberOffset);
 			originalRequestor.completionFailure(problem);
+		}
+		
+		public void acceptContext(CompletionContext context) {
+			originalRequestor.acceptContext(context);
+		}
+		
+		public void beginReporting() {
+			originalRequestor.beginReporting();
+		}
+		
+		public void endReporting() {
+			originalRequestor.endReporting();
+		}
+		
+		public boolean isIgnored(int completionProposalKind) {
+			return originalRequestor.isIgnored(completionProposalKind);
+		}
+		
+		public void setIgnored(int completionProposalKind, boolean ignore) {
+			originalRequestor.setIgnored(completionProposalKind, ignore);
+		}
+		
+		public boolean isAllowingRequiredProposals(int mainKind, int requiredKind) {
+			return originalRequestor.isAllowingRequiredProposals(mainKind, requiredKind);
+		}
+
+		public void setAllowsRequiredProposals(int mainKind, int requiredKind, boolean allow) {
+			originalRequestor.setAllowsRequiredProposals(mainKind, requiredKind, allow);
 		}
 	};
 }
@@ -250,7 +281,7 @@ public ISelectionRequestor getSelectionRequestor(final ISelectionRequestor origi
 		public void acceptType(char[] packageName, char[] typeName, int modifiers, boolean isDeclaration, char[] uniqueKey, int start, int end) {
 			originalRequestor.acceptType(packageName, typeName, modifiers, isDeclaration, uniqueKey, start, end);
 		}
-		public void acceptError(IProblem error) {
+		public void acceptError(CategorizedProblem error) {
 			error.setSourceLineNumber(error.getSourceLineNumber() -  CodeSnippetToCuMapper.this.lineNumberOffset);
 			error.setSourceStart(error.getSourceStart() - CodeSnippetToCuMapper.this.startPosOffset);
 			error.setSourceEnd(error.getSourceEnd() - CodeSnippetToCuMapper.this.startPosOffset);
@@ -259,8 +290,8 @@ public ISelectionRequestor getSelectionRequestor(final ISelectionRequestor origi
 		public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] name, boolean isDeclaration, char[] uniqueKey, int start, int end) {
 			originalRequestor.acceptField(declaringTypePackageName, declaringTypeName, name, isDeclaration, uniqueKey, start, end);
 		}
-		public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, String enclosingDeclaringTypeSignature, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, String[] parameterSignatures, boolean isConstructor, boolean isDeclaration, char[] uniqueKey, int start, int end) {
-			originalRequestor.acceptMethod(declaringTypePackageName, declaringTypeName, enclosingDeclaringTypeSignature, selector, parameterPackageNames, parameterTypeNames, parameterSignatures, isConstructor, isDeclaration, uniqueKey, start, end);
+		public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, String enclosingDeclaringTypeSignature, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, String[] parameterSignatures, char[][] typeParameterNames, char[][][] typeParameterBoundNames, boolean isConstructor, boolean isDeclaration, char[] uniqueKey, int start, int end) {
+			originalRequestor.acceptMethod(declaringTypePackageName, declaringTypeName, enclosingDeclaringTypeSignature, selector, parameterPackageNames, parameterTypeNames, parameterSignatures, typeParameterNames, typeParameterBoundNames, isConstructor, isDeclaration, uniqueKey, start, end);
 		}
 		public void acceptPackage(char[] packageName) {
 			originalRequestor.acceptPackage(packageName);

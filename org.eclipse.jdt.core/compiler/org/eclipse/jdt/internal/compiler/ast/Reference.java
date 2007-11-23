@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -35,7 +35,7 @@ public void fieldStore(CodeStream codeStream, FieldBinding fieldBinding, MethodB
 	int pc = codeStream.position;
 	if (fieldBinding.isStatic()) {
 		if (valueRequired) {
-			if ((fieldBinding.type == LongBinding) || (fieldBinding.type == DoubleBinding)) {
+			if ((fieldBinding.type == TypeBinding.LONG) || (fieldBinding.type == TypeBinding.DOUBLE)) {
 				codeStream.dup2();
 			} else {
 				codeStream.dup();
@@ -48,7 +48,7 @@ public void fieldStore(CodeStream codeStream, FieldBinding fieldBinding, MethodB
 		}
 	} else { // Stack:  [owner][new field value]  ---> [new field value][owner][new field value]
 		if (valueRequired) {
-			if ((fieldBinding.type == LongBinding) || (fieldBinding.type == DoubleBinding)) {
+			if ((fieldBinding.type == TypeBinding.LONG) || (fieldBinding.type == TypeBinding.DOUBLE)) {
 				codeStream.dup2_x1();
 			} else {
 				codeStream.dup_x1();
@@ -67,20 +67,4 @@ public abstract void generateAssignment(BlockScope currentScope, CodeStream code
 public abstract void generateCompoundAssignment(BlockScope currentScope, CodeStream codeStream, Expression expression, int operator, int assignmentImplicitConversion, boolean valueRequired);
 
 public abstract void generatePostIncrement(BlockScope currentScope, CodeStream codeStream, CompoundAssignment postIncrement, boolean valueRequired);
-
-public int nullStatus(FlowInfo flowInfo) {
-
-	if (this.constant != null && this.constant != NotAConstant)
-		return FlowInfo.NON_NULL; // constant expression cannot be null
-	
-	LocalVariableBinding local = localVariableBinding();
-	if (local != null) {
-		if (flowInfo.isDefinitelyNull(local))
-			return FlowInfo.NULL;
-		if (flowInfo.isDefinitelyNonNull(local))
-			return FlowInfo.NON_NULL;
-	}	
-	return FlowInfo.UNKNOWN;
-}
-
 }

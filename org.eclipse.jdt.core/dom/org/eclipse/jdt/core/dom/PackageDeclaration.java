@@ -27,6 +27,10 @@ import java.util.List;
  * PackageDeclaration:
  *    [ Javadoc ] { Annotation } <b>package</b> Name <b>;</b>
  * </pre>
+ * Note that the standard AST parser only recognizes a Javadoc comment
+ * immediately preceding the package declaration when it occurs in the
+ * special <code>package-info.java</code> compilation unit (JLS3 7.4.1.1).
+ * The Javadoc comment in that file contains the package description.
  * 
  * @since 2.0
  */
@@ -88,7 +92,7 @@ public class PackageDeclaration extends ASTNode {
 	 * Clients must not modify the result.
 	 * 
 	 * @param apiLevel the API level; one of the
-	 * <code>AST.JLS&ast;</code> constants
+	 * <code>AST.JLS*</code> constants
 
 	 * @return a list of property descriptors (element type: 
 	 * {@link StructuralPropertyDescriptor})

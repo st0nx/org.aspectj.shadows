@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,10 +10,8 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.parser;
 
-/**
- * Internal block structure for parsing recovery 
- */
 import org.eclipse.jdt.core.compiler.*;
+import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Argument;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.Block;
@@ -21,10 +19,10 @@ import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Statement;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
-import org.eclipse.jdt.internal.compiler.lookup.BaseTypes;
-import org.eclipse.jdt.internal.compiler.lookup.CompilerModifiers;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 
-public class RecoveredBlock extends RecoveredStatement implements CompilerModifiers, TerminalTokens, BaseTypes {
+public class RecoveredBlock extends RecoveredStatement implements TerminalTokens {
 
 	public Block blockDeclaration;
 	public RecoveredStatement[] statements;
@@ -36,6 +34,18 @@ public RecoveredBlock(Block block, RecoveredElement parent, int bracketBalance){
 	super(block, parent, bracketBalance);
 	this.blockDeclaration = block;
 	this.foundOpeningBrace = true;
+	
+	this.preserveContent = this.parser().methodRecoveryActivated || this.parser().statementRecoveryActivated;
+}
+public RecoveredElement add(AbstractMethodDeclaration methodDeclaration, int bracketBalanceValue) {
+	if (this.parent != null && this.parent instanceof RecoveredMethod) {
+		RecoveredMethod enclosingRecoveredMethod = (RecoveredMethod) this.parent;
+		if (enclosingRecoveredMethod.methodBody == this && enclosingRecoveredMethod.parent == null) {
+			// the element cannot be added because we are in the body of a top level method
+			return this; // ignore this element
+		}
+	}
+	return super.add(methodDeclaration, bracketBalanceValue);
 }
 /*
  * Record a nested block declaration 
@@ -55,6 +65,9 @@ public RecoveredElement add(Block nestedBlockDeclaration, int bracketBalanceValu
 	if (this.pendingArgument != null){
 		element.attach(this.pendingArgument);
 		this.pendingArgument = null;
+	}
+	if(this.parser().statementRecoveryActivated) {
+		this.addBlockStatement(element);
 	}
 	this.attach(element);
 	if (nestedBlockDeclaration.sourceEnd == 0) return element;
@@ -204,11 +217,63 @@ public Block updatedBlock(){
 	Statement[] updatedStatements = new Statement[this.statementCount];
 	int updatedCount = 0;
 	
+	
+	// may need to update the end of the last statement
+	RecoveredStatement lastStatement = statements[statementCount - 1];
+	RecoveredMethod enclosingMethod = this.enclosingMethod();
+	RecoveredInitializer enclosingIntializer = this.enclosingInitializer();
+	int bodyEndValue = 0;
+	if(enclosingMethod != null) {
+		bodyEndValue = enclosingMethod.methodDeclaration.bodyEnd;
+		if(enclosingIntializer != null && enclosingMethod.methodDeclaration.sourceStart < enclosingIntializer.fieldDeclaration.sourceStart) {
+			bodyEndValue = enclosingIntializer.fieldDeclaration.declarationSourceEnd;
+		}
+	} else if(enclosingIntializer != null) {
+		bodyEndValue = enclosingIntializer.fieldDeclaration.declarationSourceEnd;
+	} else {
+		bodyEndValue = this.blockDeclaration.sourceEnd - 1;
+	}
+	
+	if(lastStatement instanceof RecoveredLocalVariable) {
+		RecoveredLocalVariable lastLocalVariable = (RecoveredLocalVariable) lastStatement;
+		if(lastLocalVariable.localDeclaration.declarationSourceEnd == 0) {
+			lastLocalVariable.localDeclaration.declarationSourceEnd = bodyEndValue;
+			lastLocalVariable.localDeclaration.declarationEnd = bodyEndValue;
+		}
+	} else if(lastStatement instanceof RecoveredBlock) {
+		RecoveredBlock lastBlock = (RecoveredBlock) lastStatement;
+		if(lastBlock.blockDeclaration.sourceEnd == 0) {
+			lastBlock.blockDeclaration.sourceEnd = bodyEndValue;
+		}
+	} else if(!(lastStatement instanceof RecoveredType)){
+		if(lastStatement.statement.sourceEnd == 0) {
+			lastStatement.statement.sourceEnd = bodyEndValue;
+		}
+	}
+	
+	int lastEnd = blockDeclaration.sourceStart;
+	
 	// only collect the non-null updated statements
 	for (int i = 0; i < this.statementCount; i++){
 		Statement updatedStatement = this.statements[i].updatedStatement();
 		if (updatedStatement != null){
 			updatedStatements[updatedCount++] = updatedStatement;
+			
+			if (updatedStatement instanceof LocalDeclaration) {
+				LocalDeclaration localDeclaration = (LocalDeclaration) updatedStatement;
+				if(localDeclaration.declarationSourceEnd > lastEnd) {
+					lastEnd = localDeclaration.declarationSourceEnd;
+				}
+			} else if (updatedStatement instanceof TypeDeclaration) {
+				TypeDeclaration typeDeclaration = (TypeDeclaration) updatedStatement;
+				if(typeDeclaration.declarationSourceEnd > lastEnd) {
+					lastEnd = typeDeclaration.declarationSourceEnd;
+				}
+			} else {
+				if (updatedStatement.sourceEnd > lastEnd) {
+					lastEnd = updatedStatement.sourceEnd;
+				}
+			}
 		}
 	}
 	if (updatedCount == 0) return null; // not interesting block
@@ -221,6 +286,14 @@ public Block updatedBlock(){
 		this.blockDeclaration.statements = updatedStatements;
 	}
 
+	if (this.blockDeclaration.sourceEnd == 0) {
+		if(lastEnd < bodyEndValue) {
+			this.blockDeclaration.sourceEnd = bodyEndValue;
+		} else {
+			this.blockDeclaration.sourceEnd = lastEnd;
+		}
+	}
+	
 	return this.blockDeclaration;
 }
 /*
@@ -307,10 +380,10 @@ public RecoveredElement add(FieldDeclaration fieldDeclaration, int bracketBalanc
 
 	/* local variables inside method can only be final and non void */
 	char[][] fieldTypeName; 
-	if ((fieldDeclaration.modifiers & ~AccFinal) != 0 // local var can only be final 
+	if ((fieldDeclaration.modifiers & ~ClassFileConstants.AccFinal) != 0 // local var can only be final 
 		|| (fieldDeclaration.type == null) // initializer
 		|| ((fieldTypeName = fieldDeclaration.type.getTypeName()).length == 1 // non void
-			&& CharOperation.equals(fieldTypeName[0], VoidBinding.sourceName()))){ 
+			&& CharOperation.equals(fieldTypeName[0], TypeBinding.VOID.sourceName()))){ 
 		this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(fieldDeclaration.declarationSourceStart - 1));
 		return this.parent.add(fieldDeclaration, bracketBalanceValue);
 	}

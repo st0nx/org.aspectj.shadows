@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,12 +11,14 @@
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.ClassFile;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.ConstantPool;
 
-public class MethodBinding extends Binding implements BaseTypes, TypeConstants {
+public class MethodBinding extends Binding {
 	
 	public int modifiers;
 	public char[] selector;
@@ -24,7 +26,7 @@ public class MethodBinding extends Binding implements BaseTypes, TypeConstants {
 	public TypeBinding[] parameters;
 	public ReferenceBinding[] thrownExceptions;
 	public ReferenceBinding declaringClass;
-	public TypeVariableBinding[] typeVariables = NoTypeVariables;
+	public TypeVariableBinding[] typeVariables = Binding.NO_TYPE_VARIABLES;
 	char[] signature;
 	public long tagBits;
 	
@@ -35,19 +37,19 @@ public MethodBinding(int modifiers, char[] selector, TypeBinding returnType, Typ
 	this.modifiers = modifiers;
 	this.selector = selector;
 	this.returnType = returnType;
-	this.parameters = (parameters == null || parameters.length == 0) ? NoParameters : parameters;
-	this.thrownExceptions = (thrownExceptions == null || thrownExceptions.length == 0) ? NoExceptions : thrownExceptions;
+	this.parameters = (parameters == null || parameters.length == 0) ? Binding.NO_PARAMETERS : parameters;
+	this.thrownExceptions = (thrownExceptions == null || thrownExceptions.length == 0) ? Binding.NO_EXCEPTIONS : thrownExceptions;
 	this.declaringClass = declaringClass;
 	
 	// propagate the strictfp & deprecated modifiers
 	if (this.declaringClass != null) {
 		if (this.declaringClass.isStrictfp())
 			if (!(isNative() || isAbstract()))
-				this.modifiers |= AccStrictfp;
+				this.modifiers |= ClassFileConstants.AccStrictfp;
 	}
 }
 public MethodBinding(int modifiers, TypeBinding[] parameters, ReferenceBinding[] thrownExceptions, ReferenceBinding declaringClass) {
-	this(modifiers, TypeConstants.INIT, VoidBinding, parameters, thrownExceptions, declaringClass);
+	this(modifiers, TypeConstants.INIT, TypeBinding.VOID, parameters, thrownExceptions, declaringClass);
 }
 // special API used to change method declaring class for runtime visibility check
 public MethodBinding(MethodBinding initialMethodBinding, ReferenceBinding declaringClass) {
@@ -57,6 +59,7 @@ public MethodBinding(MethodBinding initialMethodBinding, ReferenceBinding declar
 	this.parameters = initialMethodBinding.parameters;
 	this.thrownExceptions = initialMethodBinding.thrownExceptions;
 	this.declaringClass = declaringClass;
+	declaringClass.storeAnnotationHolder(this, initialMethodBinding.declaringClass.retrieveAnnotationHolder(initialMethodBinding, true));
 }
 /* Answer true if the argument types & the receiver's parameters have the same erasure
 */
@@ -90,6 +93,11 @@ public final boolean areParametersEqual(MethodBinding method) {
 			return false;
 	return true;
 }
+/*
+ * Returns true if given parameters are compatible with this method parameters.
+ * Callers to this method should first check that the number of TypeBindings
+ * passed as argument matches this MethodBinding number of parameters
+ */
 public final boolean areParametersCompatibleWith(TypeBinding[] arguments) {
 	int paramLength = this.parameters.length;
 	int argLength = arguments.length;
@@ -205,6 +213,9 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 	SourceTypeBinding invocationType = scope.enclosingSourceType();
 	if (invocationType == declaringClass && invocationType == receiverType) return true;
 
+	if (invocationType == null) // static import call
+		return !isPrivate() && scope.getCurrentPackage() == declaringClass.fPackage;
+
 	if (isProtected()) {
 		// answer true if the invocationType is the declaringClass or they are in the same package
 		// OR the invocationType is a subclass of the declaringClass
@@ -220,18 +231,16 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 		int depth = 0;
 		do {
 			if (currentType.findSuperTypeWithSameErasure(declaringErasure) != null) {
-				if (invocationSite.isSuperAccess()){
+				if (invocationSite.isSuperAccess())
 					return true;
-				}
 				// receiverType can be an array binding in one case... see if you can change it
-				if (receiverType instanceof ArrayBinding){
+				if (receiverType instanceof ArrayBinding)
 					return false;
-				}
-				if (isStatic()){
+				if (isStatic()) {
 					if (depth > 0) invocationSite.setDepth(depth);
 					return true; // see 1FMEPDL - return invocationSite.isTypeAccess();
 				}
-				if (currentType == receiverErasure || ((ReferenceBinding)receiverErasure).findSuperTypeWithSameErasure(currentType) != null){
+				if (currentType == receiverErasure || receiverErasure.findSuperTypeWithSameErasure(currentType) != null) {
 					if (depth > 0) invocationSite.setDepth(depth);
 					return true;
 				}
@@ -248,9 +257,8 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 		receiverCheck: {
 			if (receiverType != declaringClass) {
 				// special tolerance for type variable direct bounds
-				if (receiverType.isTypeVariable() && ((TypeVariableBinding) receiverType).isErasureBoundTo(declaringClass.erasure())) {
+				if (receiverType.isTypeVariable() && ((TypeVariableBinding) receiverType).isErasureBoundTo(declaringClass.erasure()))
 					break receiverCheck;
-				}
 				return false;
 			}
 		}
@@ -275,41 +283,42 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 	}
 
 	// isDefault()
-	if (invocationType.fPackage != declaringClass.fPackage) return false;
+	PackageBinding declaringPackage = declaringClass.fPackage;
+	if (invocationType.fPackage != declaringPackage) return false;
 
 	// receiverType can be an array binding in one case... see if you can change it
 	if (receiverType instanceof ArrayBinding)
 		return false;
-	ReferenceBinding type = (ReferenceBinding) receiverType;
-	PackageBinding declaringPackage = declaringClass.fPackage;
+	ReferenceBinding currentType = (ReferenceBinding) receiverType;
 	do {
-		if (declaringClass == type) return true;
-		if (declaringPackage != type.fPackage) return false;
-	} while ((type = type.superclass()) != null);
+		if (declaringClass == currentType) return true;
+		PackageBinding currentPackage = currentType.fPackage;
+		// package could be null for wildcards/intersection types, ignore and recurse in superclass
+		if (currentPackage != null && currentPackage != declaringPackage) return false;
+	} while ((currentType = currentType.superclass()) != null);
 	return false;
 }
 MethodBinding computeSubstitutedMethod(MethodBinding method, LookupEnvironment env) {
-	TypeVariableBinding[] vars = this.typeVariables;
-	TypeVariableBinding[] vars2 = method.typeVariables;
-	if (vars.length != vars2.length)
+	int length = this.typeVariables.length;
+	TypeVariableBinding[] vars = method.typeVariables;
+	if (length != vars.length)
 		return null;
-	for (int v = vars.length; --v >= 0;)
-		if (!vars[v].isInterchangeableWith(env, vars2[v]))
-			return null;
 
 	// must substitute to detect cases like:
 	//   <T1 extends X<T1>> void dup() {}
 	//   <T2 extends X<T2>> Object dup() {return null;}
-	return new ParameterizedGenericMethodBinding(method, vars, env);
+	ParameterizedGenericMethodBinding substitute =
+		env.createParameterizedGenericMethod(method, this.typeVariables);
+	for (int i = 0; i < length; i++)
+		if (!this.typeVariables[i].isInterchangeableWith(vars[i], substitute))
+			return null;
+	return substitute;
 }
 /*
  * declaringUniqueKey dot selector genericSignature
  * p.X { <T> void bar(X<T> t) } --> Lp/X;.bar<T:Ljava/lang/Object;>(LX<TT;>;)V
  */
 public char[] computeUniqueKey(boolean isLeaf) {
-	return computeUniqueKey(this, isLeaf);
-}
-protected char[] computeUniqueKey(MethodBinding methodBinding, boolean isLeaf) {
 	// declaring class 
 	char[] declaringKey = this.declaringClass.computeUniqueKey(false/*not a leaf*/);
 	int declaringLength = declaringKey.length;
@@ -318,11 +327,27 @@ protected char[] computeUniqueKey(MethodBinding methodBinding, boolean isLeaf) {
 	int selectorLength = this.selector == TypeConstants.INIT ? 0 : this.selector.length;
 	
 	// generic signature
-	char[] sig = methodBinding.genericSignature();
-	if (sig == null) sig = methodBinding.signature();
+	char[] sig = genericSignature();
+	boolean isGeneric = sig != null;
+	if (!isGeneric) sig = signature();
 	int signatureLength = sig.length;
 	
-	char[] uniqueKey = new char[declaringLength + 1 + selectorLength + signatureLength];
+	// thrown exceptions
+	int thrownExceptionsLength = this.thrownExceptions.length;
+	int thrownExceptionsSignatureLength = 0;
+	char[][] thrownExceptionsSignatures = null;
+	boolean addThrownExceptions = thrownExceptionsLength > 0 && (!isGeneric || CharOperation.lastIndexOf('^', sig) < 0);
+	if (addThrownExceptions) {
+		thrownExceptionsSignatures = new char[thrownExceptionsLength][];
+		for (int i = 0; i < thrownExceptionsLength; i++) {
+			if (this.thrownExceptions[i] != null) {
+				thrownExceptionsSignatures[i] = this.thrownExceptions[i].signature();
+				thrownExceptionsSignatureLength += thrownExceptionsSignatures[i].length + 1;	// add one char for separator
+			}
+		}
+	}
+	
+	char[] uniqueKey = new char[declaringLength + 1 + selectorLength + signatureLength + thrownExceptionsSignatureLength];
 	int index = 0;
 	System.arraycopy(declaringKey, 0, uniqueKey, index, declaringLength);
 	index = declaringLength;
@@ -330,7 +355,19 @@ protected char[] computeUniqueKey(MethodBinding methodBinding, boolean isLeaf) {
 	System.arraycopy(this.selector, 0, uniqueKey, index, selectorLength);
 	index += selectorLength;
 	System.arraycopy(sig, 0, uniqueKey, index, signatureLength);
-	//index += signatureLength;
+	if (thrownExceptionsSignatureLength > 0) {
+		index += signatureLength;
+		for (int i = 0; i < thrownExceptionsLength; i++) {
+			char[] thrownExceptionSignature = thrownExceptionsSignatures[i];
+			if (thrownExceptionSignature != null) {
+				uniqueKey[index++] = '|';
+				int length = thrownExceptionSignature.length;
+				System.arraycopy(thrownExceptionSignature, 0, uniqueKey, index, length);
+				index += length;
+			}
+		}
+	}
+
 	return uniqueKey;
 }
 /* 
@@ -356,9 +393,9 @@ public final char[] constantPoolName() {
  * <T> void bar(X<T> t)   -->  <T:Ljava.lang.Object;>(LX<TT;>;)V
  */
 public char[] genericSignature() {
-	if ((this.modifiers & AccGenericSignature) == 0) return null;
+	if ((this.modifiers & ExtraCompilerModifiers.AccGenericSignature) == 0) return null;
 	StringBuffer sig = new StringBuffer(10);
-	if (this.typeVariables != NoTypeVariables) {
+	if (this.typeVariables != Binding.NO_TYPE_VARIABLES) {
 		sig.append('<');
 		for (int i = 0, length = this.typeVariables.length; i < length; i++) {
 			sig.append(this.typeVariables[i].genericSignature());
@@ -377,7 +414,7 @@ public char[] genericSignature() {
 	boolean needExceptionSignatures = false;
 	int length = this.thrownExceptions.length;
 	for (int i = 0; i < length; i++) {
-		if((this.thrownExceptions[i].modifiers & AccGenericSignature) != 0) {
+		if((this.thrownExceptions[i].modifiers & ExtraCompilerModifiers.AccGenericSignature) != 0) {
 			needExceptionSignatures = true;
 			break;
 		}
@@ -393,8 +430,22 @@ public char[] genericSignature() {
 	sig.getChars(0, sigLength, genericSignature, 0);	
 	return genericSignature;
 }
+public AnnotationBinding[] getAnnotations() {
+	MethodBinding originalMethod = this.original();
+	return originalMethod.declaringClass.retrieveAnnotations(originalMethod);
+}
+/**
+ * @param index the index of the parameter of interest
+ * @return the annotations on the <code>index</code>th parameter
+ * @throws ArrayIndexOutOfBoundsException when <code>index</code> is not valid 
+ */
+public AnnotationBinding[] getParameterAnnotations(int index) {
+	MethodBinding originalMethod = this.original();
+	AnnotationHolder holder = originalMethod.declaringClass.retrieveAnnotationHolder(originalMethod, true);
+	return holder == null ? Binding.NO_ANNOTATIONS : holder.getParameterAnnotations(index);
+}
 public final int getAccessFlags() {
-	return modifiers & AccJustFlag;
+	return modifiers & ExtraCompilerModifiers.AccJustFlag;
 }
 
 /**
@@ -405,14 +456,38 @@ public final int getAccessFlags() {
 public long getAnnotationTagBits() {
 	MethodBinding originalMethod = this.original();
 	if ((originalMethod.tagBits & TagBits.AnnotationResolved) == 0 && originalMethod.declaringClass instanceof SourceTypeBinding) {
-		TypeDeclaration typeDecl = ((SourceTypeBinding)originalMethod.declaringClass).scope.referenceContext;
-		AbstractMethodDeclaration methodDecl = typeDecl.declarationOf(originalMethod);
-		if (methodDecl != null)
-			ASTNode.resolveAnnotations(methodDecl.scope, methodDecl.annotations, originalMethod);
+		ClassScope scope = ((SourceTypeBinding) originalMethod.declaringClass).scope;
+		if (scope != null) {
+			TypeDeclaration typeDecl = scope.referenceContext;
+			AbstractMethodDeclaration methodDecl = typeDecl.declarationOf(originalMethod);
+			if (methodDecl != null)
+				ASTNode.resolveAnnotations(methodDecl.scope, methodDecl.annotations, originalMethod);
+		}
 	}
 	return originalMethod.tagBits;
 }
-
+/**
+ * @return the default value for this annotation method or <code>null</code> if there is no default value
+ */
+public Object getDefaultValue() {
+	MethodBinding originalMethod = this.original();
+	if ((originalMethod.tagBits & TagBits.DefaultValueResolved) == 0) {
+		//The method has not been resolved nor has its class been resolved.
+		//It can only be from a source type within compilation units to process.
+		if (originalMethod.declaringClass instanceof SourceTypeBinding) {
+			SourceTypeBinding sourceType = (SourceTypeBinding) originalMethod.declaringClass;
+			if (sourceType.scope != null) {
+				AbstractMethodDeclaration methodDeclaration = originalMethod.sourceMethod();
+				if (methodDeclaration != null && methodDeclaration.isAnnotationMethod()) {
+					methodDeclaration.resolve(sourceType.scope);
+				}
+			}
+		}
+		originalMethod.tagBits |= TagBits.DefaultValueResolved;
+	}
+	AnnotationHolder holder = originalMethod.declaringClass.retrieveAnnotationHolder(originalMethod, true);
+	return holder == null ? null : holder.getDefaultValue();
+}
 public TypeVariableBinding getTypeVariable(char[] variableName) {
 	for (int i = this.typeVariables.length; --i >= 0;)
 		if (CharOperation.equals(this.typeVariables[i].sourceName, variableName))
@@ -436,13 +511,13 @@ public boolean hasSubstitutedReturnType() {
 /* Answer true if the receiver is an abstract method
 */
 public final boolean isAbstract() {
-	return (modifiers & AccAbstract) != 0;
+	return (modifiers & ClassFileConstants.AccAbstract) != 0;
 }
 
 /* Answer true if the receiver is a bridge method
 */
 public final boolean isBridge() {
-	return (modifiers & AccBridge) != 0;
+	return (modifiers & ClassFileConstants.AccBridge) != 0;
 }
 
 /* Answer true if the receiver is a constructor
@@ -460,19 +535,19 @@ public final boolean isDefault() {
 /* Answer true if the receiver is a system generated default abstract method
 */
 public final boolean isDefaultAbstract() {
-	return (modifiers & AccDefaultAbstract) != 0;
+	return (modifiers & ExtraCompilerModifiers.AccDefaultAbstract) != 0;
 }
 
 /* Answer true if the receiver is a deprecated method
 */
 public final boolean isDeprecated() {
-	return (modifiers & AccDeprecated) != 0;
+	return (modifiers & ClassFileConstants.AccDeprecated) != 0;
 }
 
 /* Answer true if the receiver is final and cannot be overridden
 */
 public final boolean isFinal() {
-	return (modifiers & AccFinal) != 0;
+	return (modifiers & ClassFileConstants.AccFinal) != 0;
 }
 
 /* Answer true if the receiver is implementing another method
@@ -480,28 +555,28 @@ public final boolean isFinal() {
  * Only set for source methods
 */
 public final boolean isImplementing() {
-	return (modifiers & AccImplementing) != 0;
+	return (modifiers & ExtraCompilerModifiers.AccImplementing) != 0;
 }
 
 /* Answer true if the receiver is a native method
 */
 public final boolean isNative() {
-	return (modifiers & AccNative) != 0;
+	return (modifiers & ClassFileConstants.AccNative) != 0;
 }
 
 /* Answer true if the receiver is overriding another method
  * Only set for source methods
 */
 public final boolean isOverriding() {
-	return (modifiers & AccOverriding) != 0;
+	return (modifiers & ExtraCompilerModifiers.AccOverriding) != 0;
 }
 /*
  * Answer true if the receiver is a "public static void main(String[])" method
  */
 public final boolean isMain() {
-	if (this.selector.length == 4 && CharOperation.equals(this.selector, MAIN)
-			&& ((this.modifiers & (AccPublic | AccStatic)) != 0)
-			&& VoidBinding == this.returnType  
+	if (this.selector.length == 4 && CharOperation.equals(this.selector, TypeConstants.MAIN)
+			&& ((this.modifiers & (ClassFileConstants.AccPublic | ClassFileConstants.AccStatic)) != 0)
+			&& TypeBinding.VOID == this.returnType  
 			&& this.parameters.length == 1) {
 		TypeBinding paramType = this.parameters[0];
 		if (paramType.dimensions() == 1 && paramType.leafComponentType().id == TypeIds.T_JavaLangString) {
@@ -513,68 +588,61 @@ public final boolean isMain() {
 /* Answer true if the receiver has private visibility
 */
 public final boolean isPrivate() {
-	return (modifiers & AccPrivate) != 0;
+	return (modifiers & ClassFileConstants.AccPrivate) != 0;
 }
 
 /* Answer true if the receiver has private visibility and is used locally
 */
 public final boolean isUsed() {
-	return (modifiers & AccLocallyUsed) != 0;
+	return (modifiers & ExtraCompilerModifiers.AccLocallyUsed) != 0;
 }
 
 /* Answer true if the receiver has protected visibility
 */
 public final boolean isProtected() {
-	return (modifiers & AccProtected) != 0;
+	return (modifiers & ClassFileConstants.AccProtected) != 0;
 }
 
 /* Answer true if the receiver has public visibility
 */
 public final boolean isPublic() {
-	return (modifiers & AccPublic) != 0;
-}
-
-/* Answer true if the receiver got requested to clear the private modifier
- * during private access emulation.
- */
-public final boolean isRequiredToClearPrivateModifier() {
-	return (modifiers & AccClearPrivateModifier) != 0;
+	return (modifiers & ClassFileConstants.AccPublic) != 0;
 }
 
 /* Answer true if the receiver is a static method
 */
 public final boolean isStatic() {
-	return (modifiers & AccStatic) != 0;
+	return (modifiers & ClassFileConstants.AccStatic) != 0;
 }
 
 /* Answer true if all float operations must adher to IEEE 754 float/double rules
 */
 public final boolean isStrictfp() {
-	return (modifiers & AccStrictfp) != 0;
+	return (modifiers & ClassFileConstants.AccStrictfp) != 0;
 }
 
 /* Answer true if the receiver is a synchronized method
 */
 public final boolean isSynchronized() {
-	return (modifiers & AccSynchronized) != 0;
+	return (modifiers & ClassFileConstants.AccSynchronized) != 0;
 }
 
 /* Answer true if the receiver has public visibility
 */
 public final boolean isSynthetic() {
-	return (modifiers & AccSynthetic) != 0;
+	return (modifiers & ClassFileConstants.AccSynthetic) != 0;
 }
 
 /* Answer true if the receiver method has varargs
 */
 public final boolean isVarargs() {
-	return (modifiers & AccVarargs) != 0;
+	return (modifiers & ClassFileConstants.AccVarargs) != 0;
 }
 
 /* Answer true if the receiver's declaring type is deprecated (or any of its enclosing types)
 */
 public final boolean isViewedAsDeprecated() {
-	return (modifiers & (AccDeprecated | AccDeprecatedImplicitly)) != 0;
+	return (modifiers & (ClassFileConstants.AccDeprecated | ExtraCompilerModifiers.AccDeprecatedImplicitly)) != 0;
 }
 
 /**
@@ -591,7 +659,7 @@ public char[] readableName() /* foo(int, Thread) */ {
 	else
 		buffer.append(selector);
 	buffer.append('(');
-	if (parameters != NoParameters) {
+	if (parameters != Binding.NO_PARAMETERS) {
 		for (int i = 0, length = parameters.length; i < length; i++) {
 			if (i > 0)
 				buffer.append(", "); //$NON-NLS-1$
@@ -601,7 +669,29 @@ public char[] readableName() /* foo(int, Thread) */ {
 	buffer.append(')');
 	return buffer.toString().toCharArray();
 }
+public void setAnnotations(AnnotationBinding[] annotations) {
+	this.declaringClass.storeAnnotations(this, annotations);
+}
+public void setAnnotations(AnnotationBinding[] annotations, AnnotationBinding[][] parameterAnnotations, Object defaultValue) {
+	this.declaringClass.storeAnnotationHolder(this,  AnnotationHolder.storeAnnotations(annotations, parameterAnnotations, defaultValue));
+}
+public void setDefaultValue(Object defaultValue) {
+	MethodBinding originalMethod = this.original();
+	originalMethod.tagBits |= TagBits.DefaultValueResolved;
 
+	AnnotationHolder holder = this.declaringClass.retrieveAnnotationHolder(this, false);
+	if (holder == null)
+		setAnnotations(null, null, defaultValue);
+	else
+		setAnnotations(holder.getAnnotations(), holder.getParameterAnnotations(), defaultValue);
+}
+public void setParameterAnnotations(AnnotationBinding[][] parameterAnnotations) {
+	AnnotationHolder holder = this.declaringClass.retrieveAnnotationHolder(this, false);
+	if (holder == null)
+		setAnnotations(null, parameterAnnotations, null);
+	else
+		setAnnotations(holder.getAnnotations(), parameterAnnotations, holder.getDefaultValue());
+}
 /**
  * @see org.eclipse.jdt.internal.compiler.lookup.Binding#shortReadableName()
  */
@@ -612,7 +702,7 @@ public char[] shortReadableName() {
 	else
 		buffer.append(selector);
 	buffer.append('(');
-	if (parameters != NoParameters) {
+	if (parameters != Binding.NO_PARAMETERS) {
 		for (int i = 0, length = parameters.length; i < length; i++) {
 			if (i > 0)
 				buffer.append(", "); //$NON-NLS-1$
@@ -648,15 +738,16 @@ public final char[] signature() /* (ILjava/lang/Thread;)Ljava/lang/Object; */ {
 	boolean isConstructor = isConstructor();
 	if (isConstructor && declaringClass.isEnum()) { // insert String name,int ordinal 
 		buffer.append(ConstantPool.JavaLangStringSignature);
-		buffer.append(BaseTypes.IntBinding.signature());
+		buffer.append(TypeBinding.INT.signature());
 	}
 	boolean needSynthetics = isConstructor && declaringClass.isNestedType();
 	if (needSynthetics) {
 		// take into account the synthetic argument type signatures as well
 		ReferenceBinding[] syntheticArgumentTypes = declaringClass.syntheticEnclosingInstanceTypes();
-		int count = syntheticArgumentTypes == null ? 0 : syntheticArgumentTypes.length;
-		for (int i = 0; i < count; i++) {
-			buffer.append(syntheticArgumentTypes[i].signature());
+		if (syntheticArgumentTypes != null) {
+			for (int i = 0, count = syntheticArgumentTypes.length; i < count; i++) {
+				buffer.append(syntheticArgumentTypes[i].signature());
+			}
 		}
 		
 		if (this instanceof SyntheticMethodBinding) {
@@ -664,7 +755,7 @@ public final char[] signature() /* (ILjava/lang/Thread;)Ljava/lang/Object; */ {
 		}
 	}
 
-	if (targetParameters != NoParameters) {
+	if (targetParameters != Binding.NO_PARAMETERS) {
 		for (int i = 0; i < targetParameters.length; i++) {
 			buffer.append(targetParameters[i].signature());
 		}
@@ -689,10 +780,143 @@ public final char[] signature() /* (ILjava/lang/Thread;)Ljava/lang/Object; */ {
 	
 	return signature;
 }
+/*
+ * This method is used to record references to nested types inside the method signature.
+ * This is the one that must be used during code generation.
+ * 
+ * See https://bugs.eclipse.org/bugs/show_bug.cgi?id=171184
+ */
+public final char[] signature(ClassFile classFile) {
+	if (signature != null) {
+		if ((this.tagBits & TagBits.ContainsNestedTypesInSignature) != 0) {
+			// we need to record inner classes references
+			boolean isConstructor = isConstructor();
+			TypeBinding[] targetParameters = this.parameters;
+			boolean needSynthetics = isConstructor && declaringClass.isNestedType();
+			if (needSynthetics) {
+				// take into account the synthetic argument type signatures as well
+				ReferenceBinding[] syntheticArgumentTypes = declaringClass.syntheticEnclosingInstanceTypes();
+				if (syntheticArgumentTypes != null) {
+					for (int i = 0, count = syntheticArgumentTypes.length; i < count; i++) {
+						ReferenceBinding syntheticArgumentType = syntheticArgumentTypes[i];
+						if (syntheticArgumentType.isNestedType()) {
+							classFile.recordInnerClasses(syntheticArgumentType);
+						}
+					}
+				}
+				if (this instanceof SyntheticMethodBinding) {
+					targetParameters = ((SyntheticMethodBinding)this).targetMethod.parameters;
+				}
+			}
+
+			if (targetParameters != Binding.NO_PARAMETERS) {
+				for (int i = 0; i < targetParameters.length; i++) {
+					TypeBinding targetParameter = targetParameters[i];
+					TypeBinding leafTargetParameterType = targetParameter.leafComponentType();
+					if (leafTargetParameterType.isNestedType()) {
+						classFile.recordInnerClasses(leafTargetParameterType);
+					}
+				}
+			}
+			if (needSynthetics) {
+				// move the extra padding arguments of the synthetic constructor invocation to the end		
+				for (int i = targetParameters.length, extraLength = parameters.length; i < extraLength; i++) {
+					TypeBinding parameter = parameters[i];
+					TypeBinding leafParameterType = parameter.leafComponentType();
+					if (leafParameterType.isNestedType()) {
+						classFile.recordInnerClasses(leafParameterType);
+					}
+				}
+			}
+			if (this.returnType != null) {
+				TypeBinding ret = this.returnType.leafComponentType();
+				if (ret.isNestedType()) {
+					classFile.recordInnerClasses(ret);
+				}
+			}
+		}
+		return signature;
+	}
+
+	StringBuffer buffer = new StringBuffer(parameters.length + 1 * 20);
+	buffer.append('(');
+	
+	TypeBinding[] targetParameters = this.parameters;
+	boolean isConstructor = isConstructor();
+	if (isConstructor && declaringClass.isEnum()) { // insert String name,int ordinal 
+		buffer.append(ConstantPool.JavaLangStringSignature);
+		buffer.append(TypeBinding.INT.signature());
+	}
+	boolean needSynthetics = isConstructor && declaringClass.isNestedType();
+	if (needSynthetics) {
+		// take into account the synthetic argument type signatures as well
+		ReferenceBinding[] syntheticArgumentTypes = declaringClass.syntheticEnclosingInstanceTypes();
+		if (syntheticArgumentTypes != null) {
+			for (int i = 0, count = syntheticArgumentTypes.length; i < count; i++) {
+				ReferenceBinding syntheticArgumentType = syntheticArgumentTypes[i];
+				if (syntheticArgumentType.isNestedType()) {
+					this.tagBits |= TagBits.ContainsNestedTypesInSignature;
+					classFile.recordInnerClasses(syntheticArgumentType);
+				}
+				buffer.append(syntheticArgumentType.signature());
+			}
+		}
+		
+		if (this instanceof SyntheticMethodBinding) {
+			targetParameters = ((SyntheticMethodBinding)this).targetMethod.parameters;
+		}
+	}
+
+	if (targetParameters != Binding.NO_PARAMETERS) {
+		for (int i = 0; i < targetParameters.length; i++) {
+			TypeBinding targetParameter = targetParameters[i];
+			TypeBinding leafTargetParameterType = targetParameter.leafComponentType();
+			if (leafTargetParameterType.isNestedType()) {
+				this.tagBits |= TagBits.ContainsNestedTypesInSignature;
+				classFile.recordInnerClasses(leafTargetParameterType);
+			}
+			buffer.append(targetParameter.signature());
+		}
+	}
+	if (needSynthetics) {
+		SyntheticArgumentBinding[] syntheticOuterArguments = declaringClass.syntheticOuterLocalVariables();
+		int count = syntheticOuterArguments == null ? 0 : syntheticOuterArguments.length;
+		for (int i = 0; i < count; i++) {
+			buffer.append(syntheticOuterArguments[i].type.signature());
+		}
+		// move the extra padding arguments of the synthetic constructor invocation to the end		
+		for (int i = targetParameters.length, extraLength = parameters.length; i < extraLength; i++) {
+			TypeBinding parameter = parameters[i];
+			TypeBinding leafParameterType = parameter.leafComponentType();
+			if (leafParameterType.isNestedType()) {
+				this.tagBits |= TagBits.ContainsNestedTypesInSignature;
+				classFile.recordInnerClasses(leafParameterType);
+			}
+			buffer.append(parameter.signature());
+		}
+	}
+	buffer.append(')');
+	if (this.returnType != null) {
+		TypeBinding ret = this.returnType.leafComponentType();
+		if (ret.isNestedType()) {
+			this.tagBits |= TagBits.ContainsNestedTypesInSignature;
+			classFile.recordInnerClasses(ret);
+		}
+		buffer.append(this.returnType.signature());
+	}
+	int nameLength = buffer.length();
+	signature = new char[nameLength];
+	buffer.getChars(0, nameLength, signature, 0);	    
+	
+	return signature;
+}
 public final int sourceEnd() {
 	AbstractMethodDeclaration method = sourceMethod();
-	if (method == null)
+	if (method == null) {
+		if (this.declaringClass instanceof SourceTypeBinding)
+			return ((SourceTypeBinding) this.declaringClass).sourceEnd();
 		return 0;
+	}
 	return method.sourceEnd;
 }
 public AbstractMethodDeclaration sourceMethod() {
@@ -711,18 +935,14 @@ public AbstractMethodDeclaration sourceMethod() {
 }
 public final int sourceStart() {
 	AbstractMethodDeclaration method = sourceMethod();
-	if (method == null)
+	if (method == null) {
+		if (this.declaringClass instanceof SourceTypeBinding)
+			return ((SourceTypeBinding) this.declaringClass).sourceStart();
 		return 0;
+	}
 	return method.sourceStart;
 }
 
-/* During private access emulation, the binding can be requested to loose its
- * private visibility when the class file is dumped.
- */
-
-public final void tagForClearingPrivateModifier() {
-	modifiers |= AccClearPrivateModifier;
-}
 public String toString() {
 	String s = (returnType != null) ? returnType.debugName() : "NULL TYPE"; //$NON-NLS-1$
 	s += " "; //$NON-NLS-1$
@@ -730,7 +950,7 @@ public String toString() {
 
 	s += "("; //$NON-NLS-1$
 	if (parameters != null) {
-		if (parameters != NoParameters) {
+		if (parameters != Binding.NO_PARAMETERS) {
 			for (int i = 0, length = parameters.length; i < length; i++) {
 				if (i  > 0)
 					s += ", "; //$NON-NLS-1$
@@ -743,7 +963,7 @@ public String toString() {
 	s += ") "; //$NON-NLS-1$
 
 	if (thrownExceptions != null) {
-		if (thrownExceptions != NoExceptions) {
+		if (thrownExceptions != Binding.NO_EXCEPTIONS) {
 			s += "throws "; //$NON-NLS-1$
 			for (int i = 0, length = thrownExceptions.length; i < length; i++) {
 				if (i  > 0)

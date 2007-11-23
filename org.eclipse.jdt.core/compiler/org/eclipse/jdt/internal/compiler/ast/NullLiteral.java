@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,6 +13,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class NullLiteral extends MagicLiteral {
@@ -26,7 +27,7 @@ public class NullLiteral extends MagicLiteral {
 
 	public void computeConstant() {
 	
-		constant = NotAConstant; 
+		constant = Constant.NotAConstant; 
 	}
 
 	/**
@@ -45,16 +46,17 @@ public class NullLiteral extends MagicLiteral {
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
 	}
 	public TypeBinding literalType(BlockScope scope) {
-		return NullBinding;
+		return TypeBinding.NULL;
 	}
 
 	public int nullStatus(FlowInfo flowInfo) {
 		return FlowInfo.NULL;
 	}
+
+	public Object reusableJSRTarget() {
+		return TypeBinding.NULL;
+	}
 	
-	/**
-	 * 
-	 */
 	public char[] source() {
 		return source;
 	}

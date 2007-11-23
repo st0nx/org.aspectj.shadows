@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -36,15 +36,7 @@ public DefaultProblemFactory() {
  * @param loc the locale used to get the right message
  */
 public DefaultProblemFactory(Locale loc) {
-	this.locale = loc;
-	if (Locale.getDefault().equals(loc)){
-		if (DEFAULT_LOCALE_TEMPLATES == null){
-			DEFAULT_LOCALE_TEMPLATES = loadMessageTemplates(loc);
-		}
-		this.messageTemplates = DEFAULT_LOCALE_TEMPLATES;
-	} else {
-		this.messageTemplates = loadMessageTemplates(loc);
-	}
+	setLocale(loc);
 }
 /**
  * Answer a new IProblem created according to the parameters value
@@ -66,9 +58,9 @@ public DefaultProblemFactory(Locale loc) {
  * @param startPosition int
  * @param endPosition int
  * @param lineNumber int
- * @return org.eclipse.jdt.internal.compiler.IProblem
+ * @return CategorizedProblem
  */
-public IProblem createProblem(
+public CategorizedProblem createProblem(
 	char[] originatingFileName, 
 	int problemId, 
 	String[] problemArguments, 
@@ -76,7 +68,8 @@ public IProblem createProblem(
 	int severity, 
 	int startPosition, 
 	int endPosition, 
-	int lineNumber) {
+	int lineNumber,
+	int columnNumber) {
 
 	return new DefaultProblem(
 		originatingFileName, 
@@ -86,7 +79,8 @@ public IProblem createProblem(
 		severity, 
 		startPosition, 
 		endPosition, 
-		lineNumber); 
+		lineNumber,
+		columnNumber); 
 }
 private final static int keyFromID(int id) {
     return id + 1; // keys are offsetted by one in table, since it cannot handle 0 key
@@ -98,6 +92,19 @@ private final static int keyFromID(int id) {
 public Locale getLocale() {
 	return this.locale;
 }
+public void setLocale(Locale locale) {
+	if (locale == this.locale) return;
+	this.locale = locale;
+	if (Locale.getDefault().equals(locale)){
+		if (DEFAULT_LOCALE_TEMPLATES == null){
+			DEFAULT_LOCALE_TEMPLATES = loadMessageTemplates(locale);
+		}
+		this.messageTemplates = DEFAULT_LOCALE_TEMPLATES;
+	} else {
+		this.messageTemplates = loadMessageTemplates(locale);
+	}
+}
+
 public final String getLocalizedMessage(int id, String[] problemArguments) {
 	String message = (String) this.messageTemplates.get(keyFromID(id & IProblem.IgnoreCategoriesMask)); 
 	if (message == null) {
@@ -117,7 +124,7 @@ public final String getLocalizedMessage(int id, String[] problemArguments) {
 	int end = length;
 	StringBuffer output = null;
 	if ((id & IProblem.Javadoc) != 0) {
-		if (output == null) output = new StringBuffer(10+length+problemArguments.length*20);
+		output = new StringBuffer(10+length+problemArguments.length*20);
 		output.append((String) this.messageTemplates.get(keyFromID(IProblem.JavadocMessagePrefix & IProblem.IgnoreCategoriesMask)));
 	}
 	while (true) {
@@ -153,13 +160,14 @@ public final String getLocalizedMessage(int id, String[] problemArguments) {
 		}
 	}
 
-	return output.toString();
+	// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=120410
+	return new String(output.toString());
 }
 /**
- * @param problem org.eclipse.jdt.internal.compiler.IProblem
+ * @param problem CategorizedProblem
  * @return String
  */
-public final String localizedMessage(IProblem problem) {
+public final String localizedMessage(CategorizedProblem problem) {
 	return getLocalizedMessage(problem.getID(), problem.getArguments());
 }
 

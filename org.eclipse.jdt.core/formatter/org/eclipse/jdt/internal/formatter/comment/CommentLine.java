@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,6 +12,8 @@
 package org.eclipse.jdt.internal.formatter.comment;
 
 import java.util.LinkedList;
+
+import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 
 /**
  * General comment line in a comment region.
@@ -286,12 +288,12 @@ public abstract class CommentLine implements IBorderAttributes {
 
 		while (offset < length) {
 
-			while (offset < length && Character.isWhitespace(content.charAt(offset)))
+			while (offset < length && ScannerHelper.isWhitespace(content.charAt(offset)))
 				offset++;
 
 			index= offset;
 
-			while (index < length && !Character.isWhitespace(content.charAt(index)))
+			while (index < length && !ScannerHelper.isWhitespace(content.charAt(index)))
 				index++;
 
 			if (index - offset > 0) {
@@ -300,5 +302,14 @@ public abstract class CommentLine implements IBorderAttributes {
 				offset= index;
 			}
 		}
+	}
+	
+	public String toString() {
+		final StringBuffer buffer = new StringBuffer();
+		final int size = this.fRanges.size();
+		for (int i = 0; i < size; i++) {
+			buffer.append(this.fRanges.get(i)).append("\n"); //$NON-NLS-1$
+		}
+		return String.valueOf(buffer);
 	}
 }

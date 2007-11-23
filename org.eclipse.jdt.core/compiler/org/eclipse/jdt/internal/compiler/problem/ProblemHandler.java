@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,12 +10,14 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.problem;
 
-import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.IErrorHandlingPolicy;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 /*
  * Compiler error handler, responsible to determine whether
@@ -26,9 +28,9 @@ import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
  *	first error, and if should proceed (persist) with problems.
  */
 
-public class ProblemHandler implements ProblemSeverities {
+public class ProblemHandler {
 
-	public final static String[] NoArgument = new String[0];
+	public final static String[] NoArgument = CharOperation.NO_STRINGS;
 	
 	final public IErrorHandlingPolicy policy;
 	public final IProblemFactory problemFactory;
@@ -51,9 +53,9 @@ public ProblemHandler(IErrorHandlingPolicy policy, CompilerOptions options, IPro
  */
 public int computeSeverity(int problemId){
 	
-	return Error; // by default all problems are errors
+	return ProblemSeverities.Error; // by default all problems are errors
 }
-public IProblem createProblem(
+public CategorizedProblem createProblem(
 	char[] fileName, 
 	int problemId, 
 	String[] problemArguments, 
@@ -61,7 +63,8 @@ public IProblem createProblem(
 	int severity, 
 	int problemStartPosition, 
 	int problemEndPosition, 
-	int lineNumber) {
+	int lineNumber,
+	int columnNumber) {
 
 	return this.problemFactory.createProblem(
 		fileName, 
@@ -71,7 +74,8 @@ public IProblem createProblem(
 		severity, 
 		problemStartPosition, 
 		problemEndPosition, 
-		lineNumber); 
+		lineNumber,
+		columnNumber); 
 }
 public void handle(
 	int problemId, 
@@ -83,20 +87,27 @@ public void handle(
 	ReferenceContext referenceContext, 
 	CompilationResult unitResult) {
 
-	if (severity == Ignore)
+	if (severity == ProblemSeverities.Ignore)
 		return;
 
 	// if no reference context, we need to abort from the current compilation process
 	if (referenceContext == null) {
-		if ((severity & Error) != 0) { // non reportable error is fatal
-			IProblem problem = this.createProblem(null, 	problemId, 	problemArguments, messageArguments, severity, 0, 0, 0);			
+		if ((severity & ProblemSeverities.Error) != 0) { // non reportable error is fatal
+			CategorizedProblem problem = this.createProblem(null, problemId, problemArguments, messageArguments, severity, 0, 0, 0, 0);			
 			throw new AbortCompilation(null, problem);
 		} else {
 			return; // ignore non reportable warning
 		}
 	}
 
-	IProblem problem = 
+	int[] lineEnds;
+	int lineNumber = problemStartPosition >= 0
+			? Util.getLineNumber(problemStartPosition, lineEnds = unitResult.getLineSeparatorPositions(), 0, lineEnds.length-1)
+			: 0;
+	int columnNumber = problemStartPosition >= 0
+			? Util.searchColumnNumber(unitResult.getLineSeparatorPositions(), lineNumber, problemStartPosition)
+			: 0;
+	CategorizedProblem problem = 
 		this.createProblem(
 			unitResult.getFileName(), 
 			problemId, 
@@ -104,26 +115,25 @@ public void handle(
 			messageArguments,
 			severity, 
 			problemStartPosition, 
-			problemEndPosition, 
-			problemStartPosition >= 0
-				? searchLineNumber(unitResult.lineSeparatorPositions, problemStartPosition)
-				: 0);
+			problemEndPosition,
+			lineNumber,
+			columnNumber);
+
 	if (problem == null) return; // problem couldn't be created, ignore
 	
-	switch (severity & Error) {
-		case Error :
+	switch (severity & ProblemSeverities.Error) {
+		case ProblemSeverities.Error :
 			this.record(problem, unitResult, referenceContext);
-			referenceContext.tagAsHavingErrors();
-
-			// should abort ?
-			int abortLevel;
-			if ((abortLevel = 
-				(this.policy.stopOnFirstError() ? AbortCompilation : severity & Abort)) != 0) {
-
-				referenceContext.abort(abortLevel, problem);
+			if ((severity & ProblemSeverities.Fatal) != 0) {
+				referenceContext.tagAsHavingErrors();
+				// should abort ?
+				int abortLevel;
+				if ((abortLevel = 	this.policy.stopOnFirstError() ? ProblemSeverities.AbortCompilation : severity & ProblemSeverities.Abort) != 0) {
+					referenceContext.abort(abortLevel, problem);
+				}
 			}
 			break;
-		case Warning :
+		case ProblemSeverities.Warning :
 			this.record(problem, unitResult, referenceContext);
 			break;
 	}
@@ -151,33 +161,7 @@ public void handle(
 		referenceContext,
 		unitResult);
 }
-public void record(IProblem problem, CompilationResult unitResult, ReferenceContext referenceContext) {
+public void record(CategorizedProblem problem, CompilationResult unitResult, ReferenceContext referenceContext) {
 	unitResult.record(problem, referenceContext);
-}
-/**
- * Search the line number corresponding to a specific position
- */
-public static final int searchLineNumber(int[] startLineIndexes, int position) {
-	if (startLineIndexes == null)
-		return 1;
-	int length = startLineIndexes.length;
-	if (length == 0)
-		return 1;
-	int g = 0, d = length - 1;
-	int m = 0;
-	while (g <= d) {
-		m = (g + d) /2;
-		if (position < startLineIndexes[m]) {
-			d = m-1;
-		} else if (position > startLineIndexes[m]) {
-			g = m+1;
-		} else {
-			return m + 1;
-		}
-	}
-	if (position < startLineIndexes[m]) {
-		return m+1;
-	}
-	return m+2;
 }
 }

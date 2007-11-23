@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,10 +10,11 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.problem;
 
-import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.lookup.InvocationSite;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 /*
  * Special unchecked exception type used 
@@ -25,7 +26,7 @@ public class AbortCompilation extends RuntimeException {
 
 	public CompilationResult compilationResult;
 	public Throwable exception;
-	public IProblem problem;
+	public CategorizedProblem problem;
 	
 	/* special fields used to abort silently (e.g. when cancelling build process) */
 	public boolean isSilent;
@@ -37,7 +38,7 @@ public class AbortCompilation extends RuntimeException {
 		// empty
 	}
 
-	public AbortCompilation(CompilationResult compilationResult, IProblem problem) {
+	public AbortCompilation(CompilationResult compilationResult, CategorizedProblem problem) {
 		this();
 		this.compilationResult = compilationResult;
 		this.problem = problem;
@@ -60,7 +61,8 @@ public class AbortCompilation extends RuntimeException {
 		if (this.problem.getSourceStart() != 0 || this.problem.getSourceEnd() != 0) return;
 		this.problem.setSourceStart(invocationSite.sourceStart());
 		this.problem.setSourceEnd(invocationSite.sourceEnd());
-		this.problem.setSourceLineNumber(ProblemHandler.searchLineNumber(unitResult.lineSeparatorPositions, invocationSite.sourceStart()));
+		int[] lineEnds = unitResult.getLineSeparatorPositions();
+		this.problem.setSourceLineNumber(Util.getLineNumber(invocationSite.sourceStart(), lineEnds, 0, lineEnds.length-1));
 		this.compilationResult = unitResult;
 	}
 
@@ -69,7 +71,8 @@ public class AbortCompilation extends RuntimeException {
 		if (this.problem.getSourceStart() != 0 || this.problem.getSourceEnd() != 0) return;
 		this.problem.setSourceStart(astNode.sourceStart());
 		this.problem.setSourceEnd(astNode.sourceEnd());
-		this.problem.setSourceLineNumber(ProblemHandler.searchLineNumber(unitResult.lineSeparatorPositions, astNode.sourceStart()));
+		int[] lineEnds = unitResult.getLineSeparatorPositions();
+		this.problem.setSourceLineNumber(Util.getLineNumber(astNode.sourceStart(), lineEnds, 0, lineEnds.length-1));
 		this.compilationResult = unitResult;
 	}
 }

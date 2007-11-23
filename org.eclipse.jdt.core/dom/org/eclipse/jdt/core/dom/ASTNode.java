@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -36,7 +36,7 @@ import java.util.Map;
  * Clients can navigate upwards, from child to parent, as well as downwards,
  * from parent to child. Newly created nodes are unparented. When an 
  * unparented node is set as a child of a node (using a 
- * <code>set<it>CHILD</it></code> method), its parent link is set automatically
+ * <code>set<i>CHILD</i></code> method), its parent link is set automatically
  * and the parent link of the former child is set to <code>null</code>.
  * For nodes with properties that include a list of children (for example,
  * <code>Block</code> whose <code>statements</code> property is a list
@@ -68,8 +68,8 @@ import java.util.Map;
  * </p>
  * <p>
  * Abstract syntax trees may be hand constructed by clients, using the
- * <code>new<it>TYPE</it></code> factory methods (see <code>AST</code>) to
- * create new nodes, and the various <code>set<it>CHILD</it></code> methods
+ * <code>new<i>TYPE</i></code> factory methods (see <code>AST</code>) to
+ * create new nodes, and the various <code>set<i>CHILD</i></code> methods
  * to connect them together.
  * </p>
  * <p>
@@ -112,6 +112,7 @@ import java.util.Map;
  * an alternative way to describe and serialize changes to a
  * read-only AST.
  * </p>
+ * This class is not intended to be subclassed by clients.
  * 
  * @see ASTParser
  * @see ASTVisitor
@@ -1034,6 +1035,18 @@ public abstract class ASTNode {
 	public static final int PROTECT = 4;
 
 	/**
+	 * Flag constant (bit mask, value 8) indicating that this node
+	 * or a part of this node is recovered from source that contains
+	 * a syntax error detected in the vicinity.
+	 * <p>
+	 * The standard parser (<code>ASTParser</code>) sets this
+	 * flag on a node to indicate a recovered node.
+	 * </p>
+	 * @since 3.2
+	 */
+	public static final int RECOVERED = 8;
+	
+	/**
 	 * int containing the node type in the top 16 bits and
 	 * flags in the bottom 16 bits; none set by default.
      * <p>
@@ -1694,7 +1707,7 @@ public abstract class ASTNode {
 	 * clutter up the API doc.
 	 * </p>
 	 * 
-	 * @param apiLevel the API level; one of the <code>AST.JLS&ast;</code> constants
+	 * @param apiLevel the API level; one of the <code>AST.JLS*</code> constants
 	 * @return a list of property descriptors (element type: 
 	 * {@link StructuralPropertyDescriptor})
 	 * @since 3.0
@@ -2211,6 +2224,8 @@ public abstract class ASTNode {
 	 * created by ASTParser</li>
 	 * <li>{@link #PROTECT} - indicates node is protected
 	 * from further modification</li>
+	 * <li>{@link #RECOVERED} - indicates node or a part of this node
+	 *  is recovered from source that contains a syntax error</li>
 	 * </ul>
 	 * Other bit positions are reserved for future use.
 	 * </p>
@@ -2234,6 +2249,8 @@ public abstract class ASTNode {
 	 * created by ASTParser</li>
 	 * <li>{@link #PROTECT} - indicates node is protected
 	 * from further modification</li>
+	 * <li>{@link #RECOVERED} - indicates node or a part of this node
+	 *  is recovered from source that contains a syntax error</li>
 	 * </ul>
 	 * Other bit positions are reserved for future use.
 	 * </p>
@@ -2300,6 +2317,15 @@ public abstract class ASTNode {
 	 */
 	public final boolean equals(Object obj) {
 		return this == obj; // equivalent to Object.equals
+	}
+	
+	/*
+	 * (non-Javadoc)
+	 * This makes it consistent with the fact that a equals methods has been provided.
+	 * @see java.lang.Object#hashCode()
+	 */
+	public final int hashCode() {
+		return super.hashCode();
 	}
 
 	/**

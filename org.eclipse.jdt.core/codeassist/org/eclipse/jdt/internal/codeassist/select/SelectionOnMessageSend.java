@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -30,11 +30,11 @@ package org.eclipse.jdt.internal.codeassist.select;
  */
 
 import org.eclipse.jdt.internal.compiler.ast.MessageSend;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
-import org.eclipse.jdt.internal.compiler.lookup.TagBits;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 
 public class SelectionOnMessageSend extends MessageSend {
@@ -46,42 +46,29 @@ public class SelectionOnMessageSend extends MessageSend {
 	private MethodBinding findNonDefaultAbstractMethod(MethodBinding methodBinding) {
 
 		ReferenceBinding[] itsInterfaces = methodBinding.declaringClass.superInterfaces();
-		if (itsInterfaces != NoSuperInterfaces) {
-			ReferenceBinding[][] interfacesToVisit = new ReferenceBinding[5][];
-			int lastPosition = 0;
-			interfacesToVisit[lastPosition] = itsInterfaces;
-			
-			for (int i = 0; i <= lastPosition; i++) {
-				ReferenceBinding[] interfaces = interfacesToVisit[i];
+		if (itsInterfaces != Binding.NO_SUPERINTERFACES) {
+			ReferenceBinding[] interfacesToVisit = itsInterfaces;
+			int nextPosition = interfacesToVisit.length;
 
-				for (int j = 0, length = interfaces.length; j < length; j++) {
-					ReferenceBinding currentType = interfaces[j];
+			for (int i = 0; i < nextPosition; i++) {
+				ReferenceBinding currentType = interfacesToVisit[i];
+				MethodBinding[] methods = currentType.getMethods(methodBinding.selector);
+				if(methods != null) {
+					for (int k = 0; k < methods.length; k++) {
+						if(methodBinding.areParametersEqual(methods[k]))
+							return methods[k];
+					}
+				}
 
-					if ((currentType.tagBits & TagBits.InterfaceVisited) == 0) {
-						// if interface as not already been visited
-						currentType.tagBits |= TagBits.InterfaceVisited;
-
-						MethodBinding[] methods = currentType.getMethods(methodBinding.selector);
-						if(methods != null) {
-							for (int k = 0; k < methods.length; k++) {
-								if(methodBinding.areParametersEqual(methods[k])) {
-									return methods[k];
-								}
-							}
-						}
-
-						itsInterfaces = currentType.superInterfaces();
-						if (itsInterfaces != NoSuperInterfaces) {
-
-							if (++lastPosition == interfacesToVisit.length)
-								System.arraycopy(
-									interfacesToVisit,
-									0,
-									interfacesToVisit = new ReferenceBinding[lastPosition * 2][],
-									0,
-									lastPosition);
-							interfacesToVisit[lastPosition] = itsInterfaces;
-						}
+				if ((itsInterfaces = currentType.superInterfaces()) != Binding.NO_SUPERINTERFACES) {
+					int itsLength = itsInterfaces.length;
+					if (nextPosition + itsLength >= interfacesToVisit.length)
+						System.arraycopy(interfacesToVisit, 0, interfacesToVisit = new ReferenceBinding[nextPosition + itsLength + 5], 0, nextPosition);
+					nextInterface : for (int a = 0; a < itsLength; a++) {
+						ReferenceBinding next = itsInterfaces[a];
+						for (int b = 0; b < nextPosition; b++)
+							if (next == interfacesToVisit[b]) continue nextInterface;
+						interfacesToVisit[nextPosition++] = next;
 					}
 				}
 			}

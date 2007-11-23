@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,7 +11,8 @@
 package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
-import org.eclipse.jdt.internal.compiler.env.IConstants;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class JavadocArgumentExpression extends Expression {
@@ -23,7 +24,7 @@ public class JavadocArgumentExpression extends Expression {
 		this.sourceStart = startPos;
 		this.sourceEnd = endPos;
 		long pos = (((long) startPos) << 32) + endPos;
-		this.argument = new Argument(name, pos, typeRef, IConstants.AccDefault);
+		this.argument = new Argument(name, pos, typeRef, ClassFileConstants.AccDefault);
 		this.bits |= InsideJavadoc;
 	}
 
@@ -31,7 +32,7 @@ public class JavadocArgumentExpression extends Expression {
 	 * Resolves type on a Block or Class scope.
 	 */
 	private TypeBinding internalResolveType(Scope scope) {
-		this.constant = NotAConstant;
+		this.constant = Constant.NotAConstant;
 		if (this.resolvedType != null) // is a shared type reference which was already resolved
 			return this.resolvedType.isValidBinding() ? this.resolvedType : null; // already reported error
 
@@ -46,7 +47,6 @@ public class JavadocArgumentExpression extends Expression {
 				}
 				if (isTypeUseDeprecated(this.resolvedType, scope)) {
 					scope.problemReporter().javadocDeprecatedType(this.resolvedType, typeRef, scope.getDeclarationModifiers());
-					return null;
 				}
 				return this.resolvedType = scope.environment().convertToRawType(this.resolvedType);
 			}
@@ -85,6 +85,14 @@ public class JavadocArgumentExpression extends Expression {
 	 * @see org.eclipse.jdt.internal.compiler.ast.ASTNode#traverse(org.eclipse.jdt.internal.compiler.ASTVisitor, org.eclipse.jdt.internal.compiler.lookup.BlockScope)
 	 */
 	public void traverse(ASTVisitor visitor, BlockScope blockScope) {
+		if (visitor.visit(this, blockScope)) {
+			if (this.argument != null) {
+				this.argument.traverse(visitor, blockScope);
+			}
+		}
+		visitor.endVisit(this, blockScope);
+	}
+	public void traverse(ASTVisitor visitor, ClassScope blockScope) {
 		if (visitor.visit(this, blockScope)) {
 			if (this.argument != null) {
 				this.argument.traverse(visitor, blockScope);

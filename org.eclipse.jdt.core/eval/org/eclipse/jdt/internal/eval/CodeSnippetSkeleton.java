@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2004 IBM Corporation and others.
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,13 +10,15 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
+import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.env.IBinaryAnnotation;
 import org.eclipse.jdt.internal.compiler.env.IBinaryField;
 import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
 import org.eclipse.jdt.internal.compiler.env.IBinaryNestedType;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
-import org.eclipse.jdt.internal.compiler.env.IConstants;
-import org.eclipse.jdt.internal.compiler.env.IGenericType;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
@@ -47,7 +49,7 @@ public class CodeSnippetSkeleton implements IBinaryType, EvaluationConstants {
 		)
 	};
 
-	public class BinaryMethodSkeleton implements IBinaryMethod {
+	public static class BinaryMethodSkeleton implements IBinaryMethod {
 		char[][] exceptionTypeNames;
 		char[] methodDescriptor;
 		char[] selector;
@@ -66,7 +68,7 @@ public class CodeSnippetSkeleton implements IBinaryType, EvaluationConstants {
 			return this.methodDescriptor;
 		}
 		public int getModifiers() {
-			return IConstants.AccPublic;
+			return ClassFileConstants.AccPublic;
 		}
 		public char[] getSelector() {
 			return this.selector;
@@ -85,6 +87,15 @@ public class CodeSnippetSkeleton implements IBinaryType, EvaluationConstants {
 		}
 		public long getTagBits() {
 			return 0;
+		}
+		public IBinaryAnnotation[] getAnnotations() {
+			return null;
+		}
+		public IBinaryAnnotation[] getParameterAnnotations(int index) {
+			return null;
+		}
+		public Object getDefaultValue() {
+			return null;
 		}
 }
 	
@@ -119,10 +130,13 @@ public IBinaryMethod[] getMethods() {
 	return this.methods;
 }
 public int getModifiers() {
-	return IConstants.AccPublic;
+	return ClassFileConstants.AccPublic;
 }
 public char[] getName() {
 	return CODE_SNIPPET_NAME;
+}
+public char[] getSourceName() {
+	return ROOT_CLASS_NAME;
 }
 public char[] getSuperclassName() {
 	return null;
@@ -133,12 +147,6 @@ public boolean isAnonymous() {
 public boolean isBinaryType() {
 	return true;
 }
-/**
- * @see org.eclipse.jdt.internal.compiler.env.IGenericType#getKind()
- */
-public int getKind() {
-	return IGenericType.CLASS_DECL;
-}
 public boolean isLocal() {
 	return false;
 }
@@ -148,7 +156,19 @@ public boolean isMember() {
 public char[] sourceFileName() {
 	return null;
 }
+public IBinaryAnnotation[] getAnnotations() {
+	return null;
+}
 public long getTagBits() {
 	return 0;
+}
+public String getJavadocContents(IProgressMonitor monitor, String defaultEncoding) throws JavaModelException {
+	return null;
+}
+public String getJavadocContents() {
+	return null;
+}
+public String getURLContents(String docUrlValue, String defaultEncoding) {
+	return null;
 }
 }
