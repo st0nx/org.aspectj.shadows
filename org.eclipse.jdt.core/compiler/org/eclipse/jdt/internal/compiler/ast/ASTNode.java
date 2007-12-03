@@ -432,8 +432,13 @@ public abstract class ASTNode implements BaseTypes, CompilerModifiers, TypeConst
 		TypeBinding[] annotationTypes = new TypeBinding[length];
 		for (int i = 0; i < length; i++) {
 			Annotation annotation = annotations[i];
-			annotation.recipient = recipient;
-			annotationTypes[i] = annotation.resolveType(scope);
+			annotation.recipient = recipient;	
+			// AspectJ Extension - don't re-resolve (pr211052)
+			// old code:
+			// annotationTypes[i] = annotation.resolveType(scope);
+			// new code:
+			annotationTypes[i] =(annotation.resolvedType==null?annotation.resolveType(scope):annotation.resolvedType);
+			// End AspectJ Extension
 			
 		}
 		// check duplicate annotations
