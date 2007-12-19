@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler;
 
 import org.eclipse.jdt.core.compiler.*;
@@ -24,14 +24,15 @@ import java.util.*;
 
 public class Compiler implements ITypeRequestor, ProblemSeverities {
 	public Parser parser;
-	ICompilerRequestor requestor;
+	public ICompilerRequestor requestor;
 	public CompilerOptions options;
 	public ProblemReporter problemReporter;
+	protected PrintWriter out; // output for messages that are not sent to problemReporter
 
 	// management of unit to be processed
 	//public CompilationUnitResult currentCompilationUnitResult;
-	CompilationUnitDeclaration[] unitsToProcess;
-	int totalUnits; // (totalUnits-1) gives the last unit in unitToProcess
+	public CompilationUnitDeclaration[] unitsToProcess;
+	public int totalUnits; // (totalUnits-1) gives the last unit in unitToProcess
 
 	// name lookup
 	public LookupEnvironment lookupEnvironment;
@@ -39,6 +40,10 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 	// ONCE STABILIZED, THESE SHOULD RETURN TO A FINAL FIELD
 	public static boolean DEBUG = false;
 	public int parseThreshold = -1;
+	
+	public AbstractAnnotationProcessorManager annotationProcessorManager;
+	public ReferenceBinding[] referenceBindings;
+
 	// number of initial units parsed at once (-1: none)
 
 	/*
@@ -68,6 +73,9 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 	 *      them all) and at the same time perform some actions such as opening a dialog
 	 *      in UI when compiling interactively.
 	 *      @see org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies
+	 *  
+	 *  @param settings java.util.Map
+	 *      The settings that control the compiler behavior.
 	 *      
 	 *  @param requestor org.eclipse.jdt.internal.compiler.api.ICompilerRequestor
 	 *      Component which will receive and persist all compilation results and is intended
@@ -81,6 +89,8 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 	 *      order to avoid object conversions. Note that the factory is not supposed
 	 *      to accumulate the created problems, the compiler will gather them all and hand
 	 *      them back as part of the compilation unit result.
+	 *      
+	 *  @deprecated this constructor is kept to preserve 3.1 and 3.2M4 compatibility
 	 */
 	public Compiler(
 		INameEnvironment environment,
@@ -88,32 +98,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		Map settings,
 		final ICompilerRequestor requestor,
 		IProblemFactory problemFactory) {
-
-		// create a problem handler given a handling policy
-		this.options = new CompilerOptions(settings);
-		
-		// wrap requestor in DebugRequestor if one is specified
-		if(DebugRequestor == null) {
-			this.requestor = requestor;
-		} else {
-			this.requestor = new ICompilerRequestor(){
-				public void acceptResult(CompilationResult result){
-					if (DebugRequestor.isActive()){
-						DebugRequestor.acceptDebugResult(result);
-					}
-					requestor.acceptResult(result);
-				}
-			};
-		}
-		this.problemReporter =
-			new ProblemReporter(policy, this.options, problemFactory);
-		this.lookupEnvironment =
-			new LookupEnvironment(this, options, problemReporter, environment);
-		this.parser =
-			new Parser(
-				problemReporter, 
-				this.options.parseLiteralExpressionsAsConstants, 
-				this.options.assertMode);
+		this(environment, policy, new CompilerOptions(settings), requestor, problemFactory, null); 
 	}
 	
 	/**
@@ -136,6 +121,9 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 	 *      in UI when compiling interactively.
 	 *      @see org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies
 	 *      
+	 *  @param settings java.util.Map
+	 *      The settings that control the compiler behavior.
+	 *      
 	 *  @param requestor org.eclipse.jdt.internal.compiler.api.ICompilerRequestor
 	 *      Component which will receive and persist all compilation results and is intended
 	 *      to consume them as they are produced. Typically, in a batch compiler, it is 
@@ -148,9 +136,12 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 	 *      order to avoid object conversions. Note that the factory is not supposed
 	 *      to accumulate the created problems, the compiler will gather them all and hand
 	 *      them back as part of the compilation unit result.
-	 *	@param parseLiteralExpressionsAsConstants <code>boolean</code>
+	 *      
+	 *  @param parseLiteralExpressionsAsConstants <code>boolean</code>
 	 *		This parameter is used to optimize the literals or leave them as they are in the source.
 	 * 		If you put true, "Hello" + " world" will be converted to "Hello world".
+	 * 
+	 *  @deprecated this constructor is kept to preserve 3.1 and 3.2M4 compatibility
 	 */
 	public Compiler(
 		INameEnvironment environment,
@@ -159,9 +150,99 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		final ICompilerRequestor requestor,
 		IProblemFactory problemFactory,
 		boolean parseLiteralExpressionsAsConstants) {
+		this(environment, policy, new CompilerOptions(settings, parseLiteralExpressionsAsConstants), requestor, problemFactory, null); 
+	}
+	
+	/**
+	 * Answer a new compiler using the given name environment and compiler options.
+	 * The environment and options will be in effect for the lifetime of the compiler.
+	 * When the compiler is run, compilation results are sent to the given requestor.
+	 *
+	 *  @param environment org.eclipse.jdt.internal.compiler.api.env.INameEnvironment
+	 *      Environment used by the compiler in order to resolve type and package
+	 *      names. The name environment implements the actual connection of the compiler
+	 *      to the outside world (e.g. in batch mode the name environment is performing
+	 *      pure file accesses, reuse previous build state or connection to repositories).
+	 *      Note: the name environment is responsible for implementing the actual classpath
+	 *            rules.
+	 *
+	 *  @param policy org.eclipse.jdt.internal.compiler.api.problem.IErrorHandlingPolicy
+	 *      Configurable part for problem handling, allowing the compiler client to
+	 *      specify the rules for handling problems (stop on first error or accumulate
+	 *      them all) and at the same time perform some actions such as opening a dialog
+	 *      in UI when compiling interactively.
+	 *      @see org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies
+	 *      
+	 *  @param options org.eclipse.jdt.internal.compiler.impl.CompilerOptions
+	 *      The options that control the compiler behavior.
+	 *      
+	 *  @param requestor org.eclipse.jdt.internal.compiler.api.ICompilerRequestor
+	 *      Component which will receive and persist all compilation results and is intended
+	 *      to consume them as they are produced. Typically, in a batch compiler, it is 
+	 *      responsible for writing out the actual .class files to the file system.
+	 *      @see org.eclipse.jdt.internal.compiler.CompilationResult
+	 *
+	 *  @param problemFactory org.eclipse.jdt.internal.compiler.api.problem.IProblemFactory
+	 *      Factory used inside the compiler to create problem descriptors. It allows the
+	 *      compiler client to supply its own representation of compilation problems in
+	 *      order to avoid object conversions. Note that the factory is not supposed
+	 *      to accumulate the created problems, the compiler will gather them all and hand
+	 *      them back as part of the compilation unit result.
+	 */
+	public Compiler(
+		INameEnvironment environment,
+		IErrorHandlingPolicy policy,
+		CompilerOptions options,
+		final ICompilerRequestor requestor,
+		IProblemFactory problemFactory) {
+		this(environment, policy, options, requestor, problemFactory, null); 
+	}
 
-		// create a problem handler given a handling policy
-		this.options = new CompilerOptions(settings);
+	/**
+	 * Answer a new compiler using the given name environment and compiler options.
+	 * The environment and options will be in effect for the lifetime of the compiler.
+	 * When the compiler is run, compilation results are sent to the given requestor.
+	 *
+	 *  @param environment org.eclipse.jdt.internal.compiler.api.env.INameEnvironment
+	 *      Environment used by the compiler in order to resolve type and package
+	 *      names. The name environment implements the actual connection of the compiler
+	 *      to the outside world (e.g. in batch mode the name environment is performing
+	 *      pure file accesses, reuse previous build state or connection to repositories).
+	 *      Note: the name environment is responsible for implementing the actual classpath
+	 *            rules.
+	 *
+	 *  @param policy org.eclipse.jdt.internal.compiler.api.problem.IErrorHandlingPolicy
+	 *      Configurable part for problem handling, allowing the compiler client to
+	 *      specify the rules for handling problems (stop on first error or accumulate
+	 *      them all) and at the same time perform some actions such as opening a dialog
+	 *      in UI when compiling interactively.
+	 *      @see org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies
+	 *      
+	 *  @param options org.eclipse.jdt.internal.compiler.impl.CompilerOptions
+	 *      The options that control the compiler behavior.
+	 *      
+	 *  @param requestor org.eclipse.jdt.internal.compiler.api.ICompilerRequestor
+	 *      Component which will receive and persist all compilation results and is intended
+	 *      to consume them as they are produced. Typically, in a batch compiler, it is 
+	 *      responsible for writing out the actual .class files to the file system.
+	 *      @see org.eclipse.jdt.internal.compiler.CompilationResult
+	 *
+	 *  @param problemFactory org.eclipse.jdt.internal.compiler.api.problem.IProblemFactory
+	 *      Factory used inside the compiler to create problem descriptors. It allows the
+	 *      compiler client to supply its own representation of compilation problems in
+	 *      order to avoid object conversions. Note that the factory is not supposed
+	 *      to accumulate the created problems, the compiler will gather them all and hand
+	 *      them back as part of the compilation unit result.
+	 */
+	public Compiler(
+			INameEnvironment environment,
+			IErrorHandlingPolicy policy,
+			CompilerOptions options,
+			final ICompilerRequestor requestor,
+			IProblemFactory problemFactory,
+			PrintWriter out) {
+		
+		this.options = options;
 		
 		// wrap requestor in DebugRequestor if one is specified
 		if(DebugRequestor == null) {
@@ -176,33 +257,44 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 				}
 			};
 		}
-		this.problemReporter =
-			new ProblemReporter(policy, this.options, problemFactory);
-		this.lookupEnvironment =
-			new LookupEnvironment(this, options, problemReporter, environment);
-		this.parser =
-			new Parser(
-				problemReporter, 
-				parseLiteralExpressionsAsConstants, 
-				this.options.assertMode);
+		this.problemReporter = new ProblemReporter(policy, this.options, problemFactory);
+		this.lookupEnvironment = new LookupEnvironment(this, this.options, problemReporter, environment);
+		this.out = out == null ? new PrintWriter(System.out, true) : out;
+		initializeParser();
 	}
 	
 	/**
 	 * Add an additional binary type
 	 */
-	public void accept(IBinaryType binaryType, PackageBinding packageBinding) {
-		lookupEnvironment.createBinaryTypeFrom(binaryType, packageBinding);
+	public void accept(IBinaryType binaryType, PackageBinding packageBinding, AccessRestriction accessRestriction) {
+		if (this.options.verbose) {
+			this.out.println(
+				Messages.bind(Messages.compilation_loadBinary, new String(binaryType.getName())));
+//			new Exception("TRACE BINARY").printStackTrace(System.out);
+//		    System.out.println();
+		}
+		lookupEnvironment.createBinaryTypeFrom(binaryType, packageBinding, accessRestriction);
 	}
 
 	/**
 	 * Add an additional compilation unit into the loop
 	 *  ->  build compilation unit declarations, their bindings and record their results.
 	 */
-	public void accept(ICompilationUnit sourceUnit) {
+	public void accept(ICompilationUnit sourceUnit, AccessRestriction accessRestriction) {
 		// Switch the current policy and compilation result for this unit to the requested one.
 		CompilationResult unitResult =
 			new CompilationResult(sourceUnit, totalUnits, totalUnits, this.options.maxProblemsPerUnit);
 		try {
+			if (options.verbose) {
+				String count = String.valueOf(totalUnits + 1);
+				this.out.println(
+					Messages.bind(Messages.compilation_request,
+						new String[] {
+							count,
+							count,
+							new String(sourceUnit.getFileName())
+						}));
+			}
 			// diet parsing for large collection of unit
 			CompilationUnitDeclaration parsedUnit;
 			if (totalUnits < parseThreshold) {
@@ -210,19 +302,9 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			} else {
 				parsedUnit = parser.dietParse(sourceUnit, unitResult);
 			}
-
-			if (options.verbose) {
-				System.out.println(
-					Util.bind(
-						"compilation.request" , //$NON-NLS-1$
-						new String[] {
-							String.valueOf(totalUnits + 1),
-							String.valueOf(totalUnits + 1),
-							new String(sourceUnit.getFileName())}));
-			}
-
+			parsedUnit.bits |= ASTNode.IsImplicitUnit;
 			// initial type binding creation
-			lookupEnvironment.buildTypeBindings(parsedUnit);
+			lookupEnvironment.buildTypeBindings(parsedUnit, accessRestriction);
 			this.addCompilationUnit(sourceUnit, parsedUnit);
 
 			// binding resolution
@@ -241,12 +323,9 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 	/**
 	 * Add additional source types
 	 */
-	public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding) {
+	public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding, AccessRestriction accessRestriction) {
 		problemReporter.abortDueToInternalError(
-			Util.bind(
-				"abort.againstSourceModel " , //$NON-NLS-1$
-				String.valueOf(sourceTypes[0].getName()),
-				String.valueOf(sourceTypes[0].getFileName())));
+			Messages.bind(Messages.abort_againstSourceModel, new String[] { String.valueOf(sourceTypes[0].getName()), String.valueOf(sourceTypes[0].getFileName()) })); 
 	}
 
 	protected void addCompilationUnit(
@@ -272,41 +351,10 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 	 */
 	protected void beginToCompile(ICompilationUnit[] sourceUnits) {
 		int maxUnits = sourceUnits.length;
-		totalUnits = 0;
-		unitsToProcess = new CompilationUnitDeclaration[maxUnits];
+		this.totalUnits = 0;
+		this.unitsToProcess = new CompilationUnitDeclaration[maxUnits];
 
-		// Switch the current policy and compilation result for this unit to the requested one.
-		for (int i = 0; i < maxUnits; i++) {
-			CompilationUnitDeclaration parsedUnit;
-			CompilationResult unitResult =
-				new CompilationResult(sourceUnits[i], i, maxUnits, this.options.maxProblemsPerUnit);
-			try {
-				// diet parsing for large collection of units
-				if (totalUnits < parseThreshold) {
-					parsedUnit = parser.parse(sourceUnits[i], unitResult);
-				} else {
-					parsedUnit = parser.dietParse(sourceUnits[i], unitResult);
-				}
-				if (options.verbose) {
-					System.out.println(
-						Util.bind(
-							"compilation.request" , //$NON-NLS-1$
-							new String[] {
-								String.valueOf(i + 1),
-								String.valueOf(maxUnits),
-								new String(sourceUnits[i].getFileName())}));
-				}
-				// initial type binding creation
-				lookupEnvironment.buildTypeBindings(parsedUnit);
-				this.addCompilationUnit(sourceUnits[i], parsedUnit);
-				//} catch (AbortCompilationUnit e) {
-				//	requestor.acceptResult(unitResult.tagAsAccepted());
-			} finally {
-				sourceUnits[i] = null; // no longer hold onto the unit
-			}
-		}
-		// binding resolution
-		lookupEnvironment.completeTypeBindings();
+		internalBeginToCompile(sourceUnits, maxUnits);
 	}
 
 	/**
@@ -322,31 +370,42 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 
 			beginToCompile(sourceUnits);
 
+			if (this.annotationProcessorManager != null) {
+				processAnnotations();
+				if (!options.generateClassFiles) {
+					// -proc:only was set on the command line
+					return;
+				}
+			}
 			// process all units (some more could be injected in the loop by the lookup environment)
-			for (; i < totalUnits; i++) {
+			for (; i < this.totalUnits; i++) {
 				unit = unitsToProcess[i];
 				try {
 					if (options.verbose)
-						System.out.println(
-							Util.bind(
-								"compilation.process" , //$NON-NLS-1$
-								new String[] {
-									String.valueOf(i + 1),
-									String.valueOf(totalUnits),
-									new String(unitsToProcess[i].getFileName())}));
+						this.out.println(
+							Messages.bind(Messages.compilation_process,
+							new String[] {
+								String.valueOf(i + 1),
+								String.valueOf(this.totalUnits),
+								new String(unitsToProcess[i].getFileName())
+							}));
 					process(unit, i);
 				} finally {
 					// cleanup compilation unit result
-					unit.cleanUp();
-					if (options.verbose)
-						System.out.println(Util.bind("compilation.done", //$NON-NLS-1$
-					new String[] {
-						String.valueOf(i + 1),
-						String.valueOf(totalUnits),
-						new String(unitsToProcess[i].getFileName())}));
+					// unit.cleanUp(); // AspectJ Extension - moved to afterProcessing
 				}
-				unitsToProcess[i] = null; // release reference to processed unit declaration
-				requestor.acceptResult(unit.compilationResult.tagAsAccepted());
+				// AspectJ Extension
+				// unitsToProcess[i] = null; // release reference to processed unit declaration
+				// requestor.acceptResult(unit.compilationResult.tagAsAccepted());
+				// End AspectJ Extension
+				if (options.verbose)
+					this.out.println(
+						Messages.bind(Messages.compilation_done,
+						new String[] {
+							String.valueOf(i + 1),
+							String.valueOf(this.totalUnits),
+							new String(unit.getFileName())
+						}));
 			}
 		} catch (AbortCompilation e) {
 			this.handleInternalException(e, unit);
@@ -357,40 +416,22 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			this.handleInternalException(e, unit, null);
 			throw e; // rethrow
 		} finally {
-			this.reset();
+			// this.reset(); // AspectJ Extension - handled by CompilerAdapter
 		}
 		if (options.verbose) {
-			if (totalUnits > 1) {
-				System.out.println(
-					Util.bind("compilation.units" , String.valueOf(totalUnits))); //$NON-NLS-1$
+			if (this.totalUnits > 1) {
+				this.out.println(
+					Messages.bind(Messages.compilation_units, String.valueOf(this.totalUnits))); 
 			} else {
-				System.out.println(
-					Util.bind("compilation.unit" , String.valueOf(totalUnits))); //$NON-NLS-1$
+				this.out.println(
+					Messages.bind(Messages.compilation_unit, String.valueOf(this.totalUnits))); 
 			}
 		}
 	}
-
-	protected void getMethodBodies(CompilationUnitDeclaration unit, int place) {
-		//fill the methods bodies in order for the code to be generated
-
-		if (unit.ignoreMethodBodies) {
-			unit.ignoreFurtherInvestigation = true;
-			return;
-			// if initial diet parse did not work, no need to dig into method bodies.
-		}
-
-		if (place < parseThreshold)
-			return; //work already done ...
-
-		//real parse of the method....
-		parser.scanner.setSource(
-			unit.compilationResult.compilationUnit.getContents());
-		if (unit.types != null) {
-			for (int i = unit.types.length; --i >= 0;)
-				unit.types[i].parseMethod(parser, unit);
-		}
+	
+	public void setBinaryTypes(ReferenceBinding[] binaryTypes) {
+		this.referenceBindings = binaryTypes;
 	}
-
 	/*
 	 * Compiler crash recovery in case of unexpected runtime exceptions
 	 */
@@ -399,16 +440,22 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		CompilationUnitDeclaration unit,
 		CompilationResult result) {
 
-		/* dump a stack trace to the console */
-		internalException.printStackTrace();
-
-		/* find a compilation result */
-		if ((unit != null)) // basing result upon the current unit if available
+		if ((result == null) && (unit != null)) {
 			result = unit.compilationResult; // current unit being processed ?
+		}
+		// Lookup environment may be in middle of connecting types
+		if ((result == null) && lookupEnvironment.unitBeingCompleted != null) {
+		    result = lookupEnvironment.unitBeingCompleted.compilationResult;
+		}		
+		// Lookup environment may be in middle of connecting types
+		if ((result == null) && lookupEnvironment.unitBeingCompleted != null) {
+		    result = lookupEnvironment.unitBeingCompleted.compilationResult;
+		}		
 		if ((result == null) && (unitsToProcess != null) && (totalUnits > 0))
 			result = unitsToProcess[totalUnits - 1].compilationResult;
 		// last unit in beginToCompile ?
 
+		boolean needToPrint = true;
 		if (result != null) {
 			/* create and record a compilation problem */
 			StringWriter stringWriter = new StringWriter();
@@ -416,28 +463,35 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			internalException.printStackTrace(writer);
 			StringBuffer buffer = stringWriter.getBuffer();
 
+			String[] pbArguments = new String[] {
+				Messages.compilation_internalError
+					+ "\n"  //$NON-NLS-1$
+					+ buffer.toString()};
+
 			result
 				.record(
 					problemReporter
 					.createProblem(
 						result.getFileName(),
 						IProblem.Unclassified,
-						new String[] {
-							Util.bind("compilation.internalError" ) //$NON-NLS-1$
-								+ "\n"  //$NON-NLS-1$
-								+ buffer.toString()},
+						pbArguments,
+						pbArguments,
 						Error, // severity
 						0, // source start
 						0, // source end
-						0, // line number		
-						unit,
-						result),
+						0, // line number
+						0),// column number
 					unit);
 
 			/* hand back the compilation result */
 			if (!result.hasBeenAccepted) {
 				requestor.acceptResult(result.tagAsAccepted());
+				needToPrint = false;
 			}
+		}
+		if (needToPrint) {
+			/* dump a stack trace to the console */
+			internalException.printStackTrace();
 		}
 	}
 
@@ -452,9 +506,8 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		if (abortException.isSilent) {
 			if (abortException.silentException == null) {
 				return;
-			} else {
-				throw abortException.silentException;
 			}
+			throw abortException.silentException;
 		}
 
 		/* uncomment following line to see where the abort came from */
@@ -462,28 +515,32 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 
 		// Exception may tell which compilation result it is related, and which problem caused it
 		CompilationResult result = abortException.compilationResult;
-		if ((result == null) && (unit != null))
+		if ((result == null) && (unit != null)) {
 			result = unit.compilationResult; // current unit being processed ?
+		}
+		// Lookup environment may be in middle of connecting types
+		if ((result == null) && lookupEnvironment.unitBeingCompleted != null) {
+		    result = lookupEnvironment.unitBeingCompleted.compilationResult;
+		}
 		if ((result == null) && (unitsToProcess != null) && (totalUnits > 0))
 			result = unitsToProcess[totalUnits - 1].compilationResult;
 		// last unit in beginToCompile ?
 		if (result != null && !result.hasBeenAccepted) {
-			/* distant problem which could not be reported back there */
-			if (abortException.problemId != 0) {
-				result
-					.record(
-						problemReporter
-						.createProblem(
-							result.getFileName(),
-							abortException.problemId,
-							abortException.problemArguments,
-							Error, // severity
-							0, // source start
-							0, // source end
-							0, // line number		
-							unit,
-							result),
-						unit);				
+			/* distant problem which could not be reported back there? */
+			if (abortException.problem != null) {
+				recordDistantProblem: {
+				CategorizedProblem distantProblem = abortException.problem;
+				CategorizedProblem[] knownProblems = result.problems;
+					for (int i = 0; i < result.problemCount; i++) {
+						if (knownProblems[i] == distantProblem) { // already recorded
+							break recordDistantProblem;
+						}
+					}
+					if (distantProblem instanceof DefaultProblem) { // fixup filename TODO (philippe) should improve API to make this official
+						((DefaultProblem) distantProblem).setOriginatingFileName(result.getFileName());
+					}
+					result.record(distantProblem, unit);
+				}
 			} else {
 				/* distant internal exception which could not be reported back there */
 				if (abortException.exception != null) {
@@ -496,30 +553,65 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 				requestor.acceptResult(result.tagAsAccepted());
 			}
 		} else {
-			/*
-			if (abortException.problemId != 0){ 
-				IProblem problem =
-					problemReporter.createProblem(
-						"???".toCharArray(),
-						abortException.problemId, 
-						abortException.problemArguments, 
-						Error, // severity
-						0, // source start
-						0, // source end
-						0); // line number
-				System.out.println(problem.getMessage());
-			}
-			*/
 			abortException.printStackTrace();
 		}
+	}
+
+	public void initializeParser() {
+
+		this.parser = new Parser(this.problemReporter, this.options.parseLiteralExpressionsAsConstants);
+	}
+	
+	/**
+	 * Add the initial set of compilation units into the loop
+	 *  ->  build compilation unit declarations, their bindings and record their results.
+	 */
+	protected void internalBeginToCompile(ICompilationUnit[] sourceUnits, int maxUnits) {
+		// Switch the current policy and compilation result for this unit to the requested one.
+		for (int i = 0; i < maxUnits; i++) {
+			CompilationUnitDeclaration parsedUnit;
+			CompilationResult unitResult =
+				new CompilationResult(sourceUnits[i], i, maxUnits, this.options.maxProblemsPerUnit);
+			try {
+				if (options.verbose) {
+					this.out.println(
+						Messages.bind(Messages.compilation_request,
+						new String[] {
+							String.valueOf(i + 1),
+							String.valueOf(maxUnits),
+							new String(sourceUnits[i].getFileName())
+						}));
+				}
+				// diet parsing for large collection of units
+				if (totalUnits < parseThreshold) {
+					parsedUnit = parser.parse(sourceUnits[i], unitResult);
+				} else {
+					parsedUnit = parser.dietParse(sourceUnits[i], unitResult);
+				}
+				// initial type binding creation
+				lookupEnvironment.buildTypeBindings(parsedUnit, null /*no access restriction*/);
+				this.addCompilationUnit(sourceUnits[i], parsedUnit);
+				ImportReference currentPackage = parsedUnit.currentPackage;
+				if (currentPackage != null) {
+					unitResult.recordPackageName(currentPackage.tokens);
+				}
+				//} catch (AbortCompilationUnit e) {
+				//	requestor.acceptResult(unitResult.tagAsAccepted());
+			} finally {
+				sourceUnits[i] = null; // no longer hold onto the unit
+			}
+		}
+		// binding resolution
+		lookupEnvironment.completeTypeBindings();
 	}
 
 	/**
 	 * Process a compilation unit already parsed and build.
 	 */
-	private void process(CompilationUnitDeclaration unit, int i) {
+	public void process(CompilationUnitDeclaration unit, int i) {
+		this.lookupEnvironment.unitBeingCompleted = unit;
 
-		getMethodBodies(unit, i);
+		this.parser.getMethodBodies(unit);
 
 		// fault in fields & methods
 		if (unit.scope != null)
@@ -544,33 +636,107 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 
 		// refresh the total number of units known at this stage
 		unit.compilationResult.totalUnitsKnown = totalUnits;
+
+		this.lookupEnvironment.unitBeingCompleted = null;
 	}
+
+	protected void processAnnotations() {
+		int newUnitSize = 0;
+		int newClassFilesSize = 0;
+		int bottom = 0;
+		int top = this.unitsToProcess.length;
+		ReferenceBinding[] binaryTypeBindingsTemp = this.referenceBindings;
+		if (top == 0 && binaryTypeBindingsTemp == null) return;
+		this.referenceBindings = null;
+		do {
+			// extract units to process
+			int length = top - bottom;
+			CompilationUnitDeclaration[] currentUnits = new CompilationUnitDeclaration[length];
+			int index = 0;
+			for (int i = bottom; i < top; i++) {
+				CompilationUnitDeclaration currentUnit = this.unitsToProcess[i];
+				if ((currentUnit.bits & ASTNode.IsImplicitUnit) == 0) {
+					currentUnits[index++] = currentUnit;
+				}
+			}
+			if (index != length) {
+				System.arraycopy(currentUnits, 0, (currentUnits = new CompilationUnitDeclaration[index]), 0, index);
+			}
+			this.annotationProcessorManager.processAnnotations(currentUnits, binaryTypeBindingsTemp, false);
+			ICompilationUnit[] newUnits = this.annotationProcessorManager.getNewUnits();
+			newUnitSize = newUnits.length;
+			ReferenceBinding[] newClassFiles = this.annotationProcessorManager.getNewClassFiles();
+			binaryTypeBindingsTemp = newClassFiles;
+			newClassFilesSize = newClassFiles.length;
+			if (newUnitSize != 0) {
+				// we reset the compiler in order to restart with the new units
+				internalBeginToCompile(newUnits, newUnitSize);
+				bottom = top;
+				top = this.totalUnits; // last unit added
+			} else {
+				bottom = top;
+			}
+			this.annotationProcessorManager.reset();
+		} while (newUnitSize != 0 || newClassFilesSize != 0);
+		// one more loop to create possible resources
+		// this loop cannot create any java source files
+		// TODO (olivier) we should check if we should pass any unit at all for the last round
+		this.annotationProcessorManager.processAnnotations(null, null, true);
+		// TODO we might want to check if this loop created new units
+	}
+
 	public void reset() {
 		lookupEnvironment.reset();
 		parser.scanner.source = null;
 		unitsToProcess = null;
 		if (DebugRequestor != null) DebugRequestor.reset();
+		this.problemReporter.reset();
 	}
 
 	/**
-	 * Internal API used to resolve a compilation unit minimally for code assist engine
+	 * Internal API used to resolve a given compilation unit. Can run a subset of the compilation process
 	 */
-	public CompilationUnitDeclaration resolve(ICompilationUnit sourceUnit) {
-		CompilationUnitDeclaration unit = null;
+	public CompilationUnitDeclaration resolve(
+			CompilationUnitDeclaration unit, 
+			ICompilationUnit sourceUnit, 
+			boolean verifyMethods,
+			boolean analyzeCode,
+			boolean generateCode) {
+				
 		try {
-			// build and record parsed units
-			parseThreshold = 0; // will request a full parse
-			beginToCompile(new ICompilationUnit[] { sourceUnit });
-			// process all units (some more could be injected in the loop by the lookup environment)
-			unit = unitsToProcess[0];
-			getMethodBodies(unit, 0);
+			if (unit == null) {
+				// build and record parsed units
+				parseThreshold = 0; // will request a full parse
+				beginToCompile(new ICompilationUnit[] { sourceUnit });
+				// process all units (some more could be injected in the loop by the lookup environment)
+				unit = unitsToProcess[0];
+			} else {
+				// initial type binding creation
+				lookupEnvironment.buildTypeBindings(unit, null /*no access restriction*/);
+
+				// binding resolution
+				lookupEnvironment.completeTypeBindings();
+			}
+			this.lookupEnvironment.unitBeingCompleted = unit;
+			this.parser.getMethodBodies(unit);
 			if (unit.scope != null) {
 				// fault in fields & methods
 				unit.scope.faultInTypes();
+				if (unit.scope != null && verifyMethods) {
+					// http://dev.eclipse.org/bugs/show_bug.cgi?id=23117
+ 					// verify inherited methods
+					unit.scope.verifyMethods(lookupEnvironment.methodVerifier());
+				}
 				// type checking
-				unit.resolve();
+				unit.resolve();		
+
+				// flow analysis
+				if (analyzeCode) unit.analyseCode();
+		
+				// code generation
+				if (generateCode) unit.generateCode();
 			}
-			unitsToProcess[0] = null; // release reference to processed unit declaration
+			if (unitsToProcess != null) unitsToProcess[0] = null; // release reference to processed unit declaration
 			requestor.acceptResult(unit.compilationResult.tagAsAccepted());
 			return unit;
 		} catch (AbortCompilation e) {
@@ -583,6 +749,9 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			this.handleInternalException(e, unit, null);
 			throw e; // rethrow
 		} finally {
+			// leave this.lookupEnvironment.unitBeingCompleted set to the unit, until another unit is resolved
+			// other calls to dom can cause classpath errors to be detected, resulting in AbortCompilation exceptions
+
 			// No reset is performed there anymore since,
 			// within the CodeAssist (or related tools),
 			// the compiler may be called *after* a call
@@ -591,5 +760,21 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			// environment.
 			// this.reset();
 		}
+	}
+	/**
+	 * Internal API used to resolve a given compilation unit. Can run a subset of the compilation process
+	 */
+	public CompilationUnitDeclaration resolve(
+			ICompilationUnit sourceUnit, 
+			boolean verifyMethods,
+			boolean analyzeCode,
+			boolean generateCode) {
+				
+		return resolve(
+			null,
+			sourceUnit,
+			verifyMethods,
+			analyzeCode,
+			generateCode);
 	}
 }

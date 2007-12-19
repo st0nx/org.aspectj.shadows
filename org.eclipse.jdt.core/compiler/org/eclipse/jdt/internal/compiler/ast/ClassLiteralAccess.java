@@ -1,18 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class ClassLiteralAccess extends Expression {
@@ -21,9 +23,10 @@ public class ClassLiteralAccess extends Expression {
 	public TypeBinding targetType;
 	FieldBinding syntheticField;
 
-	public ClassLiteralAccess(int sourceEnd, TypeReference t) {
-		type = t;
-		this.sourceStart = t.sourceStart;
+	public ClassLiteralAccess(int sourceEnd, TypeReference type) {
+		this.type = type;
+		type.bits |= IgnoreRawTypeCheck; // no need to worry about raw type usage
+		this.sourceStart = type.sourceStart;
 		this.sourceEnd = sourceEnd;
 	}
 
@@ -33,12 +36,12 @@ public class ClassLiteralAccess extends Expression {
 		FlowInfo flowInfo) {
 
 		// if reachable, request the addition of a synthetic field for caching the class descriptor
-		SourceTypeBinding sourceType =
-			currentScope.outerMostMethodScope().enclosingSourceType();
-		if (!(sourceType.isInterface()
-			// no field generated in interface case (would'nt verify) see 1FHHEZL
-			|| sourceType.isBaseType())) {
-			syntheticField = sourceType.addSyntheticField(targetType, currentScope);
+		SourceTypeBinding sourceType = currentScope.outerMostClassScope().invocationType(); // AspectJ Extension - was .enclosingSourceType()
+		// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=22334
+		if (!sourceType.isInterface()
+				&& !sourceType.isBaseType()
+				&& currentScope.compilerOptions().sourceLevel < ClassFileConstants.JDK1_5) {
+			syntheticField = sourceType.addSyntheticFieldForClassLiteral(targetType, currentScope);
 		}
 		return flowInfo;
 	}
@@ -57,35 +60,57 @@ public class ClassLiteralAccess extends Expression {
 		int pc = codeStream.position;
 
 		// in interface case, no caching occurs, since cannot make a cache field for interface
-		if (valueRequired)
-			codeStream.generateClassLiteralAccessForType(type.binding, syntheticField);
+		if (valueRequired) {
+			codeStream.generateClassLiteralAccessForType(type.resolvedType, syntheticField);
+			codeStream.generateImplicitConversion(this.implicitConversion);
+		}
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
+	}
+
+	public StringBuffer printExpression(int indent, StringBuffer output) {
+
+		return type.print(0, output).append(".class"); //$NON-NLS-1$
 	}
 
 	public TypeBinding resolveType(BlockScope scope) {
 
-		constant = NotAConstant;
-		if ((targetType = type.resolveType(scope)) == null)
+		constant = Constant.NotAConstant;
+		if ((targetType = type.resolveType(scope, true /* check bounds*/)) == null)
 			return null;
 
-		if (targetType.isArrayType()
-			&& ((ArrayBinding) targetType).leafComponentType == VoidBinding) {
-			scope.problemReporter().cannotAllocateVoidArray(this);
-			return null;
+		if (targetType.isArrayType()) {
+			ArrayBinding arrayBinding = (ArrayBinding) this.targetType;
+			TypeBinding leafComponentType = arrayBinding.leafComponentType;
+			if (leafComponentType == TypeBinding.VOID) {
+				scope.problemReporter().cannotAllocateVoidArray(this);
+				return null;
+			} else if (leafComponentType.isTypeVariable()) {
+				scope.problemReporter().illegalClassLiteralForTypeVariable((TypeVariableBinding)leafComponentType, this);
+			}
+		} else if (this.targetType.isTypeVariable()) {
+			scope.problemReporter().illegalClassLiteralForTypeVariable((TypeVariableBinding)targetType, this);
 		}
-
-		return scope.getJavaLangClass();
-	}
-
-	public String toStringExpression() {
-
-		String s = ""; //$NON-NLS-1$
-		s = s + type.toString(0) + ".class"; //$NON-NLS-1$
-		return s;
+		ReferenceBinding classType = scope.getJavaLangClass();
+		if (classType.isGenericType()) {
+			// Integer.class --> Class<Integer>, perform boxing of base types (int.class --> Class<Integer>)
+			TypeBinding boxedType = null;
+			if (targetType.id == T_void) {
+				boxedType = scope.environment().getType(JAVA_LANG_VOID);
+				if (boxedType == null) {
+					boxedType = new ProblemReferenceBinding(JAVA_LANG_VOID, null, ProblemReasons.NotFound);
+				}
+			} else {
+				boxedType = scope.boxing(targetType);
+			}
+			this.resolvedType = scope.environment().createParameterizedType(classType, new TypeBinding[]{ boxedType }, null/*not a member*/);
+		} else {
+			this.resolvedType = classType;
+		}
+		return this.resolvedType;
 	}
 
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		BlockScope blockScope) {
 
 		if (visitor.visit(this, blockScope)) {

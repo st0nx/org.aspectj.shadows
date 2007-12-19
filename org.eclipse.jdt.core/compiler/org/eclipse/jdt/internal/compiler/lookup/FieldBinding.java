@@ -1,54 +1,64 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 
+/**
+ * AspectJ Extension added hooks for inter-type field bindings as well as
+ * proto-hooks for allowing privileged access
+ */
 public class FieldBinding extends VariableBinding {
 	public ReferenceBinding declaringClass;
 protected FieldBinding() {
+	super(null, null, 0, null);
+	// for creating problem field
 }
 public FieldBinding(char[] name, TypeBinding type, int modifiers, ReferenceBinding declaringClass, Constant constant) {
-	this.modifiers = modifiers;
-	this.type = type;
-	this.name = name;
+	super(name, type, modifiers, constant);
 	this.declaringClass = declaringClass;
-	this.constant = constant;
-
-	// propagate the deprecated modifier
-	if (this.declaringClass != null)
-		if (this.declaringClass.isViewedAsDeprecated() && !isDeprecated())
-			this.modifiers |= AccDeprecatedImplicitly;
 }
-public FieldBinding(FieldDeclaration field, TypeBinding type, ReferenceBinding declaringClass) {
-	this(field.name, type, field.modifiers, declaringClass, null);
-
-	field.binding = this;
+public FieldBinding(FieldDeclaration field, TypeBinding type, int modifiers, ReferenceBinding declaringClass) {
+	this(field.name, type, modifiers, declaringClass, null);
+	field.binding = this; // record binding in declaration
 }
 // special API used to change field declaring class for runtime visibility check
 public FieldBinding(FieldBinding initialFieldBinding, ReferenceBinding declaringClass) {
-	this.modifiers = initialFieldBinding.modifiers;
-	this.type = initialFieldBinding.type;
-	this.name = initialFieldBinding.name;
+	super(initialFieldBinding.name, initialFieldBinding.type, initialFieldBinding.modifiers, initialFieldBinding.constant());
 	this.declaringClass = declaringClass;
-	this.constant = initialFieldBinding.constant;
 	this.id = initialFieldBinding.id;
+    if (declaringClass!=null) setAnnotations(initialFieldBinding.getAnnotations());	// New AspectJ Extension - null guard
 }
 /* API
 * Answer the receiver's binding type from Binding.BindingID.
 */
 
-public final int bindingType() {
+public final int kind() {
 	return FIELD;
+}
+/* Answer true if the receiver is visible to the invocationPackage.
+*/
+
+public final boolean canBeSeenBy(PackageBinding invocationPackage) {
+	if (isPublic()) return true;
+	if (isPrivate()) return false;
+
+	// isProtected() or isDefault()
+	return invocationPackage == declaringClass.getPackage();
 }
 /* Answer true if the receiver is visible to the type provided by the scope.
 * InvocationSite implements isSuperAccess() to provide additional information
@@ -56,12 +66,15 @@ public final int bindingType() {
 *
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
-
-public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+//AspectJ Extension made non-final for AspectJ
+public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
 
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+	SourceTypeBinding invocationType = scope.invocationType(); // AspectJ Extension
 	if (invocationType == declaringClass && invocationType == receiverType) return true;
+
+	if (invocationType == null) // static import call
+		return !isPrivate() && scope.getCurrentPackage() == declaringClass.fPackage;
 
 	if (isProtected()) {
 		// answer true if the invocationType is the declaringClass or they are in the same package
@@ -71,22 +84,23 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 		//    OR previous assertions are true for one of the enclosing type
 		if (invocationType == declaringClass) return true;
 		if (invocationType.fPackage == declaringClass.fPackage) return true;
-		
+
 		ReferenceBinding currentType = invocationType;
 		int depth = 0;
+		ReferenceBinding receiverErasure = (ReferenceBinding)receiverType.erasure();
+		ReferenceBinding declaringErasure = (ReferenceBinding) declaringClass.erasure();
 		do {
-			if (declaringClass.isSuperclassOf(currentType)) {
-				if (invocationSite.isSuperAccess()){
+			if (currentType.findSuperTypeWithSameErasure(declaringErasure) != null) {
+				if (invocationSite.isSuperAccess())
 					return true;
-				}
 				// receiverType can be an array binding in one case... see if you can change it
-				if (receiverType instanceof ArrayBinding){
+				if (receiverType instanceof ArrayBinding)
 					return false;
-				}
-				if (isStatic()){
+				if (isStatic()) {
+					if (depth > 0) invocationSite.setDepth(depth);
 					return true; // see 1FMEPDL - return invocationSite.isTypeAccess();
 				}
-				if (currentType == receiverType || currentType.isSuperclassOf((ReferenceBinding) receiverType)){
+				if (currentType == receiverErasure || receiverErasure.findSuperTypeWithSameErasure(currentType) != null) {
 					if (depth > 0) invocationSite.setDepth(depth);
 					return true;
 				}
@@ -100,7 +114,14 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 	if (isPrivate()) {
 		// answer true if the receiverType is the declaringClass
 		// AND the invocationType and the declaringClass have a common enclosingType
-		if (receiverType != declaringClass) return false;
+		receiverCheck: {
+			if (receiverType != declaringClass) {
+				// special tolerance for type variable direct bounds
+				if (receiverType.isTypeVariable() && ((TypeVariableBinding) receiverType).isErasureBoundTo(declaringClass.erasure()))
+					break receiverCheck;
+				return false;
+			}
+		}
 
 		if (invocationType != declaringClass) {
 			ReferenceBinding outerInvocationType = invocationType;
@@ -110,7 +131,7 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 				temp = temp.enclosingType();
 			}
 
-			ReferenceBinding outerDeclaringClass = declaringClass;
+			ReferenceBinding outerDeclaringClass = (ReferenceBinding) declaringClass.erasure();
 			temp = outerDeclaringClass.enclosingType();
 			while (temp != null) {
 				outerDeclaringClass = temp;
@@ -122,22 +143,136 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 	}
 
 	// isDefault()
-	if (invocationType.fPackage != declaringClass.fPackage) return false;
+	PackageBinding declaringPackage = declaringClass.fPackage;
+	if (invocationType.fPackage != declaringPackage) return false;
 
 	// receiverType can be an array binding in one case... see if you can change it
 	if (receiverType instanceof ArrayBinding)
 		return false;
-	ReferenceBinding type = (ReferenceBinding) receiverType;
-	PackageBinding declaringPackage = declaringClass.fPackage;
+	ReferenceBinding currentType = (ReferenceBinding) receiverType;
 	do {
-		if (declaringClass == type) return true;
-		if (declaringPackage != type.fPackage) return false;
-	} while ((type = type.superclass()) != null);
+		if (declaringClass == currentType) return true;
+		PackageBinding currentPackage = currentType.fPackage;
+		// package could be null for wildcards/intersection types, ignore and recurse in superclass
+		if (currentPackage != null && currentPackage != declaringPackage) return false;
+	} while ((currentType = currentType.superclass()) != null);
 	return false;
 }
-public final int getAccessFlags() {
-	return modifiers & AccJustFlag;
+/*
+ * declaringUniqueKey dot fieldName ) returnTypeUniqueKey
+ * p.X { X<T> x} --> Lp/X;.x)p/X<TT;>;
+ */
+public char[] computeUniqueKey(boolean isLeaf) {
+	// declaring key
+	char[] declaringKey = 
+		this.declaringClass == null /*case of length field for an array*/ 
+			? CharOperation.NO_CHAR 
+			: this.declaringClass.computeUniqueKey(false/*not a leaf*/);
+	int declaringLength = declaringKey.length;
+	
+	// name
+	int nameLength = this.name.length;
+	
+	// return type
+	char[] returnTypeKey = this.type == null ? new char[] {'V'} : this.type.computeUniqueKey(false/*not a leaf*/);
+	int returnTypeLength = returnTypeKey.length;
+	
+	char[] uniqueKey = new char[declaringLength + 1 + nameLength + 1 + returnTypeLength];
+	int index = 0;
+	System.arraycopy(declaringKey, 0, uniqueKey, index, declaringLength);
+	index += declaringLength;
+	uniqueKey[index++] = '.';
+	System.arraycopy(this.name, 0, uniqueKey, index, nameLength);
+	index += nameLength;
+	uniqueKey[index++] = ')';
+	System.arraycopy(returnTypeKey, 0, uniqueKey, index, returnTypeLength);
+	return uniqueKey;
 }
+
+public Constant constant() {
+	Constant fieldConstant = this.constant;
+	if (fieldConstant == null) {
+		if (this.isFinal()) {
+			//The field has not been yet type checked.
+			//It also means that the field is not coming from a class that
+			//has already been compiled. It can only be from a class within
+			//compilation units to process. Thus the field is NOT from a BinaryTypeBinbing
+			FieldBinding originalField = this.original();
+			if (originalField.declaringClass instanceof SourceTypeBinding) {
+				SourceTypeBinding sourceType = (SourceTypeBinding) originalField.declaringClass;
+				if (sourceType.scope != null) {
+					TypeDeclaration typeDecl = sourceType.scope.referenceContext;
+					FieldDeclaration fieldDecl = typeDecl.declarationOf(originalField);
+					fieldDecl.resolve(originalField.isStatic() //side effect on binding 
+							? typeDecl.staticInitializerScope
+							: typeDecl.initializerScope);
+					fieldConstant = originalField.constant();
+				} else {
+					fieldConstant = Constant.NotAConstant; // shouldn't occur per construction (paranoid null check)
+				} 
+			} else {
+				fieldConstant = Constant.NotAConstant; // shouldn't occur per construction (paranoid null check)
+			}
+		} else {
+			fieldConstant = Constant.NotAConstant;
+		}
+		this.constant = fieldConstant;
+	}
+	return fieldConstant;
+}
+/**
+ * X<T> t   -->  LX<TT;>;
+ */
+public char[] genericSignature() {
+    if ((this.modifiers & ExtraCompilerModifiers.AccGenericSignature) == 0) return null;
+    return this.type.genericTypeSignature();
+}
+
+public final int getAccessFlags() {
+	return modifiers & ExtraCompilerModifiers.AccJustFlag;
+}
+
+/**
+ * Compute the tagbits for standard annotations. For source types, these could require
+ * lazily resolving corresponding annotation nodes, in case of forward references.
+ * @see org.eclipse.jdt.internal.compiler.lookup.Binding#getAnnotationTagBits()
+ */
+public long getAnnotationTagBits() {
+	FieldBinding originalField = this.original();
+	if ((originalField.tagBits & TagBits.AnnotationResolved) == 0 && originalField.declaringClass instanceof SourceTypeBinding) {
+		ClassScope scope = ((SourceTypeBinding) originalField.declaringClass).scope;
+		if (scope == null) { // synthetic fields do not have a scope nor any annotations
+			this.tagBits |= (TagBits.AnnotationResolved | TagBits.DeprecatedAnnotationResolved);
+			return 0;
+		}
+		TypeDeclaration typeDecl = scope.referenceContext;
+		FieldDeclaration fieldDecl = typeDecl.declarationOf(originalField);
+		if (fieldDecl != null) {
+			MethodScope initializationScope = isStatic() ? typeDecl.staticInitializerScope : typeDecl.initializerScope;
+			FieldBinding previousField = initializationScope.initializedField;
+			int previousFieldID = initializationScope.lastVisibleFieldID;			
+			try {
+				initializationScope.initializedField = originalField;
+				initializationScope.lastVisibleFieldID = originalField.id;
+				ASTNode.resolveAnnotations(initializationScope, fieldDecl.annotations, originalField);
+			} finally {
+				initializationScope.initializedField = previousField;
+				initializationScope.lastVisibleFieldID = previousFieldID;
+			}
+		}
+	}
+	return originalField.tagBits;
+}
+
+public AnnotationBinding[] getAnnotations() {
+	FieldBinding originalField = this.original();
+	ReferenceBinding declaringClassBinding = originalField.declaringClass;
+	if (declaringClassBinding == null) {
+		return Binding.NO_ANNOTATIONS;
+	}	
+	return declaringClassBinding.retrieveAnnotations(originalField);
+}
+
 /* Answer true if the receiver has default visibility
 */
 
@@ -148,55 +283,112 @@ public final boolean isDefault() {
 */
 
 public final boolean isDeprecated() {
-	return (modifiers & AccDeprecated) != 0;
+	return (modifiers & ClassFileConstants.AccDeprecated) != 0;
 }
 /* Answer true if the receiver has private visibility
 */
 
 public final boolean isPrivate() {
-	return (modifiers & AccPrivate) != 0;
+	return (modifiers & ClassFileConstants.AccPrivate) != 0;
+}
+/* Answer true if the receiver has private visibility and is used locally
+*/
+
+public final boolean isUsed() {
+	return (modifiers & ExtraCompilerModifiers.AccLocallyUsed) != 0;
 }
 /* Answer true if the receiver has protected visibility
 */
 
 public final boolean isProtected() {
-	return (modifiers & AccProtected) != 0;
+	return (modifiers & ClassFileConstants.AccProtected) != 0;
 }
 /* Answer true if the receiver has public visibility
 */
 
 public final boolean isPublic() {
-	return (modifiers & AccPublic) != 0;
+	return (modifiers & ClassFileConstants.AccPublic) != 0;
 }
 /* Answer true if the receiver is a static field
 */
 
 public final boolean isStatic() {
-	return (modifiers & AccStatic) != 0;
+	return (modifiers & ClassFileConstants.AccStatic) != 0;
 }
 /* Answer true if the receiver is not defined in the source of the declaringClass
 */
 
 public final boolean isSynthetic() {
-	return (modifiers & AccSynthetic) != 0;
+	return (modifiers & ClassFileConstants.AccSynthetic) != 0;
 }
 /* Answer true if the receiver is a transient field
 */
 
 public final boolean isTransient() {
-	return (modifiers & AccTransient) != 0;
+	return (modifiers & ClassFileConstants.AccTransient) != 0;
 }
 /* Answer true if the receiver's declaring type is deprecated (or any of its enclosing types)
 */
 
 public final boolean isViewedAsDeprecated() {
-	return (modifiers & AccDeprecated) != 0 ||
-		(modifiers & AccDeprecatedImplicitly) != 0;
+	return (modifiers & (ClassFileConstants.AccDeprecated | ExtraCompilerModifiers.AccDeprecatedImplicitly)) != 0;
 }
 /* Answer true if the receiver is a volatile field
 */
 
 public final boolean isVolatile() {
-	return (modifiers & AccVolatile) != 0;
+	return (modifiers & ClassFileConstants.AccVolatile) != 0;
 }
+/**
+ * Returns the original field (as opposed to parameterized instances)
+ */
+public FieldBinding original() {
+	return this;
+}
+public void setAnnotations(AnnotationBinding[] annotations) {
+	this.declaringClass.storeAnnotations(this, annotations);
+}
+public FieldDeclaration sourceField() {
+	SourceTypeBinding sourceType;
+	try {
+		sourceType = (SourceTypeBinding) declaringClass;
+	} catch (ClassCastException e) {
+		return null;		
+	}
+
+	FieldDeclaration[] fields = sourceType.scope.referenceContext.fields;
+	if (fields != null) {
+		for (int i = fields.length; --i >= 0;)
+			if (this == fields[i].binding)
+				return fields[i];
+	}
+	return null;		
+}
+
+// AspectJ Extension
+public boolean alwaysNeedsAccessMethod(boolean isReadAccess) { return false; }
+public SyntheticMethodBinding getAccessMethod(boolean isReadAccess) {
+	throw new RuntimeException("unimplemented");
+}
+
+public FieldBinding getFieldBindingForLookup() { return this; }
+
+public FieldBinding getVisibleBinding(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+	boolean isVisible = (invocationSite==null?
+            canBeSeenBy(scope.getCurrentPackage()):
+            canBeSeenBy(receiverType,invocationSite,scope));
+	if (isVisible) return this;
+	return findPrivilegedBinding(scope.invocationType(), (ASTNode)invocationSite);
+}
+
+
+public FieldBinding findPrivilegedBinding(SourceTypeBinding invocationType, ASTNode location) {
+	if (Scope.findPrivilegedHandler(invocationType) != null) {
+		return Scope.findPrivilegedHandler(invocationType).getPrivilegedAccessField(this, location); //notePrivilegedTypeAccess(this, null);
+	} else {
+		return null;
+	}
+}
+// End AspectJ Extension
+
 }

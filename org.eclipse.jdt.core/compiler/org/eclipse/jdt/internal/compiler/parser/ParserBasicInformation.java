@@ -1,36 +1,35 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.parser;
 
 /*An interface that contains static declarations for some basic information
  about the parser such as the number of rules in the grammar, the starting state, etc...*/
-
 public interface ParserBasicInformation {
+	int   
+    ERROR_SYMBOL      = 117,
+    MAX_NAME_LENGTH   = 41,
+    NUM_STATES        = 1120,
 
-    public final static int
-      ERROR_SYMBOL      = 307,
-      MAX_NAME_LENGTH   = 36,
-      NUM_STATES        = 591,
-      NT_OFFSET         = 308,
-      SCOPE_UBOUND      = -1,
-      SCOPE_SIZE        = 0,
-      LA_STATE_OFFSET   = 16966,
-      MAX_LA            = 1,
-      NUM_RULES         = 436,
-      NUM_TERMINALS     = 105,
-      NUM_NON_TERMINALS = 203,
-      NUM_SYMBOLS       = 308,
-      START_STATE       = 12260,
-      EOFT_SYMBOL       = 158,
-      EOLT_SYMBOL       = 158,
-      ACCEPT_ACTION     = 16965,
-      ERROR_ACTION      = 16966;
+    NT_OFFSET         = 117,
+    SCOPE_UBOUND      = 179,
+    SCOPE_SIZE        = 180,
+    LA_STATE_OFFSET   = 15709,
+    MAX_LA            = 1,
+    NUM_RULES         = 875,
+    NUM_TERMINALS     = 117,
+    NUM_NON_TERMINALS = 368,
+    NUM_SYMBOLS       = 485,
+    START_STATE       = 910,
+    EOFT_SYMBOL       = 74,
+    EOLT_SYMBOL       = 74,
+    ACCEPT_ACTION     = 15708,
+    ERROR_ACTION      = 15709;
 }

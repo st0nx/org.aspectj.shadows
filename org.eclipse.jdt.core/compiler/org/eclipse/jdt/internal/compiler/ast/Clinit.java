@@ -1,34 +1,47 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
-import org.eclipse.jdt.internal.compiler.*;
-import org.eclipse.jdt.internal.compiler.codegen.*;
-import org.eclipse.jdt.internal.compiler.flow.*;
-import org.eclipse.jdt.internal.compiler.lookup.*;
-import org.eclipse.jdt.internal.compiler.parser.*;
-import org.eclipse.jdt.internal.compiler.problem.*;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
+import org.eclipse.jdt.internal.compiler.ClassFile;
+import org.eclipse.jdt.internal.compiler.CompilationResult;
+import org.eclipse.jdt.internal.compiler.codegen.BranchLabel;
+import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
+import org.eclipse.jdt.internal.compiler.codegen.ConstantPool;
+import org.eclipse.jdt.internal.compiler.flow.ExceptionHandlingFlowContext;
+import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
+import org.eclipse.jdt.internal.compiler.flow.InitializationFlowContext;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
+import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
+import org.eclipse.jdt.internal.compiler.lookup.ClassScope;
+import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
+import org.eclipse.jdt.internal.compiler.lookup.MethodScope;
+import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
+import org.eclipse.jdt.internal.compiler.parser.Parser;
+import org.eclipse.jdt.internal.compiler.problem.AbortMethod;
 
+/**
+ * AspectJ Extension added template method for subclasses to insert more code.
+ */
 public class Clinit extends AbstractMethodDeclaration {
 	
-	public final static char[] ConstantPoolName = "<clinit>".toCharArray(); //$NON-NLS-1$
-
 	private FieldBinding assertionSyntheticFieldBinding = null;
 	private FieldBinding classLiteralSyntheticField = null;
 
 	public Clinit(CompilationResult compilationResult) {
 		super(compilationResult);
 		modifiers = 0;
-		selector = ConstantPoolName;
+		selector = TypeConstants.CLINIT;
 	}
 
 	public void analyseCode(
@@ -43,13 +56,14 @@ public class Clinit extends AbstractMethodDeclaration {
 				new ExceptionHandlingFlowContext(
 					staticInitializerFlowContext.parent,
 					this,
-					NoExceptions,
+					Binding.NO_EXCEPTIONS,
 					scope,
-					FlowInfo.DeadEnd);
+					FlowInfo.DEAD_END);
 
 			// check for missing returning path
-			needFreeReturn =
-				!((flowInfo == FlowInfo.DeadEnd) || flowInfo.isFakeReachable());
+			if ((flowInfo.tagBits & FlowInfo.UNREACHABLE) == 0) {
+				this.bits |= ASTNode.NeedFreeReturn;
+			}
 
 			// check missing blank final field initializations
 			flowInfo = flowInfo.mergedWith(staticInitializerFlowContext.initsOnReturn);
@@ -61,7 +75,7 @@ public class Clinit extends AbstractMethodDeclaration {
 					&& (!flowInfo.isDefinitelyAssigned(fields[i]))) {
 					scope.problemReporter().uninitializedBlankFinalField(
 						field,
-						scope.referenceType().declarationOf(field));
+						scope.referenceType().declarationOf(field.original()));
 					// can complain against the field decl, since only one <clinit>
 				}
 			}
@@ -102,10 +116,6 @@ public class Clinit extends AbstractMethodDeclaration {
 			if (e.compilationResult == CodeStream.RESTART_IN_WIDE_MODE) {
 				// a branch target required a goto_w, restart code gen in wide mode.
 				try {
-					if (statements != null) {
-						for (int i = 0, max = statements.length; i < max; i++)
-							statements[i].resetStateForCodeGeneration();
-					}
 					classFile.contentsOffset = clinitOffset;
 					classFile.methodCount--;
 					classFile.codeStream.wideMode = true; // request wide mode 
@@ -147,38 +157,119 @@ public class Clinit extends AbstractMethodDeclaration {
 		TypeDeclaration declaringType = classScope.referenceContext;
 
 		// initialize local positions - including initializer scope.
-		scope.computeLocalVariablePositions(0, codeStream); // should not be necessary
 		MethodScope staticInitializerScope = declaringType.staticInitializerScope;
 		staticInitializerScope.computeLocalVariablePositions(0, codeStream);
-		// offset by the argument size
 
 		// 1.4 feature
 		// This has to be done before any other initialization
-		if (this.assertionSyntheticFieldBinding != null) {
-			// generate code related to the activation of assertion for this class
-			codeStream.generateClassLiteralAccessForType(
-				classScope.enclosingSourceType(),
-				classLiteralSyntheticField);
-			codeStream.invokeJavaLangClassDesiredAssertionStatus();
-			Label falseLabel = new Label(codeStream);
-			codeStream.ifne(falseLabel);
-			codeStream.iconst_1();
-			Label jumpLabel = new Label(codeStream);
-			codeStream.goto_(jumpLabel);
-			falseLabel.place();
-			codeStream.iconst_0();
-			jumpLabel.place();
-			codeStream.putstatic(this.assertionSyntheticFieldBinding);
-		}
-		// generate initializers
-		if (declaringType.fields != null) {
-			for (int i = 0, max = declaringType.fields.length; i < max; i++) {
-				FieldDeclaration fieldDecl;
-				if ((fieldDecl = declaringType.fields[i]).isStatic()) {
-					fieldDecl.generateCode(staticInitializerScope, codeStream);
+		// AspectJ Extension - move logic to helper method
+		// was:
+		//if (this.assertionSyntheticFieldBinding != null) {
+		//	// generate code related to the activation of assertion for this class
+		//	codeStream.generateClassLiteralAccessForType(
+		//			classScope.outerMostClassScope().enclosingSourceType(),
+		//			this.classLiteralSyntheticField);
+		//	codeStream.invokeJavaLangClassDesiredAssertionStatus();
+		//	BranchLabel falseLabel = new BranchLabel(codeStream);
+		//	codeStream.ifne(falseLabel);
+		//	codeStream.iconst_1();
+		//	BranchLabel jumpLabel = new BranchLabel(codeStream);
+		//	codeStream.decrStackSize(1);
+		//	codeStream.goto_(jumpLabel);
+		//	falseLabel.place();
+		//	codeStream.iconst_0();
+		//	jumpLabel.place();
+		//	codeStream.putstatic(this.assertionSyntheticFieldBinding);
+		//}
+		generateSyntheticCode(classScope, codeStream);
+		// End AspectJ Extension
+		
+		// generate static fields/initializers/enum constants
+		final FieldDeclaration[] fieldDeclarations = declaringType.fields;
+		BlockScope lastInitializerScope = null;
+		if (TypeDeclaration.kind(declaringType.modifiers) == TypeDeclaration.ENUM_DECL) {
+			int enumCount = 0;
+			int remainingFieldCount = 0;
+			if (fieldDeclarations != null) {
+				for (int i = 0, max = fieldDeclarations.length; i < max; i++) {
+					FieldDeclaration fieldDecl = fieldDeclarations[i];
+					if (fieldDecl.isStatic()) {
+						if (fieldDecl.getKind() == AbstractVariableDeclaration.ENUM_CONSTANT) {
+							fieldDecl.generateCode(staticInitializerScope, codeStream);
+							enumCount++;
+						} else {
+							remainingFieldCount++;
+						}
+					}
+				}
+			}
+			// enum need to initialize $VALUES synthetic cache of enum constants
+			// $VALUES := new <EnumType>[<enumCount>]
+			codeStream.generateInlinedValue(enumCount);
+			codeStream.anewarray(declaringType.binding);
+			if (enumCount > 0) {
+				if (fieldDeclarations != null) {
+					for (int i = 0, max = fieldDeclarations.length; i < max; i++) {
+						FieldDeclaration fieldDecl = fieldDeclarations[i];
+						// $VALUES[i] = <enum-constant-i>
+						if (fieldDecl.getKind() == AbstractVariableDeclaration.ENUM_CONSTANT) {
+							codeStream.dup();
+							codeStream.generateInlinedValue(fieldDecl.binding.id);
+							codeStream.getstatic(fieldDecl.binding);
+							codeStream.aastore();
+						}
+					}
+				}
+			}
+			codeStream.putstatic(declaringType.enumValuesSyntheticfield);
+			if (remainingFieldCount != 0) {
+				// if fields that are not enum constants need to be generated (static initializer/static field)
+				for (int i = 0, max = fieldDeclarations.length; i < max; i++) {
+					FieldDeclaration fieldDecl = fieldDeclarations[i];
+					switch (fieldDecl.getKind()) {
+						case AbstractVariableDeclaration.ENUM_CONSTANT :
+							break;
+						case AbstractVariableDeclaration.INITIALIZER :
+							if (!fieldDecl.isStatic()) 
+								break;
+							lastInitializerScope = ((Initializer) fieldDecl).block.scope;
+							fieldDecl.generateCode(staticInitializerScope, codeStream);
+							break;
+						case AbstractVariableDeclaration.FIELD :
+							if (!fieldDecl.binding.isStatic()) 
+								break;
+							lastInitializerScope = null;
+							fieldDecl.generateCode(staticInitializerScope, codeStream);
+							break;
+					}
+				}
+			}
+		} else {
+			if (fieldDeclarations != null) {
+				for (int i = 0, max = fieldDeclarations.length; i < max; i++) {
+					FieldDeclaration fieldDecl = fieldDeclarations[i];
+					switch (fieldDecl.getKind()) {
+						case AbstractVariableDeclaration.INITIALIZER :
+							if (!fieldDecl.isStatic()) 
+								break;
+							lastInitializerScope = ((Initializer) fieldDecl).block.scope;
+							fieldDecl.generateCode(staticInitializerScope, codeStream);
+							break;
+						case AbstractVariableDeclaration.FIELD :
+							if (!fieldDecl.binding.isStatic()) 
+								break;
+							lastInitializerScope = null;
+							fieldDecl.generateCode(staticInitializerScope, codeStream);
+							break;
+					}
 				}
 			}
 		}
+		
+		// AspectJ Extension
+		generatePostSyntheticCode(classScope, codeStream);
+		// End AspectJ Extension
+		
 		if (codeStream.position == 0) {
 			// do not need to output a Clinit if no bytecodes
 			// so we reset the offset inside the byte array contents.
@@ -188,16 +279,46 @@ public class Clinit extends AbstractMethodDeclaration {
 			// reset the constant pool to its state before the clinit
 			constantPool.resetForClinit(constantPoolIndex, constantPoolOffset);
 		} else {
-			if (needFreeReturn) {
-				int oldPosition = codeStream.position;
+			if ((this.bits & ASTNode.NeedFreeReturn) != 0) {
+				int before = codeStream.position;
 				codeStream.return_();
-				codeStream.updateLocalVariablesAttribute(oldPosition);
+				if (lastInitializerScope != null) {
+					// expand the last initializer variables to include the trailing return
+					codeStream.updateLastRecordedEndPC(lastInitializerScope, before);
+				}
 			}
 			// Record the end of the clinit: point to the declaration of the class
 			codeStream.recordPositionsFrom(0, declaringType.sourceStart);
 			classFile.completeCodeAttributeForClinit(codeAttributeOffset);
 		}
 	}
+	
+	// AspectJ Extension
+	protected void generateSyntheticCode(ClassScope classScope, CodeStream codeStream) {
+		if (this.assertionSyntheticFieldBinding != null) {
+			// generate code related to the activation of assertion for this class
+			codeStream.generateClassLiteralAccessForType(
+					classScope.outerMostClassScope().enclosingSourceType(),
+				classLiteralSyntheticField);
+			codeStream.invokeJavaLangClassDesiredAssertionStatus();
+			BranchLabel falseLabel = new BranchLabel(codeStream);
+			codeStream.ifne(falseLabel);
+			codeStream.iconst_1();
+			BranchLabel jumpLabel = new BranchLabel(codeStream);
+			codeStream.decrStackSize(1);
+			codeStream.goto_(jumpLabel);
+			falseLabel.place();
+			codeStream.iconst_0();
+			jumpLabel.place();
+			codeStream.putstatic(this.assertionSyntheticFieldBinding);
+		}
+	}
+
+	protected void generatePostSyntheticCode(
+		ClassScope classScope,
+		CodeStream codeStream) {
+		}
+	// End AspectJ Extension
 
 	public boolean isClinit() {
 
@@ -218,38 +339,39 @@ public class Clinit extends AbstractMethodDeclaration {
 		//the clinit is filled by hand .... 
 	}
 
-	public void resolve(ClassScope scope) {
+	public StringBuffer print(int tab, StringBuffer output) {
 
-		this.scope = new MethodScope(scope, scope.referenceContext, true);
+		printIndent(tab, output).append("<clinit>()"); //$NON-NLS-1$
+		printBody(tab + 1, output);
+		return output;
 	}
 
-	public String toString(int tab) {
+	public void resolve(ClassScope classScope) {
 
-		String s = ""; //$NON-NLS-1$
-		s = s + tabString(tab);
-		s = s + "<clinit>()"; //$NON-NLS-1$
-		s = s + toStringStatements(tab + 1);
-		return s;
+		this.scope = new MethodScope(classScope, classScope.referenceContext, true);
 	}
 
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		ClassScope classScope) {
 
 		visitor.visit(this, classScope);
 		visitor.endVisit(this, classScope);
 	}
 
-	// 1.4 feature
-	public void addSupportForAssertion(FieldBinding assertionSyntheticFieldBinding) {
+	public void setAssertionSupport(FieldBinding assertionSyntheticFieldBinding, boolean needClassLiteralField) {
 
 		this.assertionSyntheticFieldBinding = assertionSyntheticFieldBinding;
 
 		// we need to add the field right now, because the field infos are generated before the methods
-		SourceTypeBinding sourceType =
-			this.scope.outerMostMethodScope().enclosingSourceType();
-		this.classLiteralSyntheticField =
-			sourceType.addSyntheticField(sourceType, scope);
+		if (needClassLiteralField) {
+			SourceTypeBinding sourceType =
+				this.scope.outerMostClassScope().enclosingSourceType();
+			// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=22334
+			if (!sourceType.isInterface() && !sourceType.isBaseType()) {			
+				this.classLiteralSyntheticField = sourceType.addSyntheticFieldForClassLiteral(sourceType, scope);
+			}
+		}
 	}
 
 }
