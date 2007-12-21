@@ -63,7 +63,7 @@ public MethodBinding(MethodBinding initialMethodBinding, ReferenceBinding declar
 	this.parameters = initialMethodBinding.parameters;
 	this.thrownExceptions = initialMethodBinding.thrownExceptions;
 	this.declaringClass = declaringClass;
-	declaringClass.storeAnnotationHolder(this, initialMethodBinding.declaringClass.retrieveAnnotationHolder(initialMethodBinding, true));
+	if (declaringClass!=null) declaringClass.storeAnnotationHolder(this, initialMethodBinding.declaringClass.retrieveAnnotationHolder(initialMethodBinding, true)); // New AspectJ Extension - check for null
 }
 /* Answer true if the argument types & the receiver's parameters have the same erasure
 */
@@ -177,7 +177,7 @@ public boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 
     ReferenceBinding declaringType = original().declaringClass;  // AspectJ Extension - new local variable to hold the declaringType
 
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+	SourceTypeBinding invocationType = scope.invocationType();//NewNew AspectJ Extension - enclosingSourceType();
 	if (invocationType == declaringType) return true; // AspectJ Extension - was declaringClass
 
 	if (isProtected()) {
@@ -260,7 +260,7 @@ public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSi
         // ReferenceBinding currentType = invocationType;
         // with:
 		// for protected we need to check based on the type of this
-		ReferenceBinding currentType = scope.enclosingSourceType();
+		ReferenceBinding currentType = scope.enclosingSourceType(); //invocationType();// NewNew AspectJ Extension - was enclosingSourceType();
 		// MUST be in the same package as the invocationType though... (pr 71723)
 		if (invocationType != currentType) {
 		    // this MUST be an ITD
