@@ -729,11 +729,11 @@ public class SingleNameReference extends NameReference implements OperatorIds {
 			if (((bits & DepthMASK) != 0)
 				&& (codegenField.isPrivate() // private access
 					|| (codegenField.isProtected() // implicit protected access
-							&& codegenField.declaringClass.getPackage() != currentScope.enclosingSourceType().getPackage()))) {
+							&& codegenField.declaringClass.getPackage() != currentScope.invocationType().getPackage()))) { // AspectJ Extension
 				if (syntheticAccessors == null)
 					syntheticAccessors = new MethodBinding[2];
 				syntheticAccessors[isReadAccess ? READ : WRITE] = 
-				    ((SourceTypeBinding)currentScope.enclosingSourceType().
+				    ((SourceTypeBinding)currentScope.invocationType(). // AspectJ Extension
 						enclosingTypeAt((bits & DepthMASK) >> DepthSHIFT)).addSyntheticMethod(codegenField, isReadAccess);
 				currentScope.problemReporter().needToEmulateFieldAccess(codegenField, this, isReadAccess);
 				return;
