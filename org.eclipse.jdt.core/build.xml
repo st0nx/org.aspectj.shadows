@@ -1,6 +1,6 @@
 <project name="ShadowJdtCore" basedir="." default="make.jdtcore.jar">
     
-	<property name="eclipse.home" value="/Users/99/Desktop/eclipse"/>
+	<property name="eclipse.home" value="/Users/aclement/e33/eclipse"/>
     <property name="plugins.dir" value="${eclipse.home}/plugins"/>
     <property name="plugins.src.dir" value="${plugins.dir}/org.eclipse.platform.source_${eclipse.version}/src"/>
     <property name="aspectjtools.jar" value=""/>
@@ -8,6 +8,7 @@
 	<!-- build the jdtDepends.jar and jdtDepends-src.zip files -->
     <target name="makeJdtDepends">
         <delete file="lib/jdtDepends.jar"/>
+    	<mkdir dir="lib"/>
         <jar destfile="lib/jdtDepends.jar">
 
         	<zipfileset src="${plugins.dir}/org.eclipse.equinox.registry_3.3.1.R33x_v20070802.jar"/>
@@ -16,16 +17,17 @@
         	<zipfileset src="${plugins.dir}/org.eclipse.core.jobs_3.3.1.R33x_v20070709.jar"/>
         	<zipfileset src="${plugins.dir}/org.eclipse.core.resources_3.3.0.v20070604.jar"/>
         	<zipfileset src="${plugins.dir}/org.eclipse.core.runtime_3.3.100.v20070530.jar"/>
+
+        	<zipfileset src="${plugins.dir}/org.eclipse.equinox.preferences_3.2.100.v20070522.jar"/>
+        	<zipfileset src="${plugins.dir}/org.eclipse.equinox.app_1.0.1.R33x_v20070828.jar"/>
+        	<zipfileset src="${plugins.dir}/org.eclipse.text_3.3.0.v20070606-0010.jar"/>
+        	<zipfileset src="${plugins.dir}/org.eclipse.core.filesystem_1.1.0.v20070606.jar"/>
+        	<zipfileset src="${plugins.dir}/org.eclipse.core.contenttype_3.2.100.v20070319.jar"/>
+        	<zipfileset src="${plugins.dir}/org.eclipse.core.runtime.compatibility.registry_3.2.100.v20070316/runtime_registry_compatibility.jar"/>
             
      	    <!-- These are dependencies the original version 785 compiler had but we do not need because of how we use it -->
         	<!--        	   
-        	<zipfileset src="${plugins.dir}/org.eclipse.core.filesystem_1.1.0.v20070606.jar"/>
-        	<zipfileset src="${plugins.dir}/org.eclipse.core.contenttype_3.2.100.v20070319.jar"/>
-        	<zipfileset src="${plugins.dir}/org.eclipse.text_3.3.0.v20070606-0010.jar"/>
-        	<zipfileset src="${plugins.dir}/org.eclipse.core.runtime.compatibility.registry_3.2.100.v20070316/runtime_registry_compatibility.jar"/>
         	<zipfileset src="${plugins.dir}/org.eclipse.team.core_3.3.1.r33x_20070807.jar"/>
-        	<zipfileset src="${plugins.dir}/org.eclipse.equinox.preferences_3.2.100.v20070522.jar"/>
-        	<zipfileset src="${plugins.dir}/org.eclipse.equinox.app_1.0.1.R33x_v20070828.jar"/>
             <zipfileset src="${plugins.dir}/org.apache.ant_1.7.0.v200706080842/lib/ant.jar"/>            
             -->
         </jar>
