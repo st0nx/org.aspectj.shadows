@@ -283,7 +283,7 @@ public int literalIndex(byte[] utf8encoding, char[] stringCharArray) {
 		// add in once the whole byte array
 		System.arraycopy(utf8encoding, 0, poolContent, currentOffset, utf8encodingLength);
 		currentOffset += utf8encodingLength;
-	}	if (index==1025) new RuntimeException("").printStackTrace();
+	}
 
 	return index;
 }
@@ -350,7 +350,7 @@ public int literalIndex(char[] utf8Constant) {
 		// we use savedCurrentOffset to do that
 		poolContent[savedCurrentOffset] = (byte) (length >> 8);
 		poolContent[savedCurrentOffset + 1] = (byte) length;
-	}	if (index==1025) new RuntimeException("").printStackTrace();
+	}
 
 	return index;
 }
@@ -374,7 +374,7 @@ public int literalIndex(char[] stringCharArray, byte[] utf8encoding) {
 		final int stringIndex = literalIndex(utf8encoding, stringCharArray);
 		poolContent[stringIndexOffset++] = (byte) (stringIndex >> 8);
 		poolContent[stringIndexOffset] = (byte) stringIndex;
-	}	if (index==1025) new RuntimeException("").printStackTrace();
+	}
 
 	return index;
 }
@@ -418,7 +418,7 @@ public int literalIndex(double key) {
 		poolContent[currentOffset++] = (byte) (temp >>> 16);
 		poolContent[currentOffset++] = (byte) (temp >>> 8);
 		poolContent[currentOffset++] = (byte) temp;
-	}	if (index==1025) new RuntimeException("").printStackTrace();
+	}
 
 	return index;
 }
@@ -455,7 +455,7 @@ public int literalIndex(float key) {
 		poolContent[currentOffset++] = (byte) (temp >>> 16);
 		poolContent[currentOffset++] = (byte) (temp >>> 8);
 		poolContent[currentOffset++] = (byte) temp;
-	}	if (index==1025) new RuntimeException("").printStackTrace();
+	}
 
 	return index;
 }
@@ -492,7 +492,7 @@ public int literalIndex(int key) {
 		poolContent[currentOffset++] = (byte) (key >>> 8);
 		poolContent[currentOffset++] = (byte) key;
 	}
-	if (index==1025) new RuntimeException("").printStackTrace();
+
 	return index;
 }
 /**
@@ -563,7 +563,6 @@ public int literalIndex(String stringConstant) {
 		poolContent[stringIndexOffset++] = (byte) (stringIndex >> 8);
 		poolContent[stringIndexOffset] = (byte) stringIndex;
 	}	
-	if (index==1025) new RuntimeException("").printStackTrace();
 
 	return index;
 }
@@ -586,7 +585,7 @@ public int literalIndexForType(final char[] constantPoolName) {
 		final int nameIndex = literalIndex(constantPoolName);
 		poolContent[nameIndexOffset++] = (byte) (nameIndex >> 8);
 		poolContent[nameIndexOffset] = (byte) nameIndex;
-	}	if (index==1025) new RuntimeException("").printStackTrace();
+	}
 
 	return index;
 }
@@ -627,7 +626,7 @@ public int literalIndexForMethod(char[] declaringClass, char[] selector, char[] 
 		poolContent[classIndexOffset++] = (byte) classIndex;
 		poolContent[classIndexOffset++] = (byte) (nameAndTypeIndex >> 8);
 		poolContent[classIndexOffset] = (byte) nameAndTypeIndex;
-	}	if (index==1025) new RuntimeException("").printStackTrace();
+	}
 
 	return index;
 }
@@ -658,7 +657,7 @@ public int literalIndexForNameAndType(char[] name, char[] signature) {
 		poolContent[nameIndexOffset++] = (byte) nameIndex;
 		poolContent[nameIndexOffset++] = (byte) (typeIndex >> 8);
 		poolContent[nameIndexOffset] = (byte) typeIndex;
-	}	if (index==1025) new RuntimeException("").printStackTrace();
+	}
 
 	return index;
 }
@@ -686,8 +685,7 @@ public int literalIndexForField(char[] declaringClass, char[] name, char[] signa
 		poolContent[classIndexOffset++] = (byte) classIndex;
 		poolContent[classIndexOffset++] = (byte) (nameAndTypeIndex >> 8);
 		poolContent[classIndexOffset] = (byte) nameAndTypeIndex;		
-	}	if (index==1025) new RuntimeException("").printStackTrace();
-
+	}
 	return index;
 }
 /**
@@ -780,8 +778,7 @@ public int literalIndexForLdc(char[] stringCharArray) {
 		}
 		poolContent[stringIndexOffset++] = (byte) (stringIndex >> 8);
 		poolContent[stringIndexOffset] = (byte) stringIndex;
-	}	if (index==1025) new RuntimeException("").printStackTrace();
-
+	}	
 	return index;
 }
 /**
@@ -811,8 +808,7 @@ private int putInNameAndTypeCacheIfAbsent(final char[] key1, final char[] key2, 
 	} else {
 		CharArrayCache charArrayCache = (CharArrayCache) key1Value;
 		index = charArrayCache.putIfAbsent(key2, value);
-	}	if (index==1025) new RuntimeException("").printStackTrace();
-
+	}
 	return index;
 }
 /**
@@ -852,7 +848,7 @@ private int putInCacheIfAbsent(final char[] key1, final char[] key2, final char[
 			CharArrayCache charArrayCache = (CharArrayCache) key2Value;
 			index = charArrayCache.putIfAbsent(key3, value);			
 		}
-	}	if (index==1025) new RuntimeException("").printStackTrace();
+	}
 
 	return index;
 }
