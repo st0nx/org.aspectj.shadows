@@ -195,12 +195,12 @@ public void checkAndSetImports() { // AspectJ Extension - raised to public
 	if (resolvedImports.length > index)
 		System.arraycopy(resolvedImports, 0, resolvedImports = new ImportBinding[index], 0, index);
 	imports = resolvedImports;
-}
+} 
 
 /**
  * Perform deferred check specific to parameterized types: bound checks, supertype collisions
  */
-void checkParameterizedTypes() {
+public void checkParameterizedTypes() { // AspectJ Extension - raised to public
 	if (compilerOptions().sourceLevel < ClassFileConstants.JDK1_5) return;
 
 	for (int i = 0, length = topLevelTypes.length; i < length; i++) {
