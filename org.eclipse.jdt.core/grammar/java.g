@@ -910,6 +910,9 @@ PseudoToken ::= '*'
 PseudoToken ::= '+'
 /.$putCase consumePseudoToken("+"); $break ./
 
+PseudoToken ::= '='
+/.$putCase consumePseudoToken("="); $break ./
+
 PseudoToken ::= '&&'
 /.$putCase consumePseudoToken("&&"); $break ./
 
