@@ -1018,6 +1018,8 @@ public TypeBinding reportError(BlockScope scope) {
 }
 
 public TypeBinding resolveType(BlockScope scope) {
+    if (resolvedType != null) return resolvedType; // already done it! // AspectJ Extension - prevents erroring when
+                                                    // called twice
 	// field and/or local are done before type lookups
 	// the only available value for the restrictiveFlag BEFORE
 	// the TC is Flag_Type Flag_LocalField and Flag_TypeLocalField 
