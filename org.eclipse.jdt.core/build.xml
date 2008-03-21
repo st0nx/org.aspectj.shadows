@@ -127,19 +127,19 @@
     	<!-- if the files don't match org.eclipse they won't be looked copied -->
 		<copy toDir="src-temp">
 		   <fileset dir="${srcfolder}"/>
-<!-- windows
 		   <mapper type="regexp" from="^(.*)org\\eclipse\\jdt(.*)$" to="\1org\\aspectj\\org\\eclipse\\jdt\2"/>
--->
+			<!-- mac
 		   <mapper type="regexp" from="^(.*)org/eclipse/jdt(.*)$" to="\1org/aspectj/org/eclipse/jdt\2"/>
+		   	-->
 		</copy>
     	
     	<!-- Copy across other stuff as is.. -->
 		<copy toDir="src-temp">
 		   <fileset dir="${srcfolder}"/>
-<!-- windows
 		   <mapper type="regexp" from="^(.*)org\\aspectj\\ajdt(.*)$" to="\1org\\aspectj\\ajdt\2"/>
--->
+			<!-- mac
 		   <mapper type="regexp" from="^(.*)org/aspectj/ajdt(.*)$" to="\1org/aspectj/ajdt\2"/>
+			-->
 		</copy>
 		  	  	
 	  	<echo message="Modifying file contents to change refs from 'org.eclipse.jdt' to 'org.aspectj.org.eclipse.jdt'"/>
