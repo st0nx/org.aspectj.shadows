@@ -168,6 +168,7 @@ static char[][][] internQualifiedNames(StringSet qualifiedStrings) {
 	return internQualifiedNames(result);
 }
 
+    public// AspectJ Extension
 static char[][][] internQualifiedNames(char[][][] qualifiedNames) {
 	if (qualifiedNames == null) return EmptyQualifiedNames;
 	int length = qualifiedNames.length;
@@ -214,6 +215,7 @@ static char[][] internSimpleNames(StringSet simpleStrings) {
 	return internSimpleNames(result, true);
 }
 
+    public// AspectJ Extension
 static char[][] internSimpleNames(char[][] simpleNames, boolean removeWellKnown) {
 	if (simpleNames == null) return EmptySimpleNames;
 	int length = simpleNames.length;
