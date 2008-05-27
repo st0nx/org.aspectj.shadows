@@ -3464,10 +3464,11 @@ public abstract class Scope implements TypeConstants, TypeIds {
 					if (!original.isAbstract()) {
 						if (original2.isAbstract())
 							continue; // only compare current against other concrete methods
-						TypeBinding superType = original.getOwningClass().findSuperTypeWithSameErasure(original2.getOwningClass().erasure()); // AspectJ Extension - was declaringClass, now getOwningClass()
-						if (superType == null)
-							continue nextSpecific; // current's declaringClass is not a subtype of next's declaringClass
+						// AspectJ Extension - move superType test inside - causes problems (pr233838)
 						if (current.hasSubstitutedParameters() || original.typeVariables != Binding.NO_TYPE_VARIABLES) {
+							TypeBinding superType = original.getOwningClass().findSuperTypeWithSameErasure(original2.getOwningClass().erasure()); // AspectJ Extension - was declaringClass, now getOwningClass()
+							if (superType == null)
+								continue nextSpecific; // current's declaringClass is not a subtype of next's declaringClass
 							if (original2.declaringClass != superType) {
 								// must find inherited method with the same substituted variables
 								MethodBinding[] superMethods = ((ReferenceBinding) superType).getMethods(original2.selector);
