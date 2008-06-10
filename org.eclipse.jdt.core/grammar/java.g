@@ -543,14 +543,15 @@ AspectHeaderName -> RecoveryHeaderName
 AspectHeaderName ::= AspectHeaderName1 TypeParameters
 /.$putCase consumeAspectHeaderNameWithTypeParameters(false); $break ./
 
---AspectHeaderName ::= AspectHeaderName2 TypeParameters
---/.$putCase consumeAspectHeaderNameWithTypeParameters(true); $break ./
+-- (pr235505)
+AspectHeaderName ::= AspectHeaderName2 TypeParameters
+/.$putCase consumeAspectHeaderNameWithTypeParameters(true); $break ./
 
 AspectHeaderName1 ::= Modifiersopt 'aspect' 'Identifier'
 /.$putCase consumeAspectHeaderName(false); $break ./
 /:$readableName aspect declaration:/
 
-AspectHeaderName2 ::= Modifiersopt Privileged Modifiersopt 'aspect' 'Identifier'
+AspectHeaderName2 ::= Modifiersopt Privileged Modifiersopt  'aspect' 'Identifier'
 /.$putCase consumeAspectHeaderName(true); $break ./
 /:$readableName privileged aspect declaration:/
 
@@ -682,6 +683,11 @@ AroundHeader ::= AroundHeaderName FormalParameterListopt MethodHeaderRightParen 
 AroundHeaderName ::= Modifiersopt Type  'around' '(' 
 /.$putCase consumeAroundHeaderName(); $break ./
 /:$readableName [modifiers] <return-type> around ( :/
+
+-- Recovery rule for around with no return (pr64222)
+AroundHeaderName ::= Modifiersopt 'around' '('
+/.$putCase consumeAroundHeaderNameMissingReturnType(); $break ./
+/:$readableName [modifiers] around (:/
 
 BasicAdviceDeclaration ::= BasicAdviceHeader MethodBody
 /.$putCase consumeBasicAdviceDeclaration(); $break ./
@@ -1876,7 +1882,10 @@ MethodInvocation ::= 'super' '.' JavaIdentifier '(' ArgumentListopt ')' -- Aspec
 /.$putCase consumeMethodInvocationSuper(); $break ./
 /:$readableName MethodInvocation:/
 
+-- (pr159268)
 ArrayAccess ::= Name '[' Expression ']'
+/.$putCase consumeArrayAccess(true); $break ./
+ArrayAccess ::= AjName '[' Expression ']'
 /.$putCase consumeArrayAccess(true); $break ./
 ArrayAccess ::= PrimaryNoNewArray '[' Expression ']'
 /.$putCase consumeArrayAccess(false); $break ./
