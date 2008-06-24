@@ -212,18 +212,22 @@ public boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 //AspectJ Extension
 public MethodBinding getVisibleBinding(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
 	if (canBeSeenBy(receiverType, invocationSite, scope)) return this;
-	return findPrivilegedBinding(scope.invocationType(), (ASTNode)invocationSite);
+	return findPrivilegedBinding(scope.invocationType(), invocationSite);
 }
 
 public MethodBinding getVisibleBinding(InvocationSite invocationSite, Scope scope) {
 	if (canBeSeenBy(invocationSite, scope)) return this;
-	return findPrivilegedBinding(scope.invocationType(), (ASTNode)invocationSite);
+	return findPrivilegedBinding(scope.invocationType(),invocationSite);
 }
 
 
-public MethodBinding findPrivilegedBinding(SourceTypeBinding invocationType, ASTNode location) {
+public MethodBinding findPrivilegedBinding(SourceTypeBinding invocationType, InvocationSite location) {
 	if (Scope.findPrivilegedHandler(invocationType) != null) {
-		return Scope.findPrivilegedHandler(invocationType).getPrivilegedAccessMethod(this, location); //notePrivilegedTypeAccess(this, null);
+		ASTNode forLocation = null;
+		if (location instanceof ASTNode) {
+			forLocation = (ASTNode)location;
+		}
+		return Scope.findPrivilegedHandler(invocationType).getPrivilegedAccessMethod(this, forLocation); //notePrivilegedTypeAccess(this, null);
 	} else {
 		return null;
 	}
