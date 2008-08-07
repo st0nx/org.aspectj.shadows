@@ -1159,7 +1159,7 @@ public boolean hasMemberTypes() {
     return this.memberTypes.length > 0;
 }
 // NOTE: the return type, arg & exception types of each method of a source type are resolved when needed
-public MethodBinding[] methods() {
+public MethodBinding[] methodsBase() {  // AspectJ Extension - added Base suffix, see methods()
 	if ((this.tagBits & TagBits.AreMethodsComplete) != 0)
 		return this.methods;
 	
@@ -1745,12 +1745,9 @@ void verifyMethods(MethodVerifier verifier) {
      }
    }
    
-  // overrides unResolvedMethods() in ReferenceBinding - wonder if we should really rename the methods()
-  // method to methodsBase() and have a new methods() use the finder??
-  MethodBinding[] unResolvedMethods() {
-    if (memberFinder != null) return memberFinder.methods(this);
-    else return methods();
-  }
-
+   public MethodBinding[] methods() {
+	   if (memberFinder!=null) return memberFinder.methods(this);
+	   else return methodsBase();
+   }
 //End AspectJ Extension
 }
