@@ -451,8 +451,19 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		if ((result == null) && lookupEnvironment.unitBeingCompleted != null) {
 		    result = lookupEnvironment.unitBeingCompleted.compilationResult;
 		}		
-		if ((result == null) && (unitsToProcess != null) && (totalUnits > 0))
-			result = unitsToProcess[totalUnits - 1].compilationResult;
+		if ((result == null) && (unitsToProcess != null) && (totalUnits > 0)) {
+			// AspectJ Extension - pr242328 - replacing:
+			//  result = unitsToProcess[totalUnits - 1].compilationResult;
+			// with:
+			int i = totalUnits - 1;
+			while (result == null && i>=0) {
+				if (unitsToProcess[i]!=null) {
+					result = unitsToProcess[i].compilationResult;
+				}
+				i--;
+			}
+			// End AspectJ Extension
+		}
 		// last unit in beginToCompile ?
 
 		boolean needToPrint = true;
