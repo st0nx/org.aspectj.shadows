@@ -453,6 +453,48 @@ private MethodBinding createMethod(IBinaryMethod method, long sourceLevel) {
 			typeVars = createTypeVariables(wrapper, false);
 			wrapper.start++; // skip '>'
 		}
+		// AspectJ Extension - pr242797
+		// Aim here is to say: we might have just hit an ITD that is declared to share a type variable with
+		// some target generic type.  In that case we try to sneak a type variable entry into the
+		// typeVars map so that it will be found when the wrapper signature is processed, rather than
+		// an error being thrown because the type variable cannot be found against the method declaration
+		// or in the containing type for the declaration.  For example, the method might be
+		// "ajc$interMethod$X$I$foo" indicating that it targets I, and I may define type variables.
+		// Restrictions with this change:
+		// - if the type variable on the target type of the ITD clashes with a type variable declared on the method (if it is a generic method)
+        //   the ITD will fail to use the right type variable.
+		// - due to always replacing _ with / to discover the type name, types with real _ in their name will go wrong
+		char[] ajcInterMethod = "ajc$interMethod$".toCharArray();
+		if (CharOperation.prefixEquals(ajcInterMethod,method.getSelector())) {
+			try {
+				char[] sel = method.getSelector();
+				int dollar3 = CharOperation.indexOf('$',sel,ajcInterMethod.length);
+				int dollar4 = CharOperation.indexOf('$',sel,dollar3+1);
+				char[] targetType = CharOperation.subarray(sel, dollar3+1, dollar4);
+				targetType = CharOperation.replaceOnCopy(targetType, '_', '/');
+				ReferenceBinding binding = environment.getTypeFromConstantPoolName(targetType,0,targetType.length,false); // skip leading 'L' or 'T'
+				TypeVariableBinding[] tvb = binding.typeVariables();
+				if (tvb!=null && tvb.length>0) {
+					for (int i=0;i<tvb.length;i++) {
+						// Look for clashes with type variables on the generic method
+						for (int j=0;j<typeVars.length;j++) {
+							if (CharOperation.equals(tvb[i].sourceName,typeVars[j].sourceName)) {
+								// this is gonna get UGLY - warn the user?
+								System.err.println("Type variable for name '"+new String(tvb[i].sourceName)+"' clash on generic ITD "+this.toString());
+							}
+						}
+					}
+					TypeVariableBinding[] newTypeVars = new TypeVariableBinding[(typeVars==null?0:typeVars.length)+tvb.length];
+					System.arraycopy(typeVars, 0, newTypeVars, 0, typeVars.length);
+					System.arraycopy(tvb,0,newTypeVars,typeVars.length,tvb.length);
+					typeVars = newTypeVars;
+				}
+			} catch (Exception e) {
+				System.err.println("Unexpected problem in code that fixes 242797 - please raise an AspectJ bug.");
+				e.printStackTrace();
+			}
+		}
+		// End AspectJ Extension
 
 		if (wrapper.signature[wrapper.start] == '(') {
 			wrapper.start++; // skip '('
@@ -872,7 +914,7 @@ public ReferenceBinding[] memberTypes() {
 	return this.memberTypes;
 }
 // NOTE: the return type, arg & exception types of each method of a binary type are resolved when needed
-public MethodBinding[] methods() {
+public MethodBinding[] methodsBase() { // AspectJ Extension - added Base suffix
 	if ((this.tagBits & TagBits.AreMethodsComplete) != 0)
 		return methods;
 
@@ -1039,4 +1081,11 @@ public String toString() {
 MethodBinding[] unResolvedMethods() { // for the MethodVerifier so it doesn't resolve types
 	return methods;
 }
+
+//AspectJ Extension
+public MethodBinding[] methods() {
+	   if (memberFinder!=null) return memberFinder.methods(this);
+	   else return methodsBase();
+}
+//End AspectJ Extension
 }
