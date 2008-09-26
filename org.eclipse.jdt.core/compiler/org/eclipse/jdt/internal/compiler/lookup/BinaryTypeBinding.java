@@ -380,6 +380,12 @@ private void createFields(IBinaryField[] iFields, long sourceLevel) {
 		}
 	}
 }
+
+//AspectJ Extension
+private static char[] ajcInterMethod = "ajc$interMethod$".toCharArray(); //$NON-NLS-1$
+private static char[] ajcInterField = "ajc$interFieldInit$".toCharArray(); //$NON-NLS-1$
+//End AspectJ Extension
+
 private MethodBinding createMethod(IBinaryMethod method, long sourceLevel) {
 	int methodModifiers = method.getModifiers() | ExtraCompilerModifiers.AccUnresolved;
 	if (sourceLevel < ClassFileConstants.JDK1_5)
@@ -464,11 +470,15 @@ private MethodBinding createMethod(IBinaryMethod method, long sourceLevel) {
 		// - if the type variable on the target type of the ITD clashes with a type variable declared on the method (if it is a generic method)
         //   the ITD will fail to use the right type variable.
 		// - due to always replacing _ with / to discover the type name, types with real _ in their name will go wrong
-		char[] ajcInterMethod = "ajc$interMethod$".toCharArray();
-		if (CharOperation.prefixEquals(ajcInterMethod,method.getSelector())) {
+		
+
+		// had to extend this to also work for ITD fields (see 242797 c41)
+		if (CharOperation.prefixEquals(ajcInterMethod,method.getSelector()) || 
+			CharOperation.prefixEquals(ajcInterField, method.getSelector())) {
 			try {
 				char[] sel = method.getSelector();
-				int dollar3 = CharOperation.indexOf('$',sel,ajcInterMethod.length);
+				int dollar2 = CharOperation.indexOf('$',sel,4);
+				int dollar3 = CharOperation.indexOf('$',sel,dollar2+1);
 				int dollar4 = CharOperation.indexOf('$',sel,dollar3+1);
 				char[] targetType = CharOperation.subarray(sel, dollar3+1, dollar4);
 				targetType = CharOperation.replaceOnCopy(targetType, '_', '/');
