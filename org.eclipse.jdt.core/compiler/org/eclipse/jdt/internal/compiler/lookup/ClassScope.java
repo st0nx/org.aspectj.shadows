@@ -13,6 +13,7 @@ package org.eclipse.jdt.internal.compiler.lookup;
 
 import java.util.*;
 
+import org.aspectj.org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
@@ -51,6 +52,13 @@ public class ClassScope extends Scope {
 			sourceType.superclass = supertype;
 			sourceType.superInterfaces = Binding.NO_SUPERINTERFACES;
 		}
+		// AspectJ Extension - pr171042 - use the same memberFinder for anonymous inner types so that
+		// any ITDs inherited from the superType can be used to satisfy methods inherited from other
+		// routes
+		if (supertype instanceof SourceTypeBinding) {
+			sourceType.memberFinder = ((SourceTypeBinding) supertype).memberFinder;
+		}
+		// End AspectJ Extension
 		connectMemberTypes();
 		buildFieldsAndMethods();
 		anonymousType.faultInTypesForFieldsAndMethods();
