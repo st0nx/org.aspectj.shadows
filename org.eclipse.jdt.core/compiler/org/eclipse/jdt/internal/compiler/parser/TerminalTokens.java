@@ -34,7 +34,7 @@ public interface TerminalTokens {
 		TokenNameCOMMENT_JAVADOC = 1003;
 	
 
-    public final static int
+	public final static int
       TokenNameIdentifier = 22,
       TokenNameabstract = 54,
       TokenNameassert = 80,
@@ -91,9 +91,9 @@ public interface TerminalTokens {
       TokenNamewhile = 79,
       TokenNameaspect = 29,
       TokenNamepointcut = 31,
-      TokenNamearound = 34,
-      TokenNamebefore = 35,
-      TokenNameafter = 36,
+      TokenNamearound = 33,
+      TokenNamebefore = 34,
+      TokenNameafter = 35,
       TokenNamedeclare = 32,
       TokenNameprivileged = 30,
       TokenNameIntegerLiteral = 66,
@@ -137,7 +137,7 @@ public interface TerminalTokens {
       TokenNameGREATER = 13,
       TokenNameLESS = 4,
       TokenNameLPAREN = 21,
-      TokenNameRPAREN = 33,
+      TokenNameRPAREN = 36,
       TokenNameLBRACE = 77,
       TokenNameRBRACE = 38,
       TokenNameLBRACKET = 6,
@@ -152,4 +152,5 @@ public interface TerminalTokens {
       TokenNameELLIPSIS = 112,
       TokenNameEOF = 74,
       TokenNameERROR = 117;
+
 }

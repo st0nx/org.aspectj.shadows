@@ -7,16 +7,16 @@
 %options NOGOTO-DEFAULT, SINGLE-PRODUCTIONS, LALR=1 , TABLE, 
 
 --error recovering options.....
-%options ERROR_MAPS 
+%options ERROR_MAPS,
 
 --grammar understanding options
-%options first follow
-%options TRACE=FULL ,
-%options VERBOSE
+%options first follow,
+%options TRACE=FULL,
+%options VERBOSE,
 
-%options DEFERRED
-%options NAMES=MAX
-%options SCOPES
+%options DEFERRED,
+%options NAMES=MAXIMUM,
+%options SCOPES,
 
 --Usefull macros helping reading/writing semantic actions
 $Define 
@@ -537,9 +537,6 @@ AspectHeaderName -> AspectHeaderName1
 AspectHeaderName -> AspectHeaderName2
 /:$readableName aspect header:/
 
-AspectHeaderName -> RecoveryHeaderName
-/:$readableName aspect header:/
-
 AspectHeaderName ::= AspectHeaderName1 TypeParameters
 /.$putCase consumeAspectHeaderNameWithTypeParameters(false); $break ./
 
@@ -551,17 +548,9 @@ AspectHeaderName1 ::= Modifiersopt 'aspect' 'Identifier'
 /.$putCase consumeAspectHeaderName(false); $break ./
 /:$readableName aspect declaration:/
 
-AspectHeaderName2 ::= Modifiersopt Privileged Modifiersopt  'aspect' 'Identifier'
+AspectHeaderName2 ::= Modifiersopt 'privileged' Modifiersopt  'aspect' 'Identifier'
 /.$putCase consumeAspectHeaderName(true); $break ./
 /:$readableName privileged aspect declaration:/
-
-Privileged -> 'privileged'
-/:$readableName privileged:/
-
--- for error recovery
-RecoveryHeaderName ::= Modifiersopt QualifiedName LPAREN FormalParameterListopt RPAREN
-/.$putCase consumeBadHeader(); $break ./
-/:$readableName valid member declaration:/ 
 
 AspectHeaderRest ::= $empty
 
