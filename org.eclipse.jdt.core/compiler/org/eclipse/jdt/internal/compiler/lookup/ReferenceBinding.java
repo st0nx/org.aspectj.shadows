@@ -1100,8 +1100,21 @@ public final boolean isUsed() {
 /* Answer true if the receiver is deprecated (or any of its enclosing types)
 */
 public final boolean isViewedAsDeprecated() {
-	return (this.modifiers & (ClassFileConstants.AccDeprecated | ExtraCompilerModifiers.AccDeprecatedImplicitly)) != 0
-			|| (this.getPackage().tagBits & TagBits.AnnotationDeprecated) != 0;
+	// AspectJ Extension - was
+	// return (this.modifiers & (ClassFileConstants.AccDeprecated | ExtraCompilerModifiers.AccDeprecatedImplicitly)) != 0
+	// || (this.getPackage().tagBits & TagBits.AnnotationDeprecated) != 0;
+	// replaced with this because the package has occasionally been null for some reason (pr249295)
+	boolean b = (this.modifiers & (ClassFileConstants.AccDeprecated | ExtraCompilerModifiers.AccDeprecatedImplicitly)) != 0;
+	if (b) {
+		return b;
+	}
+	if (this.getPackage() == null) {
+		System.err.println("Unexpectedly null package found for type " + debugName());
+		return b;
+	} else {
+		return (this.getPackage().tagBits & TagBits.AnnotationDeprecated) != 0;
+	}
+	// End AspectJ Extension
 }
 public ReferenceBinding[] memberTypes() {
 	return Binding.NO_MEMBER_TYPES;
