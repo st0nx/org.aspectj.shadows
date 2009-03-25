@@ -456,6 +456,7 @@ public class Parser extends TheOriginalJDTParserClass {
 
 	protected void consumeAroundHeader() {
 		consumePointcutDesignatorOnAdvice();
+		resetModifiers(); // forget any modifiers encountered in the pointcut 263666
 		consumeMethodHeader();
 	}
 
@@ -526,7 +527,7 @@ public class Parser extends TheOriginalJDTParserClass {
 	protected void consumeBasicAdviceHeader() {
 		// BasicAdviceHeader ::= BasicAdviceHeaderName MethodHeaderParameters ExtraParamopt MethodHeaderThrowsClauseopt ':' PseudoTokens
 		consumePointcutDesignatorOnAdvice();
-		
+		resetModifiers(); // forget any modifiers encountered in the pointcut 263666
 		consumeMethodHeader();
 	}
 	
