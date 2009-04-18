@@ -106,6 +106,12 @@ private void addDefaultAbstractMethods() {
 					MethodBinding[] superMethods = superType.methods();
 					nextAbstractMethod: for (int m = superMethods.length; --m >= 0;) {
 						MethodBinding method = superMethods[m];
+						// AspectJ Extension - some methods on interfaces provide default implementations - these are
+						// not considered abstract (pr271704)
+						if (!method.isAbstract()) {
+							continue nextAbstractMethod;
+						}
+						// End AspectJ Extension
 						// explicitly implemented ?
 						if (implementsMethod(method))
 							continue nextAbstractMethod;
