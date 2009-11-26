@@ -1107,10 +1107,11 @@ public class ParameterizedTypeBinding extends ReferenceBinding implements Substi
 	public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes, CompilationUnitScope refScope) {
 	  MethodBinding mb = null;
 	  mb = getExactMethodBase(selector,argumentTypes,refScope);
-	  if (mb==null) {
-		  mb = type.getExactMethod(selector,argumentTypes,refScope);
-		  if (mb != null) return new ParameterizedMethodBinding(this,mb);
-	  }
+// pr296040
+//	  if (mb==null) {
+//		  mb = type.getExactMethod(selector,argumentTypes,refScope);
+//		  if (mb != null) return new ParameterizedMethodBinding(this,mb);
+//	  }
 	  return mb;
 	}
 	
