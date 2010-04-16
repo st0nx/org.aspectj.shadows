@@ -412,7 +412,21 @@ private MethodBinding createMethod(IBinaryMethod method, long sourceLevel) {
 		}
 
 		// Ignore synthetic argument for member types.
+		/* AspectJ extension start: 309440: picking up a JDT fix, code was
 		int startIndex = (method.isConstructor() && isMemberType() && !isStatic()) ? 1 : 0;
+		// now */
+		int startIndex = 0;
+		if (method.isConstructor()) {
+			if (isMemberType() && !isStatic()) {
+				// enclosing type
+				startIndex++;
+			}
+			if (isEnum()) {
+				// synthetic arguments (String, int)
+				startIndex += 2;
+			}
+		}
+		/* AspectJ end */ 
 		int size = numOfParams - startIndex;
 		if (size > 0) {
 			parameters = new TypeBinding[size];
@@ -430,7 +444,11 @@ private MethodBinding createMethod(IBinaryMethod method, long sourceLevel) {
 					// 'paramAnnotations' line up with 'parameters'
 					// int parameter to method.getParameterAnnotations() include the synthetic arg
 					if (paramAnnotations != null)
+						/* Aspectj extension start:309440: was:
 						paramAnnotations[i - startIndex] = createAnnotations(method.getParameterAnnotations(i), this.environment);
+						// now */
+					    paramAnnotations[i - startIndex] = createAnnotations(method.getParameterAnnotations(i-startIndex), this.environment);
+					    // AspectJ extension end
 				}
 				index = end + 1;
 			}
