@@ -10,6 +10,9 @@
  ******************************************************************************/
 
 package org.eclipse.jdt.internal.compiler;
+
+import org.eclipse.jdt.internal.compiler.codegen.ConstantPool;
+
 // AspectJ Extension
 /**
  * Represents an Attribute for a Java .class file.
@@ -22,11 +25,11 @@ public interface IAttribute {
 	char[] getNameChars();
 
 	/**
-	 * @param nameIndex the index into this class's constant pool for this
-	 *         attribute's name.
+	 * @param nameIndex the index into this class's constant pool for this attribute's name.
+	 * @param constantPool
 	 * 
 	 * @return all of the bytes to represent this attribute in the .class file.
 	 */
-	byte[] getAllBytes(short nameIndex);
+	byte[] getAllBytes(short nameIndex, ConstantPool constantPool);
 
 }

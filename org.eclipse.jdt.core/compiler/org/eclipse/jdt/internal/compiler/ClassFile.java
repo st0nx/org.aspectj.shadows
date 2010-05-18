@@ -677,7 +677,7 @@ public class ClassFile
 	        for (int i=0, len=extraAttributes.size(); i < len; i++) {
 	            IAttribute attribute = (IAttribute)extraAttributes.get(i);
 	            short nameIndex = (short)constantPool.literalIndex(attribute.getNameChars());
-	            writeToContents(attribute.getAllBytes(nameIndex));
+	            writeToContents(attribute.getAllBytes(nameIndex,constantPool));
 	            attributeNumber++;
 	        }
 	    }
@@ -5466,7 +5466,7 @@ public class ClassFile
 	      for (int i=0, len = extraAttributes.size(); i < len; i++) {
 	          IAttribute attribute = (IAttribute)extraAttributes.get(i);
 	          short nameIndex = (short)constantPool.literalIndex(attribute.getNameChars());
-	          writeToContents(attribute.getAllBytes(nameIndex));
+	          writeToContents(attribute.getAllBytes(nameIndex,constantPool));
 	          attributeNumber++;
 	      }
 	    }
