@@ -50,6 +50,7 @@ public class SourceTypeBinding extends ReferenceBinding {
  
     public IPrivilegedHandler privilegedHandler = null;
     public IMemberFinder memberFinder = null;
+    public ITypeFinder typeFinder = null;
     //  End AspectJ Extension
 
  
@@ -1755,5 +1756,13 @@ void verifyMethods(MethodVerifier verifier) {
 	   if (memberFinder!=null) return memberFinder.methods(this);
 	   else return methodsBase();
    }
+   
+   public ReferenceBinding getMemberType(char[] typeName) {
+	   ReferenceBinding rb = super.getMemberType(typeName);
+	   if (rb==null && typeFinder!=null) {
+		   rb = typeFinder.getMemberType(typeName);
+	   }
+	   return rb;
+	}
 //End AspectJ Extension
 }
