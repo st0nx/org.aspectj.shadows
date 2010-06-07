@@ -605,6 +605,7 @@ ClassMemberDeclarationNoAroundMethod -> MethodDeclarationNoAround
 ClassMemberDeclarationNoAroundMethod -> ClassDeclaration
 --1.1 feature
 ClassMemberDeclarationNoAroundMethod -> InterfaceDeclaration
+ClassMemberDeclarationNoAroundMethod -> IntertypeClassDeclaration
 -- 1.5 feature
 ClassMemberDeclarationNoAroundMethod -> EnumDeclaration
 ClassMemberDeclarationNoAroundMethod -> AnnotationTypeDeclaration
@@ -1047,6 +1048,27 @@ PseudoToken ::= 'throws'
 ClassDeclaration ::= ClassHeader ClassBody
 /.$putCase consumeClassDeclaration(); $break ./
 /:$readableName ClassDeclaration:/
+
+IntertypeClassDeclaration ::= IntertypeClassHeader ClassBody
+/.$putCase consumeIntertypeClassDeclaration(); $break ./
+/:$readableName IntertypeClassDeclaration:/
+
+IntertypeClassHeader ::= IntertypeClassHeaderName ClassHeaderExtendsopt ClassHeaderImplementsopt
+/.$putCase consumeIntertypeClassHeader(); $break ./
+/:$readableName IntertypeClassHeader:/
+
+IntertypeClassHeaderName ::= IntertypeClassHeaderName1 TypeParameters
+/.$putCase consumeIntertypeTypeHeaderNameWithTypeParameters(); $break ./
+
+IntertypeClassHeaderName -> IntertypeClassHeaderName1
+/:$readableName IntertypeClassHeaderName:/
+
+IntertypeClassHeaderName1 ::= Modifiersopt 'class' OnType '.' JavaIdentifier
+/.$putCase consumeIntertypeClassHeaderName(false); $break ./
+
+InterTypeClassHeaderName1 ::= Modifiersopt 'class' OnType TypeParametersAsReference '.' JavaIdentifier
+/.$putCase consumeIntertypeClassHeaderName(true); $break ./
+/:$readableName IntertypeClassHeader:/
 
 ClassHeader ::= ClassHeaderName ClassHeaderExtendsopt ClassHeaderImplementsopt
 /.$putCase consumeClassHeader(); $break ./
