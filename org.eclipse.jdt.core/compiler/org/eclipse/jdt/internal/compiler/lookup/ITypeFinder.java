@@ -21,5 +21,6 @@ package org.eclipse.jdt.internal.compiler.lookup;
 public interface ITypeFinder {
 
 	ReferenceBinding getMemberType(char[] typeName);
+	ReferenceBinding[] getMemberTypes();
 
 }

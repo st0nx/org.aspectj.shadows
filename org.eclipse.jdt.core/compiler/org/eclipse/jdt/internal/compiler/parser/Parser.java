@@ -670,12 +670,12 @@ public class Parser extends TheOriginalJDTParserClass {
 		consumePseudoToken(":", 0, false);
 		consumePseudoTokens();
 
-		println(">>>>>>>>>>>>>>>>>>>>>>>declare header");
+//		println(">>>>>>>>>>>>>>>>>>>>>>>declare header");
 		display();
 	}
 
 	protected void consumeInterTypeFieldHeader(boolean hasTypeParameters) {
-		println("about to consume field");
+//		println("about to consume field");
 		this.display();
 
 		long pos = identifierPositionStack[identifierPtr];
@@ -3258,7 +3258,6 @@ public class Parser extends TheOriginalJDTParserClass {
 			blockReal();
 		}
 	
-		System.out.println(">> consumeIntertypeClassHeaderName("+b+")");
 		this.display();
 		//highlight the name of the type
 		long pos = this.identifierPositionStack[this.identifierPtr];
@@ -3277,7 +3276,6 @@ public class Parser extends TheOriginalJDTParserClass {
 		TypeReference onType = getTypeReference(0);
 
 		declarationFactory.setOnType(typeDecl,onType);
-		System.out.println("ontype=="+onType);
 	
 		//compute the declaration source too
 		// 'class' and 'interface' push two int positions: the beginning of the class token and its end.
@@ -3322,7 +3320,6 @@ public class Parser extends TheOriginalJDTParserClass {
 		// javadoc
 		typeDecl.javadoc = this.javadoc;
 		this.javadoc = null;
-		System.out.println("<< consumeIntertypeClassHeaderName("+b+")");
 		this.display();
 
 	}
