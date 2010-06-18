@@ -22,15 +22,15 @@ public interface ParserBasicInformation {
      NT_OFFSET         = 117,
      SCOPE_UBOUND      = 181,
      SCOPE_SIZE        = 182,
-     LA_STATE_OFFSET   = 15492,
+     LA_STATE_OFFSET   = 15535,
      MAX_LA            = 1,
-     NUM_RULES         = 883,
+     NUM_RULES         = 885,
      NUM_TERMINALS     = 117,
-     NUM_NON_TERMINALS = 371,
-     NUM_SYMBOLS       = 488,
+     NUM_NON_TERMINALS = 372,
+     NUM_SYMBOLS       = 489,
      START_STATE       = 927,
      EOFT_SYMBOL       = 74,
      EOLT_SYMBOL       = 74,
-     ACCEPT_ACTION     = 15491,
-     ERROR_ACTION      = 15492;
+     ACCEPT_ACTION     = 15534,
+     ERROR_ACTION      = 15535;
 }
