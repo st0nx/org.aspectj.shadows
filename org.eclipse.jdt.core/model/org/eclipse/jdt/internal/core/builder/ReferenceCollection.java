@@ -28,6 +28,8 @@ public ReferenceCollection(char[][][] qualifiedNameReferences, char[][] simpleNa
 	this.simpleNameReferences = internSimpleNames(simpleNameReferences, true);
 }
 
+//AspectJ Extension - raised visibility
+public
 void addDependencies(String[] typeNameDependencies) {
 	// if each qualified type name is already known then all of its subNames can be skipped
 	// and its expected that very few qualified names in typeNameDependencies need to be added
