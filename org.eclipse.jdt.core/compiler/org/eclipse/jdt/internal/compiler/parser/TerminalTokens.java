@@ -34,7 +34,6 @@ public interface TerminalTokens {
 		TokenNameCOMMENT_JAVADOC = 1003;
 	
 
-
     public final static int
       TokenNameIdentifier = 21,
       TokenNameabstract = 54,
@@ -68,7 +67,7 @@ public interface TerminalTokens {
       TokenNameinterface = 109,
       TokenNamelong = 45,
       TokenNamenative = 57,
-      TokenNamenew = 48,
+      TokenNamenew = 49,
       TokenNamenull = 58,
       TokenNamepackage = 90,
       TokenNameprivate = 59,
@@ -78,7 +77,7 @@ public interface TerminalTokens {
       TokenNameshort = 46,
       TokenNamestatic = 52,
       TokenNamestrictfp = 62,
-      TokenNamesuper = 49,
+      TokenNamesuper = 50,
       TokenNameswitch = 87,
       TokenNamesynchronized = 53,
       TokenNamethis = 51,
@@ -132,7 +131,7 @@ public interface TerminalTokens {
       TokenNameXOR = 23,
       TokenNameAND = 18,
       TokenNameMULTIPLY = 5,
-      TokenNameOR = 27,
+      TokenNameOR = 28,
       TokenNameTWIDDLE = 76,
       TokenNameDIVIDE = 8,
       TokenNameGREATER = 13,
@@ -143,15 +142,16 @@ public interface TerminalTokens {
       TokenNameRBRACE = 38,
       TokenNameLBRACKET = 6,
       TokenNameRBRACKET = 75,
-      TokenNameSEMICOLON = 28,
+      TokenNameSEMICOLON = 27,
       TokenNameQUESTION = 24,
       TokenNameCOLON = 72,
       TokenNameCOMMA = 37,
       TokenNameDOT = 1,
       TokenNameEQUAL = 78,
-      TokenNameAT = 50,
+      TokenNameAT = 48,
       TokenNameELLIPSIS = 113,
       TokenNameEOF = 74,
       TokenNameERROR = 117;
+
 
 }
