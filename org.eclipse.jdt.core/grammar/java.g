@@ -859,7 +859,13 @@ DeclareHeader ::= 'declare' 'Identifier' ':'
 
 -- for declare annotation support
 DeclareDeclaration ::= DeclareAnnotationHeader PseudoTokensNoColon ':' Annotations ';'
-/.$putCase consumeDeclareAnnotation(); $break ./
+/.$putCase consumeDeclareAnnotation(' '); $break ./
+
+DeclareDeclaration ::= DeclareAnnotationHeader PseudoTokensNoColon ':' '+' Annotations ';'
+/.$putCase consumeDeclareAnnotation('+'); $break ./
+
+DeclareDeclaration ::= DeclareAnnotationHeader PseudoTokensNoColon ':' '-' Annotations ';'
+/.$putCase consumeDeclareAnnotation('-'); $break ./
 
 Annotations -> Annotation
 Annotations ::= Annotations Annotation
