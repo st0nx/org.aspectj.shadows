@@ -1394,4 +1394,9 @@ void updateMaxFieldCount() {
 public boolean isSecondary() {
 	return (this.bits & ASTNode.IsSecondaryType) != 0;
 }
+// AspectJ start - allows us to fill in a name for ITD innertypes so we can use the target name rather than the containing type
+public char[] alternativeName() {
+	return null;
+}
+// AspectJ end
 }

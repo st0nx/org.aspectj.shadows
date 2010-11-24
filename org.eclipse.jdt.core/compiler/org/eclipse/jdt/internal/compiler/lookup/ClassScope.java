@@ -274,7 +274,8 @@ public class ClassScope extends Scope {
 				}
 
 				ClassScope memberScope = new ClassScope(this, memberContext);
-				memberTypeBindings[count++] = memberScope.buildType(sourceType, sourceType.fPackage, accessRestriction);
+				// Aspectj change - pass in extra parameter
+				memberTypeBindings[count++] = memberScope.buildType(sourceType, sourceType.fPackage, accessRestriction,memberContext.alternativeName());
 			}
 			if (count != length)
 				System.arraycopy(memberTypeBindings, 0, memberTypeBindings = new ReferenceBinding[count], 0, count);
@@ -324,7 +325,14 @@ public class ClassScope extends Scope {
 		sourceType.setMethods(methodBindings);
 	}
 	
+	// AspectJ start - replace original method with one simply passing null to new variant
 	SourceTypeBinding buildType(SourceTypeBinding enclosingType, PackageBinding packageBinding, AccessRestriction accessRestriction) {
+		return buildType(enclosingType,packageBinding,accessRestriction,null);
+	}
+	// AspectJ end
+	
+	// AspectJ change - extra parameter alternativeName
+	SourceTypeBinding buildType(SourceTypeBinding enclosingType, PackageBinding packageBinding, AccessRestriction accessRestriction,char[] alternativeName) {
 		// provide the typeDeclaration with needed scopes
 		referenceContext.scope = this;
 		referenceContext.staticInitializerScope = new MethodScope(this, referenceContext, true);
@@ -335,8 +343,18 @@ public class ClassScope extends Scope {
 			referenceContext.binding = new SourceTypeBinding(className, packageBinding, this);
 		} else {
 			char[][] className = CharOperation.deepCopy(enclosingType.compoundName);
+			// AspectJ start - based on alternative name (for itd inners, do something different here:
+			/* was {
 			className[className.length - 1] =
 				CharOperation.concat(className[className.length - 1], referenceContext.name, '$');
+			*/// now:
+			if (alternativeName == null) {
+				className[className.length - 1] = CharOperation.concat(className[className.length - 1], referenceContext.name, '$');
+			} else {
+				className[className.length - 1] = CharOperation.concat(alternativeName, referenceContext.name, '$');
+			}
+			// AspectJ end
+
 			ReferenceBinding existingType = packageBinding.getType0(className[className.length - 1]);
 			if (existingType != null) {
 				if (existingType instanceof UnresolvedReferenceBinding) {
