@@ -468,6 +468,13 @@ public char[][] getInterfaceNames() {
 	return this.interfaceNames;
 }
 
+// AspectJ start - original method has added boolean parameter, this new one has the original signature and simply
+// passes in false.  This is all needed due to the support for inter type inner types
+public IBinaryNestedType[] getMemberTypes() {
+	return getMemberTypes(false);
+}
+// AspectJ end
+
 /**
  * Answer the receiver's nested types or null if the array is empty.
  * 
@@ -476,7 +483,7 @@ public char[][] getInterfaceNames() {
  * 
  * @return org.eclipse.jdt.internal.compiler.api.IBinaryNestedType[]
  */
-public IBinaryNestedType[] getMemberTypes() {
+public IBinaryNestedType[] getMemberTypes(boolean keepIncorrectlyNamedInners) {
 	// we might have some member types of the current type
 	if (this.innerInfos == null) return null;
 
@@ -505,7 +512,11 @@ public IBinaryNestedType[] getMemberTypes() {
 			 */
 			if (outerClassNameIdx != 0
 				&& innerNameIndex != 0
-				&& outerClassNameIdx == this.classNameIndex
+				// AspectJ change:
+				// was: && outerClassNameIdx == this.classNameIndex
+				// now:
+				&& (keepIncorrectlyNamedInners || outerClassNameIdx == this.classNameIndex)
+				// AspectJ end				
 				&& currentInnerInfo.getSourceName().length != 0) {
 				memberTypes[memberTypeIndex++] = currentInnerInfo;
 			}
