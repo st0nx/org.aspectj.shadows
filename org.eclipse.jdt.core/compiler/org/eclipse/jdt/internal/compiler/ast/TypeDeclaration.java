@@ -11,6 +11,8 @@
  ******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.internal.compiler.lookup.ITypeFinder;
+import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.impl.*;
@@ -558,6 +560,16 @@ public void generateCode(ClassFile enclosingClassFile) {
 
 	// AspectJ Extension
 	protected void generateAttributes(ClassFile classFile) {
+		// Have to ensure ITD inners are in the right place for the attribute to get generated
+		if (binding != null && binding.typeFinder != null) {
+			ITypeFinder typeFinder = binding.typeFinder;
+			ReferenceBinding[] itdInners = typeFinder.getMemberTypes();
+			if (itdInners != null) {
+				for (int i=0;i<itdInners.length;i++) {
+					classFile.recordInnerClasses(itdInners[i]);
+				}
+			}
+		}
 		// finalize the compiled type result
 		classFile.addAttributes();
 	}
