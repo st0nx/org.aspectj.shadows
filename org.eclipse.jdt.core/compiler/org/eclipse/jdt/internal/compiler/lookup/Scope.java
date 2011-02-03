@@ -1504,7 +1504,15 @@ public abstract class Scope implements TypeConstants, TypeIds {
 							ClassScope classScope = (ClassScope) scope;
 							ReferenceBinding receiverType = classScope.enclosingReceiverType();
 							if (!insideTypeAnnotation) {
+								// ASPECTJ START
+								/*{
 								FieldBinding fieldBinding = classScope.findField(receiverType, name, invocationSite, needResolve);
+								}*/
+								FieldBinding fieldBinding = null;
+								if (receiverType!=null) {
+									fieldBinding = classScope.findField(receiverType, name, invocationSite, needResolve);
+								}
+								// ASPECTJ END
 								// Use next line instead if willing to enable protected access accross inner types
 								// FieldBinding fieldBinding = findField(enclosingType, name, invocationSite);
 								
@@ -2374,7 +2382,12 @@ public abstract class Scope implements TypeConstants, TypeIds {
 						// member types take precedence over type variables
 						if (!insideTypeAnnotation) {
 							// 6.5.5.1 - member types have precedence over top-level type in same unit
+							// ASPECTJ START
+							/* { 
 							ReferenceBinding memberType = findMemberType(name, sourceType);
+							}*/
+							ReferenceBinding memberType = sourceType==null?null:findMemberType(name,sourceType);
+							// ASPECTJ END
 							if (memberType != null) { // skip it if we did not find anything
 								if (memberType.problemId() == ProblemReasons.Ambiguous) {
 									if (foundType == null || foundType.problemId() == ProblemReasons.NotVisible)
@@ -2407,13 +2420,25 @@ public abstract class Scope implements TypeConstants, TypeIds {
 								return new ProblemReferenceBinding(name, typeVariable, ProblemReasons.NonStaticReferenceInStaticContext);
 							return typeVariable;
 						}						
-						insideStaticContext |= sourceType.isStatic();
+						// ASPECTJ START
+						if (sourceType!=null) {
+						// ASPECTJ END
+							insideStaticContext |= sourceType.isStatic();
+						// ASPECTJ START
+						}
+						// ASPECTJ END
 						insideTypeAnnotation = false;
+						// ASPECTJ START
+						if (sourceType!=null) {
+						// ASPECTJ END
 						if (CharOperation.equals(sourceType.sourceName, name)) {
 							if (foundType != null && foundType != sourceType && foundType.problemId() != ProblemReasons.NotVisible)
 								return new ProblemReferenceBinding(name, foundType, ProblemReasons.InheritedNameHidesEnclosingName);
 							return sourceType;
 						}
+						// ASPECTJ START
+						}
+						// ASPECTJ END
 						break;
 					case COMPILATION_UNIT_SCOPE :
 						break done;
