@@ -1410,5 +1410,8 @@ public boolean isSecondary() {
 public char[] alternativeName() {
 	return null;
 }
+public char[] getLocalTypeNameSuffix() {
+	return null;
+}
 // AspectJ end
 }

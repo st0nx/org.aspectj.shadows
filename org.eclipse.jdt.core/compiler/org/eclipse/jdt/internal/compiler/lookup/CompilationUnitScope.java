@@ -248,11 +248,29 @@ public char[] computeConstantPoolName(LocalTypeBinding localType) {
 			}
 		} else if (localType.isAnonymousType()){
 			if (isCompliant15) {
-				// from 1.5 on, use immediately enclosing type name
-				candidateName = CharOperation.concat(
-					localType.enclosingType.constantPoolName(),
-					String.valueOf(index+1).toCharArray(),
-					'$');
+				// AspectJ Extension start
+				char[] extraInsert = null;
+				if (outerMostEnclosingType instanceof SourceTypeBinding) {
+					SourceTypeBinding sourceTypeBinding = (SourceTypeBinding)outerMostEnclosingType;
+					ClassScope classScope = sourceTypeBinding.scope;
+					if (classScope!=null) {
+						TypeDeclaration typeDeclaration = classScope.referenceContext;
+						if (typeDeclaration!=null) {
+							extraInsert = typeDeclaration.getLocalTypeNameSuffix();
+						}
+					}
+				}
+				if (extraInsert!=null) {// AspectJ Extension end
+					candidateName = CharOperation.concat(
+							localType.enclosingType.constantPoolName(),
+							'$',extraInsert,'$',String.valueOf(index+1).toCharArray());
+				} else {
+					// from 1.5 on, use immediately enclosing type name
+					candidateName = CharOperation.concat(
+						localType.enclosingType.constantPoolName(),
+						String.valueOf(index+1).toCharArray(),
+						'$');
+				} // AspectJ extension, closing }
 			} else {
 				candidateName = CharOperation.concat(
 					outerMostEnclosingType.constantPoolName(),
