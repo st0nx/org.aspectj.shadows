@@ -1210,7 +1210,7 @@ public class CompilerOptions {
 				case (int)(MissingDeprecatedAnnotation >>> 32) :
 					return "dep-ann"; //$NON-NLS-1$
 				case (int)(RawTypeReference >>> 32):
-					return "unchecked"; //$NON-NLS-1$
+					return "rawtypes"; //$NON-NLS-1$
 				case (int) (UnusedLabel >>> 32):
 					return "unused"; //$NON-NLS-1$
 				case (int) (DiscouragedReference >>> 32) :
@@ -1242,6 +1242,7 @@ public class CompilerOptions {
 		"nls", //$NON-NLS-1$
 		"null", //$NON-NLS-1$
 		"restriction", //$NON-NLS-1$
+		"rawtypes", //$NON-NLS-1$
 		"serial", //$NON-NLS-1$
 		"static-access", //$NON-NLS-1$
 		"super", //$NON-NLS-1$
@@ -1292,6 +1293,8 @@ public class CompilerOptions {
 					return NullReference | PotentialNullReference | RedundantNullCheck;
 				break;
 			case 'r' :
+				if ("rawtypes".equals(warningToken)) //$NON-NLS-1$
+					return RawTypeReference;
 				if ("restriction".equals(warningToken)) //$NON-NLS-1$
 					return DiscouragedReference | ForbiddenReference;
 				break;
@@ -1310,7 +1313,7 @@ public class CompilerOptions {
 				if ("unused".equals(warningToken)) //$NON-NLS-1$
 					return UnusedLocalVariable | UnusedArgument | UnusedPrivateMember | UnusedDeclaredThrownException | UnusedLabel | UnusedImport;
 				if ("unchecked".equals(warningToken)) //$NON-NLS-1$
-					return UncheckedTypeOperation | RawTypeReference;
+					return UncheckedTypeOperation;
 				if ("unqualified-field-access".equals(warningToken)) //$NON-NLS-1$
 					return UnqualifiedFieldAccess;
 				break;
