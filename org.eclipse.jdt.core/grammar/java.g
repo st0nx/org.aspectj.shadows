@@ -961,6 +961,9 @@ PseudoToken ::= '>>>'
 PseudoToken ::= '&'
 /.$putCase consumePseudoToken("&"); $break ./
 
+PseudoToken ::= '!='
+/.$putCase consumePseudoToken("!="); $break ./
+
 PseudoToken ::= PrimitiveType
 /.$putCase consumePseudoTokenPrimitiveType(); $break ./
 
@@ -973,6 +976,9 @@ PseudoToken ::= Literal
 
 PseudoToken ::= 'this'
 /.$putCase consumePseudoToken("this", 1, true); $break ./
+
+PseudoToken ::= 'class'
+/.$putCase consumePseudoToken("class", 1, true); $break ./
 
 PseudoToken ::= 'super'
 /.$putCase consumePseudoToken("super", 1, true); $break ./
