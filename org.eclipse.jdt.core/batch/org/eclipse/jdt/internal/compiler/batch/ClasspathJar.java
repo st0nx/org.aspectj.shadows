@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,9 +12,12 @@ package org.eclipse.jdt.internal.compiler.batch;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.Hashtable;
+import java.util.Iterator;
+import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -23,27 +26,71 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
+import org.eclipse.jdt.internal.compiler.util.ManifestAnalyzer;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class ClasspathJar extends ClasspathLocation {
-	
+
 protected File file;
 protected ZipFile zipFile;
 protected boolean closeZipFileAtEnd;
 protected Hashtable packageCache;
-protected char[] normalizedPath;
 
-public ClasspathJar(File file, boolean closeZipFileAtEnd, 
+public ClasspathJar(File file, boolean closeZipFileAtEnd,
 		AccessRuleSet accessRuleSet, String destinationPath) {
 	super(accessRuleSet, destinationPath);
 	this.file = file;
 	this.closeZipFileAtEnd = closeZipFileAtEnd;
 }
+
+public List fetchLinkedJars(FileSystem.ClasspathSectionProblemReporter problemReporter) {
+	// expected to be called once only - if multiple calls desired, consider
+	// using a cache
+	InputStream inputStream = null;
+	try {
+		initialize();
+		ArrayList result = new ArrayList();
+		ZipEntry manifest = this.zipFile.getEntry("META-INF/MANIFEST.MF"); //$NON-NLS-1$
+		if (manifest != null) { // non-null implies regular file
+			inputStream = this.zipFile.getInputStream(manifest);
+			ManifestAnalyzer analyzer = new ManifestAnalyzer();
+			boolean success = analyzer.analyzeManifestContents(inputStream);
+			List calledFileNames = analyzer.getCalledFileNames();
+			if (problemReporter != null) {
+				if (!success || analyzer.getClasspathSectionsCount() == 1 &&  calledFileNames == null) {
+					problemReporter.invalidClasspathSection(getPath());
+				} else if (analyzer.getClasspathSectionsCount() > 1) {
+					problemReporter.multipleClasspathSections(getPath());
+				}
+			}
+			if (calledFileNames != null) {
+				Iterator calledFilesIterator = calledFileNames.iterator();
+				String directoryPath = getPath();
+				int lastSeparator = directoryPath.lastIndexOf(File.separatorChar);
+				directoryPath = directoryPath.substring(0, lastSeparator + 1); // potentially empty (see bug 214731)
+				while (calledFilesIterator.hasNext()) {
+					result.add(new ClasspathJar(new File(directoryPath + (String) calledFilesIterator.next()), this.closeZipFileAtEnd, this.accessRuleSet, this.destinationPath));
+				}
+			}
+		}
+		return result;
+	} catch (IOException e) {
+		return null;
+	} finally {
+		if (inputStream != null) {
+			try {
+				inputStream.close();
+			} catch (IOException e) {
+				// best effort
+			}
+		}
+	}
+}
 public NameEnvironmentAnswer findClass(char[] typeName, String qualifiedPackageName, String qualifiedBinaryFileName) {
 	return findClass(typeName, qualifiedPackageName, qualifiedBinaryFileName, false);
 }
 public NameEnvironmentAnswer findClass(char[] typeName, String qualifiedPackageName, String qualifiedBinaryFileName, boolean asBinaryOnly) {
-	if (!isPackage(qualifiedPackageName)) 
+	if (!isPackage(qualifiedPackageName))
 		return null; // most common case
 
 	try {
@@ -58,7 +105,7 @@ public NameEnvironmentAnswer findClass(char[] typeName, String qualifiedPackageN
 	return null;
 }
 public char[][][] findTypeNames(String qualifiedPackageName) {
-	if (!isPackage(qualifiedPackageName)) 
+	if (!isPackage(qualifiedPackageName))
 		return null; // most common case
 
 	ArrayList answers = new ArrayList();
@@ -92,7 +139,9 @@ public char[][][] findTypeNames(String qualifiedPackageName) {
 	return null;
 }
 public void initialize() throws IOException {
-	this.zipFile = new ZipFile(this.file);
+	if (this.zipFile == null) {
+		this.zipFile = new ZipFile(this.file);
+	}
 }
 public boolean isPackage(String qualifiedPackageName) {
 	if (this.packageCache != null)
@@ -119,7 +168,7 @@ public boolean isPackage(String qualifiedPackageName) {
 }
 public void reset() {
 	if (this.zipFile != null && this.closeZipFileAtEnd) {
-		try { 
+		try {
 			this.zipFile.close();
 		} catch(IOException e) {
 			// ignore
@@ -133,7 +182,8 @@ public String toString() {
 }
 public char[] normalizedPath() {
 	if (this.normalizedPath == null) {
-		char[] rawName = this.file.getPath().toCharArray();
+		String path2 = this.getPath();
+		char[] rawName = path2.toCharArray();
 		if (File.separatorChar == '\\') {
 			CharOperation.replace(rawName, '\\', '/');
 		}
@@ -141,7 +191,18 @@ public char[] normalizedPath() {
 	}
 	return this.normalizedPath;
 }
-public String getPath(){
-	return this.file.getPath();
+public String getPath() {
+	if (this.path == null) {
+		try {
+			this.path = this.file.getCanonicalPath();
+		} catch (IOException e) {
+			// in case of error, simply return the absolute path
+			this.path = this.file.getAbsolutePath();
+		}
+	}
+	return this.path;
+}
+public int getMode() {
+	return BINARY;
 }
 }

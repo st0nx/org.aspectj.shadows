@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,7 +11,7 @@
 package org.eclipse.jdt.internal.compiler;
 
 /**
- * A compilation result consists of all information returned by the compiler for 
+ * A compilation result consists of all information returned by the compiler for
  * a single compiled compilation source unit.  This includes:
  * <ul>
  * <li> the compilation unit that was compiled
@@ -27,7 +27,7 @@ package org.eclipse.jdt.internal.compiler;
  * parameter and return types, local variable types, types of intermediate expressions, etc.
  * It also includes the namespaces (packages) in which names were looked up.
  * It does <em>not</em> include finer grained dependencies such as information about
- * specific fields and methods which were referenced, but does contain their 
+ * specific fields and methods which were referenced, but does contain their
  * declaring types and any other types used to locate such fields or methods.
  */
 import java.util.Arrays;
@@ -46,11 +46,10 @@ import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
 import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
 import org.eclipse.jdt.internal.compiler.parser.RecoveryScannerData;
-import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class CompilationResult {
-	
+
 	public CategorizedProblem problems[];
 	public CategorizedProblem tasks[];
 	public int problemCount;
@@ -61,6 +60,7 @@ public class CompilationResult {
 	private int maxProblemPerUnit;
 	public char[][][] qualifiedReferences;
 	public char[][] simpleNameReferences;
+	public char[][] rootReferences;
 	public boolean hasAnnotations = false;
 	public int lineSeparatorPositions[];
 	public RecoveryScannerData recoveryScannerData;
@@ -70,36 +70,25 @@ public class CompilationResult {
 	public char[] fileName;
 	public boolean hasInconsistentToplevelHierarchies = false; // record the fact some toplevel types have inconsistent hierarchies
 	public boolean hasSyntaxError = false;
-	long[] suppressWarningIrritants;  // irritant for suppressed warnings
-	long[] suppressWarningScopePositions; // (start << 32) + end 
-	int suppressWarningsCount;
 	public char[][] packageName;
-	
-private static final int[] EMPTY_LINE_ENDS = Util.EMPTY_INT_ARRAY;
-private static final Comparator PROBLEM_COMPARATOR = new Comparator() {
-	public int compare(Object o1, Object o2) {
-		return ((CategorizedProblem) o1).getSourceStart() - ((CategorizedProblem) o2).getSourceStart();
-	}
-};
+	public boolean checkSecondaryTypes = false; // check for secondary types which were created after the initial buildTypeBindings call
+	private int numberOfErrors;
 
-public CompilationResult(
-		char[] fileName,
-		int unitIndex, 
-		int totalUnitsKnown,
-		int maxProblemPerUnit){
+	private static final int[] EMPTY_LINE_ENDS = Util.EMPTY_INT_ARRAY;
+	private static final Comparator PROBLEM_COMPARATOR = new Comparator() {
+		public int compare(Object o1, Object o2) {
+			return ((CategorizedProblem) o1).getSourceStart() - ((CategorizedProblem) o2).getSourceStart();
+		}
+	};
 
+public CompilationResult(char[] fileName, int unitIndex, int totalUnitsKnown, int maxProblemPerUnit){
 	this.fileName = fileName;
 	this.unitIndex = unitIndex;
 	this.totalUnitsKnown = totalUnitsKnown;
 	this.maxProblemPerUnit = maxProblemPerUnit;
 }
 
-public CompilationResult(
-		ICompilationUnit compilationUnit,
-		int unitIndex, 
-		int totalUnitsKnown,
-		int maxProblemPerUnit){
-
+public CompilationResult(ICompilationUnit compilationUnit, int unitIndex, int totalUnitsKnown, int maxProblemPerUnit){
 	this.fileName = compilationUnit.getFileName();
 	this.compilationUnit = compilationUnit;
 	this.unitIndex = unitIndex;
@@ -112,7 +101,7 @@ private int computePriority(CategorizedProblem problem){
 	final int P_OUTSIDE_METHOD = 40000;
 	final int P_FIRST_ERROR = 20000;
 	final int P_ERROR = 100000;
-	
+
 	int priority = 10000 - problem.getSourceLineNumber(); // early problems first
 	if (priority < 0) priority = 0;
 	if (problem.isError()){
@@ -137,52 +126,10 @@ private int computePriority(CategorizedProblem problem){
 	return priority;
 }
 
-public void discardSuppressedWarnings() {
-	if (this.suppressWarningsCount == 0) return;
-	int removed = 0;
-	nextProblem: for (int i = 0, length = this.problemCount; i < length; i++) {
-		CategorizedProblem problem = this.problems[i];
-		int problemID = problem.getID();
-		if (!problem.isWarning()) {
-			continue nextProblem;
-		}
-		int start = problem.getSourceStart();
-		int end = problem.getSourceEnd();
-		nextSuppress: for (int j = 0, max = this.suppressWarningsCount; j < max; j++) {
-			long position = this.suppressWarningScopePositions[j];
-			int startSuppress = (int) (position >>> 32);
-			int endSuppress = (int) position;
-			if (start < startSuppress) continue nextSuppress;
-			if (end > endSuppress) continue nextSuppress;
-			if ((ProblemReporter.getIrritant(problemID) & this.suppressWarningIrritants[j]) == 0)
-				continue nextSuppress;
-			// discard suppressed warning
-			removed++;
-			this.problems[i] = null;
-			if (this.problemsMap != null) this.problemsMap.remove(problem);
-			if (this.firstErrors != null) this.firstErrors.remove(problem);
-			continue nextProblem;
-		}
-	}
-	if (removed > 0) {
-		for (int i = 0, index = 0; i < this.problemCount; i++) {
-			CategorizedProblem problem;
-			if ((problem = this.problems[i]) != null) {
-				if (i > index) {
-					this.problems[index++] = problem;
-				} else {
-					index++;
-				}
-			}
-		}
-		this.problemCount -= removed;
-	}
-}
-
 public CategorizedProblem[] getAllProblems() {
-	CategorizedProblem[] onlyProblems = this.getProblems();
+	CategorizedProblem[] onlyProblems = getProblems();
 	int onlyProblemCount = onlyProblems != null ? onlyProblems.length : 0;
-	CategorizedProblem[] onlyTasks = this.getTasks();
+	CategorizedProblem[] onlyTasks = getTasks();
 	int onlyTaskCount = onlyTasks != null ? onlyTasks.length : 0;
 	if (onlyTaskCount == 0) {
 		return onlyProblems;
@@ -190,7 +137,6 @@ public CategorizedProblem[] getAllProblems() {
 	if (onlyProblemCount == 0) {
 		return onlyTasks;
 	}
-
 	int totalNumberOfProblem = onlyProblemCount + onlyTaskCount;
 	CategorizedProblem[] allProblems = new CategorizedProblem[totalNumberOfProblem];
 	int allProblemIndex = 0;
@@ -234,7 +180,7 @@ public CategorizedProblem[] getAllProblems() {
 public ClassFile[] getClassFiles() {
 	ClassFile[] classFiles = new ClassFile[this.compiledTypes.size()];
 	this.compiledTypes.values().toArray(classFiles);
-	return classFiles;	
+	return classFiles;
 }
 
 /**
@@ -285,8 +231,6 @@ public int[] getLineSeparatorPositions() {
 public CategorizedProblem[] getProblems() {
 	// Re-adjust the size of the problems if necessary.
 	if (this.problems != null) {
-		discardSuppressedWarnings();
-
 		if (this.problemCount != this.problems.length) {
 			System.arraycopy(this.problems, 0, (this.problems = new CategorizedProblem[this.problemCount]), 0, this.problemCount);
 		}
@@ -327,12 +271,7 @@ public CategorizedProblem[] getTasks() {
 }
 
 public boolean hasErrors() {
-	if (this.problems != null)
-		for (int i = 0; i < this.problemCount; i++) {
-			if (this.problems[i].isError())
-				return true;
-		}
-	return false;
+	return this.numberOfErrors != 0;
 }
 
 public boolean hasProblems() {
@@ -354,7 +293,6 @@ public boolean hasWarnings() {
 
 private void quickPrioritize(CategorizedProblem[] problemList, int left, int right) {
 	if (left >= right) return;
-
 	// sort the problems by their priority... starting with the highest priority
 	int original_left = left;
 	int original_right = right;
@@ -377,17 +315,19 @@ private void quickPrioritize(CategorizedProblem[] problemList, int left, int rig
 	if (left < original_right)
 		quickPrioritize(problemList, left, original_right);
 }
+
 /*
  * Record the compilation unit result's package name
  */
 public void recordPackageName(char[][] packName) {
 	this.packageName = packName;
 }
+
 public void record(CategorizedProblem newProblem, ReferenceContext referenceContext) {
 	//new Exception("VERBOSE PROBLEM REPORTING").printStackTrace();
 	if(newProblem.getID() == IProblem.Task) {
-			recordTask(newProblem);
-			return;
+		recordTask(newProblem);
+		return;
 	}
 	if (this.problemCount == 0) {
 		this.problems = new CategorizedProblem[5];
@@ -401,8 +341,12 @@ public void record(CategorizedProblem newProblem, ReferenceContext referenceCont
 		if (newProblem.isError() && !referenceContext.hasErrors()) this.firstErrors.add(newProblem);
 		this.problemsMap.put(newProblem, referenceContext);
 	}
-	if ((newProblem.getID() & IProblem.Syntax) != 0 && newProblem.isError())
-		this.hasSyntaxError = true;
+	if (newProblem.isError()) {
+		this.numberOfErrors++;
+		if ((newProblem.getID() & IProblem.Syntax) != 0) {
+			this.hasSyntaxError = true;
+		}
+	}
 }
 
 /**
@@ -416,18 +360,6 @@ public void record(char[] typeName, ClassFile classFile) {
 	this.compiledTypes.put(typeName, classFile);
 }
 
-public void recordSuppressWarnings(long irritant, int scopeStart, int scopeEnd) {
-	if (this.suppressWarningIrritants == null) {
-		this.suppressWarningIrritants = new long[3];
-		this.suppressWarningScopePositions = new long[3];
-	} else if (this.suppressWarningIrritants.length == this.suppressWarningsCount) {
-		System.arraycopy(this.suppressWarningIrritants, 0,this.suppressWarningIrritants = new long[2*this.suppressWarningsCount], 0, this.suppressWarningsCount);
-		System.arraycopy(this.suppressWarningScopePositions, 0,this.suppressWarningScopePositions = new long[2*this.suppressWarningsCount], 0, this.suppressWarningsCount);
-	}
-	this.suppressWarningIrritants[this.suppressWarningsCount] = irritant;
-	this.suppressWarningScopePositions[this.suppressWarningsCount++] = ((long)scopeStart<<32) + scopeEnd;
-}
-
 private void recordTask(CategorizedProblem newProblem) {
 	if (this.taskCount == 0) {
 		this.tasks = new CategorizedProblem[5];
@@ -436,7 +368,14 @@ private void recordTask(CategorizedProblem newProblem) {
 	}
 	this.tasks[this.taskCount++] = newProblem;
 }
-
+public void removeProblem(CategorizedProblem problem) {
+	if (this.problemsMap != null) this.problemsMap.remove(problem);
+	if (this.firstErrors != null) this.firstErrors.remove(problem);
+	if (problem.isError()) {
+		this.numberOfErrors--;
+	}
+	this.problemCount--;
+}
 public CompilationResult tagAsAccepted(){
 	this.hasBeenAccepted = true;
 	this.problemsMap = null; // flush
@@ -455,7 +394,7 @@ public String toString(){
 		while (keys.hasNext()) {
 			char[] typeName = (char[]) keys.next();
 			buffer.append("\t - ").append(typeName).append('\n');   //$NON-NLS-1$
-			
+
 		}
 	} else {
 		buffer.append("No COMPILED type\n");  //$NON-NLS-1$
@@ -467,7 +406,7 @@ public String toString(){
 		}
 	} else {
 		buffer.append("No PROBLEM\n"); //$NON-NLS-1$
-	} 
+	}
 	return buffer.toString();
 }
 }

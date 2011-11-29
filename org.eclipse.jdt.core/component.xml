@@ -1,10 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Copyright (c) 2005, 2009 IBM Corporation and others.
+    All rights reserved. This program and the accompanying materials
+    are made available under the terms of the Eclipse Public License v1.0
+    which accompanies this distribution, and is available at
+    http://www.eclipse.org/legal/epl-v10.html
+    
+    Contributors:
+        IBM Corporation - initial API and implementation
+ -->
+
 <component xmlns="http://eclipse.org/component"
    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
    xsi:schemaLocation="http://eclipse.org/component ../component.xsd "
    name="org.eclipse.jdt.core">
  <plugin id="org.eclipse.jdt.core" />
 
+ <package name="org.eclipse.jdt.core.compiler.batch">
+   <type name="BatchCompiler" subclass="false" instantiate="false" /> 
+ </package>
  <package name="org.eclipse.jdt.core">
    <type name="BindingKey" subclass="false" />
    <type name="BufferChangedEvent" subclass="false" instantiate="false"/>
@@ -165,7 +179,6 @@
    <type name="MethodRef" instantiate="false"/>
    <type name="MethodRefParameter" instantiate="false"/>
    <type name="Modifier" instantiate="false" subclass="false"/>
-   <type name="NaiveASTFlattener" reference="false"/>
    <type name="Name" instantiate="false" subclass="false"/>
    <type name="NodeEventHandler" reference="false"/>
    <type name="NodeSearcher" reference="false"/>
@@ -228,7 +241,7 @@
    <type name="IGlobalVariable" implement="false"/>   
  </package>
  <package name="org.eclipse.jdt.core.formatter">
-   <type name="CodeFormatter"/>
+   <type name="CodeFormatter" subclass="false" instantiate="false"/>
    <type name="CodeFormatterApplication" subclass="false" instantiate="false"/>
    <type name="DefaultCodeFormatterConstants" subclass="false" instantiate="false"/>
    <type name="IndentManipulation" subclass="false" instantiate="false"/>

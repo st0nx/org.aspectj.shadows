@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,27 +11,12 @@
 
 package org.eclipse.jdt.core.dom;
 
-import java.io.File;
-
-import org.eclipse.core.resources.IContainer;
-import org.eclipse.core.resources.IWorkspaceRoot;
-import org.eclipse.core.resources.ResourcesPlugin;
-import org.eclipse.core.runtime.Path;
-import org.eclipse.jdt.core.IClassFile;
-import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.IMethod;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IPackageFragmentRoot;
-import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
-import org.eclipse.jdt.internal.compiler.ast.Expression;
+import org.eclipse.jdt.internal.compiler.ast.StringLiteral;
 import org.eclipse.jdt.internal.compiler.ast.Wildcard;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
-import org.eclipse.jdt.internal.compiler.env.IDependent;
 import org.eclipse.jdt.internal.compiler.lookup.ArrayBinding;
 import org.eclipse.jdt.internal.compiler.lookup.BaseTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
@@ -44,19 +29,21 @@ import org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.RawTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.Scope;
+import org.eclipse.jdt.internal.compiler.lookup.TagBits;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 import org.eclipse.jdt.internal.compiler.lookup.TypeVariableBinding;
 import org.eclipse.jdt.internal.compiler.lookup.WildcardBinding;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
-import org.eclipse.jdt.internal.compiler.util.Util;
-import org.eclipse.jdt.internal.core.ClassFile;
 import org.eclipse.jdt.internal.core.JavaElement;
+import org.eclipse.jdt.internal.core.PackageFragment;
 
 /**
  * Internal implementation of type bindings.
  */
 class TypeBinding implements ITypeBinding {
+	private static final StringLiteral EXPRESSION = new org.eclipse.jdt.internal.compiler.ast.StringLiteral(0,0);
+
 	protected static final IMethodBinding[] NO_METHOD_BINDINGS = new IMethodBinding[0];
 
 	private static final String NO_NAME = ""; //$NON-NLS-1$
@@ -85,7 +72,7 @@ class TypeBinding implements ITypeBinding {
 
 	public ITypeBinding createArrayType(int dimension) {
 		int realDimensions = dimension;
-		realDimensions += this.getDimensions();
+		realDimensions += getDimensions();
 		if (realDimensions < 1 || realDimensions > 255) {
 			throw new IllegalArgumentException();
 		}
@@ -96,23 +83,31 @@ class TypeBinding implements ITypeBinding {
 		if (this.annotations != null) {
 			return this.annotations;
 		}
-		if (this.binding.isAnnotationType() || this.binding.isClass() || this.binding.isEnum() || this.binding.isInterface()) {
-			org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding refType =
-				(org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding) this.binding;
+		org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding refType = null;
+		if (this.binding instanceof ParameterizedTypeBinding) {
+			refType = ((ParameterizedTypeBinding) this.binding).genericType();
+		} else if (this.binding.isAnnotationType() || this.binding.isClass() || this.binding.isEnum() || this.binding.isInterface()) {
+			refType = (org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding) this.binding;
+		}
+		if (refType != null) {
 			org.eclipse.jdt.internal.compiler.lookup.AnnotationBinding[] internalAnnotations = refType.getAnnotations();
 			int length = internalAnnotations == null ? 0 : internalAnnotations.length;
 			if (length != 0) {
 				IAnnotationBinding[] tempAnnotations = new IAnnotationBinding[length];
-				int annotationsCounter = 0;
+				int convertedAnnotationCount = 0;
 				for (int i = 0; i < length; i++) {
-					final IAnnotationBinding annotationInstance = this.resolver.getAnnotationInstance(internalAnnotations[i]);
+					org.eclipse.jdt.internal.compiler.lookup.AnnotationBinding internalAnnotation = internalAnnotations[i];
+					IAnnotationBinding annotationInstance = this.resolver.getAnnotationInstance(internalAnnotation);
 					if (annotationInstance == null) {
 						continue;
 					}
-					tempAnnotations[annotationsCounter++] = annotationInstance;
+					tempAnnotations[convertedAnnotationCount++] = annotationInstance;
 				}
-				if (length != annotationsCounter) {
-					System.arraycopy(tempAnnotations, 0, (tempAnnotations = new IAnnotationBinding[annotationsCounter]), 0, annotationsCounter);
+				if (convertedAnnotationCount != length) {
+					if (convertedAnnotationCount == 0) {
+						return this.annotations = AnnotationBinding.NoAnnotations;
+					}
+					System.arraycopy(tempAnnotations, 0, (tempAnnotations = new IAnnotationBinding[convertedAnnotationCount]), 0, convertedAnnotationCount);
 				}
 				return this.annotations = tempAnnotations;
 			}
@@ -164,64 +159,56 @@ class TypeBinding implements ITypeBinding {
 	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getBound()
 	 */
 	public ITypeBinding getBound() {
-		if (this.binding.isWildcard()) {
-			WildcardBinding wildcardBinding = (WildcardBinding) this.binding;
-			if (wildcardBinding.bound != null) {
-				return this.resolver.getTypeBinding(wildcardBinding.bound);
-			}
+		switch (this.binding.kind()) {
+			case Binding.WILDCARD_TYPE :
+			case Binding.INTERSECTION_TYPE :
+				WildcardBinding wildcardBinding = (WildcardBinding) this.binding;
+				if (wildcardBinding.bound != null) {
+					return this.resolver.getTypeBinding(wildcardBinding.bound);
+				}
+				break;
 		}
 		return null;
 	}
-
-	/*
-	 * Returns the class file for the given file name, or null if not found.
-	 * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
+	
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getGenericTypeOfWildcardType()
 	 */
-	private IClassFile getClassFile(char[] fileName) {
-		int jarSeparator = CharOperation.indexOf(IDependent.JAR_FILE_ENTRY_SEPARATOR, fileName);
-		int pkgEnd = CharOperation.lastIndexOf('/', fileName); // pkgEnd is exclusive
-		if (pkgEnd == -1)
-			pkgEnd = CharOperation.lastIndexOf(File.separatorChar, fileName);
-		if (jarSeparator != -1 && pkgEnd < jarSeparator) // if in a jar and no slash, it is a default package -> pkgEnd should be equal to jarSeparator
-			pkgEnd = jarSeparator;
-		if (pkgEnd == -1)
-			return null;
-		IPackageFragment pkg = getPackageFragment(fileName, pkgEnd, jarSeparator);
-		if (pkg == null) return null;
-		int start;
-		return pkg.getClassFile(new String(fileName, start = pkgEnd + 1, fileName.length - start));
-	}
-
-	/*
-	 * Returns the compilation unit for the given file name, or null if not found.
-	 * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
-	 */
-	private ICompilationUnit getCompilationUnit(char[] fileName) {
-		char[] slashSeparatedFileName = CharOperation.replaceOnCopy(fileName, File.separatorChar, '/');
-		int pkgEnd = CharOperation.lastIndexOf('/', slashSeparatedFileName); // pkgEnd is exclusive
-		if (pkgEnd == -1)
-			return null;
-		IPackageFragment pkg = getPackageFragment(slashSeparatedFileName, pkgEnd, -1/*no jar separator for .java files*/);
-		if (pkg == null) return null;
-		int start;
-		ICompilationUnit cu = pkg.getCompilationUnit(new String(slashSeparatedFileName, start =  pkgEnd+1, slashSeparatedFileName.length - start));
-		if (this.resolver instanceof DefaultBindingResolver) {
-			ICompilationUnit workingCopy = cu.findWorkingCopy(((DefaultBindingResolver) this.resolver).workingCopyOwner);
-			if (workingCopy != null)
-				return workingCopy;
+	public ITypeBinding getGenericTypeOfWildcardType() {
+		switch (this.binding.kind()) {
+			case Binding.WILDCARD_TYPE :
+				WildcardBinding wildcardBinding = (WildcardBinding) this.binding;
+				if (wildcardBinding.genericType != null) {
+					return this.resolver.getTypeBinding(wildcardBinding.genericType);
+				}
+				break;
 		}
-		return cu;
+		return null;
 	}
-
+	
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getRank()
+	 */
+	public int getRank() {
+		switch (this.binding.kind()) {
+			case Binding.WILDCARD_TYPE :
+			case Binding.INTERSECTION_TYPE :
+				WildcardBinding wildcardBinding = (WildcardBinding) this.binding;
+				return wildcardBinding.rank;
+			default:
+				return -1;
+		}
+	}
+	
 	/*
 	 * @see ITypeBinding#getComponentType()
 	 */
 	public ITypeBinding getComponentType() {
-		if (!this.isArray()) {
+		if (!isArray()) {
 			return null;
 		}
-		ArrayBinding arrayBinding = (ArrayBinding) binding;
-		return resolver.getTypeBinding(arrayBinding.elementsType());
+		ArrayBinding arrayBinding = (ArrayBinding) this.binding;
+		return this.resolver.getTypeBinding(arrayBinding.elementsType());
 	}
 
 	/*
@@ -237,13 +224,21 @@ class TypeBinding implements ITypeBinding {
 				FieldBinding[] fieldBindings = referenceBinding.availableFields(); // resilience
 				int length = fieldBindings.length;
 				if (length != 0) {
+					int convertedFieldCount = 0;
 					IVariableBinding[] newFields = new IVariableBinding[length];
 					for (int i = 0; i < length; i++) {
-						IVariableBinding variableBinding = this.resolver.getVariableBinding(fieldBindings[i]);
-						if (variableBinding == null) {
+						FieldBinding fieldBinding = fieldBindings[i];
+						IVariableBinding variableBinding = this.resolver.getVariableBinding(fieldBinding);
+						if (variableBinding != null) {
+							newFields[convertedFieldCount++] = variableBinding;
+						}
+					}
+
+					if (convertedFieldCount != length) {
+						if (convertedFieldCount == 0) {
 							return this.fields = NO_VARIABLE_BINDINGS;
 						}
-						newFields[i] = variableBinding;
+						System.arraycopy(newFields, 0, (newFields = new IVariableBinding[convertedFieldCount]), 0, convertedFieldCount);
 					}
 					return this.fields = newFields;
 				}
@@ -272,19 +267,23 @@ class TypeBinding implements ITypeBinding {
 				org.eclipse.jdt.internal.compiler.lookup.MethodBinding[] internalMethods = referenceBinding.availableMethods(); // be resilient
 				int length = internalMethods.length;
 				if (length != 0) {
-					int removeSyntheticsCounter = 0;
+					int convertedMethodCount = 0;
 					IMethodBinding[] newMethods = new IMethodBinding[length];
 					for (int i = 0; i < length; i++) {
 						org.eclipse.jdt.internal.compiler.lookup.MethodBinding methodBinding = internalMethods[i];
-						if (!shouldBeRemoved(methodBinding)) {
-							IMethodBinding methodBinding2 = this.resolver.getMethodBinding(methodBinding);
-							if (methodBinding2 != null) {
-								newMethods[removeSyntheticsCounter++] = methodBinding2;
-							}
+						if (methodBinding.isDefaultAbstract() || methodBinding.isSynthetic() || (methodBinding.isConstructor() && isInterface())) {
+							continue;
+						}
+						IMethodBinding methodBinding2 = this.resolver.getMethodBinding(methodBinding);
+						if (methodBinding2 != null) {
+							newMethods[convertedMethodCount++] = methodBinding2;
 						}
 					}
-					if (removeSyntheticsCounter != length) {
-						System.arraycopy(newMethods, 0, (newMethods = new IMethodBinding[removeSyntheticsCounter]), 0, removeSyntheticsCounter);
+					if (convertedMethodCount != length) {
+						if (convertedMethodCount == 0) {
+							return this.methods = NO_METHOD_BINDINGS;
+						}
+						System.arraycopy(newMethods, 0, (newMethods = new IMethodBinding[convertedMethodCount]), 0, convertedMethodCount);
 					}
 					return this.methods = newMethods;
 				}
@@ -421,10 +420,10 @@ class TypeBinding implements ITypeBinding {
 	 * @see ITypeBinding#getDimensions()
 	 */
 	public int getDimensions() {
-		if (!this.isArray()) {
+		if (!isArray()) {
 			return 0;
 		}
-		ArrayBinding arrayBinding = (ArrayBinding) binding;
+		ArrayBinding arrayBinding = (ArrayBinding) this.binding;
 		return arrayBinding.dimensions;
 	}
 
@@ -432,11 +431,11 @@ class TypeBinding implements ITypeBinding {
 	 * @see ITypeBinding#getElementType()
 	 */
 	public ITypeBinding getElementType() {
-		if (!this.isArray()) {
+		if (!isArray()) {
 			return null;
 		}
-		ArrayBinding arrayBinding = (ArrayBinding) binding;
-		return resolver.getTypeBinding(arrayBinding.leafComponentType);
+		ArrayBinding arrayBinding = (ArrayBinding) this.binding;
+		return this.resolver.getTypeBinding(arrayBinding.leafComponentType);
 	}
 
 	/* (non-Javadoc)
@@ -499,108 +498,38 @@ class TypeBinding implements ITypeBinding {
 
 	public IJavaElement getJavaElement() {
 		JavaElement element = getUnresolvedJavaElement();
-		if (element == null)
+		if (element != null)
+			return element.resolved(this.binding);
+		if (isRecovered()) {
+			IPackageBinding packageBinding = getPackage();
+			if (packageBinding != null) {
+				final IJavaElement javaElement = packageBinding.getJavaElement();
+				if (javaElement != null && javaElement.getElementType() == IJavaElement.PACKAGE_FRAGMENT) {
+					// best effort: we don't know if the recovered binding is a binary or source binding, so go with a simple source type
+					return ((PackageFragment) javaElement).getCompilationUnit(new String(this.binding.sourceName()) + SuffixConstants.SUFFIX_STRING_java).getType(this.getName());
+				}
+			}
 			return null;
-		return element.resolved(this.binding);
+		}
+		return null;
 	}
 
 	private JavaElement getUnresolvedJavaElement() {
 		return getUnresolvedJavaElement(this.binding);
 	}
 	private JavaElement getUnresolvedJavaElement(org.eclipse.jdt.internal.compiler.lookup.TypeBinding typeBinding ) {
-		if (typeBinding == null)
+		if (JavaCore.getPlugin() == null) {
 			return null;
-		switch (typeBinding.kind()) {
-			case Binding.ARRAY_TYPE :
-				typeBinding = ((ArrayBinding) typeBinding).leafComponentType();
-				return getUnresolvedJavaElement(typeBinding);
-			case Binding.BASE_TYPE :
-			case Binding.WILDCARD_TYPE :
-				return null;
-			default :
-				if (typeBinding.isCapture())
-					return null;
 		}
-		ReferenceBinding referenceBinding;
-		if (typeBinding.isParameterizedType() || typeBinding.isRawType())
-			referenceBinding = (ReferenceBinding) typeBinding.erasure();
-		else
-			referenceBinding = (ReferenceBinding) typeBinding;
-		char[] fileName = referenceBinding.getFileName();
-		if (referenceBinding.isLocalType() || referenceBinding.isAnonymousType()) {
-			// local or anonymous type
-			if (Util.isClassFileName(fileName)) {
-				int jarSeparator = CharOperation.indexOf(IDependent.JAR_FILE_ENTRY_SEPARATOR, fileName);
-				int pkgEnd = CharOperation.lastIndexOf('/', fileName); // pkgEnd is exclusive
-				if (pkgEnd == -1)
-					pkgEnd = CharOperation.lastIndexOf(File.separatorChar, fileName);
-				if (jarSeparator != -1 && pkgEnd < jarSeparator) // if in a jar and no slash, it is a default package -> pkgEnd should be equal to jarSeparator
-					pkgEnd = jarSeparator;
-				if (pkgEnd == -1)
-					return null;
-				IPackageFragment pkg = getPackageFragment(fileName, pkgEnd, jarSeparator);
-				char[] constantPoolName = referenceBinding.constantPoolName();
-				if (constantPoolName == null) {
-					ClassFile classFile = (ClassFile) getClassFile(fileName);
-					return classFile == null ? null : (JavaElement) classFile.getType();
-				}
-				pkgEnd = CharOperation.lastIndexOf('/', constantPoolName);
-				char[] classFileName = CharOperation.subarray(constantPoolName, pkgEnd+1, constantPoolName.length);
-				ClassFile classFile = (ClassFile) pkg.getClassFile(new String(classFileName) + SuffixConstants.SUFFIX_STRING_class);
-				return (JavaElement) classFile.getType();
-			}
-			ICompilationUnit cu = getCompilationUnit(fileName);
-			if (cu == null) return null;
-			// must use getElementAt(...) as there is no back pointer to the defining method (scope is null after resolution has ended)
-			try {
-				int sourceStart = ((LocalTypeBinding) referenceBinding).sourceStart;
-				return (JavaElement) cu.getElementAt(sourceStart);
-			} catch (JavaModelException e) {
-				// does not exist
-				return null;
-			}
-		} else if (referenceBinding.isTypeVariable()) {
-			// type parameter
-			final String typeVariableName = new String(referenceBinding.sourceName());
-			Binding declaringElement = ((TypeVariableBinding) referenceBinding).declaringElement;
-			IBinding declaringTypeBinding = null;
-			if (declaringElement instanceof MethodBinding) {
-				declaringTypeBinding = this.resolver.getMethodBinding((MethodBinding) declaringElement);
-				IMethod declaringMethod = (IMethod) declaringTypeBinding.getJavaElement();
-				return (JavaElement) declaringMethod.getTypeParameter(typeVariableName);
-			} else {
-				ITypeBinding typeBinding2 = this.resolver.getTypeBinding((org.eclipse.jdt.internal.compiler.lookup.TypeBinding) declaringElement);
-				if (typeBinding2 == null) return null;
-				declaringTypeBinding = typeBinding2;
-				IType declaringType = (IType) declaringTypeBinding.getJavaElement();
-				return (JavaElement) declaringType.getTypeParameter(typeVariableName);
-			}
-		} else {
-			if (fileName == null) return null; // case of a WilCardBinding that doesn't have a corresponding Java element
-			// member or top level type
-			ITypeBinding declaringTypeBinding = null;
-			if (this.isArray()) {
-				declaringTypeBinding = this.getElementType().getDeclaringClass();
-			} else {
-				declaringTypeBinding = this.getDeclaringClass();
-			}
-			if (declaringTypeBinding == null) {
-				// top level type
-				if (Util.isClassFileName(fileName)) {
-					ClassFile classFile = (ClassFile) getClassFile(fileName);
-					if (classFile == null) return null;
-					return (JavaElement) classFile.getType();
-				}
-				ICompilationUnit cu = getCompilationUnit(fileName);
-				if (cu == null) return null;
-				return (JavaElement) cu.getType(new String(referenceBinding.sourceName()));
-			} else {
-				// member type
-				IType declaringType = (IType) declaringTypeBinding.getJavaElement();
-				if (declaringType == null) return null;
-				return (JavaElement) declaringType.getType(new String(referenceBinding.sourceName()));
-			}
+		if (this.resolver instanceof DefaultBindingResolver) {
+			DefaultBindingResolver defaultBindingResolver = (DefaultBindingResolver) this.resolver;
+			if (!defaultBindingResolver.fromJavaProject) return null;
+			return org.eclipse.jdt.internal.core.util.Util.getUnresolvedJavaElement(
+					typeBinding,
+					defaultBindingResolver.workingCopyOwner,
+					defaultBindingResolver.getBindingsToNodesMap());
 		}
+		return null;
 	}
 
 	/*
@@ -656,6 +585,7 @@ class TypeBinding implements ITypeBinding {
 		switch (this.binding.kind()) {
 
 			case Binding.WILDCARD_TYPE :
+			case Binding.INTERSECTION_TYPE:
 				WildcardBinding wildcardBinding = (WildcardBinding) this.binding;
 				buffer = new StringBuffer();
 				buffer.append(TypeConstants.WILDCARD_NAME);
@@ -735,47 +665,11 @@ class TypeBinding implements ITypeBinding {
 			case Binding.ARRAY_TYPE :
 			case Binding.TYPE_PARAMETER : // includes capture scenario
 			case Binding.WILDCARD_TYPE :
+			case Binding.INTERSECTION_TYPE:
 				return null;
 		}
 		ReferenceBinding referenceBinding = (ReferenceBinding) this.binding;
 		return this.resolver.getPackageBinding(referenceBinding.getPackage());
-	}
-
-	/*
-	 * Returns the package that includes the given file name, or null if not found.
-	 * pkgEnd == jarSeparator if default package in a jar
-	 * pkgEnd > jarSeparator if non default package in a jar
-	 * pkgEnd > 0 if package not in a jar
-	 *
-	 * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
-	 */
-	private IPackageFragment getPackageFragment(char[] fileName, int pkgEnd, int jarSeparator) {
-		if (jarSeparator != -1) {
-			String jarMemento = new String(fileName, 0, jarSeparator);
-			IPackageFragmentRoot root = (IPackageFragmentRoot) JavaCore.create(jarMemento);
-			if (pkgEnd == jarSeparator)
-				return root.getPackageFragment(IPackageFragment.DEFAULT_PACKAGE_NAME);
-			char[] pkgName = CharOperation.subarray(fileName, jarSeparator+1, pkgEnd);
-			CharOperation.replace(pkgName, '/', '.');
-			return root.getPackageFragment(new String(pkgName));
-		} else {
-			Path path = new Path(new String(fileName, 0, pkgEnd));
-			IWorkspaceRoot workspaceRoot = ResourcesPlugin.getWorkspace().getRoot();
-			IContainer folder = path.segmentCount() == 1 ? workspaceRoot.getProject(path.lastSegment()) : (IContainer) workspaceRoot.getFolder(path);
-			IJavaElement element = JavaCore.create(folder);
-			if (element == null) return null;
-			switch (element.getElementType()) {
-				case IJavaElement.PACKAGE_FRAGMENT:
-					return (IPackageFragment) element;
-				case IJavaElement.PACKAGE_FRAGMENT_ROOT:
-					return ((IPackageFragmentRoot) element).getPackageFragment(IPackageFragment.DEFAULT_PACKAGE_NAME);
-				case IJavaElement.JAVA_PROJECT:
-					IPackageFragmentRoot root = ((IJavaProject) element).getPackageFragmentRoot(folder);
-					if (root == null) return null;
-					return root.getPackageFragment(IPackageFragment.DEFAULT_PACKAGE_NAME);
-			}
-			return null;
-		}
 	}
 
 	/**
@@ -786,17 +680,18 @@ class TypeBinding implements ITypeBinding {
 		switch (this.binding.kind()) {
 
 			case Binding.WILDCARD_TYPE :
+			case Binding.INTERSECTION_TYPE:
 				WildcardBinding wildcardBinding = (WildcardBinding) this.binding;
 				buffer = new StringBuffer();
 				buffer.append(TypeConstants.WILDCARD_NAME);
 				final ITypeBinding bound = getBound();
 				if (bound != null) {
 					switch(wildcardBinding.boundKind) {
-				        case Wildcard.SUPER :
-				        	buffer.append(TypeConstants.WILDCARD_SUPER);
-				            break;
-				        case Wildcard.EXTENDS :
-				        	buffer.append(TypeConstants.WILDCARD_EXTENDS);
+						case Wildcard.SUPER :
+							buffer.append(TypeConstants.WILDCARD_SUPER);
+							break;
+						case Wildcard.EXTENDS :
+							buffer.append(TypeConstants.WILDCARD_EXTENDS);
 					}
 					buffer.append(bound.getQualifiedName());
 				}
@@ -808,7 +703,7 @@ class TypeBinding implements ITypeBinding {
 			case Binding.ARRAY_TYPE :
 				ITypeBinding elementType = getElementType();
 				if (elementType.isLocal() || elementType.isAnonymous() || elementType.isCapture()) {
-					return NO_NAME;
+					return elementType.getQualifiedName();
 				}
 				final int dimensions = getDimensions();
 				char[] brackets = new char[dimensions * 2];
@@ -828,6 +723,9 @@ class TypeBinding implements ITypeBinding {
 				return new String(typeVariableBinding.sourceName);
 
 			case Binding.PARAMETERIZED_TYPE :
+				if (this.binding.isLocalType()) {
+					return NO_NAME;
+				}
 				buffer = new StringBuffer();
 				if (isMember()) {
 					buffer
@@ -863,9 +761,8 @@ class TypeBinding implements ITypeBinding {
 					buffer.append('>');
 				}
 				return String.valueOf(buffer);
-
 			default :
-				if (isAnonymous() || isLocal()) {
+				if (isAnonymous() || this.binding.isLocalType()) {
 					return NO_NAME;
 				}
 				if (isPrimitive() || isNullType()) {
@@ -930,21 +827,19 @@ class TypeBinding implements ITypeBinding {
 		if (this.typeArguments != null) {
 			return this.typeArguments;
 		}
-		if (this.binding.isParameterizedType()) {
+		if (this.binding.isParameterizedTypeWithActualArguments()) {
 			ParameterizedTypeBinding parameterizedTypeBinding = (ParameterizedTypeBinding) this.binding;
 			final org.eclipse.jdt.internal.compiler.lookup.TypeBinding[] arguments = parameterizedTypeBinding.arguments;
-			if (arguments != null) {
-				int argumentsLength = arguments.length;
-				ITypeBinding[] newTypeArguments = new ITypeBinding[argumentsLength];
-				for (int i = 0; i < argumentsLength; i++) {
-					ITypeBinding typeBinding = this.resolver.getTypeBinding(arguments[i]);
-					if (typeBinding == null) {
-						return this.typeArguments = NO_TYPE_BINDINGS;
-					}
-					newTypeArguments[i] = typeBinding;
+			int argumentsLength = arguments.length;
+			ITypeBinding[] newTypeArguments = new ITypeBinding[argumentsLength];
+			for (int i = 0; i < argumentsLength; i++) {
+				ITypeBinding typeBinding = this.resolver.getTypeBinding(arguments[i]);
+				if (typeBinding == null) {
+					return this.typeArguments = NO_TYPE_BINDINGS;
 				}
-				return this.typeArguments = newTypeArguments;
+				newTypeArguments[i] = typeBinding;
 			}
+			return this.typeArguments = newTypeArguments;
 		}
 		return this.typeArguments = NO_TYPE_BINDINGS;
 	}
@@ -1076,7 +971,7 @@ class TypeBinding implements ITypeBinding {
 	 * @see ITypeBinding#isArray()
 	 */
 	public boolean isArray() {
-		return binding.isArrayType();
+		return this.binding.isArrayType();
 	}
 
 	/* (non-Javadoc)
@@ -1109,18 +1004,13 @@ class TypeBinding implements ITypeBinding {
 	 */
 	public boolean isCastCompatible(ITypeBinding type) {
 		try {
-			Expression expression = new Expression() {
-				public StringBuffer printExpression(int indent,StringBuffer output) {
-					return null;
-				}
-			};
 			Scope scope = this.resolver.scope();
 			if (scope == null) return false;
 			if (!(type instanceof TypeBinding)) return false;
 			org.eclipse.jdt.internal.compiler.lookup.TypeBinding expressionType = ((TypeBinding) type).binding;
 			// simulate capture in case checked binding did not properly get extracted from a reference
 			expressionType = expressionType.capture(scope, 0);
-			return expression.checkCastTypesCompatibility(scope, this.binding, expressionType, null);
+			return TypeBinding.EXPRESSION.checkCastTypesCompatibility(scope, this.binding, expressionType, null);
 		} catch (AbortCompilation e) {
 			// don't surface internal exception to clients
 			// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=143013
@@ -1132,7 +1022,13 @@ class TypeBinding implements ITypeBinding {
 	 * @see ITypeBinding#isClass()
 	 */
 	public boolean isClass() {
-		return this.binding.isClass() && !this.binding.isTypeVariable() && !this.binding.isWildcard();
+		switch (this.binding.kind()) {
+			case Binding.TYPE_PARAMETER :
+			case Binding.WILDCARD_TYPE :
+			case Binding.INTERSECTION_TYPE :
+				return false;
+		}
+		return this.binding.isClass();
 	}
 
 	/*
@@ -1222,7 +1118,13 @@ class TypeBinding implements ITypeBinding {
 	 * @see ITypeBinding#isInterface()
 	 */
 	public boolean isInterface() {
-		return this.binding.isInterface() && !this.binding.isTypeVariable() && !this.binding.isWildcard();
+		switch (this.binding.kind()) {
+			case Binding.TYPE_PARAMETER :
+			case Binding.WILDCARD_TYPE :
+			case Binding.INTERSECTION_TYPE :
+				return false;
+		}
+		return this.binding.isInterface();
 	}
 
 	/*
@@ -1269,14 +1171,14 @@ class TypeBinding implements ITypeBinding {
 	 * @see org.eclipse.jdt.core.dom.ITypeBinding#isParameterizedType()
 	 */
 	public boolean isParameterizedType() {
-		return this.binding.isParameterizedType() && ((ParameterizedTypeBinding) this.binding).arguments != null;
+		return this.binding.isParameterizedTypeWithActualArguments();
 	}
 
 	/*
 	 * @see ITypeBinding#isPrimitive()
 	 */
 	public boolean isPrimitive() {
-		return !isNullType() && binding.isBaseType();
+		return !isNullType() && this.binding.isBaseType();
 	}
 
 	/* (non-Javadoc)
@@ -1290,7 +1192,7 @@ class TypeBinding implements ITypeBinding {
 	 * @see IBinding#isRecovered()
 	 */
 	public boolean isRecovered() {
-		return false;
+		return (this.binding.tagBits & TagBits.HasMissingType) != 0;
 	}
 
 	/* (non-Javadoc)
@@ -1340,7 +1242,13 @@ class TypeBinding implements ITypeBinding {
 	 * @see org.eclipse.jdt.core.dom.ITypeBinding#isUpperbound()
 	 */
 	public boolean isUpperbound() {
-		return this.binding.isWildcard() && ((WildcardBinding) this.binding).boundKind == Wildcard.EXTENDS;
+		switch (this.binding.kind()) {
+			case Binding.WILDCARD_TYPE :
+				return ((WildcardBinding) this.binding).boundKind == Wildcard.EXTENDS;
+			case Binding.INTERSECTION_TYPE :
+				return true;
+		}
+		return false;
 	}
 
 	/* (non-Javadoc)
@@ -1348,10 +1256,6 @@ class TypeBinding implements ITypeBinding {
 	 */
 	public boolean isWildcardType() {
 		return this.binding.isWildcard();
-	}
-
-	private boolean shouldBeRemoved(org.eclipse.jdt.internal.compiler.lookup.MethodBinding methodBinding) {
-		return methodBinding.isDefaultAbstract() || methodBinding.isSynthetic() || (methodBinding.isConstructor() && isInterface());
 	}
 
 	/*

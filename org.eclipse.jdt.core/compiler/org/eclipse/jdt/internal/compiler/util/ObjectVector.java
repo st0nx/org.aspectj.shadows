@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,17 +11,17 @@
 package org.eclipse.jdt.internal.compiler.util;
 
 public final class ObjectVector {
-	
+
 	static int INITIAL_SIZE = 10;
 
 	public int size;
 	int maxSize;
 	Object[] elements;
-	
+
 	public ObjectVector() {
 		this(INITIAL_SIZE);
 	}
-	
+
 	public ObjectVector(int initialSize) {
 		this.maxSize = initialSize > 0 ? initialSize : INITIAL_SIZE;
 		this.size = 0;
@@ -38,20 +38,20 @@ public final class ObjectVector {
 	public void addAll(Object[] newElements) {
 
 		if (this.size + newElements.length >= this.maxSize) {
-			maxSize = this.size + newElements.length; // assume no more elements will be added
+			this.maxSize = this.size + newElements.length; // assume no more elements will be added
 			System.arraycopy(this.elements, 0, (this.elements = new Object[this.maxSize]), 0, this.size);
 		}
-		System.arraycopy(newElements, 0, this.elements, size, newElements.length);
+		System.arraycopy(newElements, 0, this.elements, this.size, newElements.length);
 		this.size += newElements.length;
 	}
 
 	public void addAll(ObjectVector newVector) {
 
 		if (this.size + newVector.size >= this.maxSize) {
-			maxSize = this.size + newVector.size; // assume no more elements will be added
+			this.maxSize = this.size + newVector.size; // assume no more elements will be added
 			System.arraycopy(this.elements, 0, (this.elements = new Object[this.maxSize]), 0, this.size);
 		}
-		System.arraycopy(newVector.elements, 0, this.elements, size, newVector.size);
+		System.arraycopy(newVector.elements, 0, this.elements, this.size, newVector.size);
 		this.size += newVector.size;
 	}
 
@@ -78,15 +78,15 @@ public final class ObjectVector {
 	}
 
 	public void copyInto(Object[] targetArray){
-		
+
 		this.copyInto(targetArray, 0);
 	}
-	
+
 	public void copyInto(Object[] targetArray, int index){
-		
+
 		System.arraycopy(this.elements, 0, targetArray, index, this.size);
-	}	
-	
+	}
+
 	public Object elementAt(int index) {
 
 		return this.elements[index];
@@ -96,7 +96,7 @@ public final class ObjectVector {
 
 		for (int i = this.size; --i >= 0;)
 			if (element.equals(this.elements[i]))
-				return element;
+				return this.elements[i];
 		return null;
 	}
 
@@ -114,19 +114,19 @@ public final class ObjectVector {
 	}
 
 	public void removeAll() {
-		
+
 		for (int i = this.size; --i >= 0;)
 			this.elements[i] = null;
 		this.size = 0;
 	}
 
 	public int size(){
-		
+
 		return this.size;
 	}
-	
+
 	public String toString() {
-		
+
 		String s = ""; //$NON-NLS-1$
 		for (int i = 0; i < this.size; i++)
 			s += this.elements[i].toString() + "\n"; //$NON-NLS-1$

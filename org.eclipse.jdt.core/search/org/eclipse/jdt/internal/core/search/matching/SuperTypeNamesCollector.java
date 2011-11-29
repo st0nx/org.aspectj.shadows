@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -19,6 +19,7 @@ import org.eclipse.jdt.core.search.*;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.*;
+import org.eclipse.jdt.internal.compiler.ast.Initializer;
 import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
@@ -44,19 +45,19 @@ public class SuperTypeNamesCollector {
 		public boolean visit(TypeDeclaration typeDeclaration, BlockScope scope) {
 			ReferenceBinding binding = typeDeclaration.binding;
 			if (SuperTypeNamesCollector.this.matches(binding))
-				SuperTypeNamesCollector.this.collectSuperTypeNames(binding);
+				collectSuperTypeNames(binding);
 			return true;
 		}
 		public boolean visit(TypeDeclaration typeDeclaration, CompilationUnitScope scope) {
 			ReferenceBinding binding = typeDeclaration.binding;
 			if (SuperTypeNamesCollector.this.matches(binding))
-				SuperTypeNamesCollector.this.collectSuperTypeNames(binding);
+				collectSuperTypeNames(binding);
 			return true;
 		}
 		public boolean visit(TypeDeclaration memberTypeDeclaration, ClassScope scope) {
 			ReferenceBinding binding = memberTypeDeclaration.binding;
 			if (SuperTypeNamesCollector.this.matches(binding))
-				SuperTypeNamesCollector.this.collectSuperTypeNames(binding);
+				collectSuperTypeNames(binding);
 			return true;
 		}
 		public boolean visit(FieldDeclaration fieldDeclaration, MethodScope scope) {
@@ -76,7 +77,7 @@ SearchPattern pattern;
 char[] typeSimpleName;
 char[] typeQualification;
 MatchLocator locator;
-IType type; 
+IType type;
 IProgressMonitor progressMonitor;
 char[][][] result;
 int resultIndex;
@@ -86,7 +87,7 @@ public SuperTypeNamesCollector(
 	char[] typeSimpleName,
 	char[] typeQualification,
 	MatchLocator locator,
-	IType type, 
+	IType type,
 	IProgressMonitor progressMonitor) {
 
 	this.pattern = pattern;
@@ -114,7 +115,7 @@ protected CompilationUnitDeclaration buildBindings(ICompilationUnit compilationU
 	org.eclipse.jdt.internal.compiler.env.ICompilationUnit sourceUnit = (org.eclipse.jdt.internal.compiler.env.ICompilationUnit) compilationUnit;
 
 	CompilationResult compilationResult = new CompilationResult(sourceUnit, 1, 1, 0);
-	CompilationUnitDeclaration unit = 
+	CompilationUnitDeclaration unit =
 		isTopLevelOrMember ?
 			this.locator.basicParser().dietParse(sourceUnit, compilationResult) :
 			this.locator.basicParser().parse(sourceUnit, compilationResult);
@@ -148,7 +149,7 @@ public char[][][] collect() throws JavaModelException {
 				CompilationUnitDeclaration parsedUnit = buildBindings(unit, isTopLevelOrMember);
 				if (parsedUnit != null) {
 					TypeDeclaration typeDecl = new ASTNodeFinder(parsedUnit).findType(this.type);
-					if (typeDecl != null && typeDecl.binding != null) 
+					if (typeDecl != null && typeDecl.binding != null)
 						collectSuperTypeNames(typeDecl.binding);
 				}
 			}
@@ -162,10 +163,10 @@ public char[][][] collect() throws JavaModelException {
 	}
 
 	// Collect the paths of the cus that declare a type which matches declaringQualification + declaringSimpleName
-	String[] paths = this.getPathsOfDeclaringType();
+	String[] paths = getPathsOfDeclaringType();
 	if (paths == null) return null;
 
-	// Create bindings from source types and binary types and collect super type names of the type declaration 
+	// Create bindings from source types and binary types and collect super type names of the type declaration
 	// that match the given declaring type
 	Util.sort(paths); // sort by projects
 	JavaProject previousProject = null;
@@ -208,16 +209,16 @@ public char[][][] collect() throws JavaModelException {
 protected void collectSuperTypeNames(ReferenceBinding binding) {
 	ReferenceBinding superclass = binding.superclass();
 	if (superclass != null) {
-		this.addToResult(superclass.compoundName);
-		this.collectSuperTypeNames(superclass);
+		addToResult(superclass.compoundName);
+		collectSuperTypeNames(superclass);
 	}
 
 	ReferenceBinding[] interfaces = binding.superInterfaces();
 	if (interfaces != null) {
 		for (int i = 0; i < interfaces.length; i++) {
 			ReferenceBinding interfaceBinding = interfaces[i];
-			this.addToResult(interfaceBinding.compoundName);
-			this.collectSuperTypeNames(interfaceBinding);
+			addToResult(interfaceBinding.compoundName);
+			collectSuperTypeNames(interfaceBinding);
 		}
 	}
 }
@@ -226,7 +227,7 @@ protected String[] getPathsOfDeclaringType() {
 
 	final PathCollector pathCollector = new PathCollector();
 	IJavaSearchScope scope = SearchEngine.createWorkspaceScope();
-	IndexManager indexManager = JavaModelManager.getJavaModelManager().getIndexManager();
+	IndexManager indexManager = JavaModelManager.getIndexManager();
 	SearchPattern searchPattern = new TypeDeclarationPattern(
 		this.typeSimpleName != null ? null : this.typeQualification, // use the qualification only if no simple name
 		null, // do find member types
@@ -240,17 +241,17 @@ protected String[] getPathsOfDeclaringType() {
 				pathCollector.acceptIndexMatch(documentPath, indexRecord, participant, access);
 			}
 			return true;
-		}		
-	};		
+		}
+	};
 
 	indexManager.performConcurrentJob(
 		new PatternSearchJob(
-			searchPattern, 
+			searchPattern,
 			new JavaSearchParticipant(),
-			scope, 
+			scope,
 			searchRequestor),
 		IJavaSearchConstants.WAIT_UNTIL_READY_TO_SEARCH,
-		progressMonitor == null ? null : new SubProgressMonitor(progressMonitor, 100));
+		this.progressMonitor == null ? null : new SubProgressMonitor(this.progressMonitor, 100));
 	return pathCollector.getPaths();
 }
 protected boolean matches(char[][] compoundName) {
@@ -272,7 +273,7 @@ protected boolean matches(char[][] compoundName) {
 	int dollar = CharOperation.indexOf('$', simpleName);
 	if (dollar == -1) return false;
 	compoundName[last] = CharOperation.subarray(simpleName, 0, dollar);
-	compoundName[length] = CharOperation.subarray(simpleName, dollar+1, simpleName.length); 
+	compoundName[length] = CharOperation.subarray(simpleName, dollar+1, simpleName.length);
 	return this.matches(compoundName);
 }
 protected boolean matches(ReferenceBinding binding) {

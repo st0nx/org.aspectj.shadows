@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-v10.html
- *
+ * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -56,11 +56,11 @@ public interface TypeIds {
 
 	// 1.4 features
 	final int T_JavaLangAssertionError = 35;
-	
+
 	// array interfaces
 	final int T_JavaLangCloneable = 36;
 	final int T_JavaIoSerializable = 37;
-	    
+
 	// 1.5 features
 	final int T_JavaLangIterable = 38;
 	final int T_JavaUtilIterator = 39;
@@ -86,6 +86,16 @@ public interface TypeIds {
 	final int T_JavaIoExternalizable = 56;
 	final int T_JavaIoObjectStreamException = 57;
 	final int T_JavaIoException = 58;
+	
+	final int T_JavaUtilCollection = 59;
+	
+	// java 7
+	final int T_JavaLangSafeVarargs = 60;
+	
+	final int T_JavaLangInvokeMethodHandlePolymorphicSignature = 61;
+
+	// java 7 java.lang.AutoCloseable
+	final int T_JavaLangAutoCloseable = 62;
 
 	final int NoId = Integer.MAX_VALUE;
 
@@ -154,8 +164,17 @@ public interface TypeIds {
 	final int Double2String = T_double + (T_JavaLangString << 4);
 	final int String2String = T_JavaLangString + (T_JavaLangString << 4);
 	final int Object2String = T_JavaLangObject + (T_JavaLangString << 4);
+	final int Null2Null = T_null + (T_null << 4);
 	final int Null2String = T_null + (T_JavaLangString << 4);
 	final int Object2Object = T_JavaLangObject + (T_JavaLangObject << 4);
+	final int Object2byte = T_JavaLangObject + (T_byte << 4);
+	final int Object2short = T_JavaLangObject + (T_short << 4);
+	final int Object2char = T_JavaLangObject + (T_char << 4);
+	final int Object2int = T_JavaLangObject + (T_int << 4);
+	final int Object2long = T_JavaLangObject + (T_long << 4);
+	final int Object2float = T_JavaLangObject + (T_float << 4);
+	final int Object2double = T_JavaLangObject + (T_double << 4);
+	final int Object2boolean = T_JavaLangObject + (T_boolean << 4);
 	final int BOXING = 0x200;
 	final int UNBOXING = 0x400;
 }

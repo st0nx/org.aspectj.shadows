@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,7 +21,6 @@ import org.eclipse.jdt.core.dom.AbstractTypeDeclaration;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.internal.core.util.Messages;
-import org.eclipse.jface.text.IDocument;
 
 /**
  * <p>This operation creates a class or interface.
@@ -40,8 +39,8 @@ public class CreateTypeOperation extends CreateTypeMemberOperation {
 public CreateTypeOperation(IJavaElement parentElement, String source, boolean force) {
 	super(parentElement, source, force);
 }
-protected ASTNode generateElementAST(ASTRewrite rewriter, IDocument document, ICompilationUnit cu) throws JavaModelException {
-	ASTNode node = super.generateElementAST(rewriter, document, cu);
+protected ASTNode generateElementAST(ASTRewrite rewriter, ICompilationUnit cu) throws JavaModelException {
+	ASTNode node = super.generateElementAST(rewriter, cu);
 	if (!(node instanceof AbstractTypeDeclaration))
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
 	return node;
@@ -57,7 +56,7 @@ protected IJavaElement generateResultHandle() {
 			return ((ICompilationUnit)parent).getType(getASTNodeName());
 		case IJavaElement.TYPE:
 			return ((IType)parent).getType(getASTNodeName());
-		// Note: creating local/anonymous type is not supported 
+		// Note: creating local/anonymous type is not supported
 	}
 	return null;
 }
@@ -65,7 +64,7 @@ protected IJavaElement generateResultHandle() {
  * @see CreateElementInCUOperation#getMainTaskName()
  */
 public String getMainTaskName(){
-	return Messages.operation_createTypeProgress; 
+	return Messages.operation_createTypeProgress;
 }
 /**
  * Returns the <code>IType</code> the member is to be created in.
@@ -87,19 +86,33 @@ protected IJavaModelStatus verifyNameCollision() {
 			String typeName = getASTNodeName();
 			if (((ICompilationUnit) parent).getType(typeName).exists()) {
 				return new JavaModelStatus(
-					IJavaModelStatusConstants.NAME_COLLISION, 
-					Messages.bind(Messages.status_nameCollision, typeName)); 
+					IJavaModelStatusConstants.NAME_COLLISION,
+					Messages.bind(Messages.status_nameCollision, typeName));
 			}
 			break;
 		case IJavaElement.TYPE:
 			typeName = getASTNodeName();
 			if (((IType) parent).getType(typeName).exists()) {
 				return new JavaModelStatus(
-					IJavaModelStatusConstants.NAME_COLLISION, 
-					Messages.bind(Messages.status_nameCollision, typeName)); 
+					IJavaModelStatusConstants.NAME_COLLISION,
+					Messages.bind(Messages.status_nameCollision, typeName));
 			}
 			break;
-		// Note: creating local/anonymous type is not supported 
+		// Note: creating local/anonymous type is not supported
+	}
+	return JavaModelStatus.VERIFIED_OK;
+}
+public IJavaModelStatus verify() {
+	IJavaModelStatus status = super.verify();
+	if (!status.isOK())
+		return status;
+	try {
+		IJavaElement parent = getParentElement();
+		if (this.anchorElement != null && this.anchorElement.getElementType() == IJavaElement.FIELD
+				&& parent.getElementType() == IJavaElement.TYPE && ((IType)parent).isEnum())
+			return new JavaModelStatus(IJavaModelStatusConstants.INVALID_SIBLING, this.anchorElement);
+	} catch (JavaModelException e) {
+		return e.getJavaModelStatus();
 	}
 	return JavaModelStatus.VERIFIED_OK;
 }

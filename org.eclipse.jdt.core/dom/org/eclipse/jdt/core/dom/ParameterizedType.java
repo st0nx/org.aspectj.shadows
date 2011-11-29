@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2003, 2005 IBM Corporation and others.
+ * Copyright (c) 2003, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -24,34 +24,35 @@ import java.util.List;
  * </pre>
  * The first type may be a simple type or a qualified type;
  * other kinds of types are meaningless.
- * 
+ *
  * @since 3.1
+ * @noinstantiate This class is not intended to be instantiated by clients.
  */
 public class ParameterizedType extends Type {
     /**
      * This index represents the position inside a parameterized qualified type.
      */
     int index;
-	
+
 	/**
-	 * The "type" structural property of this node type.
+	 * The "type" structural property of this node type (child type: {@link Type}).
 	 */
-	public static final ChildPropertyDescriptor TYPE_PROPERTY = 
+	public static final ChildPropertyDescriptor TYPE_PROPERTY =
 		new ChildPropertyDescriptor(ParameterizedType.class, "type", Type.class, MANDATORY, CYCLE_RISK); //$NON-NLS-1$
 
 	/**
-	 * The "typeArguments" structural property of this node type.
+	 * The "typeArguments" structural property of this node type (element type: {@link Type}).
 	 */
-	public static final ChildListPropertyDescriptor TYPE_ARGUMENTS_PROPERTY = 
+	public static final ChildListPropertyDescriptor TYPE_ARGUMENTS_PROPERTY =
 		new ChildListPropertyDescriptor(ParameterizedType.class, "typeArguments", Type.class, CYCLE_RISK); //$NON-NLS-1$
-	
+
 	/**
-	 * A list of property descriptors (element type: 
+	 * A list of property descriptors (element type:
 	 * {@link StructuralPropertyDescriptor}),
 	 * or null if uninitialized.
 	 */
 	private static final List PROPERTY_DESCRIPTORS;
-	
+
 	static {
 		List propertyList = new ArrayList(3);
 		createPropertyList(ParameterizedType.class, propertyList);
@@ -63,30 +64,30 @@ public class ParameterizedType extends Type {
 	/**
 	 * Returns a list of structural property descriptors for this node type.
 	 * Clients must not modify the result.
-	 * 
+	 *
 	 * @param apiLevel the API level; one of the
 	 * <code>AST.JLS*</code> constants
 
-	 * @return a list of property descriptors (element type: 
+	 * @return a list of property descriptors (element type:
 	 * {@link StructuralPropertyDescriptor})
 	 */
 	public static List propertyDescriptors(int apiLevel) {
 		return PROPERTY_DESCRIPTORS;
 	}
-			
-	/** 
+
+	/**
 	 * The type node; lazily initialized; defaults to an unspecfied, but legal,
 	 * type.
 	 */
 	private Type type = null;
-	
+
 	/**
-	 * The type arguments (element type: <code>Type</code>). 
+	 * The type arguments (element type: {@link Type}).
 	 * Defaults to an empty list.
 	 */
 	private ASTNode.NodeList typeArguments =
 		new ASTNode.NodeList(TYPE_ARGUMENTS_PROPERTY);
-	
+
 	/**
 	 * Creates a new unparented node for a parameterized type owned by the
 	 * given AST. By default, an unspecified, but legal, type, and no type
@@ -94,7 +95,7 @@ public class ParameterizedType extends Type {
 	 * <p>
 	 * N.B. This constructor is package-private.
 	 * </p>
-	 * 
+	 *
 	 * @param ast the AST that is to own this node
 	 */
 	ParameterizedType(AST ast) {
@@ -108,7 +109,7 @@ public class ParameterizedType extends Type {
 	final List internalStructuralPropertiesForType(int apiLevel) {
 		return propertyDescriptors(apiLevel);
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
@@ -124,7 +125,7 @@ public class ParameterizedType extends Type {
 		// allow default implementation to flag the error
 		return super.internalGetSetChildProperty(property, get, child);
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
@@ -148,7 +149,7 @@ public class ParameterizedType extends Type {
 	 */
 	ASTNode clone0(AST target) {
 		ParameterizedType result = new ParameterizedType(target);
-		result.setSourceRange(this.getStartPosition(), this.getLength());
+		result.setSourceRange(getStartPosition(), getLength());
 		result.setType((Type) ((ASTNode) getType()).clone(target));
 		result.typeArguments().addAll(
 			ASTNode.copySubtrees(target, typeArguments()));
@@ -175,12 +176,12 @@ public class ParameterizedType extends Type {
 		}
 		visitor.endVisit(this);
 	}
-	
+
 	/**
 	 * Returns the type of this parameterized type.
-	 * 
+	 *
 	 * @return the type of this parameterized type
-	 */ 
+	 */
 	public Type getType() {
 		if (this.type == null) {
 			// lazy init must be thread-safe for readers
@@ -194,17 +195,17 @@ public class ParameterizedType extends Type {
 		}
 		return this.type;
 	}
-	
+
 	/**
 	 * Sets the type of this parameterized type.
-	 * 
+	 *
 	 * @param type the new type of this parameterized type
 	 * @exception IllegalArgumentException if:
 	 * <ul>
 	 * <li>the node belongs to a different AST</li>
 	 * <li>the node already has a parent</li>
 	 * </ul>
-	 */ 
+	 */
 	public void setType(Type type) {
 		if (type == null) {
 			throw new IllegalArgumentException();
@@ -216,17 +217,21 @@ public class ParameterizedType extends Type {
 	}
 
 	/**
-	 * Returns the live ordered list of type arguments of this parameterized 
+	 * Returns the live ordered list of type arguments of this parameterized
 	 * type. For the parameterized type to be plausible, the list should contain
-	 * at least one element and not contain primitive types.
-	 * 
+	 * at least one element and not contain primitive or union types.
+	 * <p>
+	 * Since {@link AST#JLS4}, the list can also be empty if this is the type of a
+	 * {@link ClassInstanceCreation} (a so-called "diamond").
+	 * </p>
+	 *
 	 * @return the live list of type arguments
-	 *    (element type: <code>Type</code>)
-	 */ 
+	 *    (element type: {@link Type})
+	 */
 	public List typeArguments() {
 		return this.typeArguments;
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
@@ -234,12 +239,12 @@ public class ParameterizedType extends Type {
 		// treat Code as free
 		return BASE_NODE_SIZE + 3 * 4;
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
 	int treeSize() {
-		return 
+		return
 			memSize()
 			+ (this.type == null ? 0 : getType().treeSize())
 			+ this.typeArguments.listSize();

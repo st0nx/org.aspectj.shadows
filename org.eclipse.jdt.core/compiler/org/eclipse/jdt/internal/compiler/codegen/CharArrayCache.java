@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -28,7 +28,7 @@ public CharArrayCache() {
 /**
  * Constructs a new, empty hashtable with the specified initial
  * capacity.
- * @param initialCapacity int 
+ * @param initialCapacity int
  *	the initial number of buckets; must be less than Integer.MAX_VALUE / 2
  */
 public CharArrayCache(int initialCapacity) {
@@ -53,7 +53,7 @@ public void clear() {
  * @return boolean
  */
 public boolean containsKey(char[] key) {
-	int index = hashCodeChar(key), length = this.keyTable.length;
+	int length = this.keyTable.length, index = CharOperation.hashCode(key) % length;
 	while (this.keyTable[index] != null) {
 		if (CharOperation.equals(this.keyTable[index], key))
 			return true;
@@ -70,7 +70,7 @@ public boolean containsKey(char[] key) {
  *	defined in the hash table.
  */
 public int get(char[] key) {
-	int index = hashCodeChar(key), length = this.keyTable.length;
+	int length = this.keyTable.length, index = CharOperation.hashCode(key) % length;
 	while (this.keyTable[index] != null) {
 		if (CharOperation.equals(this.keyTable[index], key))
 			return this.valueTable[index];
@@ -80,26 +80,17 @@ public int get(char[] key) {
 	}
 	return -1;
 }
-private int hashCodeChar(char[] val) {
-	final int length = val.length;
-	int hash = 0;
-	final int n = 3; // number of characters skipped
-	for (int i = 0; i < length; i += n) {
-		hash += val[i];
-	}
-	return (hash & 0x7FFFFFFF) % this.keyTable.length;
-}
 /**
- * Puts the specified element into the hashtable if it wasn't there already, 
+ * Puts the specified element into the hashtable if it wasn't there already,
  * using the specified key.  The element may be retrieved by doing a get() with the same key.
- * The key and the element cannot be null. 
- * 
+ * The key and the element cannot be null.
+ *
  * @param key the given key in the hashtable
  * @param value the given value
  * @return int the old value of the key, or -value if it did not have one.
  */
 public int putIfAbsent(char[] key, int value) {
-	int index = hashCodeChar(key), length = this.keyTable.length;
+	int length = this.keyTable.length, index = CharOperation.hashCode(key) % length;
 	while (this.keyTable[index] != null) {
 		if (CharOperation.equals(this.keyTable[index], key))
 			return this.valueTable[index];
@@ -119,14 +110,14 @@ public int putIfAbsent(char[] key, int value) {
 /**
  * Puts the specified element into the hashtable, using the specified
  * key.  The element may be retrieved by doing a get() with the same key.
- * The key and the element cannot be null. 
- * 
+ * The key and the element cannot be null.
+ *
  * @param key <CODE>Object</CODE> the specified key in the hashtable
  * @param value <CODE>int</CODE> the specified element
  * @return int the old value of the key, or -1 if it did not have one.
  */
-private int put(char[] key, int value) { 
-	int index = hashCodeChar(key), length = this.keyTable.length;
+private int put(char[] key, int value) {
+	int length = this.keyTable.length, index = CharOperation.hashCode(key) % length;
 	while (this.keyTable[index] != null) {
 		if (CharOperation.equals(this.keyTable[index], key))
 			return this.valueTable[index] = value;
@@ -162,7 +153,7 @@ private void rehash() {
  * @param key <CODE>char[]</CODE> the specified key
  */
 public void remove(char[] key) {
-	int index = hashCodeChar(key), length = this.keyTable.length;
+	int length = this.keyTable.length, index = CharOperation.hashCode(key) % length;
 	while (this.keyTable[index] != null) {
 		if (CharOperation.equals(this.keyTable[index], key)) {
 			this.valueTable[index] = 0;

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -30,26 +30,33 @@ public int match(Expression node, MatchingNodeSet nodeSet) { // interested in As
 			if (lhs instanceof Reference)
 				return matchReference((Reference) lhs, nodeSet, true);
 		}
-	} else if (this.pattern.readAccess) {
+	} else if (this.pattern.readAccess || this.pattern.fineGrain != 0) {
 		if (node instanceof Assignment && !(node instanceof CompoundAssignment)) {
 			// the lhs of a simple assignment may be added in match(Reference...) before we reach here
 			// for example, the fieldRef to 'this.x' in the statement this.x = x; is not considered a readAccess
+			char[] lastToken = null;
 			Expression lhs = ((Assignment) node).lhs;
-			nodeSet.removePossibleMatch(lhs);
-			nodeSet.removeTrustedMatch(lhs);
+			if (lhs instanceof QualifiedNameReference) {
+				char[][] tokens = ((QualifiedNameReference)lhs).tokens;
+				lastToken = tokens[tokens.length-1];
+			}
+			if (lastToken == null || matchesName(this.pattern.name, lastToken)) {
+				nodeSet.removePossibleMatch(lhs);
+				nodeSet.removeTrustedMatch(lhs);
+			}
 		}
 	}
 	return IMPOSSIBLE_MATCH;
 }
 public int match(Reference node, MatchingNodeSet nodeSet) { // interested in NameReference & its subtypes
-	return this.pattern.readAccess
+	return (this.pattern.readAccess || this.pattern.fineGrain != 0)
 		? matchReference(node, nodeSet, false)
 		: IMPOSSIBLE_MATCH;
 }
 protected int matchReference(Reference node, MatchingNodeSet nodeSet, boolean writeOnlyAccess) {
 	if (node instanceof NameReference) {
 		if (this.pattern.name == null) {
-			return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+			return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 		} else if (node instanceof SingleNameReference) {
 			if (matchesName(this.pattern.name, ((SingleNameReference) node).token))
 				return nodeSet.addMatch(node, POSSIBLE_MATCH);

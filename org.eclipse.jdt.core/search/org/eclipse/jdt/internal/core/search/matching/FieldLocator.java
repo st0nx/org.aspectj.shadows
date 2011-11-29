@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -30,6 +30,9 @@ public FieldLocator(FieldPattern pattern) {
 
 	this.isDeclarationOfAccessedFieldsPattern = this.pattern instanceof DeclarationOfAccessedFieldsPattern;
 }
+protected int fineGrain() {
+	return this.pattern.fineGrain;
+}
 public int match(ASTNode node, MatchingNodeSet nodeSet) {
 	int declarationsLevel = IMPOSSIBLE_MATCH;
 	if (this.pattern.findReferences) {
@@ -43,7 +46,7 @@ public int match(ASTNode node, MatchingNodeSet nodeSet) {
 				FieldPattern fieldPattern = (FieldPattern) this.pattern;
 				char[] declaringType = CharOperation.concat(fieldPattern.declaringQualification, fieldPattern.declaringSimpleName, '.');
 				if (matchesName(declaringType, CharOperation.concatWith(compoundName, '.'))) {
-					declarationsLevel = ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
+					declarationsLevel = this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
 				}
 			}
 		}
@@ -57,7 +60,7 @@ public int match(FieldDeclaration node, MatchingNodeSet nodeSet) {
 		// must be a write only access with an initializer
 		if (this.pattern.writeAccess && !this.pattern.readAccess && node.initialization != null)
 			if (matchesName(this.pattern.name, node.name))
-				referencesLevel = ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
+				referencesLevel = this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
 
 	int declarationsLevel = IMPOSSIBLE_MATCH;
 	if (this.pattern.findDeclarations) {
@@ -66,7 +69,7 @@ public int match(FieldDeclaration node, MatchingNodeSet nodeSet) {
 			case AbstractVariableDeclaration.ENUM_CONSTANT :
 				if (matchesName(this.pattern.name, node.name))
 					if (matchesTypeReference(((FieldPattern)this.pattern).typeSimpleName, node.type))
-						declarationsLevel = ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
+						declarationsLevel = this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
 				break;
 		}
 	}
@@ -78,7 +81,7 @@ public int match(FieldDeclaration node, MatchingNodeSet nodeSet) {
 //public int match(TypeReference node, MatchingNodeSet nodeSet) - SKIP IT
 
 protected int matchContainer() {
-	if (this.pattern.findReferences) {
+	if (this.pattern.findReferences || this.pattern.fineGrain != 0) {
 		// need to look everywhere to find in javadocs and static import
 		return ALL_CONTAINER;
 	}
@@ -128,18 +131,21 @@ protected void matchLevelAndReportImportRef(ImportReference importRef, Binding b
 protected int matchReference(Reference node, MatchingNodeSet nodeSet, boolean writeOnlyAccess) {
 	if (node instanceof FieldReference) {
 		if (matchesName(this.pattern.name, ((FieldReference) node).token))
-			return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+			return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 		return IMPOSSIBLE_MATCH;
 	}
 	return super.matchReference(node, nodeSet, writeOnlyAccess);
 }
 protected void matchReportReference(ASTNode reference, IJavaElement element, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
+	matchReportReference(reference, element, null, null, elementBinding, accuracy, locator);
+}
+protected void matchReportReference(ASTNode reference, IJavaElement element, IJavaElement localElement, IJavaElement[] otherElements,Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
 	if (this.isDeclarationOfAccessedFieldsPattern) {
 		// need exact match to be able to open on type ref
 		if (accuracy != SearchMatch.A_ACCURATE) return;
 
 		// element that references the field must be included in the enclosing element
-		DeclarationOfAccessedFieldsPattern declPattern = (DeclarationOfAccessedFieldsPattern) this.pattern; 
+		DeclarationOfAccessedFieldsPattern declPattern = (DeclarationOfAccessedFieldsPattern) this.pattern;
 		while (element != null && !declPattern.enclosingElement.equals(element))
 			element = element.getParent();
 		if (element != null) {
@@ -163,19 +169,19 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 		int lastIndex = importRef.tokens.length - 1;
 		int start = (int) ((positions[lastIndex]) >>> 32);
 		int end = (int) positions[lastIndex];
-		match = locator.newFieldReferenceMatch(element, elementBinding, accuracy, start, end-start+1, importRef);
-		locator.report(match);
+		this.match = locator.newFieldReferenceMatch(element, localElement, elementBinding, accuracy, start, end-start+1, importRef);
+		locator.report(this.match);
 	} else if (reference instanceof FieldReference) {
 		FieldReference fieldReference = (FieldReference) reference;
 		long position = fieldReference.nameSourcePosition;
 		int start = (int) (position >>> 32);
 		int end = (int) position;
-		match = locator.newFieldReferenceMatch(element, elementBinding, accuracy, start, end-start+1, fieldReference);
-		locator.report(match);
+		this.match = locator.newFieldReferenceMatch(element, localElement, elementBinding, accuracy, start, end-start+1, fieldReference);
+		locator.report(this.match);
 	} else if (reference instanceof SingleNameReference) {
 		int offset = reference.sourceStart;
-		match = locator.newFieldReferenceMatch(element, elementBinding, accuracy, offset, reference.sourceEnd-offset+1, reference);
-		locator.report(match);
+		this.match = locator.newFieldReferenceMatch(element, localElement, elementBinding, accuracy, offset, reference.sourceEnd-offset+1, reference);
+		locator.report(this.match);
 	} else if (reference instanceof QualifiedNameReference) {
 		QualifiedNameReference qNameRef = (QualifiedNameReference) reference;
 		int length = qNameRef.tokens.length;
@@ -187,18 +193,18 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 		if (matchesName(this.pattern.name, qNameRef.tokens[indexOfFirstFieldBinding]) && !(nameBinding instanceof LocalVariableBinding)) {
 			FieldBinding fieldBinding = nameBinding instanceof FieldBinding ? (FieldBinding) nameBinding : null;
 			if (fieldBinding == null) {
-				matches[indexOfFirstFieldBinding] = locator.newFieldReferenceMatch(element, elementBinding, accuracy, -1, -1, reference);
+				matches[indexOfFirstFieldBinding] = locator.newFieldReferenceMatch(element, localElement, elementBinding, accuracy, -1, -1, reference);
 			} else {
 				switch (matchField(fieldBinding, false)) {
 					case ACCURATE_MATCH:
-						matches[indexOfFirstFieldBinding] = locator.newFieldReferenceMatch(element, elementBinding, SearchMatch.A_ACCURATE, -1, -1, reference);
+						matches[indexOfFirstFieldBinding] = locator.newFieldReferenceMatch(element, localElement, elementBinding, SearchMatch.A_ACCURATE, -1, -1, reference);
 						break;
 					case INACCURATE_MATCH:
-						match = locator.newFieldReferenceMatch(element, elementBinding, SearchMatch.A_INACCURATE, -1, -1, reference);
+						this.match = locator.newFieldReferenceMatch(element, localElement, elementBinding, SearchMatch.A_INACCURATE, -1, -1, reference);
 						if (fieldBinding.type != null && fieldBinding.type.isParameterizedType() && this.pattern.hasTypeArguments()) {
 							updateMatch((ParameterizedTypeBinding) fieldBinding.type, this.pattern.getTypeArguments(), locator);
 						}
-						matches[indexOfFirstFieldBinding] = match;
+						matches[indexOfFirstFieldBinding] = this.match;
 						break;
 				}
 			}
@@ -210,18 +216,18 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 			if (matchesName(this.pattern.name, token)) {
 				FieldBinding otherBinding = qNameRef.otherBindings == null ? null : qNameRef.otherBindings[i-(indexOfFirstFieldBinding+1)];
 				if (otherBinding == null) {
-					matches[i] = locator.newFieldReferenceMatch(element, elementBinding, accuracy, -1, -1, reference);
+					matches[i] = locator.newFieldReferenceMatch(element, localElement, elementBinding, accuracy, -1, -1, reference);
 				} else {
 					switch (matchField(otherBinding, false)) {
 						case ACCURATE_MATCH:
-							matches[i] = locator.newFieldReferenceMatch(element, elementBinding, SearchMatch.A_ACCURATE, -1, -1, reference);
+							matches[i] = locator.newFieldReferenceMatch(element, localElement, elementBinding, SearchMatch.A_ACCURATE, -1, -1, reference);
 							break;
 						case INACCURATE_MATCH:
-							match = locator.newFieldReferenceMatch(element, elementBinding, SearchMatch.A_INACCURATE, -1, -1, reference);
+							this.match = locator.newFieldReferenceMatch(element, localElement, elementBinding, SearchMatch.A_INACCURATE, -1, -1, reference);
 							if (otherBinding.type != null && otherBinding.type.isParameterizedType() && this.pattern.hasTypeArguments()) {
 								updateMatch((ParameterizedTypeBinding) otherBinding.type, this.pattern.getTypeArguments(), locator);
 							}
-							matches[i] = match;
+							matches[i] = this.match;
 							break;
 					}
 				}
@@ -239,15 +245,15 @@ protected void updateMatch(ParameterizedTypeBinding parameterizedBinding, char[]
 	// We can only refine if locator has an unit scope.
 	if (locator.unitScope == null) return;
 	updateMatch(parameterizedBinding, patternTypeArguments, false, 0, locator);
-	if (!match.isExact()) {
+	if (!this.match.isExact()) {
 		// cannot accept neither erasure nor compatible match
-		match.setRule(0);
+		this.match.setRule(0);
 	}
 }
 protected void reportDeclaration(FieldBinding fieldBinding, MatchLocator locator, SimpleSet knownFields) throws CoreException {
 	// ignore length field
 	if (fieldBinding == ArrayBinding.ArrayLength) return;
-	
+
 	ReferenceBinding declaringClass = fieldBinding.declaringClass;
 	IType type = locator.lookupType(declaringClass);
 	if (type == null) return; // case of a secondary type
@@ -272,16 +278,17 @@ protected void reportDeclaration(FieldBinding fieldBinding, MatchLocator locator
 			TypeDeclaration typeDecl = scope.referenceContext;
 			FieldDeclaration fieldDecl = null;
 			FieldDeclaration[] fieldDecls = typeDecl.fields;
-			for (int i = 0, length = fieldDecls.length; i < length; i++) {
+			int length = fieldDecls == null ? 0 : fieldDecls.length;
+			for (int i = 0; i < length; i++) {
 				if (CharOperation.equals(bindingName, fieldDecls[i].name)) {
 					fieldDecl = fieldDecls[i];
 					break;
 				}
-			} 
+			}
 			if (fieldDecl != null) {
 				int offset = fieldDecl.sourceStart;
-				match = new FieldDeclarationMatch(((JavaElement) field).resolved(fieldBinding), SearchMatch.A_ACCURATE, offset, fieldDecl.sourceEnd-offset+1, locator.getParticipant(), resource);
-				locator.report(match);
+				this.match = new FieldDeclarationMatch(((JavaElement) field).resolved(fieldBinding), SearchMatch.A_ACCURATE, offset, fieldDecl.sourceEnd-offset+1, locator.getParticipant(), resource);
+				locator.report(this.match);
 			}
 		}
 	}
@@ -290,7 +297,7 @@ protected int referenceType() {
 	return IJavaElement.FIELD;
 }
 public int resolveLevel(ASTNode possiblelMatchingNode) {
-	if (this.pattern.findReferences) {
+	if (this.pattern.findReferences || this.pattern.fineGrain != 0) {
 		if (possiblelMatchingNode instanceof FieldReference)
 			return matchField(((FieldReference) possiblelMatchingNode).binding, true);
 		else if (possiblelMatchingNode instanceof NameReference)
@@ -323,7 +330,7 @@ protected int resolveLevel(NameReference nameRef) {
 			int level = matchField(fieldBinding, false);
 			if (level != IMPOSSIBLE_MATCH) return level;
 		}
-	} 
+	}
 	int otherMax = qNameRef.otherBindings == null ? 0 : qNameRef.otherBindings.length;
 	for (int i = 0; i < otherMax; i++) {
 		char[] token = qNameRef.tokens[i + qNameRef.indexOfFirstFieldBinding];

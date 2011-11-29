@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,8 +11,27 @@
 package org.eclipse.jdt.internal.compiler;
 
 import org.eclipse.jdt.core.compiler.CategorizedProblem;
+import org.eclipse.jdt.internal.compiler.ast.Expression;
+import org.eclipse.jdt.internal.compiler.ast.ImportReference;
 
 public class SourceElementRequestorAdapter implements ISourceElementRequestor {
+
+	/**
+	 * @see ISourceElementRequestor#acceptAnnotationTypeReference(char[][], int, int)
+	 */
+	public void acceptAnnotationTypeReference(
+		char[][] typeName,
+		int sourceStart,
+		int sourceEnd) {
+		// default implementation: do nothing
+	}
+
+	/**
+	 * @see ISourceElementRequestor#acceptAnnotationTypeReference(char[], int)
+	 */
+	public void acceptAnnotationTypeReference(char[] typeName, int sourcePosition) {
+		// default implementation: do nothing
+	}
 
 	/**
 	 * @see ISourceElementRequestor#acceptConstructorReference(char[], int, int)
@@ -32,11 +51,13 @@ public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 	}
 
 	/**
-	 * @see ISourceElementRequestor#acceptImport(int, int, char[][], boolean, int)
+	 * @see ISourceElementRequestor#acceptImport(int, int, int, int, char[][], boolean, int)
 	 */
 	public void acceptImport(
 		int declarationStart,
 		int declarationEnd,
+		int nameStart,
+		int nameEnd,
 		char[][] tokens,
 		boolean onDemand,
 		int modifiers) {
@@ -61,12 +82,9 @@ public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 	}
 
 	/**
-	 * @see ISourceElementRequestor#acceptPackage(int, int, char[])
+	 * @see ISourceElementRequestor#acceptPackage(ImportReference)
 	 */
-	public void acceptPackage(
-		int declarationStart,
-		int declarationEnd,
-		char[] name) {
+	public void acceptPackage(ImportReference importReference) {
 		// default implementation: do nothing
 	}
 
@@ -121,14 +139,14 @@ public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 	public void enterConstructor(MethodInfo methodInfo) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
-	 * @see ISourceElementRequestor#enterField(FieldInfo)
+	 * @see ISourceElementRequestor#enterField(ISourceElementRequestor.FieldInfo)
 	 */
 	public void enterField(FieldInfo fieldInfo) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * @see ISourceElementRequestor#enterInitializer(int, int)
 	 */
@@ -139,11 +157,11 @@ public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 	public void enterMethod(MethodInfo methodInfo) {
 		// default implementation: do nothing
 	}
-	
+
 	public void enterType(TypeInfo typeInfo) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * @see ISourceElementRequestor#exitCompilationUnit(int)
 	 */
@@ -173,12 +191,12 @@ public class SourceElementRequestorAdapter implements ISourceElementRequestor {
 	}
 
 	/**
-	 * @see ISourceElementRequestor#exitMethod(int, int, int)
+	 * @see ISourceElementRequestor#exitMethod(int, Expression)
 	 */
-	public void exitMethod(int declarationEnd, int defaultValueStart, int defaultValueEnd) {
+	public void exitMethod(int declarationEnd, Expression defaultValue) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * @see ISourceElementRequestor#exitType(int)
 	 */

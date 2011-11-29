@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,6 +15,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Set;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
@@ -31,14 +32,27 @@ public class FileSystem implements INameEnvironment, SuffixConstants {
 		NameEnvironmentAnswer findClass(char[] typeName, String qualifiedPackageName, String qualifiedBinaryFileName, boolean asBinaryOnly);
 		boolean isPackage(String qualifiedPackageName);
 		/**
+		 * Return a list of the jar file names defined in the Class-Path section
+		 * of the jar file manifest if any, null else. Only ClasspathJar (and
+		 * extending classes) instances may return a non-null result.
+		 * @param  problemReporter problem reporter with which potential
+		 *         misconfiguration issues are raised
+		 * @return a list of the jar file names defined in the Class-Path
+		 *         section of the jar file manifest if any
+		 */
+		List fetchLinkedJars(ClasspathSectionProblemReporter problemReporter);
+		/**
 		 * This method resets the environment. The resulting state is equivalent to
 		 * a new name environment without creating a new object.
 		 */
 		void reset();
 		/**
-		 * Return a normalized path for file based classpath entries. This is an absolute path
-		 * ending with a file separator for directories, an absolute path deprived from the '.jar'
-		 * (resp. '.zip') extension for jar (resp. zip) files.
+		 * Return a normalized path for file based classpath entries. This is an
+		 * absolute path in which file separators are transformed to the
+		 * platform-agnostic '/', ending with a '/' for directories. This is an
+		 * absolute path in which file separators are transformed to the
+		 * platform-agnostic '/', deprived from the '.jar' (resp. '.zip')
+		 * extension for jar (resp. zip) files.
 		 * @return a normalized path for file based classpath entries
 		 */
 		char[] normalizedPath();
@@ -53,6 +67,10 @@ public class FileSystem implements INameEnvironment, SuffixConstants {
 		 * Initialize the entry
 		 */
 		void initialize() throws IOException;
+	}
+	public interface ClasspathSectionProblemReporter {
+		void invalidClasspathSection(String jarFilePath);
+		void multipleClasspathSections(String jarFilePath);
 	}
 
 	/**
@@ -73,10 +91,9 @@ public class FileSystem implements INameEnvironment, SuffixConstants {
 			HashSet cache = new HashSet();
 			for (Iterator iterator = classpaths.iterator(); iterator.hasNext(); ) {
 				FileSystem.Classpath classpath = (FileSystem.Classpath) iterator.next();
-				String path = classpath.getPath();
-				if (!cache.contains(path)) {
+				if (!cache.contains(classpath)) {
 					normalizedClasspath.add(classpath);
-					cache.add(path);
+					cache.add(classpath);
 				}
 			}
 			return normalizedClasspath;
@@ -108,7 +125,7 @@ public FileSystem(String[] classpathNames, String[] initialFileNames, String enc
 	}
 	initializeKnownFileNames(initialFileNames);
 }
-FileSystem(Classpath[] paths, String[] initialFileNames) {
+protected FileSystem(Classpath[] paths, String[] initialFileNames) {
 	final int length = paths.length;
 	int counter = 0;
 	this.classpaths = new FileSystem.Classpath[length];
@@ -146,9 +163,7 @@ public static Classpath getClasspath(String classpathName, String encoding,
 						convertPathSeparators(destinationPath));
 		}
 	} else {
-		String lowercaseClasspathName = classpathName.toLowerCase();
-		if (lowercaseClasspathName.endsWith(SUFFIX_STRING_jar)
-				|| lowercaseClasspathName.endsWith(SUFFIX_STRING_zip)) {
+		if (Util.isPotentialZipArchive(classpathName)) {
 			if (isSourceOnly) {
 				// source only mode
 				result = new ClasspathSourceJar(file, true, accessRuleSet,
@@ -171,20 +186,48 @@ private void initializeKnownFileNames(String[] initialFileNames) {
 	}
 	this.knownFileNames = new HashSet(initialFileNames.length * 2);
 	for (int i = initialFileNames.length; --i >= 0;) {
-		char[] fileName = initialFileNames[i].toCharArray();
+		File compilationUnitFile = new File(initialFileNames[i]);
+		char[] fileName = null;
+		try {
+			fileName = compilationUnitFile.getCanonicalPath().toCharArray();
+		} catch (IOException e) {
+			// this should not happen as the file exists
+			continue;
+		}
 		char[] matchingPathName = null;
 		final int lastIndexOf = CharOperation.lastIndexOf('.', fileName);
 		if (lastIndexOf != -1) {
 			fileName = CharOperation.subarray(fileName, 0, lastIndexOf);
 		}
 		CharOperation.replace(fileName, '\\', '/');
-		for (int j = 0; j < classpaths.length; j++){
+		boolean globalPathMatches = false;
+		// the most nested path should be the selected one
+		for (int j = 0, max = this.classpaths.length; j < max; j++) {
 			char[] matchCandidate = this.classpaths[j].normalizedPath();
-			if (this.classpaths[j] instanceof  ClasspathDirectory &&
-					CharOperation.prefixEquals(matchCandidate, fileName) &&
-					(matchingPathName == null ||
-							matchCandidate.length < matchingPathName.length))
-				matchingPathName = matchCandidate;
+			boolean currentPathMatch = false;
+			if (this.classpaths[j] instanceof ClasspathDirectory
+					&& CharOperation.prefixEquals(matchCandidate, fileName)) {
+				currentPathMatch = true;
+				if (matchingPathName == null) {
+					matchingPathName = matchCandidate;
+				} else {
+					if (currentPathMatch) {
+						// we have a second source folder that matches the path of the source file
+						if (matchCandidate.length > matchingPathName.length) {
+							// we want to preserve the shortest possible path
+							matchingPathName = matchCandidate;
+						}
+					} else {
+						// we want to preserve the shortest possible path
+						if (!globalPathMatches && matchCandidate.length < matchingPathName.length) {
+							matchingPathName = matchCandidate;
+						}
+					}
+				}
+				if (currentPathMatch) {
+					globalPathMatches = true;
+				}
+			}
 		}
 		if (matchingPathName == null) {
 			this.knownFileNames.add(new String(fileName)); // leave as is...

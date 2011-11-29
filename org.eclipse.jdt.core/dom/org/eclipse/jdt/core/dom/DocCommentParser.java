@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2006 IBM Corporation and others.
+ * Copyright (c) 2004, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -23,7 +23,7 @@ import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 
 /**
  * Internal parser used for decoding doc comments.
- * 
+ *
  * @since 3.0
  */
 class DocCommentParser extends AbstractCommentParser {
@@ -35,14 +35,24 @@ class DocCommentParser extends AbstractCommentParser {
 		super(null);
 		this.ast = ast;
 		this.scanner = scanner;
-		this.sourceLevel = this.ast.apiLevel() >= AST.JLS3 ? ClassFileConstants.JDK1_5 : ClassFileConstants.JDK1_3;
+		switch(this.ast.apiLevel()) {
+			case AST.JLS2_INTERNAL :
+				this.sourceLevel = ClassFileConstants.JDK1_3;
+				break;
+			case AST.JLS3:
+				this.sourceLevel = ClassFileConstants.JDK1_5;
+				break;
+			default:
+				// AST.JLS4 for now
+				this.sourceLevel = ClassFileConstants.JDK1_7;
+		}
 		this.checkDocComment = check;
 		this.kind = DOM_PARSER | TEXT_PARSE;
 	}
 
 	/* (non-Javadoc)
 	 * Returns true if tag @deprecated is present in annotation.
-	 * 
+	 *
 	 * If annotation checking is enabled, will also construct an Annotation node, which will be stored into Parser.annotation
 	 * slot for being consumed later on.
 	 */
@@ -55,7 +65,7 @@ class DocCommentParser extends AbstractCommentParser {
 		this.source = this.scanner.source;
 		this.lineEnds = this.scanner.lineEnds;
 		this.docComment = new Javadoc(this.ast);
-		
+
 		// Parse
 		if (this.checkDocComment) {
 			this.javadocStart = start;
@@ -333,7 +343,7 @@ class DocCommentParser extends AbstractCommentParser {
 	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#parseTag(int)
 	 */
 	protected boolean parseTag(int previousPosition) throws InvalidInputException {
-		
+
 		// Read tag name
 		int currentPosition = this.index;
 		int token = readTokenAndConsume();
@@ -420,13 +430,8 @@ class DocCommentParser extends AbstractCommentParser {
 					break;
 					case 'i':
 						if (length == TAG_INHERITDOC_LENGTH && CharOperation.equals(TAG_INHERITDOC, tagName)) {
-							// inhibits inherited flag when tags have been already stored
-							// see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=51606
-							// Note that for DOM_PARSER, nodes stack may be not empty even no '@' tag
-							// was encountered in comment. But it cannot be the case for COMPILER_PARSER
-							// and so is enough as it is only this parser which signals the missing tag warnings...
-							if (this.astPtr==-1) {
-								this.inheritedPositions = (((long) this.tagSourceStart) << 32) + this.tagSourceEnd;
+							if (this.reportProblems) {
+								recordInheritedPosition((((long) this.tagSourceStart) << 32) + this.tagSourceEnd);
 							}
 							this.tagValue = TAG_INHERITDOC_VALUE;
 						} else {
@@ -560,6 +565,9 @@ class DocCommentParser extends AbstractCommentParser {
 			case TerminalTokens.TokenNamevoid:
 			case TerminalTokens.TokenNamevolatile:
 			case TerminalTokens.TokenNamewhile:
+			case TerminalTokens.TokenNameenum :
+			case TerminalTokens.TokenNameconst :
+			case TerminalTokens.TokenNamegoto :
 				this.tagValue = TAG_OTHERS_VALUE;
 				createTag();
 				break;
@@ -649,9 +657,13 @@ class DocCommentParser extends AbstractCommentParser {
 	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#pushText(int, int)
 	 */
 	protected void pushText(int start, int end) {
+
+		// Create text element
 		TextElement text = this.ast.newTextElement();
 		text.setText(new String( this.source, start, end-start));
 		text.setSourceRange(start, end-start);
+
+		// Search previous tag on which to add the text element
 		TagElement previousTag = null;
 		int previousStart = start;
 		if (this.astPtr == -1) {
@@ -662,42 +674,32 @@ class DocCommentParser extends AbstractCommentParser {
 			previousTag = (TagElement) this.astStack[this.astPtr];
 			previousStart = previousTag.getStartPosition();
 		}
+
+		// If we're in a inline tag, then retrieve previous tag in its fragments
+		List fragments = previousTag.fragments();
 		if (this.inlineTagStarted) {
-			if (previousTag.fragments().size() == 0) {
+			int size = fragments.size();
+			if (size == 0) {
+				// no existing fragment => just add the element
 				TagElement inlineTag = this.ast.newTagElement();
-				previousTag.fragments().add(inlineTag);
+				fragments.add(inlineTag);
 				previousTag = inlineTag;
 			} else {
-				ASTNode inlineTag = (ASTNode) previousTag.fragments().get(previousTag.fragments().size()-1);
-				if (inlineTag.getNodeType() == ASTNode.TAG_ELEMENT) {
-					previousTag = (TagElement) inlineTag;
+				// If last fragment is a tag, then use it as previous tag
+				ASTNode lastFragment = (ASTNode) fragments.get(size-1);
+				if (lastFragment.getNodeType() == ASTNode.TAG_ELEMENT) {
+					previousTag = (TagElement) lastFragment;
 					previousStart = previousTag.getStartPosition();
 				}
 			}
 		}
+
+		// Add the text
 		previousTag.fragments().add(text);
 		previousTag.setSourceRange(previousStart, end-previousStart);
 		this.textStart = -1;
 	}
-	/* (non-Javadoc)
-	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#pushText(int, int)
-	 */
-	protected void refreshInlineTagPosition(int previousPosition) {
-		if (this.astPtr != -1) {
-			TagElement previousTag = (TagElement) this.astStack[this.astPtr];
-			if (this.inlineTagStarted) {
-				int previousStart = previousTag.getStartPosition();
-				previousTag.setSourceRange(previousStart, previousPosition-previousStart+1);
-				if (previousTag.fragments().size() > 0) {
-					ASTNode inlineTag = (ASTNode) previousTag.fragments().get(previousTag.fragments().size()-1);
-					if (inlineTag.getNodeType() == ASTNode.TAG_ELEMENT) {
-						int inlineStart = inlineTag.getStartPosition();
-						inlineTag.setSourceRange(inlineStart, previousPosition-inlineStart+1);
-					}
-				}
-			}
-		}
-	}
+
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#pushThrowName(java.lang.Object)
 	 */
@@ -715,6 +717,26 @@ class DocCommentParser extends AbstractCommentParser {
 		throwsTag.fragments().add(typeRef);
 		pushOnAstStack(throwsTag, true);
 		return true;
+	}
+
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.internal.compiler.parser.AbstractCommentParser#refreshInlineTagPosition(int)
+	 */
+	protected void refreshInlineTagPosition(int previousPosition) {
+		if (this.astPtr != -1) {
+			TagElement previousTag = (TagElement) this.astStack[this.astPtr];
+			if (this.inlineTagStarted) {
+				int previousStart = previousTag.getStartPosition();
+				previousTag.setSourceRange(previousStart, previousPosition-previousStart+1);
+				if (previousTag.fragments().size() > 0) {
+					ASTNode inlineTag = (ASTNode) previousTag.fragments().get(previousTag.fragments().size()-1);
+					if (inlineTag.getNodeType() == ASTNode.TAG_ELEMENT) {
+						int inlineStart = inlineTag.getStartPosition();
+						inlineTag.setSourceRange(inlineStart, previousPosition-inlineStart+1);
+					}
+				}
+			}
+		}
 	}
 
 	/*

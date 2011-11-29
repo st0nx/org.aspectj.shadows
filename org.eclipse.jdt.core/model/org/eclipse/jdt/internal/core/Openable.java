@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,6 +16,7 @@ import java.util.Map;
 
 import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.core.runtime.PerformanceStats;
 import org.eclipse.jdt.core.*;
@@ -50,7 +51,7 @@ public void bufferChanged(BufferChangedEvent event) {
 	} else {
 		JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().add(this);
 	}
-}	
+}
 /**
  * Builds this element's structure and properties in the given
  * info object, based on this element's current contents (reuse buffer
@@ -95,7 +96,13 @@ protected void closeBuffer() {
 protected void closing(Object info) {
 	closeBuffer();
 }
-protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUnit cu, org.eclipse.jdt.internal.compiler.env.ICompilationUnit unitToSkip, int position, CompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
+protected void codeComplete(
+		org.eclipse.jdt.internal.compiler.env.ICompilationUnit cu,
+		org.eclipse.jdt.internal.compiler.env.ICompilationUnit unitToSkip,
+		int position, CompletionRequestor requestor,
+		WorkingCopyOwner owner,
+		ITypeRoot typeRoot,
+		IProgressMonitor monitor) throws JavaModelException {
 	if (requestor == null) {
 		throw new IllegalArgumentException("Completion requestor cannot be null"); //$NON-NLS-1$
 	}
@@ -119,8 +126,8 @@ protected void codeComplete(org.eclipse.jdt.internal.compiler.env.ICompilationUn
 	environment.unitToSkip = unitToSkip;
 
 	// code complete
-	CompletionEngine engine = new CompletionEngine(environment, requestor, project.getOptions(true), project);
-	engine.complete(cu, position, 0);
+	CompletionEngine engine = new CompletionEngine(environment, requestor, project.getOptions(true), project, owner, monitor);
+	engine.complete(cu, position, 0, typeRoot);
 	if(performanceStats != null) {
 		performanceStats.endRun();
 	}
@@ -136,10 +143,10 @@ protected IJavaElement[] codeSelect(org.eclipse.jdt.internal.compiler.env.ICompi
 	if(performanceStats != null) {
 		performanceStats.startRun(new String(cu.getFileName()) + " at [" + offset + "," + length + "]"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
 	}
-	
+
 	JavaProject project = (JavaProject)getJavaProject();
 	SearchableEnvironment environment = project.newSearchableNameEnvironment(owner);
-	
+
 	SelectionRequestor requestor= new SelectionRequestor(environment.nameLookup, this);
 	IBuffer buffer = getBuffer();
 	if (buffer == null) {
@@ -151,9 +158,9 @@ protected IJavaElement[] codeSelect(org.eclipse.jdt.internal.compiler.env.ICompi
 	}
 
 	// fix for 1FVXGDK
-	SelectionEngine engine = new SelectionEngine(environment, requestor, project.getOptions(true));
+	SelectionEngine engine = new SelectionEngine(environment, requestor, project.getOptions(true), owner);
 	engine.select(cu, offset, offset + length - 1);
-	
+
 	if(performanceStats != null) {
 		performanceStats.endRun();
 	}
@@ -173,15 +180,30 @@ protected Object createElementInfo() {
  * @see IJavaElement
  */
 public boolean exists() {
-	JavaModelManager manager = JavaModelManager.getJavaModelManager();
-	if (manager.getInfo(this) != null) return true;
-	if (!parentExists()) return false;
-	PackageFragmentRoot root = getPackageFragmentRoot();
-	if (root != null
-			&& (root == this || !root.isArchive())) {
-		return resourceExists();
+	if (JavaModelManager.getJavaModelManager().getInfo(this) != null)
+		return true;
+	switch (getElementType()) {
+		case IJavaElement.PACKAGE_FRAGMENT:
+			PackageFragmentRoot root = getPackageFragmentRoot();
+			if (root.isArchive()) {
+				// pkg in a jar -> need to open root to know if this pkg exists
+				JarPackageFragmentRootInfo rootInfo;
+				try {
+					rootInfo = (JarPackageFragmentRootInfo) root.getElementInfo();
+				} catch (JavaModelException e) {
+					return false;
+				}
+				return rootInfo.rawPackageInfo.containsKey(((PackageFragment) this).names);
+			}
+			break;
+		case IJavaElement.CLASS_FILE:
+			if (getPackageFragmentRoot().isArchive()) {
+				// class file in a jar -> need to open this class file to know if it exists
+				return super.exists();
+			}
+			break;
 	}
-	return super.exists();
+	return validateExistence(resource()).isOK();
 }
 public String findRecommendedLineSeparator() throws JavaModelException {
 	IBuffer buffer = getBuffer();
@@ -213,10 +235,17 @@ protected void generateInfos(Object info, HashMap newElements, IProgressMonitor 
 		}
 		System.out.println(Thread.currentThread() +" OPENING " + element + " " + this.toStringWithAncestors()); //$NON-NLS-1$//$NON-NLS-2$
 	}
-	
-	// open the parent if necessary
-	openParent(info, newElements, monitor);
-	if (monitor != null && monitor.isCanceled()) 
+
+	// open its ancestors if needed
+	openAncestors(newElements, monitor);
+
+	// validate existence
+	IResource underlResource = resource();
+	IStatus status = validateExistence(underlResource);
+	if (!status.isOK())
+		throw newJavaModelException(status);
+
+	if (monitor != null && monitor.isCanceled())
 		throw new OperationCanceledException();
 
 	 // puts the info before building the structure so that questions to the handle behave as if the element existed
@@ -226,13 +255,13 @@ protected void generateInfos(Object info, HashMap newElements, IProgressMonitor 
 	// build the structure of the openable (this will open the buffer if needed)
 	try {
 		OpenableElementInfo openableElementInfo = (OpenableElementInfo)info;
-		boolean isStructureKnown = buildStructure(openableElementInfo, monitor, newElements, getResource());
+		boolean isStructureKnown = buildStructure(openableElementInfo, monitor, newElements, underlResource);
 		openableElementInfo.setIsStructureKnown(isStructureKnown);
 	} catch (JavaModelException e) {
 		newElements.remove(this);
 		throw e;
 	}
-	
+
 	// remove out of sync buffer for this element
 	JavaModelManager.getJavaModelManager().getElementsOutOfSynchWithBuffers().remove(this);
 
@@ -246,7 +275,7 @@ protected void generateInfos(Object info, HashMap newElements, IProgressMonitor 
  * is the first time a request is being made for the buffer, an attempt is
  * made to create and fill this element's buffer. If the buffer has been
  * closed since it was first opened, the buffer is re-created.
- * 
+ *
  * @see IOpenable
  */
 public IBuffer getBuffer() throws JavaModelException {
@@ -293,7 +322,7 @@ public IResource getCorrespondingResource() throws JavaModelException {
  * @see IJavaElement
  */
 public IOpenable getOpenable() {
-	return this;	
+	return this;
 }
 
 
@@ -331,11 +360,11 @@ protected boolean hasBuffer() {
  * @see IOpenable
  */
 public boolean hasUnsavedChanges() throws JavaModelException{
-	
+
 	if (isReadOnly() || !isOpen()) {
 		return false;
 	}
-	IBuffer buf = this.getBuffer();
+	IBuffer buf = getBuffer();
 	if (buf != null && buf.hasUnsavedChanges()) {
 		return true;
 	}
@@ -357,7 +386,7 @@ public boolean hasUnsavedChanges() throws JavaModelException{
 			}
 		}
 	}
-	
+
 	return false;
 }
 /**
@@ -369,7 +398,7 @@ public boolean isConsistent() {
 	return true;
 }
 /**
- * 
+ *
  * @see IOpenable
  */
 public boolean isOpen() {
@@ -413,39 +442,31 @@ protected IBuffer openBuffer(IProgressMonitor pm, Object info) throws JavaModelE
 	return null;
 }
 
-/**
- * Open the parent element if necessary.
- */
-protected void openParent(Object childInfo, HashMap newElements, IProgressMonitor pm) throws JavaModelException {
-
-	Openable openableParent = (Openable)getOpenableParent();
-	if (openableParent != null && !openableParent.isOpen()){
-		openableParent.generateInfos(openableParent.createElementInfo(), newElements, pm);
+public IResource getResource() {
+	PackageFragmentRoot root = getPackageFragmentRoot();
+	if (root != null) {
+		if (root.isExternal())
+			return null;
+		if (root.isArchive())
+			return root.resource(root);
 	}
+	return resource(root);
 }
 
-/**
- *  Answers true if the parent exists (null parent is answering true)
- * 
- */
-protected boolean parentExists(){
-	
-	IJavaElement parentElement = getParent();
-	if (parentElement == null) return true;
-	return parentElement.exists();
+public IResource resource() {
+	PackageFragmentRoot root = getPackageFragmentRoot();
+	if (root != null && root.isArchive())
+		return root.resource(root);
+	return resource(root);
 }
+
+protected abstract IResource resource(PackageFragmentRoot root);
 
 /**
  * Returns whether the corresponding resource or associated file exists
  */
-protected boolean resourceExists() {
-	IWorkspace workspace = ResourcesPlugin.getWorkspace();
-	if (workspace == null) return false; // workaround for http://bugs.eclipse.org/bugs/show_bug.cgi?id=34069
-	return 
-		JavaModel.getTarget(
-			workspace.getRoot(), 
-			this.getPath().makeRelative(), // ensure path is relative (see http://dev.eclipse.org/bugs/show_bug.cgi?id=22517)
-			true) != null;
+protected boolean resourceExists(IResource underlyingResource) {
+	return underlyingResource.isAccessible();
 }
 
 /**
@@ -458,7 +479,7 @@ public void save(IProgressMonitor pm, boolean force) throws JavaModelException {
 	IBuffer buf = getBuffer();
 	if (buf != null) { // some Openables (like a JavaProject) don't have a buffer
 		buf.save(pm, force);
-		this.makeConsistent(pm); // update the element info of this element
+		makeConsistent(pm); // update the element info of this element
 	}
 }
 
@@ -467,6 +488,21 @@ public void save(IProgressMonitor pm, boolean force) throws JavaModelException {
  */
 public PackageFragmentRoot getPackageFragmentRoot() {
 	return (PackageFragmentRoot) getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
+}
+
+/*
+ * Validates the existence of this openable. Returns a non ok status if it doesn't exist.
+ */
+abstract protected IStatus validateExistence(IResource underlyingResource);
+
+/*
+ * Opens the ancestors of this openable that are not yet opened, validating their existence.
+ */
+protected void openAncestors(HashMap newElements, IProgressMonitor monitor) throws JavaModelException {
+	Openable openableParent = (Openable)getOpenableParent();
+	if (openableParent != null && !openableParent.isOpen()) {
+		openableParent.generateInfos(openableParent.createElementInfo(), newElements, monitor);
+	}
 }
 
 }

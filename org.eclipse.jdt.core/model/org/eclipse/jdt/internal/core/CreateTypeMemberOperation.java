@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -32,8 +32,6 @@ import org.eclipse.jdt.core.dom.TypeDeclaration;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.formatter.IndentManipulation;
 import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
-import org.eclipse.jface.text.IDocument;
-import org.eclipse.jface.text.TextUtilities;
 
 /**
  * Implements functionality common to
@@ -76,10 +74,10 @@ protected StructuralPropertyDescriptor getChildPropertyDescriptor(ASTNode parent
 			return TypeDeclaration.BODY_DECLARATIONS_PROPERTY;
 	}
 }
-protected ASTNode generateElementAST(ASTRewrite rewriter, IDocument document, ICompilationUnit cu) throws JavaModelException {
+protected ASTNode generateElementAST(ASTRewrite rewriter, ICompilationUnit cu) throws JavaModelException {
 	if (this.createdNode == null) {
-		this.source = removeIndentAndNewLines(this.source, document, cu);
-		ASTParser parser = ASTParser.newParser(AST.JLS3);
+		this.source = removeIndentAndNewLines(this.source, cu);
+		ASTParser parser = ASTParser.newParser(AST.JLS4);
 		parser.setSource(this.source.toCharArray());
 		parser.setProject(getCompilationUnit().getJavaProject());
 		parser.setKind(ASTParser.K_CLASS_BODY_DECLARATIONS);
@@ -91,8 +89,18 @@ protected ASTNode generateElementAST(ASTRewrite rewriter, IDocument document, IC
 				throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
 		} else {
 			TypeDeclaration typeDeclaration = (TypeDeclaration) node;
-			this.createdNode = (ASTNode) typeDeclaration.bodyDeclarations().iterator().next();
-			createdNodeSource = this.source;
+			if ((typeDeclaration.getFlags() & ASTNode.MALFORMED) != 0) {
+				createdNodeSource = generateSyntaxIncorrectAST();
+				if (this.createdNode == null)
+					throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
+			} else {
+				List bodyDeclarations = typeDeclaration.bodyDeclarations();
+				if (bodyDeclarations.size() == 0) {
+					throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
+				}
+				this.createdNode = (ASTNode) bodyDeclarations.iterator().next();
+				createdNodeSource = this.source;
+			}
 		}
 		if (this.alteredName != null) {
 			SimpleName newName = this.createdNode.getAST().newSimpleName(this.alteredName);
@@ -111,7 +119,7 @@ protected ASTNode generateElementAST(ASTRewrite rewriter, IDocument document, IC
 				newSource.append(createdNodeSource.substring(createdNodeStart, nameStart));
 				newSource.append(this.alteredName);
 				newSource.append(createdNodeSource.substring(nameEnd, createdNodeEnd));
-				
+
 			}
 			this.source = newSource.toString();
 		}
@@ -120,7 +128,7 @@ protected ASTNode generateElementAST(ASTRewrite rewriter, IDocument document, IC
 	// return a string place holder (instead of the created node) so has to not lose comments and formatting
 	return rewriter.createStringPlaceholder(this.source, this.createdNode.getNodeType());
 }
-private String removeIndentAndNewLines(String code, IDocument document, ICompilationUnit cu) {
+private String removeIndentAndNewLines(String code, ICompilationUnit cu) throws JavaModelException {
 	IJavaProject project = cu.getJavaProject();
 	Map options = project.getOptions(true/*inherit JavaCore options*/);
 	int tabWidth = IndentManipulation.getTabWidth(options);
@@ -135,7 +143,7 @@ private String removeIndentAndNewLines(String code, IDocument document, ICompila
 	while (lastNonWhiteSpace > 0)
 		if (!ScannerHelper.isWhitespace(code.charAt(--lastNonWhiteSpace)))
 			break;
-	String lineDelimiter = TextUtilities.getDefaultLineDelimiter(document);
+	String lineDelimiter = cu.findRecommendedLineSeparator();
 	return IndentManipulation.changeIndent(code.substring(firstNonWhiteSpace, lastNonWhiteSpace+1), indent, tabWidth, indentWidth, "", lineDelimiter); //$NON-NLS-1$
 }
 /*
@@ -156,7 +164,7 @@ protected String generateSyntaxIncorrectAST() {
 	buff.append(lineSeparator + " public class A {" + lineSeparator); //$NON-NLS-1$
 	buff.append(this.source);
 	buff.append(lineSeparator).append('}');
-	ASTParser parser = ASTParser.newParser(AST.JLS3);
+	ASTParser parser = ASTParser.newParser(AST.JLS4);
 	parser.setSource(buff.toString().toCharArray());
 	CompilationUnit compilationUnit = (CompilationUnit) parser.createAST(null);
 	TypeDeclaration typeDeclaration = (TypeDeclaration) compilationUnit.types().iterator().next();
@@ -195,17 +203,17 @@ public IJavaModelStatus verify() {
 	if (this.source == null) {
 		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS);
 	}
-	if (!force) {
+	if (!this.force) {
 		//check for name collisions
 		try {
 			ICompilationUnit cu = getCompilationUnit();
-			generateElementAST(null, getDocument(cu), cu);
+			generateElementAST(null, cu);
 		} catch (JavaModelException jme) {
 			return jme.getJavaModelStatus();
 		}
 		return verifyNameCollision();
 	}
-	
+
 	return JavaModelStatus.VERIFIED_OK;
 }
 /**

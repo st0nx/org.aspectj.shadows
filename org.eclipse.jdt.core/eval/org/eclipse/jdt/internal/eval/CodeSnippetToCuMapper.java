@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,12 +16,13 @@ import org.eclipse.jdt.core.CompletionRequestor;
 import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.*;
-import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 
 /**
  * Maps back and forth a code snippet to a compilation unit.
  * The structure of the compilation unit is as follows:
+ * <pre>
  * [package <package name>;]
  * [import <import name>;]*
  * public class <code snippet class name> extends <global variable class name> {
@@ -30,13 +31,14 @@ import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
  *     <code snippet>
  *   }
  * }
+ * </pre>
  */
 class CodeSnippetToCuMapper implements EvaluationConstants {
 	/**
 	 * The generated compilation unit.
 	 */
 	public char[] cuSource;
-	
+
 	/**
 	 * Where the code snippet starts in the generated compilation unit.
 	 */
@@ -47,19 +49,31 @@ class CodeSnippetToCuMapper implements EvaluationConstants {
 	char[] codeSnippet;
 	char[] snippetPackageName;
 	char[][] snippetImports;
-	char[] snippetClassName; 
+	char[] snippetClassName;
 	char[] snippetVarClassName;
 	char[] snippetDeclaringTypeName;
 
 	// Mapping of external local variables
 	char[][] localVarNames;
 	char[][] localVarTypeNames;
-	int[] localVarModifiers;
 	
+	long complianceVersion;
+
 /**
  * Rebuild source in presence of external local variables
  */
- public CodeSnippetToCuMapper(char[] codeSnippet, char[] packageName, char[][] imports, char[] className, char[] varClassName, char[][] localVarNames, char[][] localVarTypeNames, int[] localVarModifiers, char[] declaringTypeName, String lineSeparator) {
+ public CodeSnippetToCuMapper(
+		char[] codeSnippet,
+		char[] packageName,
+		char[][] imports,
+		char[] className,
+		char[] varClassName,
+		char[][] localVarNames,
+		char[][] localVarTypeNames,
+		int[] localVarModifiers,
+		char[] declaringTypeName,
+		String lineSeparator,
+		long complianceVersion) {
 	this.codeSnippet = codeSnippet;
 	this.snippetPackageName = packageName;
 	this.snippetImports = imports;
@@ -67,9 +81,9 @@ class CodeSnippetToCuMapper implements EvaluationConstants {
 	this.snippetVarClassName = varClassName;
 	this.localVarNames = localVarNames;
 	this.localVarTypeNames = localVarTypeNames;
-	this.localVarModifiers = localVarModifiers;
 	this.snippetDeclaringTypeName = declaringTypeName;
-	this.buildCUSource(lineSeparator);
+	this.complianceVersion = complianceVersion;
+	buildCUSource(lineSeparator);
 }
 private void buildCUSource(String lineSeparator) {
 	StringBuffer buffer = new StringBuffer();
@@ -129,6 +143,9 @@ private void buildCUSource(String lineSeparator) {
 		}
 	}
 	// run() method declaration
+	if (this.complianceVersion >= ClassFileConstants.JDK1_5) {
+		buffer.append("@Override "); //$NON-NLS-1$
+	}
 	buffer.append("public void run() throws Throwable {").append(lineSeparator); //$NON-NLS-1$
 	this.lineNumberOffset++;
 	this.startPosOffset = buffer.length();
@@ -148,7 +165,7 @@ private void buildCUSource(String lineSeparator) {
 }
 /**
  * Returns a completion requestor that wraps the given requestor and shift the results
- * according to the start offset and line number offset of the code snippet in the generated compilation unit. 
+ * according to the start offset and line number offset of the code snippet in the generated compilation unit.
  */
 public CompletionRequestor getCompletionRequestor(final CompletionRequestor originalRequestor) {
 	return new CompletionRequestor() {
@@ -161,57 +178,58 @@ public CompletionRequestor getCompletionRequestor(final CompletionRequestor orig
 						// Remove completion on generated class name or generated global variable class name
 						char[] packageName = proposal.getDeclarationSignature();
 						char[] className = Signature.getSignatureSimpleName(proposal.getSignature());
-						if (CharOperation.equals(packageName, CodeSnippetToCuMapper.this.snippetPackageName) 
+						if (CharOperation.equals(packageName, CodeSnippetToCuMapper.this.snippetPackageName)
 								&& (CharOperation.equals(className, CodeSnippetToCuMapper.this.snippetClassName)
 									|| CharOperation.equals(className, CodeSnippetToCuMapper.this.snippetVarClassName))) return;
-						
-						if (CharOperation.equals(packageName, PACKAGE_NAME) 
+
+						if (CharOperation.equals(packageName, PACKAGE_NAME)
 								&& CharOperation.equals(className, ROOT_CLASS_NAME)) return;
 					}
 					break;
 				case CompletionProposal.METHOD_REF:
 				case CompletionProposal.METHOD_DECLARATION:
+				case CompletionProposal.METHOD_REF_WITH_CASTED_RECEIVER:
 					// Remove completion on generated method
 					char[] declaringTypePackageName = Signature.getSignatureQualifier(proposal.getDeclarationSignature());
 					char[] declaringTypeName = Signature.getSignatureSimpleName(proposal.getDeclarationSignature());
-					
-					if (CharOperation.equals(declaringTypePackageName, CodeSnippetToCuMapper.this.snippetPackageName) 
+
+					if (CharOperation.equals(declaringTypePackageName, CodeSnippetToCuMapper.this.snippetPackageName)
 							&& CharOperation.equals(declaringTypeName, CodeSnippetToCuMapper.this.snippetClassName)) return;
-					
-					if (CharOperation.equals(declaringTypePackageName, PACKAGE_NAME) 
+
+					if (CharOperation.equals(declaringTypePackageName, PACKAGE_NAME)
 							&& CharOperation.equals(declaringTypeName, ROOT_CLASS_NAME)) return;
 					break;
 			}
 			originalRequestor.accept(proposal);
 		}
-		
+
 		public void completionFailure(IProblem problem) {
 			problem.setSourceStart(problem.getSourceStart() - CodeSnippetToCuMapper.this.startPosOffset);
 			problem.setSourceEnd(problem.getSourceEnd() - CodeSnippetToCuMapper.this.startPosOffset);
 			problem.setSourceLineNumber(problem.getSourceLineNumber() -  CodeSnippetToCuMapper.this.lineNumberOffset);
 			originalRequestor.completionFailure(problem);
 		}
-		
+
 		public void acceptContext(CompletionContext context) {
 			originalRequestor.acceptContext(context);
 		}
-		
+
 		public void beginReporting() {
 			originalRequestor.beginReporting();
 		}
-		
+
 		public void endReporting() {
 			originalRequestor.endReporting();
 		}
-		
+
 		public boolean isIgnored(int completionProposalKind) {
 			return originalRequestor.isIgnored(completionProposalKind);
 		}
-		
+
 		public void setIgnored(int completionProposalKind, boolean ignore) {
 			originalRequestor.setIgnored(completionProposalKind, ignore);
 		}
-		
+
 		public boolean isAllowingRequiredProposals(int mainKind, int requiredKind) {
 			return originalRequestor.isAllowingRequiredProposals(mainKind, requiredKind);
 		}
@@ -233,7 +251,7 @@ public char[] getCUSource(String lineSeparator) {
 public int getEvaluationType(int lineNumber) {
 	int currentLine = 1;
 
-	// check package declaration	
+	// check package declaration
 	if (this.snippetPackageName != null && this.snippetPackageName.length != 0) {
 		if (lineNumber == 1) {
 			return EvaluationResult.T_PACKAGE;
@@ -250,7 +268,7 @@ public int getEvaluationType(int lineNumber) {
 
 	// check generated fields
 	currentLine +=
-		(this.snippetDeclaringTypeName == null ? 0 : 1) 
+		(this.snippetDeclaringTypeName == null ? 0 : 1)
 		+ (this.localVarNames == null ? 0 : this.localVarNames.length);
 	if (currentLine > lineNumber) {
 		return EvaluationResult.T_INTERNAL;
@@ -266,7 +284,7 @@ public int getEvaluationType(int lineNumber) {
 	return EvaluationResult.T_INTERNAL;
 }
 /**
- * Returns the import defined at the given line number. 
+ * Returns the import defined at the given line number.
  */
 public char[] getImport(int lineNumber) {
 	int importStartLine = this.lineNumberOffset - 1 - this.snippetImports.length;
@@ -274,7 +292,7 @@ public char[] getImport(int lineNumber) {
 }
 /**
  * Returns a selection requestor that wraps the given requestor and shift the problems
- * according to the start offset and line number offset of the code snippet in the generated compilation unit. 
+ * according to the start offset and line number offset of the code snippet in the generated compilation unit.
  */
 public ISelectionRequestor getSelectionRequestor(final ISelectionRequestor originalRequestor) {
 	return new ISelectionRequestor() {
@@ -296,7 +314,7 @@ public ISelectionRequestor getSelectionRequestor(final ISelectionRequestor origi
 		public void acceptPackage(char[] packageName) {
 			originalRequestor.acceptPackage(packageName);
 		}
-		
+
 		public void acceptTypeParameter(char[] declaringTypePackageName, char[] declaringTypeName, char[] typeParameterName, boolean isDeclaration, int start, int end) {
 			originalRequestor.acceptTypeParameter(declaringTypePackageName, declaringTypeName, typeParameterName, isDeclaration, start, end);
 		}

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -24,6 +24,9 @@ import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TagBits;
+import org.eclipse.jdt.internal.compiler.lookup.TypeVariableBinding;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class CodeSnippetClassFile extends ClassFile {
 /**
@@ -52,17 +55,17 @@ public CodeSnippetClassFile(
 	this.header[this.headerOffset++] = (byte) (0xCAFEBABEL >> 8);
 	this.header[this.headerOffset++] = (byte) (0xCAFEBABEL >> 0);
 
-	this.targetJDK = this.referenceBinding.scope.compilerOptions().targetJDK;
-	this.header[this.headerOffset++] = (byte) (targetJDK >> 8); // minor high
-	this.header[this.headerOffset++] = (byte) (targetJDK >> 0); // minor low
-	this.header[this.headerOffset++] = (byte) (targetJDK >> 24); // major high
-	this.header[this.headerOffset++] = (byte) (targetJDK >> 16); // major low
+	long targetVersion = this.targetJDK = this.referenceBinding.scope.compilerOptions().targetJDK;
+	this.header[this.headerOffset++] = (byte) (targetVersion >> 8); // minor high
+	this.header[this.headerOffset++] = (byte) (targetVersion >> 0); // minor low
+	this.header[this.headerOffset++] = (byte) (targetVersion >> 24); // major high
+	this.header[this.headerOffset++] = (byte) (targetVersion >> 16); // major low
 
 	this.constantPoolOffset = this.headerOffset;
 	this.headerOffset += 2;
 	this.constantPool = new ConstantPool(this);
 	int accessFlags = aType.getAccessFlags();
-	
+
 	if (!aType.isInterface()) { // class or enum
 		accessFlags |= ClassFileConstants.AccSuper;
 	}
@@ -113,18 +116,17 @@ public CodeSnippetClassFile(
 	this.creatingProblemType = creatingProblemType;
 	if (this.targetJDK >= ClassFileConstants.JDK1_6) {
 		this.codeStream = new StackMapFrameCodeStream(this);
+		this.produceAttributes |= ClassFileConstants.ATTR_STACK_MAP_TABLE;
+	} else if (this.targetJDK == ClassFileConstants.CLDC_1_1) {
+		this.targetJDK = ClassFileConstants.JDK1_1; // put back 45.3
 		this.produceAttributes |= ClassFileConstants.ATTR_STACK_MAP;
+		this.codeStream = new StackMapFrameCodeStream(this);
 	} else {
 		this.codeStream = new CodeStream(this);
 	}
 	// retrieve the enclosing one guaranteed to be the one matching the propagated flow info
 	// 1FF9ZBU: LFCOM:ALL - Local variable attributes busted (Sanity check)
-	if (this.enclosingClassFile == null) {
-		this.codeStream.maxFieldCount = aType.scope.referenceType().maxFieldCount;
-	} else {
-		ClassFile outermostClassFile = this.outerMostEnclosingClassFile();
-		this.codeStream.maxFieldCount = outermostClassFile.codeStream.maxFieldCount;
-	}
+	this.codeStream.maxFieldCount = aType.scope.outerMostClassScope().referenceType().maxFieldCount;
 }
 /**
  * INTERNAL USE-ONLY
@@ -138,8 +140,24 @@ public static void createProblemType(TypeDeclaration typeDeclaration, Compilatio
 	ClassFile classFile = new CodeSnippetClassFile(typeBinding, null, true);
 
 	// inner attributes
+	if (typeBinding.hasMemberTypes()) {
+		// see bug 180109
+		ReferenceBinding[] members = typeBinding.memberTypes;
+		for (int i = 0, l = members.length; i < l; i++)
+			classFile.recordInnerClasses(members[i]);
+	}
+	// TODO (olivier) handle cases where a field cannot be generated (name too long)
+	// TODO (olivier) handle too many methods
+	// inner attributes
 	if (typeBinding.isNestedType()) {
 		classFile.recordInnerClasses(typeBinding);
+	}
+	TypeVariableBinding[] typeVariables = typeBinding.typeVariables();
+	for (int i = 0, max = typeVariables.length; i < max; i++) {
+		TypeVariableBinding typeVariableBinding = typeVariables[i];
+		if ((typeVariableBinding.tagBits & TagBits.ContainsNestedTypeReferences) != 0) {
+			Util.recordNestedType(classFile, typeVariableBinding);
+		}
 	}
 
 	// add its fields
@@ -171,8 +189,9 @@ public static void createProblemType(TypeDeclaration typeDeclaration, Compilatio
 				AbstractMethodDeclaration methodDecl = methodDecls[i];
 				MethodBinding method = methodDecl.binding;
 				if (method == null || method.isConstructor()) continue;
+				method.modifiers = ClassFileConstants.AccPublic | ClassFileConstants.AccAbstract;
 				classFile.addAbstractMethod(methodDecl, method);
-			}		
+			}
 		} else {
 			for (int i = 0, length = methodDecls.length; i < length; i++) {
 				AbstractMethodDeclaration methodDecl = methodDecls[i];
@@ -180,6 +199,8 @@ public static void createProblemType(TypeDeclaration typeDeclaration, Compilatio
 				if (method == null) continue;
 				if (method.isConstructor()) {
 					classFile.addProblemConstructor(methodDecl, method, problemsCopy);
+				} else if (method.isAbstract()) {
+					classFile.addAbstractMethod(methodDecl, method);
 				} else {
 					classFile.addProblemMethod(methodDecl, method, problemsCopy);
 				}

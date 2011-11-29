@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -33,12 +33,13 @@ package org.eclipse.jdt.internal.codeassist.complete;
 
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
- 
+
 public class CompletionOnSingleNameReference extends SingleNameReference {
 
 	public char[][] possibleKeywords;
 	public boolean canBeExplicitConstructor;
 	public boolean isInsideAnnotationAttribute;
+	public boolean isPrecededByModifiers;
 
 	public CompletionOnSingleNameReference(char[] source, long pos, boolean isInsideAnnotationAttribute) {
 		this(source, pos, null, false, isInsideAnnotationAttribute);
@@ -52,7 +53,7 @@ public class CompletionOnSingleNameReference extends SingleNameReference {
 	}
 
 	public StringBuffer printExpression(int indent, StringBuffer output) {
-		
+
 		output.append("<CompleteOnName:"); //$NON-NLS-1$
 		return super.printExpression(0, output).append('>');
 	}

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,7 +12,9 @@
 package org.eclipse.jdt.core.dom.rewrite;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -22,12 +24,14 @@ import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.ITypeRoot;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.dom.*;
 import org.eclipse.jdt.internal.core.dom.rewrite.ImportRewriteAnalyzer;
 import org.eclipse.jdt.internal.core.util.Messages;
+import org.eclipse.jdt.internal.core.util.Util;
 import org.eclipse.text.edits.MultiTextEdit;
 import org.eclipse.text.edits.TextEdit;
 
@@ -55,53 +59,53 @@ import org.eclipse.text.edits.TextEdit;
  * @since 3.2
  */
 public final class ImportRewrite {
-	
+
 	/**
 	 * A {@link ImportRewrite.ImportRewriteContext} can optionally be used in e.g. {@link ImportRewrite#addImport(String, ImportRewrite.ImportRewriteContext)} to
 	 * give more information about the types visible in the scope. These types can be for example inherited inner types where it is
-	 * unnecessary to add import statements for. 
-	 * 
+	 * unnecessary to add import statements for.
+	 *
 	 * </p>
 	 * <p>
 	 * This class can be implemented by clients.
 	 * </p>
 	 */
 	public static abstract class ImportRewriteContext {
-		
+
 		/**
-		 * Result constant signaling that the given element is know in the context. 
+		 * Result constant signaling that the given element is know in the context.
 		 */
 		public final static int RES_NAME_FOUND= 1;
-		
+
 		/**
-		 * Result constant signaling that the given element is not know in the context. 
+		 * Result constant signaling that the given element is not know in the context.
 		 */
 		public final static int RES_NAME_UNKNOWN= 2;
-		
+
 		/**
-		 * Result constant signaling that the given element is conflicting with an other element in the context. 
+		 * Result constant signaling that the given element is conflicting with an other element in the context.
 		 */
 		public final static int RES_NAME_CONFLICT= 3;
-		
+
 		/**
 		 * Kind constant specifying that the element is a type import.
 		 */
 		public final static int KIND_TYPE= 1;
-		
+
 		/**
 		 * Kind constant specifying that the element is a static field import.
 		 */
 		public final static int KIND_STATIC_FIELD= 2;
-		
+
 		/**
 		 * Kind constant specifying that the element is a static method import.
 		 */
 		public final static int KIND_STATIC_METHOD= 3;
-		
+
 		/**
 		 * Searches for the given element in the context and reports if the element is known ({@link #RES_NAME_FOUND}),
 		 * unknown ({@link #RES_NAME_UNKNOWN}) or if its name conflicts ({@link #RES_NAME_CONFLICT}) with an other element.
-		 * @param qualifier The qualifier of the element, can be package or the qualified name of a type 
+		 * @param qualifier The qualifier of the element, can be package or the qualified name of a type
 		 * @param name The simple name of the element; either a type, method or field name or * for on-demand imports.
 		 * @param kind The kind of the element. Can be either {@link #KIND_TYPE}, {@link #KIND_STATIC_FIELD} or
 		 * {@link #KIND_STATIC_METHOD}. Implementors should be prepared for new, currently unspecified kinds and return
@@ -111,30 +115,32 @@ public final class ImportRewrite {
 		 */
 		public abstract int findInContext(String qualifier, String name, int kind);
 	}
-	
+
 	private static final char STATIC_PREFIX= 's';
 	private static final char NORMAL_PREFIX= 'n';
-	
+
 	private final ImportRewriteContext defaultContext;
 
 	private final ICompilationUnit compilationUnit;
 	private final CompilationUnit astRoot;
-	
+
 	private final boolean restoreExistingImports;
 	private final List existingImports;
-	
+	private final Map importsKindMap;
+
 	private String[] importOrder;
 	private int importOnDemandThreshold;
 	private int staticImportOnDemandThreshold;
-	
+
 	private List addedImports;
 	private List removedImports;
 
 	private String[] createdImports;
 	private String[] createdStaticImports;
-	
+
 	private boolean filterImplicitImports;
-	
+	private boolean useContextToFilterImplicitImports;
+
 	/**
 	 * Creates a {@link ImportRewrite} from a {@link ICompilationUnit}. If <code>restoreExistingImports</code>
 	 * is <code>true</code>, all existing imports are kept, and new imports will be inserted at best matching locations. If
@@ -159,13 +165,13 @@ public final class ImportRewrite {
 			IImportDeclaration[] imports= cu.getImports();
 			for (int i= 0; i < imports.length; i++) {
 				IImportDeclaration curr= imports[i];
-				char prefix= Flags.isStatic(curr.getFlags()) ? STATIC_PREFIX : NORMAL_PREFIX;			
+				char prefix= Flags.isStatic(curr.getFlags()) ? STATIC_PREFIX : NORMAL_PREFIX;
 				existingImport.add(prefix + curr.getElementName());
 			}
 		}
 		return new ImportRewrite(cu, null, existingImport);
 	}
-	
+
 	/**
 	 * Creates a {@link ImportRewrite} from a an AST ({@link CompilationUnit}). The AST has to be created from a
 	 * {@link ICompilationUnit}, that means {@link ASTParser#setSource(ICompilationUnit)} has been used when creating the
@@ -206,7 +212,7 @@ public final class ImportRewrite {
 		}
 		return new ImportRewrite((ICompilationUnit) typeRoot, astRoot, existingImport);
 	}
-		
+
 	private ImportRewrite(ICompilationUnit cu, CompilationUnit astRoot, List existingImports) {
 		this.compilationUnit= cu;
 		this.astRoot= astRoot; // might be null
@@ -218,6 +224,8 @@ public final class ImportRewrite {
 			this.restoreExistingImports= false;
 		}
 		this.filterImplicitImports= true;
+		// consider that no contexts are used
+		this.useContextToFilterImplicitImports = false;
 
 		this.defaultContext= new ImportRewriteContext() {
 			public int findInContext(String qualifier, String name, int kind) {
@@ -228,31 +236,33 @@ public final class ImportRewrite {
 		this.removedImports= null; // Initialized on use
 		this.createdImports= null;
 		this.createdStaticImports= null;
-		
+
 		this.importOrder= CharOperation.NO_STRINGS;
 		this.importOnDemandThreshold= 99;
 		this.staticImportOnDemandThreshold= 99;
+		
+		this.importsKindMap = new HashMap();
 	}
-	
-	
+
+
 	 /**
 	 * Defines the import groups and order to be used by the {@link ImportRewrite}.
 	 * Imports are added to the group matching their qualified name most. The empty group name groups all imports not matching
 	 * any other group. Static imports are managed in separate groups. Static import group names are prefixed with a '#' character.
 	 * @param order A list of strings defining the import groups. A group name must be a valid package name or empty. If can be
-	 * prefixed by the '#' character for static import groups 
+	 * prefixed by the '#' character for static import groups
 	 */
 	public void setImportOrder(String[] order) {
 		if (order == null)
 			throw new IllegalArgumentException("Order must not be null"); //$NON-NLS-1$
 		this.importOrder= order;
 	}
-	
+
 	 /**
 	 *	Sets the on-demand import threshold for normal (non-static) imports.
 	 *	This threshold defines the number of imports that need to be in a group to use
 	 * a on-demand (star) import declaration instead.
-	 * 
+	 *
 	 * @param threshold a positive number defining the on-demand import threshold
 	 * for normal (non-static) imports.
 	 * @throws IllegalArgumentException a {@link IllegalArgumentException} is thrown
@@ -263,12 +273,12 @@ public final class ImportRewrite {
 			throw new IllegalArgumentException("Threshold must be positive."); //$NON-NLS-1$
 		this.importOnDemandThreshold= threshold;
 	}
-	
+
 	 /**
 	 *	Sets the on-demand import threshold for static imports.
 	 *	This threshold defines the number of imports that need to be in a group to use
 	 * a on-demand (star) import declaration instead.
-	 * 
+	 *
 	 * @param threshold a positive number defining the on-demand import threshold
 	 * for normal (non-static) imports.
 	 * @throws IllegalArgumentException a {@link IllegalArgumentException} is thrown
@@ -279,7 +289,7 @@ public final class ImportRewrite {
 			throw new IllegalArgumentException("Threshold must be positive."); //$NON-NLS-1$
 		this.staticImportOnDemandThreshold= threshold;
 	}
-	
+
 	/**
 	 * The compilation unit for which this import rewrite was created for.
 	 * @return the compilation unit for which this import rewrite was created for.
@@ -296,42 +306,73 @@ public final class ImportRewrite {
 	public ImportRewriteContext getDefaultImportRewriteContext() {
 		return this.defaultContext;
 	}
-	
+
 	/**
-	 * Specifies that implicit imports (types in default package, package <code>java.lang</code> or
-	 * in the same package as the rewrite compilation unit should not be created except if necessary
-	 * to resolve an on-demand import conflict. The filter is enabled by default.
-	 * @param filterImplicitImports if set, implicit imports will be filtered.
+	 * Specifies that implicit imports (for types in <code>java.lang</code>, types in the same package as the rewrite
+	 * compilation unit, and types in the compilation unit's main type) should not be created, except if necessary to
+	 * resolve an on-demand import conflict.
+	 * <p>
+	 * The filter is enabled by default.
+	 * </p>
+	 * <p>
+	 * Note: {@link #setUseContextToFilterImplicitImports(boolean)} can be used to filter implicit imports
+	 * when a context is used.
+	 * </p>
+	 * 
+	 * @param filterImplicitImports
+	 *            if <code>true</code>, implicit imports will be filtered
+	 * 
+	 * @see #setUseContextToFilterImplicitImports(boolean)
 	 */
 	public void setFilterImplicitImports(boolean filterImplicitImports) {
 		this.filterImplicitImports= filterImplicitImports;
+	}
+
+	/**
+	* Sets whether a context should be used to properly filter implicit imports.
+	* <p>
+	* By default, the option is disabled to preserve pre-3.6 behavior.
+	* </p>
+	* <p>
+	* When this option is set, the context passed to the <code>addImport*(...)</code> methods is used to determine
+	* whether an import can be filtered because the type is implicitly visible. Note that too many imports
+	* may be kept if this option is set and <code>addImport*(...)</code> methods are called without a context.
+	* </p>
+	* 
+	* @param useContextToFilterImplicitImports the given setting
+	* 
+	* @see #setFilterImplicitImports(boolean)
+	* @since 3.6
+	*/
+	public void setUseContextToFilterImplicitImports(boolean useContextToFilterImplicitImports) {
+		this.useContextToFilterImplicitImports = useContextToFilterImplicitImports;
 	}
 	
 	private static int compareImport(char prefix, String qualifier, String name, String curr) {
 		if (curr.charAt(0) != prefix || !curr.endsWith(name)) {
 			return ImportRewriteContext.RES_NAME_UNKNOWN;
 		}
-		
+
 		curr= curr.substring(1); // remove the prefix
-		
+
 		if (curr.length() == name.length()) {
 			if (qualifier.length() == 0) {
 				return ImportRewriteContext.RES_NAME_FOUND;
 			}
-			return ImportRewriteContext.RES_NAME_CONFLICT; 
+			return ImportRewriteContext.RES_NAME_CONFLICT;
 		}
 		// at this place: curr.length > name.length
-		
+
 		int dotPos= curr.length() - name.length() - 1;
 		if (curr.charAt(dotPos) != '.') {
 			return ImportRewriteContext.RES_NAME_UNKNOWN;
 		}
 		if (qualifier.length() != dotPos || !curr.startsWith(qualifier)) {
-			return ImportRewriteContext.RES_NAME_CONFLICT; 
+			return ImportRewriteContext.RES_NAME_CONFLICT;
 		}
-		return ImportRewriteContext.RES_NAME_FOUND; 
+		return ImportRewriteContext.RES_NAME_FOUND;
 	}
-	
+
 	/**
 	 * Not API, package visibility as accessed from an anonymous type
 	 */
@@ -339,19 +380,33 @@ public final class ImportRewrite {
 		boolean allowAmbiguity=  (kind == ImportRewriteContext.KIND_STATIC_METHOD) || (name.length() == 1 && name.charAt(0) == '*');
 		List imports= this.existingImports;
 		char prefix= (kind == ImportRewriteContext.KIND_TYPE) ? NORMAL_PREFIX : STATIC_PREFIX;
-		
+
 		for (int i= imports.size() - 1; i >= 0 ; i--) {
 			String curr= (String) imports.get(i);
 			int res= compareImport(prefix, qualifier, name, curr);
 			if (res != ImportRewriteContext.RES_NAME_UNKNOWN) {
 				if (!allowAmbiguity || res == ImportRewriteContext.RES_NAME_FOUND) {
-					return res;
+					if (prefix != STATIC_PREFIX) {
+						return res;
+					}
+					Object currKind = this.importsKindMap.get(curr.substring(1));
+					if (currKind != null && currKind.equals(this.importsKindMap.get(qualifier + '.' + name))) {
+						return res;
+					}
 				}
 			}
 		}
+		if (this.filterImplicitImports && this.useContextToFilterImplicitImports) {
+			String fPackageName= this.compilationUnit.getParent().getElementName();
+			String mainTypeSimpleName= JavaCore.removeJavaLikeExtension(this.compilationUnit.getElementName());
+			String fMainTypeName= Util.concatenateName(fPackageName, mainTypeSimpleName, '.');
+			if (kind == ImportRewriteContext.KIND_TYPE
+					&& (qualifier.equals(fPackageName)
+							|| fMainTypeName.equals(Util.concatenateName(qualifier, name, '.'))))
+				return ImportRewriteContext.RES_NAME_FOUND;
+		}
 		return ImportRewriteContext.RES_NAME_UNKNOWN;
 	}
-
 	/**
 	 * Adds a new import to the rewriter's record and returns a {@link Type} node that can be used
 	 * in the code as a reference to the type. The type binding can be an array binding, type variable or wildcard.
@@ -373,7 +428,7 @@ public final class ImportRewrite {
 	public Type addImportFromSignature(String typeSig, AST ast) {
 		return addImportFromSignature(typeSig, ast, this.defaultContext);
 	}
-	
+
 	/**
 	 * Adds a new import to the rewriter's record and returns a {@link Type} node that can be used
 	 * in the code as a reference to the type. The type binding can be an array binding, type variable or wildcard.
@@ -394,7 +449,7 @@ public final class ImportRewrite {
 	 * @return returns a type to which the type binding can be assigned to. The returned type contains is unqualified
 	 * when an import could be added or was already known. It is fully qualified, if an import conflict prevented the import.
 	 */
-	public Type addImportFromSignature(String typeSig, AST ast, ImportRewriteContext context) {	
+	public Type addImportFromSignature(String typeSig, AST ast, ImportRewriteContext context) {
 		if (typeSig == null || typeSig.length() == 0) {
 			throw new IllegalArgumentException("Invalid type signature: empty or null"); //$NON-NLS-1$
 		}
@@ -444,7 +499,7 @@ public final class ImportRewrite {
 				throw new IllegalArgumentException("Unknown type signature kind: " + typeSig); //$NON-NLS-1$
 		}
 	}
-	
+
 
 
 	/**
@@ -452,7 +507,7 @@ public final class ImportRewrite {
 	 * in the code. The type binding can be an array binding, type variable or wildcard.
 	 * If the binding is a generic type, the type parameters are ignored. For parameterized types, also the type
 	 * arguments are processed and imports added if necessary. Anonymous types inside type arguments are normalized to their base type, wildcard
-	 * of wildcards are ignored. 
+	 * of wildcards are ignored.
 	 * 	<p>
  	 * No imports are added for types that are already known. If a import for a type is recorded to be removed, this record is discarded instead.
 	 * </p>
@@ -467,7 +522,7 @@ public final class ImportRewrite {
 	public String addImport(ITypeBinding binding) {
 		return addImport(binding, this.defaultContext);
 	}
-		
+
 	/**
 	 * Adds a new import to the rewriter's record and returns a type reference that can be used
 	 * in the code. The type binding can be an array binding, type variable or wildcard.
@@ -491,7 +546,7 @@ public final class ImportRewrite {
 		if (binding.isPrimitive() || binding.isTypeVariable() || binding.isRecovered()) {
 			return binding.getName();
 		}
-		
+
 		ITypeBinding normalizedBinding= normalizeTypeBinding(binding);
 		if (normalizedBinding == null) {
 			return "invalid"; //$NON-NLS-1$
@@ -509,7 +564,7 @@ public final class ImportRewrite {
 			}
 			return res.toString();
 		}
-		
+
 		if (normalizedBinding.isArray()) {
 			StringBuffer res= new StringBuffer(addImport(normalizedBinding.getElementType(), context));
 			for (int i= normalizedBinding.getDimensions(); i > 0; i--) {
@@ -517,18 +572,18 @@ public final class ImportRewrite {
 			}
 			return res.toString();
 		}
-	
+
 		String qualifiedName= getRawQualifiedName(normalizedBinding);
 		if (qualifiedName.length() > 0) {
 			String str= internalAddImport(qualifiedName, context);
-			
+
 			ITypeBinding[] typeArguments= normalizedBinding.getTypeArguments();
 			if (typeArguments.length > 0) {
 				StringBuffer res= new StringBuffer(str);
 				res.append('<');
 				for (int i= 0; i < typeArguments.length; i++) {
 					if (i > 0) {
-						res.append(','); 
+						res.append(',');
 					}
 					ITypeBinding curr= typeArguments[i];
 					if (containsNestedCapture(curr, false)) { // see bug 103044
@@ -544,7 +599,7 @@ public final class ImportRewrite {
 		}
 		return getRawName(normalizedBinding);
 	}
-	
+
 	private boolean containsNestedCapture(ITypeBinding binding, boolean isNested) {
 		if (binding == null || binding.isPrimitive() || binding.isTypeVariable()) {
 			return false;
@@ -553,7 +608,7 @@ public final class ImportRewrite {
 			if (isNested) {
 				return true;
 			}
-			return containsNestedCapture(binding.getWildcard(), true); 
+			return containsNestedCapture(binding.getWildcard(), true);
 		}
 		if (binding.isWildcardType()) {
 			return containsNestedCapture(binding.getBound(), true);
@@ -569,7 +624,7 @@ public final class ImportRewrite {
 		}
 		return false;
 	}
-	
+
 	private boolean containsNestedCapture(String signature) {
 		return signature.length() > 1 && signature.indexOf(Signature.C_CAPTURE, 1) != -1;
 	}
@@ -590,7 +645,7 @@ public final class ImportRewrite {
 		}
 		return null;
 	}
-	
+
 	/**
 	 * Adds a new import to the rewriter's record and returns a {@link Type} that can be used
 	 * in the code. The type binding can be an array binding, type variable or wildcard.
@@ -612,13 +667,13 @@ public final class ImportRewrite {
 	public Type addImport(ITypeBinding binding, AST ast) {
 		return addImport(binding, ast, this.defaultContext);
 	}
-	
+
 	/**
 	 * Adds a new import to the rewriter's record and returns a {@link Type} that can be used
 	 * in the code. The type binding can be an array binding, type variable or wildcard.
 	 * If the binding is a generic type, the type parameters are ignored. For parameterized types, also the type
 	 * arguments are processed and imports added if necessary. Anonymous types inside type arguments are normalized to their base type, wildcard
-	 * of wildcards are ignored. 
+	 * of wildcards are ignored.
 	 * 	<p>
  	 * No imports are added for types that are already known. If a import for a type is recorded to be removed, this record is discarded instead.
 	 * </p>
@@ -637,12 +692,12 @@ public final class ImportRewrite {
 		if (binding.isPrimitive()) {
 			return ast.newPrimitiveType(PrimitiveType.toCode(binding.getName()));
 		}
-		
+
 		ITypeBinding normalizedBinding= normalizeTypeBinding(binding);
 		if (normalizedBinding == null) {
 			return ast.newSimpleType(ast.newSimpleName("invalid")); //$NON-NLS-1$
 		}
-		
+
 		if (normalizedBinding.isTypeVariable()) {
 			// no import
 			return ast.newSimpleType(ast.newSimpleName(binding.getName()));
@@ -656,16 +711,16 @@ public final class ImportRewrite {
 			}
 			return wcType;
 		}
-		
+
 		if (normalizedBinding.isArray()) {
 			Type elementType= addImport(normalizedBinding.getElementType(), ast, context);
 			return ast.newArrayType(elementType, normalizedBinding.getDimensions());
 		}
-		
+
 		String qualifiedName= getRawQualifiedName(normalizedBinding);
 		if (qualifiedName.length() > 0) {
 			String res= internalAddImport(qualifiedName, context);
-			
+
 			ITypeBinding[] typeArguments= normalizedBinding.getTypeArguments();
 			if (typeArguments.length > 0) {
 				Type erasureType= ast.newSimpleType(ast.newName(res));
@@ -686,7 +741,7 @@ public final class ImportRewrite {
 		return ast.newSimpleType(ast.newName(getRawName(normalizedBinding)));
 	}
 
-	
+
 	/**
 	 * Adds a new import to the rewriter's record and returns a type reference that can be used
 	 * in the code. The type binding can only be an array or non-generic type.
@@ -714,7 +769,7 @@ public final class ImportRewrite {
 		}
 		return internalAddImport(qualifiedTypeName, context);
 	}
-	
+
 	/**
 	 * Adds a new import to the rewriter's record and returns a type reference that can be used
 	 * in the code. The type binding can only be an array or non-generic type.
@@ -732,7 +787,7 @@ public final class ImportRewrite {
 	public String addImport(String qualifiedTypeName) {
 		return addImport(qualifiedTypeName, this.defaultContext);
 	}
-	
+
 	/**
 	 * Adds a new static import to the rewriter's record and returns a reference that can be used in the code. The reference will
 	 * be fully qualified if an import conflict prevented the import or unqualified if the import succeeded or was already
@@ -753,7 +808,7 @@ public final class ImportRewrite {
 	public String addStaticImport(IBinding binding) {
 		return addStaticImport(binding, this.defaultContext);
 	}
-		
+
 	/**
 	 * Adds a new static import to the rewriter's record and returns a reference that can be used in the code. The reference will
 	 * be fully qualified if an import conflict prevented the import or unqualified if the import succeeded or was already
@@ -773,7 +828,7 @@ public final class ImportRewrite {
 	 * @throws IllegalArgumentException an {@link IllegalArgumentException} is thrown if the binding is not a static field
 	 * or method.
 	 */
-	public String addStaticImport(IBinding binding, ImportRewriteContext context) {		
+	public String addStaticImport(IBinding binding, ImportRewriteContext context) {
 		if (Modifier.isStatic(binding.getModifiers())) {
 			if (binding instanceof IVariableBinding) {
 				IVariableBinding variableBinding= (IVariableBinding) binding;
@@ -788,7 +843,7 @@ public final class ImportRewrite {
 		}
 		throw new IllegalArgumentException("Binding must be a static field or method."); //$NON-NLS-1$
 	}
-	
+
 	/**
 	 * Adds a new static import to the rewriter's record and returns a reference that can be used in the code. The reference will
 	 * be fully qualified if an import conflict prevented the import or unqualified if the import succeeded or was already
@@ -810,7 +865,7 @@ public final class ImportRewrite {
 	public String addStaticImport(String declaringTypeName, String simpleName, boolean isField) {
 		return addStaticImport(declaringTypeName, simpleName, isField, this.defaultContext);
 	}
-	
+
 	/**
 	 * Adds a new static import to the rewriter's record and returns a reference that can be used in the code. The reference will
 	 * be fully qualified if an import conflict prevented the import or unqualified if the import succeeded or was already
@@ -831,26 +886,28 @@ public final class ImportRewrite {
 	 * @return returns either the simple member name if the import was successful or else the qualified name if
 	 * an import conflict prevented the import.
 	 */
-	public String addStaticImport(String declaringTypeName, String simpleName, boolean isField, ImportRewriteContext context) {	
+	public String addStaticImport(String declaringTypeName, String simpleName, boolean isField, ImportRewriteContext context) {
+		String key = declaringTypeName + '.' + simpleName;
 		if (declaringTypeName.indexOf('.') == -1) {
-			return declaringTypeName + '.' + simpleName;
+			return key;
 		}
 		if (context == null) {
 			context= this.defaultContext;
 		}
 		int kind= isField ? ImportRewriteContext.KIND_STATIC_FIELD : ImportRewriteContext.KIND_STATIC_METHOD;
+		this.importsKindMap.put(key, new Integer(kind));
 		int res= context.findInContext(declaringTypeName, simpleName, kind);
 		if (res == ImportRewriteContext.RES_NAME_CONFLICT) {
-			return declaringTypeName + '.' + simpleName;
+			return key;
 		}
 		if (res == ImportRewriteContext.RES_NAME_UNKNOWN) {
-			addEntry(STATIC_PREFIX + declaringTypeName + '.' + simpleName);
+			addEntry(STATIC_PREFIX + key);
 		}
 		return simpleName;
 	}
-	
+
 	private String internalAddImport(String fullTypeName, ImportRewriteContext context) {
-		int idx= fullTypeName.lastIndexOf('.');	
+		int idx= fullTypeName.lastIndexOf('.');
 		String typeContainerName, typeName;
 		if (idx != -1) {
 			typeContainerName= fullTypeName.substring(0, idx);
@@ -859,14 +916,14 @@ public final class ImportRewrite {
 			typeContainerName= ""; //$NON-NLS-1$
 			typeName= fullTypeName;
 		}
-		
+
 		if (typeContainerName.length() == 0 && PrimitiveType.toCode(typeName) != null) {
 			return fullTypeName;
 		}
-		
+
 		if (context == null)
 			context= this.defaultContext;
-		
+
 		int res= context.findInContext(typeContainerName, typeName, ImportRewriteContext.KIND_TYPE);
 		if (res == ImportRewriteContext.RES_NAME_CONFLICT) {
 			return fullTypeName;
@@ -876,22 +933,22 @@ public final class ImportRewrite {
 		}
 		return typeName;
 	}
-	
+
 	private void addEntry(String entry) {
 		this.existingImports.add(entry);
-		
+
 		if (this.removedImports != null) {
 			if (this.removedImports.remove(entry)) {
 				return;
 			}
 		}
-		
+
 		if (this.addedImports == null) {
 			this.addedImports= new ArrayList();
 		}
 		this.addedImports.add(entry);
 	}
-	
+
 	private boolean removeEntry(String entry) {
 		if (this.existingImports.remove(entry)) {
 			if (this.addedImports != null) {
@@ -907,7 +964,7 @@ public final class ImportRewrite {
 		}
 		return false;
 	}
-	
+
 	/**
 	 * Records to remove a import. No remove is recorded if no such import exists or if such an import is recorded
 	 * to be added. In that case the record of the addition is discarded.
@@ -921,7 +978,7 @@ public final class ImportRewrite {
 	public boolean removeImport(String qualifiedName) {
 		return removeEntry(NORMAL_PREFIX + qualifiedName);
 	}
-		
+
 	/**
 	 * Records to remove a static import. No remove is recorded if no such import exists or if such an import is recorded
 	 * to be added. In that case the record of the addition is discarded.
@@ -934,8 +991,8 @@ public final class ImportRewrite {
 	 */
 	public boolean removeStaticImport(String qualifiedName) {
 		return removeEntry(STATIC_PREFIX + qualifiedName);
-	}	
-	
+	}
+
 	private static String getRawName(ITypeBinding normalizedBinding) {
 		return normalizedBinding.getTypeDeclaration().getName();
 	}
@@ -943,7 +1000,7 @@ public final class ImportRewrite {
 	private static String getRawQualifiedName(ITypeBinding normalizedBinding) {
 		return normalizedBinding.getTypeDeclaration().getQualifiedName();
 	}
-	
+
 
 	/**
 	 * Converts all modifications recorded by this rewriter into an object representing the corresponding text
@@ -951,7 +1008,7 @@ public final class ImportRewrite {
 	 * <p>
 	 * Calling this methods does not discard the modifications on record. Subsequence modifications are added
 	 * to the ones already on record. If this method is called again later, the resulting text edit object will accurately
-	 * reflect the net cumulative affect of all those changes.
+	 * reflect the net cumulative effect of all those changes.
 	 * </p>
 	 * @param monitor the progress monitor or <code>null</code>
 	 * @return text edit object describing the changes to the document corresponding to the changes
@@ -962,7 +1019,7 @@ public final class ImportRewrite {
 		if (monitor == null) {
 			monitor= new NullProgressMonitor();
 		}
-		
+
 		try {
 			monitor.beginTask(Messages.bind(Messages.importRewrite_processDescription), 2);
 			if (!hasRecordedChanges()) {
@@ -970,33 +1027,41 @@ public final class ImportRewrite {
 				this.createdStaticImports= CharOperation.NO_STRINGS;
 				return new MultiTextEdit();
 			}
-			
+
 			CompilationUnit usedAstRoot= this.astRoot;
 			if (usedAstRoot == null) {
-				ASTParser parser= ASTParser.newParser(AST.JLS3);
+				ASTParser parser= ASTParser.newParser(AST.JLS4);
 				parser.setSource(this.compilationUnit);
 				parser.setFocalPosition(0); // reduced AST
 				parser.setResolveBindings(false);
 				usedAstRoot= (CompilationUnit) parser.createAST(new SubProgressMonitor(monitor, 1));
 			}
-						
-			ImportRewriteAnalyzer computer= new ImportRewriteAnalyzer(this.compilationUnit, usedAstRoot, this.importOrder, this.importOnDemandThreshold, this.staticImportOnDemandThreshold, this.restoreExistingImports);
+
+			ImportRewriteAnalyzer computer=
+				new ImportRewriteAnalyzer(
+						this.compilationUnit,
+						usedAstRoot,
+						this.importOrder,
+						this.importOnDemandThreshold,
+						this.staticImportOnDemandThreshold,
+						this.restoreExistingImports,
+						this.useContextToFilterImplicitImports);
 			computer.setFilterImplicitImports(this.filterImplicitImports);
-			
+
 			if (this.addedImports != null) {
 				for (int i= 0; i < this.addedImports.size(); i++) {
 					String curr= (String) this.addedImports.get(i);
 					computer.addImport(curr.substring(1), STATIC_PREFIX == curr.charAt(0));
 				}
 			}
-			
+
 			if (this.removedImports != null) {
 				for (int i= 0; i < this.removedImports.size(); i++) {
 					String curr= (String) this.removedImports.get(i);
 					computer.removeImport(curr.substring(1), STATIC_PREFIX == curr.charAt(0));
 				}
 			}
-				
+
 			TextEdit result= computer.getResultingEdits(new SubProgressMonitor(monitor, 1));
 			this.createdImports= computer.getCreatedImports();
 			this.createdStaticImports= computer.getCreatedStaticImports();
@@ -1005,7 +1070,7 @@ public final class ImportRewrite {
 			monitor.done();
 		}
 	}
-	
+
 	/**
 	 * Returns all new non-static imports created by the last invocation of {@link #rewriteImports(IProgressMonitor)}
 	 * or <code>null</code> if these methods have not been called yet.
@@ -1018,7 +1083,7 @@ public final class ImportRewrite {
 	public String[] getCreatedImports() {
 		return this.createdImports;
 	}
-	
+
 	/**
 	 * Returns all new static imports created by the last invocation of {@link #rewriteImports(IProgressMonitor)}
 	 * or <code>null</code> if these methods have not been called yet.
@@ -1031,43 +1096,43 @@ public final class ImportRewrite {
 	public String[] getCreatedStaticImports() {
 		return this.createdStaticImports;
 	}
-	
+
 	/**
 	 * Returns all non-static imports that are recorded to be added.
-	 * 
+	 *
 	 * @return the imports recorded to be added.
 	 */
 	public String[] getAddedImports() {
 		return filterFromList(this.addedImports, NORMAL_PREFIX);
 	}
-	
+
 	/**
 	 * Returns all static imports that are recorded to be added.
-	 * 
+	 *
 	 * @return the static imports recorded to be added.
 	 */
 	public String[] getAddedStaticImports() {
 		return filterFromList(this.addedImports, STATIC_PREFIX);
 	}
-	
+
 	/**
 	 * Returns all non-static imports that are recorded to be removed.
-	 * 
+	 *
 	 * @return the imports recorded to be removed.
 	 */
 	public String[] getRemovedImports() {
 		return filterFromList(this.removedImports, NORMAL_PREFIX);
 	}
-	
+
 	/**
 	 * Returns all static imports that are recorded to be removed.
-	 * 
+	 *
 	 * @return the static imports recorded to be removed.
 	 */
 	public String[] getRemovedStaticImports() {
 		return filterFromList(this.removedImports, STATIC_PREFIX);
 	}
-	
+
 	/**
 	 * Returns <code>true</code> if imports have been recorded to be added or removed.
 	 * @return boolean returns if any changes to imports have been recorded.
@@ -1077,8 +1142,8 @@ public final class ImportRewrite {
 			(this.addedImports != null && !this.addedImports.isEmpty()) ||
 			(this.removedImports != null && !this.removedImports.isEmpty());
 	}
-	
-	
+
+
 	private static String[] filterFromList(List imports, char prefix) {
 		if (imports == null) {
 			return CharOperation.NO_STRINGS;
@@ -1092,5 +1157,5 @@ public final class ImportRewrite {
 		}
 		return (String[]) res.toArray(new String[res.size()]);
 	}
-		
+
 }

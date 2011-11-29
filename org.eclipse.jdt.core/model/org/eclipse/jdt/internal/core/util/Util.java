@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -39,14 +39,33 @@ import org.eclipse.jdt.core.util.ICodeAttribute;
 import org.eclipse.jdt.core.util.IFieldInfo;
 import org.eclipse.jdt.core.util.IMethodInfo;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.AnnotationMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Argument;
+import org.eclipse.jdt.internal.compiler.ast.UnionTypeReference;
+import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
+import org.eclipse.jdt.internal.compiler.env.ClassSignature;
+import org.eclipse.jdt.internal.compiler.env.EnumConstantSignature;
+import org.eclipse.jdt.internal.compiler.env.IBinaryAnnotation;
+import org.eclipse.jdt.internal.compiler.env.IDependent;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
+import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
+import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
 import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.Annotation;
+import org.eclipse.jdt.internal.core.ClassFile;
 import org.eclipse.jdt.internal.core.JavaElement;
 import org.eclipse.jdt.internal.core.JavaModelManager;
+import org.eclipse.jdt.internal.core.Member;
+import org.eclipse.jdt.internal.core.MemberValuePair;
+import org.eclipse.jdt.internal.core.PackageFragment;
 import org.eclipse.jdt.internal.core.PackageFragmentRoot;
 import org.eclipse.jface.text.BadLocationException;
 import org.eclipse.text.edits.MalformedTreeException;
@@ -72,12 +91,16 @@ public class Util {
 		 */
 		int compare(Object a, Object b);
 	}
-	private static final String ARGUMENTS_DELIMITER = "#"; //$NON-NLS-1$
+
+	public static interface BindingsToNodesMap {
+		public org.eclipse.jdt.internal.compiler.ast.ASTNode get(Binding binding);
+	}
+
+	private static final char ARGUMENTS_DELIMITER = '#';
 
 	private static final String EMPTY_ARGUMENT = "   "; //$NON-NLS-1$
-	
+
 	private static char[][] JAVA_LIKE_EXTENSIONS;
-	public static boolean ENABLE_JAVA_LIKE_EXTENSIONS = true;
 
 	private static final char[] BOOLEAN = "boolean".toCharArray(); //$NON-NLS-1$
 	private static final char[] BYTE = "byte".toCharArray(); //$NON-NLS-1$
@@ -89,11 +112,14 @@ public class Util {
 	private static final char[] SHORT = "short".toCharArray(); //$NON-NLS-1$
 	private static final char[] VOID = "void".toCharArray(); //$NON-NLS-1$
 	private static final char[] INIT = "<init>".toCharArray(); //$NON-NLS-1$
-	
+
+	private static final String TASK_PRIORITIES_PROBLEM = "TASK_PRIORITIES_PB"; //$NON-NLS-1$
+	private static List fgRepeatedMessages= new ArrayList(5);
+
 	private Util() {
 		// cannot be instantiated
 	}
-	
+
 	/**
 	 * Returns a new array adding the second array at the end of first array.
 	 * It answers null if the first and second are null.
@@ -121,7 +147,7 @@ public class Util {
 	 * </pre>
 	 * </li>
 	 * </ol>
-	 * 
+	 *
 	 * @param first the first array to concatenate
 	 * @param second the array to add at the end of the first array
 	 * @return a new array adding the second array at the end of first array, or null if the two arrays are null.
@@ -136,7 +162,7 @@ public class Util {
 		if (first.length == 0) {
 			return new String[] {second};
 		}
-		
+
 		String[] result = new String[length + 1];
 		System.arraycopy(first, 0, result, 0, length);
 		result[length] = second;
@@ -144,7 +170,7 @@ public class Util {
 	}
 
 	/**
-	 * Checks the type signature in String sig, 
+	 * Checks the type signature in String sig,
 	 * starting at start and ending before end (end is not included).
 	 * Returns the index of the character immediately after the signature if valid,
 	 * or -1 if not valid.
@@ -161,12 +187,12 @@ public class Util {
 		}
 		switch (c) {
 			case 'B':
-			case 'C': 
+			case 'C':
 			case 'D':
 			case 'F':
 			case 'I':
 			case 'J':
-			case 'S': 
+			case 'S':
 			case 'Z':
 				break;
 			case 'V':
@@ -185,16 +211,16 @@ public class Util {
 		}
 		return i;
 	}
-	
+
 	/**
 	 * Combines two hash codes to make a new one.
 	 */
 	public static int combineHashCodes(int hashCode1, int hashCode2) {
 		return hashCode1 * 17 + hashCode2;
 	}
-	
+
 	/**
-	 * Compares two byte arrays.  
+	 * Compares two byte arrays.
 	 * Returns <0 if a byte in a is less than the corresponding byte in b, or if a is shorter, or if a is null.
 	 * Returns >0 if a byte in a is greater than the corresponding byte in b, or if a is longer, or if b is null.
 	 * Returns 0 if they are equal or both null.
@@ -219,13 +245,13 @@ public class Util {
 		return 0;
 	}
 	/**
-	 * Compares two strings lexicographically. 
+	 * Compares two strings lexicographically.
 	 * The comparison is based on the Unicode value of each character in
-	 * the strings. 
+	 * the strings.
 	 *
 	 * @return  the value <code>0</code> if the str1 is equal to str2;
 	 *          a value less than <code>0</code> if str1
-	 *          is lexicographically less than str2; 
+	 *          is lexicographically less than str2;
 	 *          and a value greater than <code>0</code> if str1 is
 	 *          lexicographically greater than str2.
 	 */
@@ -243,44 +269,41 @@ public class Util {
 		}
 		return len1 - len2;
 	}
-
 	/**
-	 * Concatenate two strings with a char in between.
-	 * @see #concat(String, String)
+	 * Concatenate a String[] compound name to a continuous char[].
 	 */
-	public static String concat(String s1, char c, String s2) {
-		if (s1 == null) s1 = "null"; //$NON-NLS-1$
-		if (s2 == null) s2 = "null"; //$NON-NLS-1$
-		int l1 = s1.length();
-		int l2 = s2.length();
-		char[] buf = new char[l1 + 1 + l2];
-		s1.getChars(0, l1, buf, 0);
-		buf[l1] = c;
-		s2.getChars(0, l2, buf, l1 + 1);
-		return new String(buf);
+	public static char[] concatCompoundNameToCharArray(String[] compoundName) {
+		if (compoundName == null) return null;
+		int length = compoundName.length;
+		if (length == 0) return new char[0];
+		int size = 0;
+		for (int i=0; i<length; i++) {
+			size += compoundName[i].length();
+		}
+		char[] compoundChars = new char[size+length-1];
+		int pos = 0;
+		for (int i=0; i<length; i++) {
+			String name = compoundName[i];
+			if (i > 0) compoundChars[pos++] = '.';
+			int nameLength = name.length();
+			name.getChars(0, nameLength, compoundChars, pos);
+			pos += nameLength;
+		}
+		return compoundChars;
 	}
-	
-	/**
-	 * Concatenate two strings.
-	 * Much faster than using +, which:
-	 * 		- creates a StringBuffer,
-	 * 		- which is synchronized,
-	 * 		- of default size, so the resulting char array is
-	 *        often larger than needed.
-	 * This implementation creates an extra char array, since the
-	 * String constructor copies its argument, but there's no way around this.
-	 */
-	public static String concat(String s1, String s2) {
-		if (s1 == null) s1 = "null"; //$NON-NLS-1$
-		if (s2 == null) s2 = "null"; //$NON-NLS-1$
-		int l1 = s1.length();
-		int l2 = s2.length();
-		char[] buf = new char[l1 + l2];
-		s1.getChars(0, l1, buf, 0);
-		s2.getChars(0, l2, buf, l1);
-		return new String(buf);
+	public static String concatenateName(String name1, String name2, char separator) {
+		StringBuffer buf= new StringBuffer();
+		if (name1 != null && name1.length() > 0) {
+			buf.append(name1);
+		}
+		if (name2 != null && name2.length() > 0) {
+			if (buf.length() > 0) {
+				buf.append(separator);
+			}
+			buf.append(name2);
+		}
+		return buf.toString();
 	}
-
 	/**
 	 * Returns the concatenation of the given array parts using the given separator between each part.
 	 * <br>
@@ -299,7 +322,7 @@ public class Util {
 	 *    => result = ""
 	 * </pre></li>
 	 * </ol>
-	 * 
+	 *
 	 * @param array the given array
 	 * @param separator the given separator
 	 * @return the concatenation of the given array parts using the given separator between each part
@@ -313,7 +336,7 @@ public class Util {
 		}
 		return buffer.toString();
 	}
-	
+
 	/**
 	 * Returns the concatenation of the given array parts using the given separator between each
 	 * part and appending the given name at the end.
@@ -341,7 +364,7 @@ public class Util {
 	 *    => result = "c"
 	 * </pre></li>
 	 * </ol>
-	 * 
+	 *
 	 * @param array the given array
 	 * @param name the given name
 	 * @param separator the given separator
@@ -352,7 +375,7 @@ public class Util {
 		String[] array,
 		String name,
 		char separator) {
-		
+
 		if (array == null || array.length == 0) return name;
 		if (name == null || name.length() == 0) return concatWith(array, separator);
 		StringBuffer buffer = new StringBuffer();
@@ -362,34 +385,15 @@ public class Util {
 		}
 		buffer.append(name);
 		return buffer.toString();
-		
+
 	}
-	
-	/**
-	 * Concatenate three strings.
-	 * @see #concat(String, String)
-	 */
-	public static String concat(String s1, String s2, String s3) {
-		if (s1 == null) s1 = "null"; //$NON-NLS-1$
-		if (s2 == null) s2 = "null"; //$NON-NLS-1$
-		if (s3 == null) s3 = "null"; //$NON-NLS-1$
-		int l1 = s1.length();
-		int l2 = s2.length();
-		int l3 = s3.length();
-		char[] buf = new char[l1 + l2 + l3];
-		s1.getChars(0, l1, buf, 0);
-		s2.getChars(0, l2, buf, l1);
-		s3.getChars(0, l3, buf, l1 + l2);
-		return new String(buf);
-	}
-		
 	/**
 	 * Converts a type signature from the IBinaryType representation to the DC representation.
 	 */
 	public static String convertTypeSignature(char[] sig, int start, int length) {
 		return new String(sig, start, length).replace('/', '.');
 	}
-	
+
 	/*
 	 * Returns the default java extension (".java").
 	 * To be used when the extension is not known.
@@ -401,10 +405,10 @@ public class Util {
 	/**
 	 * Apply the given edit on the given string and return the updated string.
 	 * Return the given string if anything wrong happen while applying the edit.
-	 * 
+	 *
 	 * @param original the given string
 	 * @param edit the given edit
-	 * 
+	 *
 	 * @return the updated string
 	 */
 	public final static String editedString(String original, TextEdit edit) {
@@ -428,21 +432,21 @@ public class Util {
 	 * implementation is not creating extra strings.
 	 */
 	public final static boolean endsWithIgnoreCase(String str, String end) {
-		
+
 		int strLength = str == null ? 0 : str.length();
 		int endLength = end == null ? 0 : end.length();
-		
+
 		// return false if the string is smaller than the end.
 		if(endLength > strLength)
 			return false;
-			
+
 		// return false if any character of the end are
 		// not the same in lower case.
 		for(int i = 1 ; i <= endLength; i++){
 			if(ScannerHelper.toLowerCase(end.charAt(endLength - i)) != ScannerHelper.toLowerCase(str.charAt(strLength - i)))
 				return false;
 		}
-		
+
 		return true;
 	}
 
@@ -501,7 +505,7 @@ public class Util {
 
 		int len = a.length;
 		if (len != b.length) return false;
-		// walk array from end to beginning as this optimizes package name cases 
+		// walk array from end to beginning as this optimizes package name cases
 		// where the first part is always the same (e.g. org.eclipse.jdt)
 		for (int i = len-1; i >= 0; i--) {
 			if (a[i] == null) {
@@ -512,7 +516,7 @@ public class Util {
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Compares two arrays using equals() on the elements.
 	 * The arrays are first sorted.
@@ -537,7 +541,7 @@ public class Util {
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Compares two String arrays using equals() on the elements.
 	 * The arrays are first sorted.
@@ -562,7 +566,7 @@ public class Util {
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Compares two objects using equals().
 	 * Either or both array may be null.
@@ -579,7 +583,7 @@ public class Util {
 		}
 		return a.equals(b);
 	}
-	
+
 	/*
 	 * Returns whether the given file name equals to the given string ignoring the java like extension
 	 * of the file name.
@@ -601,14 +605,14 @@ public class Util {
 			if (extensionStart + suffix.length != fileNameLength) continue;
 			if (fileName.charAt(stringLength) != '.') continue;
 			for (int j = extensionStart; j < fileNameLength; j++) {
-				if (fileName.charAt(j) != suffix[j-extensionStart]) 
+				if (fileName.charAt(j) != suffix[j-extensionStart])
 					continue suffixes;
 			}
 			return true;
 		}
 		return false;
 	}
-	
+
 	/**
 	 * Given a qualified name, extract the last component.
 	 * If the input is not qualified, the same string is answered.
@@ -618,7 +622,7 @@ public class Util {
 		if (i == -1) return qualifiedName;
 		return qualifiedName.substring(i+1);
 	}
-	
+
 	/**
 	 * Extracts the parameter types from a method signature.
 	 */
@@ -660,7 +664,7 @@ public class Util {
 	public static String extractReturnType(String sig) {
 		int i = sig.lastIndexOf(')');
 		Assert.isTrue(i != -1);
-		return sig.substring(i+1);	
+		return sig.substring(i+1);
 	}
 	private static IFile findFirstClassFile(IFolder folder) {
 		try {
@@ -678,7 +682,7 @@ public class Util {
 		}
 		return null;
 	}
-	
+
 	/**
 	 * Finds the first line separator used by the given text.
 	 *
@@ -702,7 +706,7 @@ public class Util {
 		// not found
 		return null;
 	}
-	
+
 	public static IClassFileAttribute getAttribute(IClassFileReader classFileReader, char[] attributeName) {
 		IClassFileAttribute[] attributes = classFileReader.getAttributes();
 		for (int i = 0, max = attributes.length; i < max; i++) {
@@ -712,7 +716,7 @@ public class Util {
 		}
 		return null;
 	}
-	
+
 	public static IClassFileAttribute getAttribute(ICodeAttribute codeAttribute, char[] attributeName) {
 		IClassFileAttribute[] attributes = codeAttribute.getAttributes();
 		for (int i = 0, max = attributes.length; i < max; i++) {
@@ -721,8 +725,8 @@ public class Util {
 			}
 		}
 		return null;
-	}	
-	
+	}
+
 	public static IClassFileAttribute getAttribute(IFieldInfo fieldInfo, char[] attributeName) {
 		IClassFileAttribute[] attributes = fieldInfo.getAttributes();
 		for (int i = 0, max = attributes.length; i < max; i++) {
@@ -742,42 +746,69 @@ public class Util {
 		}
 		return null;
 	}
-	
+
+	private static IClassFile getClassFile(char[] fileName) {
+		int jarSeparator = CharOperation.indexOf(IDependent.JAR_FILE_ENTRY_SEPARATOR, fileName);
+		int pkgEnd = CharOperation.lastIndexOf('/', fileName); // pkgEnd is exclusive
+		if (pkgEnd == -1)
+			pkgEnd = CharOperation.lastIndexOf(File.separatorChar, fileName);
+		if (jarSeparator != -1 && pkgEnd < jarSeparator) // if in a jar and no slash, it is a default package -> pkgEnd should be equal to jarSeparator
+			pkgEnd = jarSeparator;
+		if (pkgEnd == -1)
+			return null;
+		IPackageFragment pkg = getPackageFragment(fileName, pkgEnd, jarSeparator);
+		if (pkg == null) return null;
+		int start;
+		return pkg.getClassFile(new String(fileName, start = pkgEnd + 1, fileName.length - start));
+	}
+
+	private static ICompilationUnit getCompilationUnit(char[] fileName, WorkingCopyOwner workingCopyOwner) {
+		char[] slashSeparatedFileName = CharOperation.replaceOnCopy(fileName, File.separatorChar, '/');
+		int pkgEnd = CharOperation.lastIndexOf('/', slashSeparatedFileName); // pkgEnd is exclusive
+		if (pkgEnd == -1)
+			return null;
+		IPackageFragment pkg = getPackageFragment(slashSeparatedFileName, pkgEnd, -1/*no jar separator for .java files*/);
+		if (pkg == null) return null;
+		int start;
+		ICompilationUnit cu = pkg.getCompilationUnit(new String(slashSeparatedFileName, start =  pkgEnd+1, slashSeparatedFileName.length - start));
+		if (workingCopyOwner != null) {
+			ICompilationUnit workingCopy = cu.findWorkingCopy(workingCopyOwner);
+			if (workingCopy != null)
+				return workingCopy;
+		}
+		return cu;
+	}
+
 	/**
 	 * Returns the registered Java like extensions.
 	 */
 	public static char[][] getJavaLikeExtensions() {
 		if (JAVA_LIKE_EXTENSIONS == null) {
-			// TODO (jerome) reenable once JDT UI supports other file extensions (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=71460)
-			if (!ENABLE_JAVA_LIKE_EXTENSIONS)
-				JAVA_LIKE_EXTENSIONS = new char[][] {SuffixConstants.EXTENSION_java.toCharArray()};
-			else {
-				IContentType javaContentType = Platform.getContentTypeManager().getContentType(JavaCore.JAVA_SOURCE_CONTENT_TYPE);
-				HashSet fileExtensions = new HashSet();
-				// content types derived from java content type should be included (https://bugs.eclipse.org/bugs/show_bug.cgi?id=121715)
-				IContentType[] contentTypes = Platform.getContentTypeManager().getAllContentTypes();
-				for (int i = 0, length = contentTypes.length; i < length; i++) {
-					if (contentTypes[i].isKindOf(javaContentType)) { // note that javaContentType.isKindOf(javaContentType) == true
-						String[] fileExtension = contentTypes[i].getFileSpecs(IContentType.FILE_EXTENSION_SPEC);
-						for (int j = 0, length2 = fileExtension.length; j < length2; j++) {
-							fileExtensions.add(fileExtension[j]);
-						}
+			IContentType javaContentType = Platform.getContentTypeManager().getContentType(JavaCore.JAVA_SOURCE_CONTENT_TYPE);
+			HashSet fileExtensions = new HashSet();
+			// content types derived from java content type should be included (https://bugs.eclipse.org/bugs/show_bug.cgi?id=121715)
+			IContentType[] contentTypes = Platform.getContentTypeManager().getAllContentTypes();
+			for (int i = 0, length = contentTypes.length; i < length; i++) {
+				if (contentTypes[i].isKindOf(javaContentType)) { // note that javaContentType.isKindOf(javaContentType) == true
+					String[] fileExtension = contentTypes[i].getFileSpecs(IContentType.FILE_EXTENSION_SPEC);
+					for (int j = 0, length2 = fileExtension.length; j < length2; j++) {
+						fileExtensions.add(fileExtension[j]);
 					}
 				}
-				int length = fileExtensions.size();
-				// note that file extensions contains "java" as it is defined in JDT Core's plugin.xml
-				char[][] extensions = new char[length][];
-				extensions[0] = SuffixConstants.EXTENSION_java.toCharArray(); // ensure that "java" is first
-				int index = 1;
-				Iterator iterator = fileExtensions.iterator();
-				while (iterator.hasNext()) {
-					String fileExtension = (String) iterator.next();
-					if (SuffixConstants.EXTENSION_java.equals(fileExtension))
-						continue;
-					extensions[index++] = fileExtension.toCharArray();
-				}
-				JAVA_LIKE_EXTENSIONS = extensions;
 			}
+			int length = fileExtensions.size();
+			// note that file extensions contains "java" as it is defined in JDT Core's plugin.xml
+			char[][] extensions = new char[length][];
+			extensions[0] = SuffixConstants.EXTENSION_java.toCharArray(); // ensure that "java" is first
+			int index = 1;
+			Iterator iterator = fileExtensions.iterator();
+			while (iterator.hasNext()) {
+				String fileExtension = (String) iterator.next();
+				if (SuffixConstants.EXTENSION_java.equals(fileExtension))
+					continue;
+				extensions[index++] = fileExtension.toCharArray();
+			}
+			JAVA_LIKE_EXTENSIONS = extensions;
 		}
 		return JAVA_LIKE_EXTENSIONS;
 	}
@@ -839,7 +870,7 @@ public class Util {
 		}
 		return 0;
 	}
-	
+
 	/**
 	 * Returns the substring of the given file name, ending at the start of a
 	 * Java like extension. The entire file name is returned if it doesn't end
@@ -851,42 +882,44 @@ public class Util {
 			return fileName;
 		return fileName.substring(0, index);
 	}
-	
+
 	/**
 	 * Returns the line separator found in the given text.
-	 * If it is null, or not found return the line delimitor for the given project.
+	 * If it is null, or not found return the line delimiter for the given project.
 	 * If the project is null, returns the line separator for the workspace.
 	 * If still null, return the system line separator.
 	 */
 	public static String getLineSeparator(String text, IJavaProject project) {
 		String lineSeparator = null;
-		
+
 		// line delimiter in given text
 		if (text != null && text.length() != 0) {
 			lineSeparator = findLineSeparator(text.toCharArray());
 			if (lineSeparator != null)
 				return lineSeparator;
 		}
-		
-		// line delimiter in project preference
-		IScopeContext[] scopeContext;
-		if (project != null) {
-			scopeContext= new IScopeContext[] { new ProjectScope(project.getProject()) };
-			lineSeparator= Platform.getPreferencesService().getString(Platform.PI_RUNTIME, Platform.PREF_LINE_SEPARATOR, null, scopeContext);
+
+		if (Platform.isRunning()) {
+			// line delimiter in project preference
+			IScopeContext[] scopeContext;
+			if (project != null) {
+				scopeContext= new IScopeContext[] { new ProjectScope(project.getProject()) };
+				lineSeparator= Platform.getPreferencesService().getString(Platform.PI_RUNTIME, Platform.PREF_LINE_SEPARATOR, null, scopeContext);
+				if (lineSeparator != null)
+					return lineSeparator;
+			}
+	
+			// line delimiter in workspace preference
+			scopeContext= new IScopeContext[] { InstanceScope.INSTANCE };
+			lineSeparator = Platform.getPreferencesService().getString(Platform.PI_RUNTIME, Platform.PREF_LINE_SEPARATOR, null, scopeContext);
 			if (lineSeparator != null)
 				return lineSeparator;
 		}
-		
-		// line delimiter in workspace preference
-		scopeContext= new IScopeContext[] { new InstanceScope() };
-		lineSeparator = Platform.getPreferencesService().getString(Platform.PI_RUNTIME, Platform.PREF_LINE_SEPARATOR, null, scopeContext);
-		if (lineSeparator != null)
-			return lineSeparator;
-		
+
 		// system line delimiter
 		return org.eclipse.jdt.internal.compiler.util.Util.LINE_SEPARATOR;
 	}
-	
+
 	/**
 	 * Returns the line separator used by the given buffer.
 	 * Uses the given text if none found.
@@ -906,7 +939,36 @@ public class Util {
 		}
 		return lineSeparator;
 	}
-		
+
+	private static IPackageFragment getPackageFragment(char[] fileName, int pkgEnd, int jarSeparator) {
+		if (jarSeparator != -1) {
+			String jarMemento = new String(fileName, 0, jarSeparator);
+			PackageFragmentRoot root = (PackageFragmentRoot) JavaCore.create(jarMemento);
+			if (pkgEnd == jarSeparator)
+				return root.getPackageFragment(CharOperation.NO_STRINGS);
+			char[] pkgName = CharOperation.subarray(fileName, jarSeparator+1, pkgEnd);
+			char[][] compoundName = CharOperation.splitOn('/', pkgName);
+			return root.getPackageFragment(CharOperation.toStrings(compoundName));
+		} else {
+			Path path = new Path(new String(fileName, 0, pkgEnd));
+			IWorkspaceRoot workspaceRoot = ResourcesPlugin.getWorkspace().getRoot();
+			IContainer folder = path.segmentCount() == 1 ? workspaceRoot.getProject(path.lastSegment()) : (IContainer) workspaceRoot.getFolder(path);
+			IJavaElement element = JavaCore.create(folder);
+			if (element == null) return null;
+			switch (element.getElementType()) {
+				case IJavaElement.PACKAGE_FRAGMENT:
+					return (IPackageFragment) element;
+				case IJavaElement.PACKAGE_FRAGMENT_ROOT:
+					return ((PackageFragmentRoot) element).getPackageFragment(CharOperation.NO_STRINGS);
+				case IJavaElement.JAVA_PROJECT:
+					PackageFragmentRoot root = (PackageFragmentRoot) ((IJavaProject) element).getPackageFragmentRoot(folder);
+					if (root == null) return null;
+					return root.getPackageFragment(CharOperation.NO_STRINGS);
+			}
+			return null;
+		}
+	}
+
 	/**
 	 * Returns the number of parameter types in a method signature.
 	 */
@@ -935,67 +997,132 @@ public class Util {
 		}
 		return count;
 	}
-	
+
 	/**
 	 * Put all the arguments in one String.
 	 */
 	public static String getProblemArgumentsForMarker(String[] arguments){
 		StringBuffer args = new StringBuffer(10);
-		
+
 		args.append(arguments.length);
 		args.append(':');
-		
-			
+
+
 		for (int j = 0; j < arguments.length; j++) {
 			if(j != 0)
 				args.append(ARGUMENTS_DELIMITER);
-			
+
 			if(arguments[j].length() == 0) {
 				args.append(EMPTY_ARGUMENT);
-			} else {			
-				args.append(arguments[j]);
+			} else {
+				encodeArgument(arguments[j], args);
 			}
 		}
-		
+
 		return args.toString();
 	}
-	
+
+	/**
+	 * Encode the argument by doubling the '#' if present into the argument value.
+	 * 
+	 * <p>This stores the encoded argument into the given buffer.</p>
+	 *
+	 * @param argument the given argument
+	 * @param buffer the buffer in which the encoded argument is stored
+	 */
+	private static void encodeArgument(String argument, StringBuffer buffer) {
+		for (int i = 0, max = argument.length(); i < max; i++) {
+			char charAt = argument.charAt(i);
+			switch(charAt) {
+				case ARGUMENTS_DELIMITER :
+					buffer.append(ARGUMENTS_DELIMITER).append(ARGUMENTS_DELIMITER);
+					break;
+				default:
+					buffer.append(charAt);
+			}
+		}
+	}
+
 	/**
 	 * Separate all the arguments of a String made by getProblemArgumentsForMarker
 	 */
 	public static String[] getProblemArgumentsFromMarker(String argumentsString){
-		if (argumentsString == null) return null;
+		if (argumentsString == null) {
+			return null;
+		}
 		int index = argumentsString.indexOf(':');
 		if(index == -1)
 			return null;
-		
+
 		int length = argumentsString.length();
-		int numberOfArg;
+		int numberOfArg = 0;
 		try{
 			numberOfArg = Integer.parseInt(argumentsString.substring(0 , index));
 		} catch (NumberFormatException e) {
 			return null;
 		}
 		argumentsString = argumentsString.substring(index + 1, length);
-		
-		String[] args = new String[length];
-		int count = 0;
-		
-		StringTokenizer tokenizer = new StringTokenizer(argumentsString, ARGUMENTS_DELIMITER);
-		while(tokenizer.hasMoreTokens()) {
-			String argument = tokenizer.nextToken();
-			if(argument.equals(EMPTY_ARGUMENT))
-				argument = "";  //$NON-NLS-1$
-			args[count++] = argument;
-		}
-		
-		if(count != numberOfArg)
-			return null;
-		
-		System.arraycopy(args, 0, args = new String[count], 0, count);
-		return args;
+
+		return decodeArgumentString(numberOfArg, argumentsString);
 	}
-	
+
+	private static String[] decodeArgumentString(int length, String argumentsString) {
+		// decode the argumentString knowing that '#' is doubled if part of the argument value
+		if (length == 0) {
+			if (argumentsString.length() != 0) {
+				return null;
+			}
+			return CharOperation.NO_STRINGS;
+		}
+		String[] result = new String[length];
+		int count = 0;
+		StringBuffer buffer = new StringBuffer();
+		for (int i = 0, max = argumentsString.length(); i < max; i++) {
+			char current = argumentsString.charAt(i);
+			switch(current) {
+				case ARGUMENTS_DELIMITER :
+					/* check the next character. If this is also ARGUMENTS_DELIMITER then only put one into the
+					 * decoded argument and proceed with the next character
+					 */
+					if ((i + 1) == max) {
+						return null;
+					}
+					char next = argumentsString.charAt(i + 1);
+					if (next == ARGUMENTS_DELIMITER) {
+						buffer.append(ARGUMENTS_DELIMITER);
+						i++; // proceed with the next character
+					} else {
+						// this means the current argument is over
+						String currentArgumentContents = String.valueOf(buffer);
+						if (EMPTY_ARGUMENT.equals(currentArgumentContents)) {
+							currentArgumentContents = org.eclipse.jdt.internal.compiler.util.Util.EMPTY_STRING;
+						}
+						result[count++] = currentArgumentContents;
+						if (count > length) {
+							// too many elements - ill-formed
+							return null;
+						}
+						buffer.delete(0, buffer.length());
+					}
+					break;
+				default :
+					buffer.append(current);
+			}
+		}
+		// process last argument
+		String currentArgumentContents = String.valueOf(buffer);
+		if (EMPTY_ARGUMENT.equals(currentArgumentContents)) {
+			currentArgumentContents = org.eclipse.jdt.internal.compiler.util.Util.EMPTY_STRING;
+		}
+		result[count++] = currentArgumentContents;
+		if (count > length) {
+			// too many elements - ill-formed
+			return null;
+		}
+		buffer.delete(0, buffer.length());
+		return result;
+	}
+
 	/**
 	 * Returns the given file's contents as a byte array.
 	 */
@@ -1018,7 +1145,7 @@ public class Util {
 			}
 		}
 	}
-	
+
 	/**
 	 * Returns the given file's contents as a character array.
 	 */
@@ -1033,8 +1160,8 @@ public class Util {
 		}
 		return getResourceContentsAsCharArray(file, encoding);
 	}
-		
-	public static char[] getResourceContentsAsCharArray(IFile file, String encoding) throws JavaModelException {		
+
+	public static char[] getResourceContentsAsCharArray(IFile file, String encoding) throws JavaModelException {
 		// Get file length
 		// workaround https://bugs.eclipse.org/bugs/show_bug.cgi?id=130736 by using java.io.File if possible
 		IPath location = file.getLocation();
@@ -1042,15 +1169,18 @@ public class Util {
 		if (location == null) {
 			// non local file
 			try {
-				length = EFS.getStore(file.getLocationURI()).fetchInfo().getLength();
+				URI locationURI = file.getLocationURI();
+				if (locationURI == null)
+					throw new CoreException(new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, Messages.bind(Messages.file_notFound, file.getFullPath().toString())));
+				length = EFS.getStore(locationURI).fetchInfo().getLength();
 			} catch (CoreException e) {
-				throw new JavaModelException(e);
+				throw new JavaModelException(e, IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST);
 			}
 		} else {
 			// local file
 			length = location.toFile().length();
 		}
-		
+
 		// Get resource contents
 		InputStream stream= null;
 		try {
@@ -1070,7 +1200,7 @@ public class Util {
 			}
 		}
 	}
-	
+
 	/*
 	 * Returns the signature of the given type.
 	 */
@@ -1079,7 +1209,7 @@ public class Util {
 		getFullyQualifiedName(type, buffer);
 		return Signature.createTypeSignature(buffer.toString(), false/*not resolved in source*/);
 	}
-	
+
 	/*
 	 * Returns the source attachment property for this package fragment root's path
 	 */
@@ -1103,24 +1233,28 @@ public class Util {
 		} else
 			return property;
 	}
-	
+
 	private static QualifiedName getSourceAttachmentPropertyName(IPath path) {
 		return new QualifiedName(JavaCore.PLUGIN_ID, "sourceattachment: " + path.toOSString()); //$NON-NLS-1$
 	}
 
 	public static void setSourceAttachmentProperty(IPath path, String property) {
-		JavaModelManager.getJavaModelManager().rootPathToAttachments.put(path, property);
+		if (property == null) {
+			JavaModelManager.getJavaModelManager().rootPathToAttachments.put(path, PackageFragmentRoot.NO_SOURCE_ATTACHMENT);
+		} else {
+			JavaModelManager.getJavaModelManager().rootPathToAttachments.put(path, property);
+		}
 		try {
 			ResourcesPlugin.getWorkspace().getRoot().setPersistentProperty(getSourceAttachmentPropertyName(path), property);
 		} catch (CoreException e) {
 			e.printStackTrace();
 		}
 	}
-	
+
 	/*
 	 * Returns the declaring type signature of the element represented by the given binding key.
 	 * Returns the signature of the element if it is a type.
-	 * 
+	 *
 	 * @return the declaring type signature
 	 */
 	public static String getDeclaringTypeSignature(String key) {
@@ -1128,7 +1262,7 @@ public class Util {
 		keyToSignature.parse();
 		return keyToSignature.signature.toString();
 	}
-	
+
 	/*
 	 * Appends to the given buffer the fully qualified name (as it appears in the source) of the given type
 	 */
@@ -1192,8 +1326,220 @@ public class Util {
 		}
 		return result;
 	}
-	
-		/*
+
+	/**
+	 * Return the java element corresponding to the given compiler binding.
+	 */
+	public static JavaElement getUnresolvedJavaElement(FieldBinding binding, WorkingCopyOwner workingCopyOwner, BindingsToNodesMap bindingsToNodes) {
+		if (binding.declaringClass == null) return null; // array length
+		JavaElement unresolvedJavaElement = getUnresolvedJavaElement(binding.declaringClass, workingCopyOwner, bindingsToNodes);
+		if (unresolvedJavaElement == null || unresolvedJavaElement.getElementType() != IJavaElement.TYPE) {
+			return null;
+		}
+		return (JavaElement) ((IType) unresolvedJavaElement).getField(String.valueOf(binding.name));
+	}
+
+	/**
+	 * Returns the IInitializer that contains the given local variable in the given type
+	 */
+	public static JavaElement getUnresolvedJavaElement(int localSourceStart, int localSourceEnd, JavaElement type) {
+		try {
+			if (!(type instanceof IType))
+				return null;
+			IInitializer[] initializers = ((IType) type).getInitializers();
+			for (int i = 0; i < initializers.length; i++) {
+				IInitializer initializer = initializers[i];
+				ISourceRange sourceRange = initializer.getSourceRange();
+				if (sourceRange != null) {
+					int initializerStart = sourceRange.getOffset();
+					int initializerEnd = initializerStart + sourceRange.getLength();
+					if (initializerStart <= localSourceStart && localSourceEnd <= initializerEnd) {
+						return (JavaElement) initializer;
+					}
+				}
+			}
+			return null;
+		} catch (JavaModelException e) {
+			return null;
+		}
+	}
+
+	/**
+	 * Return the java element corresponding to the given compiler binding.
+	 */
+	public static JavaElement getUnresolvedJavaElement(MethodBinding methodBinding, WorkingCopyOwner workingCopyOwner, BindingsToNodesMap bindingsToNodes) {
+		JavaElement unresolvedJavaElement = getUnresolvedJavaElement(methodBinding.declaringClass, workingCopyOwner, bindingsToNodes);
+		if (unresolvedJavaElement == null || unresolvedJavaElement.getElementType() != IJavaElement.TYPE) {
+			return null;
+		}
+		IType declaringType = (IType) unresolvedJavaElement;
+
+		org.eclipse.jdt.internal.compiler.ast.ASTNode node = bindingsToNodes == null ? null : bindingsToNodes.get(methodBinding);
+		if (node != null && !declaringType.isBinary()) {
+			if (node instanceof AnnotationMethodDeclaration) {
+				// node is an AnnotationMethodDeclaration
+				AnnotationMethodDeclaration typeMemberDeclaration = (AnnotationMethodDeclaration) node;
+				return (JavaElement) declaringType.getMethod(String.valueOf(typeMemberDeclaration.selector), CharOperation.NO_STRINGS); // annotation type members don't have parameters
+			} else {
+				// node is an MethodDeclaration
+				MethodDeclaration methodDeclaration = (MethodDeclaration) node;
+
+				Argument[] arguments = methodDeclaration.arguments;
+				String[] parameterSignatures;
+				if (arguments != null) {
+					parameterSignatures = new String[arguments.length];
+					for (int i = 0; i < arguments.length; i++) {
+						Argument argument = arguments[i];
+						TypeReference typeReference = argument.type;
+						int arrayDim = typeReference.dimensions();
+
+						String typeSig =
+							Signature.createTypeSignature(
+									CharOperation.concatWith(
+											typeReference.getTypeName(), '.'), false);
+						if (arrayDim > 0) {
+							typeSig = Signature.createArraySignature(typeSig, arrayDim);
+						}
+						parameterSignatures[i] = typeSig;
+
+					}
+				} else {
+					parameterSignatures = CharOperation.NO_STRINGS;
+				}
+				return (JavaElement) declaringType.getMethod(String.valueOf(methodDeclaration.selector), parameterSignatures);
+			}
+		} else {
+			// case of method not in the created AST, or a binary method
+			org.eclipse.jdt.internal.compiler.lookup.MethodBinding original = methodBinding.original();
+			String selector = original.isConstructor() ? declaringType.getElementName() : new String(original.selector);
+			boolean isBinary = declaringType.isBinary();
+			ReferenceBinding enclosingType = original.declaringClass.enclosingType();
+			boolean isInnerBinaryTypeConstructor = isBinary && original.isConstructor() && enclosingType != null;
+			TypeBinding[] parameters = original.parameters;
+			int length = parameters == null ? 0 : parameters.length;
+			int declaringIndex = isInnerBinaryTypeConstructor ? 1 : 0;
+			String[] parameterSignatures = new String[declaringIndex + length];
+			if (isInnerBinaryTypeConstructor)
+				parameterSignatures[0] = new String(enclosingType.genericTypeSignature()).replace('/', '.');
+			for (int i = 0;  i < length; i++) {
+				char[] signature = parameters[i].genericTypeSignature();
+				if (isBinary) {
+					signature = CharOperation.replaceOnCopy(signature, '/', '.');
+				} else {
+					signature = toUnresolvedTypeSignature(signature);
+				}
+				parameterSignatures[declaringIndex + i] = new String(signature);
+			}
+			IMethod result = declaringType.getMethod(selector, parameterSignatures);
+			if (isBinary)
+				return (JavaElement) result;
+			if (result.exists()) // if perfect match (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=249567 )
+				return (JavaElement) result;
+			IMethod[] methods = null;
+			try {
+				methods = declaringType.getMethods();
+			} catch (JavaModelException e) {
+				// declaring type doesn't exist
+				return null;
+			}
+			IMethod[] candidates = Member.findMethods(result, methods);
+			if (candidates == null || candidates.length == 0)
+				return null;
+			return (JavaElement) candidates[0];
+		}
+	}
+
+	/**
+	 * Return the java element corresponding to the given compiler binding.
+	 */
+	public static JavaElement getUnresolvedJavaElement(TypeBinding typeBinding, WorkingCopyOwner workingCopyOwner, BindingsToNodesMap bindingsToNodes) {
+		if (typeBinding == null)
+			return null;
+		switch (typeBinding.kind()) {
+			case Binding.ARRAY_TYPE :
+				typeBinding = ((org.eclipse.jdt.internal.compiler.lookup.ArrayBinding) typeBinding).leafComponentType();
+				return getUnresolvedJavaElement(typeBinding, workingCopyOwner, bindingsToNodes);
+			case Binding.BASE_TYPE :
+			case Binding.WILDCARD_TYPE :
+			case Binding.INTERSECTION_TYPE:
+				return null;
+			default :
+				if (typeBinding.isCapture())
+					return null;
+		}
+		ReferenceBinding referenceBinding;
+		if (typeBinding.isParameterizedType() || typeBinding.isRawType())
+			referenceBinding = (ReferenceBinding) typeBinding.erasure();
+		else
+			referenceBinding = (ReferenceBinding) typeBinding;
+		char[] fileName = referenceBinding.getFileName();
+		if (referenceBinding.isLocalType() || referenceBinding.isAnonymousType()) {
+			// local or anonymous type
+			if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(fileName)) {
+				int jarSeparator = CharOperation.indexOf(IDependent.JAR_FILE_ENTRY_SEPARATOR, fileName);
+				int pkgEnd = CharOperation.lastIndexOf('/', fileName); // pkgEnd is exclusive
+				if (pkgEnd == -1)
+					pkgEnd = CharOperation.lastIndexOf(File.separatorChar, fileName);
+				if (jarSeparator != -1 && pkgEnd < jarSeparator) // if in a jar and no slash, it is a default package -> pkgEnd should be equal to jarSeparator
+					pkgEnd = jarSeparator;
+				if (pkgEnd == -1)
+					return null;
+				IPackageFragment pkg = getPackageFragment(fileName, pkgEnd, jarSeparator);
+				char[] constantPoolName = referenceBinding.constantPoolName();
+				if (constantPoolName == null) {
+					ClassFile classFile = (ClassFile) getClassFile(fileName);
+					return classFile == null ? null : (JavaElement) classFile.getType();
+				}
+				pkgEnd = CharOperation.lastIndexOf('/', constantPoolName);
+				char[] classFileName = CharOperation.subarray(constantPoolName, pkgEnd+1, constantPoolName.length);
+				ClassFile classFile = (ClassFile) pkg.getClassFile(new String(classFileName) + SuffixConstants.SUFFIX_STRING_class);
+				return (JavaElement) classFile.getType();
+			}
+			ICompilationUnit cu = getCompilationUnit(fileName, workingCopyOwner);
+			if (cu == null) return null;
+			// must use getElementAt(...) as there is no back pointer to the defining method (scope is null after resolution has ended)
+			try {
+				int sourceStart = ((org.eclipse.jdt.internal.compiler.lookup.LocalTypeBinding) referenceBinding).sourceStart;
+				return (JavaElement) cu.getElementAt(sourceStart);
+			} catch (JavaModelException e) {
+				// does not exist
+				return null;
+			}
+		} else if (referenceBinding.isTypeVariable()) {
+			// type parameter
+			final String typeVariableName = new String(referenceBinding.sourceName());
+			org.eclipse.jdt.internal.compiler.lookup.Binding declaringElement = ((org.eclipse.jdt.internal.compiler.lookup.TypeVariableBinding) referenceBinding).declaringElement;
+			if (declaringElement instanceof MethodBinding) {
+				IMethod declaringMethod = (IMethod) getUnresolvedJavaElement((MethodBinding) declaringElement, workingCopyOwner, bindingsToNodes);
+				return (JavaElement) declaringMethod.getTypeParameter(typeVariableName);
+			} else {
+				IType declaringType = (IType) getUnresolvedJavaElement((TypeBinding) declaringElement, workingCopyOwner, bindingsToNodes);
+				return (JavaElement) declaringType.getTypeParameter(typeVariableName);
+			}
+		} else {
+			if (fileName == null) return null; // case of a WilCardBinding that doesn't have a corresponding Java element
+			// member or top level type
+			TypeBinding declaringTypeBinding = typeBinding.enclosingType();
+			if (declaringTypeBinding == null) {
+				// top level type
+				if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(fileName)) {
+					ClassFile classFile = (ClassFile) getClassFile(fileName);
+					if (classFile == null) return null;
+					return (JavaElement) classFile.getType();
+				}
+				ICompilationUnit cu = getCompilationUnit(fileName, workingCopyOwner);
+				if (cu == null) return null;
+				return (JavaElement) cu.getType(new String(referenceBinding.sourceName()));
+			} else {
+				// member type
+				IType declaringType = (IType) getUnresolvedJavaElement(declaringTypeBinding, workingCopyOwner, bindingsToNodes);
+				if (declaringType == null) return null;
+				return (JavaElement) declaringType.getType(new String(referenceBinding.sourceName()));
+			}
+		}
+	}
+
+	/*
 	 * Returns the index of the most specific argument paths which is strictly enclosing the path to check
 	 */
 	public static int indexOfEnclosingPath(IPath checkedPath, IPath[] paths, int pathCount) {
@@ -1211,10 +1557,10 @@ public class Util {
 		}
 		return bestMatch;
 	}
-	
+
 	/*
 	 * Returns the index of the Java like extension of the given file name
-	 * or -1 if it doesn't end with a known Java like extension. 
+	 * or -1 if it doesn't end with a known Java like extension.
 	 * Note this is the index of the '.' even if it is not considered part of the extension.
 	 */
 	public static int indexOfJavaLikeExtension(String fileName) {
@@ -1235,7 +1581,7 @@ public class Util {
 		}
 		return -1;
 	}
-	
+
 	/*
 	 * Returns the index of the first argument paths which is equal to the path to check
 	 */
@@ -1265,7 +1611,7 @@ public class Util {
 	protected static boolean isAttributeSupported(int attribute) {
 		return (EFS.getLocalFileSystem().attributes() & attribute) != 0;
 	}
-	
+
 	/**
 	 * Returns whether the given resource is read-only or not.
 	 * @param resource
@@ -1302,19 +1648,19 @@ public class Util {
 				return false;
 
 			case IJavaElement.PACKAGE_FRAGMENT:
-				PackageFragmentRoot root = (PackageFragmentRoot)element.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
-				IResource resource = element.getResource();
+				PackageFragmentRoot root = (PackageFragmentRoot) element.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
+				IResource resource = ((PackageFragment) element).resource();
 				return resource != null && isExcluded(resource, root.fullInclusionPatternChars(), root.fullExclusionPatternChars());
-				
+
 			case IJavaElement.COMPILATION_UNIT:
-				root = (PackageFragmentRoot)element.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
+				root = (PackageFragmentRoot) element.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
 				resource = element.getResource();
-				if (resource == null) 
+				if (resource == null)
 					return false;
 				if (isExcluded(resource, root.fullInclusionPatternChars(), root.fullExclusionPatternChars()))
 					return true;
 				return isExcluded(element.getParent());
-				
+
 			default:
 				IJavaElement cu = element.getAncestor(IJavaElement.COMPILATION_UNIT);
 				return cu != null && isExcluded(cu);
@@ -1330,7 +1676,7 @@ public class Util {
 	public final static boolean isExcluded(IPath resourcePath, char[][] inclusionPatterns, char[][] exclusionPatterns, boolean isFolderPath) {
 		if (inclusionPatterns == null && exclusionPatterns == null) return false;
 		return org.eclipse.jdt.internal.compiler.util.Util.isExcluded(resourcePath.toString().toCharArray(), inclusionPatterns, exclusionPatterns, isFolderPath);
-	}	
+	}
 
 	/*
 	 * Returns whether the given resource matches one of the exclusion patterns.
@@ -1358,7 +1704,7 @@ public class Util {
 	 * @param sourceLevel the source level
 	 * @param complianceLevel the compliance level
 	 * @return a status object with code <code>IStatus.OK</code> if
-	 *		the given name is valid as a .class file name, otherwise a status 
+	 *		the given name is valid as a .class file name, otherwise a status
 	 *		object indicating what is wrong with the name
 	 */
 	public static boolean isValidClassFileName(String name, String sourceLevel, String complianceLevel) {
@@ -1379,7 +1725,7 @@ public class Util {
 	 * @param sourceLevel the source level
 	 * @param complianceLevel the compliance level
 	 * @return a status object with code <code>IStatus.OK</code> if
-	 *		the given name is valid as a compilation unit name, otherwise a status 
+	 *		the given name is valid as a compilation unit name, otherwise a status
 	 *		object indicating what is wrong with the name
 	 */
 	public static boolean isValidCompilationUnitName(String name, String sourceLevel, String complianceLevel) {
@@ -1395,7 +1741,7 @@ public class Util {
 	 */
 	public static boolean isValidFolderNameForPackage(String folderName, String sourceLevel, String complianceLevel) {
 		return JavaConventions.validateIdentifier(folderName, sourceLevel, complianceLevel).getSeverity() != IStatus.ERROR;
-	}	
+	}
 
 	/**
 	 * Returns true if the given method signature is valid,
@@ -1418,7 +1764,7 @@ public class Util {
 		i = checkTypeSignature(sig, i, len, true);
 		return i == len;
 	}
-	
+
 	/**
 	 * Returns true if the given type signature is valid,
 	 * false if it is not.
@@ -1427,13 +1773,13 @@ public class Util {
 		int len = sig.length();
 		return checkTypeSignature(sig, 0, len, allowVoid) == len;
 	}
-	
+
 	/*
 	 * Returns the simple name of a local type from the given binary type name.
 	 * The last '$' is at lastDollar. The last character of the type name is at end-1.
 	 */
 	public static String localTypeName(String binaryTypeName, int lastDollar, int end) {
-		if (lastDollar > 0 && binaryTypeName.charAt(lastDollar-1) == '$') 
+		if (lastDollar > 0 && binaryTypeName.charAt(lastDollar-1) == '$')
 			// local name starts with a dollar sign
 			// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=103466)
 			return binaryTypeName;
@@ -1448,19 +1794,71 @@ public class Util {
 	 */
 	public static void log(Throwable e, String message) {
 		Throwable nestedException;
-		if (e instanceof JavaModelException 
+		if (e instanceof JavaModelException
 				&& (nestedException = ((JavaModelException)e).getException()) != null) {
 			e = nestedException;
 		}
-		IStatus status= new Status(
-			IStatus.ERROR, 
-			JavaCore.PLUGIN_ID, 
-			IStatus.ERROR, 
-			message, 
-			e); 
+		log(new Status(
+				IStatus.ERROR,
+				JavaCore.PLUGIN_ID,
+				IStatus.ERROR,
+				message,
+				e));
+	}
+
+	/**
+	 * Log a message that is potentially repeated in the same session.
+	 * The first time this method is called with a given exception, the
+	 * exception stack trace is written to the log.
+	 * <p>Only intended for use in debug statements.</p>
+	 *
+	 * @param key the given key
+	 * @param e the given exception
+	 * @throws IllegalArgumentException if the given key is null
+	 */
+	public static void logRepeatedMessage(String key, Exception e) {
+		if (key == null) {
+			throw new IllegalArgumentException("key cannot be null"); //$NON-NLS-1$
+		}
+		if (fgRepeatedMessages.contains(key)) {
+			return;
+		}
+		fgRepeatedMessages.add(key);
+		log(e);
+	}
+
+	public static void logRepeatedMessage(String key, int statusErrorID, String message) {
+		if (key == null) {
+			throw new IllegalArgumentException("key cannot be null"); //$NON-NLS-1$
+		}
+		if (fgRepeatedMessages.contains(key)) {
+			return;
+		}
+		fgRepeatedMessages.add(key);
+		log(statusErrorID, message);
+	}
+
+	/*
+	 * Add a log entry
+	 */
+	public static void log(int statusErrorID, String message) {
+		log(new Status(
+				statusErrorID,
+				JavaCore.PLUGIN_ID,
+				message));
+	}
+
+	/*
+	 * Add a log entry
+	 */
+	public static void log(IStatus status) {
 		JavaCore.getPlugin().getLog().log(status);
 	}
-	
+
+	public static void log(Throwable e) {
+		log(new Status(IStatus.ERROR, JavaCore.PLUGIN_ID, Messages.code_assist_internal_error, e));
+	}
+
 	public static ClassFileReader newClassFileReader(IResource resource) throws CoreException, ClassFormatException, IOException {
 		InputStream in = null;
 		try {
@@ -1533,8 +1931,8 @@ public class Util {
 	}
 
 	/**
-	 * Normalizes the cariage returns in the given text.
-	 * They are all changed  to use given buffer's line sepatator.
+	 * Normalizes the carriage returns in the given text.
+	 * They are all changed to use given buffer's line separator.
 	 */
 	public static String normalizeCRs(String text, String buffer) {
 		return new String(normalizeCRs(text.toCharArray(), buffer.toCharArray()));
@@ -1732,7 +2130,7 @@ public class Util {
 	public static String relativePath(IPath fullPath, int skipSegmentCount) {
 		boolean hasTrailingSeparator = fullPath.hasTrailingSeparator();
 		String[] segments = fullPath.segments();
-		
+
 		// compute length
 		int length = 0;
 		int max = segments.length;
@@ -1766,16 +2164,36 @@ public class Util {
 			result[offset++] = '/';
 		return new String(result);
 	}
-	
+
 	/*
 	 * Resets the list of Java-like extensions after a change in content-type.
 	 */
 	public static void resetJavaLikeExtensions() {
 		JAVA_LIKE_EXTENSIONS = null;
 	}
-	
+
 	/**
-	 * Return a new array which is the split of the given string using the given divider. The given end 
+	 * Scans the given string for a type signature starting at the given index
+	 * and returns the index of the last character.
+	 * <pre>
+	 * TypeSignature:
+	 *  |  BaseTypeSignature
+	 *  |  ArrayTypeSignature
+	 *  |  ClassTypeSignature
+	 *  |  TypeVariableSignature
+	 * </pre>
+	 *
+	 * @param string the signature string
+	 * @param start the 0-based character index of the first character
+	 * @return the 0-based character index of the last character
+	 * @exception IllegalArgumentException if this is not a type signature
+	 */
+	public static int scanTypeSignature(char[] string, int start) {
+		// this method is used in jdt.debug
+		return org.eclipse.jdt.internal.compiler.util.Util.scanTypeSignature(string, start);
+	}
+	/**
+	 * Return a new array which is the split of the given string using the given divider. The given end
 	 * is exclusive and the given start is inclusive.
 	 * <br>
 	 * <br>
@@ -1790,7 +2208,7 @@ public class Util {
 	 * </pre>
 	 * </li>
 	 * </ol>
-	 * 
+	 *
 	 * @param divider the given divider
 	 * @param string the given string
 	 * @param start the given starting index
@@ -1825,9 +2243,9 @@ public class Util {
 	/**
 	 * Sets or unsets the given resource as read-only in the file system.
 	 * It's a no-op if the file system does not support the read-only attribute.
-	 * 
+	 *
 	 * @param resource The resource to set as read-only
-	 * @param readOnly <code>true</code> to set it to read-only, 
+	 * @param readOnly <code>true</code> to set it to read-only,
 	 *		<code>false</code> to unset
 	 */
 	public static void setReadOnly(IResource resource, boolean readOnly) {
@@ -1889,8 +2307,8 @@ public class Util {
 	}
 
 	/**
-	 * Sorts an array of Java elements based on their toStringWithAncestors(), 
-	 * returning a new array with the sorted items. 
+	 * Sorts an array of Java elements based on their toStringWithAncestors(),
+	 * returning a new array with the sorted items.
 	 * The original array is left untouched.
 	 */
 	public static IJavaElement[] sortCopy(IJavaElement[] elements) {
@@ -1904,7 +2322,7 @@ public class Util {
 		});
 		return copy;
 	}
-	
+
 	/**
 	 * Sorts an array of Strings, returning a new array
 	 * with the sorted items.  The original array is left untouched.
@@ -1931,7 +2349,7 @@ public class Util {
 
 	/*
 	 * Returns whether the given compound name starts with the given prefix.
-	 * Returns true if the n first elements of the prefix are equals and the last element of the 
+	 * Returns true if the n first elements of the prefix are equals and the last element of the
 	 * prefix is a prefix of the corresponding element in the compound name.
 	 */
 	public static boolean startsWithIgnoreCase(String[] compoundName, String[] prefix, boolean partialMatch) {
@@ -1943,30 +2361,6 @@ public class Util {
 				return false;
 		}
 		return (partialMatch || prefixLength == nameLength) && compoundName[prefixLength-1].toLowerCase().startsWith(prefix[prefixLength-1].toLowerCase());
-	}
-
-	/*
-	 * Returns whether the given compound name matches the given pattern.
-	 */
-	public static boolean matchesWithIgnoreCase(String[] compoundName, String pattern) {
-		if (pattern.equals("*")) return true; //$NON-NLS-1$
-		int nameLength = compoundName.length;
-		if (pattern.length() == 0) return nameLength == 0;
-		if (nameLength == 0) return false;
-		int length = nameLength-1;
-		for (int i=0; i<nameLength; i++) {
-			length += compoundName[i].length();
-		}
-		char[] compoundChars = new char[length];
-		int pos = 0;
-		for (int i=0; i<nameLength; i++) {
-			if (pos > 0) compoundChars[pos++] = '.';
-			char[] array = compoundName[i].toCharArray();
-			int size = array.length;
-			System.arraycopy(array, 0, compoundChars, pos, size);
-			pos += size;
-		}
-		return CharOperation.match(pattern.toCharArray(), compoundChars, false);
 	}
 
 	/**
@@ -2005,6 +2399,7 @@ public class Util {
 		}
 		return segs;
 	}
+
 	/*
 	 * Converts the given URI to a local file. Use the existing file if the uri is on the local file system.
 	 * Otherwise fetch it.
@@ -2043,7 +2438,7 @@ public class Util {
 		sb.append(d);
 		return sb.toString();
 	}
-	
+
 	/*
 	 * Converts a char[][] to String[].
 	 */
@@ -2055,6 +2450,44 @@ public class Util {
 		}
 		return result;
 	}
+	private static char[] toUnresolvedTypeSignature(char[] signature) {
+		int length = signature.length;
+		if (length <= 1)
+			return signature;
+		StringBuffer buffer = new StringBuffer(length);
+		toUnresolvedTypeSignature(signature, 0, length, buffer);
+		int bufferLength = buffer.length();
+		char[] result = new char[bufferLength];
+		buffer.getChars(0, bufferLength, result, 0);
+		return result;
+	}
+
+	private static int toUnresolvedTypeSignature(char[] signature, int start, int length, StringBuffer buffer) {
+		if (signature[start] == Signature.C_RESOLVED)
+			buffer.append(Signature.C_UNRESOLVED);
+		else
+			buffer.append(signature[start]);
+		for (int i = start+1; i < length; i++) {
+			char c = signature[i];
+			switch (c) {
+			case '/':
+			case Signature.C_DOLLAR:
+				buffer.append(Signature.C_DOT);
+				break;
+			case Signature.C_GENERIC_START:
+				buffer.append(Signature.C_GENERIC_START);
+				i = toUnresolvedTypeSignature(signature, i+1, length, buffer);
+				break;
+			case Signature.C_GENERIC_END:
+				buffer.append(Signature.C_GENERIC_END);
+				return i;
+			default:
+				buffer.append(c);
+				break;
+			}
+		}
+		return length;
+	}
 	private static void appendArrayTypeSignature(char[] string, int start, StringBuffer buffer, boolean compact) {
 		int length = string.length;
 		// need a minimum 2 char
@@ -2065,7 +2498,7 @@ public class Util {
 		if (c != Signature.C_ARRAY) {
 			throw new IllegalArgumentException();
 		}
-		
+
 		int index = start;
 		c = string[++index];
 		while(c == Signature.C_ARRAY) {
@@ -2075,9 +2508,9 @@ public class Util {
 			}
 			c = string[++index];
 		}
-		
+
 		appendTypeSignature(string, index, buffer, compact);
-		
+
 		for(int i = 0, dims = index - start; i < dims; i++) {
 			buffer.append('[').append(']');
 		}
@@ -2129,7 +2562,7 @@ public class Util {
 				appendClassTypeSignature(string, start, buffer, compact);
 				break;
 			case Signature.C_TYPE_VARIABLE :
-				int e = Util.scanTypeVariableSignature(string, start);
+				int e = org.eclipse.jdt.internal.compiler.util.Util.scanTypeVariableSignature(string, start);
 				buffer.append(string, start + 1, e - start - 1);
 				break;
 			case Signature.C_BOOLEAN :
@@ -2167,12 +2600,12 @@ public class Util {
 		if (firstParen == -1) {
 			return ""; //$NON-NLS-1$
 		}
-		
+
 		StringBuffer buffer = new StringBuffer(methodSignature.length + 10);
-		
+
 		// decode declaring class name
 		// it can be either an array signature or a type signature
-		if (declaringClass.length > 0) {
+		if (declaringClass != null && declaringClass.length > 0) {
 			char[] declaringClassSignature = null;
 			if (declaringClass[0] == Signature.C_ARRAY) {
 				CharOperation.replace(declaringClass, '/', '.');
@@ -2187,16 +2620,16 @@ public class Util {
 			} else {
 				buffer.append(declaringClassSignature);
 			}
+			if (!isConstructor) {
+				buffer.append('.');
+			}
 		}
 
 		// selector
-		if (!isConstructor) {
-			buffer.append('.');
-			if (methodName != null) {
-				buffer.append(methodName);
-			}
+		if (!isConstructor && methodName != null) {
+			buffer.append(methodName);
 		}
-		
+
 		// parameters
 		buffer.append('(');
 		char[][] pts = Signature.getParameterTypes(methodSignature);
@@ -2208,7 +2641,7 @@ public class Util {
 			}
 		}
 		buffer.append(')');
-		
+
 		if (!isConstructor) {
 			buffer.append(" : "); //$NON-NLS-1$
 			// return type
@@ -2238,13 +2671,28 @@ public class Util {
 	}
 
 	/*
-	 * Returns the unresolved type signature of the given type reference, 
+	 * Returns the unresolved type signature of the given type reference,
 	 * e.g. "QString;", "[int", "[[Qjava.util.Vector;"
 	 */
 	public static String typeSignature(TypeReference type) {
-		char[][] compoundName = type.getParameterizedTypeName();
-		char[] typeName =CharOperation.concatWith(compoundName, '.');
-		String signature = Signature.createTypeSignature(typeName, false/*don't resolve*/);
+		String signature = null;
+		if ((type.bits & org.eclipse.jdt.internal.compiler.ast.ASTNode.IsUnionType) != 0) {
+			// special treatment for union type reference
+			UnionTypeReference unionTypeReference = (UnionTypeReference) type;
+			TypeReference[] typeReferences = unionTypeReference.typeReferences;
+			int length = typeReferences.length;
+			String[] typeSignatures = new String[length];
+			for(int i = 0; i < length; i++) {
+				char[][] compoundName = typeReferences[i].getParameterizedTypeName();
+				char[] typeName = CharOperation.concatWith(compoundName, '.');
+				typeSignatures[i] = Signature.createTypeSignature(typeName, false/*don't resolve*/);
+			}
+			signature = Signature.createIntersectionTypeSignature(typeSignatures);
+		} else {
+			char[][] compoundName = type.getParameterizedTypeName();
+			char[] typeName =CharOperation.concatWith(compoundName, '.');
+			signature = Signature.createTypeSignature(typeName, false/*don't resolve*/);
+		}
 		return signature;
 	}
 
@@ -2309,388 +2757,8 @@ public class Util {
 	}
 
 	/**
-	 * Scans the given string for a type signature starting at the given index
-	 * and returns the index of the last character.
-	 * <pre>
-	 * TypeSignature:
-	 *  |  BaseTypeSignature
-	 *  |  ArrayTypeSignature
-	 *  |  ClassTypeSignature
-	 *  |  TypeVariableSignature
-	 * </pre>
-	 * 
-	 * @param string the signature string
-	 * @param start the 0-based character index of the first character
-	 * @return the 0-based character index of the last character
-	 * @exception IllegalArgumentException if this is not a type signature
-	 */
-	public static int scanTypeSignature(char[] string, int start) {
-		// need a minimum 1 char
-		if (start >= string.length) {
-			throw new IllegalArgumentException();
-		}
-		char c = string[start];
-		switch (c) {
-			case Signature.C_ARRAY :
-				return scanArrayTypeSignature(string, start);
-			case Signature.C_RESOLVED :
-			case Signature.C_UNRESOLVED :
-				return scanClassTypeSignature(string, start);
-			case Signature.C_TYPE_VARIABLE :
-				return scanTypeVariableSignature(string, start);
-			case Signature.C_BOOLEAN :
-			case Signature.C_BYTE :
-			case Signature.C_CHAR :
-			case Signature.C_DOUBLE :
-			case Signature.C_FLOAT :
-			case Signature.C_INT :
-			case Signature.C_LONG :
-			case Signature.C_SHORT :
-			case Signature.C_VOID :
-				return scanBaseTypeSignature(string, start);
-			case Signature.C_CAPTURE :
-				return scanCaptureTypeSignature(string, start);
-			case Signature.C_EXTENDS:
-			case Signature.C_SUPER:
-			case Signature.C_STAR:
-				return scanTypeBoundSignature(string, start);
-			default :
-				throw new IllegalArgumentException();
-		}
-	}
-
-	/**
-	 * Scans the given string for a base type signature starting at the given index
-	 * and returns the index of the last character.
-	 * <pre>
-	 * BaseTypeSignature:
-	 *     <b>B</b> | <b>C</b> | <b>D</b> | <b>F</b> | <b>I</b>
-	 *   | <b>J</b> | <b>S</b> | <b>V</b> | <b>Z</b>
-	 * </pre>
-	 * Note that although the base type "V" is only allowed in method return types,
-	 * there is no syntactic ambiguity. This method will accept them anywhere
-	 * without complaint.
-	 * 
-	 * @param string the signature string
-	 * @param start the 0-based character index of the first character
-	 * @return the 0-based character index of the last character
-	 * @exception IllegalArgumentException if this is not a base type signature
-	 */
-	public static int scanBaseTypeSignature(char[] string, int start) {
-		// need a minimum 1 char
-		if (start >= string.length) {
-			throw new IllegalArgumentException();
-		}
-		char c = string[start];
-		if ("BCDFIJSVZ".indexOf(c) >= 0) { //$NON-NLS-1$
-			return start;
-		} else {
-			throw new IllegalArgumentException();
-		}
-	}
-
-	/**
-	 * Scans the given string for an array type signature starting at the given
-	 * index and returns the index of the last character.
-	 * <pre>
-	 * ArrayTypeSignature:
-	 *     <b>[</b> TypeSignature
-	 * </pre>
-	 * 
-	 * @param string the signature string
-	 * @param start the 0-based character index of the first character
-	 * @return the 0-based character index of the last character
-	 * @exception IllegalArgumentException if this is not an array type signature
-	 */
-	public static int scanArrayTypeSignature(char[] string, int start) {
-		int length = string.length;
-		// need a minimum 2 char
-		if (start >= length - 1) {
-			throw new IllegalArgumentException();
-		}
-		char c = string[start];
-		if (c != Signature.C_ARRAY) {
-			throw new IllegalArgumentException();
-		}
-		
-		c = string[++start];
-		while(c == Signature.C_ARRAY) {
-			// need a minimum 2 char
-			if (start >= length - 1) {
-				throw new IllegalArgumentException();
-			}
-			c = string[++start];
-		}
-		return scanTypeSignature(string, start);
-	}
-	
-	/**
-	 * Scans the given string for a capture of a wildcard type signature starting at the given
-	 * index and returns the index of the last character.
-	 * <pre>
-	 * CaptureTypeSignature:
-	 *     <b>!</b> TypeBoundSignature
-	 * </pre>
-	 * 
-	 * @param string the signature string
-	 * @param start the 0-based character index of the first character
-	 * @return the 0-based character index of the last character
-	 * @exception IllegalArgumentException if this is not a capture type signature
-	 */
-	public static int scanCaptureTypeSignature(char[] string, int start) {
-		// need a minimum 2 char
-		if (start >= string.length - 1) {
-			throw new IllegalArgumentException();
-		}
-		char c = string[start];
-		if (c != Signature.C_CAPTURE) {
-			throw new IllegalArgumentException();
-		}
-		return scanTypeBoundSignature(string, start + 1);
-	}	
-
-	/**
-	 * Scans the given string for a type variable signature starting at the given
-	 * index and returns the index of the last character.
-	 * <pre>
-	 * TypeVariableSignature:
-	 *     <b>T</b> Identifier <b>;</b>
-	 * </pre>
-	 * 
-	 * @param string the signature string
-	 * @param start the 0-based character index of the first character
-	 * @return the 0-based character index of the last character
-	 * @exception IllegalArgumentException if this is not a type variable signature
-	 */
-	public static int scanTypeVariableSignature(char[] string, int start) {
-		// need a minimum 3 chars "Tx;"
-		if (start >= string.length - 2) { 
-			throw new IllegalArgumentException();
-		}
-		// must start in "T"
-		char c = string[start];
-		if (c != Signature.C_TYPE_VARIABLE) {
-			throw new IllegalArgumentException();
-		}
-		int id = scanIdentifier(string, start + 1);
-		c = string[id + 1];
-		if (c == Signature.C_SEMICOLON) {
-			return id + 1;
-		} else {
-			throw new IllegalArgumentException();
-		}
-	}
-
-	/**
-	 * Scans the given string for an identifier starting at the given
-	 * index and returns the index of the last character. 
-	 * Stop characters are: ";", ":", "&lt;", "&gt;", "/", ".".
-	 * 
-	 * @param string the signature string
-	 * @param start the 0-based character index of the first character
-	 * @return the 0-based character index of the last character
-	 * @exception IllegalArgumentException if this is not an identifier
-	 */
-	public static int scanIdentifier(char[] string, int start) {
-		// need a minimum 1 char
-		if (start >= string.length) { 
-			throw new IllegalArgumentException();
-		}
-		int p = start;
-		while (true) {
-			char c = string[p];
-			if (c == '<' || c == '>' || c == ':' || c == ';' || c == '.' || c == '/') {
-				return p - 1;
-			}
-			p++;
-			if (p == string.length) {
-				return p - 1;
-			}
-		}
-	}
-
-	/**
-	 * Scans the given string for a class type signature starting at the given
-	 * index and returns the index of the last character.
-	 * <pre>
-	 * ClassTypeSignature:
-	 *     { <b>L</b> | <b>Q</b> } Identifier
-	 *           { { <b>/</b> | <b>.</b> Identifier [ <b>&lt;</b> TypeArgumentSignature* <b>&gt;</b> ] }
-	 *           <b>;</b>
-	 * </pre>
-	 * Note that although all "/"-identifiers most come before "."-identifiers,
-	 * there is no syntactic ambiguity. This method will accept them without
-	 * complaint.
-	 * 
-	 * @param string the signature string
-	 * @param start the 0-based character index of the first character
-	 * @return the 0-based character index of the last character
-	 * @exception IllegalArgumentException if this is not a class type signature
-	 */
-	public static int scanClassTypeSignature(char[] string, int start) {
-		// need a minimum 3 chars "Lx;"
-		if (start >= string.length - 2) { 
-			throw new IllegalArgumentException();
-		}
-		// must start in "L" or "Q"
-		char c = string[start];
-		if (c != Signature.C_RESOLVED && c != Signature.C_UNRESOLVED) {
-			return -1;
-		}
-		int p = start + 1;
-		while (true) {
-			if (p >= string.length) {
-				throw new IllegalArgumentException();
-			}
-			c = string[p];
-			if (c == Signature.C_SEMICOLON) {
-				// all done
-				return p;
-			} else if (c == Signature.C_GENERIC_START) {
-				int e = scanTypeArgumentSignatures(string, p);
-				p = e;
-			} else if (c == Signature.C_DOT || c == '/') {
-				int id = scanIdentifier(string, p + 1);
-				p = id;
-			}
-			p++;
-		}
-	}
-
-	/**
-	 * Scans the given string for a type bound signature starting at the given
-	 * index and returns the index of the last character.
-	 * <pre>
-	 * TypeBoundSignature:
-	 *     <b>[-+]</b> TypeSignature <b>;</b>
-	 *     <b>*</b></b>
-	 * </pre>
-	 * 
-	 * @param string the signature string
-	 * @param start the 0-based character index of the first character
-	 * @return the 0-based character index of the last character
-	 * @exception IllegalArgumentException if this is not a type variable signature
-	 */
-	public static int scanTypeBoundSignature(char[] string, int start) {
-		// need a minimum 1 char for wildcard
-		if (start >= string.length) {
-			throw new IllegalArgumentException();
-		}
-		char c = string[start];
-		switch (c) {
-			case Signature.C_STAR :
-				return start;
-			case Signature.C_SUPER :
-			case Signature.C_EXTENDS :
-				// need a minimum 3 chars "+[I"
-				if (start >= string.length - 2) {
-					throw new IllegalArgumentException();
-				}
-				break;
-			default :
-				// must start in "+/-"
-					throw new IllegalArgumentException();
-				
-		}
-		c = string[++start];
-		switch (c) {
-			case Signature.C_CAPTURE :
-				return scanCaptureTypeSignature(string, start);
-			case Signature.C_SUPER :
-			case Signature.C_EXTENDS :
-				return scanTypeBoundSignature(string, start);
-			case Signature.C_RESOLVED :
-			case Signature.C_UNRESOLVED :
-				return scanClassTypeSignature(string, start);
-			case Signature.C_TYPE_VARIABLE :
-				return scanTypeVariableSignature(string, start);
-			case Signature.C_ARRAY :
-				return scanArrayTypeSignature(string, start);
-			case Signature.C_STAR:
-				return start;
-			default:
-				throw new IllegalArgumentException();
-		}
-	}
-	
-	/**
-	 * Scans the given string for a list of type argument signatures starting at
-	 * the given index and returns the index of the last character.
-	 * <pre>
-	 * TypeArgumentSignatures:
-	 *     <b>&lt;</b> TypeArgumentSignature* <b>&gt;</b>
-	 * </pre>
-	 * Note that although there is supposed to be at least one type argument, there
-	 * is no syntactic ambiguity if there are none. This method will accept zero
-	 * type argument signatures without complaint.
-	 * 
-	 * @param string the signature string
-	 * @param start the 0-based character index of the first character
-	 * @return the 0-based character index of the last character
-	 * @exception IllegalArgumentException if this is not a list of type arguments
-	 * signatures
-	 */
-	public static int scanTypeArgumentSignatures(char[] string, int start) {
-		// need a minimum 2 char "<>"
-		if (start >= string.length - 1) {
-			throw new IllegalArgumentException();
-		}
-		char c = string[start];
-		if (c != Signature.C_GENERIC_START) {
-			throw new IllegalArgumentException();
-		}
-		int p = start + 1;
-		while (true) {
-			if (p >= string.length) {
-				throw new IllegalArgumentException();
-			}
-			c = string[p];
-			if (c == Signature.C_GENERIC_END) {
-				return p;
-			}
-			int e = scanTypeArgumentSignature(string, p);
-			p = e + 1;
-		}
-	}
-
-	/**
-	 * Scans the given string for a type argument signature starting at the given
-	 * index and returns the index of the last character.
-	 * <pre>
-	 * TypeArgumentSignature:
-	 *     <b>&#42;</b>
-	 *  |  <b>+</b> TypeSignature
-	 *  |  <b>-</b> TypeSignature
-	 *  |  TypeSignature
-	 * </pre>
-	 * Note that although base types are not allowed in type arguments, there is
-	 * no syntactic ambiguity. This method will accept them without complaint.
-	 * 
-	 * @param string the signature string
-	 * @param start the 0-based character index of the first character
-	 * @return the 0-based character index of the last character
-	 * @exception IllegalArgumentException if this is not a type argument signature
-	 */
-	public static int scanTypeArgumentSignature(char[] string, int start) {
-		// need a minimum 1 char
-		if (start >= string.length) {
-			throw new IllegalArgumentException();
-		}
-		char c = string[start];
-		switch (c) {
-			case Signature.C_STAR :
-				return start;
-			case Signature.C_EXTENDS :
-			case Signature.C_SUPER :
-				return scanTypeBoundSignature(string, start);
-			default :
-				return scanTypeSignature(string, start);
-		}
-	}	
-
-	/**
 	 * Get all type arguments from an array of signatures.
-	 * 
+	 *
 	 * Example:
 	 * 	For following type X<Y<Z>,V<W>,U>.A<B> signatures is:
 	 * 	[
@@ -2709,7 +2777,7 @@ public class Util {
 	 * 			['L','B',';']
 	 * 		]
 	 * 	]
-	 * 
+	 *
 	 * @param typeSignatures Array of signatures (one per each type levels)
 	 * @throws IllegalArgumentException If one of provided signature is malformed
 	 * @return char[][][] Array of type arguments for each signature
@@ -2723,18 +2791,139 @@ public class Util {
 		}
 		return typeArguments;
 	}
+	public static IAnnotation getAnnotation(JavaElement parent, IBinaryAnnotation binaryAnnotation, String memberValuePairName) {
+		char[] typeName = org.eclipse.jdt.core.Signature.toCharArray(CharOperation.replaceOnCopy(binaryAnnotation.getTypeName(), '/', '.'));
+		return new Annotation(parent, new String(typeName), memberValuePairName);
+	}
+	
+	public static Object getAnnotationMemberValue(JavaElement parent, MemberValuePair memberValuePair, Object binaryValue) {
+		if (binaryValue instanceof Constant) {
+			return getAnnotationMemberValue(memberValuePair, (Constant) binaryValue);
+		} else if (binaryValue instanceof IBinaryAnnotation) {
+			memberValuePair.valueKind = IMemberValuePair.K_ANNOTATION;
+			return getAnnotation(parent, (IBinaryAnnotation) binaryValue, memberValuePair.getMemberName());
+		} else if (binaryValue instanceof ClassSignature) {
+			memberValuePair.valueKind = IMemberValuePair.K_CLASS;
+			char[] className = Signature.toCharArray(CharOperation.replaceOnCopy(((ClassSignature) binaryValue).getTypeName(), '/', '.'));
+			return new String(className);
+		} else if (binaryValue instanceof EnumConstantSignature) {
+			memberValuePair.valueKind = IMemberValuePair.K_QUALIFIED_NAME;
+			EnumConstantSignature enumConstant = (EnumConstantSignature) binaryValue;
+			char[] enumName = Signature.toCharArray(CharOperation.replaceOnCopy(enumConstant.getTypeName(), '/', '.'));
+			char[] qualifiedName = CharOperation.concat(enumName, enumConstant.getEnumConstantName(), '.');
+			return new String(qualifiedName);
+		} else if (binaryValue instanceof Object[]) {
+			memberValuePair.valueKind = -1; // modified below by the first call to getMemberValue(...)
+			Object[] binaryValues = (Object[]) binaryValue;
+			int length = binaryValues.length;
+			Object[] values = new Object[length];
+			for (int i = 0; i < length; i++) {
+				int previousValueKind = memberValuePair.valueKind;
+				Object value = getAnnotationMemberValue(parent, memberValuePair, binaryValues[i]);
+				if (previousValueKind != -1 && memberValuePair.valueKind != previousValueKind) {
+					// values are heterogeneous, value kind is thus unknown
+					memberValuePair.valueKind = IMemberValuePair.K_UNKNOWN;
+				}
+				if (value instanceof Annotation) {
+					Annotation annotation = (Annotation) value;
+					for (int j = 0; j < i; j++) {
+						if (annotation.equals(values[j])) {
+							annotation.occurrenceCount++;
+						}
+					}
+				}
+				values[i] = value;
+			}
+			if (memberValuePair.valueKind == -1)
+				memberValuePair.valueKind = IMemberValuePair.K_UNKNOWN;
+			return values;
+		} else {
+			memberValuePair.valueKind = IMemberValuePair.K_UNKNOWN;
+			return null;
+		}
+	}
+
+	/*
+	 * Creates a member value from the given constant, and sets the valueKind on the given memberValuePair
+	 */
+	public static Object getAnnotationMemberValue(MemberValuePair memberValuePair, Constant constant) {
+		if (constant == null) {
+			memberValuePair.valueKind = IMemberValuePair.K_UNKNOWN;
+			return null;
+		}
+		switch (constant.typeID()) {
+			case TypeIds.T_int :
+				memberValuePair.valueKind = IMemberValuePair.K_INT;
+				return new Integer(constant.intValue());
+			case TypeIds.T_byte :
+				memberValuePair.valueKind = IMemberValuePair.K_BYTE;
+				return new Byte(constant.byteValue());
+			case TypeIds.T_short :
+				memberValuePair.valueKind = IMemberValuePair.K_SHORT;
+				return new Short(constant.shortValue());
+			case TypeIds.T_char :
+				memberValuePair.valueKind = IMemberValuePair.K_CHAR;
+				return new Character(constant.charValue());
+			case TypeIds.T_float :
+				memberValuePair.valueKind = IMemberValuePair.K_FLOAT;
+				return new Float(constant.floatValue());
+			case TypeIds.T_double :
+				memberValuePair.valueKind = IMemberValuePair.K_DOUBLE;
+				return new Double(constant.doubleValue());
+			case TypeIds.T_boolean :
+				memberValuePair.valueKind = IMemberValuePair.K_BOOLEAN;
+				return Boolean.valueOf(constant.booleanValue());
+			case TypeIds.T_long :
+				memberValuePair.valueKind = IMemberValuePair.K_LONG;
+				return new Long(constant.longValue());
+			case TypeIds.T_JavaLangString :
+				memberValuePair.valueKind = IMemberValuePair.K_STRING;
+				return constant.stringValue();
+			default:
+				memberValuePair.valueKind = IMemberValuePair.K_UNKNOWN;
+				return null;
+		}
+	}
+	
+	/*
+	 * Creates a member value from the given constant in case of negative numerals,
+	 * and sets the valueKind on the given memberValuePair
+	 */
+	public static Object getNegativeAnnotationMemberValue(MemberValuePair memberValuePair, Constant constant) {
+		if (constant == null) {
+			memberValuePair.valueKind = IMemberValuePair.K_UNKNOWN;
+			return null;
+		}
+		switch (constant.typeID()) {
+			case TypeIds.T_int :
+				memberValuePair.valueKind = IMemberValuePair.K_INT;
+				return new Integer(constant.intValue() * -1);
+			case TypeIds.T_float :
+				memberValuePair.valueKind = IMemberValuePair.K_FLOAT;
+				return new Float(constant.floatValue() * -1.0f);
+			case TypeIds.T_double :
+				memberValuePair.valueKind = IMemberValuePair.K_DOUBLE;
+				return new Double(constant.doubleValue() * -1.0);
+			case TypeIds.T_long :
+				memberValuePair.valueKind = IMemberValuePair.K_LONG;
+				return new Long(constant.longValue() * -1L);
+			default:
+				memberValuePair.valueKind = IMemberValuePair.K_UNKNOWN;
+				return null;
+		}
+	}
 	/**
 	 * Split signatures of all levels  from a type unique key.
-	 * 
+	 *
 	 * Example:
 	 * 	For following type X<Y<Z>,V<W>,U>.A<B>, unique key is:
 	 * 	"LX<LY<LZ;>;LV<LW;>;LU;>.LA<LB;>;"
-	 * 
+	 *
 	 * 	The return splitted signatures array is:
 	 * 	[
 	 * 		['L','X','<','L','Y','<','L','Z',';'>',';','L','V','<','L','W',';'>',';','L','U','>',';'],
 	 * 		['L','A','<','L','B',';','>',';']
-	 * 
+	 *
 	 * @param typeSignature ParameterizedSourceType type signature
 	 * @return char[][] Array of signatures for each level of given unique key
 	 */
@@ -2747,9 +2936,8 @@ public class Util {
 		char[][] signatures = new char[10][];
 		int signaturesCount = 0;
 //		int[] lengthes = new int [10];
-		int typeArgsCount = 0;
 		int paramOpening = 0;
-		
+
 		// Scan each signature character
 		for (int idx=0, ln = source.length; idx < ln; idx++) {
 			switch (source[idx]) {
@@ -2759,18 +2947,10 @@ public class Util {
 						if (signaturesCount == signatures.length) {
 							System.arraycopy(signatures, 0, signatures = new char[signaturesCount+10][], 0, signaturesCount);
 						}
-						typeArgsCount = 0;
 					}
 					break;
 				case '<':
 					paramOpening++;
-					if (paramOpening == 1) {
-						typeArgsCount = 1;
-					}
-					break;
-				case '*':
-				case ';':
-					if (paramOpening == 1) typeArgsCount++;
 					break;
 				case '.':
 					if (paramOpening == 0)  {
@@ -2797,34 +2977,34 @@ public class Util {
 		}
 		return typeSignatures;
 	}
-	
+
 	/*
-	 * Can throw IllegalArgumentException or ArrayIndexOutOfBoundsException 
+	 * Can throw IllegalArgumentException or ArrayIndexOutOfBoundsException
 	 */
-	public static String toAnchor(char[] methodSignature, String methodName, boolean isVarArgs) {
+	public static String toAnchor(int startingIndex, char[] methodSignature, String methodName, boolean isVarArgs) {
 		try {
-			return new String(toAnchor(methodSignature, methodName.toCharArray(), isVarArgs));
+			return new String(toAnchor(startingIndex, methodSignature, methodName.toCharArray(), isVarArgs));
 		} catch(IllegalArgumentException e) {
 			return null;
 		}
 	}
-	private static char[] toAnchor(char[] methodSignature, char[] methodName, boolean isVargArgs) {
+	public static char[] toAnchor(int startingIndex, char[] methodSignature, char[] methodName, boolean isVargArgs) {
 		int firstParen = CharOperation.indexOf(Signature.C_PARAM_START, methodSignature);
 		if (firstParen == -1) {
 			throw new IllegalArgumentException();
 		}
-		
+
 		StringBuffer buffer = new StringBuffer(methodSignature.length + 10);
 
 		// selector
 		if (methodName != null) {
 			buffer.append(methodName);
 		}
-		
+
 		// parameters
 		buffer.append('(');
 		char[][] pts = Signature.getParameterTypes(methodSignature);
-		for (int i = 0, max = pts.length; i < max; i++) {
+		for (int i = startingIndex, max = pts.length; i < max; i++) {
 			if (i == max - 1) {
 				appendTypeSignatureForAnchor(pts[i], 0 , buffer, isVargArgs);
 			} else {
@@ -2876,7 +3056,7 @@ public class Util {
 				case Signature.C_RESOLVED :
 					return appendClassTypeSignatureForAnchor(string, start, buffer);
 				case Signature.C_TYPE_VARIABLE :
-					int e = Util.scanTypeVariableSignature(string, start);
+					int e = org.eclipse.jdt.internal.compiler.util.Util.scanTypeVariableSignature(string, start);
 					buffer.append(string, start + 1, e - start - 1);
 					return e;
 				case Signature.C_BOOLEAN :
@@ -2955,7 +3135,7 @@ public class Util {
 		if (c != Signature.C_ARRAY) {
 			throw new IllegalArgumentException();
 		}
-		
+
 		int index = start;
 		c = string[++index];
 		while(c == Signature.C_ARRAY) {
@@ -2965,13 +3145,13 @@ public class Util {
 			}
 			c = string[++index];
 		}
-		
+
 		int e = appendTypeSignatureForAnchor(string, index, buffer, false);
-		
+
 		for(int i = 1, dims = index - start; i < dims; i++) {
 			buffer.append('[').append(']');
 		}
-		
+
 		if (isVarArgs) {
 			buffer.append('.').append('.').append('.');
 		} else {
@@ -2981,7 +3161,7 @@ public class Util {
 	}
 	private static int appendClassTypeSignatureForAnchor(char[] string, int start, StringBuffer buffer) {
 		// need a minimum 3 chars "Lx;"
-		if (start >= string.length - 2) { 
+		if (start >= string.length - 2) {
 			throw new IllegalArgumentException();
 		}
 		// must start in "L" or "Q"
@@ -3048,5 +3228,82 @@ public class Util {
 			start++;
 		}
 		return start;
+	}
+
+	/*
+	 * This method adjusts the task tags and task priorities so that they have the same size
+	 */
+	public static void fixTaskTags(Map defaultOptionsMap) {
+		Object taskTagsValue = defaultOptionsMap.get(JavaCore.COMPILER_TASK_TAGS);
+		char[][] taskTags = null;
+		if (taskTagsValue instanceof String) {
+			taskTags = CharOperation.splitAndTrimOn(',', ((String) taskTagsValue).toCharArray());
+		}
+		Object taskPrioritiesValue = defaultOptionsMap.get(JavaCore.COMPILER_TASK_PRIORITIES);
+		char[][] taskPriorities = null;
+		if (taskPrioritiesValue instanceof String) {
+			taskPriorities = CharOperation.splitAndTrimOn(',', ((String) taskPrioritiesValue).toCharArray());
+		}
+		if (taskPriorities == null) {
+			if (taskTags != null) {
+				Util.logRepeatedMessage(TASK_PRIORITIES_PROBLEM, IStatus.ERROR, "Inconsistent values for taskTags (not null) and task priorities (null)"); //$NON-NLS-1$
+				defaultOptionsMap.remove(JavaCore.COMPILER_TASK_TAGS);
+			}
+			return;
+		} else if (taskTags == null) {
+			Util.logRepeatedMessage(TASK_PRIORITIES_PROBLEM, IStatus.ERROR, "Inconsistent values for taskTags (null) and task priorities (not null)"); //$NON-NLS-1$
+			defaultOptionsMap.remove(JavaCore.COMPILER_TASK_PRIORITIES);
+			return;
+		}
+		int taskTagsLength = taskTags.length;
+		int taskPrioritiesLength = taskPriorities.length;
+		if (taskTagsLength != taskPrioritiesLength) {
+			Util.logRepeatedMessage(TASK_PRIORITIES_PROBLEM, IStatus.ERROR, "Inconsistent values for taskTags and task priorities : length is different"); //$NON-NLS-1$
+			if (taskTagsLength > taskPrioritiesLength) {
+				System.arraycopy(taskTags, 0, (taskTags = new char[taskPrioritiesLength][]), 0, taskPrioritiesLength);
+				defaultOptionsMap.put(JavaCore.COMPILER_TASK_TAGS, new String(CharOperation.concatWith(taskTags,',')));
+			} else {
+				System.arraycopy(taskPriorities, 0, (taskPriorities = new char[taskTagsLength][]), 0, taskTagsLength);
+				defaultOptionsMap.put(JavaCore.COMPILER_TASK_PRIORITIES, new String(CharOperation.concatWith(taskPriorities,',')));
+			}
+		}
+	}
+	/**
+	 * Finds the IMethod element corresponding to the given selector, 
+	 * without creating a new dummy instance of a binary method. 
+	 * @param type the type in which the method is declared
+	 * @param selector the method name
+	 * @param paramTypeSignatures the type signatures of the method arguments
+	 * @param isConstructor whether we're looking for a constructor
+	 * @return an IMethod if found, otherwise null
+	 * @throws JavaModelException
+	 */
+	public static IMethod findMethod(IType type, char[] selector, String[] paramTypeSignatures, boolean isConstructor) throws JavaModelException {
+		IMethod method = null;
+		int startingIndex = 0;
+		String[] args;
+		IType enclosingType = type.getDeclaringType();
+		// If the method is a constructor of a non-static inner type, add the enclosing type as an 
+		// additional parameter to the constructor
+		if (enclosingType != null
+				&& isConstructor
+				&& !Flags.isStatic(type.getFlags())) {
+			args = new String[paramTypeSignatures.length+1];
+			startingIndex = 1;
+			args[0] = Signature.createTypeSignature(enclosingType.getFullyQualifiedName(), true);
+		} else {
+			args = new String[paramTypeSignatures.length];
+		}
+		int length = args.length;
+		for(int i = startingIndex;	i< length ; i++){
+			args[i] = new String(paramTypeSignatures[i-startingIndex]);
+		}
+		method = type.getMethod(new String(selector), args);
+		
+		IMethod[] methods = type.findMethods(method);
+		if (methods != null && methods.length > 0) {
+			method = methods[0];
+		}
+		return method;
 	}
 }

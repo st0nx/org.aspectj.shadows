@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -41,7 +41,7 @@ public class JavadocMessageSend extends MessageSend {
 		// Base type promotion
 		this.constant = Constant.NotAConstant;
 		if (this.receiver == null) {
-			this.actualReceiverType = scope.enclosingSourceType();
+			this.actualReceiverType = scope.enclosingReceiverType();
 		} else if (scope.kind == Scope.CLASS_SCOPE) {
 			this.actualReceiverType = this.receiver.resolveType((ClassScope) scope);
 		} else {
@@ -49,11 +49,11 @@ public class JavadocMessageSend extends MessageSend {
 		}
 
 		// will check for null after args are resolved
-		
+
 		TypeBinding[] argumentTypes = Binding.NO_PARAMETERS;
 		boolean hasArgsTypeVar = false;
 		if (this.arguments != null) {
-			boolean argHasError = false; // typeChecks all arguments 
+			boolean argHasError = false; // typeChecks all arguments
 			int length = this.arguments.length;
 			argumentTypes = new TypeBinding[length];
 			for (int i = 0; i < length; i++){
@@ -78,8 +78,8 @@ public class JavadocMessageSend extends MessageSend {
 		if (this.actualReceiverType == null) {
 			return null;
 		}
-		this.actualReceiverType = scope.environment().convertToRawType(this.receiver.resolvedType);
-		SourceTypeBinding enclosingType = scope.enclosingSourceType();
+		this.actualReceiverType = scope.environment().convertToRawType(this.receiver.resolvedType, true /*force the conversion of enclosing types*/);
+		ReferenceBinding enclosingType = scope.enclosingReceiverType();
 		if (enclosingType==null ? false : enclosingType.isCompatibleWith(this.actualReceiverType)) {
 			this.bits |= ASTNode.SuperAccess;
 		}
@@ -120,8 +120,8 @@ public class JavadocMessageSend extends MessageSend {
 			switch (this.binding.problemId()) {
 				case ProblemReasons.NonStaticReferenceInConstructorInvocation:
 				case ProblemReasons.NonStaticReferenceInStaticContext:
-				case ProblemReasons.InheritedNameHidesEnclosingName : 
-				case ProblemReasons.Ambiguous: 
+				case ProblemReasons.InheritedNameHidesEnclosingName :
+				case ProblemReasons.Ambiguous:
 					MethodBinding closestMatch = ((ProblemMethodBinding)this.binding).closestMatch;
 					if (closestMatch != null) {
 						this.binding = closestMatch; // ignore problem if can reach target method through it
@@ -129,10 +129,14 @@ public class JavadocMessageSend extends MessageSend {
 			}
 		}
 		if (!this.binding.isValidBinding()) {
+			if (this.receiver.resolvedType instanceof ProblemReferenceBinding) {
+				// problem already got signaled on receiver, do not report secondary problem
+				return null;
+			}
 			if (this.binding.declaringClass == null) {
 				if (this.actualReceiverType instanceof ReferenceBinding) {
 					this.binding.declaringClass = (ReferenceBinding) this.actualReceiverType;
-				} else { 
+				} else {
 					scope.problemReporter().javadocErrorNoMethodFor(this, this.actualReceiverType, argumentTypes, scope.getDeclarationModifiers());
 					return null;
 				}
@@ -147,9 +151,9 @@ public class JavadocMessageSend extends MessageSend {
 		} else if (hasArgsTypeVar) {
 			MethodBinding problem = new ProblemMethodBinding(this.binding, this.selector, argumentTypes, ProblemReasons.NotFound);
 			scope.problemReporter().javadocInvalidMethod(this, problem, scope.getDeclarationModifiers());
-		} else if (binding.isVarargs()) {
+		} else if (this.binding.isVarargs()) {
 			int length = argumentTypes.length;
-			if (!(binding.parameters.length == length && argumentTypes[length-1].isArrayType())) {
+			if (!(this.binding.parameters.length == length && argumentTypes[length-1].isArrayType())) {
 				MethodBinding problem = new ProblemMethodBinding(this.binding, this.selector, argumentTypes, ProblemReasons.NotFound);
 				scope.problemReporter().javadocInvalidMethod(this, problem, scope.getDeclarationModifiers());
 			}
@@ -169,7 +173,7 @@ public class JavadocMessageSend extends MessageSend {
 
 		return this.resolvedType = this.binding.returnType;
 	}
-	
+
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.compiler.lookup.InvocationSite#isSuperAccess()
 	 */
@@ -178,13 +182,13 @@ public class JavadocMessageSend extends MessageSend {
 	}
 
 	public StringBuffer printExpression(int indent, StringBuffer output){
-	
+
 		if (this.receiver != null) {
 			this.receiver.printExpression(0, output);
 		}
 		output.append('#').append(this.selector).append('(');
 		if (this.arguments != null) {
-			for (int i = 0; i < this.arguments.length ; i ++) {	
+			for (int i = 0; i < this.arguments.length ; i ++) {
 				if (i > 0) output.append(", "); //$NON-NLS-1$
 				this.arguments[i].printExpression(0, output);
 			}

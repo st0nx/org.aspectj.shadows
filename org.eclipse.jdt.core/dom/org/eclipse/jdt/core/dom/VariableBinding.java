@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,15 +12,22 @@
 package org.eclipse.jdt.core.dom;
 
 import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IType;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.util.IModifierConstants;
+import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.Initializer;
+import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
+import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
+import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
+import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TagBits;
 import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
 import org.eclipse.jdt.internal.core.JavaElement;
 import org.eclipse.jdt.internal.core.LocalVariable;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * Internal implementation of variable bindings.
@@ -36,6 +43,7 @@ class VariableBinding implements IVariableBinding {
 	private String name;
 	private BindingResolver resolver;
 	private ITypeBinding type;
+	private IAnnotationBinding[] annotations;
 
 	VariableBinding(BindingResolver resolver, org.eclipse.jdt.internal.compiler.lookup.VariableBinding binding) {
 		this.resolver = resolver;
@@ -43,19 +51,31 @@ class VariableBinding implements IVariableBinding {
 	}
 
 	public IAnnotationBinding[] getAnnotations() {
-		org.eclipse.jdt.internal.compiler.lookup.AnnotationBinding[] internalAnnotations = this.binding.getAnnotations();
-		// the variable is not an enum constant nor a field nor an argument.
-		int length = internalAnnotations == null ? 0 : internalAnnotations.length;
-		IAnnotationBinding[] domInstances =
-			length == 0 ? AnnotationBinding.NoAnnotations : new AnnotationBinding[length];
-		for (int i = 0; i < length; i++) {
-			final IAnnotationBinding annotationInstance = this.resolver.getAnnotationInstance(internalAnnotations[i]);
-			if (annotationInstance == null) {// not resolving binding
-				return AnnotationBinding.NoAnnotations;
-			}
-			domInstances[i] = annotationInstance;
+		if (this.annotations != null) {
+			return this.annotations;
 		}
-		return domInstances;
+		org.eclipse.jdt.internal.compiler.lookup.AnnotationBinding[] internalAnnotations = this.binding.getAnnotations();
+		int length = internalAnnotations == null ? 0 : internalAnnotations.length;
+		if (length != 0) {
+			IAnnotationBinding[] tempAnnotations = new IAnnotationBinding[length];
+			int convertedAnnotationCount = 0;
+			for (int i = 0; i < length; i++) {
+				org.eclipse.jdt.internal.compiler.lookup.AnnotationBinding internalAnnotation = internalAnnotations[i];
+				final IAnnotationBinding annotationInstance = this.resolver.getAnnotationInstance(internalAnnotation);
+				if (annotationInstance == null) {
+					continue;
+				}
+				tempAnnotations[convertedAnnotationCount++] = annotationInstance;
+			}
+			if (convertedAnnotationCount != length) {
+				if (convertedAnnotationCount == 0) {
+					return this.annotations = AnnotationBinding.NoAnnotations;
+				}
+				System.arraycopy(tempAnnotations, 0, (tempAnnotations = new IAnnotationBinding[convertedAnnotationCount]), 0, convertedAnnotationCount);
+			}
+			return this.annotations = tempAnnotations;
+		}
+		return this.annotations = AnnotationBinding.NoAnnotations;
 	}
 
 	/* (non-Javadoc)
@@ -110,7 +130,22 @@ class VariableBinding implements IVariableBinding {
 		if (!isField()) {
 			ASTNode node = this.resolver.findDeclaringNode(this);
 			while (true) {
-				if (node == null) break;
+				if (node == null) {
+					if (this.binding instanceof LocalVariableBinding) {
+						LocalVariableBinding localVariableBinding = (LocalVariableBinding) this.binding;
+						BlockScope blockScope = localVariableBinding.declaringScope;
+						if (blockScope != null) {
+							ReferenceContext referenceContext = blockScope.referenceContext();
+							if (referenceContext instanceof Initializer) {
+								return null;
+							}
+							if (referenceContext instanceof AbstractMethodDeclaration) {
+								return this.resolver.getMethodBinding(((AbstractMethodDeclaration) referenceContext).binding);
+							}
+						}
+					}
+					return null;
+				}
 				switch(node.getNodeType()) {
 					case ASTNode.INITIALIZER :
 						return null;
@@ -159,7 +194,7 @@ class VariableBinding implements IVariableBinding {
 		if (isField()) {
 			return ((FieldBinding) this.binding).getAccessFlags() & VALID_MODIFIERS;
 		}
-		if (binding.isFinal()) {
+		if (this.binding.isFinal()) {
 			return IModifierConstants.ACC_FINAL;
 		}
 		return Modifier.NONE;
@@ -186,40 +221,96 @@ class VariableBinding implements IVariableBinding {
 	}
 
 	private JavaElement getUnresolvedJavaElement() {
+		if (JavaCore.getPlugin() == null) {
+			return null;
+		}
 		if (isField()) {
-			// field
-			FieldBinding fieldBinding = (FieldBinding) this.binding;
-			if (fieldBinding.declaringClass == null) return null; // arraylength
-			IType declaringType = (IType) getDeclaringClass().getJavaElement();
-			if (declaringType == null) return null;
-			return (JavaElement) declaringType.getField(getName());
+			if (this.resolver instanceof DefaultBindingResolver) {
+				DefaultBindingResolver defaultBindingResolver = (DefaultBindingResolver) this.resolver;
+				if (!defaultBindingResolver.fromJavaProject) return null;
+				return Util.getUnresolvedJavaElement(
+						(FieldBinding) this.binding,
+						defaultBindingResolver.workingCopyOwner,
+						defaultBindingResolver.getBindingsToNodesMap());
+			}
+			return null;
 		}
 		// local variable
-		IMethodBinding declaringMethod = getDeclaringMethod();
-		if (declaringMethod == null) return null;
-		JavaElement method = (JavaElement) declaringMethod.getJavaElement();
 		if (!(this.resolver instanceof DefaultBindingResolver)) return null;
-		VariableDeclaration localVar = (VariableDeclaration) ((DefaultBindingResolver) this.resolver).bindingsToAstNodes.get(this);
+		DefaultBindingResolver defaultBindingResolver = (DefaultBindingResolver) this.resolver;
+		if (!defaultBindingResolver.fromJavaProject) return null;
+		VariableDeclaration localVar = (VariableDeclaration) defaultBindingResolver.bindingsToAstNodes.get(this);
 		if (localVar == null) return null;
 		int nameStart;
 		int nameLength;
 		int sourceStart;
 		int sourceLength;
+		int modifiers = 0;
 		if (localVar instanceof SingleVariableDeclaration) {
 			sourceStart = localVar.getStartPosition();
 			sourceLength = localVar.getLength();
-			SimpleName simpleName = ((SingleVariableDeclaration) localVar).getName();
+			final SingleVariableDeclaration singleVariableDeclaration = (SingleVariableDeclaration) localVar;
+			SimpleName simpleName = singleVariableDeclaration.getName();
 			nameStart = simpleName.getStartPosition();
 			nameLength = simpleName.getLength();
+			modifiers = singleVariableDeclaration.getModifiers();
 		} else {
 			nameStart =  localVar.getStartPosition();
 			nameLength = localVar.getLength();
 			ASTNode node = localVar.getParent();
 			sourceStart = node.getStartPosition();
 			sourceLength = node.getLength();
+			VariableDeclarationFragment fragment = (VariableDeclarationFragment) localVar;
+			final ASTNode parent = fragment.getParent();
+			switch (parent.getNodeType()) {
+				case ASTNode.VARIABLE_DECLARATION_EXPRESSION :
+					VariableDeclarationExpression expression = (VariableDeclarationExpression) parent;
+					modifiers = expression.getModifiers();
+					break;
+				case ASTNode.VARIABLE_DECLARATION_STATEMENT :
+					VariableDeclarationStatement statement = (VariableDeclarationStatement) parent;
+					modifiers = statement.getModifiers();
+					break;
+				case ASTNode.FIELD_DECLARATION :
+					FieldDeclaration fieldDeclaration = (FieldDeclaration) parent;
+					modifiers = fieldDeclaration.getModifiers();
+					break;
+			}
 		}
+		int sourceEnd = sourceStart+sourceLength-1;
 		char[] typeSig = this.binding.type.genericTypeSignature();
-		return new LocalVariable(method, localVar.getName().getIdentifier(), sourceStart, sourceStart+sourceLength-1, nameStart, nameStart+nameLength-1, new String(typeSig));
+		JavaElement parent = null;
+		IMethodBinding declaringMethod = getDeclaringMethod();
+		final LocalVariableBinding localVariableBinding = (LocalVariableBinding) this.binding;
+		if (declaringMethod == null) {
+			ReferenceContext referenceContext = localVariableBinding.declaringScope.referenceContext();
+			if (referenceContext instanceof TypeDeclaration){
+				// Local variable is declared inside an initializer
+				TypeDeclaration typeDeclaration = (TypeDeclaration) referenceContext;
+				JavaElement typeHandle = null;
+				typeHandle = Util.getUnresolvedJavaElement(
+					typeDeclaration.binding,
+					defaultBindingResolver.workingCopyOwner,
+					defaultBindingResolver.getBindingsToNodesMap());
+				parent = Util.getUnresolvedJavaElement(sourceStart, sourceEnd, typeHandle);
+			} else {
+				return null;
+			}
+		} else {
+			parent = (JavaElement) declaringMethod.getJavaElement();
+		}
+		if (parent == null) return null;
+		return new LocalVariable(
+				parent,
+				localVar.getName().getIdentifier(),
+				sourceStart,
+				sourceEnd,
+				nameStart,
+				nameStart+nameLength-1,
+				new String(typeSig),
+				localVariableBinding.declaration.annotations,
+				modifiers,
+				(localVariableBinding.tagBits & TagBits.IsArgument) != 0);
 	}
 
 	/*
@@ -227,7 +318,7 @@ class VariableBinding implements IVariableBinding {
 	 * @since 3.1
 	 */
 	public IVariableBinding getVariableDeclaration() {
-		if (this.isField()) {
+		if (isField()) {
 			FieldBinding fieldBinding = (FieldBinding) this.binding;
 			return this.resolver.getVariableBinding(fieldBinding.original());
 		}
@@ -290,7 +381,7 @@ class VariableBinding implements IVariableBinding {
 			}
 		} else {
 			if (BindingComparator.isEqual(this.binding, otherBinding)) {
-				IMethodBinding declaringMethod = this.getDeclaringMethod();
+				IMethodBinding declaringMethod = getDeclaringMethod();
 				IMethodBinding otherDeclaringMethod = ((VariableBinding) other).getDeclaringMethod();
 				if (declaringMethod == null) {
 					if (otherDeclaringMethod != null) {

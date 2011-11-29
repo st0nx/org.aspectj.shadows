@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,6 +26,7 @@ import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
 import org.eclipse.jdt.internal.codeassist.SelectionEngine;
+import org.eclipse.jdt.internal.compiler.ast.AbstractVariableDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
@@ -33,6 +34,7 @@ import org.eclipse.jdt.internal.compiler.lookup.LocalTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ParameterizedTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
@@ -80,7 +82,7 @@ private void acceptBinaryMethod(
 		char[] uniqueKey,
 		boolean isConstructor) {
 	try {
-		if(!isConstructor || ((JavaElement)method).getSourceMapper() == null) {
+		if(!isConstructor || ((JavaElement)method).getClassFile().getBuffer() == null) {
 			if (uniqueKey != null) {
 				ResolvedBinaryMethod resolvedMethod = new ResolvedBinaryMethod(
 						(JavaElement)method.getParent(),
@@ -149,7 +151,7 @@ protected void acceptBinaryMethod(
 	if (method.exists()) {
 		if (typeParameterNames != null && typeParameterNames.length != 0) {
 			IMethod[] methods = type.findMethods(method);
-			if (methods.length > 1) {
+			if (methods != null && methods.length > 1) {
 				for (int i = 0; i < methods.length; i++) {
 					if (areTypeParametersCompatible(methods[i], typeParameterNames, typeParameterBoundNames)) {
 						acceptBinaryMethod(type, method, uniqueKey, isConstructor);
@@ -208,6 +210,28 @@ public void acceptType(char[] packageName, char[] typeName, int modifiers, boole
 			System.out.print(type.toString());
 			System.out.println(")"); //$NON-NLS-1$
 		}
+	}
+}
+/**
+ * Resolve the type.
+ */
+public void acceptType(IType type) {
+	String key = type.getKey();
+	if(type.isBinary()) {
+		ResolvedBinaryType resolvedType = new ResolvedBinaryType((JavaElement)type.getParent(), type.getElementName(), key);
+		resolvedType.occurrenceCount = type.getOccurrenceCount();
+		type = resolvedType;
+	} else {
+		ResolvedSourceType resolvedType = new ResolvedSourceType((JavaElement)type.getParent(), type.getElementName(), key);
+		resolvedType.occurrenceCount = type.getOccurrenceCount();
+		type = resolvedType;
+	}
+
+	addElement(type);
+	if(SelectionEngine.DEBUG){
+		System.out.print("SELECTION - accept type("); //$NON-NLS-1$
+		System.out.print(type.toString());
+		System.out.println(")"); //$NON-NLS-1$
 	}
 }
 /**
@@ -418,7 +442,7 @@ public void acceptLocalMethodTypeParameter(TypeVariableBinding typeVariableBindi
 public void acceptLocalVariable(LocalVariableBinding binding) {
 	LocalDeclaration local = binding.declaration;
 	IJavaElement parent = findLocalElement(local.sourceStart); // findLocalElement() cannot find local variable
-	IJavaElement localVar = null;
+	LocalVariable localVar = null;
 	if(parent != null) {
 		localVar = new LocalVariable(
 				(JavaElement)parent,
@@ -427,7 +451,10 @@ public void acceptLocalVariable(LocalVariableBinding binding) {
 				local.declarationSourceEnd,
 				local.sourceStart,
 				local.sourceEnd,
-				Util.typeSignature(local.type));
+				Util.typeSignature(local.type),
+				local.annotations,
+				local.modifiers,
+				local.getKind() == AbstractVariableDeclaration.PARAMETER);
 	}
 	if (localVar != null) {
 		addElement(localVar);
@@ -467,7 +494,7 @@ public void acceptMethod(
 				start, end);
 
 		if(type != null) {
-			this.acceptMethodDeclaration(type, selector, start, end);
+			acceptMethodDeclaration(type, selector, start, end);
 		}
 	} else {
 		IType type = resolveType(declaringTypePackageName, declaringTypeName,
@@ -743,6 +770,13 @@ public void acceptMethodTypeParameter(char[] declaringTypePackageName, char[] de
  */
 protected void addElement(IJavaElement element) {
 	int elementLength = this.elementIndex + 1;
+
+	for (int i = 0; i < elementLength; i++) {
+		if (this.elements[i].equals(element)) {
+			return;
+		}
+	}
+
 	if (elementLength == this.elements.length) {
 		System.arraycopy(this.elements, 0, this.elements = new IJavaElement[(elementLength*2) + 1], 0, elementLength);
 	}
@@ -808,6 +842,31 @@ protected IJavaElement findLocalElement(int pos) {
 		}
 	}
 	return res;
+}
+
+/**
+ * This method returns an IMethod element from the given method and declaring type bindings. However,
+ * unlike {@link Util#findMethod(IType, char[], String[], boolean)} , this does not require an IType to get 
+ * the IMethod element.
+ * @param method the given method binding
+ * @param signatures the type signatures of the method arguments
+ * @param declaringClass the binding of the method's declaring class
+ * @return an IMethod corresponding to the method binding given, or null if none is found.
+ */
+public IJavaElement findMethodFromBinding(MethodBinding method, String[] signatures, ReferenceBinding declaringClass) {
+	IType foundType = this.resolveType(declaringClass.qualifiedPackageName(), declaringClass.qualifiedSourceName(), NameLookup.ACCEPT_CLASSES & NameLookup.ACCEPT_INTERFACES);
+	if (foundType != null) {
+		if (foundType instanceof BinaryType) {
+			try {
+				return Util.findMethod(foundType, method.selector, signatures, method.isConstructor());
+			} catch (JavaModelException e) {
+				return null;
+			}
+		} else {
+			return foundType.getMethod(new String(method.selector), signatures);
+		}
+	}
+	return null;
 }
 /**
  * Returns the resolved elements.

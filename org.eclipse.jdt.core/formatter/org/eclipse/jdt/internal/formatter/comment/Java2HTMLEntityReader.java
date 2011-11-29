@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,22 +16,28 @@ import java.io.Reader;
 import java.util.HashMap;
 import java.util.Map;
 
-import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
+import org.eclipse.jdt.internal.compiler.parser.*;
 
 /**
  * <code>SubstitutionTextReader</code> that will substitute html entities for
  * html symbols encountered in the original text. Line breaks and whitespaces
  * are preserved.
- * 
+ *
  * @since 3.0
  */
 public class Java2HTMLEntityReader extends SubstitutionTextReader {
-	
+
 	private static final int BEGIN_LINE = 0x01;
 
 	/** The hardcoded entity map. */
 	private static final Map fgEntityLookup;
-	
+
+	/**
+	 * True if we have not yet seen a non-whitespace character on the current
+	 * line.
+	 */
+	private int bits = BEGIN_LINE;
+
 	static {
 		fgEntityLookup= new HashMap(7);
 		fgEntityLookup.put("<", "&lt;"); //$NON-NLS-1$ //$NON-NLS-2$
@@ -42,11 +48,9 @@ public class Java2HTMLEntityReader extends SubstitutionTextReader {
 		fgEntityLookup.put("\"", "&quot;"); //$NON-NLS-1$ //$NON-NLS-2$
 	}
 
-	private int bits = BEGIN_LINE;
-
 	/**
 	 * Creates a new instance that will read from <code>reader</code>
-	 * 
+	 *
 	 * @param reader the source reader
 	 */
 	public Java2HTMLEntityReader(Reader reader) {

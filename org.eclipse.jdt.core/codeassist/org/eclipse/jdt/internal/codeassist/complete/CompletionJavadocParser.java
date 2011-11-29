@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,7 +26,7 @@ import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
  * Parser specialized for decoding javadoc comments which includes cursor location for code completion.
  */
 public class CompletionJavadocParser extends JavadocParser {
-	
+
 	// Initialize lengthes for block and inline tags tables
 	public final static int INLINE_ALL_TAGS_LENGTH;
 	public final static int BLOCK_ALL_TAGS_LENGTH;
@@ -42,11 +42,11 @@ public class CompletionJavadocParser extends JavadocParser {
 		}
 		BLOCK_ALL_TAGS_LENGTH = length;
 	}
-	
+
 	// Level tags are array of inline/block tags depending on compilation source level
 	char[][][] levelTags = new char[2][][];
 	int[] levelTagsLength = new int[2];
-	
+
 	// Completion specific info
 	int cursorLocation;
 	CompletionOnJavadoc completionNode = null;
@@ -57,7 +57,6 @@ public class CompletionJavadocParser extends JavadocParser {
 		super(sourceParser);
 		this.scanner = new CompletionScanner(ClassFileConstants.JDK1_3);
 		this.kind = COMPLETION_PARSER | TEXT_PARSE;
-		this.reportProblems = false;
 		initLevelTags();
 	}
 
@@ -65,7 +64,9 @@ public class CompletionJavadocParser extends JavadocParser {
 	 * Do not parse comment if completion location is not included.
 	 */
 	public boolean checkDeprecation(int commentPtr) {
-		this.cursorLocation = ((CompletionParser)sourceParser).cursorLocation;
+		boolean isDeprecated = false;
+
+		this.cursorLocation = ((CompletionParser)this.sourceParser).cursorLocation;
 		CompletionScanner completionScanner = (CompletionScanner)this.scanner;
 		completionScanner.cursorLocation = this.cursorLocation;
 		this.javadocStart = this.sourceParser.scanner.commentStarts[commentPtr];
@@ -78,9 +79,15 @@ public class CompletionJavadocParser extends JavadocParser {
 			this.firstTagPosition = 1;
 			super.checkDeprecation(commentPtr);
 		} else {
+			if (this.sourceParser.scanner.commentTagStarts[commentPtr] != 0) {
+				boolean previousValue = this.checkDocComment;
+				this.checkDocComment = false;
+				isDeprecated = super.checkDeprecation(commentPtr);
+				this.checkDocComment = previousValue;
+			}
 			this.docComment = null;
 		}
-		return false;
+		return isDeprecated;
 	}
 
 	/*
@@ -112,7 +119,7 @@ public class CompletionJavadocParser extends JavadocParser {
 				this.completionNode = new CompletionOnJavadocQualifiedTypeReference((JavadocQualifiedTypeReference) expressionType);
 			}
 			if (CompletionEngine.DEBUG) {
-				System.out.println("	completion argument="+completionNode); //$NON-NLS-1$
+				System.out.println("	completion argument="+this.completionNode); //$NON-NLS-1$
 			}
 			return this.completionNode;
 		}
@@ -137,7 +144,7 @@ public class CompletionJavadocParser extends JavadocParser {
 			}
 			this.completionNode = new CompletionOnJavadocFieldReference(fieldRef, this.memberStart, name);
 			if (CompletionEngine.DEBUG) {
-				System.out.println("	completion field="+completionNode); //$NON-NLS-1$
+				System.out.println("	completion field="+this.completionNode); //$NON-NLS-1$
 			}
 			return this.completionNode;
 		}
@@ -171,7 +178,7 @@ public class CompletionJavadocParser extends JavadocParser {
 				this.completionNode = new CompletionOnJavadocAllocationExpression((JavadocAllocationExpression)node, this.memberStart);
 			}
 			if (CompletionEngine.DEBUG) {
-				System.out.println("	completion method="+completionNode); //$NON-NLS-1$
+				System.out.println("	completion method="+this.completionNode); //$NON-NLS-1$
 			}
 			return this.completionNode;
 		}
@@ -230,7 +237,7 @@ public class CompletionJavadocParser extends JavadocParser {
 		}
 
 		if (CompletionEngine.DEBUG) {
-			System.out.println("	completion partial qualified type="+completionNode); //$NON-NLS-1$
+			System.out.println("	completion partial qualified type="+this.completionNode); //$NON-NLS-1$
 		}
 		return this.completionNode;
 	}
@@ -247,7 +254,7 @@ public class CompletionJavadocParser extends JavadocParser {
 		}
 		System.arraycopy(this.levelTags[INLINE_IDX], 0, possibleTags[INLINE_IDX] = new char[this.levelTagsLength[INLINE_IDX]][], 0, this.levelTagsLength[INLINE_IDX]);
 		if (prefix == null || prefix.length == 0) return possibleTags;
-		int kinds = levelTags.length;
+		int kinds = this.levelTags.length;
 		for (int k=0; k<kinds; k++) {
 			int length = possibleTags[k].length, size = 0;
 			int indexes[] = new int[length];
@@ -305,7 +312,7 @@ public class CompletionJavadocParser extends JavadocParser {
 	 * Parse argument in @see tag method reference
 	 */
 	protected Object parseArguments(Object receiver) throws InvalidInputException {
-		
+
 		if (this.tagSourceStart>this.cursorLocation) {
 			return super.parseArguments(receiver);
 		}
@@ -321,7 +328,7 @@ public class CompletionJavadocParser extends JavadocParser {
 		long[] dimPositions = new long[20]; // assume that there won't be more than 20 dimensions...
 		char[] name = null;
 		long argNamePos = -1;
-		
+
 		// Parse arguments declaration if method reference
 		nextArg : while (this.index < this.scanner.eofPosition) {
 
@@ -413,7 +420,7 @@ public class CompletionJavadocParser extends JavadocParser {
 			} else if (argName != null) { // verify that no argument name is declared
 				break nextArg;
 			}
-			
+
 			// Verify token position
 			if (firstArg) {
 				modulo = iToken + 1;
@@ -468,6 +475,7 @@ public class CompletionJavadocParser extends JavadocParser {
 						if (!valid && completionScanner.completionIdentifier != null && completionScanner.completionIdentifier.length == 0) {
 							valid = pushParamName(true);
 						}
+						// $FALL-THROUGH$ - fall through next case to verify and get identifiers stack contents
 					case 1:
 						isTypeParam = this.identifierStack[0][0] == '<';
 						identifier = this.identifierStack[1];
@@ -479,7 +487,7 @@ public class CompletionJavadocParser extends JavadocParser {
 						isTypeParam = identifier.length > 0 && identifier[0] == '<';
 						break;
 				}
-				if (identifier != null && identifier.length > 0 && ScannerHelper.isJavaIdentifierPart(identifier[0])) {
+				if (identifier != null && identifier.length > 0 && ScannerHelper.isJavaIdentifierPart(this.complianceLevel, identifier[0])) {
 					name = identifier;
 				}
 				startPosition = (int)(this.identifierPositionStack[0]>>32);
@@ -495,7 +503,7 @@ public class CompletionJavadocParser extends JavadocParser {
 						this.completionNode = new CompletionOnJavadocParamNameReference(name, namePosition, startPosition, endPosition);
 					}
 					if (CompletionEngine.DEBUG) {
-						System.out.println("	completion param="+completionNode); //$NON-NLS-1$
+						System.out.println("	completion param="+this.completionNode); //$NON-NLS-1$
 					}
 				} else if (this.completionNode instanceof CompletionOnJavadocParamNameReference) {
 					CompletionOnJavadocParamNameReference paramNameRef = (CompletionOnJavadocParamNameReference)this.completionNode;
@@ -553,7 +561,7 @@ public class CompletionJavadocParser extends JavadocParser {
 				end = this.scanner.currentPosition;
 			}
 			long position = (((long)startPosition)<<32) + end;
-			int length = this.cursorLocation+1-tagSourceStart;
+			int length = this.cursorLocation+1-this.tagSourceStart;
 			char[] tag = new char[length];
 			System.arraycopy(this.source, this.tagSourceStart, tag, 0, length);
 			char[][][] tags = possibleTags(tag, newLine);
@@ -585,7 +593,7 @@ public class CompletionJavadocParser extends JavadocParser {
 	 */
 	protected boolean pushParamName(boolean isTypeParam) {
 		if (super.pushParamName(isTypeParam)) {
-			Expression expression = (Expression) astStack[astPtr];
+			Expression expression = (Expression) this.astStack[this.astPtr];
 			// See if expression is concerned by completion
 			if (expression.sourceStart <= (this.cursorLocation+1) && this.cursorLocation <= expression.sourceEnd) {
 				if (isTypeParam) {
@@ -594,7 +602,7 @@ public class CompletionJavadocParser extends JavadocParser {
 					this.completionNode = new CompletionOnJavadocParamNameReference((JavadocSingleNameReference)expression);
 				}
 				if (CompletionEngine.DEBUG) {
-					System.out.println("	completion param="+completionNode); //$NON-NLS-1$
+					System.out.println("	completion param="+this.completionNode); //$NON-NLS-1$
 				}
 			}
 			return true;
@@ -648,13 +656,13 @@ public class CompletionJavadocParser extends JavadocParser {
 										JavadocMessageSend msgSend = (JavadocMessageSend) member;
 										this.completionNode = new CompletionOnJavadocMessageSend(msgSend, this.memberStart, flags);
 										if (CompletionEngine.DEBUG) {
-											System.out.println("	new completion method="+completionNode); //$NON-NLS-1$
+											System.out.println("	new completion method="+this.completionNode); //$NON-NLS-1$
 										}
 									} else if (member instanceof JavadocAllocationExpression) {
 										JavadocAllocationExpression alloc = (JavadocAllocationExpression) member;
 										this.completionNode = new CompletionOnJavadocAllocationExpression(alloc, this.memberStart, flags);
 										if (CompletionEngine.DEBUG) {
-											System.out.println("	new completion method="+completionNode); //$NON-NLS-1$
+											System.out.println("	new completion method="+this.completionNode); //$NON-NLS-1$
 										}
 									} else {
 										this.completionNode.addCompletionFlags(flags);
@@ -779,13 +787,13 @@ public class CompletionJavadocParser extends JavadocParser {
 	protected int readToken() throws InvalidInputException {
 		int token = super.readToken();
 		if (token == TerminalTokens.TokenNameIdentifier && this.scanner.currentPosition == this.scanner.startPosition) {
-			// Scanner is looping on empty token => read it... 
+			// Scanner is looping on empty token => read it...
 			this.scanner.getCurrentIdentifierSource();
 		}
 		return token;
 	}
 
-	/* 
+	/*
 	 * Recover syntax on invalid qualified name.
 	 */
 	protected Object syntaxRecoverQualifiedName(int primitiveToken) throws InvalidInputException {
@@ -803,12 +811,12 @@ public class CompletionJavadocParser extends JavadocParser {
 		this.completionNode = new CompletionOnJavadocQualifiedTypeReference(tokens, CharOperation.NO_CHAR, positions, this.tagSourceStart, this.tagSourceEnd);
 
 		if (CompletionEngine.DEBUG) {
-			System.out.println("	completion partial qualified type="+completionNode); //$NON-NLS-1$
+			System.out.println("	completion partial qualified type="+this.completionNode); //$NON-NLS-1$
 		}
 		return this.completionNode;
 	}
 
-	/* 
+	/*
 	 * Recover syntax on type argument in invalid method/constructor reference
 	 */
 	protected Object syntaxRecoverArgumentType(Object receiver, List arguments, Object argument) throws InvalidInputException {
@@ -858,7 +866,7 @@ public class CompletionJavadocParser extends JavadocParser {
 			this.completionNode = new CompletionOnJavadocAllocationExpression(allocExp, this.memberStart);
 		}
 		if (CompletionEngine.DEBUG) {
-			System.out.println("	completion method="+completionNode); //$NON-NLS-1$
+			System.out.println("	completion method="+this.completionNode); //$NON-NLS-1$
 		}
 		return this.completionNode;
 	}
@@ -881,7 +889,7 @@ public class CompletionJavadocParser extends JavadocParser {
 			this.completionNode = new CompletionOnJavadocAllocationExpression(allocExp, this.memberStart);
 		}
 		if (CompletionEngine.DEBUG) {
-			System.out.println("	completion method="+completionNode); //$NON-NLS-1$
+			System.out.println("	completion method="+this.completionNode); //$NON-NLS-1$
 		}
 		return this.completionNode;
 	}
@@ -891,10 +899,10 @@ public class CompletionJavadocParser extends JavadocParser {
 	 */
 	protected void updateDocComment() {
 		super.updateDocComment();
-		if (completionNode instanceof Expression) {
+		if (this.completionNode instanceof Expression) {
 			getCompletionParser().assistNodeParent = this.docComment;
 			getCompletionParser().assistNode = (ASTNode) this.completionNode;
-			getCompletionJavadoc().completionNode = (Expression) completionNode;
+			getCompletionJavadoc().completionNode = (Expression) this.completionNode;
 		}
 	}
 
@@ -909,5 +917,5 @@ public class CompletionJavadocParser extends JavadocParser {
 		}
 		return super.verifySpaceOrEndComment();
 	}
-	
+
 }

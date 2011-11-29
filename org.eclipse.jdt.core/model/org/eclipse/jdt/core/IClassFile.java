@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -25,11 +25,9 @@ import org.eclipse.core.runtime.IProgressMonitor;
  * class file. The source associated with a class file is the source code of
  * the compilation unit it was (nominally) generated from.
  * </p>
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
  *
  * @see IPackageFragmentRoot#attachSource(org.eclipse.core.runtime.IPath, org.eclipse.core.runtime.IPath, IProgressMonitor)
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 
 public interface IClassFile extends ITypeRoot {

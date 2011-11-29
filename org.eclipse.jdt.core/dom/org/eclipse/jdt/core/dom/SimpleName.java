@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.eclipse.jdt.core.compiler.InvalidInputException;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.parser.Scanner;
 import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 
@@ -25,72 +26,73 @@ import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
  * SimpleName:
  *     Identifier
  * </pre>
- * 
+ *
  * @since 2.0
+ * @noinstantiate This class is not intended to be instantiated by clients.
  */
 public class SimpleName extends Name {
 
 	/**
-	 * The "identifier" structural property of this node type.
-	 * 
+	 * The "identifier" structural property of this node type (type: {@link String}).
+	 *
 	 * @since 3.0
 	 */
-	public static final SimplePropertyDescriptor IDENTIFIER_PROPERTY = 
+	public static final SimplePropertyDescriptor IDENTIFIER_PROPERTY =
 		new SimplePropertyDescriptor(SimpleName.class, "identifier", String.class, MANDATORY); //$NON-NLS-1$
-	
+
 	/**
-	 * A list of property descriptors (element type: 
+	 * A list of property descriptors (element type:
 	 * {@link StructuralPropertyDescriptor}),
 	 * or null if uninitialized.
 	 * @since 3.0
 	 */
 	private static final List PROPERTY_DESCRIPTORS;
-	
+
 	static {
 		List propertyList = new ArrayList(2);
 		createPropertyList(SimpleName.class, propertyList);
 		addProperty(IDENTIFIER_PROPERTY, propertyList);
 		PROPERTY_DESCRIPTORS = reapPropertyList(propertyList);
 	}
-	
+
 	/**
 	 * Returns a list of structural property descriptors for this node type.
 	 * Clients must not modify the result.
-	 * 
+	 *
 	 * @param apiLevel the API level; one of the AST.JLS* constants
-	 * @return a list of property descriptors (element type: 
+	 * @return a list of property descriptors (element type:
 	 * {@link StructuralPropertyDescriptor})
 	 * @since 3.0
 	 */
 	public static List propertyDescriptors(int apiLevel) {
 		return PROPERTY_DESCRIPTORS;
 	}
-	
+
 	/**
 	 * An unspecified (but externally observable) legal Java identifier.
 	 */
 	private static final String MISSING_IDENTIFIER = "MISSING";//$NON-NLS-1$
-	
+
 	/**
 	 * The identifier; defaults to a unspecified, legal Java identifier.
 	 */
 	private String identifier = MISSING_IDENTIFIER;
-	
+
 	/**
 	 * Creates a new AST node for a simple name owned by the given AST.
 	 * The new node has an unspecified, legal Java identifier.
 	 * <p>
-	 * N.B. This constructor is package-private; all subclasses must be 
-	 * declared in the same package; clients are unable to declare 
+	 * N.B. This constructor is package-private; all subclasses must be
+	 * declared in the same package; clients are unable to declare
 	 * additional subclasses.
 	 * </p>
-	 * 
+	 *
 	 * @param ast the AST that is to own this node
 	 */
 	SimpleName(AST ast) {
 		super(ast);
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 * @since 3.0
@@ -98,7 +100,7 @@ public class SimpleName extends Name {
 	final List internalStructuralPropertiesForType(int apiLevel) {
 		return propertyDescriptors(apiLevel);
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
@@ -127,11 +129,11 @@ public class SimpleName extends Name {
 	 */
 	ASTNode clone0(AST target) {
 		SimpleName result = new SimpleName(target);
-		result.setSourceRange(this.getStartPosition(), this.getLength());
+		result.setSourceRange(getStartPosition(), getLength());
 		result.setIdentifier(getIdentifier());
 		return result;
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
@@ -150,13 +152,13 @@ public class SimpleName extends Name {
 
 	/**
 	 * Returns this node's identifier.
-	 * 
+	 *
 	 * @return the identifier of this node
-	 */ 
+	 */
 	public String getIdentifier() {
 		return this.identifier;
 	}
-	
+
 	/**
 	 * Sets the identifier of this node to the given value.
 	 * The identifier should be legal according to the rules
@@ -166,31 +168,41 @@ public class SimpleName extends Name {
 	 * Note that the list of keywords may depend on the version of the
 	 * language (determined when the AST object was created).
 	 * </p>
-	 * 
+	 *
 	 * @param identifier the identifier of this node
 	 * @exception IllegalArgumentException if the identifier is invalid
-	 */ 
+	 */
 	public void setIdentifier(String identifier) {
 		// update internalSetIdentifier if this is changed
 		if (identifier == null) {
 			throw new IllegalArgumentException();
 		}
 		Scanner scanner = this.ast.scanner;
-		char[] source = identifier.toCharArray();
-		scanner.setSource(source);
-		final int length = source.length;
-		scanner.resetTo(0, length - 1);
+		long sourceLevel = scanner.sourceLevel;
+		long complianceLevel = scanner.complianceLevel;
+
 		try {
-			int tokenType = scanner.scanIdentifier();
-			if (tokenType != TerminalTokens.TokenNameIdentifier) {
+			scanner.sourceLevel = ClassFileConstants.JDK1_3;
+			scanner.complianceLevel = ClassFileConstants.JDK1_5;
+			char[] source = identifier.toCharArray();
+			scanner.setSource(source);
+			final int length = source.length;
+			scanner.resetTo(0, length - 1);
+			try {
+				int tokenType = scanner.scanIdentifier();
+				if (tokenType != TerminalTokens.TokenNameIdentifier) {
+					throw new IllegalArgumentException();
+				}
+				if (scanner.currentPosition != length) {
+					// this is the case when there is only one identifier see 87849
+					throw new IllegalArgumentException();
+				}
+			} catch(InvalidInputException e) {
 				throw new IllegalArgumentException();
 			}
-			if (scanner.currentPosition != length) {
-				// this is the case when there is only one identifier see 87849
-				throw new IllegalArgumentException();
-			}
-		} catch(InvalidInputException e) {
-			throw new IllegalArgumentException();
+		} finally {
+			this.ast.scanner.sourceLevel = sourceLevel;
+			this.ast.scanner.complianceLevel = complianceLevel;
 		}
 		preValueChange(IDENTIFIER_PROPERTY);
 		this.identifier = identifier;
@@ -205,7 +217,7 @@ public class SimpleName extends Name {
 		this.identifier = ident;
 		postValueChange(IDENTIFIER_PROPERTY);
 	}
-	
+
 	/**
 	 * Returns whether this simple name represents a name that is being defined,
 	 * as opposed to one being referenced. The following positions are considered
@@ -231,10 +243,10 @@ public class SimpleName extends Name {
 	 * this node appears in the declaration position relative to its parent.
 	 * It always returns <code>false</code> if this node is unparented.
 	 * </p>
-	 * 
-	 * @return <code>true</code> if this node declares a name, and 
+	 *
+	 * @return <code>true</code> if this node declares a name, and
 	 *    <code>false</code> otherwise
-	 */ 
+	 */
 	public boolean isDeclaration() {
 		StructuralPropertyDescriptor d = getLocationInParent();
 		if (d == null) {
@@ -273,7 +285,7 @@ public class SimpleName extends Name {
 		}
 		return false;
 	}
-		
+
 	/* (omit javadoc for this method)
 	 * Method declared on Name.
 	 */
@@ -286,13 +298,13 @@ public class SimpleName extends Name {
 	 */
 	int memSize() {
 		int size = BASE_NAME_NODE_SIZE + 2 * 4;
-		if (identifier != MISSING_IDENTIFIER) {
+		if (this.identifier != MISSING_IDENTIFIER) {
 			// everything but our missing id costs
-			size += stringSize(identifier);
+			size += stringSize(this.identifier);
 		}
 		return size;
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */

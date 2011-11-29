@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -19,7 +19,6 @@ import org.eclipse.jdt.core.dom.ASTNode;
 import org.eclipse.jdt.core.dom.SimpleName;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.internal.core.util.Messages;
-import org.eclipse.jface.text.IDocument;
 
 /**
  * <p>This operation creates a initializer in a type.
@@ -47,8 +46,8 @@ public class CreateInitializerOperation extends CreateTypeMemberOperation {
 public CreateInitializerOperation(IType parentElement, String source) {
 	super(parentElement, source, false);
 }
-protected ASTNode generateElementAST(ASTRewrite rewriter, IDocument document, ICompilationUnit cu) throws JavaModelException {
-	ASTNode node = super.generateElementAST(rewriter, document, cu);
+protected ASTNode generateElementAST(ASTRewrite rewriter, ICompilationUnit cu) throws JavaModelException {
+	ASTNode node = super.generateElementAST(rewriter, cu);
 	if (node.getNodeType() != ASTNode.INITIALIZER)
 		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
 	return node;
@@ -87,7 +86,7 @@ protected IJavaElement generateResultHandle() {
  * @see CreateElementInCUOperation#getMainTaskName()
  */
 public String getMainTaskName(){
-	return Messages.operation_createInitializerProgress; 
+	return Messages.operation_createInitializerProgress;
 }
 protected SimpleName rename(ASTNode node, SimpleName newName) {
 	return null; // intializer cannot be renamed

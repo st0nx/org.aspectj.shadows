@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,11 +13,25 @@ package org.eclipse.jdt.core;
 
 /**
  * Represents a method (or constructor) declared in a type.
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
+ *
+ * @noimplement This interface is not intended to be implemented by clients.
  */
-public interface IMethod extends IMember {
+public interface IMethod extends IMember, IAnnotatable {
+/**
+ * Returns a {@link IMemberValuePair member value pair} representing the default
+ * value of this method if any, or <code>null</code> if this method's parent is
+ * not an annotation type, or else if this method does not have a default value.
+ * <p>
+ * Note that {@link IMemberValuePair#getValue()} might return <code>null</code>.
+ * Please see this method for more details.
+ * </p>
+ *
+ * @exception JavaModelException if this element does not exist or if an
+ *      exception occurs while accessing its corresponding resource.
+ * @return a member pair value if any, or <code>null</code> if none
+ * @since 3.4
+ */
+IMemberValuePair getDefaultValue() throws JavaModelException;
 /**
  * Returns the simple name of this method.
  * For a constructor, this returns the simple name of the declaring type.
@@ -82,18 +96,40 @@ ITypeParameter[] getTypeParameters() throws JavaModelException;
 /**
  * Returns the number of parameters of this method.
  * This is a handle-only method.
- * 
+ *
  * @return the number of parameters of this method
  */
 int getNumberOfParameters();
+
 /**
- * Returns the binding key for this method. A binding key is a key that uniquely
- * identifies this method. It allows access to generic info for parameterized
- * methods.
+ * Returns the parameters of this method.
+ * <p>An empty array is returned, if the method has no parameters.</p>
+ * <p>For binary types, associated source is used to retrieve the {@link ILocalVariable#getNameRange() name range},
+ * {@link ILocalVariable#getSourceRange() source range} and the {@link ILocalVariable#getFlags() flags}.</p>
+ * <p>These local variables can be used to retrieve the {@link ILocalVariable#getAnnotations() parameter annotations}.</p>
  * 
+ * @return the parameters of this method
+ * @throws JavaModelException if this element does not exist or if an
+ *      exception occurs while accessing its corresponding resource.
+ * @since 3.7
+ */
+ILocalVariable[] getParameters() throws JavaModelException;
+
+/**
+ * Returns the binding key for this method only if the given method is {@link #isResolved() resolved}.
+ * A binding key is a key that uniquely identifies this method. It allows access to:
+ * <ul>
+ * <li>generic info for parameterized methods</li>
+ * <li>the actual return type for references to {@link Object#getClass() Object.getClass()}</li>
+ * <li>the actual parameter types and return type for references to signature polymorphic methods from class MethodHandle</li>
+ * </ul>
+ *
+ * <p>If the given method is not resolved, the returned key is simply the java element's key.
+ * </p>
  * @return the binding key for this method
  * @see org.eclipse.jdt.core.dom.IBinding#getKey()
  * @see BindingKey
+ * @see #isResolved()
  * @since 3.1
  */
 String getKey();
@@ -125,14 +161,14 @@ String[] getParameterNames() throws JavaModelException;
  * or resolved (for binary types), and either basic (for basic types)
  * or rich (for parameterized types). See {@link Signature} for details.
  * </p>
- * 
+ *
  * @return the type signatures for the parameters of this method, an empty array if this method has no parameters
  * @see Signature
  */
 String[] getParameterTypes();
 /**
  * Returns the names of parameters in this method.
- * For binary types, these names are invented as "arg"+i, where i starts at 0 
+ * For binary types, these names are invented as "arg"+i, where i starts at 0
  * (even if source is associated with the binary or if Javdoc is attached to the binary).
  * Returns an empty array if this method has no parameters.
  *
@@ -190,7 +226,7 @@ String getSignature() throws JavaModelException;
 /**
  * Returns the type parameter declared in this method with the given name.
  * This is a handle-only method. The type parameter may or may not exist.
- * 
+ *
  * @param name the given simple name
  * @return the type parameter declared in this method with the given name
  * @since 3.1
@@ -201,7 +237,7 @@ ITypeParameter getTypeParameter(String name);
  *
  * @exception JavaModelException if this element does not exist or if an
  *      exception occurs while accessing its corresponding resource.
- * 
+ *
  * @return true if this method is a constructor, false otherwise
  */
 boolean isConstructor() throws JavaModelException;
@@ -215,7 +251,7 @@ boolean isConstructor() throws JavaModelException;
  * <li>it is <code>static</code> and <code>public</code></li>
  * <li>it defines one parameter whose type's simple name is <code>String[]</code></li>
  * </ul>
- * 
+ *
  * @exception JavaModelException if this element does not exist or if an
  *      exception occurs while accessing its corresponding resource.
  * @since 2.0
@@ -224,8 +260,8 @@ boolean isConstructor() throws JavaModelException;
 boolean isMainMethod() throws JavaModelException;
 /**
  * Returns whether this method represents a resolved method.
- * If a method is resoved, its key contains resolved information.
- * 
+ * If a method is resolved, its key contains resolved information.
+ *
  * @return whether this method represents a resolved method.
  * @since 3.1
  */
@@ -239,7 +275,7 @@ boolean isResolved();
  * <li>the simple names of their parameter types are equal</li>
  * </ul>
  * This is a handle-only method.
- * 
+ *
  * @param method the given method
  * @return true if this method is similar to the given method.
  * @see Signature#getSimpleName(char[])

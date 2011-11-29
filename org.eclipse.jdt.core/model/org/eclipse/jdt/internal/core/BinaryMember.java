@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,19 +10,25 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.HashMap;
+import java.util.ArrayList;
 
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.jdt.core.IAnnotation;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.compiler.env.IBinaryAnnotation;
+import org.eclipse.jdt.internal.compiler.lookup.TagBits;
+import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * Common functionality for Binary member handles.
  */
 public abstract class BinaryMember extends NamedMember {
+		
 /*
  * Constructs a binary member.
  */
@@ -35,28 +41,69 @@ protected BinaryMember(JavaElement parent, String name) {
 public void copy(IJavaElement container, IJavaElement sibling, String rename, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, this));
 }
-/*
- * @see JavaElement#generateInfos
- */
-protected void generateInfos(Object info, HashMap newElements, IProgressMonitor pm) throws JavaModelException {
-	Openable openableParent = (Openable) getOpenableParent();
-	if (JavaModelManager.getJavaModelManager().getInfo(openableParent) == null) {
-		openableParent.generateInfos(openableParent.createElementInfo(), newElements, pm);
+protected IAnnotation[] getAnnotations(IBinaryAnnotation[] binaryAnnotations, long tagBits) {
+	IAnnotation[] standardAnnotations = getStandardAnnotations(tagBits);
+	if (binaryAnnotations == null)
+		return standardAnnotations;
+	int length = binaryAnnotations.length;
+	int standardLength = standardAnnotations.length;
+	int fullLength = length + standardLength;
+	if (fullLength == 0) {
+		return Annotation.NO_ANNOTATIONS;
 	}
+	IAnnotation[] annotations = new IAnnotation[fullLength];
+	for (int i = 0; i < length; i++) {
+		annotations[i] = Util.getAnnotation(this, binaryAnnotations[i], null);
+	}
+	System.arraycopy(standardAnnotations, 0, annotations, length, standardLength);
+	return annotations;
 }
+private IAnnotation getAnnotation(char[][] annotationName) {
+	return new Annotation(this, new String(CharOperation.concatWith(annotationName, '.')));
+}
+protected IAnnotation[] getStandardAnnotations(long tagBits) {
+	if ((tagBits & TagBits.AllStandardAnnotationsMask) == 0)
+		return Annotation.NO_ANNOTATIONS;
+	ArrayList annotations = new ArrayList();
+
+	if ((tagBits & TagBits.AnnotationTargetMASK) != 0) {
+		annotations.add(getAnnotation(TypeConstants.JAVA_LANG_ANNOTATION_TARGET));
+	}
+	if ((tagBits & TagBits.AnnotationRetentionMASK) != 0) {
+		annotations.add(getAnnotation(TypeConstants.JAVA_LANG_ANNOTATION_RETENTION));
+	}
+	if ((tagBits & TagBits.AnnotationDeprecated) != 0) {
+		annotations.add(getAnnotation(TypeConstants.JAVA_LANG_DEPRECATED));
+	}
+	if ((tagBits & TagBits.AnnotationDocumented) != 0) {
+		annotations.add(getAnnotation(TypeConstants.JAVA_LANG_ANNOTATION_DOCUMENTED));
+	}
+	if ((tagBits & TagBits.AnnotationInherited) != 0) {
+		annotations.add(getAnnotation(TypeConstants.JAVA_LANG_ANNOTATION_INHERITED));
+	}
+	if ((tagBits & TagBits.AnnotationPolymorphicSignature) != 0) {
+		annotations.add(getAnnotation(TypeConstants.JAVA_LANG_INVOKE_METHODHANDLE_$_POLYMORPHICSIGNATURE));
+	}
+	if ((tagBits & TagBits.AnnotationSafeVarargs) != 0) {
+		annotations.add(getAnnotation(TypeConstants.JAVA_LANG_SAFEVARARGS));
+	}
+	// note that JAVA_LANG_SUPPRESSWARNINGS and JAVA_LANG_OVERRIDE cannot appear in binaries
+	return (IAnnotation[]) annotations.toArray(new IAnnotation[annotations.size()]);
+}
+
 public String[] getCategories() throws JavaModelException {
 	SourceMapper mapper= getSourceMapper();
 	if (mapper != null) {
 		// ensure the class file's buffer is open so that categories are computed
 		((ClassFile)getClassFile()).getBuffer();
-		
+
 		if (mapper.categories != null) {
 			String[] categories = (String[]) mapper.categories.get(this);
 			if (categories != null)
 				return categories;
 		}
 	}
-	return CharOperation.NO_STRINGS;	
+	return CharOperation.NO_STRINGS;
 }
 public String getKey() {
 	try {
@@ -78,7 +125,7 @@ public ISourceRange getNameRange() throws JavaModelException {
 	if (mapper != null) {
 		// ensure the class file's buffer is open so that source ranges are computed
 		((ClassFile)getClassFile()).getBuffer();
-		
+
 		return mapper.getNameRange(this);
 	} else {
 		return SourceMapper.UNKNOWN_RANGE;

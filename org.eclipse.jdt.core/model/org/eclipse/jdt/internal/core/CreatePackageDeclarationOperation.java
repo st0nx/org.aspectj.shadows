@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -29,7 +29,6 @@ import org.eclipse.jdt.core.dom.PackageDeclaration;
 import org.eclipse.jdt.core.dom.StructuralPropertyDescriptor;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.internal.core.util.Messages;
-import org.eclipse.jface.text.IDocument;
 
 /**
  * <p>This operation adds/replaces a package declaration in an existing compilation unit.
@@ -56,7 +55,7 @@ public CreatePackageDeclarationOperation(String name, ICompilationUnit parentEle
 protected StructuralPropertyDescriptor getChildPropertyDescriptor(ASTNode parent) {
 	return CompilationUnit.PACKAGE_PROPERTY;
 }
-protected ASTNode generateElementAST(ASTRewrite rewriter, IDocument document, ICompilationUnit cu) throws JavaModelException {
+protected ASTNode generateElementAST(ASTRewrite rewriter, ICompilationUnit cu) throws JavaModelException {
 	//look for an existing package declaration
 	IJavaElement[] children = getCompilationUnit().getChildren();
 	for (int i = 0; i < children.length; i++) {
@@ -82,14 +81,14 @@ protected IJavaElement generateResultHandle() {
  * @see CreateElementInCUOperation#getMainTaskName()
  */
 public String getMainTaskName(){
-	return Messages.operation_createPackageProgress; 
+	return Messages.operation_createPackageProgress;
 }
 /**
  * Sets the correct position for new package declaration:<ul>
  * <li> before the first import
  * <li> if no imports, before the first type
  * <li> if no type - first thing in the CU
- * <li> 
+ * <li>
  */
 protected void initializeDefaultPosition() {
 	try {
@@ -110,7 +109,7 @@ protected void initializeDefaultPosition() {
 }
 /**
  * Possible failures: <ul>
- *  <li>NO_ELEMENTS_TO_PROCESS - no compilation unit was supplied to the operation 
+ *  <li>NO_ELEMENTS_TO_PROCESS - no compilation unit was supplied to the operation
  *  <li>INVALID_NAME - a name supplied to the operation was not a valid
  * 		package declaration name.
  * </ul>

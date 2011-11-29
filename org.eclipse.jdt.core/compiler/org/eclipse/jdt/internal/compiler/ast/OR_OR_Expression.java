@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,6 +7,7 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Stephan Herrmann - Contribution for bug 319201 - [null] no warning when unboxing SingleNameReference causes NPE
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
@@ -39,32 +40,44 @@ public class OR_OR_Expression extends BinaryExpression {
 			// FALSE || anything
 			 // need to be careful of scenario:
 			//		(x || y) || !z, if passing the left info to the right, it would be swapped by the !
-			FlowInfo mergedInfo = left.analyseCode(currentScope, flowContext, flowInfo).unconditionalInits();
-			mergedInfo = right.analyseCode(currentScope, flowContext, mergedInfo);
-			mergedInitStateIndex =
+			FlowInfo mergedInfo = this.left.analyseCode(currentScope, flowContext, flowInfo).unconditionalInits();
+			mergedInfo = this.right.analyseCode(currentScope, flowContext, mergedInfo);
+			this.mergedInitStateIndex =
 				currentScope.methodScope().recordInitializationStates(mergedInfo);
 			return mergedInfo;
 		}
 
-		FlowInfo leftInfo = left.analyseCode(currentScope, flowContext, flowInfo);
-	
+		FlowInfo leftInfo = this.left.analyseCode(currentScope, flowContext, flowInfo);
+
 		 // need to be careful of scenario:
 		//		(x || y) || !z, if passing the left info to the right, it would be swapped by the !
 		FlowInfo rightInfo = leftInfo.initsWhenFalse().unconditionalCopy();
-		rightInitStateIndex =
+		this.rightInitStateIndex =
 			currentScope.methodScope().recordInitializationStates(rightInfo);
 
 		int previousMode = rightInfo.reachMode();
 		if (isLeftOptimizedTrue){
-			rightInfo.setReachMode(FlowInfo.UNREACHABLE); 
+			if ((rightInfo.reachMode() & FlowInfo.UNREACHABLE) == 0) {
+				currentScope.problemReporter().fakeReachable(this.right);
+				rightInfo.setReachMode(FlowInfo.UNREACHABLE_OR_DEAD);
+			}
 		}
-		rightInfo = right.analyseCode(currentScope, flowContext, rightInfo);
+		rightInfo = this.right.analyseCode(currentScope, flowContext, rightInfo);
+		if ((this.left.implicitConversion & TypeIds.UNBOXING) != 0) {
+			this.left.checkNPE(currentScope, flowContext, flowInfo);
+		}
+		if ((this.right.implicitConversion & TypeIds.UNBOXING) != 0) {
+			this.right.checkNPE(currentScope, flowContext, flowInfo);
+		}
+		// The definitely null variables in right info when true should not be missed out while merging
+		// https://bugs.eclipse.org/bugs/show_bug.cgi?id=299900
+		FlowInfo leftInfoWhenTrueForMerging = leftInfo.initsWhenTrue().unconditionalCopy().addPotentialInitializationsFrom(rightInfo.unconditionalInitsWithoutSideEffect());
 		FlowInfo mergedInfo = FlowInfo.conditional(
 					// merging two true initInfos for such a negative case: if ((t && (b = t)) || f) r = b; // b may not have been initialized
-					leftInfo.initsWhenTrue().unconditionalInits().mergedWith(
+				leftInfoWhenTrueForMerging.unconditionalInits().mergedWith(
 						rightInfo.safeInitsWhenTrue().setReachMode(previousMode).unconditionalInits()),
 					rightInfo.initsWhenFalse());
-		mergedInitStateIndex =
+		this.mergedInitStateIndex =
 			currentScope.methodScope().recordInitializationStates(mergedInfo);
 		return mergedInfo;
 	}
@@ -74,14 +87,14 @@ public class OR_OR_Expression extends BinaryExpression {
 	 */
 	public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean valueRequired) {
 		int pc = codeStream.position;
-		if (constant != Constant.NotAConstant) {
+		if (this.constant != Constant.NotAConstant) {
 			// inlined value
 			if (valueRequired)
-				codeStream.generateConstant(constant, implicitConversion);
+				codeStream.generateConstant(this.constant, this.implicitConversion);
 			codeStream.recordPositionsFrom(pc, this.sourceStart);
 			return;
 		}
-		Constant cst = right.constant;
+		Constant cst = this.right.constant;
 		if (cst != Constant.NotAConstant) {
 			// <expr> || true --> true
 			if (cst.booleanValue() == true) {
@@ -91,45 +104,45 @@ public class OR_OR_Expression extends BinaryExpression {
 				// <expr>|| false --> <expr>
 				this.left.generateCode(currentScope, codeStream, valueRequired);
 			}
-			if (mergedInitStateIndex != -1) {
-				codeStream.removeNotDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);
-			}			
-			codeStream.generateImplicitConversion(implicitConversion);
+			if (this.mergedInitStateIndex != -1) {
+				codeStream.removeNotDefinitelyAssignedVariables(currentScope, this.mergedInitStateIndex);
+			}
+			codeStream.generateImplicitConversion(this.implicitConversion);
 			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			codeStream.recordPositionsFrom(pc, this.sourceStart);
 			return;
 		}
-		
+
 		BranchLabel trueLabel = new BranchLabel(codeStream), endLabel;
-		cst = left.optimizedBooleanConstant();
+		cst = this.left.optimizedBooleanConstant();
 		boolean leftIsConst = cst != Constant.NotAConstant;
 		boolean leftIsTrue = leftIsConst && cst.booleanValue() == true;
 
-		cst = right.optimizedBooleanConstant();
+		cst = this.right.optimizedBooleanConstant();
 		boolean rightIsConst = cst != Constant.NotAConstant;
 		boolean rightIsTrue = rightIsConst && cst.booleanValue() == true;
 
 		generateOperands : {
 			if (leftIsConst) {
-				left.generateCode(currentScope, codeStream, false);
+				this.left.generateCode(currentScope, codeStream, false);
 				if (leftIsTrue) {
 					break generateOperands; // no need to generate right operand
 				}
 			} else {
-				left.generateOptimizedBoolean(currentScope, codeStream, trueLabel, null, true); 
-				// need value, e.g. if (a == 1 || ((b = 2) > 0)) {} -> shouldn't initialize 'b' if a==1 
+				this.left.generateOptimizedBoolean(currentScope, codeStream, trueLabel, null, true);
+				// need value, e.g. if (a == 1 || ((b = 2) > 0)) {} -> shouldn't initialize 'b' if a==1
 			}
-			if (rightInitStateIndex != -1) {
-				codeStream.addDefinitelyAssignedVariables(currentScope, rightInitStateIndex);
+			if (this.rightInitStateIndex != -1) {
+				codeStream.addDefinitelyAssignedVariables(currentScope, this.rightInitStateIndex);
 			}
 			if (rightIsConst) {
-				right.generateCode(currentScope, codeStream, false);
+				this.right.generateCode(currentScope, codeStream, false);
 			} else {
-				right.generateOptimizedBoolean(currentScope, codeStream, trueLabel, null, valueRequired);
+				this.right.generateOptimizedBoolean(currentScope, codeStream, trueLabel, null, valueRequired);
 			}
 		}
-		if (mergedInitStateIndex != -1) {
-			codeStream.removeNotDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);
+		if (this.mergedInitStateIndex != -1) {
+			codeStream.removeNotDefinitelyAssignedVariables(currentScope, this.mergedInitStateIndex);
 		}
 		/*
 		 * improving code gen for such a case: boolean b = i < 0 || true since
@@ -148,7 +161,7 @@ public class OR_OR_Expression extends BinaryExpression {
 					codeStream.iconst_0();
 				}
 				if (trueLabel.forwardReferenceCount() > 0) {
-					if ((bits & IsReturnedValue) != 0) {
+					if ((this.bits & IsReturnedValue) != 0) {
 						codeStream.generateImplicitConversion(this.implicitConversion);
 						codeStream.generateReturnBytecode(this);
 						trueLabel.place();
@@ -164,7 +177,7 @@ public class OR_OR_Expression extends BinaryExpression {
 					trueLabel.place();
 				}
 			}
-			codeStream.generateImplicitConversion(implicitConversion);
+			codeStream.generateImplicitConversion(this.implicitConversion);
 			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 		} else {
 			trueLabel.place();
@@ -175,28 +188,28 @@ public class OR_OR_Expression extends BinaryExpression {
 	 * Boolean operator code generation Optimized operations are: ||
 	 */
 	public void generateOptimizedBoolean(BlockScope currentScope, CodeStream codeStream, BranchLabel trueLabel, BranchLabel falseLabel, boolean valueRequired) {
-		if (constant != Constant.NotAConstant) {
+		if (this.constant != Constant.NotAConstant) {
 			super.generateOptimizedBoolean(currentScope, codeStream, trueLabel, falseLabel, valueRequired);
 			return;
 		}
 
 		// <expr> || false --> <expr>
-		Constant cst = right.constant;
+		Constant cst = this.right.constant;
 		if (cst != Constant.NotAConstant && cst.booleanValue() == false) {
 			int pc = codeStream.position;
 			this.left.generateOptimizedBoolean(currentScope, codeStream, trueLabel, falseLabel, valueRequired);
-			if (mergedInitStateIndex != -1) {
-				codeStream.removeNotDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);
-			}			
+			if (this.mergedInitStateIndex != -1) {
+				codeStream.removeNotDefinitelyAssignedVariables(currentScope, this.mergedInitStateIndex);
+			}
 			codeStream.recordPositionsFrom(pc, this.sourceStart);
 			return;
 		}
-	
-		cst = left.optimizedBooleanConstant();
+
+		cst = this.left.optimizedBooleanConstant();
 		boolean leftIsConst = cst != Constant.NotAConstant;
 		boolean leftIsTrue = leftIsConst && cst.booleanValue() == true;
 
-		cst = right.optimizedBooleanConstant();
+		cst = this.right.optimizedBooleanConstant();
 		boolean rightIsConst = cst != Constant.NotAConstant;
 		boolean rightIsTrue = rightIsConst && cst.booleanValue() == true;
 
@@ -205,17 +218,17 @@ public class OR_OR_Expression extends BinaryExpression {
 			if (falseLabel == null) {
 				if (trueLabel != null) {
 					// implicit falling through the FALSE case
-					left.generateOptimizedBoolean(currentScope, codeStream, trueLabel, null, !leftIsConst); 
+					this.left.generateOptimizedBoolean(currentScope, codeStream, trueLabel, null, !leftIsConst);
 					// need value, e.g. if (a == 1 || ((b = 2) > 0)) {} -> shouldn't initialize 'b' if a==1
 					if (leftIsTrue) {
 						if (valueRequired) codeStream.goto_(trueLabel);
 						codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 						break generateOperands; // no need to generate right operand
 					}
-					if (rightInitStateIndex != -1) {
-						codeStream.addDefinitelyAssignedVariables(currentScope, rightInitStateIndex);
+					if (this.rightInitStateIndex != -1) {
+						codeStream.addDefinitelyAssignedVariables(currentScope, this.rightInitStateIndex);
 					}
-					right.generateOptimizedBoolean(currentScope, codeStream, trueLabel, null, valueRequired && !rightIsConst);
+					this.right.generateOptimizedBoolean(currentScope, codeStream, trueLabel, null, valueRequired && !rightIsConst);
 					if (valueRequired && rightIsTrue) {
 						codeStream.goto_(trueLabel);
 						codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
@@ -225,17 +238,17 @@ public class OR_OR_Expression extends BinaryExpression {
 				// implicit falling through the TRUE case
 				if (trueLabel == null) {
 					BranchLabel internalTrueLabel = new BranchLabel(codeStream);
-					left.generateOptimizedBoolean(currentScope, codeStream, internalTrueLabel, null, !leftIsConst); 
+					this.left.generateOptimizedBoolean(currentScope, codeStream, internalTrueLabel, null, !leftIsConst);
 					// need value, e.g. if (a == 1 || ((b = 2) > 0)) {} -> shouldn't initialize 'b' if a==1
 					if (leftIsTrue) {
 						internalTrueLabel.place();
 						break generateOperands; // no need to generate right operand
 					}
-					if (rightInitStateIndex != -1) {
+					if (this.rightInitStateIndex != -1) {
 						codeStream
-								.addDefinitelyAssignedVariables(currentScope, rightInitStateIndex);
+								.addDefinitelyAssignedVariables(currentScope, this.rightInitStateIndex);
 					}
-					right.generateOptimizedBoolean(currentScope, codeStream, null, falseLabel, valueRequired && !rightIsConst);
+					this.right.generateOptimizedBoolean(currentScope, codeStream, null, falseLabel, valueRequired && !rightIsConst);
 					if (valueRequired && rightIsConst && !rightIsTrue) {
 						codeStream.goto_(falseLabel);
 						codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
@@ -246,19 +259,33 @@ public class OR_OR_Expression extends BinaryExpression {
 				}
 			}
 		}
-		if (mergedInitStateIndex != -1) {
-			codeStream.removeNotDefinitelyAssignedVariables(currentScope, mergedInitStateIndex);
+		if (this.mergedInitStateIndex != -1) {
+			codeStream.removeNotDefinitelyAssignedVariables(currentScope, this.mergedInitStateIndex);
 		}
 	}
-	
+
 	public boolean isCompactableOperation() {
 		return false;
 	}
 
+	/**
+	 * @see org.eclipse.jdt.internal.compiler.ast.BinaryExpression#resolveType(org.eclipse.jdt.internal.compiler.lookup.BlockScope)
+	 */
+	public TypeBinding resolveType(BlockScope scope) {
+		TypeBinding result = super.resolveType(scope);
+		// check whether comparing identical expressions
+		Binding leftDirect = Expression.getDirectBinding(this.left);
+		if (leftDirect != null && leftDirect == Expression.getDirectBinding(this.right)) {
+			if (!(this.right instanceof Assignment))
+				scope.problemReporter().comparingIdenticalExpressions(this);
+		}
+		return result;
+	}
+
 	public void traverse(ASTVisitor visitor, BlockScope scope) {
 		if (visitor.visit(this, scope)) {
-			left.traverse(visitor, scope);
-			right.traverse(visitor, scope);
+			this.left.traverse(visitor, scope);
+			this.right.traverse(visitor, scope);
 		}
 		visitor.endVisit(this, scope);
 	}

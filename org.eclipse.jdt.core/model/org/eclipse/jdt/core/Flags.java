@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -8,7 +8,7 @@
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     IBM Corporation - added constant AccDefault
- *     IBM Corporation - added constants AccBridge and AccVarargs for J2SE 1.5 
+ *     IBM Corporation - added constants AccBridge and AccVarargs for J2SE 1.5
  *******************************************************************************/
 package org.eclipse.jdt.core;
 
@@ -17,8 +17,7 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 /**
  * Utility class for decoding modifier flags in Java elements.
  * <p>
- * This class provides static methods only; it is not intended to be
- * instantiated or subclassed by clients.
+ * This class provides static methods only.
  * </p>
  * <p>
  * Note that the numeric values of these flags match the ones for class files
@@ -28,6 +27,7 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
  * </p>
  *
  * @see IMember#getFlags()
+ * @noinstantiate This class is not intended to be instantiated by clients.
  */
 public final class Flags {
 
@@ -111,7 +111,7 @@ public final class Flags {
 	 * @since 2.0
 	 */
 	public static final int AccDeprecated = ClassFileConstants.AccDeprecated;
-	
+
 	/**
 	 * Bridge method property flag (added in J2SE 1.5). Used to flag a compiler-generated
 	 * bridge methods.
@@ -158,7 +158,7 @@ public final class Flags {
 		return (flags & AccAbstract) != 0;
 	}
 	/**
-	 * Returns whether the given integer includes the indication that the 
+	 * Returns whether the given integer includes the indication that the
 	 * element is deprecated (<code>@deprecated</code> tag in Javadoc comment).
 	 *
 	 * @param flags the flags
@@ -196,7 +196,7 @@ public final class Flags {
 		return (flags & AccNative) != 0;
 	}
 	/**
-	 * Returns whether the given integer does not include one of the 
+	 * Returns whether the given integer does not include one of the
 	 * <code>public</code>, <code>private</code>, or <code>protected</code> flags.
 	 *
 	 * @param flags the flags
@@ -271,7 +271,7 @@ public final class Flags {
 		return (flags & AccSynchronized) != 0;
 	}
 	/**
-	 * Returns whether the given integer includes the indication that the 
+	 * Returns whether the given integer includes the indication that the
 	 * element is synthetic.
 	 *
 	 * @param flags the flags
@@ -298,7 +298,7 @@ public final class Flags {
 	public static boolean isVolatile(int flags) {
 		return (flags & AccVolatile) != 0;
 	}
-	
+
 	/**
 	 * Returns whether the given integer has the <code>AccBridge</code>
 	 * bit set.
@@ -311,7 +311,7 @@ public final class Flags {
 	public static boolean isBridge(int flags) {
 		return (flags & AccBridge) != 0;
 	}
-	
+
 	/**
 	 * Returns whether the given integer has the <code>AccVarargs</code>
 	 * bit set.
@@ -324,7 +324,7 @@ public final class Flags {
 	public static boolean isVarargs(int flags) {
 		return (flags & AccVarargs) != 0;
 	}
-	
+
 	/**
 	 * Returns whether the given integer has the <code>AccEnum</code>
 	 * bit set.
@@ -337,7 +337,7 @@ public final class Flags {
 	public static boolean isEnum(int flags) {
 		return (flags & AccEnum) != 0;
 	}
-	
+
 	/**
 	 * Returns whether the given integer has the <code>AccAnnotation</code>
 	 * bit set.
@@ -350,7 +350,7 @@ public final class Flags {
 	public static boolean isAnnotation(int flags) {
 		return (flags & AccAnnotation) != 0;
 	}
-	
+
 	/**
 	 * Returns a standard string describing the given modifier flags.
 	 * Only modifier flags are included in the output; deprecated,
@@ -358,14 +358,14 @@ public final class Flags {
 	 * <p>
 	 * The flags are output in the following order:
 	 * <pre>
-	 *   <code>public</code> <code>protected</code> <code>private</code> 
-	 *   <code>static</code> 
+	 *   <code>public</code> <code>protected</code> <code>private</code>
+	 *   <code>static</code>
 	 *   <code>abstract</code> <code>final</code> <code>native</code> <code>synchronized</code> <code>transient</code> <code>volatile</code> <code>strictfp</code>
 	 * </pre>
 	 * This is a compromise between the orders specified in sections 8.1.1,
-	 * 8.3.1, 8.4.3, 8.8.3, 9.1.1, and 9.3 of <em>The Java Language 
+	 * 8.3.1, 8.4.3, 8.8.3, 9.1.1, and 9.3 of <em>The Java Language
 	 * Specification, Second Edition</em> (JLS2).
-	 * </p> 
+	 * </p>
 	 * <p>
 	 * Note that the flags of a method can include the AccVarargs flag that has no standard description. Since the AccVarargs flag has the same value as
 	 * the AccTransient flag (valid for fields only), attempting to get the description of method modifiers with the AccVarargs flag set would result in an

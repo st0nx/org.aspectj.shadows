@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2005, 2007 BEA Systems, Inc.
+ * Copyright (c) 2005, 2008 BEA Systems, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,23 +16,21 @@ package org.eclipse.jdt.core.dom;
  * Represents a resolved instance of an annotation's member value pair.
  * Resolved annotation are computed along with other bindings; these objects
  * correspond to {@link MemberValuePair} nodes.
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
- * 
+ *
  * @since 3.2
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IMemberValuePairBinding extends IBinding {
 /**
  * Returns the name of the annotation type member.
- * 
+ *
  * @return the name of the member
  */
 public String getName();
 
 /**
  * Returns the method binding corresponding to the named annotation type member.
- * 
+ *
  * @return the method binding for the annotation type member
  */
 public IMethodBinding getMethodBinding();
@@ -48,7 +46,7 @@ public IMethodBinding getMethodBinding();
  * <li>array type - an <code>Object[]</code> whose elements are as per above
  * (the language only allows single dimensional arrays in annotations)</li>
  * </ul>
- * 	
+ *
  * @return the resolved value, or <code>null</code> if none exists
  */
 public Object getValue();

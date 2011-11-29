@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -53,15 +53,15 @@ import org.eclipse.jdt.internal.core.util.Messages;
  * 	the creation operation for that element type.
  *
  *    <li>This operation can be used to copy and rename elements within
- *    the same container. 
+ *    the same container.
  *
- *    <li>This operation only copies elements contained within compilation units. 
+ *    <li>This operation only copies elements contained within compilation units.
  * </ul>
  *
  */
 public class CopyElementsOperation extends MultiOperation implements SuffixConstants {
 
-	
+
 	private Map sources = new HashMap();
 /**
  * When executed, this operation will copy the given elements to the
@@ -84,7 +84,7 @@ public CopyElementsOperation(IJavaElement[] elementsToCopy, IJavaElement destCon
  * for progress monitoring.
  */
 protected String getMainTaskName() {
-	return Messages.operation_copyElementProgress; 
+	return Messages.operation_copyElementProgress;
 }
 /**
  * Returns the nested operation to use for processing this element
@@ -188,12 +188,12 @@ protected void processElement(IJavaElement element) throws JavaModelException {
 	}
 
 	if (createElementInCUOperation && isMove() && !isRenamingMainType(element, destination)) {
-		DeleteElementsOperation deleteOp = new DeleteElementsOperation(new IJavaElement[] { element }, this.force);
+		JavaModelOperation deleteOp = new DeleteElementsOperation(new IJavaElement[] { element }, this.force);
 		executeNestedOperation(deleteOp, 1);
 	}
 }
 /**
- * Returns the anchor used for positioning in the destination for 
+ * Returns the anchor used for positioning in the destination for
  * the element being renamed. For renaming, if no anchor has
  * explicitly been provided, the element is anchored in the same position.
  */
@@ -242,7 +242,7 @@ protected IJavaModelStatus verify() {
  *	<li>INVALID_DESTINATION - The destination parent specified for <code>element</code>
  *		is of an incompatible type. The destination for a package declaration or import declaration must
  *		be a compilation unit; the destination for a type must be a type or compilation
- *		unit; the destinaion for any type member (other than a type) must be a type. When
+ *		unit; the destination for any type member (other than a type) must be a type. When
  *		this error occurs, the element provided in the operation status is the <code>element</code>.
  *	<li>INVALID_NAME - the new name for <code>element</code> does not have valid syntax.
  *      In this case the element and name are provided in the status.

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -33,7 +33,6 @@ import org.eclipse.jdt.core.dom.Name;
 import org.eclipse.jdt.core.dom.StructuralPropertyDescriptor;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.internal.core.util.Messages;
-import org.eclipse.jface.text.IDocument;
 
 /**
  * <p>This operation adds an import declaration to an existing compilation unit.
@@ -59,7 +58,7 @@ public class CreateImportOperation extends CreateElementInCUOperation {
 	 * The name of the import to be created.
 	 */
 	protected String importName;
-	
+
 	/*
 	 * The flags of the import to be created (either Flags#AccDefault or Flags#AccStatic)
 	 */
@@ -76,7 +75,7 @@ public CreateImportOperation(String importName, ICompilationUnit parentElement, 
 protected StructuralPropertyDescriptor getChildPropertyDescriptor(ASTNode parent) {
 	return CompilationUnit.IMPORTS_PROPERTY;
 }
-protected ASTNode generateElementAST(ASTRewrite rewriter, IDocument document, ICompilationUnit cu) throws JavaModelException {
+protected ASTNode generateElementAST(ASTRewrite rewriter, ICompilationUnit cu) throws JavaModelException {
 	// ensure no duplicate
 	Iterator imports = this.cuAST.imports().iterator();
 	boolean onDemand = this.importName.endsWith(".*"); //$NON-NLS-1$
@@ -93,7 +92,7 @@ protected ASTNode generateElementAST(ASTRewrite rewriter, IDocument document, IC
 			return null;
 		}
 	}
-	
+
 	AST ast = this.cuAST.getAST();
 	ImportDeclaration importDeclaration = ast.newImportDeclaration();
 	importDeclaration.setStatic(Flags.isStatic(this.flags));
@@ -119,7 +118,7 @@ protected IJavaElement generateResultHandle() {
  * @see CreateElementInCUOperation#getMainTaskName()
  */
 public String getMainTaskName(){
-	return Messages.operation_createImportsProgress; 
+	return Messages.operation_createImportsProgress;
 }
 /**
  * Sets the correct position for the new import:<ul>

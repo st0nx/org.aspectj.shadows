@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -24,6 +24,14 @@ public interface IBinaryType extends IGenericType {
 
 IBinaryAnnotation[] getAnnotations();
 /**
+ * Answer the enclosing method (including method selector and method descriptor), or
+ * null if none.
+ *
+ * For example, "foo()Ljava/lang/Object;V"
+ */
+
+char[] getEnclosingMethod();
+/**
  * Answer the resolved name of the enclosing type in the
  * class file format as specified in section 4.2 of the Java 2 VM spec
  * or null if the receiver is a top level type.
@@ -41,7 +49,7 @@ IBinaryField[] getFields();
  * Answer the receiver's signature which describes the parameter &
  * return types as specified in section 4.4.4 of the Java 2 VM spec 3rd edition.
  * Returns null if none.
- * 
+ *
  * @return the receiver's signature, null if none
  */
 char[] getGenericSignature();
@@ -70,6 +78,12 @@ IBinaryNestedType[] getMemberTypes();
  */
 
 IBinaryMethod[] getMethods();
+
+/**
+ * Answer the list of missing type names which were referenced from
+ * the problem classfile. This list is encoded via an extra attribute.
+ */
+char[][][] getMissingTypeNames();
 
 /**
  * Answer the resolved name of the type in the
@@ -115,7 +129,7 @@ boolean isLocal();
  * Answer true if the receiver is a member class.
  * false otherwise
  */
-boolean isMember(); 
+boolean isMember();
 
 /**
  * Answer the source file attribute, or null if none.

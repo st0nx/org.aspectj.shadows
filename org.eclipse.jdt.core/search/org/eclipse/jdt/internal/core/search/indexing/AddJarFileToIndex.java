@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -22,9 +22,15 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.jdt.core.compiler.InvalidInputException;
+import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.core.search.SearchParticipant;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.parser.Scanner;
+import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.index.Index;
@@ -32,7 +38,10 @@ import org.eclipse.jdt.internal.core.search.JavaSearchDocument;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
 
 class AddJarFileToIndex extends IndexRequest {
+
+	private static final char JAR_SEPARATOR = IJavaSearchScope.JAR_FILE_ENTRY_SEPARATOR.charAt(0);
 	IFile resource;
+	Scanner scanner;
 
 	public AddJarFileToIndex(IFile resource, IndexManager manager) {
 		super(resource.getFullPath(), manager);
@@ -84,6 +93,7 @@ class AddJarFileToIndex extends IndexRequest {
 					org.eclipse.jdt.internal.core.util.Util.verbose("-> index for " + this.containerPath + " just got deleted"); //$NON-NLS-1$//$NON-NLS-2$
 				return true; // index got deleted since acquired
 			}
+			index.separator = JAR_SEPARATOR;
 			ZipFile zip = null;
 			try {
 				// this path will be a relative path to the workspace in case the zipfile in the workspace otherwise it will be a path in the
@@ -91,7 +101,7 @@ class AddJarFileToIndex extends IndexRequest {
 				Path zipFilePath = null;
 
 				monitor.enterWrite(); // ask permission to write
-				if (resource != null) {
+				if (this.resource != null) {
 					URI location = this.resource.getLocationURI();
 					if (location == null) return false;
 					if (JavaModelManager.ZIP_ACCESS_VERBOSE)
@@ -149,7 +159,8 @@ class AddJarFileToIndex extends IndexRequest {
 						// iterate each entry to index it
 						ZipEntry ze = (ZipEntry) e.nextElement();
 						String zipEntryName = ze.getName();
-						if (Util.isClassFileName(zipEntryName))
+						if (Util.isClassFileName(zipEntryName) && isValidPackageNameForClass(zipEntryName))
+								// the class file may not be there if the package name is not valid
 							indexedFileNames.put(zipEntryName, EXISTS);
 					}
 					boolean needToReindex = indexedFileNames.elementSize != max; // a new file was added
@@ -175,12 +186,12 @@ class AddJarFileToIndex extends IndexRequest {
 				// Index the jar for the first time or reindex the jar in case the previous index file has been corrupted
 				// index already existed: recreate it so that we forget about previous entries
 				SearchParticipant participant = SearchEngine.getDefaultSearchParticipant();
-				index = manager.recreateIndex(this.containerPath);
-				if (index == null) {
+				if (!this.manager.resetIndex(this.containerPath)) {
 					// failed to recreate index, see 73330
-					manager.removeIndex(this.containerPath);
+					this.manager.removeIndex(this.containerPath);
 					return false;
 				}
+				index.separator = JAR_SEPARATOR;
 
 				for (Enumeration e = zip.entries(); e.hasMoreElements();) {
 					if (this.isCancelled) {
@@ -191,7 +202,10 @@ class AddJarFileToIndex extends IndexRequest {
 
 					// iterate each entry to index it
 					ZipEntry ze = (ZipEntry) e.nextElement();
-					if (Util.isClassFileName(ze.getName())) {
+					String zipEntryName = ze.getName();
+					if (Util.isClassFileName(zipEntryName) && 
+							isValidPackageNameForClass(zipEntryName)) {
+						// index only classes coming from valid packages - https://bugs.eclipse.org/bugs/show_bug.cgi?id=293861
 						final byte[] classFileBytes = org.eclipse.jdt.internal.compiler.util.Util.getZipEntryByteContent(ze, zip);
 						JavaSearchDocument entryDocument = new JavaSearchDocument(ze, zipFilePath, classFileBytes, participant);
 						this.manager.indexDocument(entryDocument, participant, index, this.containerPath);
@@ -215,10 +229,39 @@ class AddJarFileToIndex extends IndexRequest {
 				org.eclipse.jdt.internal.core.util.Util.verbose("-> failed to index " + this.containerPath + " because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
 				e.printStackTrace();
 			}
-			manager.removeIndex(this.containerPath);
+			this.manager.removeIndex(this.containerPath);
 			return false;
 		}
 		return true;
+	}
+	public String getJobFamily() {
+		if (this.resource != null)
+			return super.getJobFamily();
+		return this.containerPath.toOSString(); // external jar
+	}	
+	private  boolean isValidPackageNameForClass(String className) {
+		char[] classNameArray = className.toCharArray();
+		if (this.scanner == null)
+			this.scanner = new Scanner(false /* comment */, true /* whitespace */, false /* nls */,
+					ClassFileConstants.JDK1_3/* sourceLevel */, null/* taskTag */, null/* taskPriorities */, true /* taskCaseSensitive */);
+		this.scanner.setSource(classNameArray); 
+		this.scanner.eofPosition = classNameArray.length - SuffixConstants.SUFFIX_CLASS.length;
+		try {
+			if (this.scanner.scanIdentifier() == TerminalTokens.TokenNameIdentifier) {
+				while (this.scanner.eofPosition > this.scanner.currentPosition) {
+					if (this.scanner.getNextChar() != '/' || this.scanner.eofPosition <= this.scanner.currentPosition) {
+						return false;
+					}
+					if (this.scanner.scanIdentifier() != TerminalTokens.TokenNameIdentifier) {
+						return false;
+					}
+				}
+				return true;
+			}
+		} catch (InvalidInputException e) {
+			// invalid class name
+		}
+		return false;
 	}
 	protected Integer updatedIndexState() {
 		return IndexManager.REBUILDING_STATE;

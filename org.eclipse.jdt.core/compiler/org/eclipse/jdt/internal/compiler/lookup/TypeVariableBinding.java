@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,6 +7,7 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Stephan Herrmann <stephan@cs.tu-berlin.de> - Contribution for bug 282152 - [1.5][compiler] Generics code rejected by Eclipse but accepted by javac
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
@@ -19,75 +20,73 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
  */
 public class TypeVariableBinding extends ReferenceBinding {
 
-	public Binding declaringElement; // binding of declaring type or method 
+	public Binding declaringElement; // binding of declaring type or method
 	public int rank; // declaration rank, can be used to match variable in parameterized type
 
 	/**
 	 * Denote the first explicit (binding) bound amongst the supertypes (from declaration in source)
 	 * If no superclass was specified, then it denotes the first superinterface, or null if none was specified.
 	 */
-	public TypeBinding firstBound; 
+	public TypeBinding firstBound;
 
 	// actual resolved variable supertypes (if no superclass bound, then associated to Object)
 	public ReferenceBinding superclass;
-	public ReferenceBinding[] superInterfaces; 
+	public ReferenceBinding[] superInterfaces;
 	public char[] genericTypeSignature;
-
-	public TypeVariableBinding(char[] sourceName, Binding declaringElement, int rank) {
+	LookupEnvironment environment;
+	
+	public TypeVariableBinding(char[] sourceName, Binding declaringElement, int rank, LookupEnvironment environment) {
 		this.sourceName = sourceName;
 		this.declaringElement = declaringElement;
 		this.rank = rank;
 		this.modifiers = ClassFileConstants.AccPublic | ExtraCompilerModifiers.AccGenericSignature; // treat type var as public
 		this.tagBits |= TagBits.HasTypeVariable;
+		this.environment = environment;
 	}
 
-	public int kind() {
-		return TYPE_PARAMETER;
-	}	
-	
 	/**
 	 * Returns true if the argument type satisfies all bounds of the type parameter
 	 */
 	public int boundCheck(Substitution substitution, TypeBinding argumentType) {
-
-		if (argumentType == TypeBinding.NULL || argumentType == this)
+		if (argumentType == TypeBinding.NULL || argumentType == this) {
 			return TypeConstants.OK;
+		}
 		boolean hasSubstitution = substitution != null;
 		if (!(argumentType instanceof ReferenceBinding || argumentType.isArrayType()))
-			return TypeConstants.MISMATCH;	
+			return TypeConstants.MISMATCH;
 		// special case for re-entrant source types (selection, code assist, etc)...
 		// can request additional types during hierarchy walk that are found as source types that also 'need' to connect their hierarchy
 		if (this.superclass == null)
 			return TypeConstants.OK;
 
-		if (argumentType.isWildcard() && !argumentType.isIntersectionType()) {
+		if (argumentType.kind() == Binding.WILDCARD_TYPE) {
 			WildcardBinding wildcard = (WildcardBinding) argumentType;
 			switch(wildcard.boundKind) {
 				case Wildcard.EXTENDS :
 					TypeBinding wildcardBound = wildcard.bound;
-					if (wildcardBound == this) 
+					if (wildcardBound == this)
 						return TypeConstants.OK;
-					ReferenceBinding superclassBound = hasSubstitution ? (ReferenceBinding)Scope.substitute(substitution, this.superclass) : this.superclass;
 					boolean isArrayBound = wildcardBound.isArrayType();
 					if (!wildcardBound.isInterface()) {
-						if (superclassBound.id != TypeIds.T_JavaLangObject) {
+						TypeBinding substitutedSuperType = hasSubstitution ? Scope.substitute(substitution, this.superclass) : this.superclass;
+						if (substitutedSuperType.id != TypeIds.T_JavaLangObject) {
 							if (isArrayBound) {
-								if (!wildcardBound.isCompatibleWith(superclassBound))
+								if (!wildcardBound.isCompatibleWith(substitutedSuperType))
 									return TypeConstants.MISMATCH;
 							} else {
-								TypeBinding match = wildcardBound.findSuperTypeWithSameErasure(superclassBound);
+								TypeBinding match = wildcardBound.findSuperTypeOriginatingFrom(substitutedSuperType);
 								if (match != null) {
-									if (!match.isIntersectingWith(superclassBound)) {
+									if (substitutedSuperType.isProvablyDistinct(match)) {
 										return TypeConstants.MISMATCH;
 									}
 								} else {
-									match =  superclassBound.findSuperTypeWithSameErasure(wildcardBound);
+									match =  substitutedSuperType.findSuperTypeOriginatingFrom(wildcardBound);
 									if (match != null) {
-										if (!match.isIntersectingWith(wildcardBound)) {
+										if (match.isProvablyDistinct(wildcardBound)) {
 											return TypeConstants.MISMATCH;
 										}
 									} else {
-										if (!wildcardBound.isTypeVariable() && !superclassBound.isTypeVariable()) {
+										if (!wildcardBound.isTypeVariable() && !substitutedSuperType.isTypeVariable()) {
 											return TypeConstants.MISMATCH;
 										}
 									}
@@ -95,18 +94,16 @@ public class TypeVariableBinding extends ReferenceBinding {
 							}
 						}
 					}
-					ReferenceBinding[] superInterfaceBounds = hasSubstitution ? Scope.substitute(substitution, this.superInterfaces) : this.superInterfaces;
-					int length = superInterfaceBounds.length;
 					boolean mustImplement = isArrayBound || ((ReferenceBinding)wildcardBound).isFinal();
-					for (int i = 0; i < length; i++) {
-						TypeBinding superInterfaceBound = superInterfaceBounds[i];
+					for (int i = 0, length = this.superInterfaces.length; i < length; i++) {
+						TypeBinding substitutedSuperType = hasSubstitution ? Scope.substitute(substitution, this.superInterfaces[i]) : this.superInterfaces[i];
 						if (isArrayBound) {
-							if (!wildcardBound.isCompatibleWith(superInterfaceBound))
+							if (!wildcardBound.isCompatibleWith(substitutedSuperType))
 									return TypeConstants.MISMATCH;
 						} else {
-							TypeBinding match = wildcardBound.findSuperTypeWithSameErasure(superInterfaceBound);
+							TypeBinding match = wildcardBound.findSuperTypeOriginatingFrom(substitutedSuperType);
 							if (match != null) {
-								if (!match.isIntersectingWith(superInterfaceBound)) {
+								if (substitutedSuperType.isProvablyDistinct(match)) {
 									return TypeConstants.MISMATCH;
 								}
 							} else if (mustImplement) {
@@ -116,10 +113,13 @@ public class TypeVariableBinding extends ReferenceBinding {
 
 					}
 					break;
-					
+
 				case Wildcard.SUPER :
+					// if the wildcard is lower-bounded by a type variable that has no relevant upper bound there's nothing to check here (bug 282152):
+					if (wildcard.bound.isTypeVariable() && ((TypeVariableBinding)wildcard.bound).superclass.id == TypeIds.T_JavaLangObject)
+						break;
 					return boundCheck(substitution, wildcard.bound);
-					
+
 				case Wildcard.UNBOUND :
 					break;
 			}
@@ -132,7 +132,7 @@ public class TypeVariableBinding extends ReferenceBinding {
 				if (!argumentType.isCompatibleWith(substitutedSuperType)) {
 				    return TypeConstants.MISMATCH;
 				}
-				TypeBinding match = argumentType.findSuperTypeWithSameErasure(substitutedSuperType);
+				TypeBinding match = argumentType.findSuperTypeOriginatingFrom(substitutedSuperType);
 				if (match != null){
 					// Enum#RAW is not a substitute for <E extends Enum<E>> (86838)
 					if (match.isRawType() && substitutedSuperType.isBoundParameterizedType())
@@ -146,7 +146,7 @@ public class TypeVariableBinding extends ReferenceBinding {
 				if (!argumentType.isCompatibleWith(substitutedSuperType)) {
 				    return TypeConstants.MISMATCH;
 				}
-				TypeBinding match = argumentType.findSuperTypeWithSameErasure(substitutedSuperType);
+				TypeBinding match = argumentType.findSuperTypeOriginatingFrom(substitutedSuperType);
 				if (match != null){
 					// Enum#RAW is not a substitute for <E extends Enum<E>> (86838)
 					if (match.isRawType() && substitutedSuperType.isBoundParameterizedType())
@@ -156,7 +156,17 @@ public class TypeVariableBinding extends ReferenceBinding {
 	    }
 	    return unchecked ? TypeConstants.UNCHECKED : TypeConstants.OK;
 	}
-	
+
+	public int boundsCount() {
+		if (this.firstBound == null) {
+			return 0;
+		} else if (this.firstBound == this.superclass) {
+			return this.superInterfaces.length + 1;
+		} else {
+			return this.superInterfaces.length;
+		}
+	}
+
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding#canBeInstantiated()
 	 */
@@ -172,10 +182,10 @@ public class TypeVariableBinding extends ReferenceBinding {
 	 *   A >> F   corresponds to:   F.collectSubstitutes(..., A, ..., CONSTRAINT_SUPER (2))
 	 */
 	public void collectSubstitutes(Scope scope, TypeBinding actualType, InferenceContext inferenceContext, int constraint) {
-		
+
 		//	only infer for type params of the generic method
 		if (this.declaringElement != inferenceContext.genericMethod) return;
-		
+
 		// cannot infer anything from a null type
 		switch (actualType.kind()) {
 			case Binding.BASE_TYPE :
@@ -185,11 +195,9 @@ public class TypeVariableBinding extends ReferenceBinding {
 				actualType = boxedType;
 				break;
 			case Binding.WILDCARD_TYPE :
-				WildcardBinding actualWildcard = (WildcardBinding) actualType;
-				if (actualWildcard.otherBounds != null) break; // intersection type
 				return; // wildcards are not true type expressions (JLS 15.12.2.7, p.453 2nd discussion)
 		}
-	
+
 		// reverse constraint, to reflect variable on rhs:   A << T --> T >: A
 		int variableConstraint;
 		switch(constraint) {
@@ -206,13 +214,7 @@ public class TypeVariableBinding extends ReferenceBinding {
 		}
 		inferenceContext.recordSubstitute(this, actualType, variableConstraint);
 	}
-	
-	public char[] constantPoolName() { /* java/lang/Object */ 
-	    if (this.firstBound != null) {
-			return this.firstBound.constantPoolName();
-	    }
-	    return this.superclass.constantPoolName(); // java/lang/Object
-	}
+
 	/*
 	 * declaringUniqueKey : genericTypeSignature
 	 * p.X<T> { ... } --> Lp/X;:TT;
@@ -237,7 +239,7 @@ public class TypeVariableBinding extends ReferenceBinding {
 				}
 		} else {
 			buffer.append(declaring.computeUniqueKey(false/*not a leaf*/));
-			buffer.append(':');			
+			buffer.append(':');
 		}
 		buffer.append(genericTypeSignature());
 		int length = buffer.length();
@@ -245,18 +247,24 @@ public class TypeVariableBinding extends ReferenceBinding {
 		buffer.getChars(0, length, uniqueKey, 0);
 		return uniqueKey;
 	}
+	public char[] constantPoolName() { /* java/lang/Object */
+	    if (this.firstBound != null) {
+			return this.firstBound.constantPoolName();
+	    }
+	    return this.superclass.constantPoolName(); // java/lang/Object
+	}
 	/**
 	 * @see org.eclipse.jdt.internal.compiler.lookup.TypeBinding#debugName()
 	 */
 	public String debugName() {
-	    return new String(this.sourceName);		
-	}		
+	    return new String(this.sourceName);
+	}
 	public TypeBinding erasure() {
 	    if (this.firstBound != null) {
 			return this.firstBound.erasure();
 	    }
 	    return this.superclass; // java/lang/Object
-	}	
+	}
 	/**
 	 * T::Ljava/util/Map;:Ljava/io/Serializable;
 	 * T:LY<TT;>
@@ -274,7 +282,7 @@ public class TypeVariableBinding extends ReferenceBinding {
 		}
 		int sigLength = sig.length();
 		char[] genericSignature = new char[sigLength];
-		sig.getChars(0, sigLength, genericSignature, 0);					
+		sig.getChars(0, sigLength, genericSignature, 0);
 		return genericSignature;
 	}
 	/**
@@ -286,11 +294,24 @@ public class TypeVariableBinding extends ReferenceBinding {
 		return this.genericTypeSignature = CharOperation.concat('T', this.sourceName, ';');
 	}
 
+	boolean hasOnlyRawBounds() {
+		if (this.superclass != null && this.firstBound == this.superclass)
+			if (!this.superclass.isRawType())
+				return false;
+
+		if (this.superInterfaces != null)
+			for (int i = 0, l = this.superInterfaces.length; i < l; i++)
+		   		if (!this.superInterfaces[i].isRawType())
+		   			return false;
+
+		return true;
+	}
+
 	/**
 	 * Returns true if the type variable is directly bound to a given type
 	 */
 	public boolean isErasureBoundTo(TypeBinding type) {
-		if (this.superclass.erasure() == type) 
+		if (this.superclass.erasure() == type)
 			return true;
 		for (int i = 0, length = this.superInterfaces.length; i < length; i++) {
 			if (this.superInterfaces[i].erasure() == type)
@@ -298,7 +319,11 @@ public class TypeVariableBinding extends ReferenceBinding {
 		}
 		return false;
 	}
-	
+
+	public boolean isHierarchyConnected() {
+		return (this.modifiers & ExtraCompilerModifiers.AccUnresolved) == 0;
+	}
+
 	/**
 	 * Returns true if the 2 variables are playing exact same role: they have
 	 * the same bounds, providing one is substituted with the other: <T1 extends
@@ -323,7 +348,7 @@ public class TypeVariableBinding extends ReferenceBinding {
 		}
 		return true;
 	}
-	
+
 	/**
 	 * Returns true if the type was declared as a type variable
 	 */
@@ -331,47 +356,69 @@ public class TypeVariableBinding extends ReferenceBinding {
 	    return true;
 	}
 
-	/** 
-	 * Returns the original type variable for a given variable.
-	 * Only different from receiver for type variables of generic methods of parameterized types
-	 * e.g. X<U> {   <V1 extends U> U foo(V1)   } --> X<String> { <V2 extends String> String foo(V2)  }  
-	 *         and V2.original() --> V1
-	 */
-	public TypeVariableBinding original() {
-		if (this.declaringElement.kind() == Binding.METHOD) {
-			MethodBinding originalMethod = ((MethodBinding)this.declaringElement).original();
-			if (originalMethod != this.declaringElement) {
-				return originalMethod.typeVariables[this.rank];
-			}
-		} else {
-			ReferenceBinding originalType = (ReferenceBinding)((ReferenceBinding)this.declaringElement).erasure();
-			if (originalType != this.declaringElement) {
-				return originalType.typeVariables()[this.rank];
-			}
-		}
-		return this;
+//	/**
+//	 * Returns the original type variable for a given variable.
+//	 * Only different from receiver for type variables of generic methods of parameterized types
+//	 * e.g. X<U> {   <V1 extends U> U foo(V1)   } --> X<String> { <V2 extends String> String foo(V2)  }
+//	 *         and V2.original() --> V1
+//	 */
+//	public TypeVariableBinding original() {
+//		if (this.declaringElement.kind() == Binding.METHOD) {
+//			MethodBinding originalMethod = ((MethodBinding)this.declaringElement).original();
+//			if (originalMethod != this.declaringElement) {
+//				return originalMethod.typeVariables[this.rank];
+//			}
+//		} else {
+//			ReferenceBinding originalType = (ReferenceBinding)((ReferenceBinding)this.declaringElement).erasure();
+//			if (originalType != this.declaringElement) {
+//				return originalType.typeVariables()[this.rank];
+//			}
+//		}
+//		return this;
+//	}
+
+	public int kind() {
+		return Binding.TYPE_PARAMETER;
 	}
-	
+
+	public TypeBinding[] otherUpperBounds() {
+		if (this.firstBound == null)
+			return Binding.NO_TYPES;
+		if (this.firstBound == this.superclass)
+			return this.superInterfaces;
+		int otherLength = this.superInterfaces.length - 1;
+		if (otherLength > 0) {
+			TypeBinding[] otherBounds;
+			System.arraycopy(this.superInterfaces, 1, otherBounds = new TypeBinding[otherLength], 0, otherLength);
+			return otherBounds;
+		}
+		return Binding.NO_TYPES;
+	}
+
 	/**
      * @see org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding#readableName()
      */
     public char[] readableName() {
         return this.sourceName;
     }
-   
-	ReferenceBinding resolve(LookupEnvironment environment) {
+	ReferenceBinding resolve() {
 		if ((this.modifiers & ExtraCompilerModifiers.AccUnresolved) == 0)
 			return this;
 
 		TypeBinding oldSuperclass = this.superclass, oldFirstInterface = null;
-		if (this.superclass != null)
-			this.superclass = BinaryTypeBinding.resolveType(this.superclass, environment, true);
+		if (this.superclass != null) {
+			ReferenceBinding resolveType = (ReferenceBinding) BinaryTypeBinding.resolveType(this.superclass, this.environment, true /* raw conversion */);
+			this.tagBits |= resolveType.tagBits & TagBits.ContainsNestedTypeReferences;
+			this.superclass = resolveType;
+		}
 		ReferenceBinding[] interfaces = this.superInterfaces;
 		int length;
 		if ((length = interfaces.length) != 0) {
 			oldFirstInterface = interfaces[0];
 			for (int i = length; --i >= 0;) {
-				interfaces[i] = BinaryTypeBinding.resolveType(interfaces[i], environment, true);
+				ReferenceBinding resolveType = (ReferenceBinding) BinaryTypeBinding.resolveType(interfaces[i], this.environment, true /* raw conversion */);
+				this.tagBits |= resolveType.tagBits & TagBits.ContainsNestedTypeReferences;
+				interfaces[i] = resolveType;
 			}
 		}
 		// refresh the firstBound in case it changed
@@ -385,19 +432,20 @@ public class TypeVariableBinding extends ReferenceBinding {
 		this.modifiers &= ~ExtraCompilerModifiers.AccUnresolved;
 		return this;
 	}
-	
 	/**
      * @see org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding#shortReadableName()
      */
     public char[] shortReadableName() {
-        return this.readableName();
+        return readableName();
     }
 	public ReferenceBinding superclass() {
-		return superclass;
+		return this.superclass;
 	}
+	
 	public ReferenceBinding[] superInterfaces() {
-		return superInterfaces;
-	}	
+		return this.superInterfaces;
+	}
+	
 	/**
 	 * @see java.lang.Object#toString()
 	 */
@@ -420,14 +468,15 @@ public class TypeVariableBinding extends ReferenceBinding {
 		}
 		buffer.append('>');
 		return buffer.toString();
-	}	
+	}
+
 	/**
 	 * Upper bound doesn't perform erasure
 	 */
 	public TypeBinding upperBound() {
-	    if (this.firstBound != null) {
+		if (this.firstBound != null) {
 			return this.firstBound;
-	    }
-	    return this.superclass; // java/lang/Object
+		}
+		return this.superclass; // java/lang/Object
 	}
 }

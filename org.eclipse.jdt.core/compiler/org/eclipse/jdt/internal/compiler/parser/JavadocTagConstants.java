@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,8 @@
  *******************************************************************************/
 
 package org.eclipse.jdt.internal.compiler.parser;
+
+import org.eclipse.jdt.core.compiler.CharOperation;
 
 /**
  * Javadoc tag constants.
@@ -52,7 +54,15 @@ public interface JavadocTagConstants {
 	public static final int TAG_INHERITDOC_LENGTH = TAG_INHERITDOC.length;
 	public static final int TAG_VALUE_LENGTH = TAG_VALUE.length;
 	public static final int TAG_CATEGORY_LENGTH = TAG_CATEGORY.length;
-
+	public static final int TAG_AUTHOR_LENGTH = TAG_AUTHOR.length;
+	public static final int TAG_SERIAL_LENGTH = TAG_SERIAL.length;
+	public static final int TAG_SERIAL_DATA_LENGTH = TAG_SERIAL_DATA.length;
+	public static final int TAG_SERIAL_FIELD_LENGTH = TAG_SERIAL_FIELD.length;
+	public static final int TAG_SINCE_LENGTH = TAG_SINCE.length;
+	public static final int TAG_VERSION_LENGTH = TAG_VERSION.length;
+	public static final int TAG_CODE_LENGTH = TAG_CODE.length;
+	public static final int TAG_LITERAL_LENGTH = TAG_LITERAL.length;
+	public static final int TAG_DOC_ROOT_LENGTH = TAG_DOC_ROOT.length;
 
 	// tags value
 	public static final int NO_TAG_VALUE = 0;
@@ -67,8 +77,42 @@ public interface JavadocTagConstants {
 	public static final int TAG_INHERITDOC_VALUE = 9;
 	public static final int TAG_VALUE_VALUE = 10;
 	public static final int TAG_CATEGORY_VALUE = 11;
+	public static final int TAG_AUTHOR_VALUE = 12;
+	public static final int TAG_SERIAL_VALUE = 13;
+	public static final int TAG_SERIAL_DATA_VALUE = 14;
+	public static final int TAG_SERIAL_FIELD_VALUE = 15;
+	public static final int TAG_SINCE_VALUE = 16;
+	public static final int TAG_VERSION_VALUE = 17;
+	public static final int TAG_CODE_VALUE = 18;
+	public static final int TAG_LITERAL_VALUE = 19;
+	public static final int TAG_DOC_ROOT_VALUE = 20;
 	public static final int TAG_OTHERS_VALUE = 100;
 	
+	// Tag names array
+	public static final char[][] TAG_NAMES = {
+		CharOperation.NO_CHAR,
+		TAG_DEPRECATED,		/* 1 */
+		TAG_PARAM,				/* 2 */
+		TAG_RETURN,				/* 3 */
+		TAG_THROWS,				/* 4 */
+		TAG_EXCEPTION,			/* 5 */
+		TAG_SEE,						/* 6 */
+		TAG_LINK,						/* 7 */
+		TAG_LINKPLAIN,			/* 8 */
+		TAG_INHERITDOC,		/* 9 */
+		TAG_VALUE,					/* 10 */
+		TAG_CATEGORY,			/* 11 */
+		TAG_AUTHOR,				/* 12 */
+		TAG_SERIAL,				/* 13 */
+		TAG_SERIAL_DATA,	/* 14 */
+		TAG_SERIAL_FIELD,	/* 15 */
+		TAG_SINCE,					/* 16 */
+		TAG_VERSION,				/* 17 */
+		TAG_CODE,					/* 18 */
+		TAG_LITERAL,				/* 19 */
+		TAG_DOC_ROOT,			/* 20 */
+	};
+
 	// tags expected positions
 	public final static int ORDERED_TAGS_NUMBER = 3;
 	public final static int PARAM_TAG_EXPECTED_ORDER = 0;
@@ -81,6 +125,8 @@ public interface JavadocTagConstants {
 	public final static int BLOCK_IDX = 0;
 	public final static int INLINE_IDX = 1;
 
+	// href tag
+	public final static char[] HREF_TAG = {'h', 'r', 'e', 'f'};
 	/*
 	 * Tags versions
 	 */
@@ -124,6 +170,33 @@ public interface JavadocTagConstants {
 	public final static int BLOCK_TAGS_LENGTH = BLOCK_TAGS.length;
 	public final static int ALL_TAGS_LENGTH = BLOCK_TAGS_LENGTH+INLINE_TAGS_LENGTH;
 
+	public final static short TAG_TYPE_NONE = 0;
+	public final static short TAG_TYPE_INLINE = 1;
+	public final static short TAG_TYPE_BLOCK = 2;
+	
+	public static final short[] JAVADOC_TAG_TYPE = {
+		TAG_TYPE_NONE, 		// NO_TAG_VALUE = 0;
+		TAG_TYPE_BLOCK,		// TAG_DEPRECATED_VALUE = 1;
+		TAG_TYPE_BLOCK,		// TAG_PARAM_VALUE = 2;
+		TAG_TYPE_BLOCK,		// TAG_RETURN_VALUE = 3;
+		TAG_TYPE_BLOCK,		// TAG_THROWS_VALUE = 4;
+		TAG_TYPE_BLOCK,		// TAG_EXCEPTION_VALUE = 5;
+		TAG_TYPE_BLOCK,		// TAG_SEE_VALUE = 6;
+		TAG_TYPE_INLINE,	// TAG_LINK_VALUE = 7;
+		TAG_TYPE_INLINE,	// TAG_LINKPLAIN_VALUE = 8;
+		TAG_TYPE_INLINE,	// TAG_INHERITDOC_VALUE = 9;
+		TAG_TYPE_INLINE,	// TAG_VALUE_VALUE = 10;
+		TAG_TYPE_BLOCK,		// TAG_CATEGORY_VALUE = 11;
+		TAG_TYPE_BLOCK,		// TAG_AUTHOR_VALUE = 12;
+		TAG_TYPE_BLOCK,		// TAG_SERIAL_VALUE = 13;
+		TAG_TYPE_BLOCK,		// TAG_SERIAL_DATA_VALUE = 14;
+		TAG_TYPE_BLOCK,		// TAG_SERIAL_FIELD_VALUE = 15;
+		TAG_TYPE_BLOCK,		// TAG_SINCE_VALUE = 16;
+		TAG_TYPE_BLOCK,		// TAG_VERSION_VALUE = 17;
+		TAG_TYPE_INLINE,	// TAG_CODE_VALUE = 18;
+		TAG_TYPE_INLINE,	// TAG_LITERAL_VALUE = 19;
+		TAG_TYPE_INLINE		// TAG_DOC_ROOT_VALUE = 20;
+	};
 	/*
 	 * Tags usage
 	 */
@@ -139,6 +212,7 @@ public interface JavadocTagConstants {
 		TAG_DOC_ROOT,
 		TAG_VALUE,
 	};
+	public static final char[][] COMPILATION_UNIT_TAGS = {};
 	public static final char[][] CLASS_TAGS = {
 		TAG_SEE,
 		TAG_SINCE,

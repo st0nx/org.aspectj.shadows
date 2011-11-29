@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -45,11 +45,19 @@ ReferenceBinding resolve(LookupEnvironment environment, boolean convertGenericTo
     ReferenceBinding targetType = this.resolvedType;
 	if (targetType == null) {
 		targetType = this.fPackage.getType0(this.compoundName[this.compoundName.length - 1]);
-		if (targetType == this)
+		if (targetType == this) {
 			targetType = environment.askForType(this.compoundName);
+		}
 		if (targetType == null || targetType == this) { // could not resolve any better, error was already reported against it
+			// report the missing class file first - only if not resolving a previously missing type
+			if ((this.tagBits & TagBits.HasMissingType) == 0) {
+				environment.problemReporter.isClassPathCorrect(
+					this.compoundName,
+					environment.unitBeingCompleted,
+					environment.missingClassFileLocation);
+			}
 			// create a proxy for the missing BinaryType
-			targetType = environment.cacheMissingBinaryType(this.compoundName, null);
+			targetType = environment.createMissingType(null, this.compoundName);
 		}
 		setResolvedType(targetType, environment);
 	}
@@ -71,6 +79,6 @@ void setResolvedType(ReferenceBinding targetType, LookupEnvironment environment)
 	environment.updateCaches(this, targetType);
 }
 public String toString() {
-	return "Unresolved type " + ((compoundName != null) ? CharOperation.toString(compoundName) : "UNNAMED"); //$NON-NLS-1$ //$NON-NLS-2$
+	return "Unresolved type " + ((this.compoundName != null) ? CharOperation.toString(this.compoundName) : "UNNAMED"); //$NON-NLS-1$ //$NON-NLS-2$
 }
 }

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,6 +15,7 @@ import org.eclipse.core.resources.IFile;
 import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
@@ -32,7 +33,7 @@ static class PackageCacheEntry {
 	long lastModified;
 	long fileSize;
 	SimpleSet packageSet;
-	
+
 	PackageCacheEntry(long lastModified, long fileSize, SimpleSet packageSet) {
 		this.lastModified = lastModified;
 		this.fileSize = fileSize;
@@ -96,7 +97,7 @@ ClasspathJar(IFile resource, AccessRuleSet accessRuleSet) {
 		}
 	} catch (CoreException e) {
 		// ignore
-	}	
+	}
 	this.zipFile = null;
 	this.knownPackageNames = null;
 	this.accessRuleSet = accessRuleSet;
@@ -137,7 +138,7 @@ public boolean equals(Object o) {
 	if (this.accessRuleSet != jar.accessRuleSet)
 		if (this.accessRuleSet == null || !this.accessRuleSet.equals(jar.accessRuleSet))
 			return false;
-	return this.zipFilename.equals(jar.zipFilename) && this.lastModified() == jar.lastModified();
+	return this.zipFilename.equals(jar.zipFilename) && lastModified() == jar.lastModified();
 }
 
 public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName) {
@@ -151,7 +152,8 @@ public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPa
 			String fileNameWithoutExtension = qualifiedBinaryFileName.substring(0, qualifiedBinaryFileName.length() - SuffixConstants.SUFFIX_CLASS.length);
 			return new NameEnvironmentAnswer(reader, this.accessRuleSet.getViolatedRestriction(fileNameWithoutExtension.toCharArray()));
 		}
-	} catch (Exception e) { // treat as if class file is missing
+	} catch (IOException e) { // treat as if class file is missing
+	} catch (ClassFormatException e) { // treat as if class file is missing
 	}
 	return null;
 }
@@ -161,6 +163,10 @@ public IPath getProjectRelativePath() {
 	return	this.resource.getProjectRelativePath();
 }
 
+public int hashCode() {
+	return this.zipFilename == null ? super.hashCode() : this.zipFilename.hashCode();
+}
+
 public boolean isPackage(String qualifiedPackageName) {
 	if (this.knownPackageNames != null)
 		return this.knownPackageNames.includes(qualifiedPackageName);
@@ -168,9 +174,9 @@ public boolean isPackage(String qualifiedPackageName) {
 	try {
 		if (this.zipFile == null) {
 			if (org.eclipse.jdt.internal.core.JavaModelManager.ZIP_ACCESS_VERBOSE) {
-				System.out.println("(" + Thread.currentThread() + ") [ClasspathJar.isPackage(String)] Creating ZipFile on " + zipFilename); //$NON-NLS-1$	//$NON-NLS-2$
+				System.out.println("(" + Thread.currentThread() + ") [ClasspathJar.isPackage(String)] Creating ZipFile on " + this.zipFilename); //$NON-NLS-1$	//$NON-NLS-2$
 			}
-			this.zipFile = new ZipFile(zipFilename);
+			this.zipFile = new ZipFile(this.zipFilename);
 			this.closeZipFileAtEnd = true;
 		}
 		this.knownPackageNames = findPackageSet(this);

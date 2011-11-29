@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -17,9 +17,9 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
  * Normal annotation node
  */
 public class NormalAnnotation extends Annotation {
-	
+
 	public MemberValuePair[] memberValuePairs;
-	
+
 	public NormalAnnotation(TypeReference type, int sourceStart) {
 		this.type = type;
 		this.sourceStart = sourceStart;
@@ -57,9 +57,12 @@ public class NormalAnnotation extends Annotation {
 		output.append(')');
 		return output;
 	}
-	
+
 	public void traverse(ASTVisitor visitor, BlockScope scope) {
 		if (visitor.visit(this, scope)) {
+			if (this.type != null) {
+				this.type.traverse(visitor, scope);
+			}
 			if (this.memberValuePairs != null) {
 				int memberValuePairsLength = this.memberValuePairs.length;
 				for (int i = 0; i < memberValuePairsLength; i++)

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,9 +12,8 @@ package org.eclipse.jdt.internal.core.search.matching;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.*;
-import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
-public class QualifiedTypeDeclarationPattern extends TypeDeclarationPattern implements IIndexConstants {
+public class QualifiedTypeDeclarationPattern extends TypeDeclarationPattern {
 
 public char[] qualification;
 PackageDeclarationPattern packagePattern;
@@ -23,11 +22,11 @@ public int packageIndex = -1;
 public QualifiedTypeDeclarationPattern(char[] qualification, char[] simpleName, char typeSuffix, int matchRule) {
 	this(matchRule);
 
-	this.qualification = isCaseSensitive() ? qualification : CharOperation.toLowerCase(qualification);
-	this.simpleName = (isCaseSensitive() || isCamelCase())  ? simpleName : CharOperation.toLowerCase(simpleName);
+	this.qualification = this.isCaseSensitive ? qualification : CharOperation.toLowerCase(qualification);
+	this.simpleName = (this.isCaseSensitive || this.isCamelCase) ? simpleName : CharOperation.toLowerCase(simpleName);
 	this.typeSuffix = typeSuffix;
 
-	((InternalSearchPattern)this).mustResolve = this.qualification != null || typeSuffix != TYPE_SUFFIX;
+	this.mustResolve = this.qualification != null || typeSuffix != TYPE_SUFFIX;
 }
 public QualifiedTypeDeclarationPattern(char[] qualification, int qualificationMatchRule, char[] simpleName, char typeSuffix, int matchRule) {
 	this(qualification, simpleName, typeSuffix, matchRule);
@@ -82,9 +81,9 @@ public SearchPattern getBlankPattern() {
 }
 public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 	QualifiedTypeDeclarationPattern pattern = (QualifiedTypeDeclarationPattern) decodedPattern;
-	
+
 	// check type suffix
-	if (this.typeSuffix != pattern.typeSuffix && typeSuffix != TYPE_SUFFIX) {
+	if (this.typeSuffix != pattern.typeSuffix && this.typeSuffix != TYPE_SUFFIX) {
 		if (!matchDifferentTypeSuffixes(this.typeSuffix, pattern.typeSuffix)) {
 			return false;
 		}
@@ -121,13 +120,13 @@ protected StringBuffer print(StringBuffer output) {
 			output.append("TypeDeclarationPattern: qualification<"); //$NON-NLS-1$
 			break;
 	}
-	if (this.qualification != null) 
+	if (this.qualification != null)
 		output.append(this.qualification);
 	else
 		output.append("*"); //$NON-NLS-1$
 	output.append(">, type<"); //$NON-NLS-1$
-	if (simpleName != null) 
-		output.append(simpleName);
+	if (this.simpleName != null)
+		output.append(this.simpleName);
 	else
 		output.append("*"); //$NON-NLS-1$
 	output.append("> "); //$NON-NLS-1$

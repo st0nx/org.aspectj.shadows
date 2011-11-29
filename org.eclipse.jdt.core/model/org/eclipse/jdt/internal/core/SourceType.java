@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -20,10 +20,7 @@ import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.core.search.SearchEngine;
 import org.eclipse.jdt.internal.codeassist.CompletionEngine;
-import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
-import org.eclipse.jdt.internal.codeassist.SelectionEngine;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
-import org.eclipse.jdt.internal.compiler.env.ISourceType;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
@@ -38,7 +35,7 @@ import org.eclipse.jdt.internal.core.util.Messages;
  */
 
 public class SourceType extends NamedMember implements IType {
-	
+
 protected SourceType(JavaElement parent, String name) {
 	super(parent, name);
 }
@@ -77,30 +74,52 @@ public void codeComplete(char[] snippet,int insertion,int position,char[][] loca
 /**
  * @see IType
  */
+public void codeComplete(char[] snippet,int insertion,int position,char[][] localVariableTypeNames,char[][] localVariableNames,int[] localVariableModifiers,boolean isStatic,CompletionRequestor requestor, IProgressMonitor monitor) throws JavaModelException {
+	codeComplete(snippet, insertion, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic, requestor, DefaultWorkingCopyOwner.PRIMARY, monitor);
+}
+/**
+ * @see IType
+ */
 public void codeComplete(char[] snippet,int insertion,int position,char[][] localVariableTypeNames,char[][] localVariableNames,int[] localVariableModifiers,boolean isStatic,CompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
+	codeComplete(snippet, insertion, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic, requestor, owner, null);
+}
+/**
+ * @see IType
+ */
+public void codeComplete(
+		char[] snippet,
+		int insertion,
+		int position,
+		char[][] localVariableTypeNames,
+		char[][] localVariableNames,
+		int[] localVariableModifiers,
+		boolean isStatic,
+		CompletionRequestor requestor,
+		WorkingCopyOwner owner,
+		IProgressMonitor monitor) throws JavaModelException {
 	if (requestor == null) {
 		throw new IllegalArgumentException("Completion requestor cannot be null"); //$NON-NLS-1$
 	}
-	
+
 	JavaProject project = (JavaProject) getJavaProject();
 	SearchableEnvironment environment = project.newSearchableNameEnvironment(owner);
-	CompletionEngine engine = new CompletionEngine(environment, requestor, project.getOptions(true), project);
+	CompletionEngine engine = new CompletionEngine(environment, requestor, project.getOptions(true), project, owner, monitor);
 
 	String source = getCompilationUnit().getSource();
 	if (source != null && insertion > -1 && insertion < source.length()) {
-		
+
 		char[] prefix = CharOperation.concat(source.substring(0, insertion).toCharArray(), new char[]{'{'});
 		char[] suffix = CharOperation.concat(new char[]{'}'}, source.substring(insertion).toCharArray());
 		char[] fakeSource = CharOperation.concat(prefix, snippet, suffix);
-		
-		BasicCompilationUnit cu = 
+
+		BasicCompilationUnit cu =
 			new BasicCompilationUnit(
-				fakeSource, 
+				fakeSource,
 				null,
 				getElementName(),
 				getParent());
 
-		engine.complete(cu, prefix.length + position, prefix.length);
+		engine.complete(cu, prefix.length + position, prefix.length, null/*extended context isn't computed*/);
 	} else {
 		engine.complete(this, snippet, position, localVariableTypeNames, localVariableNames, localVariableModifiers, isStatic);
 	}
@@ -168,6 +187,10 @@ public IMethod[] findMethods(IMethod method) {
 		return null;
 	}
 }
+public IAnnotation[] getAnnotations() throws JavaModelException {
+	AnnotatableInfo info = (AnnotatableInfo) getElementInfo();
+	return info.annotations;
+}
 public IJavaElement[] getChildrenForCategory(String category) throws JavaModelException {
 	IJavaElement[] children = getChildren();
 	int length = children.length;
@@ -180,7 +203,7 @@ public IJavaElement[] getChildrenForCategory(String category) throws JavaModelEx
 	for (int i = 0; i < length; i++) {
 		IJavaElement child = children[i];
 		String[] elementCategories = (String[]) categories.get(child);
-		if (elementCategories != null) 
+		if (elementCategories != null)
 			for (int j = 0, length2 = elementCategories.length; j < length2; j++) {
 				if (elementCategories[j].equals(category))
 					result[index++] = child;
@@ -278,6 +301,7 @@ public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento,
 				switch (token.charAt(0)) {
 					case JEM_TYPE:
 					case JEM_TYPE_PARAMETER:
+					case JEM_ANNOTATION:
 						break nextParam;
 					case JEM_METHOD:
 						if (!memento.hasMoreTokens()) return this;
@@ -301,6 +325,7 @@ public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento,
 				case JEM_TYPE:
 				case JEM_TYPE_PARAMETER:
 				case JEM_LOCALVARIABLE:
+				case JEM_ANNOTATION:
 					return method.getHandleFromMemento(token, memento, workingCopyOwner);
 				default:
 					return method;
@@ -331,7 +356,11 @@ public IJavaElement getHandleFromMemento(String token, MementoTokenizer memento,
 			String typeParameterName = memento.nextToken();
 			JavaElement typeParameter = new TypeParameter(this, typeParameterName);
 			return typeParameter.getHandleFromMemento(memento, workingCopyOwner);
-			
+		case JEM_ANNOTATION:
+			if (!memento.hasMoreTokens()) return this;
+			String annotationName = memento.nextToken();
+			JavaElement annotation = new Annotation(this, annotationName);
+			return annotation.getHandleFromMemento(memento, workingCopyOwner);
 	}
 	return null;
 }
@@ -610,15 +639,15 @@ public ITypeHierarchy loadTypeHierachy(InputStream input, IProgressMonitor monit
 }
 /**
  * NOTE: This method is not part of the API has it is not clear clients would easily use it: they would need to
- * first make sure all working copies for the given owner exist before calling it. This is especially har at startup 
+ * first make sure all working copies for the given owner exist before calling it. This is especially har at startup
  * time.
  * In case clients want this API, here is how it should be specified:
  * <p>
  * Loads a previously saved ITypeHierarchy from an input stream. A type hierarchy can
  * be stored using ITypeHierachy#store(OutputStream). A compilation unit of a
- * loaded type has the given owner if such a working copy exists, otherwise the type's 
+ * loaded type has the given owner if such a working copy exists, otherwise the type's
  * compilation unit is a primary compilation unit.
- * 
+ *
  * Only hierarchies originally created by the following methods can be loaded:
  * <ul>
  * <li>IType#newSupertypeHierarchy(IProgressMonitor)</li>
@@ -628,12 +657,12 @@ public ITypeHierarchy loadTypeHierachy(InputStream input, IProgressMonitor monit
  * <li>IType#newTypeHierarchy(IProgressMonitor)</li>
  * <li>IType#newTypeHierarchy(WorkingCopyOwner, IProgressMonitor)</li>
  * </u>
- * 
+ *
  * @param input stream where hierarchy will be read
  * @param monitor the given progress monitor
  * @return the stored hierarchy
  * @exception JavaModelException if the hierarchy could not be restored, reasons include:
- *      - type is not the focus of the hierarchy or 
+ *      - type is not the focus of the hierarchy or
  *		- unable to read the input stream (wrong format, IOException during reading, ...)
  * @see ITypeHierarchy#store(java.io.OutputStream, IProgressMonitor)
  * @since 3.0
@@ -708,7 +737,7 @@ public ITypeHierarchy newTypeHierarchy(IJavaProject project, IProgressMonitor mo
  */
 public ITypeHierarchy newTypeHierarchy(IJavaProject project, WorkingCopyOwner owner, IProgressMonitor monitor) throws JavaModelException {
 	if (project == null) {
-		throw new IllegalArgumentException(Messages.hierarchy_nullProject); 
+		throw new IllegalArgumentException(Messages.hierarchy_nullProject);
 	}
 	ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary working copies*/);
 	ICompilationUnit[] projectWCs = null;
@@ -727,9 +756,9 @@ public ITypeHierarchy newTypeHierarchy(IJavaProject project, WorkingCopyOwner ow
 		}
 	}
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(
-		this, 
+		this,
 		projectWCs,
-		project, 
+		project,
 		true);
 	op.runOperation(monitor);
 	return op.getResult();
@@ -738,9 +767,9 @@ public ITypeHierarchy newTypeHierarchy(IJavaProject project, WorkingCopyOwner ow
  * @see IType
  */
 public ITypeHierarchy newTypeHierarchy(IProgressMonitor monitor) throws JavaModelException {
-	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, null, SearchEngine.createWorkspaceScope(), true);
-	op.runOperation(monitor);
-	return op.getResult();
+	// https://bugs.eclipse.org/bugs/show_bug.cgi?id=228845, The new type hierarchy should consider changes in primary
+	// working copy. 
+	return newTypeHierarchy(DefaultWorkingCopyOwner.PRIMARY, monitor);
 }
 /*
  * @see IType#newTypeHierarchy(ICompilationUnit[], IProgressMonitor)
@@ -749,7 +778,7 @@ public ITypeHierarchy newTypeHierarchy(
 	ICompilationUnit[] workingCopies,
 	IProgressMonitor monitor)
 	throws JavaModelException {
-		
+
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, workingCopies, SearchEngine.createWorkspaceScope(), true);
 	op.runOperation(monitor);
 	return op.getResult();
@@ -762,7 +791,7 @@ public ITypeHierarchy newTypeHierarchy(
 	IWorkingCopy[] workingCopies,
 	IProgressMonitor monitor)
 	throws JavaModelException {
-		
+
 	ICompilationUnit[] copies;
 	if (workingCopies == null) {
 		copies = null;
@@ -779,81 +808,16 @@ public ITypeHierarchy newTypeHierarchy(
 	WorkingCopyOwner owner,
 	IProgressMonitor monitor)
 	throws JavaModelException {
-		
+
 	ICompilationUnit[] workingCopies = JavaModelManager.getJavaModelManager().getWorkingCopies(owner, true/*add primary working copies*/);
 	CreateTypeHierarchyOperation op= new CreateTypeHierarchyOperation(this, workingCopies, SearchEngine.createWorkspaceScope(), true);
 	op.runOperation(monitor);
-	return op.getResult();	
+	return op.getResult();
 }
 public JavaElement resolved(Binding binding) {
 	SourceRefElement resolvedHandle = new ResolvedSourceType(this.parent, this.name, new String(binding.computeUniqueKey()));
 	resolvedHandle.occurrenceCount = this.occurrenceCount;
 	return resolvedHandle;
-}
-/**
- * @see IType#resolveType(String)
- */
-public String[][] resolveType(String typeName) throws JavaModelException {
-	return resolveType(typeName, DefaultWorkingCopyOwner.PRIMARY);
-}
-/**
- * @see IType#resolveType(String, WorkingCopyOwner)
- */
-public String[][] resolveType(String typeName, WorkingCopyOwner owner) throws JavaModelException {
-	ISourceType info = (ISourceType) getElementInfo();
-	JavaProject project = (JavaProject) getJavaProject();
-	SearchableEnvironment environment = project.newSearchableNameEnvironment(owner);
-
-	class TypeResolveRequestor implements ISelectionRequestor {
-		String[][] answers = null;
-		public void acceptType(char[] packageName, char[] tName, int modifiers, boolean isDeclaration, char[] uniqueKey, int start, int end) {
-			String[] answer = new String[]  {new String(packageName), new String(tName) };
-			if (this.answers == null) {
-				this.answers = new String[][]{ answer };
-			} else {
-				// grow
-				int length = this.answers.length;
-				System.arraycopy(this.answers, 0, this.answers = new String[length+1][], 0, length);
-				this.answers[length] = answer;
-			}
-		}
-		public void acceptError(CategorizedProblem error) {
-			// ignore
-		}
-		public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] fieldName, boolean isDeclaration, char[] uniqueKey, int start, int end) {
-			// ignore
-		}
-		public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, String enclosingDeclaringTypeSignature, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, String[] parameterSignatures, char[][] typeParameterNames, char[][][] typeParameterBoundNames, boolean isConstructor, boolean isDeclaration, char[] uniqueKey, int start, int end) {
-			// ignore
-		}
-		public void acceptPackage(char[] packageName){
-			// ignore
-		}
-		public void acceptTypeParameter(char[] declaringTypePackageName, char[] declaringTypeName, char[] typeParameterName, boolean isDeclaration, int start, int end) {
-			// ignore
-		}
-		public void acceptMethodTypeParameter(char[] declaringTypePackageName, char[] declaringTypeName, char[] selector, int selectorStart, int selcetorEnd, char[] typeParameterName, boolean isDeclaration, int start, int end) {
-			// ignore
-		}
-
-	}
-	TypeResolveRequestor requestor = new TypeResolveRequestor();
-	SelectionEngine engine = 
-		new SelectionEngine(environment, requestor, project.getOptions(true));
-		
- 	IType[] topLevelTypes = getCompilationUnit().getTypes();
- 	int length = topLevelTypes.length;
- 	SourceTypeElementInfo[] topLevelInfos = new SourceTypeElementInfo[length];
- 	for (int i = 0; i < length; i++) {
-		topLevelInfos[i] = (SourceTypeElementInfo) ((SourceType)topLevelTypes[i]).getElementInfo();
-	}
-		
-	engine.selectType(info, typeName.toCharArray(), topLevelInfos, false);
-	if (NameLookup.VERBOSE) {
-		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
-		System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
-	}
-	return requestor.answers;
 }
 /**
  * @private Debugging purposes
@@ -881,11 +845,11 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean s
 		}
 	} else {
 		try {
-			if (this.isEnum()) {
+			if (isEnum()) {
 				buffer.append("enum "); //$NON-NLS-1$
-			} else if (this.isAnnotation()) {
+			} else if (isAnnotation()) {
 				buffer.append("@interface "); //$NON-NLS-1$
-			} else if (this.isInterface()) {
+			} else if (isInterface()) {
 				buffer.append("interface "); //$NON-NLS-1$
 			} else {
 				buffer.append("class "); //$NON-NLS-1$

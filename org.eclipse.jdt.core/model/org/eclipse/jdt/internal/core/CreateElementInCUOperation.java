@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -9,8 +9,6 @@
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
-
-import java.util.Map;
 
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspace;
@@ -29,8 +27,6 @@ import org.eclipse.jdt.core.dom.StructuralPropertyDescriptor;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.core.dom.rewrite.ListRewrite;
 import org.eclipse.jdt.internal.core.util.Util;
-import org.eclipse.jface.text.BadLocationException;
-import org.eclipse.jface.text.IDocument;
 import org.eclipse.text.edits.TextEdit;
 
 /**
@@ -48,7 +44,7 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 	/**
 	 * The compilation unit AST used for this operation
 	 */
-	protected CompilationUnit cuAST;		
+	protected CompilationUnit cuAST;
 	/**
 	 * A constant meaning to position the new element
 	 * as the last child of its parent element.
@@ -93,19 +89,11 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 		super(null, new IJavaElement[]{parentElement});
 		initializeDefaultPosition();
 	}
-	protected void apply(ASTRewrite rewriter, IDocument document, Map options) throws JavaModelException {
-		TextEdit edits = rewriter.rewriteAST(document, options);
- 		try {
-	 		edits.apply(document);
- 		} catch (BadLocationException e) {
- 			throw new JavaModelException(e, IJavaModelStatusConstants.INVALID_CONTENTS);
- 		}
-	}
 	/**
 	 * Only allow cancelling if this operation is not nested.
 	 */
 	protected void checkCanceled() {
-		if (!isNested) {
+		if (!this.isNested) {
 			super.checkCanceled();
 		}
 	}
@@ -144,12 +132,12 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 				if (!isWorkingCopy)
 					setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE);
 				worked(1);
-				resultElements = generateResultHandles();
+				this.resultElements = generateResultHandles();
 				if (!isWorkingCopy // if unit is working copy, then save will have already fired the delta
 						&& !Util.isExcluded(unit)
 						&& unit.getParent().exists()) {
-					for (int i = 0; i < resultElements.length; i++) {
-						delta.added(resultElements[i]);
+					for (int i = 0; i < this.resultElements.length; i++) {
+						delta.added(this.resultElements[i]);
 					}
 					addDelta(delta);
 				} // else unit is created outside classpath
@@ -159,32 +147,32 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 			done();
 		}
 	}
-	
+
 	/*
 	 * Returns the property descriptor for the element being created.
 	 */
 	protected abstract StructuralPropertyDescriptor getChildPropertyDescriptor(ASTNode parent);
-	
+
 	/*
 	 * Returns an AST node for the element being created.
 	 */
-	protected abstract ASTNode generateElementAST(ASTRewrite rewriter, IDocument document, ICompilationUnit cu) throws JavaModelException;
+	protected abstract ASTNode generateElementAST(ASTRewrite rewriter, ICompilationUnit cu) throws JavaModelException;
 	/*
 	 * Generates a new AST for this operation and applies it to the given cu
 	 */
 	protected void generateNewCompilationUnitAST(ICompilationUnit cu) throws JavaModelException {
 		this.cuAST = parse(cu);
-		
+
 		AST ast = this.cuAST.getAST();
 		ASTRewrite rewriter = ASTRewrite.create(ast);
-		IDocument document = getDocument(cu);
-		ASTNode child = generateElementAST(rewriter, document, cu);
+		ASTNode child = generateElementAST(rewriter, cu);
 		if (child != null) {
 			ASTNode parent = ((JavaElement) getParentElement()).findNode(this.cuAST);
 			if (parent == null)
 				parent = this.cuAST;
 			insertASTNode(rewriter, parent, child);
-			apply(rewriter, document, cu.getJavaProject().getOptions(true));
+			TextEdit edits = rewriter.rewriteAST();
+			applyTextEdit(cu, edits);
 		}
 		worked(1);
 	}
@@ -224,7 +212,7 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 	}
 	/**
 	 * Sets the default position in which to create the new type
-	 * member. 
+	 * member.
 	 * Operations that require a different default position must
 	 * override this method.
 	 */
@@ -233,7 +221,7 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 		// last child of the parent element in which it is created.
 	}
 	/**
-	 * Inserts the given child into the given AST, 
+	 * Inserts the given child into the given AST,
 	 * based on the position settings of this operation.
 	 *
 	 * @see #createAfter(IJavaElement)
@@ -273,7 +261,7 @@ public abstract class CreateElementInCUOperation extends JavaModelOperation {
 		// ensure cu is consistent (noop if already consistent)
 		cu.makeConsistent(this.progressMonitor);
 		// create an AST for the compilation unit
-		ASTParser parser = ASTParser.newParser(AST.JLS3);
+		ASTParser parser = ASTParser.newParser(AST.JLS4);
 		parser.setSource(cu);
 		return (CompilationUnit) parser.createAST(this.progressMonitor);
 	}

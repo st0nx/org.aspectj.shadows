@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,23 +10,27 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
+import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
+import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class FieldDeclaration extends AbstractVariableDeclaration {
-	
+
 	public FieldBinding binding;
 	public Javadoc javadoc;
 
 	//allows to retrieve both the "type" part of the declaration (part1)
 	//and also the part that decribe the name and the init and optionally
-	//some other dimension ! .... 
+	//some other dimension ! ....
 	//public int[] a, b[] = X, c ;
-	//for b that would give for 
+	//for b that would give for
 	// - part1 : public int[]
 	// - part2 : b[] = X,
 
@@ -39,7 +43,7 @@ public FieldDeclaration() {
 
 public FieldDeclaration(	char[] name, int sourceStart, int sourceEnd) {
 	this.name = name;
-	//due to some declaration like 
+	//due to some declaration like
 	// int x, y = 3, z , x ;
 	//the sourceStart and the sourceEnd is ONLY on  the name
 	this.sourceStart = sourceStart;
@@ -47,11 +51,9 @@ public FieldDeclaration(	char[] name, int sourceStart, int sourceEnd) {
 }
 
 public FlowInfo analyseCode(MethodScope initializationScope, FlowContext flowContext, FlowInfo flowInfo) {
-	if (this.binding != null && !this.binding.isUsed()) {
-		if (this.binding.isPrivate() || (this.binding.declaringClass != null && this.binding.declaringClass.isLocalType())) {
-			if (!initializationScope.referenceCompilationUnit().compilationResult.hasSyntaxError) {
-				initializationScope.problemReporter().unusedPrivateField(this);
-			}
+	if (this.binding != null && !this.binding.isUsed() && this.binding.isOrEnclosedByPrivateType()) {
+		if (!initializationScope.referenceCompilationUnit().compilationResult.hasSyntaxError) {
+			initializationScope.problemReporter().unusedPrivateField(this);
 		}
 	}
 	// cannot define static non-constant field inside nested class
@@ -78,7 +80,7 @@ public FlowInfo analyseCode(MethodScope initializationScope, FlowContext flowCon
 
 /**
  * Code generation for a field declaration:
- *	   standard assignment to a field 
+ *	   standard assignment to a field
  *
  * @param currentScope org.eclipse.jdt.internal.compiler.lookup.BlockScope
  * @param codeStream org.eclipse.jdt.internal.compiler.codegen.CodeStream
@@ -92,7 +94,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 	int pc = codeStream.position;
 	boolean isStatic;
 	if (this.initialization != null
-		&& !((isStatic = this.binding.isStatic()) && this.binding.constant() != Constant.NotAConstant)) {
+			&& !((isStatic = this.binding.isStatic()) && this.binding.constant() != Constant.NotAConstant)) {
 		// non-static field, need receiver
 		if (!isStatic)
 			codeStream.aload_0();
@@ -100,9 +102,9 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 		this.initialization.generateCode(currentScope, codeStream, true);
 		// store into field
 		if (isStatic) {
-			codeStream.putstatic(this.binding);
+			codeStream.fieldAccess(Opcodes.OPC_putstatic, this.binding, null /* default declaringClass */);
 		} else {
-			codeStream.putfield(this.binding);
+			codeStream.fieldAccess(Opcodes.OPC_putfield, this.binding, null /* default declaringClass */);
 		}
 	}
 	codeStream.recordPositionsFrom(pc, this.sourceStart);
@@ -136,29 +138,30 @@ public void resolve(MethodScope initializationScope) {
 	//--------------------------------------------------------
 	if ((this.bits & ASTNode.HasBeenResolved) != 0) return;
 	if (this.binding == null || !this.binding.isValidBinding()) return;
-	
+
 	this.bits |= ASTNode.HasBeenResolved;
 
 	// check if field is hiding some variable - issue is that field binding already got inserted in scope
 	// thus must lookup separately in super type and outer context
 	ClassScope classScope = initializationScope.enclosingClassScope();
-	
+
 	if (classScope != null) {
 		checkHiding: {
 			SourceTypeBinding declaringType = classScope.enclosingSourceType();
 			checkHidingSuperField: {
 				if (declaringType.superclass == null) break checkHidingSuperField;
-				Binding existingVariable = classScope.findField(declaringType.superclass, this.name, this,  false /*do not resolve hidden field*/);
+				// https://bugs.eclipse.org/bugs/show_bug.cgi?id=318171, find field skipping visibility checks
+				// we do the checks below ourselves, using the appropriate conditions for access check of
+				// protected members from superclasses.
+				FieldBinding existingVariable = classScope.findField(declaringType.superclass, this.name, this,  false /*do not resolve hidden field*/, true /* no visibility checks please */);
 				if (existingVariable == null) break checkHidingSuperField; // keep checking outer scenario
 				if (!existingVariable.isValidBinding())  break checkHidingSuperField; // keep checking outer scenario
-				if (existingVariable instanceof FieldBinding) {
-					FieldBinding existingField = (FieldBinding) existingVariable;
-					if (existingField.original() == this.binding) break checkHidingSuperField; // keep checking outer scenario
-				}
+				if (existingVariable.original() == this.binding) break checkHidingSuperField; // keep checking outer scenario
+				if (!existingVariable.canBeSeenBy(declaringType, this, initializationScope)) break checkHidingSuperField; // keep checking outer scenario
 				// collision with supertype field
 				initializationScope.problemReporter().fieldHiding(this, existingVariable);
 				break checkHiding; // already found a matching field
-			}					
+			}
 			// only corner case is: lookup of outer field through static declaringType, which isn't detected by #getBinding as lookup starts
 			// from outer scope. Subsequent static contexts are detected for free.
 			Scope outerScope = classScope.parent;
@@ -176,7 +179,7 @@ public void resolve(MethodScope initializationScope) {
 			initializationScope.problemReporter().fieldHiding(this, existingVariable);
 		}
 	}
-	
+
 	if (this.type != null ) { // enum constants have no declared type
 		this.type.resolvedType = this.binding.type; // update binding for type reference
 	}
@@ -193,14 +196,14 @@ public void resolve(MethodScope initializationScope) {
 				&& (this.binding.modifiers & ClassFileConstants.AccDeprecated) != 0
 				&& initializationScope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5) {
 			initializationScope.problemReporter().missingDeprecatedAnnotationForField(this);
-		}						
+		}
 		// the resolution of the initialization hasn't been done
 		if (this.initialization == null) {
 			this.binding.setConstant(Constant.NotAConstant);
 		} else {
 			// break dead-lock cycles by forcing constant to NotAConstant
 			this.binding.setConstant(Constant.NotAConstant);
-			
+
 			TypeBinding fieldType = this.binding.type;
 			TypeBinding initializationType;
 			this.initialization.setExpectedType(fieldType); // needed in case of generic method invocation
@@ -215,28 +218,26 @@ public void resolve(MethodScope initializationScope) {
 				if (fieldType != initializationType) // must call before computeConversion() and typeMismatchError()
 					initializationScope.compilationUnitScope().recordTypeConversion(fieldType, initializationType);
 				if (this.initialization.isConstantValueOfTypeAssignableToType(initializationType, fieldType)
-						|| (fieldType.isBaseType() && BaseTypeBinding.isWidening(fieldType.id, initializationType.id))
 						|| initializationType.isCompatibleWith(fieldType)) {
 					this.initialization.computeConversion(initializationScope, fieldType, initializationType);
 					if (initializationType.needsUncheckedConversion(fieldType)) {
 						    initializationScope.problemReporter().unsafeTypeConversion(this.initialization, initializationType, fieldType);
 					}
-					if (this.initialization instanceof CastExpression 
+					if (this.initialization instanceof CastExpression
 							&& (this.initialization.bits & ASTNode.UnnecessaryCast) == 0) {
 						CastExpression.checkNeedForAssignedCast(initializationScope, fieldType, (CastExpression) this.initialization);
-					}								
-				} else if (initializationScope.isBoxingCompatibleWith(initializationType, fieldType) 
-									|| (initializationType.isBaseType()  // narrowing then boxing ?
-											&& initializationScope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5 // autoboxing
-											&& !fieldType.isBaseType()
-											&& initialization.isConstantValueOfTypeAssignableToType(initializationType, initializationScope.environment().computeBoxingType(fieldType)))) {
+					}
+				} else if (isBoxingCompatible(initializationType, fieldType, this.initialization, initializationScope)) {
 					this.initialization.computeConversion(initializationScope, fieldType, initializationType);
-					if (this.initialization instanceof CastExpression 
+					if (this.initialization instanceof CastExpression
 							&& (this.initialization.bits & ASTNode.UnnecessaryCast) == 0) {
 						CastExpression.checkNeedForAssignedCast(initializationScope, fieldType, (CastExpression) this.initialization);
-					}							
+					}
 				} else {
-					initializationScope.problemReporter().typeMismatchError(initializationType, fieldType, this);
+					if ((fieldType.tagBits & TagBits.HasMissingType) == 0) {
+						// if problem already got signaled on type, do not report secondary problem
+						initializationScope.problemReporter().typeMismatchError(initializationType, fieldType, this.initialization, null);
+					}
 				}
 				if (this.binding.isFinal()){ // cast from constant actual type to variable type
 					this.binding.setConstant(this.initialization.constant.castTo((this.binding.type.id << 4) + this.initialization.constant.typeID()));
@@ -245,20 +246,25 @@ public void resolve(MethodScope initializationScope) {
 				this.binding.setConstant(Constant.NotAConstant);
 			}
 			// check for assignment with no effect
-			if (this.binding == Assignment.getDirectBinding(this.initialization)) {
+			if (this.binding == Expression.getDirectBinding(this.initialization)) {
 				initializationScope.problemReporter().assignmentHasNoEffect(this, this.name);
-			}					
+			}
 		}
 		// Resolve Javadoc comment if one is present
 		if (this.javadoc != null) {
-			/*
-			if (classScope != null) {
-				this.javadoc.resolve(classScope);
-			}
-			*/
 			this.javadoc.resolve(initializationScope);
-		} else if (this.binding.declaringClass != null && !this.binding.declaringClass.isLocalType()) {
-			initializationScope.problemReporter().javadocMissing(this.sourceStart, this.sourceEnd, this.binding.modifiers);
+		} else if (this.binding != null && this.binding.declaringClass != null && !this.binding.declaringClass.isLocalType()) {
+			// Set javadoc visibility
+			int javadocVisibility = this.binding.modifiers & ExtraCompilerModifiers.AccVisibilityMASK;
+			ProblemReporter reporter = initializationScope.problemReporter();
+			int severity = reporter.computeSeverity(IProblem.JavadocMissing);
+			if (severity != ProblemSeverities.Ignore) {
+				if (classScope != null) {
+					javadocVisibility = Util.computeOuterMostVisibility(classScope.referenceType(), javadocVisibility);
+				}
+				int javadocModifiers = (this.binding.modifiers & ~ExtraCompilerModifiers.AccVisibilityMASK) | javadocVisibility;
+				reporter.javadocMissing(this.sourceStart, this.sourceEnd, severity, javadocModifiers);
+			}
 		}
 	} finally {
 		initializationScope.initializedField = previousField;

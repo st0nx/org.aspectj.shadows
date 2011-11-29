@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2005, 2007 BEA Systems, Inc.
+ * Copyright (c) 2005, 2011 BEA Systems, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,6 +10,7 @@
  *    IBM Corporation - implemented methods from IBinding
  *    IBM Corporation - renamed from ResolvedMemberValuePair to MemberValuePairBinding
  *    jgarms@bea.com - Fix for IllegalStateException
+ *    IBM Corporation - Fix for 223225
  *******************************************************************************/
 package org.eclipse.jdt.core.dom;
 
@@ -72,7 +73,8 @@ class MemberValuePairBinding implements IMemberValuePairBinding {
 					return new Long(constant.longValue());
 				case TypeIds.T_short:
 					return new Short(constant.shortValue());
-				case TypeIds.T_JavaLangString:
+				default:
+					// TypeIds.T_JavaLangString:
 					return constant.stringValue();
 			}
 		} else if (internalObject instanceof org.eclipse.jdt.internal.compiler.lookup.TypeBinding) {
@@ -130,15 +132,19 @@ class MemberValuePairBinding implements IMemberValuePairBinding {
 	}
 
 	public Object getValue() {
-		if (value == null)
+		if (this.value == null)
 			init();
-		return value == NoValue ? null : this.value;
+		return this.value == NoValue ? null : this.value;
 	}
 
 	private void init() {
 		this.value = buildDOMValue(this.internalPair.getValue(), this.bindingResolver);
 		if (this.value == null)
 			this.value = NoValue;
+		IMethodBinding methodBinding = getMethodBinding();
+		if (methodBinding.getReturnType().isArray() && !this.value.getClass().isArray()) {
+			this.value = new Object[] { this.value }; 
+		}
 	}
 
 	char[] internalName() {
@@ -168,11 +174,11 @@ class MemberValuePairBinding implements IMemberValuePairBinding {
 			return true;
 		if (binding.getKind() != IBinding.MEMBER_VALUE_PAIR)
 			return false;
-		IMemberValuePairBinding other = (IMemberValuePairBinding) binding;
-		if (!getMethodBinding().isEqualTo(other.getMethodBinding())) {
+		IMemberValuePairBinding otherMemberValuePairBinding = (IMemberValuePairBinding) binding;
+		if (!getMethodBinding().isEqualTo(otherMemberValuePairBinding.getMethodBinding())) {
 			return false;
 		}
-		Object otherValue = other.getValue();
+		Object otherValue = otherMemberValuePairBinding.getValue();
 		Object currentValue = getValue();
 		if (currentValue == null) {
 			return otherValue == null;
@@ -183,7 +189,34 @@ class MemberValuePairBinding implements IMemberValuePairBinding {
 			}
 			return false;
 		}
-		return currentValue.equals(otherValue);
+		if (currentValue.getClass().isArray()) {
+			if (!otherValue.getClass().isArray()) {
+				return false;
+			}
+			Object[] currentValues = (Object[]) currentValue;
+			Object[] otherValues = (Object[]) otherValue;
+			final int length = currentValues.length;
+			if (length != otherValues.length) {
+				return false;
+			}
+			for (int i = 0; i < length; i++) {
+				Object current = currentValues[i];
+				Object other = otherValues[i];
+				if (current instanceof IBinding) {
+					if (!(other instanceof IBinding)) {
+						return false;
+					}
+					if (!((IBinding) current).isEqualTo((IBinding) other)) {
+						return false;
+					}
+				} else if (!current.equals(other)) {
+					return false;
+				}
+			}
+			return true;
+		} else {
+			return currentValue.equals(otherValue);
+		}
 	}
 
 	/*

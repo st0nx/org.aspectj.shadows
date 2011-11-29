@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -20,10 +20,11 @@ import java.util.Map;
  * Infix expression AST node type.
  * <pre>
  * InfixExpression:
- *    Expression InfixOperator Expression { InfixOperator Expression } 
+ *    Expression InfixOperator Expression { InfixOperator Expression }
  * </pre>
- * 
+ *
  * @since 2.0
+ * @noinstantiate This class is not intended to be instantiated by clients.
  */
 public class InfixExpression extends Expression {
 
@@ -53,34 +54,34 @@ public class InfixExpression extends Expression {
 	 * </pre>
 	 */
 	public static class Operator {
-	
+
 		/**
 		 * The token for the operator.
 		 */
 		private String token;
-		
+
 		/**
 		 * Creates a new infix operator with the given token.
 		 * <p>
 		 * Note: this constructor is private. The only instances
 		 * ever created are the ones for the standard operators.
 		 * </p>
-		 * 
+		 *
 		 * @param token the character sequence for the operator
 		 */
 		private Operator(String token) {
 			this.token = token;
 		}
-		
+
 		/**
 		 * Returns the character sequence for the operator.
-		 * 
+		 *
 		 * @return the character sequence for the operator
 		 */
 		public String toString() {
-			return token;
+			return this.token;
 		}
-		
+
 		/** Multiplication "*" operator. */
 		public static final Operator TIMES = new Operator("*");//$NON-NLS-1$
 		/** Division "/" operator. */
@@ -96,7 +97,7 @@ public class InfixExpression extends Expression {
 		/** Signed right shift "&gt;&gt;" operator. */
 		public static final Operator RIGHT_SHIFT_SIGNED = new Operator(">>");//$NON-NLS-1$
 		/** Unsigned right shift "&gt;&gt;&gt;" operator. */
-		public static final Operator RIGHT_SHIFT_UNSIGNED = 
+		public static final Operator RIGHT_SHIFT_UNSIGNED =
 			new Operator(">>>");//$NON-NLS-1$
 		/** Less than "&lt;" operator. */
 		public static final Operator LESS = new Operator("<");//$NON-NLS-1$
@@ -120,7 +121,7 @@ public class InfixExpression extends Expression {
 		public static final Operator CONDITIONAL_OR = new Operator("||");//$NON-NLS-1$
 		/** Conditional AND "&amp;&amp;" operator. */
 		public static final Operator CONDITIONAL_AND = new Operator("&&");//$NON-NLS-1$
-		
+
 		/**
 		 * Map from token to operator (key type: <code>String</code>;
 		 * value type: <code>Operator</code>).
@@ -159,54 +160,54 @@ public class InfixExpression extends Expression {
 		 * or <code>null</code> if none.
 		 * <p>
 		 * <code>toOperator</code> is the converse of <code>toString</code>:
-		 * that is, <code>Operator.toOperator(op.toString()) == op</code> for 
+		 * that is, <code>Operator.toOperator(op.toString()) == op</code> for
 		 * all operators <code>op</code>.
 		 * </p>
-		 * 
+		 *
 		 * @param token the character sequence for the operator
 		 * @return the infix operator, or <code>null</code> if none
 		 */
 		public static Operator toOperator(String token) {
 			return (Operator) CODES.get(token);
 		}
-		
+
 	}
-	
+
 	/**
-	 * The "leftOperand" structural property of this node type.
+	 * The "leftOperand" structural property of this node type (child type: {@link Expression}).
 	 * @since 3.0
 	 */
-	public static final ChildPropertyDescriptor LEFT_OPERAND_PROPERTY = 
+	public static final ChildPropertyDescriptor LEFT_OPERAND_PROPERTY =
 		new ChildPropertyDescriptor(InfixExpression.class, "leftOperand", Expression.class, MANDATORY, CYCLE_RISK); //$NON-NLS-1$
 
 	/**
-	 * The "operator" structural property of this node type.
+	 * The "operator" structural property of this node type (type: {@link InfixExpression.Operator}).
 	 * @since 3.0
 	 */
-	public static final SimplePropertyDescriptor OPERATOR_PROPERTY = 
+	public static final SimplePropertyDescriptor OPERATOR_PROPERTY =
 		new SimplePropertyDescriptor(InfixExpression.class, "operator", InfixExpression.Operator.class, MANDATORY); //$NON-NLS-1$
-	
+
 	/**
-	 * The "rightOperand" structural property of this node type.
+	 * The "rightOperand" structural property of this node type (child type: {@link Expression}).
 	 * @since 3.0
 	 */
-	public static final ChildPropertyDescriptor RIGHT_OPERAND_PROPERTY = 
+	public static final ChildPropertyDescriptor RIGHT_OPERAND_PROPERTY =
 		new ChildPropertyDescriptor(InfixExpression.class, "rightOperand", Expression.class, MANDATORY, CYCLE_RISK); //$NON-NLS-1$
 
 	/**
-	 * The "extendedOperands" structural property of this node type.
+	 * The "extendedOperands" structural property of this node type (element type: {@link Expression}).
 	 * @since 3.0
 	 */
-	public static final ChildListPropertyDescriptor EXTENDED_OPERANDS_PROPERTY = 
+	public static final ChildListPropertyDescriptor EXTENDED_OPERANDS_PROPERTY =
 		new ChildListPropertyDescriptor(InfixExpression.class, "extendedOperands", Expression.class, CYCLE_RISK); //$NON-NLS-1$
 
 	/**
-	 * A list of property descriptors (element type: 
+	 * A list of property descriptors (element type:
 	 * {@link StructuralPropertyDescriptor}),
 	 * or null if uninitialized.
 	 */
 	private static final List PROPERTY_DESCRIPTORS;
-	
+
 	static {
 		List properyList = new ArrayList(5);
 		createPropertyList(InfixExpression.class, properyList);
@@ -220,18 +221,18 @@ public class InfixExpression extends Expression {
 	/**
 	 * Returns a list of structural property descriptors for this node type.
 	 * Clients must not modify the result.
-	 * 
+	 *
 	 * @param apiLevel the API level; one of the
 	 * <code>AST.JLS*</code> constants
 
-	 * @return a list of property descriptors (element type: 
+	 * @return a list of property descriptors (element type:
 	 * {@link StructuralPropertyDescriptor})
 	 * @since 3.0
 	 */
 	public static List propertyDescriptors(int apiLevel) {
 		return PROPERTY_DESCRIPTORS;
 	}
-			
+
 	/**
 	 * The infix operator; defaults to InfixExpression.Operator.PLUS.
 	 */
@@ -250,16 +251,16 @@ public class InfixExpression extends Expression {
 	private Expression rightOperand = null;
 
 	/**
-	 * The list of extended operand expressions (element type: 
-	 * <code>Expression</code>). Lazily initialized; defaults to an empty list.
+	 * The list of extended operand expressions (element type:
+	 * {@link Expression}). Lazily initialized; defaults to an empty list.
 	 */
 	private ASTNode.NodeList extendedOperands = null;
 
 	/**
-	 * Creates a new AST node for an infix expression owned by the given 
+	 * Creates a new AST node for an infix expression owned by the given
 	 * AST. By default, the node has unspecified (but legal) operator,
 	 * left and right operands, and an empty list of additional operands.
-	 * 
+	 *
 	 * @param ast the AST that is to own this node
 	 */
 	InfixExpression(AST ast) {
@@ -272,7 +273,7 @@ public class InfixExpression extends Expression {
 	final List internalStructuralPropertiesForType(int apiLevel) {
 		return propertyDescriptors(apiLevel);
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
@@ -312,7 +313,7 @@ public class InfixExpression extends Expression {
 		// allow default implementation to flag the error
 		return super.internalGetSetChildProperty(property, get, child);
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
@@ -336,14 +337,14 @@ public class InfixExpression extends Expression {
 	 */
 	ASTNode clone0(AST target) {
 		InfixExpression result = new InfixExpression(target);
-		result.setSourceRange(this.getStartPosition(), this.getLength());
+		result.setSourceRange(getStartPosition(), getLength());
 		result.setOperator(getOperator());
 		result.setLeftOperand((Expression) getLeftOperand().clone(target));
 		result.setRightOperand((Expression) getRightOperand().clone(target));
 		if (this.extendedOperands != null) {
 			// be careful not to trigger lazy creation of list
 			result.extendedOperands().addAll(
-				ASTNode.copySubtrees(target, this.extendedOperands()));
+				ASTNode.copySubtrees(target, extendedOperands()));
 		}
 		return result;
 	}
@@ -372,22 +373,22 @@ public class InfixExpression extends Expression {
 		}
 		visitor.endVisit(this);
 	}
-	
+
 	/**
 	 * Returns the operator of this infix expression.
-	 * 
+	 *
 	 * @return the infix operator
-	 */ 
+	 */
 	public InfixExpression.Operator getOperator() {
 		return this.operator;
 	}
 
 	/**
 	 * Sets the operator of this infix expression.
-	 * 
+	 *
 	 * @param operator the infix operator
 	 * @exception IllegalArgumentException if the argument is incorrect
-	 */ 
+	 */
 	public void setOperator(InfixExpression.Operator operator) {
 		if (operator == null) {
 			throw new IllegalArgumentException();
@@ -399,9 +400,9 @@ public class InfixExpression extends Expression {
 
 	/**
 	 * Returns the left operand of this infix expression.
-	 * 
+	 *
 	 * @return the left operand node
-	 */ 
+	 */
 	public Expression getLeftOperand() {
 		if (this.leftOperand  == null) {
 			// lazy init must be thread-safe for readers
@@ -415,10 +416,10 @@ public class InfixExpression extends Expression {
 		}
 		return this.leftOperand;
 	}
-		
+
 	/**
 	 * Sets the left operand of this infix expression.
-	 * 
+	 *
 	 * @param expression the left operand node
 	 * @exception IllegalArgumentException if:
 	 * <ul>
@@ -426,7 +427,7 @@ public class InfixExpression extends Expression {
 	 * <li>the node already has a parent</li>
 	 * <li>a cycle in would be created</li>
 	 * </ul>
-	 */ 
+	 */
 	public void setLeftOperand(Expression expression) {
 		if (expression == null) {
 			throw new IllegalArgumentException();
@@ -439,9 +440,9 @@ public class InfixExpression extends Expression {
 
 	/**
 	 * Returns the right operand of this infix expression.
-	 * 
+	 *
 	 * @return the right operand node
-	 */ 
+	 */
 	public Expression getRightOperand() {
 		if (this.rightOperand  == null) {
 			// lazy init must be thread-safe for readers
@@ -455,10 +456,10 @@ public class InfixExpression extends Expression {
 		}
 		return this.rightOperand;
 	}
-		
+
 	/**
 	 * Sets the right operand of this infix expression.
-	 * 
+	 *
 	 * @param expression the right operand node
 	 * @exception IllegalArgumentException if:
 	 * <ul>
@@ -466,7 +467,7 @@ public class InfixExpression extends Expression {
 	 * <li>the node already has a parent</li>
 	 * <li>a cycle in would be created</li>
 	 * </ul>
-	 */ 
+	 */
 	public void setRightOperand(Expression expression) {
 		if (expression == null) {
 			throw new IllegalArgumentException();
@@ -476,24 +477,24 @@ public class InfixExpression extends Expression {
 		this.rightOperand = expression;
 		postReplaceChild(oldChild, expression, RIGHT_OPERAND_PROPERTY);
 	}
-	
+
 	/**
 	 * Returns where there are any extended operands.
-	 * 
+	 *
 	 * @return <code>true</code> if there are one or more extended operands,
 	 *    and <code>false</code> if there are no extended operands
 	 */
 	public boolean hasExtendedOperands() {
-		return 
+		return
 			(this.extendedOperands != null) && this.extendedOperands.size() > 0;
 	}
-	
+
 	/**
 	 * Returns the live list of extended operands.
 	 * <p>
 	 * The extended operands is the preferred way of representing deeply nested
 	 * expressions of the form <code>L op R op R2 op R3...</code> where
-	 * the same operator appears between all the operands (the most 
+	 * the same operator appears between all the operands (the most
 	 * common case being lengthy string concatenation expressions). Using
 	 * the extended operands keeps the trees from getting too deep; this
 	 * decreases the risk is running out of thread stack space at runtime
@@ -504,9 +505,9 @@ public class InfixExpression extends Expression {
 	 * 	extendedOperands: {c, d}
 	 * 	operator: +
 	 * </p>
-	 * 
+	 *
 	 * @return the live list of extended operands
-	 *   (element type: <code>Expression</code>)
+	 *   (element type: {@link Expression})
 	 */
 	public List extendedOperands() {
 		if (this.extendedOperands == null) {
@@ -523,15 +524,15 @@ public class InfixExpression extends Expression {
 		// treat Operator as free
 		return BASE_NODE_SIZE + 4 * 4;
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
 	int treeSize() {
-		return 
+		return
 			memSize()
 			+ (this.leftOperand == null ? 0 : getLeftOperand().treeSize())
 			+ (this.rightOperand == null ? 0 : getRightOperand().treeSize())
-			+ (this.extendedOperands == null ? 0 : extendedOperands.listSize());
+			+ (this.extendedOperands == null ? 0 : this.extendedOperands.listSize());
 	}
 }

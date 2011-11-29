@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,7 +11,7 @@
 package org.eclipse.jdt.internal.compiler.parser;
 
 /**
- * Internal structure for parsing recovery 
+ * Internal structure for parsing recovery
  */
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
@@ -37,14 +37,22 @@ public RecoveredElement(RecoveredElement parent, int bracketBalance, Parser pars
 	this.bracketBalance = bracketBalance;
 	this.recoveringParser = parser;
 }
+public RecoveredElement addAnnotationName(int identifierPtr, int identifierLengthPtr, int annotationStart, int bracketBalanceValue) {
+	/* default behavior is to delegate recording to parent if any */
+	resetPendingModifiers();
+	if (this.parent == null) return this; // ignore
+	this.updateSourceEndIfNecessary(previousAvailableLineEnd(annotationStart - 1));
+	return this.parent.addAnnotationName(identifierPtr, identifierLengthPtr, annotationStart, bracketBalanceValue);
+}
 /*
  *	Record a method declaration
  */
 public RecoveredElement add(AbstractMethodDeclaration methodDeclaration, int bracketBalanceValue) {
 
 	/* default behavior is to delegate recording to parent if any */
+	resetPendingModifiers();
 	if (this.parent == null) return this; // ignore
-	this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(methodDeclaration.declarationSourceStart - 1));	
+	this.updateSourceEndIfNecessary(previousAvailableLineEnd(methodDeclaration.declarationSourceStart - 1));
 	return this.parent.add(methodDeclaration, bracketBalanceValue);
 }
 /*
@@ -53,8 +61,9 @@ public RecoveredElement add(AbstractMethodDeclaration methodDeclaration, int bra
 public RecoveredElement add(Block nestedBlockDeclaration, int bracketBalanceValue) {
 
 	/* default behavior is to delegate recording to parent if any */
+	resetPendingModifiers();
 	if (this.parent == null) return this; // ignore
-	this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(nestedBlockDeclaration.sourceStart - 1));	
+	this.updateSourceEndIfNecessary(previousAvailableLineEnd(nestedBlockDeclaration.sourceStart - 1));
 	return this.parent.add(nestedBlockDeclaration, bracketBalanceValue);
 }
 /*
@@ -63,8 +72,9 @@ public RecoveredElement add(Block nestedBlockDeclaration, int bracketBalanceValu
 public RecoveredElement add(FieldDeclaration fieldDeclaration, int bracketBalanceValue) {
 
 	/* default behavior is to delegate recording to parent if any */
+	resetPendingModifiers();
 	if (this.parent == null) return this; // ignore
-	this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(fieldDeclaration.declarationSourceStart - 1));	
+	this.updateSourceEndIfNecessary(previousAvailableLineEnd(fieldDeclaration.declarationSourceStart - 1));
 	return this.parent.add(fieldDeclaration, bracketBalanceValue);
 }
 /*
@@ -73,8 +83,9 @@ public RecoveredElement add(FieldDeclaration fieldDeclaration, int bracketBalanc
 public RecoveredElement add(ImportReference importReference, int bracketBalanceValue){
 
 	/* default behavior is to delegate recording to parent if any */
+	resetPendingModifiers();
 	if (this.parent == null) return this; // ignore
-	this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(importReference.declarationSourceStart - 1));	
+	this.updateSourceEndIfNecessary(previousAvailableLineEnd(importReference.declarationSourceStart - 1));
 	return this.parent.add(importReference, bracketBalanceValue);
 }
 /*
@@ -83,8 +94,9 @@ public RecoveredElement add(ImportReference importReference, int bracketBalanceV
 public RecoveredElement add(LocalDeclaration localDeclaration, int bracketBalanceValue) {
 
 	/* default behavior is to delegate recording to parent if any */
+	resetPendingModifiers();
 	if (this.parent == null) return this; // ignore
-	this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(localDeclaration.declarationSourceStart - 1));	
+	this.updateSourceEndIfNecessary(previousAvailableLineEnd(localDeclaration.declarationSourceStart - 1));
 	return this.parent.add(localDeclaration, bracketBalanceValue);
 }
 /*
@@ -93,8 +105,9 @@ public RecoveredElement add(LocalDeclaration localDeclaration, int bracketBalanc
 public RecoveredElement add(Statement statement, int bracketBalanceValue) {
 
 	/* default behavior is to delegate recording to parent if any */
+	resetPendingModifiers();
 	if (this.parent == null) return this; // ignore
-	this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(statement.sourceStart - 1));	
+	this.updateSourceEndIfNecessary(previousAvailableLineEnd(statement.sourceStart - 1));
 	return this.parent.add(statement, bracketBalanceValue);
 }
 /*
@@ -103,8 +116,9 @@ public RecoveredElement add(Statement statement, int bracketBalanceValue) {
 public RecoveredElement add(TypeDeclaration typeDeclaration, int bracketBalanceValue){
 
 	/* default behavior is to delegate recording to parent if any */
+	resetPendingModifiers();
 	if (this.parent == null) return this; // ignore
-	this.updateSourceEndIfNecessary(this.previousAvailableLineEnd(typeDeclaration.declarationSourceStart - 1));	
+	this.updateSourceEndIfNecessary(previousAvailableLineEnd(typeDeclaration.declarationSourceStart - 1));
 	return this.parent.add(typeDeclaration, bracketBalanceValue);
 }
 protected void addBlockStatement(RecoveredBlock recoveredBlock) {
@@ -115,6 +129,9 @@ protected void addBlockStatement(RecoveredBlock recoveredBlock) {
 			recoveredBlock.add(statements[i], 0);
 		}
 	}
+}
+public void addModifier(int flag, int modifiersSourceStart) {
+	// default implementation: do nothing
 }
 /*
  * Answer the depth of this element, considering the parent link.
@@ -177,11 +194,15 @@ public Parser parser(){
 	}
 	return null;
 }
-/* 
+/*
  * Answer the associated parsed structure
  */
 public ASTNode parseTree(){
 	return null;
+}
+public void resetPendingModifiers() {
+	// default implementation: do nothing
+	// recovered elements which have pending modifiers must override this method
 }
 /*
  * Iterate the enclosing blocks and tag them so as to preserve their content
@@ -205,12 +226,12 @@ public void preserveEnclosingBlocks(){
  */
 public int previousAvailableLineEnd(int position){
 
-	Parser parser = this.parser();
+	Parser parser = parser();
 	if (parser == null) return position;
-	
+
 	Scanner scanner = parser.scanner;
 	if (scanner.lineEnds == null) return position;
-	
+
 	int index = Util.getLineNumber(position, scanner.lineEnds, 0, scanner.linePtr);
 	if (index < 2) return position;
 	int previousLineEnd = scanner.lineEnds[index-2];
@@ -267,7 +288,7 @@ public RecoveredType type(){
  * Update the bodyStart of the corresponding parse node
  */
 public void updateBodyStart(int bodyStart){
-	this.foundOpeningBrace = true;	
+	this.foundOpeningBrace = true;
 }
 /*
  * Update the corresponding parse node from parser state which
@@ -295,7 +316,7 @@ public RecoveredElement updateOnClosingBrace(int braceStart, int braceEnd){
 public RecoveredElement updateOnOpeningBrace(int braceStart, int braceEnd){
 
 	if (this.bracketBalance++ == 0){
-		this.updateBodyStart(braceEnd + 1);
+		updateBodyStart(braceEnd + 1);
 		return this;
 	}
 	return null; // no update is necessary

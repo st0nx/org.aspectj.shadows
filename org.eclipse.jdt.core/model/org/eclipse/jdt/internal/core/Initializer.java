@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -24,7 +24,7 @@ import org.eclipse.jdt.internal.core.util.Util;
  * @see IInitializer
  */
 
-/* package */ class Initializer extends Member implements IInitializer {
+public class Initializer extends Member implements IInitializer {
 
 protected Initializer(JavaElement parent, int count) {
 	super(parent);
@@ -93,7 +93,7 @@ public IJavaElement getPrimaryElement(boolean checkOwner) {
  * @private Debugging purposes
  */
 protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean showResolvedInfo) {
-	buffer.append(this.tabString(tab));
+	buffer.append(tabString(tab));
 	if (info == null) {
 		buffer.append("<initializer #"); //$NON-NLS-1$
 		buffer.append(this.occurrenceCount);
@@ -105,7 +105,7 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean s
 	} else {
 		try {
 			buffer.append("<"); //$NON-NLS-1$
-			if (Flags.isStatic(this.getFlags())) {
+			if (Flags.isStatic(getFlags())) {
 				buffer.append("static "); //$NON-NLS-1$
 			}
 		buffer.append("initializer #"); //$NON-NLS-1$

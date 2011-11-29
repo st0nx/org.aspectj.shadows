@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,7 +21,7 @@ public class MultiTypeDeclarationPattern extends JavaSearchPattern {
 public char[][] simpleNames;
 public char[][] qualifications;
 
-// set to CLASS_SUFFIX for only matching classes 
+// set to CLASS_SUFFIX for only matching classes
 // set to INTERFACE_SUFFIX for only matching interfaces
 // set to ENUM_SUFFIX for only matching enums
 // set to ANNOTATION_TYPE_SUFFIX for only matching annotation types
@@ -38,7 +38,7 @@ public MultiTypeDeclarationPattern(
 
 	this(matchRule);
 
-	if (isCaseSensitive() || qualifications == null) {
+	if (this.isCaseSensitive || qualifications == null) {
 		this.qualifications = qualifications;
 	} else {
 		int length = qualifications.length;
@@ -48,7 +48,7 @@ public MultiTypeDeclarationPattern(
 	}
 	// null simple names are allowed (should return all names)
 	if (simpleNames != null) {
-		if ((isCaseSensitive() || isCamelCase()) ) {
+		if (this.isCaseSensitive || this.isCamelCase) {
 			this.simpleNames = simpleNames;
 		} else {
 			int length = simpleNames.length;
@@ -59,7 +59,7 @@ public MultiTypeDeclarationPattern(
 	}
 	this.typeSuffix = typeSuffix;
 
-	((InternalSearchPattern)this).mustResolve = typeSuffix != TYPE_SUFFIX; // only used to report type declarations, not their positions
+	this.mustResolve = typeSuffix != TYPE_SUFFIX; // only used to report type declarations, not their positions
 }
 MultiTypeDeclarationPattern(int matchRule) {
 	super(TYPE_DECL_PATTERN, matchRule);
@@ -72,9 +72,9 @@ public char[][] getIndexCategories() {
 }
 public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 	QualifiedTypeDeclarationPattern pattern = (QualifiedTypeDeclarationPattern) decodedPattern;
-	
+
 	// check type suffix
-	if (this.typeSuffix != pattern.typeSuffix && typeSuffix != TYPE_SUFFIX) {
+	if (this.typeSuffix != pattern.typeSuffix && this.typeSuffix != TYPE_SUFFIX) {
 		if (!matchDifferentTypeSuffixes(this.typeSuffix, pattern.typeSuffix)) {
 			return false;
 		}
@@ -104,7 +104,7 @@ public boolean matchesDecodedKey(SearchPattern decodedPattern) {
 			break;
 	return count < max;
 }
-EntryResult[] queryIn(Index index) throws IOException {
+public EntryResult[] queryIn(Index index) throws IOException {
 	if (this.simpleNames == null) {
 		// if no simple names then return all possible ones from index
 		return index.query(getIndexCategories(), null, -1); // match rule is irrelevant when the key is null
@@ -122,12 +122,10 @@ EntryResult[] queryIn(Index index) throws IOException {
 				// do a prefix query with the simpleName
 				break;
 			case R_EXACT_MATCH :
-				if (!this.isCamelCase) {
-					// do a prefix query with the simpleName
-					matchRule &= ~R_EXACT_MATCH;
-					matchRule |= R_PREFIX_MATCH;
-					key = CharOperation.append(key, SEPARATOR);
-				}
+				// do a prefix query with the simpleName
+				matchRule &= ~R_EXACT_MATCH;
+				matchRule |= R_PREFIX_MATCH;
+				key = CharOperation.append(key, SEPARATOR);
 				break;
 			case R_PATTERN_MATCH :
 				if (key[key.length - 1] != '*')
@@ -135,6 +133,10 @@ EntryResult[] queryIn(Index index) throws IOException {
 				break;
 			case R_REGEXP_MATCH :
 				// TODO (frederic) implement regular expression match
+				break;
+			case R_CAMELCASE_MATCH:
+			case R_CAMELCASE_SAME_PART_COUNT_MATCH:
+				// do a prefix query with the simpleName
 				break;
 		}
 
@@ -185,20 +187,20 @@ protected StringBuffer print(StringBuffer output) {
 			output.append("MultiTypeDeclarationPattern: "); //$NON-NLS-1$
 			break;
 	}
-	if (qualifications != null) {
+	if (this.qualifications != null) {
 		output.append("qualifications: <"); //$NON-NLS-1$
-		for (int i = 0; i < qualifications.length; i++){
-			output.append(qualifications[i]);
-			if (i < qualifications.length - 1)
+		for (int i = 0; i < this.qualifications.length; i++){
+			output.append(this.qualifications[i]);
+			if (i < this.qualifications.length - 1)
 				output.append(", "); //$NON-NLS-1$
 		}
 		output.append("> "); //$NON-NLS-1$
 	}
-	if (simpleNames != null) {
+	if (this.simpleNames != null) {
 		output.append("simpleNames: <"); //$NON-NLS-1$
-		for (int i = 0; i < simpleNames.length; i++){
-			output.append(simpleNames[i]);
-			if (i < simpleNames.length - 1)
+		for (int i = 0; i < this.simpleNames.length; i++){
+			output.append(this.simpleNames[i]);
+			if (i < this.simpleNames.length - 1)
 				output.append(", "); //$NON-NLS-1$
 		}
 		output.append(">"); //$NON-NLS-1$

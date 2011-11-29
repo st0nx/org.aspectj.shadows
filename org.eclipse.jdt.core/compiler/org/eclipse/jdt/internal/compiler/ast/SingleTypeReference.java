@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-v10.html
- *
+ * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -21,17 +21,17 @@ public class SingleTypeReference extends TypeReference {
 
 	public SingleTypeReference(char[] source, long pos) {
 
-			token = source;
-			sourceStart = (int) (pos>>>32)  ;
-			sourceEnd = (int) (pos & 0x00000000FFFFFFFFL) ;
-		
+			this.token = source;
+			this.sourceStart = (int) (pos>>>32)  ;
+			this.sourceEnd = (int) (pos & 0x00000000FFFFFFFFL) ;
+
 	}
 
 	public TypeReference copyDims(int dim){
 		//return a type reference copy of me with some dimensions
 		//warning : the new type ref has a null binding
-		
-		return new ArrayTypeReference(token, dim,(((long)sourceStart)<<32)+sourceEnd);
+
+		return new ArrayTypeReference(this.token, dim,(((long)this.sourceStart)<<32)+this.sourceEnd);
 	}
 
 	public char[] getLastToken() {
@@ -41,7 +41,7 @@ public class SingleTypeReference extends TypeReference {
 		if (this.resolvedType != null)
 			return this.resolvedType;
 
-		this.resolvedType = scope.getType(token);
+		this.resolvedType = scope.getType(this.token);
 
 		if (scope.kind == Scope.CLASS_SCOPE && this.resolvedType.isValidBinding())
 			if (((ClassScope) scope).detectHierarchyCycle(this.resolvedType, this))
@@ -50,29 +50,36 @@ public class SingleTypeReference extends TypeReference {
 	}
 
 	public char [][] getTypeName() {
-		return new char[][] { token };
+		return new char[][] { this.token };
 	}
 
 	public StringBuffer printExpression(int indent, StringBuffer output){
-		
-		return output.append(token);
+
+		return output.append(this.token);
 	}
 
 	public TypeBinding resolveTypeEnclosing(BlockScope scope, ReferenceBinding enclosingType) {
-
-		TypeBinding memberType = scope.getMemberType(token, enclosingType);
+		TypeBinding memberType = this.resolvedType = scope.getMemberType(this.token, enclosingType);
+		boolean hasError = false;
 		if (!memberType.isValidBinding()) {
-			this.resolvedType = memberType;
+			hasError = true;
 			scope.problemReporter().invalidEnclosingType(this, memberType, enclosingType);
-			return null;
+			memberType = ((ReferenceBinding)memberType).closestMatch();
+			if (memberType == null) {
+				return null;
+			}
 		}
 		if (isTypeUseDeprecated(memberType, scope))
-			scope.problemReporter().deprecatedType(memberType, this);
-		memberType = scope.environment().convertToRawType(memberType);
-		if (memberType.isRawType() 
-				&& (this.bits & IgnoreRawTypeCheck) == 0 
+			reportDeprecatedType(memberType, scope);
+		memberType = scope.environment().convertToRawType(memberType, false /*do not force conversion of enclosing types*/);
+		if (memberType.isRawType()
+				&& (this.bits & IgnoreRawTypeCheck) == 0
 				&& scope.compilerOptions().getSeverity(CompilerOptions.RawTypeReference) != ProblemSeverities.Ignore){
 			scope.problemReporter().rawTypeReference(this, memberType);
+		}
+		if (hasError) {
+			// do not store the computed type, keep the problem type instead
+			return memberType;
 		}
 		return this.resolvedType = memberType;
 	}

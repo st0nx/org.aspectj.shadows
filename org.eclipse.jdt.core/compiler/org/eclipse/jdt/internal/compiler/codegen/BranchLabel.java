@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,16 +16,16 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
 
 public class BranchLabel extends Label {
-	
+
 	private int[] forwardReferences = new int[10]; // Add an overflow check here.
 	private int forwardReferenceCount = 0;
 	BranchLabel delegate; //
-	
+
 	// Label tagbits
 	public int tagBits;
 	public final static int WIDE = 1;
 	public final static int USED = 2;
-	
+
 public BranchLabel() {
 	// for creating labels ahead of code generation
 }
@@ -52,7 +52,7 @@ void addForwardReference(int pos) {
 			int length;
 			if (count >= (length = this.forwardReferences.length))
 				System.arraycopy(this.forwardReferences, 0, (this.forwardReferences = new int[2*length]), 0, length);
-			this.forwardReferences[this.forwardReferenceCount++] = pos;			
+			this.forwardReferences[this.forwardReferenceCount++] = pos;
 		} else if (previousValue > pos) {
 			int[] refs = this.forwardReferences;
 			// check for duplicates
@@ -79,7 +79,7 @@ void addForwardReference(int pos) {
 public void becomeDelegateFor(BranchLabel otherLabel) {
 	// other label is delegating to receiver from now on
 	otherLabel.delegate = this;
-	
+
 	// all existing forward refs to other label are inlined into current label
 	final int otherCount = otherLabel.forwardReferenceCount;
 	if (otherCount == 0) return;
@@ -158,11 +158,11 @@ void branchWide() {
 
 public int forwardReferenceCount() {
 	if (this.delegate != null) this.delegate.forwardReferenceCount();
-	return forwardReferenceCount;
+	return this.forwardReferenceCount;
 }
 public int[] forwardReferences() {
 	if (this.delegate != null) this.delegate.forwardReferences();
-	return forwardReferences;
+	return this.forwardReferences;
 }
 public void initialize(CodeStream stream) {
     this.codeStream = stream;
@@ -181,18 +181,13 @@ public boolean isStandardLabel(){
 * Place the label. If we have forward references resolve them.
 */
 public void place() { // Currently lacking wide support.
-	if (CodeStream.DEBUG) System.out.println("\t\t\t\t<place at: "+this.codeStream.position+" - "+ this); //$NON-NLS-1$ //$NON-NLS-2$
 //	if ((this.tagBits & USED) == 0 && this.forwardReferenceCount == 0) {
 //		return;
 //	}
 
 	//TODO how can position be set already ? cannot place more than once
 	if (this.position == Label.POS_NOT_SET) {
-		if ((this.tagBits & BranchLabel.USED) != 0 || this.forwardReferenceCount != 0) {
-			this.position = this.codeStream.getPosition();
-		} else {
-			this.position = this.codeStream.position;
-		}
+		this.position = this.codeStream.position;
 		this.codeStream.addLabel(this);
 		int oldPosition = this.position;
 		boolean isOptimizedBranch = false;
@@ -209,7 +204,7 @@ public void place() { // Currently lacking wide support.
 					this.codeStream.lastEntryPC = this.position;
 				}
 				// end of new code
-				if ((this.codeStream.generateAttributes & (ClassFileConstants.ATTR_VARS | ClassFileConstants.ATTR_STACK_MAP)) != 0) {
+				if ((this.codeStream.generateAttributes & (ClassFileConstants.ATTR_VARS | ClassFileConstants.ATTR_STACK_MAP_TABLE | ClassFileConstants.ATTR_STACK_MAP)) != 0) {
 					LocalVariableBinding locals[] = this.codeStream.locals;
 					for (int i = 0, max = locals.length; i < max; i++) {
 						LocalVariableBinding local = locals[i];
@@ -249,7 +244,7 @@ public void place() { // Currently lacking wide support.
 public String toString() {
 	String basic = getClass().getName();
 	basic = basic.substring(basic.lastIndexOf('.')+1);
-	StringBuffer buffer = new StringBuffer(basic); 
+	StringBuffer buffer = new StringBuffer(basic);
 	buffer.append('@').append(Integer.toHexString(hashCode()));
 	buffer.append("(position=").append(this.position); //$NON-NLS-1$
 	if (this.delegate != null) buffer.append("delegate=").append(this.delegate); //$NON-NLS-1$

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,6 +16,8 @@ import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.AST;
 import org.eclipse.jdt.core.dom.IBinding;
+import org.eclipse.text.edits.TextEdit;
+import org.eclipse.text.edits.UndoEdit;
 
 
 /**
@@ -28,9 +30,8 @@ import org.eclipse.jdt.core.dom.IBinding;
  * If a source file cannot be parsed, its structure remains unknown.
  * Use {@link IJavaElement#isStructureKnown} to determine whether this is
  * the case.
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
+ *
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface ICompilationUnit extends ITypeRoot, IWorkingCopy, ISourceManipulation {
 /**
@@ -60,6 +61,38 @@ public static final int ENABLE_STATEMENTS_RECOVERY = 0x02;
  * @since 3.3
  */
 public static final int ENABLE_BINDINGS_RECOVERY = 0x04;
+
+/**
+ * Constant indicating that a reconcile operation could ignore to parse the method bodies.
+ * @see ASTParser#setIgnoreMethodBodies(boolean)
+ * @since 3.5.2
+ */
+public static final int IGNORE_METHOD_BODIES = 0x08;
+
+
+/**
+ * Applies a text edit to the compilation unit's buffer.
+ * <p>
+ * Note that the edit is simply applied to the compilation unit's buffer.
+ * In particular the undo edit is not grouped with previous undo edits
+ * if the buffer doesn't implement {@link IBuffer.ITextEditCapability}.
+ * If it does, the exact semantics for grouping undo edit depends
+ * on how {@link IBuffer.ITextEditCapability#applyTextEdit(TextEdit, IProgressMonitor)}
+ * is implemented.
+ * </p>
+ *
+ * @param edit the edit to apply
+ * @param monitor the progress monitor to use or <code>null</code> if no progress should be reported
+ * @return the undo edit
+ * @throws JavaModelException if this edit can not be applied to the compilation unit's buffer. Reasons include:
+ * <ul>
+ * <li>This compilation unit does not exist ({@link IJavaModelStatusConstants#ELEMENT_DOES_NOT_EXIST}).</li>
+ * <li>The provided edit can not be applied as there is a problem with the text edit locations ({@link IJavaModelStatusConstants#BAD_TEXT_EDIT_LOCATION}).</li>
+ * </ul>
+ *
+ * @since 3.4
+ */
+public UndoEdit applyTextEdit(TextEdit edit, IProgressMonitor monitor) throws JavaModelException;
 
 /**
  * Changes this compilation unit handle into a working copy. A new {@link IBuffer} is
@@ -127,7 +160,7 @@ void becomeWorkingCopy(IProgressMonitor monitor) throws JavaModelException;
  *
  * <p>It is possible that the contents of the original resource have changed
  * since this working copy was created, in which case there is an update conflict.
- * The value of the <code>force</code> parameter effects the resolution of
+ * The value of the <code>force</code> parameter affects the resolution of
  * such a conflict:<ul>
  * <li> <code>true</code> - in this case the contents of this working copy are applied to
  * 	the underlying resource even though this working copy was created before
@@ -247,7 +280,7 @@ IImportDeclaration createImport(String name, IJavaElement sibling, int flags, IP
  * to the end of this compilation unit.
  *
  * <p>It is possible that a type with the same name already exists in this compilation unit.
- * The value of the <code>force</code> parameter effects the resolution of
+ * The value of the <code>force</code> parameter affects the resolution of
  * such a conflict:<ul>
  * <li> <code>true</code> - in this case the type is created with the new contents</li>
  * <li> <code>false</code> - in this case a {@link JavaModelException} is thrown</li>
@@ -376,10 +409,13 @@ IImportDeclaration[] getImports() throws JavaModelException;
  */
 ICompilationUnit getPrimary();
 /**
- * Returns the working copy owner of this working copy.
- * Returns null if it is not a working copy or if it has no owner.
- *
- * @return WorkingCopyOwner the owner of this working copy or <code>null</code>
+ * Returns <tt>null</tt> if this <code>ICompilationUnit</code> is the primary
+ * working copy, or this <code>ICompilationUnit</code> is not a working copy,
+ * otherwise the <code>WorkingCopyOwner</code>
+ * 
+ * @return <tt>null</tt> if this <code>ICompilationUnit</code> is the primary
+ * working copy, or this <code>ICompilationUnit</code> is not a working copy,
+ * otherwise the <code>WorkingCopyOwner</code>
  * @since 3.0
  */
 WorkingCopyOwner getOwner();
@@ -543,10 +579,10 @@ boolean isWorkingCopy();
  * </p>
  * <p>
  * If requested, a DOM AST representing the compilation unit is returned.
- * Its bindings are computed only if the problem requestor is active, or if the
- * problem detection is forced. This method returns <code>null</code> if the
- * creation of the DOM AST was not requested, or if the requested level of AST
- * API is not supported, or if the working copy was already consistent.
+ * Its bindings are computed only if the problem requestor is active.
+ * This method returns <code>null</code> if the creation of the DOM AST was not requested,
+ * or if the requested level of AST API is not supported, or if the working copy was
+ * already consistent.
  * </p>
  *
  * <p>
@@ -606,10 +642,10 @@ CompilationUnit reconcile(int astLevel, boolean forceProblemDetection, WorkingCo
  * </p>
  * <p>
  * If requested, a DOM AST representing the compilation unit is returned.
- * Its bindings are computed only if the problem requestor is active, or if the
- * problem detection is forced. This method returns <code>null</code> if the
- * creation of the DOM AST was not requested, or if the requested level of AST
- * API is not supported, or if the working copy was already consistent.
+ * Its bindings are computed only if the problem requestor is active.
+ * This method returns <code>null</code> if the creation of the DOM AST was not requested,
+ * or if the requested level of AST API is not supported, or if the working copy was
+ * already consistent.
  * </p>
  *
  * <p>
@@ -674,10 +710,10 @@ CompilationUnit reconcile(int astLevel, boolean forceProblemDetection, boolean e
  * </p>
  * <p>
  * If requested, a DOM AST representing the compilation unit is returned.
- * Its bindings are computed only if the problem requestor is active, or if the
- * problem detection is forced. This method returns <code>null</code> if the
- * creation of the DOM AST was not requested, or if the requested level of AST
- * API is not supported, or if the working copy was already consistent.
+ * Its bindings are computed only if the problem requestor is active.
+ * This method returns <code>null</code> if the creation of the DOM AST was not requested,
+ * or if the requested level of AST API is not supported, or if the working copy was
+ * already consistent.
  * </p>
  *
  * <p>

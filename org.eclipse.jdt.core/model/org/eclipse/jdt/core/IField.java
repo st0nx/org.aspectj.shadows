@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,11 +13,11 @@ package org.eclipse.jdt.core;
 
 /**
  * Represents a field declared in a type.
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
+ *
+ * @noimplement This interface is not intended to be implemented by clients.
  */
-public interface IField extends IMember {
+public interface IField extends IMember, IAnnotatable {
+
 /**
  * Returns the constant value associated with this field
  * or <code>null</code> if this field has none. The field needs to be static and final to have
@@ -95,13 +95,16 @@ public Object getConstant() throws JavaModelException;
  */
 String getElementName();
 /**
- * Returns the binding key for this field. A binding key is a key that uniquely
- * identifies this field. It allows access to generic info for parameterized
- * fields.
- * 
+ * Returns the binding key for this field only if the given field is {@link #isResolved() resolved}.
+ * A binding key is a key that uniquely identifies this field. It allows access to generic info
+ * for parameterized fields.
+ *
+ * <p>If the given field is not resolved, the returned key is simply the java element's key.
+ * </p>
  * @return the binding key for this field
  * @see org.eclipse.jdt.core.dom.IBinding#getKey()
  * @see BindingKey
+ * @see #isResolved()
  * @since 3.1
  */
 String getKey();
@@ -122,7 +125,7 @@ String getKey();
 String getTypeSignature() throws JavaModelException;
 /**
  * Returns whether this field represents an enum constant.
- * 
+ *
  * @return whether this field represents an enum constant
  * @exception JavaModelException if this element does not exist or if an
  *      exception occurs while accessing its corresponding resource
@@ -131,8 +134,8 @@ String getTypeSignature() throws JavaModelException;
 boolean isEnumConstant() throws JavaModelException;
 /**
  * Returns whether this field represents a resolved field.
- * If a field is resoved, its key contains resolved information.
- * 
+ * If a field is resolved, its key contains resolved information.
+ *
  * @return whether this field represents a resolved field.
  * @since 3.1
  */

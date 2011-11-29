@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,13 +15,15 @@ import org.eclipse.jdt.core.search.*;
 
 /**
  * Java Search concrete class for a type name match.
- * 
+ *
  * @since 3.3
  */
 public class JavaSearchTypeNameMatch extends TypeNameMatch {
 
-private IType type;
-private int modifiers = -1; // store modifiers to avoid java model population
+	private IType type;
+	private int modifiers = -1; // store modifiers to avoid java model population
+
+	private int accessibility = IAccessRule.K_ACCESSIBLE;
 
 /**
  * Creates a new Java Search type name match.
@@ -45,6 +47,13 @@ public boolean equals(Object obj) {
 		return this.type.equals(match.getType()) && match.getModifiers() == this.modifiers;
 	}
 	return false;
+}
+
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.search.TypeNameMatch#getAccessibility()
+ */
+public int getAccessibility() {
+	return this.accessibility;
 }
 
 /* (non-Javadoc)
@@ -73,8 +82,17 @@ public int hashCode() {
 }
 
 /**
- * Set modifiers of the matched type.
+ * Sets the accessibility of the accepted match.
  * 
+ * @param accessibility the accessibility of the current match
+ */
+public void setAccessibility(int accessibility) {
+	this.accessibility = accessibility;
+}
+
+/**
+ * Set modifiers of the matched type.
+ *
  * @param modifiers the modifiers of the matched type.
  */
 public void setModifiers(int modifiers) {
@@ -83,7 +101,7 @@ public void setModifiers(int modifiers) {
 
 /**
  * Set matched type.
- * 
+ *
  * @param type the matched type.
  */
 public void setType(IType type) {

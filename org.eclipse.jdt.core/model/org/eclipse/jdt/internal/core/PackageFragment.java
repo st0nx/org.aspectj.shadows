@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,6 +21,7 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.OperationCanceledException;
 import org.eclipse.core.runtime.Path;
 import org.eclipse.jdt.core.IClassFile;
@@ -53,7 +54,7 @@ public class PackageFragment extends Openable implements IPackageFragment, Suffi
 	 * Constant empty list of compilation units
 	 */
 	protected static final ICompilationUnit[] NO_COMPILATION_UNITS = new ICompilationUnit[] {};
-	
+
 	public String[] names;
 
 protected PackageFragment(PackageFragmentRoot root, String[] names) {
@@ -64,18 +65,9 @@ protected PackageFragment(PackageFragmentRoot root, String[] names) {
  * @see Openable
  */
 protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource) throws JavaModelException {
-
-	// check whether this pkg can be opened
-	if (!underlyingResource.isAccessible()) throw newNotPresentException();
-	
-	// check that it is not excluded (https://bugs.eclipse.org/bugs/show_bug.cgi?id=138577)
-	int kind = getKind();
-	if (kind == IPackageFragmentRoot.K_SOURCE && Util.isExcluded(this)) 
-		throw newNotPresentException();
-
-
 	// add compilation units/class files from resources
 	HashSet vChildren = new HashSet();
+	int kind = getKind();
 	try {
 	    PackageFragmentRoot root = getPackageFragmentRoot();
 		char[][] inclusionPatterns = root.fullInclusionPatternChars();
@@ -104,7 +96,7 @@ protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, 
 	} catch (CoreException e) {
 		throw new JavaModelException(e);
 	}
-	
+
 	if (kind == IPackageFragmentRoot.K_SOURCE) {
 		// add primary compilation units
 		ICompilationUnit[] primaryCompilationUnits = getCompilationUnits(DefaultWorkingCopyOwner.PRIMARY);
@@ -113,7 +105,7 @@ protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, 
 			vChildren.add(primary);
 		}
 	}
-	
+
 	IJavaElement[] children = new IJavaElement[vChildren.size()];
 	vChildren.toArray(children);
 	info.setChildren(children);
@@ -131,7 +123,7 @@ public boolean containsJavaResources() throws JavaModelException {
  */
 public void copy(IJavaElement container, IJavaElement sibling, String rename, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	if (container == null) {
-		throw new IllegalArgumentException(Messages.operation_nullContainer); 
+		throw new IllegalArgumentException(Messages.operation_nullContainer);
 	}
 	IJavaElement[] elements= new IJavaElement[] {this};
 	IJavaElement[] containers= new IJavaElement[] {container};
@@ -169,15 +161,17 @@ public void delete(boolean force, IProgressMonitor monitor) throws JavaModelExce
 public boolean equals(Object o) {
 	if (this == o) return true;
 	if (!(o instanceof PackageFragment)) return false;
-	
-	PackageFragment other = (PackageFragment) o;		
+
+	PackageFragment other = (PackageFragment) o;
 	return Util.equalArraysOrNull(this.names, other.names) &&
 			this.parent.equals(other.parent);
 }
 public boolean exists() {
 	// super.exist() only checks for the parent and the resource existence
-	// so also ensure that the package is not exceluded (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=138577)
-	return super.exists() && !Util.isExcluded(this); 
+	// so also ensure that:
+	//  - the package is not excluded (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=138577)
+	//  - its name is valide (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=108456)
+	return super.exists() && !Util.isExcluded(this) && isValidPackageName();
 }
 /**
  * @see IPackageFragment#getClassFile(String)
@@ -185,7 +179,7 @@ public boolean exists() {
  */
 public IClassFile getClassFile(String classFileName) {
 	if (!org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(classFileName)) {
-		throw new IllegalArgumentException(Messages.element_invalidClassFileName); 
+		throw new IllegalArgumentException(Messages.bind(Messages.element_invalidClassFileName, classFileName));
 	}
 	// don't hold on the .class file extension to save memory
 	// also make sure to not use substring as the resulting String may hold on the underlying char[] which might be much bigger than necessary
@@ -205,7 +199,7 @@ public IClassFile[] getClassFiles() throws JavaModelException {
 	if (getKind() == IPackageFragmentRoot.K_SOURCE) {
 		return NO_CLASSFILES;
 	}
-	
+
 	ArrayList list = getChildrenOfType(CLASS_FILE);
 	IClassFile[] array= new IClassFile[list.size()];
 	list.toArray(array);
@@ -217,7 +211,7 @@ public IClassFile[] getClassFiles() throws JavaModelException {
  */
 public ICompilationUnit getCompilationUnit(String cuName) {
 	if (!org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(cuName)) {
-		throw new IllegalArgumentException(Messages.convention_unit_notJavaName); 
+		throw new IllegalArgumentException(Messages.convention_unit_notJavaName);
 	}
 	return new CompilationUnit(this, cuName, DefaultWorkingCopyOwner.PRIMARY);
 }
@@ -228,7 +222,7 @@ public ICompilationUnit[] getCompilationUnits() throws JavaModelException {
 	if (getKind() == IPackageFragmentRoot.K_BINARY) {
 		return NO_COMPILATION_UNITS;
 	}
-	
+
 	ArrayList list = getChildrenOfType(COMPILATION_UNIT);
 	ICompilationUnit[] array= new ICompilationUnit[list.size()];
 	list.toArray(array);
@@ -299,18 +293,18 @@ public int getKind() throws JavaModelException {
  * Returns an array of non-java resources contained in the receiver.
  */
 public Object[] getNonJavaResources() throws JavaModelException {
-	if (this.isDefaultPackage()) {
+	if (isDefaultPackage()) {
 		// We don't want to show non java resources of the default package (see PR #1G58NB8)
 		return JavaElementInfo.NO_NON_JAVA_RESOURCES;
 	} else {
-		return ((PackageFragmentInfo) getElementInfo()).getNonJavaResources(getResource(), getPackageFragmentRoot());
+		return ((PackageFragmentInfo) getElementInfo()).getNonJavaResources(resource(), getPackageFragmentRoot());
 	}
 }
 /**
  * @see IJavaElement#getPath()
  */
 public IPath getPath() {
-	PackageFragmentRoot root = this.getPackageFragmentRoot();
+	PackageFragmentRoot root = getPackageFragmentRoot();
 	if (root.isArchive()) {
 		return root.getPath();
 	} else {
@@ -323,22 +317,17 @@ public IPath getPath() {
 	}
 }
 /**
- * @see IJavaElement#getResource()
+ * @see JavaElement#resource()
  */
-public IResource getResource() {
-	PackageFragmentRoot root = this.getPackageFragmentRoot();
-	if (root.isArchive()) {
-		return root.getResource();
+public IResource resource(PackageFragmentRoot root) {
+	int length = this.names.length;
+	if (length == 0) {
+		return root.resource(root);
 	} else {
-		int length = this.names.length;
-		if (length == 0) {
-			return root.getResource();
-		} else {
-			IPath path = new Path(this.names[0]);
-			for (int i = 1; i < length; i++)
-				path = path.append(this.names[i]);
-			return ((IContainer)root.getResource()).getFolder(path);
-		}
+		IPath path = new Path(this.names[0]);
+		for (int i = 1; i < length; i++)
+			path = path.append(this.names[i]);
+		return ((IContainer)root.resource(root)).getFolder(path);
 	}
 }
 /**
@@ -374,7 +363,7 @@ public int hashCode() {
 	return hash;
 }
 /**
- * @see IParent 
+ * @see IParent
  */
 public boolean hasChildren() throws JavaModelException {
 	return getChildren().length > 0;
@@ -401,12 +390,22 @@ public boolean hasSubpackages() throws JavaModelException {
 public boolean isDefaultPackage() {
 	return this.names.length == 0;
 }
+private boolean isValidPackageName() {
+	JavaProject javaProject = (JavaProject) getJavaProject();
+	String sourceLevel = javaProject.getOption(JavaCore.COMPILER_SOURCE, true);
+	String complianceLevel = javaProject.getOption(JavaCore.COMPILER_COMPLIANCE, true);
+	for (int i = 0, length = this.names.length; i < length; i++) {
+		if (!Util.isValidFolderNameForPackage(this.names[i], sourceLevel, complianceLevel))
+			return false;
+	}
+	return true;
+}
 /**
  * @see ISourceManipulation#move(IJavaElement, IJavaElement, String, boolean, IProgressMonitor)
  */
 public void move(IJavaElement container, IJavaElement sibling, String rename, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	if (container == null) {
-		throw new IllegalArgumentException(Messages.operation_nullContainer); 
+		throw new IllegalArgumentException(Messages.operation_nullContainer);
 	}
 	IJavaElement[] elements= new IJavaElement[] {this};
 	IJavaElement[] containers= new IJavaElement[] {container};
@@ -425,10 +424,10 @@ public void move(IJavaElement container, IJavaElement sibling, String rename, bo
  */
 public void rename(String newName, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	if (newName == null) {
-		throw new IllegalArgumentException(Messages.element_nullName); 
+		throw new IllegalArgumentException(Messages.element_nullName);
 	}
 	IJavaElement[] elements= new IJavaElement[] {this};
-	IJavaElement[] dests= new IJavaElement[] {this.getParent()};
+	IJavaElement[] dests= new IJavaElement[] {getParent()};
 	String[] renamings= new String[] {newName};
 	getJavaModel().rename(elements, dests, renamings, force, monitor);
 }
@@ -444,7 +443,7 @@ protected void toStringChildren(int tab, StringBuffer buffer, Object info) {
  * Debugging purposes
  */
 protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean showResolvedInfo) {
-	buffer.append(this.tabString(tab));
+	buffer.append(tabString(tab));
 	if (this.names.length == 0) {
 		buffer.append("<default>"); //$NON-NLS-1$
 	} else {
@@ -462,7 +461,7 @@ protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean s
  * @see IJavaElement#getAttachedJavadoc(IProgressMonitor)
  */
 public String getAttachedJavadoc(IProgressMonitor monitor) throws JavaModelException {
-	PerProjectInfo projectInfo = JavaModelManager.getJavaModelManager().getPerProjectInfoCheckExistence(this.getJavaProject().getProject());
+	PerProjectInfo projectInfo = JavaModelManager.getJavaModelManager().getPerProjectInfoCheckExistence(getJavaProject().getProject());
 	String cachedJavadoc = null;
 	synchronized (projectInfo.javadocCache) {
 		cachedJavadoc = (String) projectInfo.javadocCache.get(this);
@@ -479,9 +478,9 @@ public String getAttachedJavadoc(IProgressMonitor monitor) throws JavaModelExcep
 	if (!(pathBuffer.charAt(pathBuffer.length() - 1) == '/')) {
 		pathBuffer.append('/');
 	}
-	String packPath= this.getElementName().replace('.', '/');
+	String packPath= getElementName().replace('.', '/');
 	pathBuffer.append(packPath).append('/').append(JavadocConstants.PACKAGE_FILE_NAME);
-	
+
 	if (monitor != null && monitor.isCanceled()) throw new OperationCanceledException();
 	final String contents = getURLContents(String.valueOf(pathBuffer));
 	if (monitor != null && monitor.isCanceled()) throw new OperationCanceledException();
@@ -490,5 +489,27 @@ public String getAttachedJavadoc(IProgressMonitor monitor) throws JavaModelExcep
 		projectInfo.javadocCache.put(this, contents);
 	}
 	return contents;
+}
+
+protected IStatus validateExistence(IResource underlyingResource) {
+	// check that the name of the package is valid (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=108456)
+	if (!isValidPackageName())
+		return newDoesNotExistStatus();
+
+	// check whether this pkg can be opened
+	if (underlyingResource != null && !resourceExists(underlyingResource))
+		return newDoesNotExistStatus();
+
+	// check that it is not excluded (https://bugs.eclipse.org/bugs/show_bug.cgi?id=138577)
+	int kind;
+	try {
+		kind = getKind();
+	} catch (JavaModelException e) {
+		return e.getStatus();
+	}
+	if (kind == IPackageFragmentRoot.K_SOURCE && Util.isExcluded(this))
+		return newDoesNotExistStatus();
+
+	return JavaModelStatus.VERIFIED_OK;
 }
 }

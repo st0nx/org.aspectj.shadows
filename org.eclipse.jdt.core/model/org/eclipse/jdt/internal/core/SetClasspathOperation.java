@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,12 +10,17 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import org.eclipse.core.resources.IResourceRuleFactory;
+import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.IPath;
+import org.eclipse.core.runtime.jobs.ISchedulingRule;
+import org.eclipse.core.runtime.jobs.MultiRule;
 import org.eclipse.jdt.core.IClasspathEntry;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.JavaModelManager.PerProjectInfo;
 
 /**
  * This operation sets an <code>IJavaProject</code>'s classpath.
@@ -25,21 +30,33 @@ import org.eclipse.jdt.core.JavaModelException;
 public class SetClasspathOperation extends ChangeClasspathOperation {
 
 	IClasspathEntry[] newRawClasspath;
+	IClasspathEntry[] referencedEntries;
 	IPath newOutputLocation;
 	JavaProject project;
-			
-	/**
-	 * When executed, this operation sets the raw classpath and output location of the given project.
-	 */
+
 	public SetClasspathOperation(
 		JavaProject project,
 		IClasspathEntry[] newRawClasspath,
 		IPath newOutputLocation,
 		boolean canChangeResource) {
 
+		this(project, newRawClasspath, null, newOutputLocation, canChangeResource);
+	}
+	
+	/**
+	 * When executed, this operation sets the raw classpath and output location of the given project.
+	 */
+	public SetClasspathOperation(
+		JavaProject project,
+		IClasspathEntry[] newRawClasspath,
+		IClasspathEntry[] referencedEntries,
+		IPath newOutputLocation,
+		boolean canChangeResource) {
+
 		super(new IJavaElement[] { project }, canChangeResource);
 		this.project = project;
 		this.newRawClasspath = newRawClasspath;
+		this.referencedEntries = referencedEntries;
 		this.newOutputLocation = newOutputLocation;
 	}
 
@@ -50,17 +67,32 @@ public class SetClasspathOperation extends ChangeClasspathOperation {
 		checkCanceled();
 		try {
 			// set raw classpath and null out resolved info
-			this.project.getPerProjectInfo().setClasspath(this.newRawClasspath, this.newOutputLocation, JavaModelStatus.VERIFIED_OK/*format is ok*/, null, null, null, null);
-			
+			PerProjectInfo perProjectInfo = this.project.getPerProjectInfo();
+			ClasspathChange classpathChange = perProjectInfo.setRawClasspath(this.newRawClasspath, this.referencedEntries, this.newOutputLocation, JavaModelStatus.VERIFIED_OK/*format is ok*/);
+
 			// if needed, generate delta, update project ref, create markers, ...
-			classpathChanged(this.project);
-			
+			classpathChanged(classpathChange, true/*refresh if external linked folder already exists*/);
+
 			// write .classpath file
-			if (this.canChangeResources && this.project.saveClasspath(this.newRawClasspath, this.newOutputLocation))
+			if (this.canChangeResources && perProjectInfo.writeAndCacheClasspath(this.project, this.newRawClasspath, this.newOutputLocation))
 				setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE);
-		} finally {		
+		} finally {
 			done();
 		}
+	}
+	
+	protected ISchedulingRule getSchedulingRule() {
+		if (this.canChangeResources) {
+			IResourceRuleFactory ruleFactory = ResourcesPlugin.getWorkspace().getRuleFactory();
+			return new MultiRule(new ISchedulingRule[] {
+				// use project modification rule as this is needed to create the .classpath file if it doesn't exist yet, or to update project references
+				ruleFactory.modifyRule(this.project.getProject()),
+				
+				// and external project modification rule in case the external folders are modified
+				ruleFactory.modifyRule(JavaModelManager.getExternalManager().getExternalFoldersProject())
+			});
+		}
+		return super.getSchedulingRule();
 	}
 
 	public String toString(){
@@ -82,6 +114,7 @@ public class SetClasspathOperation extends ChangeClasspathOperation {
 		IJavaModelStatus status = super.verify();
 		if (!status.isOK())
 			return status;
+		this.project.flushClasspathProblemMarkers(false, false, true);
 		return ClasspathEntry.validateClasspath(	this.project, this.newRawClasspath, this.newOutputLocation);
 	}
 

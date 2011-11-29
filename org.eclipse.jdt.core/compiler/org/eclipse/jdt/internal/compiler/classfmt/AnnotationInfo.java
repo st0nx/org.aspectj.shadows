@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2005, 2007 BEA Systems, Inc.
+ * Copyright (c) 2005, 2011 BEA Systems, Inc.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,8 +7,11 @@
  *
  * Contributors:
  *    tyeung@bea.com - initial API and implementation
+ *    olivier_thomann@ca.ibm.com - add hashCode() and equals(..) methods
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.classfmt;
+
+import java.util.Arrays;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.Annotation;
@@ -16,6 +19,7 @@ import org.eclipse.jdt.internal.compiler.codegen.ConstantPool;
 import org.eclipse.jdt.internal.compiler.env.*;
 import org.eclipse.jdt.internal.compiler.impl.*;
 import org.eclipse.jdt.internal.compiler.lookup.TagBits;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class AnnotationInfo extends ClassFileStruct implements IBinaryAnnotation {
 	/** The name of the annotation type */
@@ -48,7 +52,7 @@ AnnotationInfo(byte[] classFileBytes, int[] contantPoolOffsets, int offset, bool
 }
 private void decodeAnnotation() {
 	this.readOffset = 0;
-	int utf8Offset = this.constantPoolOffsets[u2At(0)] - structOffset;
+	int utf8Offset = this.constantPoolOffsets[u2At(0)] - this.structOffset;
 	this.typename = utf8At(utf8Offset + 3, u2At(utf8Offset + 1));
 	int numberOfPairs = u2At(2);
 	// u2 type_index + u2 num_member_value_pair
@@ -56,7 +60,7 @@ private void decodeAnnotation() {
 	this.pairs = numberOfPairs == 0 ? ElementValuePairInfo.NoMembers : new ElementValuePairInfo[numberOfPairs];
 	for (int i = 0; i < numberOfPairs; i++) {
 		// u2 member_name_index;
-		utf8Offset = this.constantPoolOffsets[u2At(this.readOffset)] - structOffset;
+		utf8Offset = this.constantPoolOffsets[u2At(this.readOffset)] - this.structOffset;
 		char[] membername = utf8At(utf8Offset + 3, u2At(utf8Offset + 1));
 		this.readOffset += 2;
 		Object value = decodeDefaultValue();
@@ -147,7 +151,7 @@ Object decodeDefaultValue() {
 			}
 			break;
 		default:
-			throw new IllegalStateException("Unrecognized tag " + (char) tag); //$NON-NLS-1$	
+			throw new IllegalStateException("Unrecognized tag " + (char) tag); //$NON-NLS-1$
 	}
 	return value;
 }
@@ -169,11 +173,11 @@ private int readRetentionPolicy(int offset) {
 	currentOffset++;
 	switch (tag) {
 		case 'e':
-			int utf8Offset = this.constantPoolOffsets[u2At(currentOffset)] - structOffset;
+			int utf8Offset = this.constantPoolOffsets[u2At(currentOffset)] - this.structOffset;
 			char[] typeName = utf8At(utf8Offset + 3, u2At(utf8Offset + 1));
 			currentOffset += 2;
 			if (typeName.length == 38 && CharOperation.equals(typeName, ConstantPool.JAVA_LANG_ANNOTATION_RETENTIONPOLICY)) {
-				utf8Offset = this.constantPoolOffsets[u2At(currentOffset)] - structOffset;
+				utf8Offset = this.constantPoolOffsets[u2At(currentOffset)] - this.structOffset;
 				char[] constName = utf8At(utf8Offset + 3, u2At(utf8Offset + 1));
 				this.standardAnnotationTagBits |= Annotation.getRetentionPolicy(constName);
 			}
@@ -213,11 +217,11 @@ private int readTargetValue(int offset) {
 	currentOffset++;
 	switch (tag) {
 		case 'e':
-			int utf8Offset = this.constantPoolOffsets[u2At(currentOffset)] - structOffset;
+			int utf8Offset = this.constantPoolOffsets[u2At(currentOffset)] - this.structOffset;
 			char[] typeName = utf8At(utf8Offset + 3, u2At(utf8Offset + 1));
 			currentOffset += 2;
 			if (typeName.length == 34 && CharOperation.equals(typeName, ConstantPool.JAVA_LANG_ANNOTATION_ELEMENTTYPE)) {
-				utf8Offset = this.constantPoolOffsets[u2At(currentOffset)] - structOffset;
+				utf8Offset = this.constantPoolOffsets[u2At(currentOffset)] - this.structOffset;
 				char[] constName = utf8At(utf8Offset + 3, u2At(utf8Offset + 1));
 				this.standardAnnotationTagBits |= Annotation.getTargetElementType(constName);
 			}
@@ -259,12 +263,12 @@ private int readTargetValue(int offset) {
  * Read through this annotation in order to figure out the necessary tag
  * bits and the length of this annotation. The data structure will not be
  * flushed out.
- * 
+ *
  * The tag bits are derived from the following (supported) standard
  * annotation. java.lang.annotation.Documented,
  * java.lang.annotation.Retention, java.lang.annotation.Target, and
  * java.lang.Deprecated
- * 
+ *
  * @param expectRuntimeVisibleAnno
  *            <code>true</cod> to indicate that this is a runtime-visible annotation
  * @param toplevel <code>false</code> to indicate that an nested annotation is read.
@@ -273,7 +277,7 @@ private int readTargetValue(int offset) {
  */
 private int scanAnnotation(int offset, boolean expectRuntimeVisibleAnno, boolean toplevel) {
 	int currentOffset = offset;
-	int utf8Offset = this.constantPoolOffsets[u2At(offset)] - structOffset;
+	int utf8Offset = this.constantPoolOffsets[u2At(offset)] - this.structOffset;
 	char[] typeName = utf8At(utf8Offset + 3, u2At(utf8Offset + 1));
 	if (toplevel)
 		this.typename = typeName;
@@ -288,16 +292,16 @@ private int scanAnnotation(int offset, boolean expectRuntimeVisibleAnno, boolean
 					return currentOffset;
 				}
 				break;
+			case 23:
+				if (CharOperation.equals(typeName, ConstantPool.JAVA_LANG_SAFEVARARGS)) {
+					this.standardAnnotationTagBits |= TagBits.AnnotationSafeVarargs;
+					return currentOffset;
+				}
+				break;
 			case 29:
 				if (CharOperation.equals(typeName, ConstantPool.JAVA_LANG_ANNOTATION_TARGET)) {
 					currentOffset += 2;
 					return readTargetValue(currentOffset);
-				}
-				break;
-			case 33:
-				if (CharOperation.equals(typeName, ConstantPool.JAVA_LANG_ANNOTATION_DOCUMENTED)) {
-					this.standardAnnotationTagBits |= TagBits.AnnotationDocumented;
-					return currentOffset;
 				}
 				break;
 			case 32:
@@ -307,6 +311,18 @@ private int scanAnnotation(int offset, boolean expectRuntimeVisibleAnno, boolean
 				}
 				if (CharOperation.equals(typeName, ConstantPool.JAVA_LANG_ANNOTATION_INHERITED)) {
 					this.standardAnnotationTagBits |= TagBits.AnnotationInherited;
+					return currentOffset;
+				}
+				break;
+			case 33:
+				if (CharOperation.equals(typeName, ConstantPool.JAVA_LANG_ANNOTATION_DOCUMENTED)) {
+					this.standardAnnotationTagBits |= TagBits.AnnotationDocumented;
+					return currentOffset;
+				}
+				break;
+			case 52:
+				if (CharOperation.equals(typeName, ConstantPool.JAVA_LANG_INVOKE_METHODHANDLE_POLYMORPHICSIGNATURE)) {
+					this.standardAnnotationTagBits |= TagBits.AnnotationPolymorphicSignature;
 					return currentOffset;
 				}
 				break;
@@ -375,5 +391,31 @@ public String toString() {
 		buffer.append(')');
 	}
 	return buffer.toString();
+}
+public int hashCode() {
+	final int prime = 31;
+	int result = 1;
+	result = prime * result + Util.hashCode(this.pairs);
+	result = prime * result + CharOperation.hashCode(this.typename);
+	return result;
+}
+public boolean equals(Object obj) {
+	if (this == obj) {
+		return true;
+	}
+	if (obj == null) {
+		return false;
+	}
+	if (getClass() != obj.getClass()) {
+		return false;
+	}
+	AnnotationInfo other = (AnnotationInfo) obj;
+	if (!Arrays.equals(this.pairs, other.pairs)) {
+		return false;
+	}
+	if (!Arrays.equals(this.typename, other.typename)) {
+		return false;
+	}
+	return true;
 }
 }

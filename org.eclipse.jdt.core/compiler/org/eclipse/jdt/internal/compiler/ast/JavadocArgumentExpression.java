@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -41,6 +41,30 @@ public class JavadocArgumentExpression extends Expression {
 			if (typeRef != null) {
 				this.resolvedType = typeRef.getTypeBinding(scope);
 				typeRef.resolvedType = this.resolvedType;
+				// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=195374
+				// reproduce javadoc 1.3.1 / 1.4.2 behavior
+				if (this.resolvedType == null) {
+					return null;
+				}
+				if (typeRef instanceof SingleTypeReference &&
+						this.resolvedType.leafComponentType().enclosingType() != null &&
+						scope.compilerOptions().complianceLevel <= ClassFileConstants.JDK1_4) {
+					scope.problemReporter().javadocInvalidMemberTypeQualification(this.sourceStart, this.sourceEnd, scope.getDeclarationModifiers());
+					// https://bugs.eclipse.org/bugs/show_bug.cgi?id=228648
+					// do not return now but report unresolved reference as expected depending on compliance settings
+				} else if (typeRef instanceof QualifiedTypeReference) {
+					TypeBinding enclosingType = this.resolvedType.leafComponentType().enclosingType();
+					if (enclosingType != null) {
+						// https://bugs.eclipse.org/bugs/show_bug.cgi?id=233187
+						// inner type references should be fully qualified
+						int compoundLength = 2;
+						while ((enclosingType = enclosingType.enclosingType()) != null) compoundLength++;
+						int typeNameLength = typeRef.getTypeName().length;
+						if (typeNameLength != compoundLength && typeNameLength != (compoundLength+this.resolvedType.getPackage().compoundName.length)) {
+							scope.problemReporter().javadocInvalidMemberTypeQualification(typeRef.sourceStart, typeRef.sourceEnd, scope.getDeclarationModifiers());
+						}
+					}
+				}
 				if (!this.resolvedType.isValidBinding()) {
 					scope.problemReporter().javadocInvalidType(typeRef, this.resolvedType, scope.getDeclarationModifiers());
 					return null;
@@ -48,12 +72,12 @@ public class JavadocArgumentExpression extends Expression {
 				if (isTypeUseDeprecated(this.resolvedType, scope)) {
 					scope.problemReporter().javadocDeprecatedType(this.resolvedType, typeRef, scope.getDeclarationModifiers());
 				}
-				return this.resolvedType = scope.environment().convertToRawType(this.resolvedType);
+				return this.resolvedType = scope.environment().convertToRawType(this.resolvedType,  true /*force the conversion of enclosing types*/);
 			}
 		}
 		return null;
 	}
-	
+
 	public StringBuffer printExpression(int indent, StringBuffer output) {
 		if (this.argument == null) {
 			if (this.token != null) {

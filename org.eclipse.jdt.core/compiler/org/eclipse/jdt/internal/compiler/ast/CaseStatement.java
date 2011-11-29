@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,7 +12,7 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
-import org.eclipse.jdt.internal.compiler.codegen.CaseLabel;
+import org.eclipse.jdt.internal.compiler.codegen.BranchLabel;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
 import org.eclipse.jdt.internal.compiler.flow.FlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
@@ -25,10 +25,10 @@ import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 
 public class CaseStatement extends Statement {
-	
+
 	public Expression constantExpression;
-	public CaseLabel targetLabel;
-	
+	public BranchLabel targetLabel;
+
 public CaseStatement(Expression constantExpression, int sourceEnd, int sourceStart) {
 	this.constantExpression = constantExpression;
 	this.sourceEnd = sourceEnd;
@@ -41,7 +41,7 @@ public FlowInfo analyseCode(
 	FlowInfo flowInfo) {
 
 	if (this.constantExpression != null) {
-		if (this.constantExpression.constant == Constant.NotAConstant 
+		if (this.constantExpression.constant == Constant.NotAConstant
 				&& !this.constantExpression.resolvedType.isEnum()) {
 			currentScope.problemReporter().caseExpressionMustBeConstant(this.constantExpression);
 		}
@@ -53,12 +53,12 @@ public FlowInfo analyseCode(
 public StringBuffer printStatement(int tab, StringBuffer output) {
 	printIndent(tab, output);
 	if (this.constantExpression == null) {
-		output.append("default : "); //$NON-NLS-1$
+		output.append("default :"); //$NON-NLS-1$
 	} else {
 		output.append("case "); //$NON-NLS-1$
-		this.constantExpression.printExpression(0, output).append(" : "); //$NON-NLS-1$
+		this.constantExpression.printExpression(0, output).append(" :"); //$NON-NLS-1$
 	}
-	return output.append(';');
+	return output;
 }
 
 /**
@@ -87,14 +87,14 @@ public void resolve(BlockScope scope) {
  */
 public Constant resolveCase(BlockScope scope, TypeBinding switchExpressionType, SwitchStatement switchStatement) {
 	// switchExpressionType maybe null in error case
-    scope.enclosingCase = this; // record entering in a switch case block
-    
+	scope.enclosingCase = this; // record entering in a switch case block
+
 	if (this.constantExpression == null) {
 		// remember the default case into the associated switch statement
 		if (switchStatement.defaultCase != null)
 			scope.problemReporter().duplicateDefaultCase(this);
 
-		// on error the last default will be the selected one ...	
+		// on error the last default will be the selected one ...
 		switchStatement.defaultCase = this;
 		return Constant.NotAConstant;
 	}
@@ -127,15 +127,11 @@ public Constant resolveCase(BlockScope scope, TypeBinding switchExpressionType, 
 		} else {
 			return this.constantExpression.constant;
 		}
-	} else if (scope.isBoxingCompatibleWith(caseType, switchExpressionType)
-					|| (caseType.isBaseType()  // narrowing then boxing ?
-							&& scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_5 // autoboxing
-							&& !switchExpressionType.isBaseType()
-							&& this.constantExpression.isConstantValueOfTypeAssignableToType(caseType, scope.environment().computeBoxingType(switchExpressionType)))) {
+	} else if (isBoxingCompatible(caseType, switchExpressionType, this.constantExpression, scope)) {
 		// constantExpression.computeConversion(scope, caseType, switchExpressionType); - do not report boxing/unboxing conversion
 		return this.constantExpression.constant;
 	}
-	scope.problemReporter().typeMismatchError(caseType, switchExpressionType, this.constantExpression);
+	scope.problemReporter().typeMismatchError(caseType, switchExpressionType, this.constantExpression, switchStatement.expression);
 	return Constant.NotAConstant;
 }
 

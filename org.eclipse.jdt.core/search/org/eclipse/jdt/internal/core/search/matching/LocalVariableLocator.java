@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -28,13 +28,13 @@ public int match(LocalDeclaration node, MatchingNodeSet nodeSet) {
 		// must be a write only access with an initializer
 		if (this.pattern.writeAccess && !this.pattern.readAccess && node.initialization != null)
 			if (matchesName(this.pattern.name, node.name))
-				referencesLevel = ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
+				referencesLevel = this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
 
 	int declarationsLevel = IMPOSSIBLE_MATCH;
 	if (this.pattern.findDeclarations)
 		if (matchesName(this.pattern.name, node.name))
 			if (node.declarationSourceStart == getLocalVariable().declarationSourceStart)
-				declarationsLevel = ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
+				declarationsLevel = this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
 
 	return nodeSet.addMatch(node, referencesLevel >= declarationsLevel ? referencesLevel : declarationsLevel); // use the stronger match
 }
@@ -57,10 +57,13 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 		offset = localVariable.nameStart;
 		length = localVariable.nameEnd-offset+1;
 		element = localVariable;
+		this.match = locator.newDeclarationMatch(element, null, accuracy, offset, length);
+		locator.report(this.match);
+		return;
 	}
 	if (offset >= 0) {
-		match = locator.newLocalVariableReferenceMatch(element, accuracy, offset, length, reference);
-		locator.report(match);
+		this.match = locator.newLocalVariableReferenceMatch(element, accuracy, offset, length, reference);
+		locator.report(this.match);
 	}
 }
 protected int matchContainer() {
@@ -79,7 +82,7 @@ protected int referenceType() {
 	return IJavaElement.LOCAL_VARIABLE;
 }
 public int resolveLevel(ASTNode possiblelMatchingNode) {
-	if (this.pattern.findReferences)
+	if (this.pattern.findReferences || this.pattern.fineGrain != 0)
 		if (possiblelMatchingNode instanceof NameReference)
 			return resolveLevel((NameReference) possiblelMatchingNode);
 	if (possiblelMatchingNode instanceof LocalDeclaration)

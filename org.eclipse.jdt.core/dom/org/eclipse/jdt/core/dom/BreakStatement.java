@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,25 +21,26 @@ import java.util.List;
  * BreakStatement:
  *    <b>break</b> [ Identifier ] <b>;</b>
  * </pre>
- * 
+ *
  * @since 2.0
+ * @noinstantiate This class is not intended to be instantiated by clients.
  */
 public class BreakStatement extends Statement {
-			
+
 	/**
-	 * The "label" structural property of this node type.
+	 * The "label" structural property of this node type (child type: {@link SimpleName}).
 	 * @since 3.0
 	 */
-	public static final ChildPropertyDescriptor LABEL_PROPERTY = 
+	public static final ChildPropertyDescriptor LABEL_PROPERTY =
 		new ChildPropertyDescriptor(BreakStatement.class, "label", SimpleName.class, OPTIONAL, NO_CYCLE_RISK); //$NON-NLS-1$
 
 	/**
-	 * A list of property descriptors (element type: 
+	 * A list of property descriptors (element type:
 	 * {@link StructuralPropertyDescriptor}),
 	 * or null if uninitialized.
 	 */
 	private static final List PROPERTY_DESCRIPTORS;
-	
+
 	static {
 		List properyList = new ArrayList(2);
 		createPropertyList(BreakStatement.class, properyList);
@@ -50,30 +51,30 @@ public class BreakStatement extends Statement {
 	/**
 	 * Returns a list of structural property descriptors for this node type.
 	 * Clients must not modify the result.
-	 * 
+	 *
 	 * @param apiLevel the API level; one of the
 	 * <code>AST.JLS*</code> constants
 
-	 * @return a list of property descriptors (element type: 
+	 * @return a list of property descriptors (element type:
 	 * {@link StructuralPropertyDescriptor})
 	 * @since 3.0
 	 */
 	public static List propertyDescriptors(int apiLevel) {
 		return PROPERTY_DESCRIPTORS;
 	}
-			
+
 	/**
 	 * The label, or <code>null</code> if none; none by default.
 	 */
 	private SimpleName optionalLabel = null;
 
 	/**
-	 * Creates a new unparented break statement node owned by the given 
+	 * Creates a new unparented break statement node owned by the given
 	 * AST. By default, the break statement has no label.
 	 * <p>
 	 * N.B. This constructor is package-private.
 	 * </p>
-	 * 
+	 *
 	 * @param ast the AST that is to own this node
 	 */
 	BreakStatement(AST ast) {
@@ -86,7 +87,7 @@ public class BreakStatement extends Statement {
 	final List internalStructuralPropertiesForType(int apiLevel) {
 		return propertyDescriptors(apiLevel);
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
@@ -102,7 +103,7 @@ public class BreakStatement extends Statement {
 		// allow default implementation to flag the error
 		return super.internalGetSetChildProperty(property, get, child);
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
@@ -115,7 +116,7 @@ public class BreakStatement extends Statement {
 	 */
 	ASTNode clone0(AST target) {
 		BreakStatement result = new BreakStatement(target);
-		result.setSourceRange(this.getStartPosition(), this.getLength());
+		result.setSourceRange(getStartPosition(), getLength());
 		result.copyLeadingComment(this);
 		result.setLabel((SimpleName) ASTNode.copySubtree(target, getLabel()));
 		return result;
@@ -139,42 +140,42 @@ public class BreakStatement extends Statement {
 		}
 		visitor.endVisit(this);
 	}
-	
+
 	/**
 	 * Returns the label of this break statement, or <code>null</code> if
 	 * there is none.
-	 * 
+	 *
 	 * @return the label, or <code>null</code> if there is none
-	 */ 
+	 */
 	public SimpleName getLabel() {
 		return this.optionalLabel;
 	}
-	
+
 	/**
 	 * Sets or clears the label of this break statement.
-	 * 
-	 * @param label the label, or <code>null</code> if 
+	 *
+	 * @param label the label, or <code>null</code> if
 	 *    there is none
 	 * @exception IllegalArgumentException if:
 	 * <ul>
 	 * <li>the node belongs to a different AST</li>
 	 * <li>the node already has a parent</li>
 	 * </ul>
-	 */ 
+	 */
 	public void setLabel(SimpleName label) {
 		ASTNode oldChild = this.optionalLabel;
 		preReplaceChild(oldChild, label, LABEL_PROPERTY);
 		this.optionalLabel = label;
 		postReplaceChild(oldChild, label, LABEL_PROPERTY);
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
 	int memSize() {
 		return super.memSize() + 1 * 4;
 	}
-	
+
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */

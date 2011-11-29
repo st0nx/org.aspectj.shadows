@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -27,8 +27,15 @@ public void add(PossibleMatch possibleMatch) {
 	IPath path = possibleMatch.openable.getPackageFragmentRoot().getPath();
 	ObjectVector possibleMatches = (ObjectVector) this.rootsToPossibleMatches.get(path);
 	if (possibleMatches != null) {
-		if (possibleMatches.contains(possibleMatch)) return;
-	} else {
+		PossibleMatch storedMatch = (PossibleMatch) possibleMatches.find(possibleMatch);
+		if (storedMatch != null) {
+			while (storedMatch.getSimilarMatch() != null) {
+				storedMatch = storedMatch.getSimilarMatch();
+			}
+			storedMatch.setSimilarMatch(possibleMatch);
+			return;
+		}
+	} else{
 		this.rootsToPossibleMatches.put(path, possibleMatches = new ObjectVector());
 	}
 

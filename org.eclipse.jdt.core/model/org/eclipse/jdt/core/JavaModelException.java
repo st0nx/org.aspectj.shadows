@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -23,18 +23,20 @@ import org.eclipse.jdt.internal.core.JavaModelStatus;
  * Java model exceptions contain a Java-specific status object describing the
  * cause of the exception.
  * <p>
- * This class is not intended to be subclassed by clients. Instances of this
- * class are automatically created by the Java model when problems arise, so
- * there is generally no need for clients to create instances.
+ * Instances of this class are automatically created by the Java model
+ * when problems arise, so there is generally no need for clients to create
+ * instances.
  * </p>
  *
  * @see IJavaModelStatus
  * @see IJavaModelStatusConstants
+ *
+ * @noextend This class is not intended to be subclassed by clients.
  */
 public class JavaModelException extends CoreException {
 
 	private static final long serialVersionUID = -760398656505871287L; // backward compatible
-	
+
 	CoreException nestedCoreException;
 /**
  * Creates a Java model exception that wrappers the given <code>Throwable</code>.
@@ -48,11 +50,11 @@ public class JavaModelException extends CoreException {
  * @see org.eclipse.core.runtime.IStatus#ERROR
  */
 public JavaModelException(Throwable e, int code) {
-	this(new JavaModelStatus(code, e)); 
+	this(new JavaModelStatus(code, e));
 }
 /**
  * Creates a Java model exception for the given <code>CoreException</code>.
- * Equivalent to 
+ * Equivalent to
  * <code>JavaModelException(exception,IJavaModelStatusConstants.CORE_EXCEPTION</code>.
  *
  * @param exception the <code>CoreException</code>
@@ -89,12 +91,12 @@ public Throwable getException() {
  * @return a status object
  */
 public IJavaModelStatus getJavaModelStatus() {
-	IStatus status = this.getStatus();
+	IStatus status = getStatus();
 	if (status instanceof IJavaModelStatus) {
 		return (IJavaModelStatus)status;
 	} else {
 		// A regular IStatus is created only in the case of a CoreException.
-		// See bug 13492 Should handle JavaModelExceptions that contains CoreException more gracefully  
+		// See bug 13492 Should handle JavaModelExceptions that contains CoreException more gracefully
 		return new JavaModelStatus(this.nestedCoreException);
 	}
 }
@@ -118,7 +120,7 @@ public boolean isDoesNotExist() {
 
 /**
  * Prints this exception's stack trace to the given print stream.
- * 
+ *
  * @param output the print stream
  * @since 3.0
  */
@@ -135,7 +137,7 @@ public void printStackTrace(PrintStream output) {
 
 /**
  * Prints this exception's stack trace to the given print writer.
- * 
+ *
  * @param output the print writer
  * @since 3.0
  */

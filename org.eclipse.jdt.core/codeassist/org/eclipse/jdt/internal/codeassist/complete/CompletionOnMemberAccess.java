@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,7 +12,7 @@ package org.eclipse.jdt.internal.codeassist.complete;
 
 /*
  * Completion node build by the parser in any case it was intending to
- * reduce an access to a member (field reference or message send) 
+ * reduce an access to a member (field reference or message send)
  * containing the completion identifier.
  * e.g.
  *
@@ -36,27 +36,27 @@ import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class CompletionOnMemberAccess extends FieldReference {
-	
+
 	public boolean isInsideAnnotation;
-	
+
 	public CompletionOnMemberAccess(char[] source, long pos, boolean isInsideAnnotation) {
-		
+
 		super(source, pos);
 		this.isInsideAnnotation = isInsideAnnotation;
 	}
-	
+
 	public StringBuffer printExpression(int indent, StringBuffer output) {
 
 		output.append("<CompleteOnMemberAccess:"); //$NON-NLS-1$
-		return super.printExpression(0, output).append('>'); 
+		return super.printExpression(0, output).append('>');
 	}
 
 	public TypeBinding resolveType(BlockScope scope) {
-		
-		this.receiverType = receiver.resolveType(scope);
-		
-		if (this.receiverType == null && receiver instanceof MessageSend) {
-			MessageSend messageSend = (MessageSend) receiver;
+
+		this.actualReceiverType = this.receiver.resolveType(scope);
+
+		if ((this.actualReceiverType == null || !this.actualReceiverType.isValidBinding()) && this.receiver instanceof MessageSend) {
+			MessageSend messageSend = (MessageSend) this.receiver;
 			if(messageSend.receiver instanceof ThisReference) {
 				Expression[] arguments = messageSend.arguments;
 				int length = arguments == null ? 0 : arguments.length;
@@ -67,16 +67,16 @@ public class CompletionOnMemberAccess extends FieldReference {
 						throw new CompletionNodeFound();
 					}
 				}
-					
+
 				ProblemMethodBinding problemMethodBinding = new ProblemMethodBinding(messageSend.selector, argBindings, ProblemReasons.NotFound);
 				throw new CompletionNodeFound(this, problemMethodBinding, scope);
 			}
 		}
-		
-		if (this.receiverType == null || this.receiverType.isBaseType())
+
+		if (this.actualReceiverType == null || this.actualReceiverType.isBaseType() || !this.actualReceiverType.isValidBinding())
 			throw new CompletionNodeFound();
 		else
-			throw new CompletionNodeFound(this, this.receiverType, scope);
+			throw new CompletionNodeFound(this, this.actualReceiverType, scope);
 		// array types are passed along to find the length field
 	}
 }

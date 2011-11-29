@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -49,6 +49,13 @@ protected void closing(Object info) throws JavaModelException {
 public boolean equals(Object o) {
 	if (!(o instanceof SourceMethod)) return false;
 	return super.equals(o) && Util.equalArraysOrNull(this.parameterTypes, ((SourceMethod)o).parameterTypes);
+}
+public IMemberValuePair getDefaultValue() throws JavaModelException {
+	SourceMethodElementInfo sourceMethodInfo = (SourceMethodElementInfo) getElementInfo();
+	if (sourceMethodInfo.isAnnotationMethod()) {
+		return ((SourceAnnotationMethodInfo) sourceMethodInfo).defaultValue;
+	}
+	return null;
 }
 /**
  * @see IJavaElement
@@ -127,7 +134,12 @@ public ITypeParameter[] getTypeParameters() throws JavaModelException {
 	SourceMethodElementInfo info = (SourceMethodElementInfo) getElementInfo();
 	return info.typeParameters;
 }
-
+public ILocalVariable[] getParameters() throws JavaModelException {
+	ILocalVariable[] arguments = ((SourceMethodElementInfo) getElementInfo()).arguments;
+	if (arguments == null)
+		return LocalVariable.NO_LOCAL_VARIABLES;
+	return arguments;
+}
 /**
  * @see IMethod#getTypeParameterSignatures()
  * @since 3.0
@@ -197,7 +209,7 @@ public int hashCode() {
  * @see IMethod
  */
 public boolean isConstructor() throws JavaModelException {
-	if (!this.getElementName().equals(this.parent.getElementName())) {
+	if (!getElementName().equals(this.parent.getElementName())) {
 		// faster than reaching the info
 		return false;
 	}
@@ -220,9 +232,9 @@ public boolean isResolved() {
  * @see IMethod#isSimilar(IMethod)
  */
 public boolean isSimilar(IMethod method) {
-	return 
+	return
 		areSimilarMethods(
-			this.getElementName(), this.getParameterTypes(),
+			getElementName(), getParameterTypes(),
 			method.getElementName(), method.getParameterTypes(),
 			null);
 }

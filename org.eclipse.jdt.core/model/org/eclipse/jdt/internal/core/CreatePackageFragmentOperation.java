@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,6 +16,7 @@ import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.core.runtime.jobs.ISchedulingRule;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
@@ -30,7 +31,7 @@ import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.Util;
 
 /**
- * This operation creates a new package fragment under a given package fragment root. 
+ * This operation creates a new package fragment under a given package fragment root.
  * The following must be specified: <ul>
  * <li>the package fragment root
  * <li>the package name
@@ -72,9 +73,9 @@ protected void executeOperation() throws JavaModelException {
 	try {
 		JavaElementDelta delta = null;
 		PackageFragmentRoot root = (PackageFragmentRoot) getParentElement();
-		beginTask(Messages.operation_createPackageFragmentProgress, this.pkgName.length); 
-		IContainer parentFolder = (IContainer) root.getResource();
-		String[] sideEffectPackageName = CharOperation.NO_STRINGS; 
+		beginTask(Messages.operation_createPackageFragmentProgress, this.pkgName.length);
+		IContainer parentFolder = (IContainer) root.resource();
+		String[] sideEffectPackageName = CharOperation.NO_STRINGS;
 		ArrayList results = new ArrayList(this.pkgName.length);
 		char[][] inclusionPatterns = root.fullInclusionPatternChars();
 		char[][] exclusionPatterns = root.fullExclusionPatternChars();
@@ -84,7 +85,7 @@ protected void executeOperation() throws JavaModelException {
 			sideEffectPackageName = Util.arrayConcat(sideEffectPackageName, subFolderName);
 			IResource subFolder = parentFolder.findMember(subFolderName);
 			if (subFolder == null) {
-				createFolder(parentFolder, subFolderName, force);
+				createFolder(parentFolder, subFolderName, this.force);
 				parentFolder = parentFolder.getFolder(new Path(subFolderName));
 				IPackageFragment addedFrag = root.getPackageFragment(sideEffectPackageName);
 				if (!Util.isExcluded(parentFolder, inclusionPatterns, exclusionPatterns)) {
@@ -110,11 +111,18 @@ protected void executeOperation() throws JavaModelException {
 		done();
 	}
 }
+protected ISchedulingRule getSchedulingRule() {
+	if (this.pkgName.length == 0)
+		return null; // no resource is going to be created
+	IResource parentResource = ((JavaElement) getParentElement()).resource();
+	IResource resource = ((IContainer) parentResource).getFolder(new Path(this.pkgName[0]));
+	return resource.getWorkspace().getRuleFactory().createRule(resource);
+}
 /**
  * Possible failures: <ul>
  *  <li>NO_ELEMENTS_TO_PROCESS - the root supplied to the operation is
  * 		<code>null</code>.
- *	<li>INVALID_NAME - the name provided to the operation 
+ *	<li>INVALID_NAME - the name provided to the operation
  * 		is <code>null</code> or is not a valid package fragment name.
  *	<li>READ_ONLY - the root provided to this operation is read only.
  *	<li>NAME_COLLISION - there is a pre-existing resource (file)
@@ -129,25 +137,25 @@ public IJavaModelStatus verify() {
 	if (parentElement == null) {
 		return new JavaModelStatus(IJavaModelStatusConstants.NO_ELEMENTS_TO_PROCESS);
 	}
-	
+
 	String packageName = this.pkgName == null ? null : Util.concatWith(this.pkgName, '.');
 	IJavaProject project = parentElement.getJavaProject();
 	if (this.pkgName == null || (this.pkgName.length > 0 && JavaConventions.validatePackageName(packageName, project.getOption(JavaCore.COMPILER_SOURCE, true), project.getOption(JavaCore.COMPILER_COMPLIANCE, true)).getSeverity() == IStatus.ERROR)) {
 		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_NAME, packageName);
 	}
-	IPackageFragmentRoot root = (IPackageFragmentRoot) getParentElement();
+	IJavaElement root = getParentElement();
 	if (root.isReadOnly()) {
 		return new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, root);
 	}
-	IContainer parentFolder = (IContainer) root.getResource();
+	IContainer parentFolder = (IContainer) ((JavaElement) root).resource();
 	int i;
 	for (i = 0; i < this.pkgName.length; i++) {
 		IResource subFolder = parentFolder.findMember(this.pkgName[i]);
 		if (subFolder != null) {
 			if (subFolder.getType() != IResource.FOLDER) {
 				return new JavaModelStatus(
-					IJavaModelStatusConstants.NAME_COLLISION, 
-					Messages.bind(Messages.status_nameCollision, subFolder.getFullPath().toString())); 
+					IJavaModelStatusConstants.NAME_COLLISION,
+					Messages.bind(Messages.status_nameCollision, subFolder.getFullPath().toString()));
 			}
 			parentFolder = (IContainer) subFolder;
 		}

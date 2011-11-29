@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -41,10 +41,10 @@ boolean containsJavaResources() {
 Object[] getNonJavaResources(IResource underlyingResource, PackageFragmentRoot rootHandle) {
 	if (this.nonJavaResources == null) {
 		try {
-			this.nonJavaResources = 
+			this.nonJavaResources =
 				PackageFragmentRootInfo.computeFolderNonJavaResources(
-					(JavaProject)rootHandle.getJavaProject(), 
-					(IContainer)underlyingResource, 
+					rootHandle,
+					(IContainer)underlyingResource,
 					rootHandle.fullInclusionPatternChars(),
 					rootHandle.fullExclusionPatternChars());
 		} catch (JavaModelException e) {

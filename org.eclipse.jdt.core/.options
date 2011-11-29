@@ -4,9 +4,12 @@ org.eclipse.jdt.core/debug=true
 # Reports buffer manager activity
 org.eclipse.jdt.core/debug/buffermanager=false
 
-# Reports incremental builder activity : nature of build, built state reading, indictment process
+# Reports java  builder activity : nature of build, built state reading, indictment process
 org.eclipse.jdt.core/debug/builder=false
- 
+
+# Reports java builder stats
+org.eclipse.jdt.core/debug/builder/stats=false
+
 # Reports compiler activity
 org.eclipse.jdt.core/debug/compiler=false
 
@@ -19,11 +22,17 @@ org.eclipse.jdt.core/debug/cpresolution=false
 # Reports internals of classpath variable initialization, and classpath container resolution (to be used on the JDT/Core team request only)
 org.eclipse.jdt.core/debug/cpresolution/advanced=false
 
+# Reports failures during classpath variable initialization, and classpath container resolution
+org.eclipse.jdt.core/debug/cpresolution/failure=false
+
 # Report type hierarchy connections, refreshes and deltas
 org.eclipse.jdt.core/debug/hierarchy=false
 
 # Reports background indexer activity: indexing, saving index file, index queries
 org.eclipse.jdt.core/debug/indexmanager=false
+
+# Reports internals of indexer activity (to be used on the JDT/Core team request only)
+org.eclipse.jdt.core/debug/indexmanager/advanced=false
 
 # Print notified Java element deltas
 org.eclipse.jdt.core/debug/javadelta=false
@@ -46,6 +55,9 @@ org.eclipse.jdt.core/debug/search=false
 
 # Reports source mapper activity
 org.eclipse.jdt.core/debug/sourcemapper=false
+
+# Reports code formatter activity
+org.eclipse.jdt.core/debug/formatter=false
 
 # Reports open on selection activity : recovered unit, inferred selection
 org.eclipse.jdt.core/debug/selection=false

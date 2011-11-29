@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,7 +14,6 @@ import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.IBuffer;
-import org.eclipse.jdt.core.IClassFile;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.JavaModelException;
@@ -30,11 +29,11 @@ import org.eclipse.jdt.internal.core.util.Util;
  * A working copy on an <code>IClassFile</code>.
  */
 public class ClassFileWorkingCopy extends CompilationUnit {
-	
-	public IClassFile classFile;
-	
-public ClassFileWorkingCopy(IClassFile classFile, WorkingCopyOwner owner) {
-	super((PackageFragment) classFile.getParent(), ((BinaryType) ((ClassFile) classFile).getType()).getSourceFileName(null/*no info available*/), owner);
+
+	public ClassFile classFile;
+
+public ClassFileWorkingCopy(ClassFile classFile, WorkingCopyOwner owner) {
+	super((PackageFragment) classFile.getParent(), ((BinaryType) classFile.getType()).getSourceFileName(null/*no info available*/), owner);
 	this.classFile = classFile;
 }
 
@@ -70,8 +69,10 @@ public IJavaElement getPrimaryElement(boolean checkOwner) {
 	return new ClassFileWorkingCopy(this.classFile, DefaultWorkingCopyOwner.PRIMARY);
 }
 
-public IResource getResource() {
-	return this.classFile.getResource();
+public IResource resource(PackageFragmentRoot root) {
+	if (root.isArchive())
+		return root.resource(root);
+	return this.classFile.resource(root);
 }
 
 /**
@@ -82,7 +83,7 @@ protected IBuffer openBuffer(IProgressMonitor pm, Object info) throws JavaModelE
 	// create buffer
 	IBuffer buffer = this.owner.createBuffer(this);
 	if (buffer == null) return null;
-	
+
 	// set the buffer source
 	if (buffer.getCharacters() == null) {
 		IBuffer classFileBuffer = this.classFile.getBuffer();
@@ -100,10 +101,10 @@ protected IBuffer openBuffer(IProgressMonitor pm, Object info) throws JavaModelE
 	// add buffer to buffer cache
 	BufferManager bufManager = getBufferManager();
 	bufManager.addBuffer(buffer);
-			
+
 	// listen to buffer changes
 	buffer.addBufferChangedListener(this);
-	
+
 	return buffer;
 }
 

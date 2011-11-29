@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -36,7 +36,7 @@ public class UserLibraryClasspathContainerInitializer extends ClasspathContainer
 	public Object getComparisonID(IPath containerPath, IJavaProject project) {
 		return containerPath;
 	}
-	
+
 	/**
 	 * @see org.eclipse.jdt.core.ClasspathContainerInitializer#getDescription(org.eclipse.core.runtime.IPath, org.eclipse.jdt.core.IJavaProject)
 	 */
@@ -54,18 +54,18 @@ public class UserLibraryClasspathContainerInitializer extends ClasspathContainer
 			if (userLibrary != null) {
 				UserLibraryClasspathContainer container = new UserLibraryClasspathContainer(userLibName);
 				JavaCore.setClasspathContainer(containerPath, new IJavaProject[] { project }, new IClasspathContainer[] { container }, null);
-			} else if (JavaModelManager.CP_RESOLVE_VERBOSE) {
+			} else if (JavaModelManager.CP_RESOLVE_VERBOSE || JavaModelManager.CP_RESOLVE_VERBOSE_FAILURE) {
 				verbose_no_user_library_found(project, userLibName);
 			}
-		} else if (JavaModelManager.CP_RESOLVE_VERBOSE) {
+		} else if (JavaModelManager.CP_RESOLVE_VERBOSE || JavaModelManager.CP_RESOLVE_VERBOSE_FAILURE) {
 			verbose_not_a_user_library(project, containerPath);
 		}
 	}
-	
+
 	private boolean isUserLibraryContainer(IPath path) {
 		return path != null && path.segmentCount() == 2 && JavaCore.USER_LIBRARY_CONTAINER_ID.equals(path.segment(0));
 	}
-	
+
 	/**
 	 * @see org.eclipse.jdt.core.ClasspathContainerInitializer#requestClasspathContainerUpdate(org.eclipse.core.runtime.IPath, org.eclipse.jdt.core.IJavaProject, org.eclipse.jdt.core.IClasspathContainer)
 	 */
@@ -87,7 +87,7 @@ public class UserLibraryClasspathContainerInitializer extends ClasspathContainer
 			"	project: " + project.getElementName() + '\n' + //$NON-NLS-1$
 			"	userLibraryName: " + userLibraryName); //$NON-NLS-1$
 	}
-	
+
 	private void verbose_not_a_user_library(IJavaProject project, IPath containerPath) {
 		Util.verbose(
 			"UserLibrary INIT - FAILED (not a user library)\n" + //$NON-NLS-1$

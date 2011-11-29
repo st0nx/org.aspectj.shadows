@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,6 +18,7 @@ import java.util.zip.ZipFile;
 
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
@@ -42,7 +43,7 @@ public class ClassFile extends Openable implements IClassFile, SuffixConstants {
 
 	protected String name;
 	protected BinaryType binaryType = null;
-	
+
 /*
  * Creates a handle to a class file.
  */
@@ -64,7 +65,7 @@ public ICompilationUnit becomeWorkingCopy(IProblemRequestor problemRequestor, Wo
 
 		BecomeWorkingCopyOperation operation = new BecomeWorkingCopyOperation(workingCopy, problemRequestor);
 		operation.runOperation(monitor);
-		
+
 		return workingCopy;
 	}
 	return perWorkingCopyInfo.workingCopy;
@@ -74,16 +75,11 @@ public ICompilationUnit becomeWorkingCopy(IProblemRequestor problemRequestor, Wo
  * Creates the children elements for this class file adding the resulting
  * new handles and info objects to the newElements table. Returns true
  * if successful, or false if an error is encountered parsing the class file.
- * 
+ *
  * @see Openable
  * @see Signature
  */
 protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, Map newElements, IResource underlyingResource) throws JavaModelException {
-	// check whether the class file can be opened
-	IStatus status = validateClassFile();
-	if (!status.isOK()) throw newJavaModelException(status);
-	if (underlyingResource != null && !underlyingResource.isAccessible()) throw newNotPresentException();
-
 	IBinaryType typeInfo = getBinaryTypeInfo((IFile) underlyingResource);
 	if (typeInfo == null) {
 		// The structure of a class file is unknown if a class file format errors occurred
@@ -96,10 +92,10 @@ protected boolean buildStructure(OpenableElementInfo info, IProgressMonitor pm, 
 	IType type = getType();
 	info.setChildren(new IJavaElement[] {type});
 	newElements.put(type, typeInfo);
-	
+
 	// Read children
 	((ClassFileInfo) info).readBinaryChildren(this, (HashMap) newElements, typeInfo);
-	
+
 	return true;
 }
 /**
@@ -126,21 +122,32 @@ public void codeComplete(int offset, ICompletionRequestor requestor, WorkingCopy
 public void codeComplete(int offset, CompletionRequestor requestor) throws JavaModelException {
 	codeComplete(offset, requestor, DefaultWorkingCopyOwner.PRIMARY);
 }
-
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.ICodeAssist#codeComplete(int, org.eclipse.jdt.core.CompletionRequestor, org.eclipse.core.runtime.IProgressMonitor)
+ */
+public void codeComplete(int offset, CompletionRequestor requestor, IProgressMonitor monitor) throws JavaModelException {
+	codeComplete(offset, requestor, DefaultWorkingCopyOwner.PRIMARY, monitor);
+}
 /* (non-Javadoc)
  * @see org.eclipse.jdt.core.ICodeAssist#codeComplete(int, org.eclipse.jdt.core.CompletionRequestor, org.eclipse.jdt.core.WorkingCopyOwner)
  */
 public void codeComplete(int offset, CompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
+	codeComplete(offset, requestor, owner, null);
+}
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.core.ICodeAssist#codeComplete(int, org.eclipse.jdt.core.CompletionRequestor, org.eclipse.jdt.core.WorkingCopyOwner, org.eclipse.core.runtime.IProgressMonitor)
+ */
+public void codeComplete(int offset, CompletionRequestor requestor, WorkingCopyOwner owner, IProgressMonitor monitor) throws JavaModelException {
 	String source = getSource();
 	if (source != null) {
 		BinaryType type = (BinaryType) getType();
-		BasicCompilationUnit cu = 
+		BasicCompilationUnit cu =
 			new BasicCompilationUnit(
-				getSource().toCharArray(), 
+				getSource().toCharArray(),
 				null,
 				type.sourceFileName((IBinaryType) type.getElementInfo()),
 				getJavaProject()); // use project to retrieve corresponding .java IFile
-		codeComplete(cu, cu, offset, requestor, owner);
+		codeComplete(cu, cu, offset, requestor, owner, null/*extended context isn't computed*/, monitor);
 	}
 }
 
@@ -176,9 +183,6 @@ public boolean equals(Object o) {
 	ClassFile other = (ClassFile) o;
 	return this.name.equals(other.name) && this.parent.equals(other.parent);
 }
-public boolean exists() {
-	return super.exists() && validateClassFile().isOK();
-}
 public boolean existsUsingJarTypeCache() {
 	if (getPackageFragmentRoot().isArchive()) {
 		JavaModelManager manager = JavaModelManager.getJavaModelManager();
@@ -200,7 +204,7 @@ public boolean existsUsingJarTypeCache() {
 			return false;
 		}
 		try {
-			info = getJarBinaryTypeInfo((PackageFragment) getParent());
+			info = getJarBinaryTypeInfo((PackageFragment) getParent(), true/*fully initialize so as to not keep a reference to the byte array*/);
 		} catch (CoreException e) {
 			// leave info null
 		} catch (IOException e) {
@@ -251,7 +255,7 @@ public IType findPrimaryType() {
 	return null;
 }
 public String getAttachedJavadoc(IProgressMonitor monitor) throws JavaModelException {
-	return this.getType().getAttachedJavadoc(monitor);
+	return getType().getAttachedJavadoc(monitor);
 }
 /**
  * Returns the <code>ClassFileReader</code>specific for this IClassFile, based
@@ -266,10 +270,13 @@ public String getAttachedJavadoc(IProgressMonitor monitor) throws JavaModelExcep
  * or when this class file is not present in the JAR
  */
 public IBinaryType getBinaryTypeInfo(IFile file) throws JavaModelException {
+	return getBinaryTypeInfo(file, true/*fully initialize so as to not keep a reference to the byte array*/);
+}
+public IBinaryType getBinaryTypeInfo(IFile file, boolean fullyInitialize) throws JavaModelException {
 	JavaElement pkg = (JavaElement) getParent();
 	if (pkg instanceof JarPackageFragment) {
 		try {
-			IBinaryType info = getJarBinaryTypeInfo((PackageFragment) pkg);
+			IBinaryType info = getJarBinaryTypeInfo((PackageFragment) pkg, fullyInitialize);
 			if (info == null) {
 				throw newNotPresentException();
 			}
@@ -292,7 +299,7 @@ public IBinaryType getBinaryTypeInfo(IFile file) throws JavaModelException {
 	} else {
 		byte[] contents = Util.getResourceContentsAsByteArray(file);
 		try {
-			return new ClassFileReader(contents, file.getFullPath().toString().toCharArray(), true/*fully initialize so as to not keep a reference to the byte array*/);
+			return new ClassFileReader(contents, file.getFullPath().toString().toCharArray(), fullyInitialize);
 		} catch (ClassFormatException cfe) {
 			//the structure remains unknown
 			return null;
@@ -325,11 +332,11 @@ public byte[] getBytes() throws JavaModelException {
 			JavaModelManager.getJavaModelManager().closeZipFile(zip);
 		}
 	} else {
-		IFile file = (IFile) getResource();
+		IFile file = (IFile) resource();
 		return Util.getResourceContentsAsByteArray(file);
 	}
 }
-private IBinaryType getJarBinaryTypeInfo(PackageFragment pkg) throws CoreException, IOException, ClassFormatException {
+private IBinaryType getJarBinaryTypeInfo(PackageFragment pkg, boolean fullyInitialize) throws CoreException, IOException, ClassFormatException {
 	JarPackageFragmentRoot root = (JarPackageFragmentRoot) pkg.getParent();
 	ZipFile zip = null;
 	try {
@@ -339,7 +346,7 @@ private IBinaryType getJarBinaryTypeInfo(PackageFragment pkg) throws CoreExcepti
 		if (ze != null) {
 			byte contents[] = org.eclipse.jdt.internal.compiler.util.Util.getZipEntryByteContent(ze, zip);
 			String fileName = root.getHandleIdentifier() + IDependent.JAR_FILE_ENTRY_SEPARATOR + entryName;
-			return new ClassFileReader(contents, fileName.toCharArray(), true/*fully initialize so as to not keep a reference to the byte array*/);
+			return new ClassFileReader(contents, fileName.toCharArray(), fullyInitialize);
 		}
 	} finally {
 		JavaModelManager.getJavaModelManager().closeZipFile(zip);
@@ -352,13 +359,17 @@ public IBuffer getBuffer() throws JavaModelException {
 		return super.getBuffer();
 	} else {
 		// .class file not on classpath, create a new buffer to be nice (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=41444)
-		Object info = ((ClassFile) getClassFile()).getBinaryTypeInfo((IFile) getResource());
+		Object info = ((ClassFile) getClassFile()).getBinaryTypeInfo((IFile) resource());
 		IBuffer buffer = openBuffer(null, info);
 		if (buffer != null && !(buffer instanceof NullBuffer))
 			return buffer;
-		if (status.getCode() == IJavaModelStatusConstants.ELEMENT_NOT_ON_CLASSPATH)
-			return null; // don't throw a JavaModelException to be able to open .class file outside the classpath (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=138507)
-		throw new JavaModelException((IJavaModelStatus) status);
+		switch (status.getCode()) {
+		case IJavaModelStatusConstants.ELEMENT_NOT_ON_CLASSPATH: // don't throw a JavaModelException to be able to open .class file outside the classpath (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=138507 )
+		case IJavaModelStatusConstants.INVALID_ELEMENT_TYPES: // don't throw a JavaModelException to be able to open .class file in proj==src case without source (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=221904 )
+			return null;
+		default:
+			throw new JavaModelException((IJavaModelStatus) status);
+		}
 	}
 }
 /**
@@ -413,29 +424,29 @@ public IJavaElement getElementAtConsideringSibling(int position) throws JavaMode
 	SourceMapper mapper = root.getSourceMapper();
 	if (mapper == null) {
 		return null;
-	} else {		
+	} else {
 		int index = this.name.indexOf('$');
 		int prefixLength = index < 0 ? this.name.length() : index;
-		
+
 		IType type = null;
 		int start = -1;
 		int end = Integer.MAX_VALUE;
 		IJavaElement[] children = fragment.getChildren();
 		for (int i = 0; i < children.length; i++) {
 			String childName = children[i].getElementName();
-			
+
 			int childIndex = childName.indexOf('$');
 			int childPrefixLength = childIndex < 0 ? childName.indexOf('.') : childIndex;
 			if (prefixLength == childPrefixLength && this.name.regionMatches(0, childName, 0, prefixLength)) {
 				IClassFile classFile = (IClassFile) children[i];
-				
+
 				// ensure this class file's buffer is open so that source ranges are computed
 				classFile.getBuffer();
-				
+
 				SourceRange range = mapper.getSourceRange(classFile.getType());
-				if (range == SourceMapper.UNKNOWN_RANGE) continue; 
-				int newStart = range.offset;
-				int newEnd = newStart + range.length - 1;
+				if (range == SourceMapper.UNKNOWN_RANGE) continue;
+				int newStart = range.getOffset();
+				int newEnd = newStart + range.getLength() - 1;
 				if(newStart > start && newEnd < end
 						&& newStart <= position && newEnd >= position) {
 					type = classFile.getType();
@@ -492,13 +503,8 @@ public IPath getPath() {
 /*
  * @see IJavaElement
  */
-public IResource getResource() {
-	PackageFragmentRoot root = this.getPackageFragmentRoot();
-	if (root.isArchive()) {
-		return root.getResource();
-	} else {
-		return ((IContainer)this.getParent().getResource()).getFile(new Path(this.getElementName()));
-	}
+public IResource resource(PackageFragmentRoot root) {
+	return ((IContainer) ((Openable) this.parent).resource(root)).getFile(new Path(getElementName()));
 }
 /**
  * @see ISourceReference
@@ -556,7 +562,7 @@ public String getTypeName() {
 public ICompilationUnit getWorkingCopy(WorkingCopyOwner owner, IProgressMonitor monitor) throws JavaModelException {
 	CompilationUnit workingCopy = new ClassFileWorkingCopy(this, owner == null ? DefaultWorkingCopyOwner.PRIMARY : owner);
 	JavaModelManager manager = JavaModelManager.getJavaModelManager();
-	JavaModelManager.PerWorkingCopyInfo perWorkingCopyInfo = 
+	JavaModelManager.PerWorkingCopyInfo perWorkingCopyInfo =
 		manager.getPerWorkingCopyInfo(workingCopy, false/*don't create*/, true/*record usage*/, null/*not used since don't create*/);
 	if (perWorkingCopyInfo != null) {
 		return perWorkingCopyInfo.getWorkingCopy(); // return existing handle instead of the one created above
@@ -602,7 +608,7 @@ public boolean isReadOnly() {
 private IStatus validateClassFile() {
 	IPackageFragmentRoot root = getPackageFragmentRoot();
 	try {
-		if (root.getKind() != IPackageFragmentRoot.K_BINARY) 
+		if (root.getKind() != IPackageFragmentRoot.K_BINARY)
 			return new JavaModelStatus(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, root);
 	} catch (JavaModelException e) {
 		return e.getJavaModelStatus();
@@ -613,23 +619,30 @@ private IStatus validateClassFile() {
 /**
  * Opens and returns buffer on the source code associated with this class file.
  * Maps the source code to the children elements of this class file.
- * If no source code is associated with this class file, 
+ * If no source code is associated with this class file,
  * <code>null</code> is returned.
- * 
+ *
  * @see Openable
  */
 protected IBuffer openBuffer(IProgressMonitor pm, Object info) throws JavaModelException {
-	SourceMapper mapper = getSourceMapper();
-	if (mapper != null) {
-		return mapSource(mapper, info instanceof IBinaryType ? (IBinaryType) info : null);
+	// Check the cache for the top-level type first
+	IType outerMostEnclosingType = getOuterMostEnclosingType();
+	IBuffer buffer = getBufferManager().getBuffer(outerMostEnclosingType.getClassFile());
+	if (buffer == null) {
+		SourceMapper mapper = getSourceMapper();
+		IBinaryType typeInfo = info instanceof IBinaryType ? (IBinaryType) info : null;
+		if (mapper != null) {
+			buffer = mapSource(mapper, typeInfo, outerMostEnclosingType.getClassFile());
+		}
 	}
-	return null;
+	return buffer;
 }
-private IBuffer mapSource(SourceMapper mapper, IBinaryType info) {
+/** Loads the buffer via SourceMapper, and maps it in SourceMapper */
+private IBuffer mapSource(SourceMapper mapper, IBinaryType info, IClassFile bufferOwner) {
 	char[] contents = mapper.findSource(getType(), info);
 	if (contents != null) {
 		// create buffer
-		IBuffer buffer = BufferManager.createBuffer(this);
+		IBuffer buffer = BufferManager.createBuffer(bufferOwner);
 		if (buffer == null) return null;
 		BufferManager bufManager = getBufferManager();
 		bufManager.addBuffer(buffer);
@@ -643,12 +656,12 @@ private IBuffer mapSource(SourceMapper mapper, IBinaryType info) {
 		buffer.addBufferChangedListener(this);
 
 		// do the source mapping
-		mapper.mapSource(getType(), contents, info);
+		mapper.mapSource(getOuterMostEnclosingType(), contents, info);
 
 		return buffer;
 	} else {
 		// create buffer
-		IBuffer buffer = BufferManager.createNullBuffer(this);
+		IBuffer buffer = BufferManager.createNullBuffer(bufferOwner);
 		if (buffer == null) return null;
 		BufferManager bufManager = getBufferManager();
 		bufManager.addBuffer(buffer);
@@ -663,11 +676,23 @@ private IBuffer mapSource(SourceMapper mapper, IBinaryType info) {
 		return null;
 	String simpleName = new String(unqualifiedName(className));
 	int lastDollar = simpleName.lastIndexOf('$');
-	if (lastDollar != -1) 
+	if (lastDollar != -1)
 		return Util.localTypeName(simpleName, lastDollar, simpleName.length());
 	else
 		return simpleName;
 }
+
+/** Returns the type of the top-level declaring class used to find the source code */
+private IType getOuterMostEnclosingType() {
+	IType type = getType();
+	IType enclosingType = type.getDeclaringType();
+	while (enclosingType != null) {
+		type = enclosingType;
+		enclosingType = type.getDeclaringType();
+	}
+	return type;
+}
+
 /**
  * Returns the Java Model representation of the given name
  * which is provided in diet class file format, or <code>null</code>
@@ -740,7 +765,7 @@ public static char[] translatedName(char[] name) {
  * @deprecated - should use codeComplete(int, ICompletionRequestor) instead
  */
 public void codeComplete(int offset, final org.eclipse.jdt.core.ICodeCompletionRequestor requestor) throws JavaModelException {
-	
+
 	if (requestor == null){
 		codeComplete(offset, (ICompletionRequestor)null);
 		return;
@@ -792,5 +817,24 @@ public void codeComplete(int offset, final org.eclipse.jdt.core.ICodeCompletionR
 				// ignore
 			}
 		});
+}
+
+protected IStatus validateExistence(IResource underlyingResource) {
+	// check whether the class file can be opened
+	IStatus status = validateClassFile();
+	if (!status.isOK())
+		return status;
+	if (underlyingResource != null) {
+		if (!underlyingResource.isAccessible())
+			return newDoesNotExistStatus();
+		PackageFragmentRoot root;
+		if ((underlyingResource instanceof IFolder) && (root = getPackageFragmentRoot()).isArchive()) { // see https://bugs.eclipse.org/bugs/show_bug.cgi?id=204652
+			return root.newDoesNotExistStatus();
+		}
+	}
+	return JavaModelStatus.VERIFIED_OK;
+}
+public ISourceRange getNameRange() {
+	return null;
 }
 }

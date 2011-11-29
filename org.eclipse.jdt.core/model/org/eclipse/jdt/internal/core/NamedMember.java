@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2006 IBM Corporation and others.
+ * Copyright (c) 2004, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -21,7 +21,11 @@ import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.ITypeParameter;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.WorkingCopyOwner;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.codeassist.ISelectionRequestor;
+import org.eclipse.jdt.internal.codeassist.SelectionEngine;
 
 public abstract class NamedMember extends Member {
 
@@ -30,12 +34,12 @@ public abstract class NamedMember extends Member {
 	 * element does not have a name.
 	 */
 	protected String name;
-	
+
 	public NamedMember(JavaElement parent, String name) {
 		super(parent);
 		this.name = name;
 	}
-	
+
 	private void appendTypeParameters(StringBuffer buffer) throws JavaModelException {
 		ITypeParameter[] typeParameters = getTypeParameters();
 		int length = typeParameters.length;
@@ -63,33 +67,33 @@ public abstract class NamedMember extends Member {
 	public String getElementName() {
 		return this.name;
 	}
-	
+
 	protected String getKey(IField field, boolean forceOpen) throws JavaModelException {
 		StringBuffer key = new StringBuffer();
-		
-		// declaring class 
+
+		// declaring class
 		String declaringKey = getKey((IType) field.getParent(), forceOpen);
 		key.append(declaringKey);
-		
+
 		// field name
 		key.append('.');
 		key.append(field.getElementName());
 
 		return key.toString();
 	}
-	
+
 	protected String getKey(IMethod method, boolean forceOpen) throws JavaModelException {
 		StringBuffer key = new StringBuffer();
-		
-		// declaring class 
+
+		// declaring class
 		String declaringKey = getKey((IType) method.getParent(), forceOpen);
 		key.append(declaringKey);
-		
+
 		// selector
 		key.append('.');
 		String selector = method.getElementName();
 		key.append(selector);
-		
+
 		// type parameters
 		if (forceOpen) {
 			ITypeParameter[] typeParameters = method.getTypeParameters();
@@ -111,23 +115,23 @@ public abstract class NamedMember extends Member {
 				key.append('>');
 			}
 		}
-		
+
 		// parameters
 		key.append('(');
 		String[] parameters = method.getParameterTypes();
 		for (int i = 0, length = parameters.length; i < length; i++)
 			key.append(parameters[i].replace('.', '/'));
 		key.append(')');
-		
+
 		// return type
 		if (forceOpen)
 			key.append(method.getReturnType().replace('.', '/'));
 		else
 			key.append('V');
-		
+
 		return key.toString();
 	}
-	
+
 	protected String getKey(IType type, boolean forceOpen) throws JavaModelException {
 		StringBuffer key = new StringBuffer();
 		key.append('L');
@@ -170,11 +174,11 @@ public abstract class NamedMember extends Member {
 		buffer.append('>');
 		return buffer.toString();
 	}
-	
+
 	protected IPackageFragment getPackageFragment() {
 		return null;
 	}
-	
+
 	public String getFullyQualifiedName(char enclosingTypeSeparator, boolean showParameters) throws JavaModelException {
 		String packageName = getPackageFragment().getElementName();
 		if (packageName.equals(IPackageFragment.DEFAULT_PACKAGE_NAME)) {
@@ -201,7 +205,7 @@ public abstract class NamedMember extends Member {
 					typeName = this.name;
 				} else {
 					// anonymous or local class file
-					typeName = classFileName.substring(0, classFileName.lastIndexOf('.')); // remove .class
+					typeName = classFileName.substring(0, classFileName.lastIndexOf('.'))/*remove .class*/.replace('$', enclosingTypeSeparator);
 				}
 				if (showParameters) {
 					StringBuffer buffer = new StringBuffer(typeName);
@@ -229,8 +233,67 @@ public abstract class NamedMember extends Member {
 		}
 		return buffer.toString();
 	}
-	
+
 	protected ITypeParameter[] getTypeParameters() throws JavaModelException {
 		return null;
+	}
+
+	/**
+	 * @see IType#resolveType(String)
+	 */
+	public String[][] resolveType(String typeName) throws JavaModelException {
+		return resolveType(typeName, DefaultWorkingCopyOwner.PRIMARY);
+	}
+
+	/**
+	 * @see IType#resolveType(String, WorkingCopyOwner)
+	 */
+	public String[][] resolveType(String typeName, WorkingCopyOwner owner) throws JavaModelException {
+		JavaProject project = (JavaProject) getJavaProject();
+		SearchableEnvironment environment = project.newSearchableNameEnvironment(owner);
+
+		class TypeResolveRequestor implements ISelectionRequestor {
+			String[][] answers = null;
+			public void acceptType(char[] packageName, char[] tName, int modifiers, boolean isDeclaration, char[] uniqueKey, int start, int end) {
+				String[] answer = new String[]  {new String(packageName), new String(tName) };
+				if (this.answers == null) {
+					this.answers = new String[][]{ answer };
+				} else {
+					// grow
+					int length = this.answers.length;
+					System.arraycopy(this.answers, 0, this.answers = new String[length+1][], 0, length);
+					this.answers[length] = answer;
+				}
+			}
+			public void acceptError(CategorizedProblem error) {
+				// ignore
+			}
+			public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] fieldName, boolean isDeclaration, char[] uniqueKey, int start, int end) {
+				// ignore
+			}
+			public void acceptMethod(char[] declaringTypePackageName, char[] declaringTypeName, String enclosingDeclaringTypeSignature, char[] selector, char[][] parameterPackageNames, char[][] parameterTypeNames, String[] parameterSignatures, char[][] typeParameterNames, char[][][] typeParameterBoundNames, boolean isConstructor, boolean isDeclaration, char[] uniqueKey, int start, int end) {
+				// ignore
+			}
+			public void acceptPackage(char[] packageName){
+				// ignore
+			}
+			public void acceptTypeParameter(char[] declaringTypePackageName, char[] declaringTypeName, char[] typeParameterName, boolean isDeclaration, int start, int end) {
+				// ignore
+			}
+			public void acceptMethodTypeParameter(char[] declaringTypePackageName, char[] declaringTypeName, char[] selector, int selectorStart, int selcetorEnd, char[] typeParameterName, boolean isDeclaration, int start, int end) {
+				// ignore
+			}
+
+		}
+		TypeResolveRequestor requestor = new TypeResolveRequestor();
+		SelectionEngine engine =
+			new SelectionEngine(environment, requestor, project.getOptions(true), owner);
+
+		engine.selectType(typeName.toCharArray(), (IType) this);
+		if (NameLookup.VERBOSE) {
+			System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+			System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+		}
+		return requestor.answers;
 	}
 }

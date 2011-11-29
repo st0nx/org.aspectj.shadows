@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -34,8 +34,9 @@ public SuperTypeReferenceLocator(SuperTypeReferencePattern pattern) {
 //public int match(Reference node, MatchingNodeSet nodeSet) - SKIP IT
 //public int match(TypeDeclaration node, MatchingNodeSet nodeSet) - SKIP IT
 public int match(TypeReference node, MatchingNodeSet nodeSet) {
+	if (this.flavors != SUPERTYPE_REF_FLAVOR) return IMPOSSIBLE_MATCH;
 	if (this.pattern.superSimpleName == null)
-		return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+		return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 
 	char[] typeRefSimpleName = null;
 	if (node instanceof SingleTypeReference) {
@@ -43,9 +44,9 @@ public int match(TypeReference node, MatchingNodeSet nodeSet) {
 	} else { // QualifiedTypeReference
 		char[][] tokens = ((QualifiedTypeReference) node).tokens;
 		typeRefSimpleName = tokens[tokens.length-1];
-	}				
+	}
 	if (matchesName(this.pattern.superSimpleName, typeRefSimpleName))
-		return nodeSet.addMatch(node, ((InternalSearchPattern)this.pattern).mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
+		return nodeSet.addMatch(node, this.pattern.mustResolve ? POSSIBLE_MATCH : ACCURATE_MATCH);
 
 	return IMPOSSIBLE_MATCH;
 }
@@ -77,9 +78,14 @@ public int resolveLevel(ASTNode node) {
 	if (!(node instanceof TypeReference)) return IMPOSSIBLE_MATCH;
 
 	TypeReference typeRef = (TypeReference) node;
-	TypeBinding binding = typeRef.resolvedType;
-	if (binding == null) return INACCURATE_MATCH;
-	return resolveLevelForType(this.pattern.superSimpleName, this.pattern.superQualification, binding);
+	TypeBinding typeBinding = typeRef.resolvedType;
+	if (typeBinding instanceof ArrayBinding)
+		typeBinding = ((ArrayBinding) typeBinding).leafComponentType;
+	if (typeBinding instanceof ProblemReferenceBinding)
+		typeBinding = ((ProblemReferenceBinding) typeBinding).closestMatch();
+
+	if (typeBinding == null || !typeBinding.isValidBinding()) return INACCURATE_MATCH;
+	return resolveLevelForType(this.pattern.superSimpleName, this.pattern.superQualification, typeBinding);
 }
 public int resolveLevel(Binding binding) {
 	if (binding == null) return INACCURATE_MATCH;

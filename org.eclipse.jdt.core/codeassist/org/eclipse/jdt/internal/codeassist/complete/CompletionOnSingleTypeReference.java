@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -23,7 +23,7 @@ package org.eclipse.jdt.internal.codeassist.complete;
  * The source range of the completion node denotes the source range
  * which should be replaced by the completion.
  */
- 
+
 import org.eclipse.jdt.internal.compiler.ast.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
@@ -43,7 +43,7 @@ public CompletionOnSingleTypeReference(char[] source, long pos) {
 }
 public CompletionOnSingleTypeReference(char[] source, long pos, int kind) {
 	super(source, pos);
-	isCompletionNode = true;
+	this.isCompletionNode = true;
 	this.kind = kind;
 }
 public void aboutToResolve(Scope scope) {
@@ -59,7 +59,7 @@ protected TypeBinding getTypeBinding(Scope scope) {
     if (this.fieldTypeCompletionNode != null) {
 		throw new CompletionNodeFound(this.fieldTypeCompletionNode, scope);
     }
-	if(isCompletionNode) {
+	if(this.isCompletionNode) {
 		throw new CompletionNodeFound(this, scope);
 	} else {
 		return super.getTypeBinding(scope);
@@ -92,16 +92,19 @@ public StringBuffer printExpression(int indent, StringBuffer output){
 			output.append("<CompleteOnType:");//$NON-NLS-1$
 			break;
 	}
-	return output.append(token).append('>');
+	return output.append(this.token).append('>');
 }
 public TypeBinding resolveTypeEnclosing(BlockScope scope, ReferenceBinding enclosingType) {
     if (this.fieldTypeCompletionNode != null) {
 		throw new CompletionNodeFound(this.fieldTypeCompletionNode, scope);
     }
-	if(isCompletionNode) {
+	if(this.isCompletionNode) {
 		throw new CompletionNodeFound(this, enclosingType, scope);
 	} else {
 		return super.resolveTypeEnclosing(scope, enclosingType);
 	}
+}
+public void setKind(int kind) {
+	this.kind = kind;
 }
 }

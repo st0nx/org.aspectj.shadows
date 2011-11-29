@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,9 +14,11 @@ import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.util.Hashtable;
+import java.util.List;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
 import org.eclipse.jdt.internal.compiler.parser.ScannerHelper;
@@ -24,18 +26,21 @@ import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class ClasspathDirectory extends ClasspathLocation {
 
-private char[] normalizedPath;
-private String path;
 private Hashtable directoryCache;
 private String[] missingPackageHolder = new String[1];
 private int mode; // ability to only consider one kind of files (source vs. binaries), by default use both
 private String encoding; // only useful if referenced in the source path
 
-ClasspathDirectory(File directory, String encoding, int mode, 
+ClasspathDirectory(File directory, String encoding, int mode,
 		AccessRuleSet accessRuleSet, String destinationPath) {
 	super(accessRuleSet, destinationPath);
 	this.mode = mode;
-	this.path = directory.getAbsolutePath();
+	try {
+		this.path = directory.getCanonicalPath();
+	} catch (IOException e) {
+		// should not happen as we know that the file exists
+		this.path = directory.getAbsolutePath();
+	}
 	if (!this.path.endsWith(File.separator))
 		this.path += File.separator;
 	this.directoryCache = new Hashtable(11);
@@ -81,6 +86,9 @@ boolean doesFileExist(String fileName, String qualifiedPackageName) {
 			return true;
 	return false;
 }
+public List fetchLinkedJars(FileSystem.ClasspathSectionProblemReporter problemReporter) {
+	return null;
+}
 public NameEnvironmentAnswer findClass(char[] typeName, String qualifiedPackageName, String qualifiedBinaryFileName) {
 	return findClass(typeName, qualifiedPackageName, qualifiedBinaryFileName, false);
 }
@@ -94,24 +102,33 @@ public NameEnvironmentAnswer findClass(char[] typeName, String qualifiedPackageN
 		String fullSourcePath = this.path + qualifiedBinaryFileName.substring(0, qualifiedBinaryFileName.length() - 6)  + SUFFIX_STRING_java;
 		if (!binaryExists)
 			return new NameEnvironmentAnswer(new CompilationUnit(null,
-					fullSourcePath, this.encoding, destinationPath),
+					fullSourcePath, this.encoding, this.destinationPath),
 					fetchAccessRestriction(qualifiedBinaryFileName));
 		String fullBinaryPath = this.path + qualifiedBinaryFileName;
 		long binaryModified = new File(fullBinaryPath).lastModified();
 		long sourceModified = new File(fullSourcePath).lastModified();
 		if (sourceModified > binaryModified)
 			return new NameEnvironmentAnswer(new CompilationUnit(null,
-					fullSourcePath, this.encoding, destinationPath),
+					fullSourcePath, this.encoding, this.destinationPath),
 					fetchAccessRestriction(qualifiedBinaryFileName));
 	}
 	if (binaryExists) {
 		try {
 			ClassFileReader reader = ClassFileReader.read(this.path + qualifiedBinaryFileName);
+			// https://bugs.eclipse.org/bugs/show_bug.cgi?id=321115, package names are to be treated case sensitive.
+			String typeSearched = qualifiedPackageName.length() > 0 ? 
+					qualifiedPackageName.replace(File.separatorChar, '/') + "/" + fileName //$NON-NLS-1$
+					: fileName;
+			if (!CharOperation.equals(reader.getName(), typeSearched.toCharArray())) {
+				reader = null;
+			}
 			if (reader != null)
 				return new NameEnvironmentAnswer(
 						reader,
 						fetchAccessRestriction(qualifiedBinaryFileName));
-		} catch (Exception e) {
+		} catch (IOException e) {
+			// treat as if file is missing
+		} catch (ClassFormatException e) {
 			// treat as if file is missing
 		}
 	}
@@ -167,5 +184,8 @@ public char[] normalizedPath() {
 }
 public String getPath() {
 	return this.path;
+}
+public int getMode() {
+	return this.mode;
 }
 }

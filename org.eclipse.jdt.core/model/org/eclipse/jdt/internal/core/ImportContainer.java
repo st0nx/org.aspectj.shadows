@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,12 +11,6 @@
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.IImportContainer;
-import org.eclipse.jdt.core.IImportDeclaration;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.ISourceRange;
-import org.eclipse.jdt.core.ISourceReference;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.util.MementoTokenizer;
 
 /**
@@ -69,6 +63,9 @@ public IImportDeclaration getImport(String importName) {
 	if (isOnDemand)
 		// make sure to copy the string (so that it doesn't hold on the underlying char[] that might be much bigger than necessary)
 		importName = new String(importName.substring(0, index));
+	return getImport(importName, isOnDemand);
+}
+protected IImportDeclaration getImport(String importName, boolean isOnDemand) {
 	return new ImportDeclaration(this, importName, isOnDemand);
 }
 /*
@@ -111,10 +108,13 @@ protected void toString(int tab, StringBuffer buffer) {
  *  Debugging purposes
  */
 protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean showResolvedInfo) {
-	buffer.append(this.tabString(tab));
+	buffer.append(tabString(tab));
 	buffer.append("<import container>"); //$NON-NLS-1$
 	if (info == null) {
 		buffer.append(" (not open)"); //$NON-NLS-1$
 	}
+}
+public ISourceRange getNameRange() {
+	return null;
 }
 }

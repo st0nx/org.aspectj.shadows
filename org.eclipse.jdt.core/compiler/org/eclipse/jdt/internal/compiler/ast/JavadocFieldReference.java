@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,9 +7,11 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Stephan Herrmann <stephan@cs.tu-berlin.de> - Contribution for bug 185682 - Increment/decrement operators mark local variables as read
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.*;
@@ -24,7 +26,7 @@ public class JavadocFieldReference extends FieldReference {
 		super(source, pos);
 		this.bits |= InsideJavadoc;
 	}
-	
+
 	/*
 	public Binding getBinding() {
 		if (this.methodBinding != null) {
@@ -41,25 +43,25 @@ public class JavadocFieldReference extends FieldReference {
 
 		this.constant = Constant.NotAConstant;
 		if (this.receiver == null) {
-			this.receiverType = scope.enclosingSourceType();
+			this.actualReceiverType = scope.enclosingReceiverType();
 		} else if (scope.kind == Scope.CLASS_SCOPE) {
-			this.receiverType = this.receiver.resolveType((ClassScope) scope);
+			this.actualReceiverType = this.receiver.resolveType((ClassScope) scope);
 		} else {
-			this.receiverType = this.receiver.resolveType((BlockScope)scope);
+			this.actualReceiverType = this.receiver.resolveType((BlockScope)scope);
 		}
-		if (this.receiverType == null) {
+		if (this.actualReceiverType == null) {
 			return null;
 		}
 
 		Binding fieldBinding = (this.receiver != null && this.receiver.isThis())
 			? scope.classScope().getBinding(this.token, this.bits & RestrictiveFlagMASK, this, true /*resolve*/)
-			: scope.getField(this.receiverType, this.token, this);
+			: scope.getField(this.actualReceiverType, this.token, this);
 		if (!fieldBinding.isValidBinding()) {
 			// implicit lookup may discover issues due to static/constructor contexts. javadoc must be resilient
 			switch (fieldBinding.problemId()) {
 				case ProblemReasons.NonStaticReferenceInConstructorInvocation:
 				case ProblemReasons.NonStaticReferenceInStaticContext:
-				case ProblemReasons.InheritedNameHidesEnclosingName : 
+				case ProblemReasons.InheritedNameHidesEnclosingName :
 					FieldBinding closestMatch = ((ProblemFieldBinding)fieldBinding).closestMatch;
 					if (closestMatch != null) {
 						fieldBinding = closestMatch; // ignore problem if can reach target field through it
@@ -68,26 +70,34 @@ public class JavadocFieldReference extends FieldReference {
 		}
 		// When there's no valid field binding, try to resolve possible method reference without parenthesis
 		if (!fieldBinding.isValidBinding() || !(fieldBinding instanceof FieldBinding)) {
-			if (this.receiverType instanceof ReferenceBinding) {
-				ReferenceBinding refBinding = (ReferenceBinding) this.receiverType;
-				MethodBinding[] methodBindings = refBinding.getMethods(this.token);
-				if (methodBindings == null) {
-					scope.problemReporter().javadocInvalidField(this.sourceStart, this.sourceEnd, fieldBinding, this.receiverType, scope.getDeclarationModifiers());
+			if (this.receiver.resolvedType instanceof ProblemReferenceBinding) {
+				// problem already got signaled on receiver, do not report secondary problem
+				return null;
+			}
+			if (this.actualReceiverType instanceof ReferenceBinding) {
+				ReferenceBinding refBinding = (ReferenceBinding) this.actualReceiverType;
+				char[] selector = this.token;
+				MethodBinding possibleMethod = null;
+				if (CharOperation.equals(this.actualReceiverType.sourceName(), selector)) {
+					possibleMethod = scope.getConstructor(refBinding, Binding.NO_TYPES, this);
 				} else {
-					switch (methodBindings.length) {
-						case 0:
-							// no method was found: report problem
-							scope.problemReporter().javadocInvalidField(this.sourceStart, this.sourceEnd, fieldBinding, this.receiverType, scope.getDeclarationModifiers());
-							break;
-						case 1:
-							// one method binding was found: store binding in specific field
-							this.methodBinding = methodBindings[0];
-							break;
-						default:
-							// several method binding were found: store first binding in specific field and report ambiguous error
-							this.methodBinding = methodBindings[0];
-							scope.problemReporter().javadocAmbiguousMethodReference(this.sourceStart, this.sourceEnd, fieldBinding, scope.getDeclarationModifiers());
-							break;
+					possibleMethod = this.receiver.isThis()
+						? scope.getImplicitMethod(selector, Binding.NO_TYPES, this)
+						: scope.getMethod(refBinding, selector, Binding.NO_TYPES, this);
+				}
+				if (possibleMethod.isValidBinding()) {
+					this.methodBinding = possibleMethod;
+				} else {
+					ProblemMethodBinding problemMethodBinding = (ProblemMethodBinding) possibleMethod;
+					if (problemMethodBinding.closestMatch == null) {
+						if (fieldBinding.isValidBinding()) {
+							// When the binding is not on a field (e.g. local variable), we need to create a problem field binding to report the correct problem
+							// see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=254825
+							fieldBinding = new ProblemFieldBinding(refBinding, fieldBinding.readableName(), ProblemReasons.NotFound);
+						}
+						scope.problemReporter().javadocInvalidField(this, fieldBinding, this.actualReceiverType, scope.getDeclarationModifiers());
+					} else {
+						this.methodBinding = problemMethodBinding.closestMatch;
 					}
 				}
 			}
@@ -95,12 +105,12 @@ public class JavadocFieldReference extends FieldReference {
 		}
 		this.binding = (FieldBinding) fieldBinding;
 
-		if (isFieldUseDeprecated(this.binding, scope, (this.bits & IsStrictlyAssigned) != 0)) {
+		if (isFieldUseDeprecated(this.binding, scope, this.bits)) {
 			scope.problemReporter().javadocDeprecatedField(this.binding, this, scope.getDeclarationModifiers());
 		}
 		return this.resolvedType = this.binding.type;
 	}
-	
+
 	public boolean isSuperAccess() {
 		return (this.bits & ASTNode.SuperAccess) != 0;
 	}

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,10 +10,8 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.HashMap;
-
-import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.ISourceRange;
+import org.eclipse.jdt.core.SourceRange;
 
 public class CompilationUnitElementInfo extends OpenableElementInfo {
 
@@ -22,24 +20,17 @@ public class CompilationUnitElementInfo extends OpenableElementInfo {
 	 */
 	protected int sourceLength;
 
-	/** 
+	/**
 	 * Timestamp of original resource at the time this element
 	 * was opened or last updated.
 	 */
 	protected long timestamp;
-	
+
 	/*
-	 * The positions of annotations for each element in this compilation unit.
-	 * A map from IJavaElement to long[]
+	 * Number of annotations in this compilation unit
 	 */
-	public HashMap annotationPositions;
-	
-public void addAnnotationPositions(IJavaElement handle, long[] positions) {
-	if (positions == null) return;
-	if (this.annotationPositions == null)
-		this.annotationPositions = new HashMap();
-	this.annotationPositions.put(handle, positions);
-}
+	public int annotationNumber = 0;
+
 /**
  * Returns the length of the source string.
  */

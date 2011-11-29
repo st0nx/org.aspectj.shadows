@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -16,6 +16,7 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.search.PackageReferenceMatch;
 import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.*;
@@ -33,8 +34,8 @@ public static boolean isDeclaringPackageFragment(IPackageFragment packageFragmen
 		// retrieve the actual file name from the full path (sources are generally only containing it already)
 		fileName = CharOperation.replaceOnCopy(fileName, '/', '\\'); // ensure to not do any side effect on file name (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=136016)
 		fileName = CharOperation.lastSegment(fileName, '\\');
-		
-		try { 
+
+		try {
 			switch (packageFragment.getKind()) {
 				case IPackageFragmentRoot.K_SOURCE :
 					if (!org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(fileName) || !packageFragment.getCompilationUnit(new String(fileName)).exists()) {
@@ -56,13 +57,16 @@ public static boolean isDeclaringPackageFragment(IPackageFragment packageFragmen
 			// unable to determine kind; tolerate this match
 		}
 	}
-	return true; // by default, do not eliminate 
+	return true; // by default, do not eliminate
 }
 
 public PackageReferenceLocator(PackageReferencePattern pattern) {
 	super(pattern);
 
 	this.pattern = pattern;
+}
+public int match(Annotation node, MatchingNodeSet nodeSet) {
+	return match(node.type, nodeSet);
 }
 public int match(ASTNode node, MatchingNodeSet nodeSet) { // interested in ImportReference
 	if (!(node instanceof ImportReference)) return IMPOSSIBLE_MATCH;
@@ -95,32 +99,42 @@ protected int matchLevel(ImportReference importRef) {
 protected int matchLevelForTokens(char[][] tokens) {
 	if (this.pattern.pkgName == null) return ACCURATE_MATCH;
 
-	char[] packageName = null;
-	if (this.isCamelCase) {
-		packageName = CharOperation.concatWith(tokens, '.');
-		if (CharOperation.camelCaseMatch(this.pattern.pkgName, packageName)) {
-			return POSSIBLE_MATCH;
-		}
-	}
 	switch (this.matchMode) {
 		case SearchPattern.R_EXACT_MATCH:
 		case SearchPattern.R_PREFIX_MATCH:
-			if (packageName==null) packageName = CharOperation.concatWith(tokens, '.');
-			if (CharOperation.prefixEquals(this.pattern.pkgName, packageName, this.isCaseSensitive)) {
+			if (CharOperation.prefixEquals(this.pattern.pkgName, CharOperation.concatWith(tokens, '.'), this.isCaseSensitive)) {
 				return POSSIBLE_MATCH;
 			}
 			break;
+
 		case SearchPattern.R_PATTERN_MATCH:
 			char[] patternName = this.pattern.pkgName[this.pattern.pkgName.length - 1] == '*'
 				? this.pattern.pkgName
 				: CharOperation.concat(this.pattern.pkgName, ".*".toCharArray()); //$NON-NLS-1$
-			if (packageName==null) packageName = CharOperation.concatWith(tokens, '.');
-			if (CharOperation.match(patternName, packageName, this.isCaseSensitive)) {
+			if (CharOperation.match(patternName, CharOperation.concatWith(tokens, '.'), this.isCaseSensitive)) {
 				return POSSIBLE_MATCH;
 			}
 			break;
+
 		case SearchPattern.R_REGEXP_MATCH :
 			// TODO (frederic) implement regular expression match
+			break;
+
+		case SearchPattern.R_CAMELCASE_MATCH:
+			char[] packageName = CharOperation.concatWith(tokens, '.');
+			if (CharOperation.camelCaseMatch(this.pattern.pkgName, packageName, false)) {
+				return POSSIBLE_MATCH;
+			}
+			// only test case insensitive as CamelCase already verified prefix case sensitive
+			if (!this.isCaseSensitive && CharOperation.prefixEquals(this.pattern.pkgName, packageName, false)) {
+				return POSSIBLE_MATCH;
+			}
+			break;
+
+		case SearchPattern.R_CAMELCASE_SAME_PART_COUNT_MATCH:
+			if (CharOperation.camelCaseMatch(this.pattern.pkgName, CharOperation.concatWith(tokens, '.'), true)) {
+				return POSSIBLE_MATCH;
+			}
 			break;
 	}
 	return IMPOSSIBLE_MATCH;
@@ -166,12 +180,15 @@ protected void matchReportImportRef(ImportReference importRef, Binding binding, 
 				last = ((PackageBinding) binding).compoundName.length;
 			int start = (int) (positions[0] >>> 32);
 			int end = (int) positions[last - 1];
-			match = locator.newPackageReferenceMatch(element, accuracy, start, end-start+1, importRef);
-			locator.report(match);
+			this.match = locator.newPackageReferenceMatch(element, accuracy, start, end-start+1, importRef);
+			locator.report(this.match);
 		}
 	}
 }
 protected void matchReportReference(ASTNode reference, IJavaElement element, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
+	matchReportReference(reference, element, null, null, elementBinding, accuracy, locator);
+}
+protected void matchReportReference(ASTNode reference, IJavaElement element, IJavaElement localElement, IJavaElement[] otherElements, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
 	long[] positions = null;
 	int last = -1;
 	if (reference instanceof ImportReference) {
@@ -193,7 +210,7 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 					break;
 				case Binding.VARIABLE : //============unbound cases===========
 				case Binding.TYPE | Binding.VARIABLE :
-					Binding binding = qNameRef.binding; 
+					Binding binding = qNameRef.binding;
 					if (binding instanceof TypeBinding) {
 						typeBinding = (TypeBinding) binding;
 					} else if (binding instanceof ProblemFieldBinding) {
@@ -204,7 +221,7 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 						typeBinding = pbBinding.searchType;
 						last = CharOperation.occurencesOf('.', pbBinding.name);
 					}
-					break;					
+					break;
 			}
 		} else if (reference instanceof QualifiedTypeReference) {
 			QualifiedTypeReference qTypeRef = (QualifiedTypeReference) reference;
@@ -245,8 +262,10 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 	if (last > positions.length) last = positions.length;
 	int sourceStart = (int) (positions[0] >>> 32);
 	int sourceEnd = ((int) positions[last - 1]);
-	match = locator.newPackageReferenceMatch(element, accuracy, sourceStart, sourceEnd-sourceStart+1, reference);
-	locator.report(match);
+	PackageReferenceMatch packageReferenceMatch = locator.newPackageReferenceMatch(element, accuracy, sourceStart, sourceEnd-sourceStart+1, reference);
+	packageReferenceMatch.setLocalElement(localElement);
+	this.match = packageReferenceMatch;
+	locator.report(this.match);
 }
 protected int referenceType() {
 	return IJavaElement.PACKAGE_FRAGMENT;
@@ -293,15 +312,14 @@ public int resolveLevel(Binding binding) {
 		}
 	}
 	if (compoundName != null && matchesName(this.pattern.pkgName, CharOperation.concatWith(compoundName, '.'))) {
-		if (((InternalSearchPattern) this.pattern).focus instanceof IPackageFragment && binding instanceof ReferenceBinding) {
+		if (this.pattern.focus instanceof IPackageFragment && binding instanceof ReferenceBinding) {
 			// check that type is located inside this instance of a package fragment
-			if (!isDeclaringPackageFragment((IPackageFragment)((InternalSearchPattern) this.pattern).focus, (ReferenceBinding)binding))
+			if (!isDeclaringPackageFragment((IPackageFragment) this.pattern.focus, (ReferenceBinding)binding))
 				return IMPOSSIBLE_MATCH;
-		}				
+		}
 		return ACCURATE_MATCH;
-	} else {
-		return IMPOSSIBLE_MATCH;
 	}
+	return IMPOSSIBLE_MATCH;
 }
 protected int resolveLevel(QualifiedNameReference qNameRef) {
 	TypeBinding typeBinding = null;
@@ -323,7 +341,7 @@ protected int resolveLevel(QualifiedNameReference qNameRef) {
 		 */
 		case Binding.VARIABLE : //============unbound cases===========
 		case Binding.TYPE | Binding.VARIABLE :
-			Binding binding = qNameRef.binding; 
+			Binding binding = qNameRef.binding;
 			if (binding instanceof ProblemReferenceBinding) {
 				typeBinding = (TypeBinding) binding;
 			} else if (binding instanceof ProblemFieldBinding) {
@@ -336,7 +354,7 @@ protected int resolveLevel(QualifiedNameReference qNameRef) {
 					return INACCURATE_MATCH;
 				typeBinding = pbBinding.searchType;
 			}
-			break;					
+			break;
 	}
 	return resolveLevel(typeBinding);
 }

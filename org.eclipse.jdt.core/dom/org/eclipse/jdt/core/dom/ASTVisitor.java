@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -20,9 +20,9 @@ package org.eclipse.jdt.core.dom;
  * <li><code>public boolean visit(<i>T</i> node)</code> - Visits
  * the given node to perform some arbitrary operation. If <code>true</code>
  * is returned, the given node's child nodes will be visited next; however,
- * if <code>false</code> is returned, the given node's child nodes will 
+ * if <code>false</code> is returned, the given node's child nodes will
  * not be visited. The default implementation provided by this class does
- * nothing and returns <code>true</code> (with the exception of 
+ * nothing and returns <code>true</code> (with the exception of
  * {@link #visit(Javadoc) ASTVisitor.visit(Javadoc)}).
  * Subclasses may reimplement this method as needed.</li>
  * <li><code>public void endVisit(<i>T</i> node)</code> - Visits
@@ -33,17 +33,17 @@ package org.eclipse.jdt.core.dom;
  * nothing. Subclasses may reimplement this method as needed.</li>
  * </ul>
  * </p>
- * In addition, there are a pair of methods for visiting AST nodes in the 
+ * In addition, there are a pair of methods for visiting AST nodes in the
  * abstract, regardless of node type:
  * <ul>
  * <li><code>public void preVisit(ASTNode node)</code> - Visits
- * the given node to perform some arbitrary operation. 
+ * the given node to perform some arbitrary operation.
  * This method is invoked prior to the appropriate type-specific
  * <code>visit</code> method.
  * The default implementation of this method does nothing.
  * Subclasses may reimplement this method as needed.</li>
  * <li><code>public void postVisit(ASTNode node)</code> - Visits
- * the given node to perform some arbitrary operation. 
+ * the given node to perform some arbitrary operation.
  * This method is invoked after the appropriate type-specific
  * <code>endVisit</code> method.
  * The default implementation of this method does nothing.
@@ -54,7 +54,7 @@ package org.eclipse.jdt.core.dom;
  * are visited in order. For nodes with multiple properties, the child nodes
  * are visited in the order that most closely corresponds to the lexical
  * reading order of the source program. For instance, for a type declaration
- * node, the child ordering is: name, superclass, superinterfaces, and 
+ * node, the child ordering is: name, superclass, superinterfaces, and
  * body declarations.
  * </p>
  * <p>
@@ -62,8 +62,8 @@ package org.eclipse.jdt.core.dom;
  * ensure that the consequences are as expected and desirable.
  * During the course of an ordinary visit starting at a given node, every node
  * in the subtree is visited exactly twice, first with <code>visit</code> and
- * then with <code>endVisit</code>. During a traversal of a stationary tree, 
- * each node is either behind (after <code>endVisit</code>), ahead (before 
+ * then with <code>endVisit</code>. During a traversal of a stationary tree,
+ * each node is either behind (after <code>endVisit</code>), ahead (before
  * <code>visit</code>), or in progress (between <code>visit</code> and
  * the matching <code>endVisit</code>). Changes to the "behind" region of the
  * tree are of no consequence to the visit in progress. Changes to the "ahead"
@@ -74,7 +74,7 @@ package org.eclipse.jdt.core.dom;
  * is between the elements, rather than on an element). The cursor moves from
  * the head to the tail of this list, advancing to the next position just
  * <i>before</i> <code>visit</code> if called for that child. After the child
- * subtree has been completely visited, the visit moves on the child 
+ * subtree has been completely visited, the visit moves on the child
  * immediately after the cursor. Removing a child while it is being visited
  * does not alter the course of the visit. But any children added at positions
  * after the cursor are considered in the "ahead" portion and will be visited.
@@ -85,20 +85,20 @@ package org.eclipse.jdt.core.dom;
  * <li>Moving a child node further down the list. This could result in the
  * child subtree being visited multiple times; these visits are sequential.</li>
  * <li>Moving a child node up into an ancestor. If the new home for
- * the node is in the "ahead" portion, the subtree will be visited 
+ * the node is in the "ahead" portion, the subtree will be visited
  * a second time; again, these visits are sequential.</li>
  * <li>Moving a node down into a child. If the new home for
- * the node is in the "ahead" portion, the subtree will be visited 
+ * the node is in the "ahead" portion, the subtree will be visited
  * a second time; in this case, the visits will be nested. In some cases,
  * this can lead to a stack overflow or out of memory condition.</li>
  * </ul>
  * <p>Note that {@link LineComment} and {@link BlockComment} nodes are
  * not normally visited in an AST because they are not considered
- * part of main structure of the AST. Use 
+ * part of main structure of the AST. Use
  * {@link CompilationUnit#getCommentList()} to find these additional
  * comments nodes.
  * </p>
- * 
+ *
  * @see org.eclipse.jdt.core.dom.ASTNode#accept(ASTVisitor)
  */
 public abstract class ASTVisitor {
@@ -108,12 +108,12 @@ public abstract class ASTVisitor {
 	 * @since 3.0
 	 */
 	private boolean visitDocTags;
-	
+
 	/**
 	 * Creates a new AST visitor instance.
 	 * <p>
 	 * For backwards compatibility, the visitor does not visit tag
-	 * elements below doc comments by default. Use 
+	 * elements below doc comments by default. Use
 	 * {@link #ASTVisitor(boolean) ASTVisitor(true)}
 	 * for an visitor that includes doc comments by default.
 	 * </p>
@@ -121,10 +121,10 @@ public abstract class ASTVisitor {
 	public ASTVisitor() {
 		this(false);
 	}
-	
+
 	/**
-	 * Creates a new AST visitor instance. 
-	 * 
+	 * Creates a new AST visitor instance.
+	 *
 	 * @param visitDocTags <code>true</code> if doc comment tags are
 	 * to be visited by default, and <code>false</code> otherwise
 	 * @see Javadoc#tags()
@@ -134,27 +134,47 @@ public abstract class ASTVisitor {
 	public ASTVisitor(boolean visitDocTags) {
 		this.visitDocTags = visitDocTags;
 	}
-	
+
 	/**
-	 * Visits the given AST node prior to the type-specific visit.
+	 * Visits the given AST node prior to the type-specific visit
 	 * (before <code>visit</code>).
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
+	 *
+	 * @see #preVisit2(ASTNode)
 	 */
 	public void preVisit(ASTNode node) {
 		// default implementation: do nothing
 	}
-	
+
+	/**
+	 * Visits the given AST node prior to the type-specific visit (before <code>visit</code>).
+	 * <p>
+	 * The default implementation calls {@link #preVisit(ASTNode)} and then
+	 * returns true. Subclasses may reimplement.
+	 * </p>
+	 *
+	 * @param node the node to visit
+	 * @return <code>true</code> if <code>visit(node)</code> should be called,
+	 * and <code>false</code> otherwise.
+	 * @see #preVisit(ASTNode)
+	 * @since 3.5
+	 */
+	public boolean preVisit2(ASTNode node) {
+		preVisit(node);
+		return true;
+	}
+
 	/**
 	 * Visits the given AST node following the type-specific visit
 	 * (after <code>endVisit</code>).
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void postVisit(ASTNode node) {
@@ -168,7 +188,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -186,7 +206,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -203,7 +223,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -219,7 +239,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -235,7 +255,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -251,7 +271,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -267,7 +287,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -283,7 +303,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -299,7 +319,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -315,7 +335,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -324,7 +344,7 @@ public abstract class ASTVisitor {
 	public boolean visit(Block node) {
 		return true;
 	}
-	
+
 
 	/**
 	 * Visits the given type-specific AST node.
@@ -337,7 +357,7 @@ public abstract class ASTVisitor {
 	 * only be called if a client goes out of their way to visit this
 	 * kind of node explicitly.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -354,7 +374,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -370,7 +390,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -386,7 +406,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -402,7 +422,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -418,7 +438,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -434,7 +454,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -450,7 +470,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -466,7 +486,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -482,7 +502,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -498,7 +518,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -514,7 +534,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -530,7 +550,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -546,7 +566,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -563,7 +583,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -580,7 +600,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -597,7 +617,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -613,7 +633,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -629,7 +649,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -645,7 +665,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -661,7 +681,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -677,7 +697,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -693,7 +713,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -709,7 +729,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -725,7 +745,7 @@ public abstract class ASTVisitor {
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -740,11 +760,11 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * Unlike other node types, the boolean returned by the default
 	 * implementation is controlled by a constructor-supplied
-	 * parameter  {@link #ASTVisitor(boolean) ASTVisitor(boolean)} 
+	 * parameter  {@link #ASTVisitor(boolean) ASTVisitor(boolean)}
 	 * which is <code>false</code> by default.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -756,14 +776,14 @@ public abstract class ASTVisitor {
 		// visit tag elements inside doc comments only if requested
 		return this.visitDocTags;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -772,8 +792,8 @@ public abstract class ASTVisitor {
 	public boolean visit(LabeledStatement node) {
 		return true;
 	}
-	
-	
+
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
@@ -785,7 +805,7 @@ public abstract class ASTVisitor {
 	 * only be called if a client goes out of their way to visit this
 	 * kind of node explicitly.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -796,14 +816,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -814,14 +834,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -832,14 +852,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -850,14 +870,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -868,14 +888,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -885,15 +905,15 @@ public abstract class ASTVisitor {
 	public boolean visit(MethodRefParameter node) {
 		return true;
 	}
-	
-	
+
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -902,14 +922,14 @@ public abstract class ASTVisitor {
 	public boolean visit(MethodDeclaration node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -919,14 +939,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -937,14 +957,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -954,14 +974,14 @@ public abstract class ASTVisitor {
 	public boolean visit(NormalAnnotation node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -970,14 +990,14 @@ public abstract class ASTVisitor {
 	public boolean visit(NullLiteral node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -986,14 +1006,14 @@ public abstract class ASTVisitor {
 	public boolean visit(NumberLiteral node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1003,14 +1023,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1020,14 +1040,14 @@ public abstract class ASTVisitor {
 	public boolean visit(ParameterizedType node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1036,14 +1056,14 @@ public abstract class ASTVisitor {
 	public boolean visit(ParenthesizedExpression node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1052,14 +1072,14 @@ public abstract class ASTVisitor {
 	public boolean visit(PostfixExpression node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1068,14 +1088,14 @@ public abstract class ASTVisitor {
 	public boolean visit(PrefixExpression node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1084,14 +1104,14 @@ public abstract class ASTVisitor {
 	public boolean visit(PrimitiveType node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1100,14 +1120,14 @@ public abstract class ASTVisitor {
 	public boolean visit(QualifiedName node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1117,14 +1137,14 @@ public abstract class ASTVisitor {
 	public boolean visit(QualifiedType node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1133,14 +1153,14 @@ public abstract class ASTVisitor {
 	public boolean visit(ReturnStatement node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1149,14 +1169,14 @@ public abstract class ASTVisitor {
 	public boolean visit(SimpleName node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1166,14 +1186,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1184,14 +1204,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1200,14 +1220,14 @@ public abstract class ASTVisitor {
 	public boolean visit(SingleVariableDeclaration node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1216,14 +1236,14 @@ public abstract class ASTVisitor {
 	public boolean visit(StringLiteral node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1232,14 +1252,14 @@ public abstract class ASTVisitor {
 	public boolean visit(SuperConstructorInvocation node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1248,14 +1268,14 @@ public abstract class ASTVisitor {
 	public boolean visit(SuperFieldAccess node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1264,14 +1284,14 @@ public abstract class ASTVisitor {
 	public boolean visit(SuperMethodInvocation node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1280,14 +1300,14 @@ public abstract class ASTVisitor {
 	public boolean visit(SwitchCase node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1296,14 +1316,14 @@ public abstract class ASTVisitor {
 	public boolean visit(SwitchStatement node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1313,14 +1333,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1331,14 +1351,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1349,14 +1369,14 @@ public abstract class ASTVisitor {
 		return true;
 	}
 
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1365,14 +1385,14 @@ public abstract class ASTVisitor {
 	public boolean visit(ThisExpression node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1381,14 +1401,14 @@ public abstract class ASTVisitor {
 	public boolean visit(ThrowStatement node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1397,14 +1417,13 @@ public abstract class ASTVisitor {
 	public boolean visit(TryStatement node) {
 		return true;
 	}
-	
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1413,14 +1432,14 @@ public abstract class ASTVisitor {
 	public boolean visit(TypeDeclaration node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1429,14 +1448,14 @@ public abstract class ASTVisitor {
 	public boolean visit(TypeDeclarationStatement node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1445,14 +1464,14 @@ public abstract class ASTVisitor {
 	public boolean visit(TypeLiteral node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1462,14 +1481,31 @@ public abstract class ASTVisitor {
 	public boolean visit(TypeParameter node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
+	 * @param node the node to visit
+	 * @return <code>true</code> if the children of this node should be
+	 * visited, and <code>false</code> if the children of this node should
+	 * be skipped
+	 * @since 3.7.1
+	 */
+	public boolean visit(UnionType node) {
+		return true;
+	}
+
+	/**
+	 * Visits the given type-specific AST node.
+	 * <p>
+	 * The default implementation does nothing and return true.
+	 * Subclasses may reimplement.
+	 * </p>
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1478,14 +1514,14 @@ public abstract class ASTVisitor {
 	public boolean visit(VariableDeclarationExpression node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1494,14 +1530,14 @@ public abstract class ASTVisitor {
 	public boolean visit(VariableDeclarationStatement node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1510,14 +1546,14 @@ public abstract class ASTVisitor {
 	public boolean visit(VariableDeclarationFragment node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1526,14 +1562,14 @@ public abstract class ASTVisitor {
 	public boolean visit(WhileStatement node) {
 		return true;
 	}
-	
+
 	/**
 	 * Visits the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing and return true.
 	 * Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @return <code>true</code> if the children of this node should be
 	 * visited, and <code>false</code> if the children of this node should
@@ -1543,13 +1579,13 @@ public abstract class ASTVisitor {
 	public boolean visit(WildcardType node) {
 		return true;
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.1
 	 */
@@ -1562,7 +1598,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.1
 	 */
@@ -1575,7 +1611,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(AnonymousClassDeclaration node) {
@@ -1587,7 +1623,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ArrayAccess node) {
@@ -1599,7 +1635,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ArrayCreation node) {
@@ -1611,7 +1647,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ArrayInitializer node) {
@@ -1623,7 +1659,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ArrayType node) {
@@ -1635,7 +1671,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(AssertStatement node) {
@@ -1647,7 +1683,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(Assignment node) {
@@ -1659,13 +1695,13 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(Block node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
@@ -1676,7 +1712,7 @@ public abstract class ASTVisitor {
 	 * only be called if a client goes out of their way to visit this
 	 * kind of node explicitly.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.0
 	 */
@@ -1689,7 +1725,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(BooleanLiteral node) {
@@ -1701,7 +1737,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(BreakStatement node) {
@@ -1713,7 +1749,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(CastExpression node) {
@@ -1725,7 +1761,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(CatchClause node) {
@@ -1737,7 +1773,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(CharacterLiteral node) {
@@ -1749,7 +1785,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ClassInstanceCreation node) {
@@ -1761,7 +1797,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(CompilationUnit node) {
@@ -1773,7 +1809,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ConditionalExpression node) {
@@ -1785,7 +1821,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ConstructorInvocation node) {
@@ -1797,7 +1833,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ContinueStatement node) {
@@ -1809,7 +1845,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(DoStatement node) {
@@ -1821,58 +1857,58 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(EmptyStatement node) {
 		// default implementation: do nothing
 	}
-	
-	/**
-	 * End of visit the given type-specific AST node.
-	 * <p>
-	 * The default implementation does nothing. Subclasses may reimplement.
-	 * </p>
-	 * 
-	 * @param node the node to visit
-	 * @since 3.1
-	 */
-	public void endVisit(EnhancedForStatement node) {
-		// default implementation: do nothing
-	}
-	
-	/**
-	 * End of visit the given type-specific AST node.
-	 * <p>
-	 * The default implementation does nothing. Subclasses may reimplement.
-	 * </p>
-	 * 
-	 * @param node the node to visit
-	 * @since 3.1
-	 */
-	public void endVisit(EnumConstantDeclaration node) {
-		// default implementation: do nothing
-	}	
-	
-	/**
-	 * End of visit the given type-specific AST node.
-	 * <p>
-	 * The default implementation does nothing. Subclasses may reimplement.
-	 * </p>
-	 * 
-	 * @param node the node to visit
-	 * @since 3.1
-	 */
-	public void endVisit(EnumDeclaration node) {
-		// default implementation: do nothing
-	}	
 
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
+	 * @param node the node to visit
+	 * @since 3.1
+	 */
+	public void endVisit(EnhancedForStatement node) {
+		// default implementation: do nothing
+	}
+
+	/**
+	 * End of visit the given type-specific AST node.
+	 * <p>
+	 * The default implementation does nothing. Subclasses may reimplement.
+	 * </p>
+	 *
+	 * @param node the node to visit
+	 * @since 3.1
+	 */
+	public void endVisit(EnumConstantDeclaration node) {
+		// default implementation: do nothing
+	}
+
+	/**
+	 * End of visit the given type-specific AST node.
+	 * <p>
+	 * The default implementation does nothing. Subclasses may reimplement.
+	 * </p>
+	 *
+	 * @param node the node to visit
+	 * @since 3.1
+	 */
+	public void endVisit(EnumDeclaration node) {
+		// default implementation: do nothing
+	}
+
+	/**
+	 * End of visit the given type-specific AST node.
+	 * <p>
+	 * The default implementation does nothing. Subclasses may reimplement.
+	 * </p>
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ExpressionStatement node) {
@@ -1884,7 +1920,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(FieldAccess node) {
@@ -1896,7 +1932,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(FieldDeclaration node) {
@@ -1908,7 +1944,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ForStatement node) {
@@ -1920,7 +1956,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(IfStatement node) {
@@ -1932,7 +1968,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ImportDeclaration node) {
@@ -1944,7 +1980,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(InfixExpression node) {
@@ -1956,7 +1992,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(InstanceofExpression node) {
@@ -1968,7 +2004,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(Initializer node) {
@@ -1980,7 +2016,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(Javadoc node) {
@@ -1992,13 +2028,13 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(LabeledStatement node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
@@ -2009,72 +2045,72 @@ public abstract class ASTVisitor {
 	 * only be called if a client goes out of their way to visit this
 	 * kind of node explicitly.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.0
 	 */
 	public void endVisit(LineComment node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.1
 	 */
 	public void endVisit(MarkerAnnotation node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.0
 	 */
 	public void endVisit(MemberRef node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.1
 	 */
 	public void endVisit(MemberValuePair node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.0
 	 */
 	public void endVisit(MethodRef node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.0
 	 */
@@ -2087,7 +2123,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(MethodDeclaration node) {
@@ -2099,32 +2135,32 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(MethodInvocation node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.1
 	 */
 	public void endVisit(Modifier node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.1
 	 */
@@ -2137,7 +2173,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(NullLiteral node) {
@@ -2149,7 +2185,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(NumberLiteral node) {
@@ -2161,32 +2197,32 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(PackageDeclaration node) {
 		// default implementation: do nothing
 	}
-	
-	/**
-	 * End of visit the given type-specific AST node.
-	 * <p>
-	 * The default implementation does nothing. Subclasses may reimplement.
-	 * </p>
-	 * 
-	 * @param node the node to visit
-	 * @since 3.1
-	 */
-	public void endVisit(ParameterizedType node) {
-		// default implementation: do nothing
-	}	
 
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
+	 * @param node the node to visit
+	 * @since 3.1
+	 */
+	public void endVisit(ParameterizedType node) {
+		// default implementation: do nothing
+	}
+
+	/**
+	 * End of visit the given type-specific AST node.
+	 * <p>
+	 * The default implementation does nothing. Subclasses may reimplement.
+	 * </p>
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ParenthesizedExpression node) {
@@ -2198,7 +2234,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(PostfixExpression node) {
@@ -2210,7 +2246,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(PrefixExpression node) {
@@ -2222,7 +2258,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(PrimitiveType node) {
@@ -2234,32 +2270,32 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(QualifiedName node) {
 		// default implementation: do nothing
 	}
-	
-	/**
-	 * End of visit the given type-specific AST node.
-	 * <p>
-	 * The default implementation does nothing. Subclasses may reimplement.
-	 * </p>
-	 * 
-	 * @param node the node to visit
-	 * @since 3.1
-	 */
-	public void endVisit(QualifiedType node) {
-		// default implementation: do nothing
-	}	
 
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
+	 * @param node the node to visit
+	 * @since 3.1
+	 */
+	public void endVisit(QualifiedType node) {
+		// default implementation: do nothing
+	}
+
+	/**
+	 * End of visit the given type-specific AST node.
+	 * <p>
+	 * The default implementation does nothing. Subclasses may reimplement.
+	 * </p>
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ReturnStatement node) {
@@ -2271,7 +2307,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(SimpleName node) {
@@ -2283,19 +2319,19 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(SimpleType node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.1
 	 */
@@ -2308,7 +2344,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(SingleVariableDeclaration node) {
@@ -2320,7 +2356,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(StringLiteral node) {
@@ -2332,7 +2368,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(SuperConstructorInvocation node) {
@@ -2344,7 +2380,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(SuperFieldAccess node) {
@@ -2356,7 +2392,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(SuperMethodInvocation node) {
@@ -2368,7 +2404,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(SwitchCase node) {
@@ -2380,7 +2416,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(SwitchStatement node) {
@@ -2392,32 +2428,32 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(SynchronizedStatement node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.0
 	 */
 	public void endVisit(TagElement node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.0
 	 */
@@ -2430,7 +2466,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ThisExpression node) {
@@ -2442,7 +2478,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(ThrowStatement node) {
@@ -2454,19 +2490,18 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(TryStatement node) {
 		// default implementation: do nothing
 	}
-
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(TypeDeclaration node) {
@@ -2478,7 +2513,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(TypeDeclarationStatement node) {
@@ -2490,19 +2525,19 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(TypeLiteral node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.1
 	 */
@@ -2515,7 +2550,20 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
+	 * @param node the node to visit
+	 * @since 3.7.1
+	 */
+	public void endVisit(UnionType node) {
+		// default implementation: do nothing
+	}
+
+	/**
+	 * End of visit the given type-specific AST node.
+	 * <p>
+	 * The default implementation does nothing. Subclasses may reimplement.
+	 * </p>
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(VariableDeclarationExpression node) {
@@ -2527,7 +2575,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(VariableDeclarationStatement node) {
@@ -2539,7 +2587,7 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(VariableDeclarationFragment node) {
@@ -2551,19 +2599,19 @@ public abstract class ASTVisitor {
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 */
 	public void endVisit(WhileStatement node) {
 		// default implementation: do nothing
 	}
-	
+
 	/**
 	 * End of visit the given type-specific AST node.
 	 * <p>
 	 * The default implementation does nothing. Subclasses may reimplement.
 	 * </p>
-	 * 
+	 *
 	 * @param node the node to visit
 	 * @since 3.1
 	 */

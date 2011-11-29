@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,6 +7,7 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Stephan Herrmann - contribution for Bug 300576 - NPE Computing type hierarchy when compliance doesn't match libraries
  *******************************************************************************/
 package org.eclipse.jdt.internal.core.hierarchy;
 
@@ -53,6 +54,7 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
+import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.Messages;
 import org.eclipse.jdt.internal.core.*;
@@ -60,7 +62,7 @@ import org.eclipse.jdt.internal.core.util.ASTNodeFinder;
 import org.eclipse.jdt.internal.core.util.HandleFactory;
 
 public class HierarchyResolver implements ITypeRequestor {
-	
+
 	private ReferenceBinding focusType;
 	private boolean superTypesOnly;
 	private boolean hasMissingSuperClass;
@@ -71,19 +73,27 @@ public class HierarchyResolver implements ITypeRequestor {
 
 	private int typeIndex;
 	private IGenericType[] typeModels;
-	
+
+	private static final CompilationUnitDeclaration FakeUnit;
+	static {
+		IErrorHandlingPolicy policy = DefaultErrorHandlingPolicies.exitAfterAllProblems();
+		ProblemReporter problemReporter = new ProblemReporter(policy, new CompilerOptions(), new DefaultProblemFactory());
+		CompilationResult result = new CompilationResult(CharOperation.NO_CHAR, 0, 0, 0);
+		FakeUnit = new CompilationUnitDeclaration(problemReporter, result, 0);
+	}
+
 public HierarchyResolver(INameEnvironment nameEnvironment, Map settings, HierarchyBuilder builder, IProblemFactory problemFactory) {
 	// create a problem handler with the 'exit after all problems' handling policy
 	this.options = new CompilerOptions(settings);
 	IErrorHandlingPolicy policy = DefaultErrorHandlingPolicies.exitAfterAllProblems();
 	ProblemReporter problemReporter = new ProblemReporter(policy, this.options, problemFactory);
 
-	this.setEnvironment(
+	setEnvironment(
 		new LookupEnvironment(this, this.options, problemReporter, nameEnvironment),
 		builder);
 }
 public HierarchyResolver(LookupEnvironment lookupEnvironment, HierarchyBuilder builder) {
-	this.setEnvironment(lookupEnvironment, builder);
+	setEnvironment(lookupEnvironment, builder);
 }
 
 /**
@@ -95,7 +105,7 @@ public void accept(IBinaryType binaryType, PackageBinding packageBinding, Access
 	IProgressMonitor progressMonitor = this.builder.hierarchy.progressMonitor;
 	if (progressMonitor != null && progressMonitor.isCanceled())
 		throw new OperationCanceledException();
-	
+
 	BinaryTypeBinding typeBinding = this.lookupEnvironment.createBinaryTypeFrom(binaryType, packageBinding, accessRestriction);
 	try {
 		this.remember(binaryType, typeBinding);
@@ -111,7 +121,7 @@ public void accept(IBinaryType binaryType, PackageBinding packageBinding, Access
 public void accept(ICompilationUnit sourceUnit, AccessRestriction accessRestriction) {
 	//System.out.println("Cannot accept compilation units inside the HierarchyResolver.");
 	this.lookupEnvironment.problemReporter.abortDueToInternalError(
-		new StringBuffer(Messages.accept_cannot) 
+		new StringBuffer(Messages.accept_cannot)
 			.append(sourceUnit.getFileName())
 			.toString());
 }
@@ -125,13 +135,13 @@ public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding, Acc
 	IProgressMonitor progressMonitor = this.builder.hierarchy.progressMonitor;
 	if (progressMonitor != null && progressMonitor.isCanceled())
 		throw new OperationCanceledException();
-	
-	// find most enclosing type first (needed when explicit askForType(...) is done 
+
+	// find most enclosing type first (needed when explicit askForType(...) is done
 	// with a member type (e.g. p.A$B))
 	ISourceType sourceType = sourceTypes[0];
 	while (sourceType.getEnclosingType() != null)
 		sourceType = sourceType.getEnclosingType();
-	
+
 	// build corresponding compilation unit
 	CompilationResult result = new CompilationResult(sourceType.getFileName(), 1, 1, this.options.maxProblemsPerUnit);
 	CompilationUnitDeclaration unit =
@@ -139,14 +149,14 @@ public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding, Acc
 			new ISourceType[] {sourceType}, // ignore secondary types, to improve laziness
 			SourceTypeConverter.MEMBER_TYPE, // need member types
 			// no need for field initialization
-			this.lookupEnvironment.problemReporter, 
+			this.lookupEnvironment.problemReporter,
 			result);
-		
+
 	// build bindings
 	if (unit != null) {
 		try {
 			this.lookupEnvironment.buildTypeBindings(unit, accessRestriction);
-			
+
 			org.eclipse.jdt.core.ICompilationUnit cu = ((SourceTypeElementInfo)sourceType).getHandle().getCompilationUnit();
 			rememberAllTypes(unit, cu, false);
 
@@ -163,7 +173,7 @@ public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding, Acc
  */
 private IType findSuperClass(IGenericType type, ReferenceBinding typeBinding) {
 	ReferenceBinding superBinding = typeBinding.superclass();
-	
+
 	if (superBinding != null) {
 		superBinding = (ReferenceBinding) superBinding.erasure();
 		if (typeBinding.isHierarchyInconsistent()) {
@@ -186,7 +196,7 @@ private IType findSuperClass(IGenericType type, ReferenceBinding typeBinding) {
 				} else {
 					return null;
 				}
-				
+
 				if (superclassName != null) { // check whether subclass of Object due to broken hierarchy (as opposed to explicitly extending it)
 					int lastSeparator = CharOperation.lastIndexOf(separator, superclassName);
 					char[] simpleName = lastSeparator == -1 ? superclassName : CharOperation.subarray(superclassName, lastSeparator+1, superclassName.length);
@@ -203,7 +213,7 @@ private IType findSuperClass(IGenericType type, ReferenceBinding typeBinding) {
 				return this.builder.getHandle(this.typeModels[t], superBinding);
 			}
 		}
-	} 
+	}
 	return null;
 }
 /*
@@ -246,8 +256,8 @@ private IType[] findSuperInterfaces(IGenericType type, ReferenceBinding typeBind
 	} else{
 		return null;
 	}
-	
-	ReferenceBinding[] interfaceBindings = typeBinding.superInterfaces();	
+
+	ReferenceBinding[] interfaceBindings = typeBinding.superInterfaces();
 	int bindingIndex = 0;
 	int bindingLength = interfaceBindings == null ? 0 : interfaceBindings.length;
 	int length = superInterfaceNames == null ? 0 : superInterfaceNames.length;
@@ -256,21 +266,21 @@ private IType[] findSuperInterfaces(IGenericType type, ReferenceBinding typeBind
 	next : for (int i = 0; i < length; i++) {
 		char[] superInterfaceName = superInterfaceNames[i];
 		int end = superInterfaceName.length;
-		
+
 		// find the end of simple name
 		int genericStart = CharOperation.indexOf(Signature.C_GENERIC_START, superInterfaceName);
 		if (genericStart != -1) end = genericStart;
-				
+
 		// find the start of simple name
 		int lastSeparator = CharOperation.lastIndexOf(separator, superInterfaceName, 0, end);
-		int start = lastSeparator + 1; 
-		
+		int start = lastSeparator + 1;
+
 		// case of binary inner type -> take the last part
 		int lastDollar = CharOperation.lastIndexOf('$', superInterfaceName, start);
 		if (lastDollar != -1) start = lastDollar + 1;
-		
+
 		char[] simpleName = CharOperation.subarray(superInterfaceName, start, end);
-		
+
 		if (bindingIndex < bindingLength) {
 			ReferenceBinding interfaceBinding = (ReferenceBinding) interfaceBindings[bindingIndex].erasure();
 
@@ -279,8 +289,11 @@ private IType[] findSuperInterfaces(IGenericType type, ReferenceBinding typeBind
 				bindingIndex++;
 				for (int t = this.typeIndex; t >= 0; t--) {
 					if (this.typeBindings[t] == interfaceBinding) {
-						superinterfaces[index++] = this.builder.getHandle(this.typeModels[t], interfaceBinding);
-						continue next;
+						IType handle = this.builder.getHandle(this.typeModels[t], interfaceBinding);
+						if (handle != null) {
+							superinterfaces[index++] = handle;
+							continue next;
+						}
 					}
 				}
 			}
@@ -291,23 +304,41 @@ private IType[] findSuperInterfaces(IGenericType type, ReferenceBinding typeBind
 		System.arraycopy(superinterfaces, 0, superinterfaces = new IType[index], 0, index);
 	return superinterfaces;
 }
+/*
+ * For all type bindings that have hierarchy problems, artificially fix their superclass/superInterfaces so that the connection
+ * can be made.
+ */
 private void fixSupertypeBindings() {
 	for (int current = this.typeIndex; current >= 0; current--) {
 		ReferenceBinding typeBinding = this.typeBindings[current];
-	
-		
+		if ((typeBinding.tagBits & TagBits.HierarchyHasProblems) == 0)
+			continue;
+
 		if (typeBinding instanceof SourceTypeBinding) {
+			if (typeBinding instanceof LocalTypeBinding) {
+				LocalTypeBinding localTypeBinding = (LocalTypeBinding) typeBinding;
+				QualifiedAllocationExpression allocationExpression = localTypeBinding.scope.referenceContext.allocation;
+				TypeReference type;
+				if (allocationExpression != null && (type = allocationExpression.type) != null && type.resolvedType != null) {
+					localTypeBinding.superclass = (ReferenceBinding) type.resolvedType;
+					continue;
+				}
+			}
 			ClassScope scope = ((SourceTypeBinding) typeBinding).scope;
 			if (scope != null) {
 				TypeDeclaration typeDeclaration = scope.referenceContext;
 				TypeReference superclassRef = typeDeclaration == null ? null : typeDeclaration.superclass;
 				TypeBinding superclass = superclassRef == null ? null : superclassRef.resolvedType;
-				if (superclass instanceof ProblemReferenceBinding) {
-					superclass = ((ProblemReferenceBinding) superclass).closestMatch();
+				if (superclass != null) {
+					superclass = superclass.closestMatch();
 				}
-				if (superclass != null) 
-					((SourceTypeBinding) typeBinding).superclass = (ReferenceBinding) superclass;
-	
+				if (superclass instanceof ReferenceBinding) {
+					// ensure we are not creating a cycle (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=215681 )
+					if (!(subTypeOfType((ReferenceBinding) superclass, typeBinding))) {
+						((SourceTypeBinding) typeBinding).superclass = (ReferenceBinding) superclass;
+					}
+				}
+
 				TypeReference[] superInterfaces = typeDeclaration == null ? null : typeDeclaration.superInterfaces;
 				int length;
 				ReferenceBinding[] interfaceBindings = typeBinding.superInterfaces();
@@ -315,17 +346,22 @@ private void fixSupertypeBindings() {
 					interfaceBindings = new ReferenceBinding[length];
 					int index = 0;
 					for (int i = 0; i < length; i++) {
-						ReferenceBinding superInterface = (ReferenceBinding) superInterfaces[i].resolvedType;
-						if (superInterface instanceof ProblemReferenceBinding)
+						TypeBinding superInterface = superInterfaces[i].resolvedType;
+						if (superInterface != null) {
 							superInterface = superInterface.closestMatch();
-						if (superInterface != null)
-							interfaceBindings[index++] = superInterface;
+						}
+						if (superInterface instanceof ReferenceBinding) {
+							// ensure we are not creating a cycle (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=215681 )
+							if (!(subTypeOfType((ReferenceBinding) superInterface, typeBinding))) {
+								interfaceBindings[index++] = (ReferenceBinding) superInterface;
+							}
+						}
 					}
 					if (index < length)
 						System.arraycopy(interfaceBindings, 0, interfaceBindings = new ReferenceBinding[index], 0 , index);
 					((SourceTypeBinding) typeBinding).superInterfaces = interfaceBindings;
 				}
-			}		
+			}
 		} else if (typeBinding instanceof BinaryTypeBinding) {
 			try {
 				typeBinding.superclass();
@@ -342,11 +378,11 @@ private void fixSupertypeBindings() {
 				((BinaryTypeBinding) typeBinding).tagBits &= ~TagBits.HasUnresolvedSuperinterfaces;
 			}
 		}
-	}	
+	}
 }
 private void remember(IGenericType suppliedType, ReferenceBinding typeBinding) {
 	if (typeBinding == null) return;
-	
+
 	if (++this.typeIndex == this.typeModels.length) {
 		System.arraycopy(this.typeModels, 0, this.typeModels = new IGenericType[this.typeIndex * 2], 0, this.typeIndex);
 		System.arraycopy(this.typeBindings, 0, this.typeBindings = new ReferenceBinding[this.typeIndex * 2], 0, this.typeIndex);
@@ -365,9 +401,9 @@ private void remember(IType type, ReferenceBinding typeBinding) {
 		}
 	} else {
 		if (typeBinding == null) return;
-		
+
 		TypeDeclaration typeDeclaration = ((SourceTypeBinding)typeBinding).scope.referenceType();
-	
+
 		// simple super class name
 		char[] superclassName = null;
 		TypeReference superclass;
@@ -380,7 +416,7 @@ private void remember(IType type, ReferenceBinding typeBinding) {
 			char[][] typeName = superclass.getTypeName();
 			superclassName = typeName == null ? null : typeName[typeName.length-1];
 		}
-		
+
 		// simple super interface names
 		char[][] superInterfaceNames = null;
 		TypeReference[] superInterfaces = typeDeclaration.superInterfaces;
@@ -393,9 +429,9 @@ private void remember(IType type, ReferenceBinding typeBinding) {
 				superInterfaceNames[i] = typeName[typeName.length-1];
 			}
 		}
-	
+
 		HierarchyType hierarchyType = new HierarchyType(
-			type, 
+			type,
 			typeDeclaration.name,
 			typeDeclaration.binding.modifiers,
 			superclassName,
@@ -430,7 +466,7 @@ private void rememberAllTypes(CompilationUnitDeclaration parsedUnit, org.eclipse
 }
 private void rememberWithMemberTypes(TypeDeclaration typeDecl, IType typeHandle) {
 	remember(typeHandle, typeDecl.binding);
-	
+
 	TypeDeclaration[] memberTypes = typeDecl.memberTypes;
 	if (memberTypes != null) {
 		for (int i = 0, length = memberTypes.length; i < length; i++) {
@@ -443,8 +479,8 @@ private void rememberWithMemberTypes(TypeDeclaration typeDecl, IType typeHandle)
  * Reports the hierarchy from the remembered bindings.
  * Note that 'binaryTypeBinding' is null if focus type is a source type.
  */
-private void reportHierarchy(IType focus, CompilationUnitDeclaration parsedUnit, ReferenceBinding binaryTypeBinding) {
-	
+private void reportHierarchy(IType focus, TypeDeclaration focusLocalType, ReferenceBinding binaryTypeBinding) {
+
 	// set focus type binding
 	if (focus != null) {
 		if (binaryTypeBinding != null) {
@@ -452,28 +488,26 @@ private void reportHierarchy(IType focus, CompilationUnitDeclaration parsedUnit,
 			this.focusType = binaryTypeBinding;
 		} else {
 			// source type
-			Member declaringMember = ((Member)focus).getOuterMostLocalContext();
-			if (declaringMember == null) {
+			if (focusLocalType != null) {
+				// anonymous or local type
+				this.focusType = focusLocalType.binding;
+			} else {
 				// top level or member type
 				char[] fullyQualifiedName = focus.getFullyQualifiedName().toCharArray();
 				setFocusType(CharOperation.splitOn('.', fullyQualifiedName));
-			} else {
-				// anonymous or local type
-				if (parsedUnit != null) {
-					TypeDeclaration typeDecl = new ASTNodeFinder(parsedUnit).findType(focus);
-					if (typeDecl != null) {
-						this.focusType = typeDecl.binding;
-					}
-				} 
 			}
 		}
 	}
-	
+
 	// be resilient and fix super type bindings
 	fixSupertypeBindings();
-	
+
 	int objectIndex = -1;
+	IProgressMonitor progressMonitor = this.builder.hierarchy.progressMonitor;
 	for (int current = this.typeIndex; current >= 0; current--) {
+		if (progressMonitor != null && progressMonitor.isCanceled())
+			throw new OperationCanceledException();
+		
 		ReferenceBinding typeBinding = this.typeBindings[current];
 
 		// java.lang.Object treated at the end
@@ -495,11 +529,11 @@ private void reportHierarchy(IType focus, CompilationUnitDeclaration parsedUnit,
 			superclass = findSuperClass(suppliedType, typeBinding);
 		}
 		IType[] superinterfaces = findSuperInterfaces(suppliedType, typeBinding);
-		
+
 		this.builder.connect(suppliedType, this.builder.getHandle(suppliedType, typeBinding), superclass, superinterfaces);
 	}
 	// add java.lang.Object only if the super class is not missing
-	if (!this.hasMissingSuperClass && objectIndex > -1) {
+	if (objectIndex > -1 && (!this.hasMissingSuperClass || this.focusType == null)) {
 		IGenericType objectType = this.typeModels[objectIndex];
 		this.builder.connect(objectType, this.builder.getHandle(objectType, this.typeBindings[objectIndex]), null, null);
 	}
@@ -530,16 +564,24 @@ public void resolve(IGenericType suppliedType) {
 			for (int i = startIndex; i <= this.typeIndex; i++) {
 				IGenericType igType = this.typeModels[i];
 				if (igType != null && igType.isBinaryType()) {
+					CompilationUnitDeclaration previousUnitBeingCompleted = this.lookupEnvironment.unitBeingCompleted;
 					// fault in its hierarchy...
 					try {
+						// ensure that unitBeingCompleted is set so that we don't get an AbortCompilation for a missing type
+						// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=213249 )
+						if (previousUnitBeingCompleted == null) {
+							this.lookupEnvironment.unitBeingCompleted = FakeUnit;
+						}
 						ReferenceBinding typeBinding = this.typeBindings[i];
 						typeBinding.superclass();
 						typeBinding.superInterfaces();
 					} catch (AbortCompilation e) {
 						// classpath problem for this type: ignore
+					} finally {
+						this.lookupEnvironment.unitBeingCompleted = previousUnitBeingCompleted;
 					}
 				}
-			}		
+			}
 			this.superTypesOnly = true;
 			reportHierarchy(this.builder.getType(), null, binaryTypeBinding);
 		} else {
@@ -575,7 +617,7 @@ public void resolve(Openable[] openables, HashSet localTypes, IProgressMonitor m
 		boolean[] hasLocalType = new boolean[openablesLength];
 		org.eclipse.jdt.core.ICompilationUnit[] cus = new org.eclipse.jdt.core.ICompilationUnit[openablesLength];
 		int unitsIndex = 0;
-		
+
 		CompilationUnitDeclaration focusUnit = null;
 		ReferenceBinding focusBinaryBinding = null;
 		IType focus = this.builder.getType();
@@ -587,7 +629,7 @@ public void resolve(Openable[] openables, HashSet localTypes, IProgressMonitor m
 				focusOpenable = (Openable)focus.getCompilationUnit();
 			}
 		}
-		
+
 		// build type bindings
 		Parser parser = new Parser(this.lookupEnvironment.problemReporter, true);
 		for (int i = 0; i < openablesLength; i++) {
@@ -603,12 +645,12 @@ public void resolve(Openable[] openables, HashSet localTypes, IProgressMonitor m
 					IPath path = cu.getPath();
 					containsLocalType = localTypes.contains(path.toString());
 				}
-				
+
 				// build parsed unit
 				CompilationUnitDeclaration parsedUnit = null;
 				if (cu.isOpen()) {
 					// create parsed unit from source element infos
-					CompilationResult result = new CompilationResult(((ICompilationUnit)cu).getFileName(), i, openablesLength, this.options.maxProblemsPerUnit);
+					CompilationResult result = new CompilationResult((ICompilationUnit)cu, i, openablesLength, this.options.maxProblemsPerUnit);
 					SourceTypeElementInfo[] typeInfos = null;
 					try {
 						IType[] topLevelTypes = cu.getTypes();
@@ -622,22 +664,26 @@ public void resolve(Openable[] openables, HashSet localTypes, IProgressMonitor m
 					} catch (JavaModelException e) {
 						// types/cu exist since cu is opened
 					}
-					int flags = !containsLocalType 
-						? SourceTypeConverter.MEMBER_TYPE 
+					int flags = !containsLocalType
+						? SourceTypeConverter.MEMBER_TYPE
 						: SourceTypeConverter.FIELD_AND_METHOD | SourceTypeConverter.MEMBER_TYPE | SourceTypeConverter.LOCAL_TYPE;
-					parsedUnit = 
+					parsedUnit =
 						SourceTypeConverter.buildCompilationUnit(
-							typeInfos, 
+							typeInfos,
 							flags,
-							this.lookupEnvironment.problemReporter, 
+							this.lookupEnvironment.problemReporter,
 							result);
+					
+					// We would have got all the necessary local types by now and hence there is no further need 
+					// to parse the method bodies. Parser.getMethodBodies, which is called latter in this function, 
+					// will not parse the method statements if ASTNode.HasAllMethodBodies is set. 
 					if (containsLocalType) 	parsedUnit.bits |= ASTNode.HasAllMethodBodies;
 				} else {
 					// create parsed unit from file
 					IFile file = (IFile) cu.getResource();
 					ICompilationUnit sourceUnit = this.builder.createCompilationUnitFromPath(openable, file);
-					
-					CompilationResult unitResult = new CompilationResult(sourceUnit, i, openablesLength, this.options.maxProblemsPerUnit); 
+
+					CompilationResult unitResult = new CompilationResult(sourceUnit, i, openablesLength, this.options.maxProblemsPerUnit);
 					parsedUnit = parser.dietParse(sourceUnit, unitResult);
 				}
 
@@ -657,21 +703,13 @@ public void resolve(Openable[] openables, HashSet localTypes, IProgressMonitor m
 			} else {
 				// cache binary type binding
 				ClassFile classFile = (ClassFile)openable;
-				IBinaryType binaryType = null;
-				if (classFile.isOpen()) {
-					// create binary type from info
-					IType type = classFile.getType();
-					try {
-						binaryType = (IBinaryType)((JavaElement)type).getElementInfo();
-					} catch (JavaModelException e) {
-						// type exists since class file is opened
-					}
-				} else {
+				IBinaryType binaryType = (IBinaryType) JavaModelManager.getJavaModelManager().getInfo(classFile.getType());
+				if (binaryType == null) {
 					// create binary type from file
 					if (classFile.getPackageFragmentRoot().isArchive()) {
 						binaryType = this.builder.createInfoFromClassFileInJar(classFile);
 					} else {
-						IResource file = classFile.getResource();
+						IResource file = classFile.resource();
 						binaryType = this.builder.createInfoFromClassFile(classFile, file);
 					}
 				}
@@ -688,67 +726,89 @@ public void resolve(Openable[] openables, HashSet localTypes, IProgressMonitor m
 				}
 			}
 		}
-		
+
+		// remember type declaration of focus if local/anonymous early (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=210498)
+		TypeDeclaration focusLocalType = null;
+		if (focus != null && focusBinaryBinding == null && focusUnit != null && ((Member)focus).getOuterMostLocalContext() != null) {
+			focusLocalType = new ASTNodeFinder(focusUnit).findType(focus);
+		}
+
+
 		for (int i = 0; i <= this.typeIndex; i++) {
 			IGenericType suppliedType = this.typeModels[i];
 			if (suppliedType != null && suppliedType.isBinaryType()) {
+				CompilationUnitDeclaration previousUnitBeingCompleted = this.lookupEnvironment.unitBeingCompleted;
 				// fault in its hierarchy...
 				try {
+					// ensure that unitBeingCompleted is set so that we don't get an AbortCompilation for a missing type
+					// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=213249 )
+					if (previousUnitBeingCompleted == null) {
+						this.lookupEnvironment.unitBeingCompleted = FakeUnit;
+					}
 					ReferenceBinding typeBinding = this.typeBindings[i];
 					typeBinding.superclass();
 					typeBinding.superInterfaces();
 				} catch (AbortCompilation e) {
 					// classpath problem for this type: ignore
+				} finally {
+					this.lookupEnvironment.unitBeingCompleted = previousUnitBeingCompleted;
 				}
 			}
-		}		
-		
-		// complete type bindings (ie. connect super types)
+		}
+
+		// complete type bindings (i.e. connect super types)
 		for (int i = 0; i < unitsIndex; i++) {
 			CompilationUnitDeclaration parsedUnit = parsedUnits[i];
 			if (parsedUnit != null) {
 				try {
-					boolean containsLocalType = hasLocalType[i];
-					if (containsLocalType) { // NB: no-op if method bodies have been already parsed
+					if (hasLocalType[i]) { // NB: no-op if method bodies have been already parsed
+						if (monitor != null && monitor.isCanceled())
+							throw new OperationCanceledException();
 						parser.getMethodBodies(parsedUnit);
 					}
-					// complete type bindings and build fields and methods only for local types
-					// (in this case the constructor is needed when resolving local types)
-					// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=145333)
-					this.lookupEnvironment.completeTypeBindings(parsedUnit, containsLocalType);
 				} catch (AbortCompilation e) {
 					// classpath problem for this type: don't try to resolve (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=49809)
 					hasLocalType[i] = false;
 				}
 			}
-			worked(monitor, 1);
 		}
-		
-		// remember type bindings
-		for (int i = 0; i < unitsIndex; i++) {
-			CompilationUnitDeclaration parsedUnit = parsedUnits[i];
-			if (parsedUnit != null) {
-				boolean containsLocalType = hasLocalType[i];
-				if (containsLocalType) {
-					parsedUnit.scope.faultInTypes();
-					parsedUnit.resolve();
-				}
+		// complete type bindings and build fields and methods only for local types
+		// (in this case the constructor is needed when resolving local types)
+		// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=145333)
+		try {
+			this.lookupEnvironment.completeTypeBindings(parsedUnits, hasLocalType, unitsIndex);
+			// remember type bindings
+			for (int i = 0; i < unitsIndex; i++) {
+				CompilationUnitDeclaration parsedUnit = parsedUnits[i];
+				if (parsedUnit != null && !parsedUnit.hasErrors()) {
+					boolean containsLocalType = hasLocalType[i];
+					if (containsLocalType) {
+						if (monitor != null && monitor.isCanceled())
+							throw new OperationCanceledException();
+						parsedUnit.scope.faultInTypes();
+						parsedUnit.resolve();
+					}
 					
-				rememberAllTypes(parsedUnit, cus[i], containsLocalType);
+					rememberAllTypes(parsedUnit, cus[i], containsLocalType);
+				}
 			}
+		} catch (AbortCompilation e) {
+			// skip it silently
 		}
-		
+		worked(monitor, 1);
+
+
 		// if no potential subtype was a real subtype of the binary focus type, no need to go further
 		// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=54043)
 		if (focusBinaryBinding == null && focus != null && focus.isBinary()) {
 			char[] fullyQualifiedName = focus.getFullyQualifiedName().toCharArray();
 			focusBinaryBinding = this.lookupEnvironment.getCachedType(CharOperation.splitOn('.', fullyQualifiedName));
-			if (focusBinaryBinding == null) 
+			if (focusBinaryBinding == null)
 				return;
 		}
 
-		reportHierarchy(focus, focusUnit, focusBinaryBinding);
-		
+		reportHierarchy(focus, focusLocalType, focusBinaryBinding);
+
 	} catch (ClassCastException e){ // work-around for 1GF5W1S - can happen in case duplicates are fed to the hierarchy with binaries hiding sources
 	} catch (AbortCompilation e) { // ignore this exception for now since it typically means we cannot find java.lang.Object
 		if (TypeHierarchy.DEBUG)
@@ -767,7 +827,7 @@ private void setEnvironment(LookupEnvironment lookupEnvironment, HierarchyBuilde
 }
 
 /*
- * Set the focus type (ie. the type that this resolver is computing the hierarch for.
+ * Set the focus type (i.e. the type that this resolver is computing the hierarch for.
  * Returns the binding of this focus type or null if it could not be found.
  */
 public ReferenceBinding setFocusType(char[][] compoundName) {
@@ -775,14 +835,29 @@ public ReferenceBinding setFocusType(char[][] compoundName) {
 	this.focusType = this.lookupEnvironment.getCachedType(compoundName);
 	if (this.focusType == null) {
 		this.focusType = this.lookupEnvironment.askForType(compoundName);
+		if (this.focusType == null) {
+			int length = compoundName.length;
+			char[] typeName = compoundName[length-1];
+			int firstDollar = CharOperation.indexOf('$', typeName);
+			if (firstDollar != -1) {
+				compoundName[length-1] = CharOperation.subarray(typeName, 0, firstDollar);
+				this.focusType = this.lookupEnvironment.askForType(compoundName);
+				if (this.focusType != null) {
+					char[][] memberTypeNames = CharOperation.splitOn('$', typeName, firstDollar+1, typeName.length);
+					for (int i = 0; i < memberTypeNames.length; i++) {
+						this.focusType = this.focusType.getMemberType(memberTypeNames[i]);
+					}
+				}
+			}
+		}
 	}
 	return this.focusType;
 }
 public boolean subOrSuperOfFocus(ReferenceBinding typeBinding) {
 	if (this.focusType == null) return true; // accept all types (case of hierarchy in a region)
 	try {
-		if (this.subTypeOfType(this.focusType, typeBinding)) return true;
-		if (!this.superTypesOnly && this.subTypeOfType(typeBinding, this.focusType)) return true;
+		if (subTypeOfType(this.focusType, typeBinding)) return true;
+		if (!this.superTypesOnly && subTypeOfType(typeBinding, this.focusType)) return true;
 	} catch (AbortCompilation e) {
 		// unresolved superclass/superinterface -> ignore
 	}
@@ -794,13 +869,13 @@ private boolean subTypeOfType(ReferenceBinding subType, ReferenceBinding typeBin
 	ReferenceBinding superclass = subType.superclass();
 	if (superclass != null) superclass = (ReferenceBinding) superclass.erasure();
 //	if (superclass != null && superclass.id == TypeIds.T_JavaLangObject && subType.isHierarchyInconsistent()) return false;
-	if (this.subTypeOfType(superclass, typeBinding)) return true;
+	if (subTypeOfType(superclass, typeBinding)) return true;
 	ReferenceBinding[] superInterfaces = subType.superInterfaces();
 	if (superInterfaces != null) {
 		for (int i = 0, length = superInterfaces.length; i < length; i++) {
 			ReferenceBinding superInterface = (ReferenceBinding) superInterfaces[i].erasure();
-			if (this.subTypeOfType(superInterface, typeBinding)) return true;
-		} 
+			if (subTypeOfType(superInterface, typeBinding)) return true;
+		}
 	}
 	return false;
 }

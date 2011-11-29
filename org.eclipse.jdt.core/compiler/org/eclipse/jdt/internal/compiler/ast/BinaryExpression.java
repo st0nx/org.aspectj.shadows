@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -18,9 +18,9 @@ import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class BinaryExpression extends OperatorExpression {
-	
+
 /* Tracking helpers
- * The following are used to elaborate realistic statistics about binary 
+ * The following are used to elaborate realistic statistics about binary
  * expressions. This must be neutralized in the released code.
  * Search the keyword BE_INSTRUMENTATION to reenable.
  * An external device must install a suitable probe so as to monitor the
@@ -42,20 +42,25 @@ public BinaryExpression(Expression left, Expression right, int operator) {
 	this.sourceStart = left.sourceStart;
 	this.sourceEnd = right.sourceEnd;
 	// BE_INSTRUMENTATION: neutralized in the released code
-//	if (left instanceof BinaryExpression && 
+//	if (left instanceof BinaryExpression &&
 //			((left.bits & OperatorMASK) ^ (this.bits & OperatorMASK)) == 0) {
 //		this.depthTracker = ((BinaryExpression)left).depthTracker + 1;
 //	} else {
 //		this.depthTracker = 1;
 //	}
 }
-
-public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, 
-		FlowInfo flowInfo) {
+public BinaryExpression(BinaryExpression expression) {
+	this.left = expression.left;
+	this.right = expression.right;
+	this.bits = expression.bits;
+	this.sourceStart = expression.sourceStart;
+	this.sourceEnd = expression.sourceEnd;
+}
+public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, FlowInfo flowInfo) {
 	// keep implementation in sync with CombinedBinaryExpression#analyseCode
 	if (this.resolvedType.id == TypeIds.T_JavaLangString) {
 		return this.right.analyseCode(
-							currentScope, flowContext, 
+							currentScope, flowContext,
 							this.left.analyseCode(currentScope, flowContext, flowInfo).unconditionalInits())
 						.unconditionalInits();
 	} else {
@@ -85,7 +90,7 @@ public void computeConstant(BlockScope scope, int leftId, int rightId) {
 		}
 	} else {
 		this.constant = Constant.NotAConstant;
-		//add some work for the boolean operators & |  
+		//add some work for the boolean operators & |
 		this.optimizedBooleanConstant(
 			leftId,
 			(this.bits & ASTNode.OperatorMASK) >> ASTNode.OperatorSHIFT,
@@ -115,7 +120,7 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 		case PLUS :
 			switch (this.bits & ASTNode.ReturnTypeIDMASK) {
 				case T_JavaLangString :
-					// BE_INSTRUMENTATION: neutralized in the released code					
+					// BE_INSTRUMENTATION: neutralized in the released code
 //					if (probe != null) {
 //						probe.ping(this.depthTracker);
 //					}
@@ -664,7 +669,7 @@ public void generateOptimizedGreaterThan(BlockScope currentScope, CodeStream cod
 				}
 			}
 			// reposition the endPC
-			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			return;
 		}
 		// x > 0
@@ -686,7 +691,7 @@ public void generateOptimizedGreaterThan(BlockScope currentScope, CodeStream cod
 				}
 			}
 			// reposition the endPC
-			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			return;
 		}
 	}
@@ -714,7 +719,7 @@ public void generateOptimizedGreaterThan(BlockScope currentScope, CodeStream cod
 						codeStream.ifgt(trueLabel);
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 				return;
 			}
 		} else {
@@ -737,7 +742,7 @@ public void generateOptimizedGreaterThan(BlockScope currentScope, CodeStream cod
 						codeStream.ifle(falseLabel);
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 				return;
 			} else {
 				// no implicit fall through TRUE/FALSE --> should never occur
@@ -772,7 +777,7 @@ public void generateOptimizedGreaterThanOrEqual(BlockScope currentScope, CodeStr
 				}
 			}
 			// reposition the endPC
-			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			return;
 		}
 		// x >= 0
@@ -794,7 +799,7 @@ public void generateOptimizedGreaterThanOrEqual(BlockScope currentScope, CodeStr
 				}
 			}
 			// reposition the endPC
-			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			return;
 		}
 	}
@@ -822,7 +827,7 @@ public void generateOptimizedGreaterThanOrEqual(BlockScope currentScope, CodeStr
 						codeStream.ifge(trueLabel);
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 				return;
 			}
 		} else {
@@ -845,7 +850,7 @@ public void generateOptimizedGreaterThanOrEqual(BlockScope currentScope, CodeStr
 						codeStream.iflt(falseLabel);
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 				return;
 			} else {
 				// no implicit fall through TRUE/FALSE --> should never occur
@@ -984,7 +989,7 @@ public void generateOptimizedLessThanOrEqual(BlockScope currentScope, CodeStream
 				}
 			}
 			// reposition the endPC
-			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			return;
 		}
 		// x <= 0
@@ -1006,7 +1011,7 @@ public void generateOptimizedLessThanOrEqual(BlockScope currentScope, CodeStream
 				}
 			}
 			// reposition the endPC
-			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+			codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			return;
 		}
 	}
@@ -1034,7 +1039,7 @@ public void generateOptimizedLessThanOrEqual(BlockScope currentScope, CodeStream
 						codeStream.ifle(trueLabel);
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 				return;
 			}
 		} else {
@@ -1057,7 +1062,7 @@ public void generateOptimizedLessThanOrEqual(BlockScope currentScope, CodeStream
 						codeStream.ifgt(falseLabel);
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 				return;
 			} else {
 				// no implicit fall through TRUE/FALSE --> should never occur
@@ -1085,10 +1090,10 @@ public void generateLogicalAnd(BlockScope currentScope, CodeStream codeStream, b
 					codeStream.iconst_0();
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			}
 			return;
-		} 
+		}
 		if ((condConst = this.right.optimizedBooleanConstant()) != Constant.NotAConstant) {
 			if (condConst.booleanValue() == true) {
 				// x & <something equivalent to true>
@@ -1102,7 +1107,7 @@ public void generateLogicalAnd(BlockScope currentScope, CodeStream codeStream, b
 					codeStream.iconst_0();
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			}
 			return;
 		}
@@ -1114,7 +1119,7 @@ public void generateLogicalAnd(BlockScope currentScope, CodeStream codeStream, b
 		codeStream.iand();
 	}
 	// reposition the endPC
-	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 }
 
 /**
@@ -1132,7 +1137,7 @@ public void generateLogicalOr(BlockScope currentScope, CodeStream codeStream, bo
 					codeStream.iconst_1();
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			} else {
 				// <something equivalent to false> | x
 				this.left.generateCode(currentScope, codeStream, false);
@@ -1149,7 +1154,7 @@ public void generateLogicalOr(BlockScope currentScope, CodeStream codeStream, bo
 					codeStream.iconst_1();
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			} else {
 				// x | <something equivalent to false>
 				this.left.generateCode(currentScope, codeStream, valueRequired);
@@ -1165,7 +1170,7 @@ public void generateLogicalOr(BlockScope currentScope, CodeStream codeStream, bo
 		codeStream.ior();
 	}
 	// reposition the endPC
-	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 }
 
 /**
@@ -1184,7 +1189,7 @@ public void generateLogicalXor(BlockScope currentScope,	CodeStream codeStream, b
 				this.right.generateCode(currentScope, codeStream, valueRequired);
 				if (valueRequired) {
 					codeStream.ixor(); // negate
-					codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+					codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 				}
 			} else {
 				// <something equivalent to false> ^ x
@@ -1201,7 +1206,7 @@ public void generateLogicalXor(BlockScope currentScope,	CodeStream codeStream, b
 				if (valueRequired) {
 					codeStream.iconst_1();
 					codeStream.ixor(); // negate
-					codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+					codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 				}
 			} else {
 				// x ^ <something equivalent to false>
@@ -1218,8 +1223,8 @@ public void generateLogicalXor(BlockScope currentScope,	CodeStream codeStream, b
 		codeStream.ixor();
 	}
 	// reposition the endPC
-	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
-}	
+	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
+}
 
 /**
  * Boolean generation for &
@@ -1263,7 +1268,7 @@ public void generateOptimizedLogicalAnd(BlockScope currentScope, CodeStream code
 					}
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			}
 			return;
 		}
@@ -1305,7 +1310,7 @@ public void generateOptimizedLogicalAnd(BlockScope currentScope, CodeStream code
 					}
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			}
 			return;
 		}
@@ -1330,7 +1335,7 @@ public void generateOptimizedLogicalAnd(BlockScope currentScope, CodeStream code
 		}
 	}
 	// reposition the endPC
-	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 }
 
 /**
@@ -1362,7 +1367,7 @@ public void generateOptimizedLogicalOr(BlockScope currentScope, CodeStream codeS
 					}
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			} else {
 				// <something equivalent to false> | x
 				this.left.generateOptimizedBoolean(
@@ -1403,7 +1408,7 @@ public void generateOptimizedLogicalOr(BlockScope currentScope, CodeStream codeS
 					}
 				}
 				// reposition the endPC
-				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+				codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 			} else {
 				// x | <something equivalent to false>
 				this.left.generateOptimizedBoolean(
@@ -1442,7 +1447,7 @@ public void generateOptimizedLogicalOr(BlockScope currentScope, CodeStream codeS
 		}
 	}
 	// reposition the endPC
-	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 }
 
 /**
@@ -1536,7 +1541,7 @@ public void generateOptimizedLogicalXor(BlockScope currentScope, CodeStream code
 		}
 	}
 	// reposition the endPC
-	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);					
+	codeStream.updateLastRecordedEndPC(currentScope, codeStream.position);
 }
 
 public void generateOptimizedStringConcatenation(BlockScope blockScope, CodeStream codeStream, int typeID) {
@@ -1575,7 +1580,7 @@ public void generateOptimizedStringConcatenationCreation(BlockScope blockScope, 
 	// keep implementation in sync with CombinedBinaryExpression
 	// #generateOptimizedStringConcatenationCreation
 	/* In the case trying to make a string concatenation, there is no need to create a new
-	 * string buffer, thus use a lower-level API for code generation involving only the 
+	 * string buffer, thus use a lower-level API for code generation involving only the
 	 * appending of arguments to the existing StringBuffer
 	 */
 	if ((((this.bits & ASTNode.OperatorMASK) >> ASTNode.OperatorSHIFT) == OperatorIds.PLUS)
@@ -1610,9 +1615,9 @@ public boolean isCompactableOperation() {
 }
 
 /**
- * Separates into a reusable method the subpart of {@link 
- * #resolveType(BlockScope)} that needs to be executed while climbing up the 
- * chain of expressions of this' leftmost branch. For use by {@link 
+ * Separates into a reusable method the subpart of {@link
+ * #resolveType(BlockScope)} that needs to be executed while climbing up the
+ * chain of expressions of this' leftmost branch. For use by {@link
  * CombinedBinaryExpression#resolveType(BlockScope)}.
  * @param scope the scope within which the resolution occurs
  */
@@ -1620,7 +1625,7 @@ void nonRecursiveResolveTypeUpwards(BlockScope scope) {
 	// keep implementation in sync with BinaryExpression#resolveType
 	boolean leftIsCast, rightIsCast;
 	TypeBinding leftType = this.left.resolvedType;
-	
+
 	if ((rightIsCast = this.right instanceof CastExpression) == true) {
 		this.right.bits |= ASTNode.DisableUnnecessaryCastCheck; // will check later on
 	}
@@ -1678,7 +1683,7 @@ void nonRecursiveResolveTypeUpwards(BlockScope scope) {
 	//  <<16   <<12       <<8    <<4       <<0
 
 	// Don't test for result = 0. If it is zero, some more work is done.
-	// On the one hand when it is not zero (correct code) we avoid doing the test	
+	// On the one hand when it is not zero (correct code) we avoid doing the test
 	int operator = (this.bits & ASTNode.OperatorMASK) >> ASTNode.OperatorSHIFT;
 	int operatorSignature = OperatorExpression.OperatorSignatures[operator][(leftTypeID << 4) + rightTypeID];
 
@@ -1718,7 +1723,7 @@ void nonRecursiveResolveTypeUpwards(BlockScope scope) {
 	}
 
 	// check need for operand cast
-	if ((leftIsCast = (this.left instanceof CastExpression)) == true || 
+	if ((leftIsCast = (this.left instanceof CastExpression)) == true ||
 			rightIsCast) {
 		CastExpression.checkNeedForArgumentCasts(scope, operator, operatorSignature, this.left, leftTypeID, leftIsCast, this.right, rightTypeID, rightIsCast);
 	}
@@ -1731,6 +1736,7 @@ public void optimizedBooleanConstant(int leftId, int operator, int rightId) {
 		case AND :
 			if ((leftId != TypeIds.T_boolean) || (rightId != TypeIds.T_boolean))
 				return;
+			//$FALL-THROUGH$
 		case AND_AND :
 			Constant cst;
 			if ((cst = this.left.optimizedBooleanConstant()) != Constant.NotAConstant) {
@@ -1754,6 +1760,7 @@ public void optimizedBooleanConstant(int leftId, int operator, int rightId) {
 		case OR :
 			if ((leftId != TypeIds.T_boolean) || (rightId != TypeIds.T_boolean))
 				return;
+			//$FALL-THROUGH$
 		case OR_OR :
 			if ((cst = this.left.optimizedBooleanConstant()) != Constant.NotAConstant) {
 				if (cst.booleanValue() == true) { // left is equivalent to true
@@ -1775,7 +1782,7 @@ public void optimizedBooleanConstant(int leftId, int operator, int rightId) {
 }
 
 public StringBuffer printExpressionNoParenthesis(int indent, StringBuffer output) {
-	// keep implementation in sync with 
+	// keep implementation in sync with
 	// CombinedBinaryExpression#printExpressionNoParenthesis
 	this.left.printExpression(indent, output).append(' ').append(operatorToString()).append(' ');
 	return this.right.printExpression(0, output);
@@ -1843,11 +1850,11 @@ public TypeBinding resolveType(BlockScope scope) {
 	//  <<16   <<12       <<8    <<4       <<0
 
 	// Don't test for result = 0. If it is zero, some more work is done.
-	// On the one hand when it is not zero (correct code) we avoid doing the test	
+	// On the one hand when it is not zero (correct code) we avoid doing the test
 	int operator = (this.bits & ASTNode.OperatorMASK) >> ASTNode.OperatorSHIFT;
 	int operatorSignature = OperatorExpression.OperatorSignatures[operator][(leftTypeID << 4) + rightTypeID];
 
-	this.left.computeConversion(scope, 	TypeBinding.wellKnownType(scope, (operatorSignature >>> 16) & 0x0000F), leftType);
+	this.left.computeConversion(scope, TypeBinding.wellKnownType(scope, (operatorSignature >>> 16) & 0x0000F), leftType);
 	this.right.computeConversion(scope, TypeBinding.wellKnownType(scope, (operatorSignature >>> 8) & 0x0000F), rightType);
 	this.bits |= operatorSignature & 0xF;
 	switch (operatorSignature & 0xF) { // record the current ReturnTypeID

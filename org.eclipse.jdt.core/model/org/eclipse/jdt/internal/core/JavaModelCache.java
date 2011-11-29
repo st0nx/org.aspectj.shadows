@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,6 +14,7 @@ import java.util.Map;
 
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.internal.core.util.LRUCache;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * The cache of java elements to their respective info.
@@ -24,8 +25,9 @@ public class JavaModelCache {
 	public static final int DEFAULT_PROJECT_SIZE = 5;  // average 25552 bytes per project.
 	public static final int DEFAULT_ROOT_SIZE = 50; // average 2590 bytes per root -> maximum size : 25900*BASE_VALUE bytes
 	public static final int DEFAULT_PKG_SIZE = 500; // average 1782 bytes per pkg -> maximum size : 178200*BASE_VALUE bytes
-	public static final int DEFAULT_OPENABLE_SIZE = 500; // average 6629 bytes per openable (includes children) -> maximum size : 662900*BASE_VALUE bytes
-	public static final int DEFAULT_CHILDREN_SIZE = 500*20; // average 20 children per openable
+	public static final int DEFAULT_OPENABLE_SIZE = 250; // average 6629 bytes per openable (includes children) -> maximum size : 662900*BASE_VALUE bytes
+	public static final int DEFAULT_CHILDREN_SIZE = 250*20; // average 20 children per openable
+	public static final String RATIO_PROPERTY = "org.eclipse.jdt.core.javamodelcache.ratio"; //$NON-NLS-1$
 	
 	public static final Object NON_EXISTING_JAR_TYPE_INFO = new Object();
 
@@ -33,22 +35,22 @@ public class JavaModelCache {
 	 * The memory ratio that should be applied to the above constants.
 	 */
 	protected double memoryRatio = -1;
-	
+
 	/**
 	 * Active Java Model Info
 	 */
-	protected JavaModelInfo modelInfo;
-	
+	protected Object modelInfo;
+
 	/**
 	 * Cache of open projects.
 	 */
 	protected HashMap projectCache;
-	
+
 	/**
 	 * Cache of open package fragment roots.
 	 */
 	protected ElementCache rootCache;
-	
+
 	/**
 	 * Cache of open package fragments
 	 */
@@ -63,27 +65,42 @@ public class JavaModelCache {
 	 * Cache of open children of openable Java Model Java elements
 	 */
 	protected Map childrenCache;
-	
+
 	/*
 	 * Cache of open binary type (inside a jar) that have a non-open parent
 	 */
 	protected LRUCache jarTypeCache;
-	
+
 public JavaModelCache() {
 	// set the size of the caches in function of the maximum amount of memory available
 	double ratio = getMemoryRatio();
+	// adjust the size of the openable cache in function of the RATIO_PROPERTY property
+	double openableRatio = getOpenableRatio();
 	this.projectCache = new HashMap(DEFAULT_PROJECT_SIZE); // NB: Don't use a LRUCache for projects as they are constantly reopened (e.g. during delta processing)
 	if (VERBOSE) {
 		this.rootCache = new VerboseElementCache((int) (DEFAULT_ROOT_SIZE * ratio), "Root cache"); //$NON-NLS-1$
 		this.pkgCache = new VerboseElementCache((int) (DEFAULT_PKG_SIZE * ratio), "Package cache"); //$NON-NLS-1$
-		this.openableCache = new VerboseElementCache((int) (DEFAULT_OPENABLE_SIZE * ratio), "Openable cache"); //$NON-NLS-1$
+		this.openableCache = new VerboseElementCache((int) (DEFAULT_OPENABLE_SIZE * ratio * openableRatio), "Openable cache"); //$NON-NLS-1$
 	} else {
 		this.rootCache = new ElementCache((int) (DEFAULT_ROOT_SIZE * ratio));
 		this.pkgCache = new ElementCache((int) (DEFAULT_PKG_SIZE * ratio));
-		this.openableCache = new ElementCache((int) (DEFAULT_OPENABLE_SIZE * ratio));
+		this.openableCache = new ElementCache((int) (DEFAULT_OPENABLE_SIZE * ratio * openableRatio));
 	}
-	this.childrenCache = new HashMap((int) (DEFAULT_CHILDREN_SIZE * ratio));
+	this.childrenCache = new HashMap((int) (DEFAULT_CHILDREN_SIZE * ratio * openableRatio));
 	resetJarTypeCache();
+}
+
+private double getOpenableRatio() {
+	String property = System.getProperty(RATIO_PROPERTY);
+	if (property != null) {
+		try {
+			return Double.parseDouble(property);
+		} catch (NumberFormatException e) {
+			// ignore
+			Util.log(e, "Could not parse value for " + RATIO_PROPERTY + ": " + property); //$NON-NLS-1$ //$NON-NLS-2$
+		}
+	}
+	return 1.0;
 }
 
 /**
@@ -113,12 +130,36 @@ public Object getInfo(IJavaElement element) {
 	}
 }
 
+/*
+ *  Returns the existing element that is equal to the given element if present in the cache.
+ *  Returns the given element otherwise.
+ */
+public IJavaElement getExistingElement(IJavaElement element) {
+	switch (element.getElementType()) {
+		case IJavaElement.JAVA_MODEL:
+			return element;
+		case IJavaElement.JAVA_PROJECT:
+			return element; // projectCache is a Hashtable and Hashtables don't support getKey(...)
+		case IJavaElement.PACKAGE_FRAGMENT_ROOT:
+			return (IJavaElement) this.rootCache.getKey(element);
+		case IJavaElement.PACKAGE_FRAGMENT:
+			return (IJavaElement) this.pkgCache.getKey(element);
+		case IJavaElement.COMPILATION_UNIT:
+		case IJavaElement.CLASS_FILE:
+			return (IJavaElement) this.openableCache.getKey(element);
+		case IJavaElement.TYPE:
+			return element; // jarTypeCache or childrenCache are Hashtables and Hashtables don't support getKey(...)
+		default:
+			return element; // childrenCache is a Hashtable and Hashtables don't support getKey(...)
+	}
+}
+
 protected double getMemoryRatio() {
-	if (this.memoryRatio == -1) {
-		long maxMemory = Runtime.getRuntime().maxMemory();		
+	if ((int) this.memoryRatio == -1) {
+		long maxMemory = Runtime.getRuntime().maxMemory();
 		// if max memory is infinite, set the ratio to 4d which corresponds to the 256MB that Eclipse defaults to
 		// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=111299)
-		this.memoryRatio = maxMemory == Long.MAX_VALUE ? 4d : ((double) maxMemory) / (64 * 0x100000); // 64MB is the base memory for most JVM	
+		this.memoryRatio = maxMemory == Long.MAX_VALUE ? 4d : ((double) maxMemory) / (64 * 0x100000); // 64MB is the base memory for most JVM
 	}
 	return this.memoryRatio;
 }
@@ -157,19 +198,19 @@ protected Object peekAtInfo(IJavaElement element) {
 protected void putInfo(IJavaElement element, Object info) {
 	switch (element.getElementType()) {
 		case IJavaElement.JAVA_MODEL:
-			this.modelInfo = (JavaModelInfo) info;
+			this.modelInfo = info;
 			break;
 		case IJavaElement.JAVA_PROJECT:
 			this.projectCache.put(element, info);
-			this.rootCache.ensureSpaceLimit(((JavaElementInfo) info).children.length, element);
+			this.rootCache.ensureSpaceLimit(info, element);
 			break;
 		case IJavaElement.PACKAGE_FRAGMENT_ROOT:
 			this.rootCache.put(element, info);
-			this.pkgCache.ensureSpaceLimit(((JavaElementInfo) info).children.length, element);
+			this.pkgCache.ensureSpaceLimit(info, element);
 			break;
 		case IJavaElement.PACKAGE_FRAGMENT:
 			this.pkgCache.put(element, info);
-			this.openableCache.ensureSpaceLimit(((JavaElementInfo) info).children.length, element);
+			this.openableCache.ensureSpaceLimit(info, element);
 			break;
 		case IJavaElement.COMPILATION_UNIT:
 		case IJavaElement.CLASS_FILE:
@@ -197,7 +238,7 @@ protected void removeInfo(JavaElement element) {
 			break;
 		case IJavaElement.PACKAGE_FRAGMENT:
 			this.pkgCache.remove(element);
-			this.openableCache.resetSpaceLimit((int) (DEFAULT_OPENABLE_SIZE * getMemoryRatio()), element);
+			this.openableCache.resetSpaceLimit((int) (DEFAULT_OPENABLE_SIZE * getMemoryRatio() * getOpenableRatio()), element);
 			break;
 		case IJavaElement.COMPILATION_UNIT:
 		case IJavaElement.CLASS_FILE:

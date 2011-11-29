@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,7 +14,7 @@ import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.TypeIds;
 
-public class VerificationTypeInfo implements Cloneable {
+public class VerificationTypeInfo {
 	/**
 	 * The tag value representing top variable info
 	 * @since 3.2
@@ -60,19 +60,22 @@ public class VerificationTypeInfo implements Cloneable {
 	 * @since 3.2
 	 */
 	public static final int ITEM_UNINITIALIZED = 8;
-	
+
 	public int tag;
 	private int id;
 	private char[] constantPoolName;
 	public int offset;
 
+private VerificationTypeInfo() {
+	// for duplication
+}
 public VerificationTypeInfo(int id, char[] constantPoolName) {
 	this(id, VerificationTypeInfo.ITEM_OBJECT, constantPoolName);
 }
 public VerificationTypeInfo(int id, int tag, char[] constantPoolName) {
 	this.id = id;
-	this.constantPoolName = constantPoolName;
 	this.tag = tag;
+	this.constantPoolName = constantPoolName;
 }
 public VerificationTypeInfo(int tag, TypeBinding binding) {
 	this(binding);
@@ -102,8 +105,8 @@ public VerificationTypeInfo(TypeBinding binding) {
 			break;
 		default:
 			this.tag =  VerificationTypeInfo.ITEM_OBJECT;
+			this.constantPoolName = binding.constantPoolName();
 	}
-	this.constantPoolName = binding.constantPoolName();
 }
 public void setBinding(TypeBinding binding) {
 	this.constantPoolName = binding.constantPoolName();
@@ -140,18 +143,37 @@ public String toString() {
 	StringBuffer buffer = new StringBuffer();
 	switch(this.tag) {
 		case VerificationTypeInfo.ITEM_UNINITIALIZED_THIS :
-			buffer.append("uninitialized_this(").append(this.readableName()).append(")"); //$NON-NLS-1$//$NON-NLS-2$
+			buffer.append("uninitialized_this(").append(readableName()).append(")"); //$NON-NLS-1$//$NON-NLS-2$
 			break;
 		case VerificationTypeInfo.ITEM_UNINITIALIZED :
-			buffer.append("uninitialized(").append(this.readableName()).append(")"); //$NON-NLS-1$//$NON-NLS-2$
+			buffer.append("uninitialized(").append(readableName()).append(")"); //$NON-NLS-1$//$NON-NLS-2$
 			break;
-		default:
-			buffer.append(this.readableName());
+		case VerificationTypeInfo.ITEM_OBJECT :
+			buffer.append(readableName());
+			break;
+		case VerificationTypeInfo.ITEM_DOUBLE :
+			buffer.append('D');
+			break;
+		case VerificationTypeInfo.ITEM_FLOAT :
+			buffer.append('F');
+			break;
+		case VerificationTypeInfo.ITEM_INTEGER :
+			buffer.append('I');
+			break;
+		case VerificationTypeInfo.ITEM_LONG :
+			buffer.append('J');
+			break;
+		case VerificationTypeInfo.ITEM_NULL :
+			buffer.append("null"); //$NON-NLS-1$
+			break;
+		case VerificationTypeInfo.ITEM_TOP :
+			buffer.append("top"); //$NON-NLS-1$
+			break;
 	}
 	return String.valueOf(buffer);
 }
-protected Object clone() throws CloneNotSupportedException {
-	final VerificationTypeInfo verificationTypeInfo = (VerificationTypeInfo) super.clone();
+public VerificationTypeInfo duplicate() {
+	final VerificationTypeInfo verificationTypeInfo = new VerificationTypeInfo();
 	verificationTypeInfo.id = this.id;
 	verificationTypeInfo.tag = this.tag;
 	verificationTypeInfo.constantPoolName = this.constantPoolName;
@@ -161,9 +183,12 @@ protected Object clone() throws CloneNotSupportedException {
 public boolean equals(Object obj) {
 	if (obj instanceof VerificationTypeInfo) {
 		VerificationTypeInfo info1 = (VerificationTypeInfo) obj;
-		return info1.tag == this.tag && CharOperation.equals(info1.constantPoolName(), this.constantPoolName());
+		return info1.tag == this.tag && CharOperation.equals(info1.constantPoolName(), constantPoolName());
 	}
 	return false;
+}
+public int hashCode() {
+	return this.tag + this.id + this.constantPoolName.length + this.offset;
 }
 public char[] constantPoolName() {
 	return this.constantPoolName;

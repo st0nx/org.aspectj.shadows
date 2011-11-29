@@ -1,16 +1,15 @@
 /*******************************************************************************
- * Copyright (c) 2004 Ben Konrath <ben@bagu.org>
- * Copyright (c) 2006 Red Hat Incorporated
- * Copyright (c) 2007 IBM Corporation and others
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Eclipse Public License v1.0
- * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/epl-v10.html
+ *  Copyright (c) 2005, 2011 IBM Corporation and others.
+ *  All rights reserved. This program and the accompanying materials
+ *  are made available under the terms of the Eclipse Public License v1.0
+ *  which accompanies this distribution, and is available at
+ *  http://www.eclipse.org/legal/epl-v10.html
  * 
- * Contributors:
+ *  Contributors:
  *     Ben Konrath <ben@bagu.org> - initial implementation
  *     Red Hat Incorporated - improvements based on comments from JDT developers
  *     IBM Corporation - Code review and integration
+ *     IBM Corporation - Fix for 340181
  *******************************************************************************/
 package org.eclipse.jdt.core.formatter;
 
@@ -38,15 +37,18 @@ import org.eclipse.text.edits.TextEdit;
 /**
  * Implements an Eclipse Application for org.eclipse.jdt.core.JavaCodeFormatter.
  * 
- * There are a couple improvments that could be made: 1. Make a list of all the
+ * <p>On MacOS, when invoked using the Eclipse executable, the "user.dir" property is set to the folder
+ * in which the eclipse.ini file is located. This makes it harder to use relative paths to point to the 
+ * files to be formatted or the configuration file to use to set the code formatter's options.</p>
+ *
+ * <p>There are a couple improvements that could be made: 1. Make a list of all the
  * files first so that a file does not get formatted twice. 2. Use a text based
- * progress monitor for output.
- * <p>
- * This class is not intended to be instantiated or subclassed by clients.
- * </p>
- * 
+ * progress monitor for output.</p>
+ *
  * @author Ben Konrath <bkonrath@redhat.com>
  * @since 3.2
+ * @noinstantiate This class is not intended to be instantiated by clients.
+ * @noextend This class is not intended to be subclassed by clients.
  */
 public class CodeFormatterApplication implements IApplication {
 
@@ -63,12 +65,14 @@ public class CodeFormatterApplication implements IApplication {
 
 		public static String CommandLineErrorConfig;
 
+		public static String CommandLineErrorFileTryFullPath;
+
 		public static String CommandLineErrorFile;
 
 		public static String CommandLineErrorFileDir;
 
 		public static String CommandLineErrorQuietVerbose;
-		
+
 		public static String CommandLineErrorNoConfigFile;
 
 		public static String CommandLineFormatting;
@@ -76,6 +80,8 @@ public class CodeFormatterApplication implements IApplication {
 		public static String CommandLineStart;
 
 		public static String CommandLineUsage;
+
+		public static String ConfigFileNotFoundErrorTryFullPath;
 
 		public static String ConfigFileReadingError;
 
@@ -92,7 +98,7 @@ public class CodeFormatterApplication implements IApplication {
 		/**
 		 * Bind the given message's substitution locations with the given string
 		 * values.
-		 * 
+		 *
 		 * @param message
 		 *            the message to be manipulated
 		 * @return the manipulated String
@@ -104,7 +110,7 @@ public class CodeFormatterApplication implements IApplication {
 		/**
 		 * Bind the given message's substitution locations with the given string
 		 * values.
-		 * 
+		 *
 		 * @param message
 		 *            the message to be manipulated
 		 * @param binding
@@ -120,7 +126,7 @@ public class CodeFormatterApplication implements IApplication {
 		/**
 		 * Bind the given message's substitution locations with the given string
 		 * values.
-		 * 
+		 *
 		 * @param message
 		 *            the message to be manipulated
 		 * @param binding1
@@ -138,7 +144,7 @@ public class CodeFormatterApplication implements IApplication {
 		/**
 		 * Bind the given message's substitution locations with the given string
 		 * values.
-		 * 
+		 *
 		 * @param message
 		 *            the message to be manipulated
 		 * @param bindings
@@ -168,7 +174,7 @@ public class CodeFormatterApplication implements IApplication {
 
 	private boolean verbose = false;
 
-	/** 
+	/**
 	 * Display the command line usage message.
 	 */
 	private void displayHelp() {
@@ -214,7 +220,7 @@ public class CodeFormatterApplication implements IApplication {
 			String contents = new String(org.eclipse.jdt.internal.compiler.util.Util.getFileCharContent(file, null));
 			// format the file (the meat and potatoes)
 			doc.set(contents);
-			TextEdit edit = codeFormatter.format(CodeFormatter.K_COMPILATION_UNIT, contents, 0, contents.length(), 0, null);
+			TextEdit edit = codeFormatter.format(CodeFormatter.K_COMPILATION_UNIT | CodeFormatter.F_INCLUDE_COMMENTS, contents, 0, contents.length(), 0, null);
 			if (edit != null) {
 				edit.apply(doc);
 			} else {
@@ -256,11 +262,11 @@ public class CodeFormatterApplication implements IApplication {
 
 		final int DEFAULT_MODE = 0;
 		final int CONFIG_MODE = 1;
-		
+
 		int mode = DEFAULT_MODE;
 		final int INITIAL_SIZE = 1;
 		int fileCounter = 0;
-		
+
 		File[] filesToFormat = new File[INITIAL_SIZE];
 
 		loop: while (index < argCount) {
@@ -273,7 +279,7 @@ public class CodeFormatterApplication implements IApplication {
 					}
 					if (ARG_HELP.equals(currentArg)) {
 						displayHelp();
-						return null;				
+						return null;
 					}
 					if (ARG_VERBOSE.equals(currentArg)) {
 						this.verbose = true;
@@ -295,7 +301,16 @@ public class CodeFormatterApplication implements IApplication {
 						}
 						filesToFormat[fileCounter++] = file;
 					} else {
-						displayHelp(Messages.bind(Messages.CommandLineErrorFile, currentArg));
+						String canonicalPath;
+						try {
+							canonicalPath = file.getCanonicalPath();
+						} catch(IOException e2) {
+							canonicalPath = file.getAbsolutePath();
+						}
+						String errorMsg = file.isAbsolute()?
+										  Messages.bind(Messages.CommandLineErrorFile, canonicalPath):
+										  Messages.bind(Messages.CommandLineErrorFileTryFullPath, canonicalPath);
+						displayHelp(errorMsg);
 						return null;
 					}
 					break;
@@ -308,12 +323,12 @@ public class CodeFormatterApplication implements IApplication {
 					}
 					mode = DEFAULT_MODE;
 					continue loop;
-			}			
+			}
 		}
 
 		if (mode == CONFIG_MODE || this.options == null) {
 			displayHelp(Messages.bind(Messages.CommandLineErrorNoConfigFile));
-			return null;			
+			return null;
 		}
 		if (this.quiet && this.verbose) {
 			displayHelp(
@@ -335,17 +350,35 @@ public class CodeFormatterApplication implements IApplication {
 
 	/**
 	 * Return a Java Properties file representing the options that are in the
-	 * specified config file.
+	 * specified configuration file.
 	 */
 	private Properties readConfig(String filename) {
 		BufferedInputStream stream = null;
+		File configFile = new File(filename);
 		try {
-			stream = new BufferedInputStream(new FileInputStream(new File(filename)));
+			stream = new BufferedInputStream(new FileInputStream(configFile));
 			final Properties formatterOptions = new Properties();
 			formatterOptions.load(stream);
 			return formatterOptions;
 		} catch (IOException e) {
-			Util.log(e, Messages.bind(Messages.ConfigFileReadingError));
+			String canonicalPath = null;
+			try {
+				canonicalPath = configFile.getCanonicalPath();
+			} catch(IOException e2) {
+				canonicalPath = configFile.getAbsolutePath();
+			}
+			String errorMessage;
+			if (!configFile.exists() && !configFile.isAbsolute()) {
+				errorMessage = Messages.bind(Messages.ConfigFileNotFoundErrorTryFullPath, new Object[] {
+					canonicalPath,
+					System.getProperty("user.dir") //$NON-NLS-1$
+				});
+
+			} else {
+				errorMessage = Messages.bind(Messages.ConfigFileReadingError, canonicalPath);
+			}
+			Util.log(e, errorMessage);
+			System.err.println(errorMessage);
 		} finally {
 			if (stream != null) {
 				try {
@@ -383,7 +416,7 @@ public class CodeFormatterApplication implements IApplication {
 				formatDirTree(file, codeFormatter);
 			} else if (Util.isJavaLikeFileName(file.getPath())) {
 				formatFile(file, codeFormatter);
-			}			
+			}
 		}
 		if (!this.quiet) {
 			System.out.println(Messages.bind(Messages.CommandLineDone));

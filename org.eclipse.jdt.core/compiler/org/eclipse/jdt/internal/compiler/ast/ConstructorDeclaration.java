@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,6 +7,7 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Stephan Herrmann - Contribution for Bug 343713 - [compiler] bogus line number in constructor of inner class in 1.5 compliance
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
@@ -20,6 +21,7 @@ import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.problem.*;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class ConstructorDeclaration extends AbstractMethodDeclaration {
 
@@ -31,7 +33,7 @@ public ConstructorDeclaration(CompilationResult compilationResult){
 	super(compilationResult);
 }
 
-/** 
+/**
  * @see org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration#analyseCode(org.eclipse.jdt.internal.compiler.lookup.ClassScope, org.eclipse.jdt.internal.compiler.flow.InitializationFlowContext, org.eclipse.jdt.internal.compiler.flow.FlowInfo)
  * @deprecated use instead {@link #analyseCode(ClassScope, InitializationFlowContext, FlowInfo, int)}
  */
@@ -49,7 +51,7 @@ public void analyseCode(ClassScope classScope, InitializationFlowContext initial
 
 	int nonStaticFieldInfoReachMode = flowInfo.reachMode();
 	flowInfo.setReachMode(initialReachMode);
-	
+
 	checkUnused: {
 		MethodBinding constructorBinding;
 		if ((constructorBinding = this.binding) == null) break checkUnused;
@@ -58,24 +60,46 @@ public void analyseCode(ClassScope classScope, InitializationFlowContext initial
 		if (constructorBinding.isPrivate()) {
 			if ((this.binding.declaringClass.tagBits & TagBits.HasNonPrivateConstructor) == 0)
 				break checkUnused; // tolerate as known pattern to block instantiation
-		} else if ((this.binding.declaringClass.tagBits & (TagBits.IsAnonymousType|TagBits.IsLocalType)) != TagBits.IsLocalType) {
+		} else if (!constructorBinding.isOrEnclosedByPrivateType()) {
 			break checkUnused;
+ 		}
+		// https://bugs.eclipse.org/bugs/show_bug.cgi?id=270446, When the AST built is an abridged version
+		// we don't have all tree nodes we would otherwise expect. (see ASTParser.setFocalPosition)
+		if (this.constructorCall == null)
+			break checkUnused; 
+		// https://bugs.eclipse.org/bugs/show_bug.cgi?id=264991, Don't complain about this
+		// constructor being unused if the base class doesn't have a no-arg constructor.
+		// See that a seemingly unused constructor that chains to another constructor with a
+		// this(...) can be flagged as being unused without hesitation.
+		// https://bugs.eclipse.org/bugs/show_bug.cgi?id=265142
+		if (this.constructorCall.accessMode != ExplicitConstructorCall.This) {
+			ReferenceBinding superClass = constructorBinding.declaringClass.superclass();
+			if (superClass == null)
+				break checkUnused;
+			// see if there is a no-arg super constructor
+			MethodBinding methodBinding = superClass.getExactConstructor(Binding.NO_PARAMETERS);
+			if (methodBinding == null)
+				break checkUnused;
+			if (!methodBinding.canBeSeenBy(SuperReference.implicitSuperConstructorCall(), this.scope))
+				break checkUnused;
+			// otherwise default super constructor exists, so go ahead and complain unused.
 		}
 		// complain unused
 		this.scope.problemReporter().unusedPrivateConstructor(this);
 	}
-		
+
 	// check constructor recursion, once all constructor got resolved
-	if (isRecursive(null /*lazy initialized visited list*/)) {				
+	if (isRecursive(null /*lazy initialized visited list*/)) {
 		this.scope.problemReporter().recursiveConstructorInvocation(this.constructorCall);
 	}
-		
+
 	try {
 		ExceptionHandlingFlowContext constructorContext =
 			new ExceptionHandlingFlowContext(
 				initializerFlowContext.parent,
 				this,
 				this.binding.thrownExceptions,
+				initializerFlowContext,
 				this.scope,
 				FlowInfo.DEAD_END);
 		initializerFlowContext.checkInitializerExceptions(
@@ -95,14 +119,14 @@ public void analyseCode(ClassScope classScope, InitializationFlowContext initial
 				}
 			}
 		}
-		
+
 		// tag parameters as being set
 		if (this.arguments != null) {
 			for (int i = 0, count = this.arguments.length; i < count; i++) {
 				flowInfo.markAsDefinitelyAssigned(this.arguments[i].binding);
 			}
 		}
-		
+
 		// propagate to constructor call
 		if (this.constructorCall != null) {
 			// if calling 'this(...)', then flag all non-static fields as definitely
@@ -118,29 +142,29 @@ public void analyseCode(ClassScope classScope, InitializationFlowContext initial
 			}
 			flowInfo = this.constructorCall.analyseCode(this.scope, constructorContext, flowInfo);
 		}
-		
+
 		// reuse the reachMode from non static field info
 		flowInfo.setReachMode(nonStaticFieldInfoReachMode);
 
 		// propagate to statements
 		if (this.statements != null) {
-			boolean didAlreadyComplain = false;
+			int complaintLevel = (nonStaticFieldInfoReachMode & FlowInfo.UNREACHABLE) == 0 ? Statement.NOT_COMPLAINED : Statement.COMPLAINED_FAKE_REACHABLE;
 			for (int i = 0, count = this.statements.length; i < count; i++) {
 				Statement stat = this.statements[i];
-				if (!stat.complainIfUnreachable(flowInfo, this.scope, didAlreadyComplain)) {
+				if ((complaintLevel = stat.complainIfUnreachable(flowInfo, this.scope, complaintLevel)) < Statement.COMPLAINED_UNREACHABLE) {
 					flowInfo = stat.analyseCode(this.scope, constructorContext, flowInfo);
-				} else {
-					didAlreadyComplain = true;
 				}
 			}
 		}
 		// check for missing returning path
-		if ((flowInfo.tagBits & FlowInfo.UNREACHABLE) == 0) {
+		if ((flowInfo.tagBits & FlowInfo.UNREACHABLE_OR_DEAD) == 0) {
 			this.bits |= ASTNode.NeedFreeReturn;
 		}
 
 		// reuse the initial reach mode for diagnosing missing blank finals
-		flowInfo.setReachMode(initialReachMode);		
+		// no, we should use the updated reach mode for diagnosing uninitialized blank finals.
+		// see https://bugs.eclipse.org/bugs/show_bug.cgi?id=235781
+		// flowInfo.setReachMode(initialReachMode);
 
 		// check missing blank final field initializations
 		if ((this.constructorCall != null)
@@ -160,6 +184,8 @@ public void analyseCode(ClassScope classScope, InitializationFlowContext initial
 		}
 		// check unreachable catch blocks
 		constructorContext.complainIfUnusedExceptionHandlers(this);
+		// check unused parameters
+		this.scope.checkUnusedParameters(this.binding);
 	} catch (AbortMethod e) {
 		this.ignoreFurtherInvestigation = true;
 	}
@@ -184,57 +210,71 @@ public void generateCode(ClassScope classScope, ClassFile classFile) {
 		classFile.addProblemConstructor(this, this.binding, problemsCopy);
 		return;
 	}
-	try {
-		problemResetPC = classFile.contentsOffset;
-		this.internalGenerateCode(classScope, classFile);
-	} catch (AbortMethod e) {
-		if (e.compilationResult == CodeStream.RESTART_IN_WIDE_MODE) {
-			// a branch target required a goto_w, restart code gen in wide mode.
-			try {
+	boolean restart = false;
+	boolean abort = false;
+	do {
+		try {
+			problemResetPC = classFile.contentsOffset;
+			internalGenerateCode(classScope, classFile);
+			restart = false;
+		} catch (AbortMethod e) {
+			if (e.compilationResult == CodeStream.RESTART_IN_WIDE_MODE) {
+				// a branch target required a goto_w, restart code gen in wide mode.
+				if (!restart) {
+					classFile.contentsOffset = problemResetPC;
+					classFile.methodCount--;
+					classFile.codeStream.resetInWideMode(); // request wide mode
+					restart = true;
+				} else {
+					restart = false;
+					abort = true;
+				}
+			} else if (e.compilationResult == CodeStream.RESTART_CODE_GEN_FOR_UNUSED_LOCALS_MODE) {
 				classFile.contentsOffset = problemResetPC;
 				classFile.methodCount--;
-				classFile.codeStream.wideMode = true; // request wide mode 
-				this.internalGenerateCode(classScope, classFile); // restart method generation
-			} catch (AbortMethod e2) {
-				int problemsLength;
-				CategorizedProblem[] problems =
-					this.scope.referenceCompilationUnit().compilationResult.getAllProblems();
-				CategorizedProblem[] problemsCopy = new CategorizedProblem[problemsLength = problems.length];
-				System.arraycopy(problems, 0, problemsCopy, 0, problemsLength);
-				classFile.addProblemConstructor(this, this.binding, problemsCopy, problemResetPC);
+				classFile.codeStream.resetForCodeGenUnusedLocals();
+				restart = true;
+			} else {
+				restart = false;
+				abort = true;
 			}
-		} else {
-			int problemsLength;
-			CategorizedProblem[] problems =
-				this.scope.referenceCompilationUnit().compilationResult.getAllProblems();
-			CategorizedProblem[] problemsCopy = new CategorizedProblem[problemsLength = problems.length];
-			System.arraycopy(problems, 0, problemsCopy, 0, problemsLength);
-			classFile.addProblemConstructor(this, this.binding, problemsCopy, problemResetPC);
 		}
+	} while (restart);
+	if (abort) {
+		int problemsLength;
+		CategorizedProblem[] problems =
+				this.scope.referenceCompilationUnit().compilationResult.getAllProblems();
+		CategorizedProblem[] problemsCopy = new CategorizedProblem[problemsLength = problems.length];
+		System.arraycopy(problems, 0, problemsCopy, 0, problemsLength);
+		classFile.addProblemConstructor(this, this.binding, problemsCopy, problemResetPC);
 	}
 }
 
 public void generateSyntheticFieldInitializationsIfNecessary(MethodScope methodScope, CodeStream codeStream, ReferenceBinding declaringClass) {
 	if (!declaringClass.isNestedType()) return;
-	
+
 	NestedTypeBinding nestedType = (NestedTypeBinding) declaringClass;
 
 	SyntheticArgumentBinding[] syntheticArgs = nestedType.syntheticEnclosingInstances();
-	for (int i = 0, max = syntheticArgs == null ? 0 : syntheticArgs.length; i < max; i++) {
-		SyntheticArgumentBinding syntheticArg;
-		if ((syntheticArg = syntheticArgs[i]).matchingField != null) {
-			codeStream.aload_0();
-			codeStream.load(syntheticArg);
-			codeStream.putfield(syntheticArg.matchingField);
+	if (syntheticArgs != null) {
+		for (int i = 0, max = syntheticArgs.length; i < max; i++) {
+			SyntheticArgumentBinding syntheticArg;
+			if ((syntheticArg = syntheticArgs[i]).matchingField != null) {
+				codeStream.aload_0();
+				codeStream.load(syntheticArg);
+				codeStream.fieldAccess(Opcodes.OPC_putfield, syntheticArg.matchingField, null /* default declaringClass */);
+			}
 		}
 	}
 	syntheticArgs = nestedType.syntheticOuterLocalVariables();
-	for (int i = 0, max = syntheticArgs == null ? 0 : syntheticArgs.length; i < max; i++) {
-		SyntheticArgumentBinding syntheticArg;
-		if ((syntheticArg = syntheticArgs[i]).matchingField != null) {
-			codeStream.aload_0();
-			codeStream.load(syntheticArg);
-			codeStream.putfield(syntheticArg.matchingField);
+	if (syntheticArgs != null) {
+		for (int i = 0, max = syntheticArgs.length; i < max; i++) {
+			SyntheticArgumentBinding syntheticArg;
+			if ((syntheticArg = syntheticArgs[i]).matchingField != null) {
+				codeStream.aload_0();
+				codeStream.load(syntheticArg);
+				codeStream.fieldAccess(Opcodes.OPC_putfield, syntheticArg.matchingField, null /* default declaringClass */);
+			}
 		}
 	}
 }
@@ -242,9 +282,9 @@ public void generateSyntheticFieldInitializationsIfNecessary(MethodScope methodS
 private void internalGenerateCode(ClassScope classScope, ClassFile classFile) {
 	classFile.generateMethodInfoHeader(this.binding);
 	int methodAttributeOffset = classFile.contentsOffset;
-	int attributeNumber = classFile.generateMethodInfoAttribute(this.binding);
+	int attributeNumber = classFile.generateMethodInfoAttributes(this.binding);
 	if ((!this.binding.isNative()) && (!this.binding.isAbstract())) {
-		
+
 		TypeDeclaration declaringType = classScope.referenceContext;
 		int codeAttributeOffset = classFile.contentsOffset;
 		classFile.generateCodeAttributeHeader();
@@ -258,32 +298,34 @@ private void internalGenerateCode(ClassScope classScope, ClassFile classFile) {
 		int argSlotSize = 1 + enumOffset; // this==aload0
 
 		if (declaringClass.isNestedType()){
-			NestedTypeBinding nestedType = (NestedTypeBinding) declaringClass;
-			this.scope.extraSyntheticArguments = nestedType.syntheticOuterLocalVariables();
+			this.scope.extraSyntheticArguments = declaringClass.syntheticOuterLocalVariables();
 			this.scope.computeLocalVariablePositions(// consider synthetic arguments if any
-				nestedType.enclosingInstancesSlotSize + 1 + enumOffset,
+					declaringClass.getEnclosingInstancesSlotSize() + 1 + enumOffset,
 				codeStream);
-			argSlotSize += nestedType.enclosingInstancesSlotSize;
-			argSlotSize += nestedType.outerLocalVariablesSlotSize;
+			argSlotSize += declaringClass.getEnclosingInstancesSlotSize();
+			argSlotSize += declaringClass.getOuterLocalVariablesSlotSize();
 		} else {
 			this.scope.computeLocalVariablePositions(1 + enumOffset,  codeStream);
 		}
-			
+
 		if (this.arguments != null) {
 			for (int i = 0, max = this.arguments.length; i < max; i++) {
 				// arguments initialization for local variable debug attributes
 				LocalVariableBinding argBinding;
 				codeStream.addVisibleLocalVariable(argBinding = this.arguments[i].binding);
 				argBinding.recordInitializationStartPC(0);
-				TypeBinding argType;
-				if ((argType = argBinding.type) == TypeBinding.LONG || (argType == TypeBinding.DOUBLE)) {
-					argSlotSize += 2;
-				} else {
-					argSlotSize++;
+				switch(argBinding.type.id) {
+					case TypeIds.T_long :
+					case TypeIds.T_double :
+						argSlotSize += 2;
+						break;
+					default :
+						argSlotSize++;
+						break;
 				}
 			}
 		}
-		
+
 		MethodScope initializerScope = declaringType.initializerScope;
 		initializerScope.computeLocalVariablePositions(argSlotSize, codeStream); // offset by the argument size (since not linked to method scope)
 
@@ -294,6 +336,7 @@ private void internalGenerateCode(ClassScope classScope, ClassFile classFile) {
 
 		if (needFieldInitializations && preInitSyntheticFields){
 			generateSyntheticFieldInitializationsIfNecessary(this.scope, codeStream, declaringClass);
+			codeStream.recordPositionsFrom(0, this.bodyStart);
 		}
 		// generate constructor call
 		if (this.constructorCall != null) {
@@ -320,21 +363,29 @@ private void internalGenerateCode(ClassScope classScope, ClassFile classFile) {
 				this.statements[i].generateCode(this.scope, codeStream);
 			}
 		}
+		// if a problem got reported during code gen, then trigger problem method creation
+		if (this.ignoreFurtherInvestigation) {
+			throw new AbortMethod(this.scope.referenceCompilationUnit().compilationResult, null);
+		}
 		if ((this.bits & ASTNode.NeedFreeReturn) != 0) {
 			codeStream.return_();
 		}
 		// local variable attributes
 		codeStream.exitUserScope(this.scope);
 		codeStream.recordPositionsFrom(0, this.bodyEnd);
-		classFile.completeCodeAttribute(codeAttributeOffset);
+		try {
+			classFile.completeCodeAttribute(codeAttributeOffset);
+		} catch(NegativeArraySizeException e) {
+			throw new AbortMethod(this.scope.referenceCompilationUnit().compilationResult, null);
+		}
 		attributeNumber++;
+		if ((codeStream instanceof StackMapFrameCodeStream)
+				&& needFieldInitializations
+				&& declaringType.fields != null) {
+			((StackMapFrameCodeStream) codeStream).resetSecretLocals();
+		}
 	}
-	classFile.completeMethodInfo(methodAttributeOffset, attributeNumber);
-
-	// if a problem got reported during code gen, then trigger problem method creation
-	if (this.ignoreFurtherInvestigation) {
-		throw new AbortMethod(this.scope.referenceCompilationUnit().compilationResult, null);
-	}
+	classFile.completeMethodInfo(this.binding, methodAttributeOffset, attributeNumber);
 }
 
 public boolean isConstructor() {
@@ -362,8 +413,8 @@ public boolean isRecursive(ArrayList visited) {
 			|| !this.constructorCall.binding.isValidBinding()) {
 		return false;
 	}
-	
-	ConstructorDeclaration targetConstructor = 
+
+	ConstructorDeclaration targetConstructor =
 		((ConstructorDeclaration)this.scope.referenceType().declarationOf(this.constructorCall.binding.original()));
 	if (this == targetConstructor) return true; // direct case
 
@@ -380,15 +431,13 @@ public boolean isRecursive(ArrayList visited) {
 
 public void parseStatements(Parser parser, CompilationUnitDeclaration unit) {
 	//fill up the constructor body with its statements
-	if (this.ignoreFurtherInvestigation)
-		return;
 	if (((this.bits & ASTNode.IsDefaultConstructor) != 0) && this.constructorCall == null){
 		this.constructorCall = SuperReference.implicitSuperConstructorCall();
 		this.constructorCall.sourceStart = this.sourceStart;
-		this.constructorCall.sourceEnd = this.sourceEnd; 
+		this.constructorCall.sourceEnd = this.sourceEnd;
 		return;
 	}
-	parser.parse(this, unit);
+	parser.parse(this, unit, false);
 
 }
 
@@ -413,7 +462,20 @@ public void resolveJavadoc() {
 	if (this.binding == null || this.javadoc != null) {
 		super.resolveJavadoc();
 	} else if ((this.bits & ASTNode.IsDefaultConstructor) == 0) {
-		this.scope.problemReporter().javadocMissing(this.sourceStart, this.sourceEnd, this.binding.modifiers);
+		if (this.binding.declaringClass != null && !this.binding.declaringClass.isLocalType()) {
+			// Set javadoc visibility
+			int javadocVisibility = this.binding.modifiers & ExtraCompilerModifiers.AccVisibilityMASK;
+			ClassScope classScope = this.scope.classScope();
+			ProblemReporter reporter = this.scope.problemReporter();
+			int severity = reporter.computeSeverity(IProblem.JavadocMissing);
+			if (severity != ProblemSeverities.Ignore) {
+				if (classScope != null) {
+					javadocVisibility = Util.computeOuterMostVisibility(classScope.referenceType(), javadocVisibility);
+				}
+				int javadocModifiers = (this.binding.modifiers & ~ExtraCompilerModifiers.AccVisibilityMASK) | javadocVisibility;
+				reporter.javadocMissing(this.sourceStart, this.sourceEnd, severity, javadocModifiers);
+			}
+		}
 	}
 }
 
@@ -445,15 +507,15 @@ public void resolveStatements() {
 			this.constructorCall = null;
 		} else {
 			this.constructorCall.resolve(this.scope);
-		}	
+		}
 	}
 	if ((this.modifiers & ExtraCompilerModifiers.AccSemicolonBody) != 0) {
-		this.scope.problemReporter().methodNeedBody(this);		
+		this.scope.problemReporter().methodNeedBody(this);
 	}
 	super.resolveStatements();
 }
 
-public void traverse(ASTVisitor visitor,	ClassScope classScope) {
+public void traverse(ASTVisitor visitor, ClassScope classScope) {
 	if (visitor.visit(this, classScope)) {
 		if (this.javadoc != null) {
 			this.javadoc.traverse(visitor, this.scope);
@@ -468,7 +530,7 @@ public void traverse(ASTVisitor visitor,	ClassScope classScope) {
 			for (int i = 0; i < typeParametersLength; i++) {
 				this.typeParameters[i].traverse(visitor, this.scope);
 			}
-		}			
+		}
 		if (this.arguments != null) {
 			int argumentLength = this.arguments.length;
 			for (int i = 0; i < argumentLength; i++)
@@ -491,5 +553,5 @@ public void traverse(ASTVisitor visitor,	ClassScope classScope) {
 }
 public TypeParameter[] typeParameters() {
     return this.typeParameters;
-}		
+}
 }

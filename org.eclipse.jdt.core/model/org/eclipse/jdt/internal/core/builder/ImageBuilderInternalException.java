@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -25,25 +25,15 @@ public ImageBuilderInternalException(CoreException e) {
 	this.coreException = e;
 }
 
-public String getLocalizedMessage() {
-	IStatus status = this.coreException.getStatus();
-	if (status.isMultiStatus()) {
-		IStatus[] children = status.getChildren();
-		if (children != null && children.length > 0)
-		    return children[0].getMessage();
-	}
-    return this.coreException.getLocalizedMessage();
-}
-
 public CoreException getThrowable() {
-	return coreException;
+	return this.coreException;
 }
 
 public void printStackTrace() {
-	if (coreException != null) {
+	if (this.coreException != null) {
 		System.err.println(this);
 		System.err.println("Stack trace of embedded core exception:"); //$NON-NLS-1$
-		coreException.printStackTrace();
+		this.coreException.printStackTrace();
 	} else {
 		super.printStackTrace();
 	}

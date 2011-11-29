@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -28,9 +28,7 @@ import org.eclipse.core.runtime.jobs.ISchedulingRule;
  * <code>JavaModelException.isDoesNotExist</code> can be used to recognize
  * this common special case.
  * </p>
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IJavaElement extends IAdaptable {
 
@@ -125,6 +123,13 @@ public interface IJavaElement extends IAdaptable {
 	 * @since 3.1
 	 */
 	int TYPE_PARAMETER = 15;
+
+	/**
+	 * Constant representing an annotation.
+	 * A Java element with this type can be safely cast to {@link IAnnotation}.
+	 * @since 3.4
+	 */
+	int ANNOTATION = 16;
 
 	/**
 	 * Returns whether this Java element exists in the model.
@@ -274,11 +279,12 @@ public interface IJavaElement extends IAdaptable {
 
 	/**
 	 * Returns the path to the innermost resource enclosing this element.
-	 * If this element is not included in an external archive,
+	 * If this element is not included in an external library,
 	 * the path returned is the full, absolute path to the underlying resource,
 	 * relative to the workbench.
-	 * If this element is included in an external archive,
-	 * the path returned is the absolute path to the archive in the file system.
+	 * If this element is included in an external library,
+	 * the path returned is the absolute path to the archive or to the
+	 * folder in the file system.
 	 * This is a handle-only method.
 	 *
 	 * @return the path to the innermost resource enclosing this element
@@ -303,7 +309,7 @@ public interface IJavaElement extends IAdaptable {
 	 * Returns the innermost resource enclosing this element.
 	 * If this element is included in an archive and this archive is not external,
 	 * this is the underlying resource corresponding to the archive.
-	 * If this element is included in an external archive, <code>null</code>
+	 * If this element is included in an external library, <code>null</code>
 	 * is returned.
 	 * This is a handle-only method.
 	 *
@@ -349,9 +355,10 @@ public interface IJavaElement extends IAdaptable {
 
 	/**
 	 * Returns whether the structure of this element is known. For example, for a
-	 * compilation unit that could not be parsed, <code>false</code> is returned.
+	 * compilation unit that has syntax errors, <code>false</code> is returned.
 	 * If the structure of an element is unknown, navigations will return reasonable
-	 * defaults. For example, <code>getChildren</code> will return an empty collection.
+	 * defaults. For example, <code>getChildren</code> for a compilation unit with
+	 * syntax errors will return a collection of the children that could be parsed.
 	 * <p>
 	 * Note: This does not imply anything about consistency with the
 	 * underlying resource/buffer contents.

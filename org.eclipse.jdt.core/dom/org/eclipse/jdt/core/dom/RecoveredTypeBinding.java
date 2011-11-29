@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2007 IBM Corporation and others.
+ * Copyright (c) 2007, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,14 +14,13 @@ package org.eclipse.jdt.core.dom;
 import java.util.List;
 
 import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.lookup.ArrayBinding;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.CompilationUnitScope;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.compiler.util.Util;
-import org.eclipse.jdt.internal.core.CompilationUnit;
 import org.eclipse.jdt.internal.core.PackageFragment;
 
 /**
@@ -89,6 +88,20 @@ class RecoveredTypeBinding implements ITypeBinding {
 		return null;
 	}
 
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getGenericTypeOfWildcardType()
+	 */
+	public ITypeBinding getGenericTypeOfWildcardType() {
+		return null;
+	}
+	
+	/* (non-Javadoc)
+	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getRank()
+	 */
+	public int getRank() {
+		return -1;
+	}
+	
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.core.dom.ITypeBinding#getComponentType()
 	 */
@@ -200,7 +213,7 @@ class RecoveredTypeBinding implements ITypeBinding {
 			brackets[i] = ']';
 			brackets[i - 1] = '[';
 		}
-		StringBuffer buffer = new StringBuffer(this.getInternalName());
+		StringBuffer buffer = new StringBuffer(getInternalName());
 		buffer.append(brackets);
 		return String.valueOf(buffer);
 	}
@@ -213,7 +226,7 @@ class RecoveredTypeBinding implements ITypeBinding {
 		if (referenceBinding != null) {
 			return new String(referenceBinding.compoundName[referenceBinding.compoundName.length - 1]);
 		}
-		return this.getTypeNameFrom(getType());
+		return getTypeNameFrom(getType());
 	}
 
 	/* (non-Javadoc)
@@ -226,6 +239,7 @@ class RecoveredTypeBinding implements ITypeBinding {
 				case Binding.ARRAY_TYPE :
 				case Binding.TYPE_PARAMETER : // includes capture scenario
 				case Binding.WILDCARD_TYPE :
+				case Binding.INTERSECTION_TYPE:
 					return null;
 			}
 			IPackageBinding packageBinding = this.resolver.getPackageBinding(this.binding.getPackage());
@@ -295,7 +309,7 @@ class RecoveredTypeBinding implements ITypeBinding {
 			return this.typeArguments = TypeBinding.NO_TYPE_BINDINGS;
 		}
 		if (this.typeArguments != null) {
-			return typeArguments;
+			return this.typeArguments;
 		}
 
 		if (this.innerTypeBinding != null) {
@@ -376,7 +390,7 @@ class RecoveredTypeBinding implements ITypeBinding {
 			return true;
 		}
 		// since recovered binding are not unique isEqualTo is required
-		return this.isEqualTo(typeBinding);
+		return isEqualTo(typeBinding);
 	}
 
 	/* (non-Javadoc)
@@ -394,7 +408,7 @@ class RecoveredTypeBinding implements ITypeBinding {
 			return true;
 		}
 		// since recovered binding are not unique isEqualTo is required
-		return this.isEqualTo(typeBinding);
+		return isEqualTo(typeBinding);
 	}
 
 	/* (non-Javadoc)
@@ -495,7 +509,7 @@ class RecoveredTypeBinding implements ITypeBinding {
 			return true;
 		}
 		// since recovered binding are not unique isEqualTo is required
-		return this.isEqualTo(typeBinding);
+		return isEqualTo(typeBinding);
 	}
 
 	/* (non-Javadoc)
@@ -537,16 +551,13 @@ class RecoveredTypeBinding implements ITypeBinding {
 	 * @see org.eclipse.jdt.core.dom.IBinding#getJavaElement()
 	 */
 	public IJavaElement getJavaElement() {
-		try {
-			IPackageBinding packageBinding = getPackage();
-			if (packageBinding != null) {
-				final IJavaElement javaElement = packageBinding.getJavaElement();
-				if (javaElement!= null && javaElement.getElementType() == IJavaElement.PACKAGE_FRAGMENT) {
-					return new CompilationUnit((PackageFragment) javaElement, this.getInternalName(), this.resolver.getWorkingCopyOwner()).getWorkingCopy(this.resolver.getWorkingCopyOwner(), null);
-				}
+		IPackageBinding packageBinding = getPackage();
+		if (packageBinding != null) {
+			final IJavaElement javaElement = packageBinding.getJavaElement();
+			if (javaElement != null && javaElement.getElementType() == IJavaElement.PACKAGE_FRAGMENT) {
+				// best effort: we don't know if the recovered binding is a binary or source binding, so go with a simple source type
+				return ((PackageFragment) javaElement).getCompilationUnit(getInternalName() + SuffixConstants.SUFFIX_STRING_java).getType(this.getName());
 			}
-		} catch (JavaModelException e) {
-			//ignore
 		}
 		return null;
 	}
@@ -566,14 +577,14 @@ class RecoveredTypeBinding implements ITypeBinding {
 		} else if (this.binding != null) {
 			buffer.append("typeBinding") //$NON-NLS-1$
 				  .append(this.binding.computeUniqueKey());
-		} else if (variableDeclaration != null) {
+		} else if (this.variableDeclaration != null) {
 			buffer
 				.append("variableDeclaration") //$NON-NLS-1$
 				.append(this.variableDeclaration.getClass())
 				.append(this.variableDeclaration.getName().getIdentifier())
 				.append(this.variableDeclaration.getExtraDimensions());
 		}
-		buffer.append(this.getDimensions());
+		buffer.append(getDimensions());
 		if (this.typeArguments != null) {
 			buffer.append('<');
 			for (int i = 0, max = this.typeArguments.length; i < max; i++) {
@@ -606,7 +617,7 @@ class RecoveredTypeBinding implements ITypeBinding {
 	 */
 	public boolean isEqualTo(IBinding other) {
 		if (!other.isRecovered() || other.getKind() != IBinding.TYPE) return false;
-		return this.getKey().equals(other.getKey());
+		return getKey().equals(other.getKey());
 	}
 
 	/* (non-Javadoc)

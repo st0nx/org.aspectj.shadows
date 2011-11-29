@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -30,7 +30,7 @@ public class HierarchyBinaryType implements IBinaryType {
 	private char[][] superInterfaces = NoInterface;
 	private char[][] typeParameterSignatures;
 	private char[] genericSignature;
-	
+
 public HierarchyBinaryType(int modifiers, char[] qualification, char[] sourceName, char[] enclosingTypeName, char[][] typeParameterSignatures, char typeSuffix){
 
 	this.modifiers = modifiers;
@@ -44,6 +44,15 @@ public HierarchyBinaryType(int modifiers, char[] qualification, char[] sourceNam
 	}
 	this.typeParameterSignatures = typeParameterSignatures;
 	CharOperation.replace(this.name, '.', '/');
+}
+/**
+ * @see org.eclipse.jdt.internal.compiler.env.IBinaryType
+ */
+public IBinaryAnnotation[] getAnnotations() {
+	return null;
+}
+public char[] getEnclosingMethod() {
+	return null;
 }
 /**
  * Answer the resolved name of the enclosing type in the
@@ -79,7 +88,7 @@ public char[] getGenericSignature() {
 			buffer.append(Signature.createTypeSignature("java.lang.Object", true/*resolved*/)); //$NON-NLS-1$
 		else
 			buffer.append(Signature.createTypeSignature(this.superclass, true/*resolved*/));
-		if (this.superInterfaces != null) 
+		if (this.superInterfaces != null)
 			for (int i = 0, length = this.superInterfaces.length; i < length; i++)
 				buffer.append(Signature.createTypeSignature(this.superInterfaces[i], true/*resolved*/));
 		this.genericSignature = buffer.toString().toCharArray();
@@ -112,6 +121,14 @@ public IBinaryNestedType[] getMemberTypes() {
 public IBinaryMethod[] getMethods() {
 	return null;
 }
+
+/**
+ * @see org.eclipse.jdt.internal.compiler.env.IBinaryType#getMissingTypeNames()
+ */
+public char[][][] getMissingTypeNames() {
+	return null;
+}
+
 /**
  * Answer an int whose bits are set according the access constants
  * defined by the VM spec.
@@ -119,6 +136,7 @@ public IBinaryMethod[] getMethods() {
 public int getModifiers() {
 	return this.modifiers;
 }
+
 /**
  * Answer the resolved name of the type in the
  * class file format as specified in section 4.2 of the Java 2 VM spec.
@@ -132,7 +150,6 @@ public char[] getName() {
 public char[] getSourceName() {
 	return this.sourceName;
 }
-
 /**
  * Answer the resolved name of the receiver's superclass in the
  * class file format as specified in section 4.2 of the Java 2 VM spec
@@ -143,10 +160,14 @@ public char[] getSourceName() {
 public char[] getSuperclassName() {
 	return this.superclass;
 }
+
+// TODO (jerome) please verify that we don't need the tagbits for the receiver
+public long getTagBits() {
+	return 0;
+}
 public boolean isAnonymous() {
 	return false; // index did not record this information (since unused for hierarchies)
 }
-
 /**
  * Answer whether the receiver contains the resolved binary form
  * or the unresolved source form of the type.
@@ -154,6 +175,7 @@ public boolean isAnonymous() {
 public boolean isBinaryType() {
 	return true;
 }
+
 public boolean isLocal() {
 	return false;  // index did not record this information (since unused for hierarchies)
 }
@@ -172,17 +194,17 @@ public void recordSuperType(char[] superTypeName, char[] superQualification, cha
 			superQualification = CharOperation.subarray(superQualification, 0, length - enclosingSuperName.length - 1);
 		}
 	}
-	
+
 	if (superClassOrInterface == IIndexConstants.CLASS_SUFFIX){
 		// interfaces are indexed as having superclass references to Object by default,
 		// this is an artifact used for being able to query them only.
-		if (TypeDeclaration.kind(this.modifiers) == TypeDeclaration.INTERFACE_DECL) return; 
+		if (TypeDeclaration.kind(this.modifiers) == TypeDeclaration.INTERFACE_DECL) return;
 		char[] encodedName = CharOperation.concat(superQualification, superTypeName, '/');
-		CharOperation.replace(encodedName, '.', '/'); 
+		CharOperation.replace(encodedName, '.', '/');
 		this.superclass = encodedName;
 	} else {
 		char[] encodedName = CharOperation.concat(superQualification, superTypeName, '/');
-		CharOperation.replace(encodedName, '.', '/'); 
+		CharOperation.replace(encodedName, '.', '/');
 		if (this.superInterfaces == NoInterface){
 			this.superInterfaces = new char[][] { encodedName };
 		} else {
@@ -192,6 +214,13 @@ public void recordSuperType(char[] superTypeName, char[] superQualification, cha
 		}
 	}
 }
+
+/**
+ * @see org.eclipse.jdt.internal.compiler.env.IBinaryType
+ */
+public char[] sourceFileName() {
+	return null;
+}
 public String toString() {
 	StringBuffer buffer = new StringBuffer();
 	if (this.modifiers == ClassFileConstants.AccPublic) {
@@ -200,13 +229,13 @@ public String toString() {
 	switch (TypeDeclaration.kind(this.modifiers)) {
 		case TypeDeclaration.CLASS_DECL :
 			buffer.append("class "); //$NON-NLS-1$
-			break;		
+			break;
 		case TypeDeclaration.INTERFACE_DECL :
 			buffer.append("interface "); //$NON-NLS-1$
-			break;		
+			break;
 		case TypeDeclaration.ENUM_DECL :
 			buffer.append("enum "); //$NON-NLS-1$
-			break;		
+			break;
 	}
 	if (this.name != null) {
 		buffer.append(this.name);
@@ -226,23 +255,5 @@ public String toString() {
 		}
 	}
 	return buffer.toString();
-}
-
-/**
- * @see org.eclipse.jdt.internal.compiler.env.IBinaryType
- */
-public IBinaryAnnotation[] getAnnotations() {
-	return null;
-}
-
-/**
- * @see org.eclipse.jdt.internal.compiler.env.IBinaryType
- */
-public char[] sourceFileName() {
-	return null;
-}
-// TODO (jerome) please verify that we don't need the tagbits for the receiver
-public long getTagBits() {
-	return 0;
 }
 }

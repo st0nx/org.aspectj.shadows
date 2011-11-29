@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -29,8 +29,6 @@ import org.eclipse.jdt.core.dom.ASTParser;
 import org.eclipse.jdt.core.dom.CompilationUnit;
 import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
 import org.eclipse.jdt.internal.core.util.Messages;
-import org.eclipse.jface.text.BadLocationException;
-import org.eclipse.jface.text.IDocument;
 import org.eclipse.text.edits.TextEdit;
 
 /**
@@ -49,7 +47,7 @@ public class DeleteElementsOperation extends MultiOperation {
 	 * @see #processElements() Keys are compilation units,
 	 * values are <code>IRegion</code>s of elements to be processed in each
 	 * compilation unit.
-	 */ 
+	 */
 	protected Map childrenToRemove;
 	/**
 	 * The <code>ASTParser</code> used to manipulate the source code of
@@ -65,36 +63,31 @@ public class DeleteElementsOperation extends MultiOperation {
 		super(elementsToDelete, force);
 		initASTParser();
 	}
-	
+
 	private void deleteElement(IJavaElement elementToRemove, ICompilationUnit cu) throws JavaModelException {
 		// ensure cu is consistent (noop if already consistent)
 		cu.makeConsistent(this.progressMonitor);
 		this.parser.setSource(cu);
 		CompilationUnit astCU = (CompilationUnit) this.parser.createAST(this.progressMonitor);
 		ASTNode node = ((JavaElement) elementToRemove).findNode(astCU);
-		if (node == null) 
+		if (node == null)
 			Assert.isTrue(false, "Failed to locate " + elementToRemove.getElementName() + " in " + cu.getElementName()); //$NON-NLS-1$//$NON-NLS-2$
-		IDocument document = getDocument(cu);
 		AST ast = astCU.getAST();
 		ASTRewrite rewriter = ASTRewrite.create(ast);
 		rewriter.remove(node, null);
- 		TextEdit edits = rewriter.rewriteAST(document, null);
- 		try {
-	 		edits.apply(document);
- 		} catch (BadLocationException e) {
- 			throw new JavaModelException(e, IJavaModelStatusConstants.INVALID_CONTENTS);
- 		}
+ 		TextEdit edits = rewriter.rewriteAST();
+ 		applyTextEdit(cu, edits);
 	}
 
 	private void initASTParser() {
-		this.parser = ASTParser.newParser(AST.JLS3);
+		this.parser = ASTParser.newParser(AST.JLS4);
 	}
 
 	/**
 	 * @see MultiOperation
 	 */
 	protected String getMainTaskName() {
-		return Messages.operation_deleteElementProgress; 
+		return Messages.operation_deleteElementProgress;
 	}
 	protected ISchedulingRule getSchedulingRule() {
 		if (this.elementsToProcess != null && this.elementsToProcess.length == 1) {
@@ -111,28 +104,28 @@ public class DeleteElementsOperation extends MultiOperation {
 	 * duplicates specified in elements to be processed.
 	 */
 	protected void groupElements() throws JavaModelException {
-		childrenToRemove = new HashMap(1);
+		this.childrenToRemove = new HashMap(1);
 		int uniqueCUs = 0;
-		for (int i = 0, length = elementsToProcess.length; i < length; i++) {
-			IJavaElement e = elementsToProcess[i];
+		for (int i = 0, length = this.elementsToProcess.length; i < length; i++) {
+			IJavaElement e = this.elementsToProcess[i];
 			ICompilationUnit cu = getCompilationUnitFor(e);
 			if (cu == null) {
 				throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, e));
 			} else {
-				IRegion region = (IRegion) childrenToRemove.get(cu);
+				IRegion region = (IRegion) this.childrenToRemove.get(cu);
 				if (region == null) {
 					region = new Region();
-					childrenToRemove.put(cu, region);
+					this.childrenToRemove.put(cu, region);
 					uniqueCUs += 1;
 				}
 				region.add(e);
 			}
 		}
-		elementsToProcess = new IJavaElement[uniqueCUs];
-		Iterator iter = childrenToRemove.keySet().iterator();
+		this.elementsToProcess = new IJavaElement[uniqueCUs];
+		Iterator iter = this.childrenToRemove.keySet().iterator();
 		int i = 0;
 		while (iter.hasNext()) {
-			elementsToProcess[i++] = (IJavaElement) iter.next();
+			this.elementsToProcess[i++] = (IJavaElement) iter.next();
 		}
 	}
 	/**
@@ -141,13 +134,13 @@ public class DeleteElementsOperation extends MultiOperation {
 	 */
 	protected void processElement(IJavaElement element) throws JavaModelException {
 		ICompilationUnit cu = (ICompilationUnit) element;
-	
+
 		// keep track of the import statements - if all are removed, delete
 		// the import container (and report it in the delta)
 		int numberOfImports = cu.getImports().length;
-	
+
 		JavaElementDelta delta = new JavaElementDelta(cu);
-		IJavaElement[] cuElements = ((IRegion) childrenToRemove.get(cu)).getElements();
+		IJavaElement[] cuElements = ((IRegion) this.childrenToRemove.get(cu)).getElements();
 		for (int i = 0, length = cuElements.length; i < length; i++) {
 			IJavaElement e = cuElements[i];
 			if (e.exists()) {
@@ -162,7 +155,7 @@ public class DeleteElementsOperation extends MultiOperation {
 			}
 		}
 		if (delta.getAffectedChildren().length > 0) {
-			cu.save(getSubProgressMonitor(1), force);
+			cu.save(getSubProgressMonitor(1), this.force);
 			if (!cu.isWorkingCopy()) { // if unit is working copy, then save will have already fired the delta
 				addDelta(delta);
 				setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE);
@@ -182,7 +175,7 @@ public class DeleteElementsOperation extends MultiOperation {
 	 * @see MultiOperation
 	 */
 	protected void verify(IJavaElement element) throws JavaModelException {
-		IJavaElement[] children = ((IRegion) childrenToRemove.get(element)).getElements();
+		IJavaElement[] children = ((IRegion) this.childrenToRemove.get(element)).getElements();
 		for (int i = 0; i < children.length; i++) {
 			IJavaElement child = children[i];
 			if (child.getCorrespondingResource() != null)

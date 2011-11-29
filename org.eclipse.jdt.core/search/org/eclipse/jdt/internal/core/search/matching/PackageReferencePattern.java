@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -13,7 +13,7 @@ package org.eclipse.jdt.internal.core.search.matching;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.search.SearchPattern;
 
-public class PackageReferencePattern extends AndPattern {
+public class PackageReferencePattern extends IntersectingPattern {
 
 protected char[] pkgName;
 
@@ -28,11 +28,11 @@ public PackageReferencePattern(char[] pkgName, int matchRule) {
 	if (pkgName == null || pkgName.length == 0) {
 		this.pkgName = null;
 		this.segments = new char[][] {CharOperation.NO_CHAR};
-		((InternalSearchPattern)this).mustResolve = false;
+		this.mustResolve = false;
 	} else {
-		this.pkgName = (isCaseSensitive() || isCamelCase())  ? pkgName : CharOperation.toLowerCase(pkgName);
+		this.pkgName = (this.isCaseSensitive || this.isCamelCase) ? pkgName : CharOperation.toLowerCase(pkgName);
 		this.segments = CharOperation.splitOn('.', this.pkgName);
-		((InternalSearchPattern)this).mustResolve = true;
+		this.mustResolve = true;
 	}
 }
 PackageReferencePattern(int matchRule) {
@@ -47,7 +47,7 @@ public SearchPattern getBlankPattern() {
 }
 public char[] getIndexKey() {
 	// Package reference keys are encoded as 'name' (where 'name' is the last segment of the package name)
-	if (this.currentSegment >= 0) 
+	if (this.currentSegment >= 0)
 		return this.segments[this.currentSegment];
 	return null;
 }
@@ -56,7 +56,7 @@ public char[][] getIndexCategories() {
 }
 protected boolean hasNextQuery() {
 	// if package has at least 4 segments, don't look at the first 2 since they are mostly
-	// redundant (eg. in 'org.eclipse.jdt.core.*' 'org.eclipse' is used all the time)
+	// redundant (e.g. in 'org.eclipse.jdt.core.*' 'org.eclipse' is used all the time)
 	return --this.currentSegment >= (this.segments.length >= 4 ? 2 : 0);
 }
 public boolean matchesDecodedKey(SearchPattern decodedPattern) {
@@ -68,7 +68,7 @@ protected void resetQuery() {
 }
 protected StringBuffer print(StringBuffer output) {
 	output.append("PackageReferencePattern: <"); //$NON-NLS-1$
-	if (this.pkgName != null) 
+	if (this.pkgName != null)
 		output.append(this.pkgName);
 	else
 		output.append("*"); //$NON-NLS-1$

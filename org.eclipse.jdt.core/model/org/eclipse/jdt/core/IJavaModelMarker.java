@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,12 +10,14 @@
  *******************************************************************************/
 package org.eclipse.jdt.core;
 
+import org.eclipse.core.resources.IMarker;
+
 /**
  * Markers used by the Java model.
  * <p>
- * This interface declares constants only; it is not intended to be implemented
- * or extended.
+ * This interface declares constants only.
  * </p>
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IJavaModelMarker {
 
@@ -36,7 +38,7 @@ public interface IJavaModelMarker {
 	 * transient problems are reported as <code>IProblem</code> through
 	 * various API. Only the evaluation API is still producing markers for
 	 * transient problems.
-	 * 
+	 *
 	 * @see org.eclipse.jdt.core.compiler.IProblem
 	 * @see org.eclipse.jdt.core.eval.ICodeSnippetRequestor#acceptProblem(org.eclipse.core.resources.IMarker,String,
 	 *      int)
@@ -51,7 +53,7 @@ public interface IJavaModelMarker {
 	 * example, 'TO-DO: ...'). Tasks are identified by a task tag, which can be
 	 * customized through <code>JavaCore</code> option
 	 * <code>"org.eclipse.jdt.core.compiler.taskTag"</code>.
-	 * 
+	 *
 	 * @since 2.1
 	 */
 	String TASK_MARKER = JavaCore.PLUGIN_ID + ".task"; //$NON-NLS-1$
@@ -60,9 +62,14 @@ public interface IJavaModelMarker {
 	 * Id marker attribute (value <code>"arguments"</code>). Arguments are
 	 * concatenated into one String, prefixed with an argument count (followed
 	 * with colon separator) and separated with '#' characters. For example: {
-	 * "foo", "bar" } is encoded as "2:foo#bar", { } is encoded as "0: "
+	 * "foo", "bar" } is encoded as "2:foo#bar", { } is encoded as "0:".
+	 * <p>Empty argument is encoded as three spaces ("   ").</p>
+	 * <p>If the argument contains a '#', the character is doubled.<br>
+	 * {"foo#test", "bar" } is encoded as "2:foo##test#bar"
+	 * </p>
 	 * 
 	 * @since 2.0
+	 * @see CorrectionEngine#getProblemArguments(IMarker)
 	 */
 	String ARGUMENTS = "arguments"; //$NON-NLS-1$
 
@@ -103,8 +110,17 @@ public interface IJavaModelMarker {
 	 * Classpath file format marker attribute (value
 	 * <code>"classpathFileFormat"</code>). Used only on buildpath problem
 	 * markers. The value of this attribute is either "true" or "false".
-	 * 
+	 *
 	 * @since 2.0
 	 */
 	String CLASSPATH_FILE_FORMAT = "classpathFileFormat"; //$NON-NLS-1$
+	
+	/**
+	 * Output overlapping another source attribute (value <code>"outputOverlappingSource"</code>). 
+	 * Used only on buildpath problem markers. The value of this attribute is 
+	 * either "true" or "false".
+	 * 
+	 * @since 3.6.4
+	 */
+	String OUTPUT_OVERLAPPING_SOURCE = "outputOverlappingSource"; //$NON-NLS-1$
 }

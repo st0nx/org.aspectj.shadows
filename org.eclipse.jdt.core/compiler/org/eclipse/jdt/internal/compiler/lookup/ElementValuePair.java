@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -99,5 +99,12 @@ void setMethodBinding(MethodBinding binding) {
 void setValue(Object value) {
 	// can be modified after the initialization if holding an unresolved ref
 	this.value = value;
+}
+
+public String toString() {
+	StringBuffer buffer = new StringBuffer(5);
+	buffer.append(this.name).append(" = "); //$NON-NLS-1$
+	buffer.append(this.value);
+	return buffer.toString();
 }
 }

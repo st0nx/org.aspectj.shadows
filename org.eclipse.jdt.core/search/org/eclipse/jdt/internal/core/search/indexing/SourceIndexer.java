@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -36,7 +36,7 @@ import org.eclipse.jdt.internal.core.search.processing.JobManager;
  * - Constructors.
  */
 public class SourceIndexer extends AbstractIndexer implements SuffixConstants {
-	
+
 	public SourceIndexer(SearchDocument document) {
 		super(document);
 	}
@@ -44,20 +44,20 @@ public class SourceIndexer extends AbstractIndexer implements SuffixConstants {
 		// Create a new Parser
 		SourceIndexerRequestor requestor = new SourceIndexerRequestor(this);
 		String documentPath = this.document.getPath();
-		SourceElementParser parser = ((InternalSearchDocument) this.document).parser;
+		SourceElementParser parser = this.document.getParser();
 		if (parser == null) {
 			IPath path = new Path(documentPath);
 			IProject project = ResourcesPlugin.getWorkspace().getRoot().getProject(path.segment(0));
 			parser = JavaModelManager.getJavaModelManager().indexManager.getSourceElementParser(JavaCore.create(project), requestor);
 		} else {
-			parser.requestor = requestor;
+			parser.setRequestor(requestor);
 		}
-		
+
 		// Launch the parser
 		char[] source = null;
 		char[] name = null;
 		try {
-			source = document.getCharContents();
+			source = this.document.getCharContents();
 			name = documentPath.toCharArray();
 		} catch(Exception e){
 			// ignore
@@ -65,7 +65,7 @@ public class SourceIndexer extends AbstractIndexer implements SuffixConstants {
 		if (source == null || name == null) return; // could not retrieve document info (e.g. resource was discarded)
 		CompilationUnit compilationUnit = new CompilationUnit(source, name);
 		try {
-			parser.parseCompilationUnit(compilationUnit, true/*full parse*/);
+			parser.parseCompilationUnit(compilationUnit, true/*full parse*/, null/*no progress*/);
 		} catch (Exception e) {
 			if (JobManager.VERBOSE) {
 				e.printStackTrace();

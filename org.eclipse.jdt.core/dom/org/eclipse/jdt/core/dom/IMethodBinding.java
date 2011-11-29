@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -27,26 +27,24 @@ package org.eclipse.jdt.core.dom;
  * parameters (for these, <code>getTypeArguments</code> returns
  * an empty list, and both <code>isParameterizedMethod</code> and
  * <code>isRawMethod</code> return <code>false</code>).
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
  *
  * @see ITypeBinding#getDeclaredMethods()
  * @since 2.0
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IMethodBinding extends IBinding {
-	
+
 	/**
 	 * Returns whether this binding is for a constructor or a method.
-	 * 
+	 *
 	 * @return <code>true</code> if this is the binding for a constructor,
 	 *    and <code>false</code> if this is the binding for a method
-	 */ 
+	 */
 	public boolean isConstructor();
 
 	/**
-	 * Returns whether this binding is known to be a compiler-generated 
-	 * default constructor. 
+	 * Returns whether this binding is known to be a compiler-generated
+	 * default constructor.
 	 * <p>
 	 * This method returns <code>false</code> for:
 	 * <ul>
@@ -60,35 +58,35 @@ public interface IMethodBinding extends IBinding {
 	 * class file whether a 0-argument constructor was present in the source
 	 * code versus generated automatically by a Java compiler)</li>
 	 * </ul>
-	 * 
-	 * @return <code>true</code> if this is known to be the binding for a 
+	 *
+	 * @return <code>true</code> if this is known to be the binding for a
 	 * compiler-generated default constructor, and <code>false</code>
 	 * otherwise
 	 * @since 3.0
-	 */ 
+	 */
 	public boolean isDefaultConstructor();
-	
+
 	/**
 	 * Returns the name of the method declared in this binding. The method name
 	 * is always a simple identifier. The name of a constructor is always the
 	 * same as the declared name of its declaring class.
-	 * 
+	 *
 	 * @return the name of this method, or the declared name of this
 	 *   constructor's declaring class
 	 */
 	public String getName();
-	
+
 	/**
 	 * Returns the type binding representing the class or interface
 	 * that declares this method or constructor.
-	 * 
+	 *
 	 * @return the binding of the class or interface that declares this method
 	 *    or constructor
 	 */
 	public ITypeBinding getDeclaringClass();
 
 	/**
-	 * Returns the resolved default value of an annotation type member, 
+	 * Returns the resolved default value of an annotation type member,
 	 * or <code>null</code> if the member has no default value, or if this
 	 * is not the binding for an annotation type member.
 	 * <p>
@@ -103,7 +101,7 @@ public interface IMethodBinding extends IBinding {
 	 * <li>array type - an <code>Object[]</code> whose elements are as per above
 	 * (the language only allows single dimensional arrays in annotations)</li>
 	 * </ul>
-	 * 
+	 *
 	 * @return the default value of this annotation type member, or <code>null</code>
 	 * if none or not applicable
 	 * @since 3.2
@@ -112,13 +110,13 @@ public interface IMethodBinding extends IBinding {
 
 	/**
 	 * Returns the resolved annotations of a parameter of this method.
-	 * The result returned is the same regardless of whether 
+	 * The result returned is the same regardless of whether
 	 * this is a parameterized method.
-	 * 
+	 *
 	 * @param paramIndex the index of the parameter of interest
 	 * @return the resolved annotations of the <code>paramIndex</code>th parameter,
 	 * or an empty list if there are none
-	 * @throws ArrayIndexOutOfBoundsException if <code>paramIndex</code> is 
+	 * @throws ArrayIndexOutOfBoundsException if <code>paramIndex</code> is
 	 * not a valid index
 	 * @since 3.2
 	 */
@@ -141,7 +139,7 @@ public interface IMethodBinding extends IBinding {
 	 * Note: The result does not include synthetic parameters introduced by
 	 * inner class emulation.
 	 * </p>
-	 * 
+	 *
 	 * @return a (possibly empty) list of type bindings for the formal
 	 *   parameters of this method or constructor
 	 */
@@ -150,7 +148,7 @@ public interface IMethodBinding extends IBinding {
 	/**
 	 * Returns the binding for the return type of this method. Returns the
 	 * special primitive <code>void</code> return type for constructors.
-	 * 
+	 *
 	 * @return the binding for the return type of this method, or the
 	 *    <code>void</code> return type for constructors
 	 */
@@ -160,12 +158,12 @@ public interface IMethodBinding extends IBinding {
 	 * Returns a list of type bindings representing the types of the exceptions thrown
 	 * by this method or constructor. Returns an array of length 0 if this method
 	 * throws no exceptions. The resulting types are in no particular order.
-	 * 
+	 *
 	 * @return a list of type bindings for exceptions
 	 *   thrown by this method or constructor
 	 */
 	public ITypeBinding[] getExceptionTypes();
-	
+
 	/**
 	 * Returns the type parameters of this method or constructor binding.
 	 * <p>
@@ -185,7 +183,7 @@ public interface IMethodBinding extends IBinding {
 
 	/**
 	 * Returns whether this is the binding for an annotation type member.
-	 * 
+	 *
 	 * @return <code>true</code> iff this is the binding for an annotation type member
 	 *         and <code>false</code> otherwise
 	 * @since 3.2
@@ -209,13 +207,13 @@ public interface IMethodBinding extends IBinding {
 	 * and {@link #isRawMethod()} are mutually exclusive.
 	 * </p>
 	 *
-	 * @return <code>true</code> if this method binding represents a 
+	 * @return <code>true</code> if this method binding represents a
 	 * declaration of a generic method, and <code>false</code> otherwise
 	 * @see #getTypeParameters()
 	 * @since 3.1
 	 */
 	public boolean isGenericMethod();
-	
+
 	/**
 	 * Returns whether this method binding represents an instance of
 	 * a generic method corresponding to a parameterized method reference.
@@ -225,7 +223,7 @@ public interface IMethodBinding extends IBinding {
 	 * and {@link #isRawMethod()} are mutually exclusive.
 	 * </p>
 	 *
-	 * @return <code>true</code> if this method binding represents a 
+	 * @return <code>true</code> if this method binding represents a
 	 * an instance of a generic method corresponding to a parameterized
 	 * method reference, and <code>false</code> otherwise
 	 * @see #getMethodDeclaration()
@@ -233,7 +231,7 @@ public interface IMethodBinding extends IBinding {
 	 * @since 3.1
 	 */
 	public boolean isParameterizedMethod();
-	
+
 	/**
 	 * Returns the type arguments of this generic method instance, or the
 	 * empty list for other method bindings.
@@ -243,7 +241,7 @@ public interface IMethodBinding extends IBinding {
 	 * reference to a generic method. Do not confuse these with type parameters
 	 * which only occur on the method binding corresponding directly to the
 	 * declaration of a generic method.
-	 * </p> 
+	 * </p>
 	 *
 	 * @return the list of type bindings for the type arguments used to
 	 * instantiate the corrresponding generic method, or otherwise the empty list
@@ -253,25 +251,31 @@ public interface IMethodBinding extends IBinding {
 	 * @since 3.1
 	 */
 	public ITypeBinding[] getTypeArguments();
-	
+
 	/**
 	 * Returns the binding for the method declaration corresponding to this
-	 * method binding. For parameterized methods ({@link #isParameterizedMethod()})
+	 * method binding.
+	 * <ul>
+	 * <li>For parameterized methods ({@link #isParameterizedMethod()})
 	 * and raw methods ({@link #isRawMethod()}), this method returns the binding
-	 * for the corresponding generic method. For other method bindings, this
-	 * returns the same binding.
-	 *
-	 * <p>Note: The one notable exception is the method <code>Object.getClass()</code>, 
-	 * which is declared to return <code>Class&lt;? extends Object&gt;</code>, but 
-	 * when invoked its return type becomes <code>Class&lt;? extends 
-	 * </code><em>R</em><code>&gt;</code>, where <em>R</em> is the compile type of 
-	 * the receiver of the method invocation.</p>
+	 * for the corresponding generic method.</li>
+	 * <li>For references to the method {@link Object#getClass() Object.getClass()},
+	 * returns the binding for the method declaration which is declared to return
+	 * <code>Class&lt;?&gt;</code> or <code>Class&lt;? extends Object&gt;</code>. In the
+	 * reference binding, the return type becomes
+	 * <code>Class&lt;? extends </code><em>R</em><code>&gt;</code>, where <em>R</em>
+	 * is the erasure of the static type of the receiver of the method invocation.</li>
+	 * <li>For references to a signature polymorphic method from class MethodHandle,
+	 * returns the declaration of the method. In the reference binding, the parameter types and
+	 * the return type are determined by the concrete invocation context.</li>
+	 * <li>For other method bindings, this returns the same binding.</li>
+	 * </ul>
 	 *
 	 * @return the method binding
 	 * @since 3.1
 	 */
 	public IMethodBinding getMethodDeclaration();
-	
+
 	/**
 	 * Returns whether this method binding represents an instance of
 	 * a generic method corresponding to a raw method reference.
@@ -281,7 +285,7 @@ public interface IMethodBinding extends IBinding {
 	 * and {@link #isRawMethod()} are mutually exclusive.
 	 * </p>
 	 *
-	 * @return <code>true</code> if this method binding represents a 
+	 * @return <code>true</code> if this method binding represents a
 	 * an instance of a generic method corresponding to a raw
 	 * method reference, and <code>false</code> otherwise
 	 * @see #getMethodDeclaration()
@@ -289,33 +293,33 @@ public interface IMethodBinding extends IBinding {
 	 * @since 3.1
 	 */
 	public boolean isRawMethod();
-	
+
 	/**
 	 * Returns whether this method's signature is a subsignature of the given method as
-	 * specified in section 8.4.2 of <em>The Java Language Specification, Third Edition</em> (JLS3). 
-	 * 
+	 * specified in section 8.4.2 of <em>The Java Language Specification, Third Edition</em> (JLS3).
+	 *
 	 * @return <code>true</code> if this method's signature is a subsignature of the given method
 	 * @since 3.1
 	 */
 	public boolean isSubsignature(IMethodBinding otherMethod);
-	
+
 	/**
 	 * Returns whether this is a variable arity method.
 	 * <p>
 	 * Note: Variable arity ("varargs") methods were added in JLS3.
 	 * </p>
-	 * 
+	 *
 	 * @return <code>true</code> if this is a variable arity method,
 	 *    and <code>false</code> otherwise
 	 * @since 3.1
-	 */ 
+	 */
 	public boolean isVarargs();
-	
+
 	/**
 	 * Returns whether this method overrides the given method,
-	 * as specified in section 8.4.8.1 of <em>The Java Language 
+	 * as specified in section 8.4.8.1 of <em>The Java Language
 	 * Specification, Third Edition</em> (JLS3).
-	 * 
+	 *
 	 * @param method the method that is possibly overriden
 	 * @return <code>true</code> if this method overrides the given method,
 	 * and <code>false</code> otherwise

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -25,8 +25,8 @@ import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
-import org.eclipse.jdt.internal.compiler.parser.Parser;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
+import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
 import org.eclipse.jdt.internal.core.util.CommentRecorderParser;
 import org.eclipse.jdt.internal.core.util.Util;
 
@@ -55,12 +55,12 @@ public class CompilationUnitProblemFinder extends Compiler {
 	 *      them all) and at the same time perform some actions such as opening a dialog
 	 *      in UI when compiling interactively.
 	 *      @see org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies
-	 * 
+	 *
 	 *	@param compilerOptions The compiler options to use for the resolution.
-	 *      
+	 *
 	 *  @param requestor org.eclipse.jdt.internal.compiler.api.ICompilerRequestor
 	 *      Component which will receive and persist all compilation results and is intended
-	 *      to consume them as they are produced. Typically, in a batch compiler, it is 
+	 *      to consume them as they are produced. Typically, in a batch compiler, it is
 	 *      responsible for writing out the actual .class files to the file system.
 	 *      @see org.eclipse.jdt.internal.compiler.CompilationResult
 	 *
@@ -91,25 +91,39 @@ public class CompilationUnitProblemFinder extends Compiler {
 	 */
 	public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding, AccessRestriction accessRestriction) {
 		// ensure to jump back to toplevel type for first one (could be a member)
-//		while (sourceTypes[0].getEnclosingType() != null)
-//			sourceTypes[0] = sourceTypes[0].getEnclosingType();
+		while (sourceTypes[0].getEnclosingType() != null) {
+			sourceTypes[0] = sourceTypes[0].getEnclosingType();
+		}
 
 		CompilationResult result =
 			new CompilationResult(sourceTypes[0].getFileName(), 1, 1, this.options.maxProblemsPerUnit);
+		
+		// https://bugs.eclipse.org/bugs/show_bug.cgi?id=305259, build the compilation unit in its own sand box.
+		final long savedComplianceLevel = this.options.complianceLevel;
+		final long savedSourceLevel = this.options.sourceLevel;
+		
+		try {
+			IJavaProject project = ((SourceTypeElementInfo) sourceTypes[0]).getHandle().getJavaProject();
+			this.options.complianceLevel = CompilerOptions.versionToJdkLevel(project.getOption(JavaCore.COMPILER_COMPLIANCE, true));
+			this.options.sourceLevel = CompilerOptions.versionToJdkLevel(project.getOption(JavaCore.COMPILER_SOURCE, true));
 
-		// need to hold onto this
-		CompilationUnitDeclaration unit =
-			SourceTypeConverter.buildCompilationUnit(
-				sourceTypes,//sourceTypes[0] is always toplevel here
-				SourceTypeConverter.FIELD_AND_METHOD // need field and methods
-				| SourceTypeConverter.MEMBER_TYPE // need member types
-				| SourceTypeConverter.FIELD_INITIALIZATION, // need field initialization
-				this.lookupEnvironment.problemReporter,
-				result);
+			// need to hold onto this
+			CompilationUnitDeclaration unit =
+				SourceTypeConverter.buildCompilationUnit(
+						sourceTypes,//sourceTypes[0] is always toplevel here
+						SourceTypeConverter.FIELD_AND_METHOD // need field and methods
+						| SourceTypeConverter.MEMBER_TYPE // need member types
+						| SourceTypeConverter.FIELD_INITIALIZATION, // need field initialization
+						this.lookupEnvironment.problemReporter,
+						result);
 
-		if (unit != null) {
-			this.lookupEnvironment.buildTypeBindings(unit, accessRestriction);
-			this.lookupEnvironment.completeTypeBindings(unit);
+			if (unit != null) {
+				this.lookupEnvironment.buildTypeBindings(unit, accessRestriction);
+				this.lookupEnvironment.completeTypeBindings(unit);
+			}
+		} finally {
+			this.options.complianceLevel = savedComplianceLevel;
+			this.options.sourceLevel = savedSourceLevel;
 		}
 	}
 
@@ -121,7 +135,7 @@ public class CompilationUnitProblemFinder extends Compiler {
 		compilerOptions.storeAnnotations = creatingAST; /*store annotations in the bindings if creating a DOM AST*/
 		return compilerOptions;
 	}
-	
+
 	/*
 	 *  Low-level API performing the actual compilation
 	 */
@@ -140,113 +154,119 @@ public class CompilationUnitProblemFinder extends Compiler {
 		};
 	}
 
+	/*
+	 * Can return null if the process was aborted or canceled 
+	 */
 	public static CompilationUnitDeclaration process(
-		CompilationUnitDeclaration unit,
-		ICompilationUnit unitElement, 
-		char[] contents,
-		Parser parser,
-		WorkingCopyOwner workingCopyOwner,
-		HashMap problems,
-		boolean creatingAST,
-		int reconcileFlags,
-		IProgressMonitor monitor)
+			CompilationUnit unitElement,
+			SourceElementParser parser,
+			WorkingCopyOwner workingCopyOwner,
+			HashMap problems,
+			boolean creatingAST,
+			int reconcileFlags,
+			IProgressMonitor monitor)
 		throws JavaModelException {
 
 		JavaProject project = (JavaProject) unitElement.getJavaProject();
 		CancelableNameEnvironment environment = null;
 		CancelableProblemFactory problemFactory = null;
 		CompilationUnitProblemFinder problemFinder = null;
+		CompilationUnitDeclaration unit = null;
 		try {
 			environment = new CancelableNameEnvironment(project, workingCopyOwner, monitor);
 			problemFactory = new CancelableProblemFactory(monitor);
+			CompilerOptions compilerOptions = getCompilerOptions(project.getOptions(true), creatingAST, ((reconcileFlags & ICompilationUnit.ENABLE_STATEMENTS_RECOVERY) != 0));
+			boolean ignoreMethodBodies = (reconcileFlags & ICompilationUnit.IGNORE_METHOD_BODIES) != 0;
+			compilerOptions.ignoreMethodBodies = ignoreMethodBodies;
 			problemFinder = new CompilationUnitProblemFinder(
 				environment,
 				getHandlingPolicy(),
-				getCompilerOptions(project.getOptions(true), creatingAST, ((reconcileFlags & ICompilationUnit.ENABLE_STATEMENTS_RECOVERY) != 0)),
+				compilerOptions,
 				getRequestor(),
 				problemFactory);
-			if (parser != null) {
-				problemFinder.parser = parser;
+			boolean analyzeAndGenerateCode = true;
+			if (ignoreMethodBodies) {
+				analyzeAndGenerateCode = false;
 			}
-			PackageFragment packageFragment = (PackageFragment)unitElement.getAncestor(IJavaElement.PACKAGE_FRAGMENT);
-			char[][] expectedPackageName = null;
-			if (packageFragment != null){
-				expectedPackageName = Util.toCharArrays(packageFragment.names);
+			try {
+				if (parser != null) {
+					problemFinder.parser = parser;
+					unit = parser.parseCompilationUnit(unitElement, true/*full parse*/, monitor);
+					problemFinder.resolve(
+						unit,
+						unitElement,
+						true, // verify methods
+						analyzeAndGenerateCode, // analyze code
+						analyzeAndGenerateCode); // generate code
+				} else {
+					unit =
+						problemFinder.resolve(
+							unitElement,
+							true, // verify methods
+							analyzeAndGenerateCode, // analyze code
+							analyzeAndGenerateCode); // generate code
+				}
+			} catch (AbortCompilation e) {
+				problemFinder.handleInternalException(e, unit);
 			}
-			if (unit == null) {
-				unit = problemFinder.resolve(
-					new BasicCompilationUnit(
-						contents,
-						expectedPackageName,
-						unitElement.getPath().toString(),
-						unitElement),
-					true, // verify methods
-					true, // analyze code
-					true); // generate code
-			} else {
-				problemFinder.resolve(
-					unit,
-					null, // no need for source
-					true, // verify methods
-					true, // analyze code
-					true); // generate code
+			if (unit != null) {
+				CompilationResult unitResult = unit.compilationResult;
+				CategorizedProblem[] unitProblems = unitResult.getProblems();
+				int length = unitProblems == null ? 0 : unitProblems.length;
+				if (length > 0) {
+					CategorizedProblem[] categorizedProblems = new CategorizedProblem[length];
+					System.arraycopy(unitProblems, 0, categorizedProblems, 0, length);
+					problems.put(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER, categorizedProblems);
+				}
+				unitProblems = unitResult.getTasks();
+				length = unitProblems == null ? 0 : unitProblems.length;
+				if (length > 0) {
+					CategorizedProblem[] categorizedProblems = new CategorizedProblem[length];
+					System.arraycopy(unitProblems, 0, categorizedProblems, 0, length);
+					problems.put(IJavaModelMarker.TASK_MARKER, categorizedProblems);
+				}
+				if (NameLookup.VERBOSE) {
+					System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+					System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+				}
 			}
-			CompilationResult unitResult = unit.compilationResult;
-			CategorizedProblem[] unitProblems = unitResult.getProblems();
-			int length = unitProblems == null ? 0 : unitProblems.length;
-			if (length > 0) {
-				CategorizedProblem[] categorizedProblems = new CategorizedProblem[length];
-				System.arraycopy(unitProblems, 0, categorizedProblems, 0, length);
-				problems.put(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER, categorizedProblems);
-			}
-			unitProblems = unitResult.getTasks();
-			length = unitProblems == null ? 0 : unitProblems.length;
-			if (length > 0) {
-				CategorizedProblem[] categorizedProblems = new CategorizedProblem[length];
-				System.arraycopy(unitProblems, 0, categorizedProblems, 0, length);
-				problems.put(IJavaModelMarker.TASK_MARKER, categorizedProblems);
-			}
-			if (NameLookup.VERBOSE) {
-				System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
-				System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
-			}
-			return unit;
 		} catch (OperationCanceledException e) {
+			// catch this exception so as to not enter the catch(RuntimeException e) below
 			throw e;
-		} catch(RuntimeException e) { 
+		} catch(RuntimeException e) {
 			// avoid breaking other tools due to internal compiler failure (40334)
 			String lineDelimiter = unitElement.findRecommendedLineSeparator();
-			StringBuffer message = new StringBuffer("Exception occurred during problem detection:");  //$NON-NLS-1$ 
+			StringBuffer message = new StringBuffer("Exception occurred during problem detection:");  //$NON-NLS-1$
 			message.append(lineDelimiter);
 			message.append("----------------------------------- SOURCE BEGIN -------------------------------------"); //$NON-NLS-1$
 			message.append(lineDelimiter);
-			message.append(contents);
+			message.append(unitElement.getSource());
 			message.append(lineDelimiter);
 			message.append("----------------------------------- SOURCE END -------------------------------------"); //$NON-NLS-1$
 			Util.log(e, message.toString());
 			throw new JavaModelException(e, IJavaModelStatusConstants.COMPILER_FAILURE);
 		} finally {
 			if (environment != null)
-				environment.monitor = null; // don't hold a reference to this external object
+				environment.setMonitor(null); // don't hold a reference to this external object
 			if (problemFactory != null)
 				problemFactory.monitor = null; // don't hold a reference to this external object
 			// NB: unit.cleanUp() is done by caller
 			if (problemFinder != null && !creatingAST)
-				problemFinder.lookupEnvironment.reset();		
+				problemFinder.lookupEnvironment.reset();
 		}
+		return unit;
 	}
 
 	public static CompilationUnitDeclaration process(
-		ICompilationUnit unitElement, 
-		char[] contents,
-		WorkingCopyOwner workingCopyOwner,
-		HashMap problems,
-		boolean creatingAST,
-		int reconcileFlags,
-		IProgressMonitor monitor)
-		throws JavaModelException {
-			
-		return process(null/*no CompilationUnitDeclaration*/, unitElement, contents, null/*use default Parser*/, workingCopyOwner, problems, creatingAST, reconcileFlags, monitor);
+			CompilationUnit unitElement,
+			WorkingCopyOwner workingCopyOwner,
+			HashMap problems,
+			boolean creatingAST,
+			int reconcileFlags,
+			IProgressMonitor monitor)
+			throws JavaModelException {
+
+		return process(unitElement, null/*use default Parser*/, workingCopyOwner, problems, creatingAST, reconcileFlags, monitor);
 	}
 
 	/* (non-Javadoc)
@@ -256,5 +276,5 @@ public class CompilationUnitProblemFinder extends Compiler {
 	public void initializeParser() {
 		this.parser = new CommentRecorderParser(this.problemReporter, this.options.parseLiteralExpressionsAsConstants);
 	}
-}	
+}
 

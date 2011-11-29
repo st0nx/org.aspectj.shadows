@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,17 +15,16 @@ package org.eclipse.jdt.core.jdom;
  * syntactic units are FieldDeclaration (JLS2 8.3) and ConstantDeclaration
  * (JLS2 9.3) restricted to a single VariableDeclarator clause.
  * A field has no children. The parent of a field is a type.
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
+ *
  * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
- * powerful, fine-grained DOM/AST API found in the 
+ * powerful, fine-grained DOM/AST API found in the
  * org.eclipse.jdt.core.dom package.
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IDOMField extends IDOMMember {
 /**
  * Returns the initializer expression for this field.
- * The syntax for an initializer corresponds to VariableInitializer (JLS2 8.3). 
+ * The syntax for an initializer corresponds to VariableInitializer (JLS2 8.3).
  * <p>
  * Note: The expression does not include a "<code>=</code>".
  * </p>
@@ -38,7 +37,7 @@ public String getInitializer();
  * The <code>IDOMField</code> refinement of this <code>IDOMNode</code>
  * method returns the name of this field. The syntax for the name of a field
  * corresponds to VariableDeclaratorId (JLS2 8.3).
- * 
+ *
  * @return the name of this field
  */
 public String getName();
@@ -51,7 +50,7 @@ public String getName();
 public String getType();
 /**
  * Sets the initializer expression for this field.
- * The syntax for an initializer corresponds to VariableInitializer (JLS2 8.3). 
+ * The syntax for an initializer corresponds to VariableInitializer (JLS2 8.3).
  * <p>
  * Note: The expression does not include a "<code>=</code>".
  * </p>
@@ -71,8 +70,8 @@ public void setInitializer(String initializer);
 public void setName(String name) throws IllegalArgumentException;
 /**
  * Sets the type name of this field. The syntax for a type name of a field
- * corresponds to Type in Field Declaration (JLS2 8.3). Type names must be 
- * specified as they should appear in source code. For example: 
+ * corresponds to Type in Field Declaration (JLS2 8.3). Type names must be
+ * specified as they should appear in source code. For example:
  * <code>"String"</code>, <code>"int[]"</code>, or <code>"java.io.File"</code>.
  *
  * @param typeName the type name

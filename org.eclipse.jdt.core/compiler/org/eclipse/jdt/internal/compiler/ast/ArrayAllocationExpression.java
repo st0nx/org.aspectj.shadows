@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,6 +7,7 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Stephan Herrmann - Contribution for bug 319201 - [null] no warning when unboxing SingleNameReference causes NPE
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
@@ -30,6 +31,9 @@ public class ArrayAllocationExpression extends Expression {
 			Expression dim;
 			if ((dim = this.dimensions[i]) != null) {
 				flowInfo = dim.analyseCode(currentScope, flowContext, flowInfo);
+				if ((dim.implicitConversion & TypeIds.UNBOXING) != 0) {
+					dim.checkNPE(currentScope, flowContext, flowInfo);
+				}
 			}
 		}
 		if (this.initializer != null) {
@@ -77,7 +81,7 @@ public class ArrayAllocationExpression extends Expression {
 
 	public StringBuffer printExpression(int indent, StringBuffer output) {
 		output.append("new "); //$NON-NLS-1$
-		this.type.print(0, output); 
+		this.type.print(0, output);
 		for (int i = 0; i < this.dimensions.length; i++) {
 			if (this.dimensions[i] == null)
 				output.append("[]"); //$NON-NLS-1$
@@ -86,11 +90,11 @@ public class ArrayAllocationExpression extends Expression {
 				this.dimensions[i].printExpression(0, output);
 				output.append(']');
 			}
-		} 
+		}
 		if (this.initializer != null) this.initializer.printExpression(0, output);
 		return output;
 	}
-	
+
 	public TypeBinding resolveType(BlockScope scope) {
 		// Build an array type reference using the current dimensions
 		// The parser does not check for the fact that dimension may be null
@@ -98,7 +102,7 @@ public class ArrayAllocationExpression extends Expression {
 		// so this must be checked here......(this comes from a reduction to LL1 grammar)
 
 		TypeBinding referenceType = this.type.resolveType(scope, true /* check bounds*/);
-		
+
 		// will check for null after dimensions are checked
 		this.constant = Constant.NotAConstant;
 		if (referenceType == TypeBinding.VOID) {
@@ -132,7 +136,7 @@ public class ArrayAllocationExpression extends Expression {
 			scope.problemReporter().cannotDefineDimensionsAndInitializer(this);
 		}
 
-		// dimensions resolution 
+		// dimensions resolution
 		for (int i = 0; i <= explicitDimIndex; i++) {
 			Expression dimExpression;
 			if ((dimExpression = this.dimensions[i]) != null) {
@@ -154,6 +158,9 @@ public class ArrayAllocationExpression extends Expression {
 			if (this.initializer != null) {
 				if ((this.initializer.resolveTypeExpecting(scope, this.resolvedType)) != null)
 					this.initializer.binding = (ArrayBinding)this.resolvedType;
+			}
+			if ((referenceType.tagBits & TagBits.HasMissingType) != 0) {
+				return null;
 			}
 		}
 		return this.resolvedType;

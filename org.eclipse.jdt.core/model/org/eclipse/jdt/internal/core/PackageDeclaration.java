@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,16 +11,15 @@
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.IPackageDeclaration;
 
 /**
  * @see IPackageDeclaration
  */
 
-/* package */ class PackageDeclaration extends SourceRefElement implements IPackageDeclaration {
-	
+public class PackageDeclaration extends SourceRefElement implements IPackageDeclaration {
+
 	String name;
-	
+
 protected PackageDeclaration(CompilationUnit parent, String name) {
 	super(parent);
 	this.name = name;
@@ -44,6 +43,13 @@ public int getElementType() {
 protected char getHandleMementoDelimiter() {
 	return JavaElement.JEM_PACKAGEDECLARATION;
 }
+/**
+ * @see IPackageDeclaration#getNameRange()
+ */
+public ISourceRange getNameRange() throws JavaModelException {
+	AnnotatableInfo info = (AnnotatableInfo) getElementInfo();
+	return info.getNameRange();
+}
 /*
  * @see JavaElement#getPrimaryElement(boolean)
  */
@@ -56,7 +62,7 @@ public IJavaElement getPrimaryElement(boolean checkOwner) {
  * @private Debugging purposes
  */
 protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean showResolvedInfo) {
-	buffer.append(this.tabString(tab));
+	buffer.append(tabString(tab));
 	buffer.append("package "); //$NON-NLS-1$
 	toStringName(buffer);
 	if (info == null) {

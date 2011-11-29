@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -24,14 +24,12 @@ class RemoveFolderFromIndex extends IndexRequest {
 	IPath folderPath;
 	char[][] inclusionPatterns;
 	char[][] exclusionPatterns;
-	IProject project;
 
 	public RemoveFolderFromIndex(IPath folderPath, char[][] inclusionPatterns, char[][] exclusionPatterns, IProject project, IndexManager manager) {
 		super(project.getFullPath(), manager);
 		this.folderPath = folderPath;
 		this.inclusionPatterns = inclusionPatterns;
 		this.exclusionPatterns = exclusionPatterns;
-		this.project = project;
 	}
 	public boolean execute(IProgressMonitor progressMonitor) {
 
@@ -51,13 +49,13 @@ class RemoveFolderFromIndex extends IndexRequest {
 			if (paths != null) {
 				if (this.exclusionPatterns == null && this.inclusionPatterns == null) {
 					for (int i = 0, max = paths.length; i < max; i++) {
-						manager.remove(paths[i], this.containerPath); // write lock will be acquired by the remove operation
+						this.manager.remove(paths[i], this.containerPath); // write lock will be acquired by the remove operation
 					}
 				} else {
 					for (int i = 0, max = paths.length; i < max; i++) {
 						String documentPath =  this.containerPath.toString() + '/' + paths[i];
 						if (!Util.isExcluded(new Path(documentPath), this.inclusionPatterns, this.exclusionPatterns, false))
-							manager.remove(paths[i], this.containerPath); // write lock will be acquired by the remove operation
+							this.manager.remove(paths[i], this.containerPath); // write lock will be acquired by the remove operation
 					}
 				}
 			}

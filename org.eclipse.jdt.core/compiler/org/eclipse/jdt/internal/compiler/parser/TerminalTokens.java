@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,18 +11,18 @@
 package org.eclipse.jdt.internal.compiler.parser;
 
 /**
- * IMPORTANT NOTE: These constants are dedicated to the internal Scanner implementation. 
- * It is mirrored in org.eclipse.jdt.core.compiler public package where it is API. 
- * The mirror implementation is using the backward compatible ITerminalSymbols constant 
- * definitions (stable with 2.0), whereas the internal implementation uses TerminalTokens 
+ * IMPORTANT NOTE: These constants are dedicated to the internal Scanner implementation.
+ * It is mirrored in org.eclipse.jdt.core.compiler public package where it is API.
+ * The mirror implementation is using the backward compatible ITerminalSymbols constant
+ * definitions (stable with 2.0), whereas the internal implementation uses TerminalTokens
  * which constant values reflect the latest parser generation state.
  */
 /**
- * Maps each terminal symbol in the java-grammar into a unique integer. 
- * This integer is used to represent the terminal when computing a parsing action. 
- * 
- * Disclaimer : These constant values are generated automatically using a Java 
- * grammar, therefore their actual values are subject to change if new keywords 
+ * Maps each terminal symbol in the java-grammar into a unique integer.
+ * This integer is used to represent the terminal when computing a parsing action.
+ *
+ * Disclaimer : These constant values are generated automatically using a Java
+ * grammar, therefore their actual values are subject to change if new keywords
  * were added to the language (for instance, 'assert' is a keyword in 1.4).
  */
 public interface TerminalTokens {
@@ -39,8 +39,8 @@ public interface TerminalTokens {
 		TokenNameboolean = 32,
 		TokenNamebreak = 75,
 		TokenNamebyte = 33,
-		TokenNamecase = 101,
-		TokenNamecatch = 102,
+		TokenNamecase = 102,
+		TokenNamecatch = 100,
 		TokenNamechar = 34,
 		TokenNameclass = 72,
 		TokenNamecontinue = 76,
@@ -48,19 +48,19 @@ public interface TerminalTokens {
 		TokenNamedefault = 97,
 		TokenNamedo = 77,
 		TokenNamedouble = 35,
-		TokenNameelse = 103,
+		TokenNameelse = 104,
 		TokenNameenum = 98,
 		TokenNameextends = 99,
 		TokenNamefalse = 44,
 		TokenNamefinal = 57,
-		TokenNamefinally = 104,
+		TokenNamefinally = 103,
 		TokenNamefloat = 36,
 		TokenNamefor = 78,
 		TokenNamegoto = 109,
 		TokenNameif = 79,
 		TokenNameimplements = 106,
-		TokenNameimport = 100,
-		TokenNameinstanceof = 15,
+		TokenNameimport = 101,
+		TokenNameinstanceof = 13,
 		TokenNameint = 37,
 		TokenNameinterface = 95,
 		TokenNamelong = 38,
@@ -93,15 +93,15 @@ public interface TerminalTokens {
 		TokenNameDoubleLiteral = 50,
 		TokenNameCharacterLiteral = 51,
 		TokenNameStringLiteral = 52,
-		TokenNamePLUS_PLUS = 9,
-		TokenNameMINUS_MINUS = 10,
+		TokenNamePLUS_PLUS = 8,
+		TokenNameMINUS_MINUS = 9,
 		TokenNameEQUAL_EQUAL = 18,
-		TokenNameLESS_EQUAL = 16,
-		TokenNameGREATER_EQUAL = 17,
+		TokenNameLESS_EQUAL = 14,
+		TokenNameGREATER_EQUAL = 15,
 		TokenNameNOT_EQUAL = 19,
-		TokenNameLEFT_SHIFT = 13,
-		TokenNameRIGHT_SHIFT = 8,
-		TokenNameUNSIGNED_RIGHT_SHIFT = 11,
+		TokenNameLEFT_SHIFT = 17,
+		TokenNameRIGHT_SHIFT = 10,
+		TokenNameUNSIGNED_RIGHT_SHIFT = 12,
 		TokenNamePLUS_EQUAL = 84,
 		TokenNameMINUS_EQUAL = 85,
 		TokenNameMULTIPLY_EQUAL = 86,
@@ -125,13 +125,13 @@ public interface TerminalTokens {
 		TokenNameOR = 22,
 		TokenNameTWIDDLE = 67,
 		TokenNameDIVIDE = 6,
-		TokenNameGREATER = 12,
+		TokenNameGREATER = 11,
 		TokenNameLESS = 7,
-		TokenNameLPAREN = 28,
-		TokenNameRPAREN = 29,
-		TokenNameLBRACE = 69,
+		TokenNameLPAREN = 29,
+		TokenNameRPAREN = 28,
+		TokenNameLBRACE = 68,
 		TokenNameRBRACE = 31,
-		TokenNameLBRACKET = 14,
+		TokenNameLBRACKET = 16,
 		TokenNameRBRACKET = 70,
 		TokenNameSEMICOLON = 27,
 		TokenNameQUESTION = 23,
@@ -141,6 +141,6 @@ public interface TerminalTokens {
 		TokenNameEQUAL = 71,
 		TokenNameAT = 53,
 		TokenNameELLIPSIS = 107,
-		TokenNameEOF = 68,
+		TokenNameEOF = 69,
 		TokenNameERROR = 110;
 }

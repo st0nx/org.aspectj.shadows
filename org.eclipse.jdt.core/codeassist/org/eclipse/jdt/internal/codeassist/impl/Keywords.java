@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -12,7 +12,7 @@ package org.eclipse.jdt.internal.codeassist.impl;
 
 public interface Keywords {
 	int COUNT = 41;
-	
+
 	char[] ABSTRACT = "abstract".toCharArray(); //$NON-NLS-1$
 	char[] ASSERT = "assert".toCharArray(); //$NON-NLS-1$
 	char[] BREAK = "break".toCharArray(); //$NON-NLS-1$
@@ -23,6 +23,7 @@ public interface Keywords {
 	char[] DEFAULT = "default".toCharArray(); //$NON-NLS-1$
 	char[] DO = "do".toCharArray(); //$NON-NLS-1$
 	char[] ELSE = "else".toCharArray(); //$NON-NLS-1$
+	char[] ENUM = "enum".toCharArray(); //$NON-NLS-1$
 	char[] EXTENDS = "extends".toCharArray(); //$NON-NLS-1$
 	char[] FINAL = "final".toCharArray(); //$NON-NLS-1$
 	char[] FINALLY = "finally".toCharArray(); //$NON-NLS-1$

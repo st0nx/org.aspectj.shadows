@@ -1,10 +1,10 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-v10.html
- * 
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *******************************************************************************/
@@ -21,11 +21,11 @@ import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.core.util.Util;
 
 public class SetContainerOperation extends ChangeClasspathOperation {
-	
+
 	IPath containerPath;
 	IJavaProject[] affectedProjects;
 	IClasspathContainer[] respectiveContainers;
-	
+
 	/*
 	 * Creates a new SetContainerOperation.
 	 */
@@ -44,20 +44,19 @@ public class SetContainerOperation extends ChangeClasspathOperation {
 				verbose_set_container();
 			if (JavaModelManager.CP_RESOLVE_VERBOSE_ADVANCED)
 				verbose_set_container_invocation_trace();
-			
+
 			JavaModelManager manager = JavaModelManager.getJavaModelManager();
 			if (manager.containerPutIfInitializingWithSameEntries(this.containerPath, this.affectedProjects, this.respectiveContainers))
 				return;
-	
-			final int projectLength = this.affectedProjects.length;	
+
+			final int projectLength = this.affectedProjects.length;
 			final IJavaProject[] modifiedProjects;
 			System.arraycopy(this.affectedProjects, 0, modifiedProjects = new IJavaProject[projectLength], 0, projectLength);
-			final IClasspathEntry[][] oldResolvedPaths = new IClasspathEntry[projectLength][];
-				
+
 			// filter out unmodified project containers
 			int remaining = 0;
 			for (int i = 0; i < projectLength; i++){
-				if (isCanceled()) 
+				if (isCanceled())
 					return;
 				JavaProject affectedProject = (JavaProject) this.affectedProjects[i];
 				IClasspathContainer newContainer = this.respectiveContainers[i];
@@ -87,30 +86,29 @@ public class SetContainerOperation extends ChangeClasspathOperation {
 					modifiedProjects[i] = null; // filter out this project - container did not change
 					continue;
 				}
-				remaining++; 
-				oldResolvedPaths[i] = affectedProject.getResolvedClasspath();
+				remaining++;
 				manager.containerPut(affectedProject, this.containerPath, newContainer);
 			}
-			
+
 			if (remaining == 0) return;
-			
+
 			// trigger model refresh
 			try {
 				for(int i = 0; i < projectLength; i++){
-					if (isCanceled()) 
+					if (isCanceled())
 						return;
-					
+
 					JavaProject affectedProject = (JavaProject)modifiedProjects[i];
 					if (affectedProject == null) continue; // was filtered out
 					if (JavaModelManager.CP_RESOLVE_VERBOSE_ADVANCED)
 						verbose_update_project(affectedProject);
-		
+
 					// force resolved classpath to be recomputed
-					affectedProject.getPerProjectInfo().resetResolvedClasspath();
-					
+					ClasspathChange classpathChange = affectedProject.getPerProjectInfo().resetResolvedClasspath();
+
 					// if needed, generate delta, update project ref, create markers, ...
-					classpathChanged(affectedProject);
-					
+					classpathChanged(classpathChange, i==0/*refresh external linked folder only once*/);
+
 					if (this.canChangeResources) {
 						// touch project to force a build if needed
 						try {
@@ -123,7 +121,7 @@ public class SetContainerOperation extends ChangeClasspathOperation {
 					}
 				}
 			} catch(CoreException e) {
-				if (JavaModelManager.CP_RESOLVE_VERBOSE)
+				if (JavaModelManager.CP_RESOLVE_VERBOSE || JavaModelManager.CP_RESOLVE_VERBOSE_FAILURE)
 					verbose_failure(e);
 				if (e instanceof JavaModelException) {
 					throw (JavaModelException)e;
@@ -137,7 +135,7 @@ public class SetContainerOperation extends ChangeClasspathOperation {
 					}
 				}
 			}
-		} finally {		
+		} finally {
 			done();
 		}
 	}
@@ -163,15 +161,15 @@ public class SetContainerOperation extends ChangeClasspathOperation {
 			"	container path: " + this.containerPath + '\n' + //$NON-NLS-1$
 			"	projects: {" +//$NON-NLS-1$
 			org.eclipse.jdt.internal.compiler.util.Util.toString(
-				this.affectedProjects, 
-				new org.eclipse.jdt.internal.compiler.util.Util.Displayable(){ 
+				this.affectedProjects,
+				new org.eclipse.jdt.internal.compiler.util.Util.Displayable(){
 					public String displayString(Object o) { return ((IJavaProject) o).getElementName(); }
 				}) +
 			"}\n	values: {\n"  +//$NON-NLS-1$
 			org.eclipse.jdt.internal.compiler.util.Util.toString(
-				this.respectiveContainers, 
-				new org.eclipse.jdt.internal.compiler.util.Util.Displayable(){ 
-					public String displayString(Object o) { 
+				this.respectiveContainers,
+				new org.eclipse.jdt.internal.compiler.util.Util.Displayable(){
+					public String displayString(Object o) {
 						StringBuffer buffer = new StringBuffer("		"); //$NON-NLS-1$
 						if (o == null) {
 							buffer.append("<null>"); //$NON-NLS-1$
@@ -184,8 +182,8 @@ public class SetContainerOperation extends ChangeClasspathOperation {
 						if (entries != null){
 							for (int i = 0; i < entries.length; i++){
 								buffer.append(" 			"); //$NON-NLS-1$
-								buffer.append(entries[i]); 
-								buffer.append('\n'); 
+								buffer.append(entries[i]);
+								buffer.append('\n');
 							}
 						}
 						buffer.append(" 		}"); //$NON-NLS-1$
@@ -194,12 +192,12 @@ public class SetContainerOperation extends ChangeClasspathOperation {
 				}) +
 			"\n	}");//$NON-NLS-1$
 	}
-	
+
 	private void verbose_set_container_invocation_trace() {
 		Util.verbose(
 			"CPContainer SET  - setting container\n" + //$NON-NLS-1$
 			"	invocation stack trace:"); //$NON-NLS-1$
 			new Exception("<Fake exception>").printStackTrace(System.out); //$NON-NLS-1$
 	}
-	
+
 }

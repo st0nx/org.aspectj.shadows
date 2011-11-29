@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -17,6 +17,7 @@ import java.util.ArrayList;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IResource;
+import org.eclipse.core.resources.IResourceStatus;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.ISafeRunnable;
@@ -75,7 +76,7 @@ public void append(char[] text) {
 		}
 		int length = getLength();
 		synchronized(this.lock) {
-		    if (this.contents == null) return;
+			if (this.contents == null) return;
 			moveAndResizeGap(length, text.length);
 			System.arraycopy(text, 0, this.contents, length, text.length);
 			this.gapStart += text.length;
@@ -144,7 +145,7 @@ public char[] getCharacters() {
  * @see IBuffer
  */
 public String getContents() {
-	char[] chars = this.getCharacters();
+	char[] chars = getCharacters();
 	if (chars == null) return null;
 	return new String(chars);
 }
@@ -208,7 +209,7 @@ public boolean isReadOnly() {
 }
 /**
  * Moves the gap to location and adjust its size to the
- * anticipated change size. The size represents the expected 
+ * anticipated change size. The size represents the expected
  * range of the gap that will be filled after the gap has been moved.
  * Thus the gap is resized to actual size + the specified size and
  * moved to the given position.
@@ -265,7 +266,7 @@ protected void notifyChanged(final BufferChangedEvent event) {
 					listener.bufferChanged(event);
 				}
 			});
-			
+
 		}
 	}
 }
@@ -282,15 +283,15 @@ public synchronized void removeBufferChangedListener(IBufferChangedListener list
 }
 /**
  * Replaces <code>length</code> characters starting from <code>position</code> with <code>text<code>.
- * After that operation, the gap is placed at the end of the 
+ * After that operation, the gap is placed at the end of the
  * inserted <code>text</code>.
  */
 public void replace(int position, int length, char[] text) {
 	if (!isReadOnly()) {
 		int textLength = text == null ? 0 : text.length;
 		synchronized (this.lock) {
-		    if (this.contents == null) return;
-		    
+			if (this.contents == null) return;
+
 			// move gap
 			moveAndResizeGap(position + length, textLength - length);
 
@@ -318,7 +319,7 @@ public void replace(int position, int length, char[] text) {
 }
 /**
  * Replaces <code>length</code> characters starting from <code>position</code> with <code>text<code>.
- * After that operation, the gap is placed at the end of the 
+ * After that operation, the gap is placed at the end of the
  * inserted <code>text</code>.
  */
 public void replace(int position, int length, String text) {
@@ -329,16 +330,16 @@ public void replace(int position, int length, String text) {
  */
 public void save(IProgressMonitor progress, boolean force) throws JavaModelException {
 
-	// determine if saving is required 
+	// determine if saving is required
 	if (isReadOnly() || this.file == null) {
 		return;
 	}
 	if (!hasUnsavedChanges())
 		return;
-		
+
 	// use a platform operation to update the resource contents
 	try {
-		String stringContents = this.getContents();
+		String stringContents = getContents();
 		if (stringContents == null) return;
 
 		// Get encoding
@@ -349,16 +350,24 @@ public void save(IProgressMonitor progress, boolean force) throws JavaModelExcep
 		catch (CoreException ce) {
 			// use no encoding
 		}
-		
+
 		// Create bytes array
-		byte[] bytes = encoding == null 
-			? stringContents.getBytes() 
+		byte[] bytes = encoding == null
+			? stringContents.getBytes()
 			: stringContents.getBytes(encoding);
 
 		// Special case for UTF-8 BOM files
 		// see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=110576
 		if (encoding != null && encoding.equals(org.eclipse.jdt.internal.compiler.util.Util.UTF_8)) {
-			IContentDescription description = this.file.getContentDescription();
+			IContentDescription description;
+			try {
+				description = this.file.getContentDescription();
+			} catch (CoreException e) {
+				if (e.getStatus().getCode() != IResourceStatus.RESOURCE_NOT_FOUND)
+					throw e;
+				// file no longer exist (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=234307 )
+				description = null;
+			}
 			if (description != null && description.getProperty(IContentDescription.BYTE_ORDER_MARK) != null) {
 				int bomLength= IContentDescription.BOM_UTF_8.length;
 				byte[] bytesWithBOM= new byte[bytes.length + bomLength];
@@ -367,17 +376,17 @@ public void save(IProgressMonitor progress, boolean force) throws JavaModelExcep
 				bytes= bytesWithBOM;
 			}
 		}
-		
+
 		// Set file contents
 		ByteArrayInputStream stream = new ByteArrayInputStream(bytes);
 		if (this.file.exists()) {
 			this.file.setContents(
-				stream, 
-				force ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY, 
+				stream,
+				force ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY,
 				null);
 		} else {
 			this.file.create(stream, force, null);
-		}	
+		}
 	} catch (IOException e) {
 		throw new JavaModelException(e, IJavaModelStatusConstants.IO_EXCEPTION);
 	} catch (CoreException e) {
@@ -391,7 +400,7 @@ public void save(IProgressMonitor progress, boolean force) throws JavaModelExcep
  * @see IBuffer
  */
 public void setContents(char[] newContents) {
-	// allow special case for first initialization 
+	// allow special case for first initialization
 	// after creation by buffer factory
 	if (this.contents == null) {
 		synchronized (this.lock) {
@@ -400,20 +409,20 @@ public void setContents(char[] newContents) {
 		}
 		return;
 	}
-	
+
 	if (!isReadOnly()) {
 		String string = null;
 		if (newContents != null) {
 			string = new String(newContents);
 		}
 		synchronized (this.lock) {
-		    if (this.contents == null) return; // ignore if buffer is closed (as per spec)
+			if (this.contents == null) return; // ignore if buffer is closed (as per spec)
 			this.contents = newContents;
 			this.flags |= F_HAS_UNSAVED_CHANGES;
 			this.gapStart = -1;
 			this.gapEnd = -1;
 		}
-		BufferChangedEvent event = new BufferChangedEvent(this, 0, this.getLength(), string);
+		BufferChangedEvent event = new BufferChangedEvent(this, 0, getLength(), string);
 		notifyChanged(event);
 	}
 }
@@ -436,11 +445,11 @@ protected void setReadOnly(boolean readOnly) {
 public String toString() {
 	StringBuffer buffer = new StringBuffer();
 	buffer.append("Owner: " + ((JavaElement)this.owner).toStringWithAncestors()); //$NON-NLS-1$
-	buffer.append("\nHas unsaved changes: " + this.hasUnsavedChanges()); //$NON-NLS-1$
-	buffer.append("\nIs readonly: " + this.isReadOnly()); //$NON-NLS-1$
-	buffer.append("\nIs closed: " + this.isClosed()); //$NON-NLS-1$
+	buffer.append("\nHas unsaved changes: " + hasUnsavedChanges()); //$NON-NLS-1$
+	buffer.append("\nIs readonly: " + isReadOnly()); //$NON-NLS-1$
+	buffer.append("\nIs closed: " + isClosed()); //$NON-NLS-1$
 	buffer.append("\nContents:\n"); //$NON-NLS-1$
-	char[] charContents = this.getCharacters();
+	char[] charContents = getCharacters();
 	if (charContents == null) {
 		buffer.append("<null>"); //$NON-NLS-1$
 	} else {
@@ -448,7 +457,7 @@ public String toString() {
 		for (int i = 0; i < length; i++) {
 			char c = charContents[i];
 			switch (c) {
-				case '\n': 
+				case '\n':
 					buffer.append("\\n\n"); //$NON-NLS-1$
 					break;
 				case '\r':

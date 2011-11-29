@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,6 +11,7 @@
 
 package org.eclipse.jdt.core.dom;
 
+import org.eclipse.jdt.core.IAnnotation;
 import org.eclipse.jdt.core.IJavaElement;
 
 /**
@@ -19,15 +20,15 @@ import org.eclipse.jdt.core.IJavaElement;
  * seen from the compiler's point of view. This interface declare protocol
  * common to the various different kinds of named entities in the Java language:
  * packages, types, fields, methods, constructors, and local variables.
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
  *
  * @see IPackageBinding
  * @see ITypeBinding
  * @see IVariableBinding
  * @see IMethodBinding
+ * @see IAnnotationBinding
+ * @see IMemberValuePairBinding
  * @since 2.0
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IBinding {
 
@@ -101,7 +102,7 @@ public interface IBinding {
 	 * <li>Variable bindings - these are annotations on a field, enum constant,
 	 * or formal parameter declaration.</li>
 	 * <li>Annotation bindings - an empty array is always returned</li>
-	 * <li>Member value pair bindings - an empty array is always returned<li>
+	 * <li>Member value pair bindings - an empty array is always returned</li>
 	 * </ul>
 	 *
 	 * @return the list of resolved annotations, or the empty list if there are no
@@ -192,8 +193,8 @@ public interface IBinding {
 	 * <p>
 	 * For array types, this method returns the Java element that corresponds
 	 * to the array's element type. For raw and parameterized types, this method
-	 * returns the Java element of the erasure. For annotations, this methods
-	 * returns the Java element of the annotation type.
+	 * returns the Java element of the erasure. For annotations, this method
+	 * returns the Java element of the annotation (i.e. an {@link IAnnotation}).
 	 * </p>
 	 * <p>
 	 * Here are the cases where a <code>null</code> should be expected:
@@ -270,10 +271,12 @@ public interface IBinding {
 	 * <li>members of generic type instances - the key of the generic type
 	 * instance and the key of the corresponding member in the generic
 	 * type</li>
+	 * <li>annotations - the key of the annotated element and the key of
+	 * the annotation type</li>
 	 * </ul>
 	 * </p>
-	 * <p>Note that the key for annotation bindings and member value pair bindings is
-	 * not yet implemented. This returns <code>null</code> for these 2 kinds of bindings.<br>
+	 * <p>Note that the key for member value pair bindings is
+	 * not yet implemented. This returns <code>null</code> for this kind of bindings.<br>
 	 * Recovered bindings have a unique key.
 	 * </p>
 	 *

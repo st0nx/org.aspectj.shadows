@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2006 IBM Corporation and others.
+ * Copyright (c) 2004, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -10,21 +10,15 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.HashMap;
-
-import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.jdt.core.*;
-import org.eclipse.jdt.core.IMember;
-import org.eclipse.jdt.core.ITypeParameter;
-import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 
 public class TypeParameter extends SourceRefElement implements ITypeParameter {
 
 	static final ITypeParameter[] NO_TYPE_PARAMETERS = new ITypeParameter[0];
-	
+
 	protected String name;
-	
+
 	public TypeParameter(JavaElement parent, String name) {
 		super(parent);
 		this.name = name;
@@ -35,23 +29,41 @@ public class TypeParameter extends SourceRefElement implements ITypeParameter {
 		return super.equals(o);
 	}
 
-	/*
-	 * @see JavaElement#generateInfos
-	 */
-	protected void generateInfos(Object info, HashMap newElements, IProgressMonitor pm) throws JavaModelException {
-		Openable openableParent = (Openable)getOpenableParent();
-		if (JavaModelManager.getJavaModelManager().getInfo(openableParent) == null) {
-			openableParent.generateInfos(openableParent.createElementInfo(), newElements, pm);
-		}
-	}	
-	
 	public String[] getBounds() throws JavaModelException {
 		TypeParameterElementInfo info = (TypeParameterElementInfo) getElementInfo();
 		return CharOperation.toStrings(info.bounds);
 	}
-
+	
+	public String[] getBoundsSignatures() throws JavaModelException {
+		
+		String[] boundSignatures = null;
+		TypeParameterElementInfo info = (TypeParameterElementInfo) this.getElementInfo();
+		
+		// For a binary type or method, the signature is already available from the .class file.
+		// No need to construct again
+		if (this.parent instanceof BinaryMember) {
+			char[][] boundsSignatures = info.boundsSignatures;
+			if (boundsSignatures == null || boundsSignatures.length == 0) {
+				return CharOperation.NO_STRINGS;	
+			}
+			return CharOperation.toStrings(info.boundsSignatures);
+		}
+		
+		char[][] bounds = info.bounds;
+		if (bounds == null || bounds.length == 0) {
+			return CharOperation.NO_STRINGS;
+		}
+	
+		int boundsLength = bounds.length;
+		boundSignatures = new String[boundsLength];
+		for (int i = 0; i < boundsLength; i++) {
+			boundSignatures[i] = new String(Signature.createCharArrayTypeSignature(bounds[i], false));
+		}
+		return boundSignatures;
+	}
+	
 	public IMember getDeclaringMember() {
-			return (IMember) getParent();
+		return (IMember) getParent();
 	}
 
 	public String getElementName() {
@@ -65,7 +77,7 @@ public class TypeParameter extends SourceRefElement implements ITypeParameter {
 	protected char getHandleMementoDelimiter() {
 		return JavaElement.JEM_TYPE_PARAMETER;
 	}
-	
+
 	public ISourceRange getNameRange() throws JavaModelException {
 		SourceMapper mapper= getSourceMapper();
 		if (mapper != null) {
@@ -98,6 +110,14 @@ public class TypeParameter extends SourceRefElement implements ITypeParameter {
 
 	public IClassFile getClassFile() {
 		return ((JavaElement)getParent()).getClassFile();
+	}
+	
+	/**
+	 * {@inheritDoc}
+	 * @since 3.7
+	 */
+	public ITypeRoot getTypeRoot() {
+		return this.getDeclaringMember().getTypeRoot();
 	}
 
 	protected void toStringName(StringBuffer buffer) {

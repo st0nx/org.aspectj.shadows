@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -26,7 +26,7 @@ import java.util.EventObject;
  * and <code>getLength</code> is the length of the text that was removed.
  * </p>
  * <p>
- * For replacements (including <code>IBuffer.setContents</code>), 
+ * For replacements (including <code>IBuffer.setContents</code>),
  * <code>getOffset</code> is the offset
  * of the first replaced character, <code>getText</code> is the replacement
  * text, and <code>getLength</code> is the length of the original text
@@ -36,12 +36,9 @@ import java.util.EventObject;
  * When a buffer is closed, <code>getOffset</code> is 0, <code>getLength</code>
  * is 0, and <code>getText</code> is <code>null</code>.
  * </p>
- * <p>
- * This class is not intended to be instantiated or subclassed by clients.
- * Instances of this class are automatically created by the Java model.
- * </p>
  *
  * @see IBuffer
+ * @noextend This class is not intended to be subclassed by clients.
  */
 public class BufferChangedEvent extends EventObject {
 
@@ -59,12 +56,12 @@ public class BufferChangedEvent extends EventObject {
 	 * The text that was modified.
 	 */
 	private String text;
-	
+
 	private static final long serialVersionUID = 655379473891745999L; // backward compatible
 
 /**
  * Creates a new buffer changed event indicating that the given buffer has changed.
- * 
+ *
  * @param buffer the given buffer
  * @param offset the given offset
  * @param length the given length
@@ -88,7 +85,7 @@ public IBuffer getBuffer() {
  * Returns the length of text removed or replaced in the buffer, or
  * 0 if text has been inserted into the buffer.
  *
- * @return the length of the original text fragment modified by the 
+ * @return the length of the original text fragment modified by the
  *   buffer change (<code> 0 </code> in case of insertion).
  */
 public int getLength() {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -7,6 +7,7 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Stephan Herrmann <stephan@cs.tu-berlin.de> - TypeConverters don't set enclosingType - https://bugs.eclipse.org/bugs/show_bug.cgi?id=320841
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.parser;
 
@@ -23,30 +24,30 @@ package org.eclipse.jdt.internal.compiler.parser;
  *
  */
 
-import java.util.ArrayList;
-import java.util.HashMap;
-
+import org.eclipse.jdt.core.IAnnotatable;
+import org.eclipse.jdt.core.IAnnotation;
 import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.IJavaElement;
+import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.*;
+import org.eclipse.jdt.internal.compiler.ast.Annotation;
+import org.eclipse.jdt.internal.compiler.ast.Initializer;
 import org.eclipse.jdt.internal.compiler.ast.TypeParameter;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.env.*;
 
 import org.eclipse.jdt.internal.compiler.lookup.ExtraCompilerModifiers;
-import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
-import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.util.Util;
 
-public class SourceTypeConverter {
-	
-	/* 
+public class SourceTypeConverter extends TypeConverter {
+
+	/*
 	 * Exception thrown while converting an anonymous type of a member type
 	 * in this case, we must parse the source as the enclosing instance cannot be recreated
 	 * from the model
@@ -63,27 +64,21 @@ public class SourceTypeConverter {
 	public static final int FIELD_AND_METHOD = FIELD | CONSTRUCTOR | METHOD;
 	public static final int LOCAL_TYPE = 0x20;
 	public static final int NONE = 0;
-	
+
 	private int flags;
 	private CompilationUnitDeclaration unit;
 	private Parser parser;
-	private ProblemReporter problemReporter;
 	private ICompilationUnit cu;
 	private char[] source;
-	private HashMap annotationPositions;
-	private boolean has1_5Compliance;
-	
-	int namePos;
-	
+
 	private SourceTypeConverter(int flags, ProblemReporter problemReporter) {
+		super(problemReporter, Signature.C_DOT);
 		this.flags = flags;
-		this.problemReporter = problemReporter;
-		this.has1_5Compliance = problemReporter.options.complianceLevel >= ClassFileConstants.JDK1_5;
 	}
 
 	/*
 	 * Convert a set of source element types into a parsed compilation unit declaration
-	 * The argument types are then all grouped in the same unit. The argument types must 
+	 * The argument types are then all grouped in the same unit. The argument types must
 	 * at least contain one type.
 	 * Can optionally ignore fields & methods or member types or field initialization
 	 */
@@ -92,7 +87,7 @@ public class SourceTypeConverter {
 		int flags,
 		ProblemReporter problemReporter,
 		CompilationResult compilationResult) {
-			
+
 //		long start = System.currentTimeMillis();
 		SourceTypeConverter converter = new SourceTypeConverter(flags, problemReporter);
 		try {
@@ -106,7 +101,7 @@ public class SourceTypeConverter {
 
 	/*
 	 * Convert a set of source element types into a parsed compilation unit declaration
-	 * The argument types are then all grouped in the same unit. The argument types must 
+	 * The argument types are then all grouped in the same unit. The argument types must
 	 * at least contain one type.
 	 */
 	private CompilationUnitDeclaration convert(ISourceType[] sourceTypes, CompilationResult compilationResult) throws JavaModelException {
@@ -117,11 +112,13 @@ public class SourceTypeConverter {
 		SourceTypeElementInfo topLevelTypeInfo = (SourceTypeElementInfo) sourceTypes[0];
 		org.eclipse.jdt.core.ICompilationUnit cuHandle = topLevelTypeInfo.getHandle().getCompilationUnit();
 		this.cu = (ICompilationUnit) cuHandle;
-		this.annotationPositions = ((CompilationUnitElementInfo) ((JavaElement) this.cu).getElementInfo()).annotationPositions;
 
-		if (this.has1_5Compliance && this.annotationPositions != null && this.annotationPositions.size() > 10) { // experimental value
-			// if more than 10 annotations, diet parse as this is faster
-			return new Parser(this.problemReporter, true).dietParse(this.cu, compilationResult);
+		if (this.has1_5Compliance && ((CompilationUnitElementInfo) ((JavaElement) this.cu).getElementInfo()).annotationNumber > 10) { // experimental value
+			// If more than 10 annotations, diet parse as this is faster, but not if
+			// the client wants local and anonymous types to be converted (https://bugs.eclipse.org/bugs/show_bug.cgi?id=254738) 
+			if ((this.flags & LOCAL_TYPE) == 0) {
+				return new Parser(this.problemReporter, true).dietParse(this.cu, compilationResult);
+			}
 		}
 
 		/* only positions available */
@@ -142,7 +139,7 @@ public class SourceTypeConverter {
 			ISourceImport sourceImport = (ISourceImport) importDeclaration.getElementInfo();
 			String nameWithoutStar = importDeclaration.getNameWithoutStar();
 			this.unit.imports[i] = createImportReference(
-				Util.splitOn('.', nameWithoutStar, 0, nameWithoutStar.length()), 
+				Util.splitOn('.', nameWithoutStar, 0, nameWithoutStar.length()),
 				sourceImport.getDeclarationSourceStart(),
 				sourceImport.getDeclarationSourceEnd(),
 				importDeclaration.isOnDemand(),
@@ -167,16 +164,7 @@ public class SourceTypeConverter {
 			return new Parser(this.problemReporter, true).parse(this.cu, compilationResult);
 		}
 	}
-	
-	private void addIdentifiers(String typeSignature, int start, int endExclusive, int identCount, ArrayList fragments) {
-		if (identCount == 1) {
-			char[] identifier;
-			typeSignature.getChars(start, endExclusive, identifier = new char[endExclusive-start], 0);
-			fragments.add(identifier);
-		} else
-			fragments.add(extractIdentifiers(typeSignature, start, endExclusive-1, identCount));
-	}
-	
+
 	/*
 	 * Convert an initializerinfo into a parsed initializer declaration
 	 */
@@ -213,7 +201,7 @@ public class SourceTypeConverter {
 			}
 			block.statements = statements;
 		}
-		
+
 		return initializer;
 	}
 
@@ -258,7 +246,7 @@ public class SourceTypeConverter {
 				this.parser.parse(field, type, this.unit, initializationSource);
 			}
 		}
-		
+
 		/* conversion of local and anonymous types */
 		if ((this.flags & LOCAL_TYPE) != 0) {
 			IJavaElement[] children = fieldInfo.getChildren();
@@ -294,7 +282,7 @@ public class SourceTypeConverter {
 	}
 
 	/*
-	 * Convert a method source element into a parsed method/constructor declaration 
+	 * Convert a method source element into a parsed method/constructor declaration
 	 */
 	private AbstractMethodDeclaration convert(SourceMethod methodHandle, SourceMethodElementInfo methodInfo, CompilationResult compilationResult) throws JavaModelException {
 		AbstractMethodDeclaration method;
@@ -303,23 +291,26 @@ public class SourceTypeConverter {
 		int start = methodInfo.getNameSourceStart();
 		int end = methodInfo.getNameSourceEnd();
 
-		// convert 1.5 specific constructs only if compliance is 1.5 or above
+		/* https://bugs.eclipse.org/bugs/show_bug.cgi?id=324850, Even when this type is being constructed
+		   on behalf of a 1.4 project we must internalize type variables properly in order to be able to
+		   recognize usages of them in the method signature, to apply substitutions and thus to be able to
+		   detect overriding in the presence of generics. If we simply drop them, when the method signature
+		   refers to the type parameter, we won't know it should be bound to the type parameter and perform
+		   incorrect lookup and may mistakenly end up with missing types
+		 */
 		TypeParameter[] typeParams = null;
-		if (this.has1_5Compliance) {
-			/* convert type parameters */
-			char[][] typeParameterNames = methodInfo.getTypeParameterNames();
-			if (typeParameterNames != null) {
-				int parameterCount = typeParameterNames.length;
-				if (parameterCount > 0) { // method's type parameters must be null if no type parameter
-					char[][][] typeParameterBounds = methodInfo.getTypeParameterBounds();
-					typeParams = new TypeParameter[parameterCount];
-					for (int i = 0; i < parameterCount; i++) {
-						typeParams[i] = createTypeParameter(typeParameterNames[i], typeParameterBounds[i], start, end);
-					}
+		char[][] typeParameterNames = methodInfo.getTypeParameterNames();
+		if (typeParameterNames != null) {
+			int parameterCount = typeParameterNames.length;
+			if (parameterCount > 0) { // method's type parameters must be null if no type parameter
+				char[][][] typeParameterBounds = methodInfo.getTypeParameterBounds();
+				typeParams = new TypeParameter[parameterCount];
+				for (int i = 0; i < parameterCount; i++) {
+					typeParams[i] = createTypeParameter(typeParameterNames[i], typeParameterBounds[i], start, end);
 				}
 			}
 		}
-		
+
 		int modifiers = methodInfo.getModifiers();
 		if (methodInfo.isConstructor()) {
 			ConstructorDeclaration decl = new ConstructorDeclaration(compilationResult);
@@ -354,13 +345,13 @@ public class SourceTypeConverter {
 			} else {
 				decl = new MethodDeclaration(compilationResult);
 			}
-			
+
 			// convert return type
 			decl.returnType = createTypeReference(methodInfo.getReturnTypeName(), start, end);
-			
+
 			// type parameters
 			decl.typeParameters = typeParams;
-			
+
 			method = decl;
 		}
 		method.selector = methodHandle.getElementName().toCharArray();
@@ -409,7 +400,7 @@ public class SourceTypeConverter {
 					createTypeReference(exceptionTypeNames[i], start, end);
 			}
 		}
-		
+
 		/* convert local and anonymous types */
 		if ((this.flags & LOCAL_TYPE) != 0) {
 			IJavaElement[] children = methodInfo.getChildren();
@@ -433,7 +424,7 @@ public class SourceTypeConverter {
 				method.statements = statements;
 			}
 		}
-		
+
 		return method;
 	}
 
@@ -469,27 +460,30 @@ public class SourceTypeConverter {
 		type.declarationSourceStart = typeInfo.getDeclarationSourceStart();
 		type.declarationSourceEnd = typeInfo.getDeclarationSourceEnd();
 		type.bodyEnd = type.declarationSourceEnd;
-		
+
 		// convert 1.5 specific constructs only if compliance is 1.5 or above
 		if (this.has1_5Compliance) {
 			/* convert annotations */
 			type.annotations = convertAnnotations(typeHandle);
-	
-			/* convert type parameters */
-			char[][] typeParameterNames = typeInfo.getTypeParameterNames();
-			if (typeParameterNames.length > 0) {
-				int parameterCount = typeParameterNames.length;
-				char[][][] typeParameterBounds = typeInfo.getTypeParameterBounds();
-				type.typeParameters = new TypeParameter[parameterCount];
-				for (int i = 0; i < parameterCount; i++) {
-					type.typeParameters[i] = createTypeParameter(typeParameterNames[i], typeParameterBounds[i], start, end);
-				}
+		}
+		/* https://bugs.eclipse.org/bugs/show_bug.cgi?id=324850, even in a 1.4 project, we
+		   must internalize type variables and observe any parameterization of super class
+		   and/or super interfaces in order to be able to detect overriding in the presence
+		   of generics.
+		 */
+		char[][] typeParameterNames = typeInfo.getTypeParameterNames();
+		if (typeParameterNames.length > 0) {
+			int parameterCount = typeParameterNames.length;
+			char[][][] typeParameterBounds = typeInfo.getTypeParameterBounds();
+			type.typeParameters = new TypeParameter[parameterCount];
+			for (int i = 0; i < parameterCount; i++) {
+				type.typeParameters[i] = createTypeParameter(typeParameterNames[i], typeParameterBounds[i], start, end);
 			}
 		}
-		
+
 		/* set superclass and superinterfaces */
 		if (typeInfo.getSuperclassName() != null) {
-			type.superclass = createTypeReference(typeInfo.getSuperclassName(), start, end);
+			type.superclass = createTypeReference(typeInfo.getSuperclassName(), start, end, true /* include generics */);
 			type.superclass.bits |= ASTNode.IsSuperType;
 		}
 		char[][] interfaceNames = typeInfo.getInterfaceNames();
@@ -497,7 +491,7 @@ public class SourceTypeConverter {
 		if (interfaceCount > 0) {
 			type.superInterfaces = new TypeReference[interfaceCount];
 			for (int i = 0; i < interfaceCount; i++) {
-				type.superInterfaces[i] = createTypeReference(interfaceNames[i], start, end);
+				type.superInterfaces[i] = createTypeReference(interfaceNames[i], start, end, true /* include generics */);
 				type.superInterfaces[i].bits |= ASTNode.IsSuperType;
 			}
 		}
@@ -508,6 +502,7 @@ public class SourceTypeConverter {
 			type.memberTypes = new TypeDeclaration[sourceMemberTypeCount];
 			for (int i = 0; i < sourceMemberTypeCount; i++) {
 				type.memberTypes[i] = convert(sourceMemberTypes[i], compilationResult);
+				type.memberTypes[i].enclosingType = type;
 			}
 		}
 
@@ -540,10 +535,10 @@ public class SourceTypeConverter {
 		boolean needConstructor = (this.flags & CONSTRUCTOR) != 0;
 		boolean needMethod = (this.flags & METHOD) != 0;
 		if (needConstructor || needMethod) {
-			
+
 			SourceMethod[] sourceMethods = typeInfo.getMethodHandles();
 			int sourceMethodCount = sourceMethods.length;
-	
+
 			/* source type has a constructor ?           */
 			/* by default, we assume that one is needed. */
 			int extraConstructor = 0;
@@ -580,7 +575,7 @@ public class SourceTypeConverter {
 				}
 				if ((isConstructor && needConstructor) || (!isConstructor && needMethod)) {
 					AbstractMethodDeclaration method = convert(sourceMethod, methodInfo, compilationResult);
-					if (isAbstract || method.isAbstract()) { // fix-up flag 
+					if (isAbstract || method.isAbstract()) { // fix-up flag
 						method.modifiers |= ExtraCompilerModifiers.AccSemicolonBody;
 					}
 					type.methods[extraConstructor + index++] = method;
@@ -588,552 +583,49 @@ public class SourceTypeConverter {
 			}
 			if (hasAbstractMethods) type.bits |= ASTNode.HasAbstractMethods;
 		}
-		
+
 		return type;
 	}
-	
-	private Annotation[] convertAnnotations(JavaElement element) {
-		if (this.annotationPositions == null) return null;
-		char[] cuSource = getSource();
-		long[] positions = (long[]) this.annotationPositions.get(element);
-		if (positions == null) return null;
-		int length = positions.length;
-		Annotation[] annotations = new Annotation[length];
-		int recordedAnnotations = 0;
-		for (int i = 0; i < length; i++) {
-			long position = positions[i];
-			int start = (int) (position >>> 32);
-			int end = (int) position;
-			char[] annotationSource = CharOperation.subarray(cuSource, start, end+1);
-			if (annotationSource != null) {
-    			Expression expression = parseMemberValue(annotationSource);
-    			/*
-    			 * expression can be null or not an annotation if the source has changed between
-    			 * the moment where the annotation source positions have been retrieved and the moment were
-    			 * this parsing occured.
-    			 * See https://bugs.eclipse.org/bugs/show_bug.cgi?id=90916
-    			 */
-    			if (expression instanceof Annotation) {
-    				annotations[recordedAnnotations++] = (Annotation) expression;
-    			}
+
+	private Annotation[] convertAnnotations(IAnnotatable element) throws JavaModelException {
+		IAnnotation[] annotations = element.getAnnotations();
+		int length = annotations.length;
+		Annotation[] astAnnotations = new Annotation[length];
+		if (length > 0) {
+			char[] cuSource = getSource();
+			int recordedAnnotations = 0;
+			for (int i = 0; i < length; i++) {
+				ISourceRange positions = annotations[i].getSourceRange();
+				int start = positions.getOffset();
+				int end = start + positions.getLength();
+				char[] annotationSource = CharOperation.subarray(cuSource, start, end);
+				if (annotationSource != null) {
+	    			Expression expression = parseMemberValue(annotationSource);
+	    			/*
+	    			 * expression can be null or not an annotation if the source has changed between
+	    			 * the moment where the annotation source positions have been retrieved and the moment were
+	    			 * this parsing occurred.
+	    			 * See https://bugs.eclipse.org/bugs/show_bug.cgi?id=90916
+	    			 */
+	    			if (expression instanceof Annotation) {
+	    				astAnnotations[recordedAnnotations++] = (Annotation) expression;
+	    			}
+				}
+			}
+			if (length != recordedAnnotations) {
+				// resize to remove null annotations
+				System.arraycopy(astAnnotations, 0, (astAnnotations = new Annotation[recordedAnnotations]), 0, recordedAnnotations);
 			}
 		}
-		if (length != recordedAnnotations) {
-			// resize to remove null annotations
-			System.arraycopy(annotations, 0, (annotations = new Annotation[recordedAnnotations]), 0, recordedAnnotations);
-		}
-		return annotations;
+		return astAnnotations;
 	}
 
-	/*
-	 * Build an import reference from an import name, e.g. java.lang.*
-	 */
-	private ImportReference createImportReference(
-		String[] importName,
-		int start,
-		int end, 
-		boolean onDemand,
-		int modifiers) {
-	
-		int length = importName.length;
-		long[] positions = new long[length];
-		long position = ((long) start << 32) + end;
-		char[][] qImportName = new char[length][];
-		for (int i = 0; i < length; i++) {
-			qImportName[i] = importName[i].toCharArray();
-			positions[i] = position; // dummy positions
-		}
-		return new ImportReference(
-			qImportName,
-			positions,
-			onDemand,
-			modifiers);
-	}
-
-	private TypeParameter createTypeParameter(char[] typeParameterName, char[][] typeParameterBounds, int start, int end) {
-
-		TypeParameter parameter = new TypeParameter();
-		parameter.name = typeParameterName;
-		parameter.sourceStart = start;
-		parameter.sourceEnd = end;
-		if (typeParameterBounds != null) {
-			int length = typeParameterBounds.length;
-			if (length > 0) {
-				parameter.type = createTypeReference(typeParameterBounds[0], start, end);
-				if (length > 1) {
-					parameter.bounds = new TypeReference[length-1];
-					for (int i = 1; i < length; i++) {
-						TypeReference bound = createTypeReference(typeParameterBounds[i], start, end);
-						bound.bits |= ASTNode.IsSuperType;
-						parameter.bounds[i-1] = bound;
-					}
-				}
-			}
-		}
-		return parameter;
-	}
-	
-	/*
-	 * Build a type reference from a readable name, e.g. java.lang.Object[][]
-	 */
-	private TypeReference createTypeReference(
-		char[] typeName,
-		int start,
-		int end) {
-
-		int length = typeName.length;
-		this.namePos = 0;
-		return decodeType(typeName, length, start, end);
-	}
-	
-	/*
-	 * Build a type reference from a type signature, e.g. Ljava.lang.Object;
-	 */
-	private TypeReference createTypeReference(
-			String typeSignature,
-			int start,
-			int end) {
-		
-		int length = typeSignature.length();
-		this.namePos = 0;
-		return decodeType(typeSignature, length, start, end);
-	}
-	
-	private TypeReference decodeType(String typeSignature, int length, int start, int end) {
-		int identCount = 1;
-		int dim = 0;
-		int nameFragmentStart = this.namePos, nameFragmentEnd = -1;
-		boolean nameStarted = false;
-		ArrayList fragments = null;
-		typeLoop: while (this.namePos < length) {
-			char currentChar = typeSignature.charAt(this.namePos);
-			switch (currentChar) {
-				case Signature.C_BOOLEAN :
-					if (!nameStarted) {
-						this.namePos++;
-						if (dim == 0)
-							return new SingleTypeReference(TypeBinding.BOOLEAN.simpleName, ((long) start << 32) + end);
-						else
-							return new ArrayTypeReference(TypeBinding.BOOLEAN.simpleName, dim, ((long) start << 32) + end);
-					} 
-					break;
-				case Signature.C_BYTE :
-					if (!nameStarted) {
-						this.namePos++;
-						if (dim == 0)
-							return new SingleTypeReference(TypeBinding.BYTE.simpleName, ((long) start << 32) + end);
-						else
-							return new ArrayTypeReference(TypeBinding.BYTE.simpleName, dim, ((long) start << 32) + end);				
-					}
-					break;
-				case Signature.C_CHAR :
-					if (!nameStarted) {
-						this.namePos++;
-						if (dim == 0)
-							return new SingleTypeReference(TypeBinding.CHAR.simpleName, ((long) start << 32) + end);
-						else
-							return new ArrayTypeReference(TypeBinding.CHAR.simpleName, dim, ((long) start << 32) + end);
-					}
-					break;
-				case Signature.C_DOUBLE :
-					if (!nameStarted) {
-						this.namePos++;
-						if (dim == 0)
-							return new SingleTypeReference(TypeBinding.DOUBLE.simpleName, ((long) start << 32) + end);
-						else
-							return new ArrayTypeReference(TypeBinding.DOUBLE.simpleName, dim, ((long) start << 32) + end);				
-					}
-					break;
-				case Signature.C_FLOAT :
-					if (!nameStarted) {
-						this.namePos++;
-						if (dim == 0)
-							return new SingleTypeReference(TypeBinding.FLOAT.simpleName, ((long) start << 32) + end);
-						else
-							return new ArrayTypeReference(TypeBinding.FLOAT.simpleName, dim, ((long) start << 32) + end);				
-					}
-					break;
-				case Signature.C_INT :
-					if (!nameStarted) {
-						this.namePos++;
-						if (dim == 0)
-							return new SingleTypeReference(TypeBinding.INT.simpleName, ((long) start << 32) + end);
-						else
-							return new ArrayTypeReference(TypeBinding.INT.simpleName, dim, ((long) start << 32) + end);				
-					}
-					break;
-				case Signature.C_LONG :
-					if (!nameStarted) {
-						this.namePos++;
-						if (dim == 0)
-							return new SingleTypeReference(TypeBinding.LONG.simpleName, ((long) start << 32) + end);
-						else
-							return new ArrayTypeReference(TypeBinding.LONG.simpleName, dim, ((long) start << 32) + end);				
-					}
-					break;
-				case Signature.C_SHORT :
-					if (!nameStarted) {
-						this.namePos++;
-						if (dim == 0)
-							return new SingleTypeReference(TypeBinding.SHORT.simpleName, ((long) start << 32) + end);
-						else
-							return new ArrayTypeReference(TypeBinding.SHORT.simpleName, dim, ((long) start << 32) + end);				
-					}
-					break;
-				case Signature.C_VOID :
-					if (!nameStarted) {
-						this.namePos++;
-						new SingleTypeReference(TypeBinding.VOID.simpleName, ((long) start << 32) + end);
-					}
-					break;
-				case Signature.C_RESOLVED :
-				case Signature.C_UNRESOLVED :
-					if (!nameStarted) {
-						nameFragmentStart = this.namePos+1;
-						nameStarted = true;
-					}
-					break;
-				case Signature.C_STAR:
-					this.namePos++;
-					Wildcard result = new Wildcard(Wildcard.UNBOUND);
-					result.sourceStart = start;
-					result.sourceEnd = end;
-					return result;
-				case Signature.C_EXTENDS:
-					this.namePos++;
-					result = new Wildcard(Wildcard.EXTENDS);
-					result.bound = decodeType(typeSignature, length, start, end);
-					result.sourceStart = start;
-					result.sourceEnd = end;
-					return result;
-				case Signature.C_SUPER:
-					this.namePos++;
-					result = new Wildcard(Wildcard.SUPER);
-					result.bound = decodeType(typeSignature, length, start, end);
-					result.sourceStart = start;
-					result.sourceEnd = end;
-					return result;
-				case Signature.C_ARRAY :
-					dim++;
-					break;
-				case Signature.C_GENERIC_END :
-				case Signature.C_SEMICOLON :
-					nameFragmentEnd = this.namePos-1;
-					this.namePos++;
-					break typeLoop;
-				case Signature.C_DOT :
-				case Signature.C_DOLLAR:
-					if (!nameStarted) {
-						nameFragmentStart = this.namePos+1;
-						nameStarted = true;
-					} else if (this.namePos > nameFragmentStart) // handle name starting with a $ (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=91709)
-						identCount ++;
-					break;
-				case Signature.C_GENERIC_START :
-					nameFragmentEnd = this.namePos-1;
-					// convert 1.5 specific constructs only if compliance is 1.5 or above
-					if (!this.has1_5Compliance) 
-						break typeLoop;
-					if (fragments == null) fragments = new ArrayList(2);
-					addIdentifiers(typeSignature, nameFragmentStart, nameFragmentEnd + 1, identCount, fragments);
-					this.namePos++; // skip '<'
-					TypeReference[] arguments = decodeTypeArguments(typeSignature, length, start, end); // positionned on '>' at end
-					fragments.add(arguments);
-					identCount = 1;
-					nameStarted = false;
-					// next increment will skip '>'
-					break;
-			}
-			this.namePos++;
-		}
-		if (fragments == null) { // non parameterized 
-			/* rebuild identifiers and dimensions */
-			if (identCount == 1) { // simple type reference
-				if (dim == 0) {
-					char[] nameFragment = new char[nameFragmentEnd - nameFragmentStart + 1];
-					typeSignature.getChars(nameFragmentStart, nameFragmentEnd +1, nameFragment, 0);
-					return new SingleTypeReference(nameFragment, ((long) start << 32) + end);
-				} else {
-					char[] nameFragment = new char[nameFragmentEnd - nameFragmentStart + 1];
-					typeSignature.getChars(nameFragmentStart, nameFragmentEnd +1, nameFragment, 0);
-					return new ArrayTypeReference(nameFragment, dim, ((long) start << 32) + end);
-				}
-			} else { // qualified type reference
-				long[] positions = new long[identCount];
-				long pos = ((long) start << 32) + end;
-				for (int i = 0; i < identCount; i++) {
-					positions[i] = pos;
-				}
-				char[][] identifiers = extractIdentifiers(typeSignature, nameFragmentStart, nameFragmentEnd, identCount);
-				if (dim == 0) {
-					return new QualifiedTypeReference(identifiers, positions);
-				} else {
-					return new ArrayQualifiedTypeReference(identifiers, dim, positions);
-				}
-			}
-		} else { // parameterized
-			// rebuild type reference from available fragments: char[][], arguments, char[][], arguments...
-			// check trailing qualified name
-			if (nameStarted) {
-				addIdentifiers(typeSignature, nameFragmentStart, nameFragmentEnd + 1, identCount, fragments);
-			}
-			int fragmentLength = fragments.size();
-			if (fragmentLength == 2) {
-				Object firstFragment = fragments.get(0);
-				if (firstFragment instanceof char[]) {
-					// parameterized single type
-					return new ParameterizedSingleTypeReference((char[]) firstFragment, (TypeReference[]) fragments.get(1), dim, ((long) start << 32) + end);
-				}
-			}
-			// parameterized qualified type
-			identCount = 0;
-			for (int i = 0; i < fragmentLength; i ++) {
-				Object element = fragments.get(i);
-				if (element instanceof char[][]) {
-					identCount += ((char[][])element).length;
-				} else if (element instanceof char[])
-					identCount++;
-			}
-			char[][] tokens = new char[identCount][];
-			TypeReference[][] arguments = new TypeReference[identCount][];
-			int index = 0;
-			for (int i = 0; i < fragmentLength; i ++) {
-				Object element = fragments.get(i);
-				if (element instanceof char[][]) {
-					char[][] fragmentTokens = (char[][]) element;
-					int fragmentTokenLength = fragmentTokens.length;
-					System.arraycopy(fragmentTokens, 0, tokens, index, fragmentTokenLength);
-					index += fragmentTokenLength;
-				} else if (element instanceof char[]) {
-					tokens[index++] = (char[]) element;
-				} else {
-					arguments[index-1] = (TypeReference[]) element;
-				}
-			}
-			long[] positions = new long[identCount];
-			long pos = ((long) start << 32) + end;
-			for (int i = 0; i < identCount; i++) {
-				positions[i] = pos;
-			}
-			return new ParameterizedQualifiedTypeReference(tokens, arguments, dim, positions);
-		}
-	}
-	
-	private TypeReference decodeType(char[] typeName, int length, int start, int end) {
-		int identCount = 1;
-		int dim = 0;
-		int nameFragmentStart = this.namePos, nameFragmentEnd = -1;
-		ArrayList fragments = null;
-		typeLoop: while (this.namePos < length) {
-			char currentChar = typeName[this.namePos];
-			switch (currentChar) {
-				case '?' :
-					this.namePos++; // skip '?'
-					while (typeName[this.namePos] == ' ') this.namePos++;
-					switch(typeName[this.namePos]) {
-						case 's' :
-							checkSuper: {
-								int max = TypeConstants.WILDCARD_SUPER.length-1;
-								for (int ahead = 1; ahead < max; ahead++) {
-									if (typeName[this.namePos+ahead] != TypeConstants.WILDCARD_SUPER[ahead+1]) {
-										break checkSuper;
-									}
-								}
-								this.namePos += max;
-								Wildcard result = new Wildcard(Wildcard.SUPER);
-								result.bound = decodeType(typeName, length, start, end);
-								result.sourceStart = start;
-								result.sourceEnd = end;
-								return result;
-							}
-							break;
-						case 'e' :
-							checkExtends: {
-								int max = TypeConstants.WILDCARD_EXTENDS.length-1;
-								for (int ahead = 1; ahead < max; ahead++) {
-									if (typeName[this.namePos+ahead] != TypeConstants.WILDCARD_EXTENDS[ahead+1]) {
-										break checkExtends;
-									}
-								}
-								this.namePos += max;
-								Wildcard result = new Wildcard(Wildcard.EXTENDS);
-								result.bound = decodeType(typeName, length, start, end);
-								result.sourceStart = start;
-								result.sourceEnd = end;
-								return result;
-							}
-							break;
-					}
-					Wildcard result = new Wildcard(Wildcard.UNBOUND);
-					result.sourceStart = start;
-					result.sourceEnd = end;
-					return result;
-				case '[' :
-					if (dim == 0) nameFragmentEnd = this.namePos-1;
-					dim++;
-					break;
-				case ']' :
-					break;
-				case '>' :
-				case ',' :
-					break typeLoop;
-				case '.' :
-					if (nameFragmentStart < 0) nameFragmentStart = this.namePos+1; // member type name
-					identCount ++;
-					break;
-				case '<' :
-					// convert 1.5 specific constructs only if compliance is 1.5 or above
-					if (!this.has1_5Compliance) 
-						break typeLoop;
-					if (fragments == null) fragments = new ArrayList(2);
-					nameFragmentEnd = this.namePos-1;
-					char[][] identifiers = CharOperation.splitOn('.', typeName, nameFragmentStart, this.namePos);
-					fragments.add(identifiers);
-					this.namePos++; // skip '<'
-					TypeReference[] arguments = decodeTypeArguments(typeName, length, start, end); // positionned on '>' at end
-					fragments.add(arguments);
-					identCount = 0;
-					nameFragmentStart = -1;
-					nameFragmentEnd = -1;
-					// next increment will skip '>'
-					break;
-			}
-			this.namePos++;
-		}
-		if (nameFragmentEnd < 0) nameFragmentEnd = this.namePos-1;
-		if (fragments == null) { // non parameterized 
-			/* rebuild identifiers and dimensions */
-			if (identCount == 1) { // simple type reference
-				if (dim == 0) {
-					char[] nameFragment;
-					if (nameFragmentStart != 0 || nameFragmentEnd >= 0) {
-						int nameFragmentLength = nameFragmentEnd - nameFragmentStart + 1;
-						System.arraycopy(typeName, nameFragmentStart, nameFragment = new char[nameFragmentLength], 0, nameFragmentLength);						
-					} else {
-						nameFragment = typeName;
-					}
-					return new SingleTypeReference(nameFragment, ((long) start << 32) + end);
-				} else {
-					int nameFragmentLength = nameFragmentEnd - nameFragmentStart + 1;
-					char[] nameFragment = new char[nameFragmentLength];
-					System.arraycopy(typeName, nameFragmentStart, nameFragment, 0, nameFragmentLength);
-					return new ArrayTypeReference(nameFragment, dim, ((long) start << 32) + end);
-				}
-			} else { // qualified type reference
-				long[] positions = new long[identCount];
-				long pos = ((long) start << 32) + end;
-				for (int i = 0; i < identCount; i++) {
-					positions[i] = pos;
-				}
-				char[][] identifiers = CharOperation.splitOn('.', typeName, nameFragmentStart, nameFragmentEnd+1);
-				if (dim == 0) {
-					return new QualifiedTypeReference(identifiers, positions);
-				} else {
-					return new ArrayQualifiedTypeReference(identifiers, dim, positions);
-				}
-			}
-		} else { // parameterized
-			// rebuild type reference from available fragments: char[][], arguments, char[][], arguments...
-			// check trailing qualified name
-			if (nameFragmentStart > 0 && nameFragmentStart < length) {
-				char[][] identifiers = CharOperation.splitOn('.', typeName, nameFragmentStart, nameFragmentEnd+1);
-				fragments.add(identifiers);
-			}
-			int fragmentLength = fragments.size();
-			if (fragmentLength == 2) {
-				char[][] firstFragment = (char[][]) fragments.get(0);
-				if (firstFragment.length == 1) {
-					// parameterized single type
-					return new ParameterizedSingleTypeReference(firstFragment[0], (TypeReference[]) fragments.get(1), dim, ((long) start << 32) + end);
-				}
-			}
-			// parameterized qualified type
-			identCount = 0;
-			for (int i = 0; i < fragmentLength; i ++) {
-				Object element = fragments.get(i);
-				if (element instanceof char[][]) {
-					identCount += ((char[][])element).length;
-				}
-			}
-			char[][] tokens = new char[identCount][];
-			TypeReference[][] arguments = new TypeReference[identCount][];
-			int index = 0;
-			for (int i = 0; i < fragmentLength; i ++) {
-				Object element = fragments.get(i);
-				if (element instanceof char[][]) {
-					char[][] fragmentTokens = (char[][]) element;
-					int fragmentTokenLength = fragmentTokens.length;
-					System.arraycopy(fragmentTokens, 0, tokens, index, fragmentTokenLength);
-					index += fragmentTokenLength;
-				} else {
-					arguments[index-1] = (TypeReference[]) element;
-				}
-			}
-			long[] positions = new long[identCount];
-			long pos = ((long) start << 32) + end;
-			for (int i = 0; i < identCount; i++) {
-				positions[i] = pos;
-			}
-			return new ParameterizedQualifiedTypeReference(tokens, arguments, dim, positions);
-		}
-	}
-	
-	private TypeReference[] decodeTypeArguments(char[] typeName, int length, int start, int end) {
-		ArrayList argumentList = new ArrayList(1);
-		int count = 0;
-		argumentsLoop: while (this.namePos < length) {
-			TypeReference argument = decodeType(typeName, length, start, end);
-			count++;
-			argumentList.add(argument);
-			if (this.namePos >= length) break argumentsLoop;
-			if (typeName[this.namePos] == '>') {
-				break argumentsLoop;
-			}
-			this.namePos++; // skip ','
-		}
-		TypeReference[] typeArguments = new TypeReference[count];
-		argumentList.toArray(typeArguments);
-		return typeArguments;
-	}
-	
-	private TypeReference[] decodeTypeArguments(String typeSignature, int length, int start, int end) {
-		ArrayList argumentList = new ArrayList(1);
-		int count = 0;
-		argumentsLoop: while (this.namePos < length) {
-			TypeReference argument = decodeType(typeSignature, length, start, end);
-			count++;
-			argumentList.add(argument);
-			if (this.namePos >= length) break argumentsLoop;
-			if (typeSignature.charAt(this.namePos) == '>') {
-				break argumentsLoop;
-			}
-		}
-		TypeReference[] typeArguments = new TypeReference[count];
-		argumentList.toArray(typeArguments);
-		return typeArguments;
-	}
-	
-	private char[][] extractIdentifiers(String typeSignature, int start, int endInclusive, int identCount) {
-		char[][] result = new char[identCount][];
-		int charIndex = start;
-		int i = 0;
-		while (charIndex < endInclusive) {
-			if (typeSignature.charAt(charIndex) == '.') {
-				typeSignature.getChars(start, charIndex, result[i++] = new char[charIndex - start], 0); 
-				start = ++charIndex;
-			} else
-				charIndex++;
-		}
-		typeSignature.getChars(start, charIndex + 1, result[i++] = new char[charIndex - start + 1], 0); 
-		return result;
-	}
-	
 	private char[] getSource() {
 		if (this.source == null)
 			this.source = this.cu.getContents();
 		return this.source;
 	}
-	
+
 	private Expression parseMemberValue(char[] memberValue) {
 		// memberValue must not be null
 		if (this.parser == null) {

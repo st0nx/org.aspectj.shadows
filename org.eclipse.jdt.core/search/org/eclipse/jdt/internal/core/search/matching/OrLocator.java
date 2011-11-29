@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,15 +15,18 @@ import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.search.SearchMatch;
 import org.eclipse.jdt.core.search.SearchPattern;
 import org.eclipse.jdt.internal.compiler.ast.ASTNode;
+import org.eclipse.jdt.internal.compiler.ast.Annotation;
 import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.FieldDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.ImportReference;
 import org.eclipse.jdt.internal.compiler.ast.LocalDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.MemberValuePair;
 import org.eclipse.jdt.internal.compiler.ast.MessageSend;
 import org.eclipse.jdt.internal.compiler.ast.MethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.Reference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
+import org.eclipse.jdt.internal.compiler.ast.TypeParameter;
 import org.eclipse.jdt.internal.compiler.ast.TypeReference;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
@@ -46,6 +49,17 @@ public OrLocator(OrPattern pattern) {
 public void initializePolymorphicSearch(MatchLocator locator) {
 	for (int i = 0, length = this.patternLocators.length; i < length; i++)
 		this.patternLocators[i].initializePolymorphicSearch(locator);
+}
+public int match(Annotation node, MatchingNodeSet nodeSet) {
+	int level = IMPOSSIBLE_MATCH;
+	for (int i = 0, length = this.patternLocators.length; i < length; i++) {
+		int newLevel = this.patternLocators[i].match(node, nodeSet);
+		if (newLevel > level) {
+			if (newLevel == ACCURATE_MATCH) return ACCURATE_MATCH;
+			level = newLevel;
+		}
+	}
+	return level;
 }
 public int match(ASTNode node, MatchingNodeSet nodeSet) {
 	int level = IMPOSSIBLE_MATCH;
@@ -113,6 +127,17 @@ public int match(MethodDeclaration node, MatchingNodeSet nodeSet) {
 	}
 	return level;
 }
+public int match(MemberValuePair node, MatchingNodeSet nodeSet) {
+	int level = IMPOSSIBLE_MATCH;
+	for (int i = 0, length = this.patternLocators.length; i < length; i++) {
+		int newLevel = this.patternLocators[i].match(node, nodeSet);
+		if (newLevel > level) {
+			if (newLevel == ACCURATE_MATCH) return ACCURATE_MATCH;
+			level = newLevel;
+		}
+	}
+	return level;
+}
 public int match(MessageSend node, MatchingNodeSet nodeSet) {
 	int level = IMPOSSIBLE_MATCH;
 	for (int i = 0, length = this.patternLocators.length; i < length; i++) {
@@ -146,6 +171,17 @@ public int match(TypeDeclaration node, MatchingNodeSet nodeSet) {
 	}
 	return level;
 }
+public int match(TypeParameter node, MatchingNodeSet nodeSet) {
+	int level = IMPOSSIBLE_MATCH;
+	for (int i = 0, length = this.patternLocators.length; i < length; i++) {
+		int newLevel = this.patternLocators[i].match(node, nodeSet);
+		if (newLevel > level) {
+			if (newLevel == ACCURATE_MATCH) return ACCURATE_MATCH;
+			level = newLevel;
+		}
+	}
+	return level;
+}
 public int match(TypeReference node, MatchingNodeSet nodeSet) {
 	int level = IMPOSSIBLE_MATCH;
 	for (int i = 0, length = this.patternLocators.length; i < length; i++) {
@@ -164,7 +200,7 @@ protected int matchContainer() {
 	return result;
 }
 protected void matchLevelAndReportImportRef(ImportReference importRef, Binding binding, MatchLocator locator) throws CoreException {
-	
+
 	// for static import, binding can be a field binding or a member type binding
 	// verify that in this case binding is static and use declaring class for fields
 	Binding refBinding = binding;
@@ -182,7 +218,7 @@ protected void matchLevelAndReportImportRef(ImportReference importRef, Binding b
 			if (!memberBinding.isStatic()) return;
 		}
 	}
-	
+
 	// Look for closest pattern
 	PatternLocator closestPattern = null;
 	int level = IMPOSSIBLE_MATCH;
@@ -213,7 +249,7 @@ protected void matchReportImportRef(ImportReference importRef, Binding binding, 
 	if (closestPattern != null)
 		closestPattern.matchReportImportRef(importRef, binding, element, accuracy, locator);
 }
-protected void matchReportReference(ASTNode reference, IJavaElement element, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
+protected void matchReportReference(ASTNode reference, IJavaElement element, IJavaElement localElement, IJavaElement[] otherElements, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
 	PatternLocator closestPattern = null;
 	int level = IMPOSSIBLE_MATCH;
 	for (int i = 0, length = this.patternLocators.length; i < length; i++) {
@@ -226,7 +262,10 @@ protected void matchReportReference(ASTNode reference, IJavaElement element, Bin
 		}
 	}
 	if (closestPattern != null)
-		closestPattern.matchReportReference(reference, element, elementBinding, accuracy, locator);
+		closestPattern.matchReportReference(reference, element, localElement, otherElements, elementBinding, accuracy, locator);
+}
+protected void matchReportReference(ASTNode reference, IJavaElement element, Binding elementBinding, int accuracy, MatchLocator locator) throws CoreException {
+	matchReportReference(reference, element, null, null, elementBinding, accuracy, locator);
 }
 public SearchMatch newDeclarationMatch(ASTNode reference, IJavaElement element, Binding elementBinding, int accuracy, int length, MatchLocator locator) {
 	PatternLocator closestPattern = null;
@@ -268,4 +307,13 @@ public int resolveLevel(Binding binding) {
 	}
 	return level;
 }
+/* (non-Javadoc)
+ * @see org.eclipse.jdt.internal.core.search.matching.PatternLocator#setFlavors(int)
+ */
+void setFlavors(int flavors) {
+	for (int i = 0, length = this.patternLocators.length; i < length; i++) {
+		this.patternLocators[i].setFlavors(flavors);
+	}
+}
+
 }

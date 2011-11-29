@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -44,8 +44,9 @@ private static final int BUFFER_WRITE_SIZE = DEFAULT_BUFFER_SIZE;
 private byte[] streamBuffer;
 private int bufferIndex, bufferEnd; // used when reading from the file into the streamBuffer
 private int streamEnd; // used when writing data from the streamBuffer to the file
+char separator = Index.DEFAULT_SEPARATOR;
 
-public static final String SIGNATURE= "INDEX VERSION 1.121"; //$NON-NLS-1$
+public static final String SIGNATURE= "INDEX VERSION 1.126"; //$NON-NLS-1$
 private static final char[] SIGNATURE_CHARS = SIGNATURE.toCharArray();
 public static boolean DEBUG = false;
 
@@ -77,7 +78,7 @@ int[] asArray() {
 	int[] result = new int[this.size];
 	System.arraycopy(this.elements, 0, result, 0, this.size);
 	return result;
-}	
+}
 }
 
 
@@ -131,20 +132,20 @@ SimpleSet addDocumentNames(String substring, MemoryIndex memoryIndex) throws IOE
 	}
 	return results;
 }
-private HashtableOfObject addQueryResult(HashtableOfObject results, char[] word, HashtableOfObject wordsToDocNumbers, MemoryIndex memoryIndex) throws IOException {
+private HashtableOfObject addQueryResult(HashtableOfObject results, char[] word, Object docs, MemoryIndex memoryIndex, boolean prevResults) throws IOException {
 	// must skip over documents which have been added/changed/deleted in the memory index
 	if (results == null)
 		results = new HashtableOfObject(13);
-	EntryResult result = (EntryResult) results.get(word);
+	EntryResult result = prevResults ? (EntryResult) results.get(word) : null;
 	if (memoryIndex == null) {
 		if (result == null)
-			results.put(word, new EntryResult(word, wordsToDocNumbers));
+			results.putUnsafely(word, new EntryResult(word, docs));
 		else
-			result.addDocumentTable(wordsToDocNumbers);
+			result.addDocumentTable(docs);
 	} else {
 		SimpleLookupTable docsToRefs = memoryIndex.docsToReferences;
 		if (result == null) result = new EntryResult(word, null);
-		int[] docNumbers = readDocumentNumbers(wordsToDocNumbers.get(word));
+		int[] docNumbers = readDocumentNumbers(docs);
 		for (int i = 0, l = docNumbers.length; i < l; i++) {
 			String docName = readDocumentName(docNumbers[i]);
 			if (!docsToRefs.containsKey(docName))
@@ -160,17 +161,23 @@ HashtableOfObject addQueryResults(char[][] categories, char[] key, int matchRule
 	if (this.categoryOffsets == null) return null; // file is empty
 
 	HashtableOfObject results = null; // initialized if needed
+	
+	// No need to check the results table for duplicacy while processing the 
+	// first category table or if the first category tables doesn't have any results.
+	boolean prevResults = false;
 	if (key == null) {
 		for (int i = 0, l = categories.length; i < l; i++) {
 			HashtableOfObject wordsToDocNumbers = readCategoryTable(categories[i], true); // cache if key is null since its a definite match
 			if (wordsToDocNumbers != null) {
 				char[][] words = wordsToDocNumbers.keyTable;
+				Object[] values = wordsToDocNumbers.valueTable;
 				if (results == null)
 					results = new HashtableOfObject(wordsToDocNumbers.elementSize);
 				for (int j = 0, m = words.length; j < m; j++)
 					if (words[j] != null)
-						results = addQueryResult(results, words[j], wordsToDocNumbers, memoryIndex);
+						results = addQueryResult(results, words[j], values[j], memoryIndex, prevResults);
 			}
+			prevResults = results != null;
 		}
 		if (results != null && this.cachedChunks == null)
 			cacheDocumentNames();
@@ -179,8 +186,10 @@ HashtableOfObject addQueryResults(char[][] categories, char[] key, int matchRule
 			case SearchPattern.R_EXACT_MATCH | SearchPattern.R_CASE_SENSITIVE:
 				for (int i = 0, l = categories.length; i < l; i++) {
 					HashtableOfObject wordsToDocNumbers = readCategoryTable(categories[i], false);
-					if (wordsToDocNumbers != null && wordsToDocNumbers.containsKey(key))
-						results = addQueryResult(results, key, wordsToDocNumbers, memoryIndex);
+					Object value;
+					if (wordsToDocNumbers != null && (value = wordsToDocNumbers.get(key)) != null)
+						results = addQueryResult(results, key, value, memoryIndex, prevResults);
+					prevResults = results != null;
 				}
 				break;
 			case SearchPattern.R_PREFIX_MATCH | SearchPattern.R_CASE_SENSITIVE:
@@ -188,12 +197,14 @@ HashtableOfObject addQueryResults(char[][] categories, char[] key, int matchRule
 					HashtableOfObject wordsToDocNumbers = readCategoryTable(categories[i], false);
 					if (wordsToDocNumbers != null) {
 						char[][] words = wordsToDocNumbers.keyTable;
+						Object[] values = wordsToDocNumbers.valueTable;
 						for (int j = 0, m = words.length; j < m; j++) {
 							char[] word = words[j];
 							if (word != null && key[0] == word[0] && CharOperation.prefixEquals(key, word))
-								results = addQueryResult(results, word, wordsToDocNumbers, memoryIndex);
+								results = addQueryResult(results, word, values[j], memoryIndex, prevResults);
 						}
 					}
+					prevResults = results != null;
 				}
 				break;
 			default:
@@ -201,12 +212,14 @@ HashtableOfObject addQueryResults(char[][] categories, char[] key, int matchRule
 					HashtableOfObject wordsToDocNumbers = readCategoryTable(categories[i], false);
 					if (wordsToDocNumbers != null) {
 						char[][] words = wordsToDocNumbers.keyTable;
+						Object[] values = wordsToDocNumbers.valueTable;
 						for (int j = 0, m = words.length; j < m; j++) {
 							char[] word = words[j];
 							if (word != null && Index.isMatch(key, word, matchRule))
-								results = addQueryResult(results, word, wordsToDocNumbers, memoryIndex);
+								results = addQueryResult(results, word, values[j], memoryIndex, prevResults);
 						}
 					}
+					prevResults = results != null;
 				}
 		}
 	}
@@ -266,7 +279,6 @@ private String[] computeDocumentNames(String[] onDiskNames, int[] positions, Sim
 
 	// find out if the memory index has any new or deleted documents, if not then the names & positions are the same
 	int numDeletedDocNames = 0;
-	int numReindexedDocNames = 0;
 	nextPath : for (int i = 0, l = docNames.length; i < l; i++) {
 		String docName = (String) docNames[i];
 		if (docName != null) {
@@ -277,7 +289,6 @@ private String[] computeDocumentNames(String[] onDiskNames, int[] positions, Sim
 						numDeletedDocNames++;
 					} else {
 						positions[j] = RE_INDEXED;
-						numReindexedDocNames++;
 					}
 					continue nextPath;
 				}
@@ -345,7 +356,7 @@ private void copyQueryResults(HashtableOfObject categoryToWords, int newPosition
 				if (word != null) {
 					Object o = wordsToDocs.get(word);
 					if (o == null) {
-						wordsToDocs.put(word, new int[] {newPosition});
+						wordsToDocs.putUnsafely(word, new int[] {newPosition});
 					} else if (o instanceof IntList) {
 						((IntList) o).add(newPosition);
 					} else {
@@ -361,17 +372,24 @@ private void copyQueryResults(HashtableOfObject categoryToWords, int newPosition
 void initialize(boolean reuseExistingFile) throws IOException {
 	if (this.indexFile.exists()) {
 		if (reuseExistingFile) {
-			RandomAccessFile file = new RandomAccessFile(this.indexFile, "r"); //$NON-NLS-1$
+			FileInputStream stream = new FileInputStream(this.indexFile);
+			this.streamBuffer = new byte[BUFFER_READ_SIZE];
+			this.bufferIndex = 0;
+			this.bufferEnd = stream.read(this.streamBuffer, 0, 128);
 			try {
-				String signature = file.readUTF();
-				if (!signature.equals(SIGNATURE))
-					throw new IOException(Messages.exception_wrongFormat); 
-
-				this.headerInfoOffset = file.readInt();
-				if (this.headerInfoOffset > 0) // file is empty if its not set
-					readHeaderInfo(file);
+				char[] signature = readStreamChars(stream);
+				if (!CharOperation.equals(signature, SIGNATURE_CHARS)) {
+					throw new IOException(Messages.exception_wrongFormat);
+				}
+				this.headerInfoOffset = readStreamInt(stream);
+				if (this.headerInfoOffset > 0) { // file is empty if its not set
+					stream.skip(this.headerInfoOffset - this.bufferEnd); // assume that the header info offset is over current buffer end
+					this.bufferIndex = 0;
+					this.bufferEnd = stream.read(this.streamBuffer, 0, this.streamBuffer.length);
+					readHeaderInfo(stream);
+				}
 			} finally {
-				file.close();
+				stream.close();
 			}
 			return;
 		}
@@ -382,12 +400,19 @@ void initialize(boolean reuseExistingFile) throws IOException {
 		}
 	}
 	if (this.indexFile.createNewFile()) {
-		RandomAccessFile file = new RandomAccessFile(this.indexFile, "rw"); //$NON-NLS-1$
+		FileOutputStream stream = new FileOutputStream(this.indexFile, false);
 		try {
-			file.writeUTF(SIGNATURE);
-			file.writeInt(-1); // file is empty
+			this.streamBuffer = new byte[BUFFER_READ_SIZE];
+			this.bufferIndex = 0;
+			writeStreamChars(stream, SIGNATURE_CHARS);
+			writeStreamInt(stream, -1); // file is empty
+			// write the buffer to the stream
+			if (this.bufferIndex > 0) {
+				stream.write(this.streamBuffer, 0, this.bufferIndex);
+				this.bufferIndex = 0;
+			}
 		} finally {
-			file.close();
+			stream.close();
 		}
 	} else {
 		if (DEBUG)
@@ -409,6 +434,7 @@ private void initializeFrom(DiskIndex diskIndex, File newIndexFile) throws IOExc
 	this.categoryOffsets = new HashtableOfIntValues(size);
 	this.categoryEnds = new HashtableOfIntValues(size);
 	this.categoryTables = new HashtableOfObject(size);
+	this.separator = diskIndex.separator;
 }
 private void mergeCategories(DiskIndex onDisk, int[] positions, FileOutputStream stream) throws IOException {
 	// at this point, this.categoryTables contains the names -> wordsToDocs added in copyQueryResults()
@@ -453,7 +479,7 @@ private void mergeCategory(char[] categoryName, DiskIndex onDisk, int[] position
 
 				Object o = wordsToDocs.get(oldWord);
 				if (o == null) {
-					wordsToDocs.put(oldWord, mappedNumbers);
+					wordsToDocs.putUnsafely(oldWord, mappedNumbers);
 				} else {
 					IntList list = null;
 					if (o instanceof IntList) {
@@ -555,9 +581,9 @@ private synchronized String[] readAllDocumentNames() throws IOException {
 		this.bufferIndex = 0;
 		this.bufferEnd = stream.read(this.streamBuffer, 0, this.streamBuffer.length);
 		int lastIndex = this.numberOfChunks - 1;
-		String[] docNames = new String[lastIndex * CHUNK_SIZE + sizeOfLastChunk];
+		String[] docNames = new String[lastIndex * CHUNK_SIZE + this.sizeOfLastChunk];
 		for (int i = 0; i < this.numberOfChunks; i++)
-			readChunk(docNames, stream, i * CHUNK_SIZE, i < lastIndex ? CHUNK_SIZE : sizeOfLastChunk);
+			readChunk(docNames, stream, i * CHUNK_SIZE, i < lastIndex ? CHUNK_SIZE : this.sizeOfLastChunk);
 		return docNames;
 	} finally {
 		stream.close();
@@ -625,9 +651,9 @@ private synchronized HashtableOfObject readCategoryTable(char[] categoryName, bo
 			//		> 1 & < 256 then the size of the array is > 1 & < 256, the document array follows immediately
 			//		256 if the array size >= 256 followed by another int which is the offset to the array (written prior to the table)
 			if (arrayOffset <= 0) {
-				categoryTable.put(word, new int[] {-arrayOffset}); // store 1 element array by negating documentNumber
+				categoryTable.putUnsafely(word, new int[] {-arrayOffset}); // store 1 element array by negating documentNumber
 			} else if (arrayOffset < largeArraySize) {
-				categoryTable.put(word, readStreamDocumentArray(stream, arrayOffset)); // read in-lined array providing size
+				categoryTable.putUnsafely(word, readStreamDocumentArray(stream, arrayOffset)); // read in-lined array providing size
 			} else {
 				arrayOffset = readStreamInt(stream); // read actual offset
 				if (readDocNumbers) {
@@ -637,7 +663,7 @@ private synchronized HashtableOfObject readCategoryTable(char[] categoryName, bo
 						firstOffset = arrayOffset;
 					matchingWords[count++] = word;
 				}
-				categoryTable.put(word, new Integer(arrayOffset)); // offset to array in the file
+				categoryTable.putUnsafely(word, new Integer(arrayOffset)); // offset to array in the file
 			}
 		}
 		this.categoryTables.put(INTERNED_CATEGORY_NAMES.get(categoryName), categoryTable);
@@ -676,8 +702,8 @@ private void readChunk(String[] docNames, FileInputStream stream, int index, int
 	for (int i = 1; i < size; i++) {
 		if (stream != null && this.bufferIndex + 2 >= this.bufferEnd)
 			readStreamBuffer(stream);
-		int start = streamBuffer[this.bufferIndex++] & 0xFF;
-		int end = streamBuffer[this.bufferIndex++] & 0xFF;
+		int start = this.streamBuffer[this.bufferIndex++] & 0xFF;
+		int end = this.streamBuffer[this.bufferIndex++] & 0xFF;
 		String next  = new String(readStreamChars(stream));
 		if (start > 0) {
 			if (end > 0) {
@@ -750,28 +776,28 @@ synchronized int[] readDocumentNumbers(Object arrayOffset) throws IOException {
 		this.streamBuffer = null;
 	}
 }
-private void readHeaderInfo(RandomAccessFile file) throws IOException {
-	file.seek(this.headerInfoOffset);
+private void readHeaderInfo(FileInputStream stream) throws IOException {
 
 	// must be same order as writeHeaderInfo()
-	this.numberOfChunks = file.readInt();
-	this.sizeOfLastChunk = file.readUnsignedByte();
-	this.documentReferenceSize = file.readUnsignedByte();
+	this.numberOfChunks = readStreamInt(stream);
+	this.sizeOfLastChunk = this.streamBuffer[this.bufferIndex++] & 0xFF;
+	this.documentReferenceSize = this.streamBuffer[this.bufferIndex++] & 0xFF;
+	this.separator = (char) (this.streamBuffer[this.bufferIndex++] & 0xFF);
 
 	this.chunkOffsets = new int[this.numberOfChunks];
 	for (int i = 0; i < this.numberOfChunks; i++)
-		this.chunkOffsets[i] = file.readInt();
+		this.chunkOffsets[i] = readStreamInt(stream);
 
-	this.startOfCategoryTables = file.readInt();
+	this.startOfCategoryTables = readStreamInt(stream);
 
-	int size = file.readInt();
+	int size = readStreamInt(stream);
 	this.categoryOffsets = new HashtableOfIntValues(size);
 	this.categoryEnds = new HashtableOfIntValues(size);
 	char[] previousCategory = null;
 	int offset = -1;
 	for (int i = 0; i < size; i++) {
-		char[] categoryName = INTERNED_CATEGORY_NAMES.get(file.readUTF().toCharArray());
-		offset = file.readInt();
+		char[] categoryName = INTERNED_CATEGORY_NAMES.get(readStreamChars(stream));
+		offset = readStreamInt(stream);
 		this.categoryOffsets.put(categoryName, offset); // cache offset to category table
 		if (previousCategory != null) {
 			this.categoryEnds.put(previousCategory, offset); // cache end of the category table
@@ -815,17 +841,17 @@ private void readStreamBuffer(FileInputStream stream) throws IOException {
 	this.bufferIndex = 0;
 }
 /**
- * Reads in a string from the specified data input stream. The 
- * string has been encoded using a modified UTF-8 format. 
+ * Reads in a string from the specified data input stream. The
+ * string has been encoded using a modified UTF-8 format.
  * <p>
  * The first two bytes are read as an unsigned short.
  * This value gives the number of following bytes that are in the encoded string,
- * not the length of the resulting string. The following bytes are then 
- * interpreted as bytes encoding characters in the UTF-8 format 
- * and are converted into characters. 
+ * not the length of the resulting string. The following bytes are then
+ * interpreted as bytes encoding characters in the UTF-8 format
+ * and are converted into characters.
  * <p>
- * This method blocks until all the bytes are read, the end of the 
- * stream is detected, or an exception is thrown. 
+ * This method blocks until all the bytes are read, the end of the
+ * stream is detected, or an exception is thrown.
  *
  * @param      stream   a data input stream.
  * @return     UTF decoded string as a char array
@@ -838,7 +864,7 @@ private char[] readStreamChars(FileInputStream stream) throws IOException {
 	// read chars array length
 	if (stream != null && this.bufferIndex + 2 >= this.bufferEnd)
 		readStreamBuffer(stream);
-	int length = (streamBuffer[this.bufferIndex++] & 0xFF) << 8;
+	int length = (this.streamBuffer[this.bufferIndex++] & 0xFF) << 8;
 	length += this.streamBuffer[this.bufferIndex++] & 0xFF;
 
 	// fill the chars from bytes buffer
@@ -938,10 +964,10 @@ private int readStreamInt(FileInputStream stream) throws IOException {
 	if (this.bufferIndex + 4 >= this.bufferEnd) {
 		readStreamBuffer(stream);
 	}
-	int val = (streamBuffer[this.bufferIndex++] & 0xFF) << 24;
-	val += (streamBuffer[this.bufferIndex++] & 0xFF) << 16;
-	val += (streamBuffer[this.bufferIndex++] & 0xFF) << 8;
-	return val + (streamBuffer[this.bufferIndex++] & 0xFF);
+	int val = (this.streamBuffer[this.bufferIndex++] & 0xFF) << 24;
+	val += (this.streamBuffer[this.bufferIndex++] & 0xFF) << 16;
+	val += (this.streamBuffer[this.bufferIndex++] & 0xFF) << 8;
+	return val + (this.streamBuffer[this.bufferIndex++] & 0xFF);
 }
 private void writeAllDocumentNames(String[] sortedDocNames, FileOutputStream stream) throws IOException {
 	if (sortedDocNames.length == 0)
@@ -1110,13 +1136,14 @@ private void writeDocumentNumbers(int[] documentNumbers, FileOutputStream stream
 }
 private void writeHeaderInfo(FileOutputStream stream) throws IOException {
 	writeStreamInt(stream, this.numberOfChunks);
-	if ((this.bufferIndex + 2) >= BUFFER_WRITE_SIZE)  {
+	if ((this.bufferIndex + 3) >= BUFFER_WRITE_SIZE)  {
 		stream.write(this.streamBuffer, 0, this.bufferIndex);
 		this.bufferIndex = 0;
 	}
 	this.streamBuffer[this.bufferIndex++] = (byte) this.sizeOfLastChunk;
 	this.streamBuffer[this.bufferIndex++] = (byte) this.documentReferenceSize;
-	this.streamEnd += 2;
+	this.streamBuffer[this.bufferIndex++] = (byte) this.separator;
+	this.streamEnd += 3;
 
 	// apend the file with chunk offsets
 	for (int i = 0; i < this.numberOfChunks; i++) {
@@ -1154,12 +1181,12 @@ private void writeOffsetToHeader(int offsetToHeader) throws IOException {
 	}
 }
 /**
- * Writes a string to the given output stream using UTF-8 
- * encoding in a machine-independent manner. 
+ * Writes a string to the given output stream using UTF-8
+ * encoding in a machine-independent manner.
  * <p>
- * First, two bytes of the array are giving the number of bytes to 
- * follow. This value is the number of bytes actually written out, 
- * not the length of the string. Following the length, each character 
+ * First, two bytes of the array are giving the number of bytes to
+ * follow. This value is the number of bytes actually written out,
+ * not the length of the string. Following the length, each character
  * of the string is put in the bytes array, in sequence, using the UTF-8
  * encoding for the character.
  * </p>

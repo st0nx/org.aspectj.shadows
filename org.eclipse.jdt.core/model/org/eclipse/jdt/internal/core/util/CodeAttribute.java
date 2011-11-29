@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -41,7 +41,7 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 	private ILocalVariableAttribute localVariableAttribute;
 	private int maxLocals;
 	private int maxStack;
-	
+
 	CodeAttribute(byte[] classFileBytes, IConstantPool constantPool, int offset) throws ClassFormatException {
 		super(classFileBytes, constantPool, offset);
 		this.classFileBytes = classFileBytes;
@@ -111,7 +111,7 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 	 */
 	public byte[] getBytecodes() {
 		if (this.bytecodes == null) {
-			System.arraycopy(this.classFileBytes, this.codeOffset, (this.bytecodes = new byte[(int) this.codeLength]), 0, (int) this.codeLength); 
+			System.arraycopy(this.classFileBytes, this.codeOffset, (this.bytecodes = new byte[(int) this.codeLength]), 0, (int) this.codeLength);
 		}
 		return this.bytecodes;
 	}
@@ -150,7 +150,7 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 	public ILocalVariableAttribute getLocalVariableAttribute() {
 		return this.localVariableAttribute;
 	}
-	
+
 	/**
 	 * @see ICodeAttribute#getMaxLocals()
 	 */
@@ -164,7 +164,7 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 	public int getMaxStack() {
 		return this.maxStack;
 	}
-	
+
 	/**
 	 * @see ICodeAttribute#traverse(IBytecodeVisitor visitor)
 	 */
@@ -1046,6 +1046,19 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 					visitor._invokeinterface(pc - this.codeOffset, index, count, constantPoolEntry);
 					pc += 5;
 					break;
+				case IOpcodeMnemonics.INVOKEDYNAMIC :
+					index = u2At(this.classFileBytes, 1, pc);
+					constantPoolEntry = this.constantPool.decodeEntry(index);
+					if (constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_NameAndType) {
+						throw new ClassFormatException(ClassFormatException.INVALID_CONSTANT_POOL_ENTRY);
+					}
+					visitor._invokedynamic(
+							pc - this.codeOffset,
+							index,
+							this.constantPool.decodeEntry(constantPoolEntry.getNameAndTypeInfoNameIndex()),
+							this.constantPool.decodeEntry(constantPoolEntry.getNameAndTypeInfoDescriptorIndex()));
+					pc += 5;
+					break;
 				case IOpcodeMnemonics.NEW :
 					index = u2At(this.classFileBytes, 1, pc);
 					constantPoolEntry = this.constantPool.decodeEntry(index);
@@ -1159,7 +1172,7 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 					pc++;
 					break;
 				default:
-					throw new ClassFormatException(ClassFormatException.INVALID_BYTECODE);			
+					throw new ClassFormatException(ClassFormatException.INVALID_BYTECODE);
 			}
 			if (pc >= (this.codeLength + this.codeOffset)) {
 				break;

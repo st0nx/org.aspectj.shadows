@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2004, 2006 IBM Corporation and others.
+ * Copyright (c) 2004, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -15,9 +15,9 @@ package org.eclipse.jdt.internal.core;
  * The uniqueKey contains the genericSignature of the resolved method. Use BindingKey to decode it.
  */
 public class ResolvedSourceMethod extends SourceMethod {
-	
+
 	private String uniqueKey;
-	
+
 	/*
 	 * See class comments.
 	 */
@@ -25,7 +25,7 @@ public class ResolvedSourceMethod extends SourceMethod {
 		super(parent, name, parameterTypes);
 		this.uniqueKey = uniqueKey;
 	}
-	
+
 	/* (non-Javadoc)
 	 * @see org.eclipse.jdt.internal.core.SourceMethod#getKey()
 	 */
@@ -38,7 +38,7 @@ public class ResolvedSourceMethod extends SourceMethod {
 	public boolean isResolved() {
 		return true;
 	}
-	
+
 	/**
 	 * @private Debugging purposes
 	 */
@@ -46,7 +46,7 @@ public class ResolvedSourceMethod extends SourceMethod {
 		super.toStringInfo(tab, buffer, info, showResolvedInfo);
 		if (showResolvedInfo) {
 			buffer.append(" {key="); //$NON-NLS-1$
-			buffer.append(this.uniqueKey);
+			buffer.append(this.getKey());
 			buffer.append("}"); //$NON-NLS-1$
 		}
 	}

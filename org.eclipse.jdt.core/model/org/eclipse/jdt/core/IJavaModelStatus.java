@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -24,18 +24,16 @@ import org.eclipse.core.runtime.IStatus;
  * <code>IJavaModelStatusConstants</code>.
  * </p>
  * <p>
- * A Java model status may also carry additional information (that is, in 
+ * A Java model status may also carry additional information (that is, in
  * addition to the information defined in <code>IStatus</code>):
  * <ul>
  *   <li>elements - optional handles to Java elements associated with the failure</li>
  *   <li>string - optional string associated with the failure</li>
  * </ul>
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
  *
  * @see org.eclipse.core.runtime.IStatus
  * @see IJavaModelStatusConstants
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IJavaModelStatus extends IStatus {
 /**
@@ -49,8 +47,8 @@ public interface IJavaModelStatus extends IStatus {
 IJavaElement[] getElements();
 /**
  * Returns the path associated with the failure (see specification
- * of the status code), or <code>null</code> if the failure is not 
- * one of <code>DEVICE_PATH</code>, <code>INVALID_PATH</code>, 
+ * of the status code), or <code>null</code> if the failure is not
+ * one of <code>DEVICE_PATH</code>, <code>INVALID_PATH</code>,
  * <code>PATH_OUTSIDE_PROJECT</code>, or <code>RELATIVE_PATH</code>.
  *
  * @return the path that caused the failure, or <code>null</code> if none

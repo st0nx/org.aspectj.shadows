@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -14,7 +14,7 @@ import org.eclipse.jdt.internal.compiler.ast.Annotation;
 
 /**
  * Represents JSR 175 Annotation instances in the type-system.
- */ 
+ */
 public class AnnotationBinding {
 	// do not access directly - use getters instead (UnresolvedAnnotationBinding
 	// resolves types for type and pair contents just in time)
@@ -23,7 +23,7 @@ public class AnnotationBinding {
 
 /**
  * Add the standard annotations encoded in the tag bits to the recorded annotations.
- * 
+ *
  * @param recordedAnnotations existing annotations already created
  * @param annotationTagBits
  * @param env
@@ -47,6 +47,10 @@ public static AnnotationBinding[] addStandardAnnotations(AnnotationBinding[] rec
 		count++;
 	if ((annotationTagBits & TagBits.AnnotationSuppressWarnings) != 0)
 		count++;
+	if ((annotationTagBits & TagBits.AnnotationPolymorphicSignature) != 0)
+		count++;
+	if ((annotationTagBits & TagBits.AnnotationSafeVarargs) != 0)
+		count++;
 	if (count == 0)
 		return recordedAnnotations;
 
@@ -67,7 +71,21 @@ public static AnnotationBinding[] addStandardAnnotations(AnnotationBinding[] rec
 		result[index++] = buildMarkerAnnotation(TypeConstants.JAVA_LANG_OVERRIDE, env);
 	if ((annotationTagBits & TagBits.AnnotationSuppressWarnings) != 0)
 		result[index++] = buildMarkerAnnotation(TypeConstants.JAVA_LANG_SUPPRESSWARNINGS, env);
+	if ((annotationTagBits & TagBits.AnnotationPolymorphicSignature) != 0)
+		result[index++] = buildMarkerAnnotationForMemberType(TypeConstants.JAVA_LANG_INVOKE_METHODHANDLE_$_POLYMORPHICSIGNATURE, env);
+	if ((annotationTagBits & TagBits.AnnotationSafeVarargs) != 0)
+		result[index++] = buildMarkerAnnotation(TypeConstants.JAVA_LANG_SAFEVARARGS, env);
 	return result;
+}
+
+private static AnnotationBinding buildMarkerAnnotationForMemberType(char[][] compoundName, LookupEnvironment env) {
+	ReferenceBinding type = env.getResolvedType(compoundName, null);
+	// since this is a member type name using '$' the return binding is a
+	// problem reference binding with reason ProblemReasons.InternalNameProvided
+	if (!type.isValidBinding()) {
+		type = ((ProblemReferenceBinding) type).closestMatch;
+	}
+	return env.createAnnotation(type, Binding.NO_ELEMENT_VALUE_PAIRS);
 }
 
 private static AnnotationBinding buildMarkerAnnotation(char[][] compoundName, LookupEnvironment env) {
@@ -76,19 +94,20 @@ private static AnnotationBinding buildMarkerAnnotation(char[][] compoundName, Lo
 }
 
 private static AnnotationBinding buildRetentionAnnotation(long bits, LookupEnvironment env) {
-	ReferenceBinding retentionPolicy = 
-		env.getResolvedType(TypeConstants.JAVA_LANG_ANNOTATION_RETENTIONPOLICY, 
+	ReferenceBinding retentionPolicy =
+		env.getResolvedType(TypeConstants.JAVA_LANG_ANNOTATION_RETENTIONPOLICY,
 			null);
 	Object value = null;
-	if ((bits & TagBits.AnnotationRuntimeRetention) != 0)
+	if ((bits & TagBits.AnnotationRuntimeRetention) == TagBits.AnnotationRuntimeRetention) {
 		value = retentionPolicy.getField(TypeConstants.UPPER_RUNTIME, true);
-	else if ((bits & TagBits.AnnotationClassRetention) != 0)
+	} else if ((bits & TagBits.AnnotationClassRetention) != 0) {
 		value = retentionPolicy.getField(TypeConstants.UPPER_CLASS, true);
-	else if ((bits & TagBits.AnnotationSourceRetention) != 0)
+	} else if ((bits & TagBits.AnnotationSourceRetention) != 0) {
 		value = retentionPolicy.getField(TypeConstants.UPPER_SOURCE, true);
+	}
 	return env.createAnnotation(
 		env.getResolvedType(TypeConstants.JAVA_LANG_ANNOTATION_RETENTION, null),
-		new ElementValuePair[] { 
+		new ElementValuePair[] {
 			new ElementValuePair(TypeConstants.VALUE, value, null)
 		});
 }
@@ -152,6 +171,21 @@ AnnotationBinding(Annotation astAnnotation) {
 	this((ReferenceBinding) astAnnotation.resolvedType, astAnnotation.computeElementValuePairs());
 }
 
+/*
+ * Computes a key that uniquely identifies this binding, using the given recipient's unique key.
+ * recipientKey @ typeKey
+ * @MyAnnot void bar() --> Lp/X;.bar()V@Lp/MyAnnot;
+ */
+public char[] computeUniqueKey(char[] recipientKey) {
+	char[] typeKey = this.type.computeUniqueKey(false);
+	int recipientKeyLength = recipientKey.length;
+	char[] uniqueKey = new char[recipientKeyLength+1+typeKey.length];
+	System.arraycopy(recipientKey, 0, uniqueKey, 0, recipientKeyLength);
+	uniqueKey[recipientKeyLength] = '@';
+	System.arraycopy(typeKey, 0, uniqueKey, recipientKeyLength+1, typeKey.length);
+	return uniqueKey;
+}
+
 public ReferenceBinding getAnnotationType() {
 	return this.type;
 }
@@ -169,5 +203,19 @@ public static void setMethodBindings(ReferenceBinding type, ElementValuePair[] p
 		if (methods != null && methods.length == 1)
 			pair.setMethodBinding(methods[0]);
 	}
+}
+
+public String toString() {
+	StringBuffer buffer = new StringBuffer(5);
+	buffer.append('@').append(this.type.sourceName);
+	if (this.pairs != null && this.pairs.length > 0) {
+		buffer.append("{ "); //$NON-NLS-1$
+		for (int i = 0, max = this.pairs.length; i < max; i++) {
+			if (i > 0) buffer.append(", "); //$NON-NLS-1$
+			buffer.append(this.pairs[i]);
+		}
+		buffer.append('}');
+	}
+	return buffer.toString();
 }
 }

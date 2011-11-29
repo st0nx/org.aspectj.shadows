@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2005 IBM Corporation and others.
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -11,6 +11,7 @@
 package org.eclipse.jdt.internal.codeassist.select;
 
 import org.eclipse.jdt.internal.compiler.ast.*;
+import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 /**
@@ -19,9 +20,13 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 public class SelectionJavadoc extends Javadoc {
 
 	Expression selectedNode;
+	// https://bugs.eclipse.org/bugs/show_bug.cgi?id=171019
+	// Flag raised when selection is done on inheritDoc javadoc tag
+	boolean inheritDocSelected;
 
 	public SelectionJavadoc(int sourceStart, int sourceEnd) {
 		super(sourceStart, sourceEnd);
+		this.inheritDocSelected = false;
 	}
 
 	/* (non-Javadoc)
@@ -58,7 +63,7 @@ public class SelectionJavadoc extends Javadoc {
 				selectedString = "<SelectOnType:"; //$NON-NLS-1$
 			}
 			int pos = output.length()-3;
-			output.replace(pos-2,pos, selectedString+selectedNode+'>');
+			output.replace(pos-2,pos, selectedString+this.selectedNode+'>');
 		}
 		return output;
 	}
@@ -66,7 +71,7 @@ public class SelectionJavadoc extends Javadoc {
 	/**
 	 * Resolve selected node if not null and throw exception to let clients know
 	 * that it has been found.
-	 * 
+	 *
 	 * @throws SelectionNodeFound
 	 */
 	private void internalResolve(Scope scope) {
@@ -106,13 +111,20 @@ public class SelectionJavadoc extends Javadoc {
 				binding = this.selectedNode.resolvedType;
 			}
 			throw new SelectionNodeFound(binding);
+		} else if (this.inheritDocSelected) {
+			// no selection node when inheritDoc tag is selected
+			// But we need to detect it to enable code select on inheritDoc
+			ReferenceContext referenceContext = scope.referenceContext();
+			if (referenceContext instanceof MethodDeclaration) {
+				throw new SelectionNodeFound(((MethodDeclaration) referenceContext).binding);
+			}
 		}
 	}
 
 	/**
 	 * Resolve selected node if not null and throw exception to let clients know
 	 * that it has been found.
-	 * 
+	 *
 	 * @throws SelectionNodeFound
 	 */
 	public void resolve(ClassScope scope) {
@@ -122,7 +134,7 @@ public class SelectionJavadoc extends Javadoc {
 	/**
 	 * Resolve selected node if not null and throw exception to let clients know
 	 * that it has been found.
-	 * 
+	 *
 	 * @throws SelectionNodeFound
 	 */
 	public void resolve(MethodScope scope) {

@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2007 IBM Corporation and others.
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -75,7 +75,7 @@ public class ReconcileWorkingCopyOperation extends JavaModelOperation {
 
 			// check is problem requestor is active
 			IProblemRequestor problemRequestor = workingCopy.getPerWorkingCopyInfo();
-			if (problemRequestor != null) 
+			if (problemRequestor != null)
 				problemRequestor =  ((JavaModelManager.PerWorkingCopyInfo)problemRequestor).getProblemRequestor();
 			boolean defaultRequestorIsActive = problemRequestor != null && problemRequestor.isActive();
 			IProblemRequestor ownerProblemRequestor = this.workingCopyOwner.getProblemRequestor(workingCopy);
@@ -167,39 +167,38 @@ public class ReconcileWorkingCopyOperation extends JavaModelOperation {
 			// make working copy consistent
 			if (this.problems == null) this.problems = new HashMap();
 			this.resolveBindings = this.requestorIsActive;
-			this.ast = workingCopy.makeConsistent(this.astLevel, this.resolveBindings, reconcileFlags, this.problems, this.progressMonitor);
+			this.ast = workingCopy.makeConsistent(this.astLevel, this.resolveBindings, this.reconcileFlags, this.problems, this.progressMonitor);
 			this.deltaBuilder.buildDeltas();
 			if (this.ast != null && this.deltaBuilder.delta != null)
 				this.deltaBuilder.delta.changedAST(this.ast);
 			return this.ast;
 		}
-		if (this.ast != null) 
+		if (this.ast != null)
 			return this.ast; // no need to recompute AST if known already
-		
+
 		CompilationUnitDeclaration unit = null;
-		char[] contents = null;
 		try {
+			JavaModelManager.getJavaModelManager().abortOnMissingSource.set(Boolean.TRUE);
+			CompilationUnit source = workingCopy.cloneCachingContents();
 			// find problems if needed
-			if (JavaProject.hasJavaNature(workingCopy.getJavaProject().getProject()) 
+			if (JavaProject.hasJavaNature(workingCopy.getJavaProject().getProject())
 					&& (this.reconcileFlags & ICompilationUnit.FORCE_PROBLEM_DETECTION) != 0) {
 				this.resolveBindings = this.requestorIsActive;
 				if (this.problems == null)
 					this.problems = new HashMap();
-				contents = workingCopy.getContents();
 				unit =
 					CompilationUnitProblemFinder.process(
-						workingCopy,
-						contents,
+						source,
 						this.workingCopyOwner,
 						this.problems,
 						this.astLevel != ICompilationUnit.NO_AST/*creating AST if level is not NO_AST */,
-						reconcileFlags,
+						this.reconcileFlags,
 						this.progressMonitor);
 				if (this.progressMonitor != null) this.progressMonitor.worked(1);
 			}
-			
+
 			// create AST if needed
-			if (this.astLevel != ICompilationUnit.NO_AST 
+			if (this.astLevel != ICompilationUnit.NO_AST
 					&& unit !=null/*unit is null if working copy is consistent && (problem detection not forced || non-Java project) -> don't create AST as per API*/) {
 				Map options = workingCopy.getJavaProject().getOptions(true);
 				// convert AST
@@ -207,14 +206,15 @@ public class ReconcileWorkingCopyOperation extends JavaModelOperation {
 					AST.convertCompilationUnit(
 						this.astLevel,
 						unit,
-						contents,
 						options,
 						this.resolveBindings,
-						workingCopy,
-						reconcileFlags,
+						source,
+						this.reconcileFlags,
 						this.progressMonitor);
 				if (this.ast != null) {
-					this.deltaBuilder.delta = new JavaElementDelta(workingCopy);
+					if (this.deltaBuilder.delta == null) {
+						this.deltaBuilder.delta = new JavaElementDelta(workingCopy);
+					}
 					this.deltaBuilder.delta.changedAST(this.ast);
 				}
 				if (this.progressMonitor != null) this.progressMonitor.worked(1);
@@ -225,13 +225,14 @@ public class ReconcileWorkingCopyOperation extends JavaModelOperation {
 	    	// else JavaProject has lost its nature (or most likely was closed/deleted) while reconciling -> ignore
 	    	// (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=100919)
 	    } finally {
+			JavaModelManager.getJavaModelManager().abortOnMissingSource.set(null);
 	        if (unit != null) {
 	            unit.cleanUp();
 	        }
 	    }
 		return this.ast;
 	}
-	
+
 	private void notifyParticipants(final CompilationUnit workingCopy) {
 		IJavaProject javaProject = getWorkingCopy().getJavaProject();
 		CompilationParticipant[] participants = JavaModelManager.getJavaModelManager().compilationParticipants.getCompilationParticipants(javaProject);
