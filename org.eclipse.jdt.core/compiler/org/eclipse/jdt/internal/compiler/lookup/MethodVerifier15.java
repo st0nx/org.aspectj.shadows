@@ -491,8 +491,9 @@ void checkMethods() {
 				for (int j = 0; j < inheritedLength; j++) {
 					MethodBinding inheritedMethod = computeSubstituteMethod(inherited[j], currentMethod);
 					if (inheritedMethod != null) {
-						// MERGECONFLICT
-						if (foundMatch[j] == null && isSubstituteParameterSubsignature(currentMethod, inheritedMethod)) {
+						// AspectJ Extension - removing first condition here as it causes us to have problems when an ITD
+						// provides the implementation.  Not the right solution
+						if (/*foundMatch[j] == null && */isSubstituteParameterSubsignature(currentMethod, inheritedMethod)) {
 							matchingInherited[++index] = inheritedMethod;
 							foundMatch[j] = currentMethod;
 						} else {

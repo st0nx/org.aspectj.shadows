@@ -130,7 +130,7 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 				//	break generateInit;
 				// same code:
 				// if binding unused generate then discard the value
-				initialization.generateCode(currentScope, codeStream, false); // MERGECONFLICT - changed to false on the end here...
+				initialization.generateCode(currentScope, codeStream, true); // final param needs to be true (was false) 
 				// new code:
 					if ((binding.type == TypeBinding.LONG) || (binding.type == TypeBinding.DOUBLE)) {
 						codeStream.pop2();

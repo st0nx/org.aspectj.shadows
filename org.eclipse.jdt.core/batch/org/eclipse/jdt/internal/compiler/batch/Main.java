@@ -1349,7 +1349,8 @@ public class Main implements ProblemSeverities, SuffixConstants {
 	private PrintWriter err;
 
 	protected ArrayList extraProblems;
-	public final static String bundleName = "org.eclipse.jdt.internal.compiler.batch.messages"; //$NON-NLS-1$
+	// AspectJ Extension - made non final
+	public static String bundleName = "org.eclipse.jdt.internal.compiler.batch.messages"; //$NON-NLS-1$
 	// two uses: recognize 'none' in options; code the singleton none
 	// for the '-d none' option (wherever it may be found)
 	public static final int DEFAULT_SIZE_CLASSPATH = 4;
@@ -2624,6 +2625,10 @@ public void configure(String[] argv) {
 				continue;
 		}
 		
+		// default is input directory, if no custom destination path exists
+		// AspectJ Extension 
+		// see pr 60863.  All directories should have been dealt with at the AspectJ layer - if we have left
+		// anything to be processed here it is an error.
 		throw new IllegalArgumentException("unrecognized single argument: \""+currentArg+"\"");
 /*
 		// default is input directory, if no custom destination path exists

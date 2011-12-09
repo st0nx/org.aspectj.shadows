@@ -878,14 +878,6 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo f
 			currentScope.problemReporter().needToEmulateFieldAccess(codegenField, this, isReadAccess);
 			return;
 		}
-		// MERGECONFLICT - missing this chunk from here somewhere:
-//		// AspectJ Extension for inter-type scopes
-//		if (fieldBinding.isStatic() && (fieldBinding.declaringClass.canBeSeenBy(currentScope))) {
-//			ReferenceBinding rb = (ReferenceBinding) this.actualReceiverType.erasure();
-//			FieldBinding b = rb.getField(token, false);
-//			if (b == null) return;  // field was visible in inter-type scope and is not on actualReceiverType, don't muck about with it
-//		}
-//		// End AspectJ Extension
 	}
 }
 

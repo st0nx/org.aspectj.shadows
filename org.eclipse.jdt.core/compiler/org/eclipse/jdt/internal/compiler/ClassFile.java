@@ -367,7 +367,7 @@ public class ClassFile implements TypeConstants, TypeIds {
 			attributesNumber++;
 		}
 		
-	    // AspectJ Extension flibble
+	    // AspectJ Extension
 	    // write any "extraAttributes"
 	    if (extraAttributes != null) {
 	        for (int i=0, len=extraAttributes.size(); i < len; i++) {

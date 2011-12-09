@@ -293,7 +293,8 @@ public class CompilerOptions {
 	/** Indicates whether literal expressions are inlined at parse-time or not */
 	public boolean parseLiteralExpressionsAsConstants;
 	/** Max problems per compilation unit */
-	public int maxProblemsPerUnit;
+	// AspectJ Extension - increased this number (pr58679 etc)
+	public int maxProblemsPerUnit = 5000;
 	/** Tags used to recognize tasks in comments */
 	public char[][] taskTags;
 	/** Respective priorities of recognized task tags */

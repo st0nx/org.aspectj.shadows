@@ -1053,6 +1053,12 @@ public MethodBinding[] getMethods(char[] selector) {
   else return getMethodsBase(selector);
 }
 
+// overrides superclass method to consult ITD finder
+public MethodBinding[] getMethods(char[] selector, int suggestedParameterLength) {
+	if (memberFinder != null) return memberFinder.getMethods(this, selector);
+	  else return getMethodsBase(selector);
+}
+
 // NOTE: the return type, arg & exception types of each method of a source type are resolved when needed
 public MethodBinding[] getMethodsBase(char[] selector) {
     // End AspectJ Extension

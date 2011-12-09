@@ -3797,11 +3797,17 @@ public abstract class Scope {
 					if (!original.isAbstract()) {
 						if (original2.isAbstract())
 							continue; // only compare current against other concrete methods
-//MERGECONFLICT
-						original2 = original.findOriginalInheritedMethod(original2);
-						if (original2 == null)
-							continue nextSpecific; // current's declaringClass is not a subtype of next's declaringClass
+						// AspectJ Extension - moved this test down into the if block (pr233838)
+						//original2 = original.findOriginalInheritedMethod(original2);
+						//if (original2 == null)
+						//	continue nextSpecific; // current's declaringClass is not a subtype of next's declaringClass
+						// AspectJ Extension End
 						if (current.hasSubstitutedParameters() || original.typeVariables != Binding.NO_TYPE_VARIABLES) {
+							// AspectJ Extension - from above
+							original2 = original.findOriginalInheritedMethod(original2);
+							if (original2 == null)
+								continue nextSpecific; // current's declaringClass is not a subtype of next's declaringClass
+							// AspectJ Extension End
 							if (!environment().methodVerifier().isParameterSubsignature(original, original2))
 								continue nextSpecific; // current does not override next
 						}

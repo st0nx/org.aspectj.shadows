@@ -983,7 +983,7 @@ public MethodBinding[] getMethodsBase(char[] selector) { // AspectJ Extension - 
 }
 // Answer methods named selector, which take no more than the suggestedParameterLength.
 // The suggested parameter length is optional and may not be guaranteed by every type.
-public MethodBinding[] getMethods(char[] selector, int suggestedParameterLength) {
+public MethodBinding[] getMethodsBase(char[] selector, int suggestedParameterLength) {  // AspectJ Extension - added Base to name
 	if ((this.tagBits & TagBits.AreMethodsComplete) != 0)
 		return getMethods(selector);
 	// lazily sort methods

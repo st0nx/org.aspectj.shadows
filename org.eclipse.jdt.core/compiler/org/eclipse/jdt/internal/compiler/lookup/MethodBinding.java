@@ -1096,9 +1096,14 @@ public final int sourceEnd() {
 	return method.sourceEnd;
 }
 public AbstractMethodDeclaration sourceMethod() {
-	if (isSynthetic()) {
-		return null;
-	}
+	// AspectJ Extension
+	// AspectJ has synthetic methods that do have a source rep (e.g. pointcuts)
+	// TODO could do this through overriding? maybe if we did use a subtype, but not sure we do
+	// TODO can't recognize via ajc$ because they might be annotation style 
+	// old code:
+//	if (isSynthetic()) {
+//		return null;
+//	}
 	SourceTypeBinding sourceType;
 	//	AspectJ Extension
 	if (declaringClass instanceof BinaryTypeBinding) return null;

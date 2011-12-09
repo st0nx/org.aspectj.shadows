@@ -597,7 +597,7 @@ ClassBodyDeclarationNoAroundMethod -> ClassMemberDeclarationNoAroundMethod
 ClassBodyDeclarationNoAroundMethod -> StaticInitializer
 ClassBodyDeclarationNoAroundMethod -> ConstructorDeclaration
 --1.1 feature
-ClassBodyDeclarationNoAroundMethod ::= Diet NestedMethod Block
+ClassBodyDeclarationNoAroundMethod ::= Diet NestedMethod CreateInitializer Block
 /.$putCase consumeClassBodyDeclaration(); $break ./
 /:$readableName ClassBodyDeclarationNoAroundMethod:/
 
@@ -1992,7 +1992,10 @@ MethodInvocation ::= 'super' '.' JavaIdentifier '(' ArgumentListopt ')' -- Aspec
 /.$putCase consumeMethodInvocationSuper(); $break ./
 /:$readableName MethodInvocation:/
 
+-- (pr159268)
 ArrayAccess ::= Name '[' Expression ']'
+/.$putCase consumeArrayAccess(true); $break ./
+ArrayAccess ::= AjName '[' Expression ']'
 /.$putCase consumeArrayAccess(true); $break ./
 ArrayAccess ::= PrimaryNoNewArray '[' Expression ']'
 /.$putCase consumeArrayAccess(false); $break ./

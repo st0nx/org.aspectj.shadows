@@ -2969,6 +2969,14 @@ public static TypeBinding getConstantPoolDeclaringClass(Scope currentScope, Fiel
 					&& constantPoolDeclaringClass.id != TypeIds.T_JavaLangObject) // no change for Object fields
 				|| !constantPoolDeclaringClass.canBeSeenBy(currentScope)) {
 
+			// AspectJ Extension for inter-type scopes
+			if (codegenBinding.isStatic() && (codegenBinding.declaringClass.canBeSeenBy(currentScope))) {
+				ReferenceBinding rb = (ReferenceBinding) actualReceiverType.erasure();
+				FieldBinding b = rb.getField(codegenBinding.name, false);
+				if (b == null) return constantPoolDeclaringClass;  // field was visible in inter-type scope and is not on actualReceiverType, so don't avoid returning actualReceiverType
+			}
+			// End AspectJ Extension
+			
 			return actualReceiverType.erasure();
 		}
 	}	

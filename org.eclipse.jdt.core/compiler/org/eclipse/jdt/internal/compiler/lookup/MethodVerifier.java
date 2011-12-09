@@ -269,6 +269,14 @@ void checkForRedundantSuperinterfaces(ReferenceBinding superclass, ReferenceBind
 				}
 				redundantInterfaces.add(implementedInterface);
 				TypeReference[] refs = this.type.scope.referenceContext.superInterfaces;
+				// AspectJ Extension
+				// The checking has found an interface against which it wants to report a problem.  However if the
+				// interface was introduced via declare parents, it will not be able to find it and so cannot
+				// report on it.  In these cases, just skip reporting the problem
+				if (refs==null) {
+					continue;
+				}
+				// AspectJ Extension end
 				for (int r = 0, rl = refs.length; r < rl; r++) {
 					if (refs[r].resolvedType == toCheck) {
 						problemReporter().redundantSuperInterface(this.type, refs[j], implementedInterface, toCheck);
