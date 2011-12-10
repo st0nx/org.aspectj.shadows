@@ -812,29 +812,30 @@ public void manageEnclosingInstanceAccessIfNecessary(BlockScope currentScope, Fl
  */
 public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FieldBinding fieldBinding, int index, FlowInfo flowInfo) {
 	
-    //	AspectJ Extension
+	 //	AspectJ Extension
 	if (index < 0) {
 		if (fieldBinding.alwaysNeedsAccessMethod(false)) {
 			SyntheticMethodBinding newBinding = fieldBinding.getAccessMethod(false);
 			setSyntheticAccessor(fieldBinding,index,newBinding);
-			FieldBinding originalField = fieldBinding.original();
-			if (originalField != fieldBinding) {
-				throw new IllegalStateException("wtf");
-				// was setCodeGenBinding MERGECONFLICT
-//				setGenericCast(index < 0 ? (this.otherBindings == null ? 0 : this.otherBindings.length) : index, originalField);
-			}
+//			FieldBinding originalField = fieldBinding.original();
+			// dont seem to need in e37
+//				if (originalField != fieldBinding) {
+//					// was setCodeGenBinding MERGECONFLICT
+////					setGenericCast(index < 0 ? (this.otherBindings == null ? 0 : this.otherBindings.length) : index, originalField);
+//				}
 			return;
 		}
 	} else {
 		if (fieldBinding.alwaysNeedsAccessMethod(true)) {
 			SyntheticMethodBinding newBinding = fieldBinding.getAccessMethod(true);
 			setSyntheticAccessor(fieldBinding,index,newBinding);
-			FieldBinding originalField = fieldBinding.original();
-			if (originalField != fieldBinding) {
-				throw new IllegalStateException("wtf");
-				// was setCodeGenBinding MERGECONFLICT
-//				setGenericCast(index < 0 ? (this.otherBindings == null ? 0 : this.otherBindings.length) : index, originalField);
-			}
+//			FieldBinding originalField = fieldBinding.original();
+			// dont seem to need in e37
+//				if (originalField != fieldBinding) {
+//					throw new IllegalStateException("wtf");
+//					// was setCodeGenBinding MERGECONFLICT
+////					setGenericCast(index < 0 ? (this.otherBindings == null ? 0 : this.otherBindings.length) : index, originalField);
+//				}
 			return;
 		}
 	}
