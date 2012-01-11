@@ -1,21 +1,23 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.problem;
 
-import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.IErrorHandlingPolicy;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 /*
  * Compiler error handler, responsible to determine whether
@@ -26,7 +28,9 @@ import org.eclipse.jdt.internal.compiler.impl.ReferenceContext;
  *	first error, and if should proceed (persist) with problems.
  */
 
-public class ProblemHandler implements ProblemSeverities {
+public class ProblemHandler {
+
+	public final static String[] NoArgument = CharOperation.NO_STRINGS;
 
 	final public IErrorHandlingPolicy policy;
 	public final IProblemFactory problemFactory;
@@ -48,80 +52,114 @@ public ProblemHandler(IErrorHandlingPolicy policy, CompilerOptions options, IPro
  *		Error | Warning | Ignore
  */
 public int computeSeverity(int problemId){
-	
-	return Error; // by default all problems are errors
+
+	return ProblemSeverities.Error; // by default all problems are errors
 }
-public IProblem createProblem(
-	char[] fileName, 
-	int problemId, 
-	String[] problemArguments, 
-	int severity, 
-	int problemStartPosition, 
-	int problemEndPosition, 
+public CategorizedProblem createProblem(
+	char[] fileName,
+	int problemId,
+	String[] problemArguments,
+	String[] messageArguments,
+	int severity,
+	int problemStartPosition,
+	int problemEndPosition,
 	int lineNumber,
+	int columnNumber) {
+
+	return this.problemFactory.createProblem(
+		fileName,
+		problemId,
+		problemArguments,
+		messageArguments,
+		severity,
+		problemStartPosition,
+		problemEndPosition,
+		lineNumber,
+		columnNumber);
+}
+public CategorizedProblem createProblem(
+		char[] fileName,
+		int problemId,
+		String[] problemArguments,
+		int elaborationId,
+		String[] messageArguments,
+		int severity,
+		int problemStartPosition,
+		int problemEndPosition,
+		int lineNumber,
+		int columnNumber) {
+	return this.problemFactory.createProblem(
+		fileName,
+		problemId,
+		problemArguments,
+		elaborationId,
+		messageArguments,
+		severity,
+		problemStartPosition,
+		problemEndPosition,
+		lineNumber,
+		columnNumber);
+}
+public void handle(
+	int problemId,
+	String[] problemArguments,
+	int elaborationId,
+	String[] messageArguments,
+	int severity,
+	int problemStartPosition,
+	int problemEndPosition,
 	ReferenceContext referenceContext,
 	CompilationResult unitResult) {
 
-	return problemFactory.createProblem(
-		fileName, 
-		problemId, 
-		problemArguments, 
-		severity, 
-		problemStartPosition, 
-		problemEndPosition, 
-		lineNumber); 
-}
-public void handle(
-	int problemId, 
-	String[] problemArguments, 
-	int severity, 
-	int problemStartPosition, 
-	int problemEndPosition, 
-	ReferenceContext referenceContext, 
-	CompilationResult unitResult) {
-
-	if (severity == Ignore)
+	if (severity == ProblemSeverities.Ignore)
 		return;
 
 	// if no reference context, we need to abort from the current compilation process
 	if (referenceContext == null) {
-		if ((severity & Error) != 0) { // non reportable error is fatal
-			throw new AbortCompilation(problemId, problemArguments);
+		if ((severity & ProblemSeverities.Error) != 0) { // non reportable error is fatal
+			CategorizedProblem problem = this.createProblem(null, problemId, problemArguments, elaborationId, messageArguments, severity, 0, 0, 0, 0);
+			throw new AbortCompilation(null, problem);
 		} else {
 			return; // ignore non reportable warning
 		}
 	}
 
-	IProblem problem = 
+	int[] lineEnds;
+	int lineNumber = problemStartPosition >= 0
+			? Util.getLineNumber(problemStartPosition, lineEnds = unitResult.getLineSeparatorPositions(), 0, lineEnds.length-1)
+			: 0;
+	int columnNumber = problemStartPosition >= 0
+			? Util.searchColumnNumber(unitResult.getLineSeparatorPositions(), lineNumber, problemStartPosition)
+			: 0;
+	CategorizedProblem problem =
 		this.createProblem(
-			unitResult.getFileName(), 
-			problemId, 
-			problemArguments, 
-			severity, 
-			problemStartPosition, 
-			problemEndPosition, 
-			problemStartPosition >= 0
-				? searchLineNumber(unitResult.lineSeparatorPositions, problemStartPosition)
-				: 0,
-			referenceContext,
-			unitResult); 
+			unitResult.getFileName(),
+			problemId,
+			problemArguments,
+			elaborationId,
+			messageArguments,
+			severity,
+			problemStartPosition,
+			problemEndPosition,
+			lineNumber,
+			columnNumber);
+
 	if (problem == null) return; // problem couldn't be created, ignore
-	
-	switch (severity & Error) {
-		case Error :
-			this.record(problem, unitResult, referenceContext);
-			referenceContext.tagAsHavingErrors();
 
-			// should abort ?
-			int abortLevel;
-			if ((abortLevel = 
-				(policy.stopOnFirstError() ? AbortCompilation : severity & Abort)) != 0) {
-
-				referenceContext.abort(abortLevel);
+	switch (severity & ProblemSeverities.Error) {
+		case ProblemSeverities.Error :
+			record(problem, unitResult, referenceContext);
+			if ((severity & ProblemSeverities.Fatal) != 0) {
+				referenceContext.tagAsHavingErrors();
+				// should abort ?
+				int abortLevel;
+				if ((abortLevel = this.policy.stopOnFirstError() ? ProblemSeverities.AbortCompilation : severity & ProblemSeverities.Abort) != 0) {
+					referenceContext.abort(abortLevel, problem);
+				}
 			}
 			break;
-		case Warning :
-			this.record(problem, unitResult, referenceContext);
+		case ProblemSeverities.Warning :
+			record(problem, unitResult, referenceContext);
 			break;
 	}
 }
@@ -130,51 +168,26 @@ public void handle(
  * from the problem ID and the current compiler options.
  */
 public void handle(
-	int problemId, 
-	String[] problemArguments, 
-	int problemStartPosition, 
-	int problemEndPosition, 
-	ReferenceContext referenceContext, 
+	int problemId,
+	String[] problemArguments,
+	String[] messageArguments,
+	int problemStartPosition,
+	int problemEndPosition,
+	ReferenceContext referenceContext,
 	CompilationResult unitResult) {
 
 	this.handle(
 		problemId,
 		problemArguments,
-		this.computeSeverity(problemId), // severity inferred using the ID
+		0, // no message elaboration
+		messageArguments,
+		computeSeverity(problemId), // severity inferred using the ID
 		problemStartPosition,
 		problemEndPosition,
 		referenceContext,
 		unitResult);
 }
-public void record(IProblem problem, CompilationResult unitResult, ReferenceContext referenceContext) {
+public void record(CategorizedProblem problem, CompilationResult unitResult, ReferenceContext referenceContext) {
 	unitResult.record(problem, referenceContext);
-}
-/**
- * Search the line number corresponding to a specific position
- *
- * @param methodBinding org.eclipse.jdt.internal.compiler.nameloopkup.SyntheticAccessMethodBinding
- */
-public static final int searchLineNumber(int[] startLineIndexes, int position) {
-	if (startLineIndexes == null)
-		return 1;
-	int length = startLineIndexes.length;
-	if (length == 0)
-		return 1;
-	int g = 0, d = length - 1;
-	int m = 0;
-	while (g <= d) {
-		m = (g + d) /2;
-		if (position < startLineIndexes[m]) {
-			d = m-1;
-		} else if (position > startLineIndexes[m]) {
-			g = m+1;
-		} else {
-			return m + 1;
-		}
-	}
-	if (position < startLineIndexes[m]) {
-		return m+1;
-	}
-	return m+2;
 }
 }

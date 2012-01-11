@@ -1,14 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.codeassist;
+
+import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
 
 /**
  * This is the internal requestor passed to the searchable name environment
@@ -18,26 +20,67 @@ package org.eclipse.jdt.internal.codeassist;
  * to the raw name environment results before answering them to the UI.
  */
 public interface ISearchRequestor {
-	
+	public void acceptConstructor(
+						int modifiers,
+						char[] simpleTypeName,
+						int parameterCount,
+						char[] signature,
+						char[][] parameterTypes,
+						char[][] parameterNames,
+						int typeModifiers,
+						char[] packageName,
+						int extraFlags,
+						String path,
+						AccessRestriction access);
 	/**
-	 * One result of the search consists of a new class.
-	 *
-	 * NOTE - All package and type names are presented in their readable form:
-	 *    Package names are in the form "a.b.c".
-	 *    Nested type names are in the qualified form "A.M".
-	 *    The default package is represented by an empty array.
-	 */
-	public void acceptClass(char[] packageName, char[] typeName, int modifiers);
-
-	/**
-	 * One result of the search consists of a new interface.
+	 * One result of the search consists of a new type.
 	 *
 	 * NOTE - All package and type names are presented in their readable form:
 	 *    Package names are in the form "a.b.c".
 	 *    Nested type names are in the qualified form "A.I".
 	 *    The default package is represented by an empty array.
 	 */
-	public void acceptInterface(char[] packageName, char[] typeName, int modifiers);
+	public void acceptType(char[] packageName, char[] typeName, char[][] enclosingTypeNames, int modifiers, AccessRestriction accessRestriction);
+
+//	/**
+//	 * One result of the search consists of a new annotation.
+//	 *
+//	 * NOTE - All package and type names are presented in their readable form:
+//	 *    Package names are in the form "a.b.c".
+//	 *    Nested type names are in the qualified form "A.I".
+//	 *    The default package is represented by an empty array.
+//	 */
+//	public void acceptAnnotation(char[] packageName, char[] typeName, int modifiers, AccessRestriction accessRestriction);
+//
+//	/**
+//	 * One result of the search consists of a new class.
+//	 *
+//	 * NOTE - All package and type names are presented in their readable form:
+//	 *    Package names are in the form "a.b.c".
+//	 *    Nested type names are in the qualified form "A.M".
+//	 *    The default package is represented by an empty array.
+//	 */
+//	public void acceptClass(char[] packageName, char[] typeName, int modifiers, AccessRestriction accessRestriction);
+//
+//	/**
+//	 * One result of the search consists of a new enum.
+//	 *
+//	 * NOTE - All package and type names are presented in their readable form:
+//	 *    Package names are in the form "a.b.c".
+//	 *    Nested type names are in the qualified form "A.I".
+//	 *    The default package is represented by an empty array.
+//	 */
+//	public void acceptEnum(char[] packageName, char[] typeName, int modifiers, AccessRestriction accessRestriction);
+//
+//	/**
+//	 * One result of the search consists of a new interface.
+//	 *
+//	 * NOTE - All package and type names are presented in their readable form:
+//	 *    Package names are in the form "a.b.c".
+//	 *    Nested type names are in the qualified form "A.I".
+//	 *    The default package is represented by an empty array.
+//	 */
+//	public void acceptInterface(char[] packageName, char[] typeName, int modifiers, AccessRestriction accessRestriction);
 
 	/**
 	 * One result of the search consists of a new package.
@@ -47,14 +90,4 @@ public interface ISearchRequestor {
 	 *    The default package is represented by an empty array.
 	 */
 	public void acceptPackage(char[] packageName);
-
-	/**
-	 * One result of the search consists of a new type.
-	 *
-	 * NOTE - All package and type names are presented in their readable form:
-	 *    Package names are in the form "a.b.c".
-	 *    Nested type names are in the qualified form "A.M".
-	 *    The default package is represented by an empty array.
-	 */
-	public void acceptType(char[] packageName, char[] typeName);
 }

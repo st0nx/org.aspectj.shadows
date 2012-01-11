@@ -1,26 +1,39 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
 import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 
-import org.eclipse.jdt.internal.core.Util;
+import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.jdt.core.compiler.*;
+import org.eclipse.jdt.internal.compiler.ClassFile;
+import org.eclipse.jdt.internal.compiler.impl.CompilerStats;
+import org.eclipse.jdt.internal.core.util.Messages;
+import org.eclipse.jdt.internal.core.util.Util;
 
 import java.util.*;
 
 public class BatchImageBuilder extends AbstractImageBuilder {
 
-protected BatchImageBuilder(JavaBuilder javaBuilder) {
-	super(javaBuilder);
+	IncrementalImageBuilder incrementalBuilder; // if annotations or secondary types have to be processed after the compile loop
+	ArrayList secondaryTypes; // qualified names for all secondary types found during batch compile
+	StringSet typeLocatorsWithUndefinedTypes; // type locators for all source files with errors that may be caused by 'not found' secondary types
+
+protected BatchImageBuilder(JavaBuilder javaBuilder, boolean buildStarting) {
+	super(javaBuilder, buildStarting, null);
+	this.nameEnvironment.isIncrementalBuild = false;
+	this.incrementalBuilder = null;
+	this.secondaryTypes = null;
+	this.typeLocatorsWithUndefinedTypes = null;
 }
 
 public void build() {
@@ -28,125 +41,274 @@ public void build() {
 		System.out.println("FULL build"); //$NON-NLS-1$
 
 	try {
-		notifier.subTask(Util.bind("build.scrubbingOutput")); //$NON-NLS-1$
-		JavaBuilder.removeProblemsFor(javaBuilder.currentProject);
-		scrubOutputFolder();
-		notifier.updateProgressDelta(0.1f);
+		this.notifier.subTask(Messages.bind(Messages.build_cleaningOutput, this.javaBuilder.currentProject.getName()));
+		JavaBuilder.removeProblemsAndTasksFor(this.javaBuilder.currentProject);
+		cleanOutputFolders(true);
+		this.notifier.updateProgressDelta(0.05f);
 
-		notifier.subTask(Util.bind("build.analyzingSources")); //$NON-NLS-1$
-		ArrayList locations = new ArrayList(33);
-		ArrayList typeNames = new ArrayList(33);
-		addAllSourceFiles(locations, typeNames);
-		notifier.updateProgressDelta(0.15f);
+		this.notifier.subTask(Messages.build_analyzingSources);
+		ArrayList sourceFiles = new ArrayList(33);
+		addAllSourceFiles(sourceFiles);
+		this.notifier.updateProgressDelta(0.10f);
 
-		if (locations.size() > 0) {
-			String[] allSourceFiles = new String[locations.size()];
-			locations.toArray(allSourceFiles);
-			String[] initialTypeNames = new String[typeNames.size()];
-			typeNames.toArray(initialTypeNames);
+		if (sourceFiles.size() > 0) {
+			SourceFile[] allSourceFiles = new SourceFile[sourceFiles.size()];
+			sourceFiles.toArray(allSourceFiles);
 
-			notifier.setProgressPerCompilationUnit(0.75f / allSourceFiles.length);
-			workQueue.addAll(allSourceFiles);
-			compile(allSourceFiles, initialTypeNames);
+			this.notifier.setProgressPerCompilationUnit(0.75f / allSourceFiles.length);
+			this.workQueue.addAll(allSourceFiles);
+			compile(allSourceFiles);
+
+			if (this.typeLocatorsWithUndefinedTypes != null)
+				if (this.secondaryTypes != null && !this.secondaryTypes.isEmpty())
+					rebuildTypesAffectedBySecondaryTypes();
+			if (this.incrementalBuilder != null)
+				this.incrementalBuilder.buildAfterBatchBuild();
 		}
+
+		if (this.javaBuilder.javaProject.hasCycleMarker())
+			this.javaBuilder.mustPropagateStructuralChanges();
 	} catch (CoreException e) {
 		throw internalException(e);
 	} finally {
+		if (JavaBuilder.SHOW_STATS)
+			printStats();
 		cleanUp();
 	}
 }
 
-protected void addAllSourceFiles(final ArrayList locations, final ArrayList typeNames) throws CoreException {
-	for (int i = 0, length = sourceFolders.length; i < length; i++) {
-		final int srcFolderLength = sourceFolders[i].getLocation().addTrailingSeparator().toString().length();
-		sourceFolders[i].accept(
-			new IResourceVisitor() {
-				public boolean visit(IResource resource) {
-					if (resource.getType() == IResource.FILE) {
-						if (JavaBuilder.JAVA_EXTENSION.equalsIgnoreCase(resource.getFileExtension())) {
-							String sourceLocation = resource.getLocation().toString();
-							locations.add(sourceLocation);
-							typeNames.add(sourceLocation.substring(srcFolderLength, sourceLocation.length() - 5)); // length of .java
+protected void acceptSecondaryType(ClassFile classFile) {
+	if (this.secondaryTypes != null)
+		this.secondaryTypes.add(classFile.fileName());
+}
+
+protected void cleanOutputFolders(boolean copyBack) throws CoreException {
+	boolean deleteAll = JavaCore.CLEAN.equals(
+		this.javaBuilder.javaProject.getOption(JavaCore.CORE_JAVA_BUILD_CLEAN_OUTPUT_FOLDER, true));
+	if (deleteAll) {
+		if (this.javaBuilder.participants != null)
+			for (int i = 0, l = this.javaBuilder.participants.length; i < l; i++)
+				this.javaBuilder.participants[i].cleanStarting(this.javaBuilder.javaProject);
+
+		ArrayList visited = new ArrayList(this.sourceLocations.length);
+		for (int i = 0, l = this.sourceLocations.length; i < l; i++) {
+			this.notifier.subTask(Messages.bind(Messages.build_cleaningOutput, this.javaBuilder.currentProject.getName()));
+			ClasspathMultiDirectory sourceLocation = this.sourceLocations[i];
+			if (sourceLocation.hasIndependentOutputFolder) {
+				IContainer outputFolder = sourceLocation.binaryFolder;
+				if (!visited.contains(outputFolder)) {
+					visited.add(outputFolder);
+					IResource[] members = outputFolder.members();
+					for (int j = 0, m = members.length; j < m; j++) {
+						IResource member = members[j];
+						if (!member.isDerived()) {
+							member.accept(
+								new IResourceVisitor() {
+									public boolean visit(IResource resource) throws CoreException {
+										resource.setDerived(true, null);
+										return resource.getType() != IResource.FILE;
+									}
+								}
+							);
 						}
-						return false;
+						member.delete(IResource.FORCE, null);
 					}
-					return true;
 				}
+				this.notifier.checkCancel();
+				if (copyBack)
+					copyExtraResourcesBack(sourceLocation, true);
+			} else {
+				boolean isOutputFolder = sourceLocation.sourceFolder.equals(sourceLocation.binaryFolder);
+				final char[][] exclusionPatterns =
+					isOutputFolder
+						? sourceLocation.exclusionPatterns
+						: null; // ignore exclusionPatterns if output folder == another source folder... not this one
+				final char[][] inclusionPatterns =
+					isOutputFolder
+						? sourceLocation.inclusionPatterns
+						: null; // ignore inclusionPatterns if output folder == another source folder... not this one
+				sourceLocation.binaryFolder.accept(
+					new IResourceProxyVisitor() {
+						public boolean visit(IResourceProxy proxy) throws CoreException {
+							if (proxy.getType() == IResource.FILE) {
+								if (org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(proxy.getName())) {
+									IResource resource = proxy.requestResource();
+									if (exclusionPatterns != null || inclusionPatterns != null)
+										if (Util.isExcluded(resource.getFullPath(), inclusionPatterns, exclusionPatterns, false))
+											return false;
+									if (!resource.isDerived())
+										resource.setDerived(true, null);
+									resource.delete(IResource.FORCE, null);
+								}
+								return false;
+							}
+							if (exclusionPatterns != null && inclusionPatterns == null) // must walk children if inclusionPatterns != null
+								if (Util.isExcluded(proxy.requestFullPath(), null, exclusionPatterns, true))
+									return false;
+							BatchImageBuilder.this.notifier.checkCancel();
+							return true;
+						}
+					},
+					IResource.NONE
+				);
+				this.notifier.checkCancel();
 			}
-		);
-		notifier.checkCancel();
+			this.notifier.checkCancel();
+		}
+	} else if (copyBack) {
+		for (int i = 0, l = this.sourceLocations.length; i < l; i++) {
+			ClasspathMultiDirectory sourceLocation = this.sourceLocations[i];
+			if (sourceLocation.hasIndependentOutputFolder)
+				copyExtraResourcesBack(sourceLocation, false);
+			this.notifier.checkCancel();
+		}
 	}
 }
 
-protected void scrubOutputFolder() throws CoreException {
-	if (hasSeparateOutputFolder) {
-		// outputPath is not on the class path so wipe it clean then copy extra resources back
-		IResource[] members = outputFolder.members(); 
-		for (int i = 0, length = members.length; i < length; i++)
-			members[i].delete(IResource.FORCE, null);
-		notifier.checkCancel();
-		copyExtraResourcesBack();
-	} else {
-		// outputPath == a source folder so just remove class files
-		outputFolder.accept(
-			new IResourceVisitor() {
-				public boolean visit(IResource resource) throws CoreException {
-					if (resource.getType() == IResource.FILE) {
-						if (JavaBuilder.CLASS_EXTENSION.equalsIgnoreCase(resource.getFileExtension()))
-							resource.delete(IResource.FORCE, null);
-						return false;
-					}
-					return true;
-				}
-			}
-		);
-	}
-	notifier.checkCancel();
+protected void cleanUp() {
+	this.incrementalBuilder = null;
+	this.secondaryTypes = null;
+	this.typeLocatorsWithUndefinedTypes = null;
+	super.cleanUp();
 }
 
-protected void copyExtraResourcesBack() throws CoreException {
+protected void compile(SourceFile[] units, SourceFile[] additionalUnits, boolean compilingFirstGroup) {
+	if (additionalUnits != null && this.secondaryTypes == null)
+		this.secondaryTypes = new ArrayList(7);
+	super.compile(units, additionalUnits, compilingFirstGroup);
+}
+
+protected void copyExtraResourcesBack(ClasspathMultiDirectory sourceLocation, final boolean deletedAll) throws CoreException {
 	// When, if ever, does a builder need to copy resources files (not .java or .class) into the output folder?
 	// If we wipe the output folder at the beginning of the build then all 'extra' resources must be copied to the output folder.
 
-	final IPath outputPath = outputFolder.getFullPath();
-	for (int i = 0, length = sourceFolders.length; i < length; i++) {
-		IContainer sourceFolder = sourceFolders[i];
-		final IPath sourcePath = sourceFolder.getFullPath();
-		final int segmentCount = sourcePath.segmentCount();
-		sourceFolder.accept(
-			new IResourceVisitor() {
-				public boolean visit(IResource resource) throws CoreException {
-					switch(resource.getType()) {
-						case IResource.FILE :
-							String extension = resource.getFileExtension();
-							if (JavaBuilder.JAVA_EXTENSION.equalsIgnoreCase(extension)) return false;
-							if (JavaBuilder.CLASS_EXTENSION.equalsIgnoreCase(extension)) return false;
-							if (javaBuilder.filterResource(resource)) return false;
+	this.notifier.subTask(Messages.build_copyingResources);
+	final int segmentCount = sourceLocation.sourceFolder.getFullPath().segmentCount();
+	final char[][] exclusionPatterns = sourceLocation.exclusionPatterns;
+	final char[][] inclusionPatterns = sourceLocation.inclusionPatterns;
+	final IContainer outputFolder = sourceLocation.binaryFolder;
+	final boolean isAlsoProject = sourceLocation.sourceFolder.equals(this.javaBuilder.currentProject);
+	sourceLocation.sourceFolder.accept(
+		new IResourceProxyVisitor() {
+			public boolean visit(IResourceProxy proxy) throws CoreException {
+				IResource resource = null;
+				switch(proxy.getType()) {
+					case IResource.FILE :
+						if (org.eclipse.jdt.internal.core.util.Util.isJavaLikeFileName(proxy.getName()) ||
+							org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(proxy.getName())) return false;
 
-							IPath partialPath = resource.getFullPath().removeFirstSegments(segmentCount);
-							IResource copiedResource = outputFolder.getFile(partialPath);
-							if (copiedResource.exists()) {
-								createErrorFor(resource, Util.bind("build.duplicateResource")); //$NON-NLS-1$
-							} else {
-								resource.copy(copiedResource.getFullPath(), IResource.FORCE, null);
-								copiedResource.setDerived(true);
+						resource = proxy.requestResource();
+						if (BatchImageBuilder.this.javaBuilder.filterExtraResource(resource)) return false;
+						if (exclusionPatterns != null || inclusionPatterns != null)
+							if (Util.isExcluded(resource.getFullPath(), inclusionPatterns, exclusionPatterns, false))
+								return false;
+
+						IPath partialPath = resource.getFullPath().removeFirstSegments(segmentCount);
+						IResource copiedResource = outputFolder.getFile(partialPath);
+						if (copiedResource.exists()) {
+							if (deletedAll) {
+								IResource originalResource = findOriginalResource(partialPath);
+								String id = originalResource.getFullPath().removeFirstSegments(1).toString();
+								createProblemFor(
+									resource,
+									null,
+									Messages.bind(Messages.build_duplicateResource, id),
+									BatchImageBuilder.this.javaBuilder.javaProject.getOption(JavaCore.CORE_JAVA_BUILD_DUPLICATE_RESOURCE, true));
+								return false;
 							}
-							return false;
-						case IResource.FOLDER :
-							if (resource.getFullPath().equals(outputPath)) return false;
-							if (resource.getFullPath().equals(sourcePath)) return true;
-							if (javaBuilder.filterResource(resource)) return false;
-
-							getOutputFolder(resource.getFullPath().removeFirstSegments(segmentCount));
-					}
-					return true;
+							copiedResource.delete(IResource.FORCE, null); // last one wins
+						}
+						createFolder(partialPath.removeLastSegments(1), outputFolder); // ensure package folder exists
+						copyResource(resource, copiedResource);
+						return false;
+					case IResource.FOLDER :
+						resource = proxy.requestResource();
+						if (BatchImageBuilder.this.javaBuilder.filterExtraResource(resource)) return false;
+						if (isAlsoProject && isExcludedFromProject(resource.getFullPath())) return false; // the sourceFolder == project
+						if (exclusionPatterns != null && inclusionPatterns == null) // must walk children if inclusionPatterns != null
+							if (Util.isExcluded(resource.getFullPath(), null, exclusionPatterns, true))
+								return false;
 				}
+				return true;
 			}
-		);
+		},
+		IResource.NONE
+	);
+}
+
+protected IResource findOriginalResource(IPath partialPath) {
+	for (int i = 0, l = this.sourceLocations.length; i < l; i++) {
+		ClasspathMultiDirectory sourceLocation = this.sourceLocations[i];
+		if (sourceLocation.hasIndependentOutputFolder) {
+			IResource originalResource = sourceLocation.sourceFolder.getFile(partialPath);
+			if (originalResource.exists()) return originalResource;
+		}
 	}
+	return null;
+}
+
+private void printStats() {
+	if (this.compiler == null) return;
+	CompilerStats compilerStats = this.compiler.stats;
+	long time = compilerStats.elapsedTime();
+	long lineCount = compilerStats.lineCount;
+	double speed = ((int) (lineCount * 10000.0 / time)) / 10.0;
+	System.out.println(">FULL BUILD STATS for: "+this.javaBuilder.javaProject.getElementName()); //$NON-NLS-1$
+	System.out.println(">   compiled " + lineCount + " lines in " + time + "ms:" + speed + "lines/s"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$ //$NON-NLS-4$
+	System.out.print(">   parse: " + compilerStats.parseTime + " ms (" + ((int) (compilerStats.parseTime * 1000.0 / time)) / 10.0 + "%)"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+	System.out.print(", resolve: " + compilerStats.resolveTime + " ms (" + ((int) (compilerStats.resolveTime * 1000.0 / time)) / 10.0 + "%)"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+	System.out.print(", analyze: " + compilerStats.analyzeTime + " ms (" + ((int) (compilerStats.analyzeTime * 1000.0 / time)) / 10.0 + "%)"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+	System.out.println(", generate: " + compilerStats.generateTime + " ms (" + ((int) (compilerStats.generateTime * 1000.0 / time)) / 10.0 + "%)"); //$NON-NLS-1$ //$NON-NLS-2$ //$NON-NLS-3$
+}
+
+protected void processAnnotationResults(CompilationParticipantResult[] results) {
+	// to compile the compilation participant results, we need to incrementally recompile all affected types
+	// whenever the generated types are initially added or structurally changed
+	if (this.incrementalBuilder == null)
+		this.incrementalBuilder = new IncrementalImageBuilder(this);
+	this.incrementalBuilder.processAnnotationResults(results);
+}
+
+protected void rebuildTypesAffectedBySecondaryTypes() {
+	// to compile types that could not find 'missing' secondary types because of multiple
+	// compile groups, we need to incrementally recompile all affected types as if the missing
+	// secondary types have just been added, see bug 146324
+	if (this.incrementalBuilder == null)
+		this.incrementalBuilder = new IncrementalImageBuilder(this);
+
+	int count = this.secondaryTypes.size();
+	StringSet qualifiedNames = new StringSet(count * 2);
+	StringSet simpleNames = new StringSet(count);
+	StringSet rootNames = new StringSet(3);
+	while (--count >=0) {
+		char[] secondaryTypeName = (char[]) this.secondaryTypes.get(count);
+		IPath path = new Path(null, new String(secondaryTypeName));
+		this.incrementalBuilder.addDependentsOf(path, false, qualifiedNames, simpleNames, rootNames);
+	}
+	this.incrementalBuilder.addAffectedSourceFiles(
+		qualifiedNames,
+		simpleNames,
+		rootNames,
+		this.typeLocatorsWithUndefinedTypes);
+}
+
+protected void storeProblemsFor(SourceFile sourceFile, CategorizedProblem[] problems) throws CoreException {
+	if (sourceFile == null || problems == null || problems.length == 0) return;
+
+	for (int i = problems.length; --i >= 0;) {
+		CategorizedProblem problem = problems[i];
+		if (problem != null && problem.getID() == IProblem.UndefinedType) {
+			if (this.typeLocatorsWithUndefinedTypes == null)
+				this.typeLocatorsWithUndefinedTypes = new StringSet(3);
+			this.typeLocatorsWithUndefinedTypes.add(sourceFile.typeLocator());
+			break;
+		}
+	}
+
+	super.storeProblemsFor(sourceFile, problems);
 }
 
 public String toString() {
-	return "batch image builder for:\n\tnew state: " + newState; //$NON-NLS-1$
+	return "batch image builder for:\n\tnew state: " + this.newState; //$NON-NLS-1$
 }
 }

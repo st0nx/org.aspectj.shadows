@@ -1,21 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core.util;
 
 /**
  * Description of constant pool constants as described in the JVM specifications.
- * 
- * This interface is not intended to be implemented by clients. 
- *  
+ *
  * @since 2.0
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IConstantPoolConstant {
 
@@ -30,7 +29,7 @@ public interface IConstantPoolConstant {
 	int CONSTANT_Double = 6;
 	int CONSTANT_NameAndType = 12;
 	int CONSTANT_Utf8 = 1;
-	
+
 	int CONSTANT_Methodref_SIZE = 5;
 	int CONSTANT_Class_SIZE = 3;
 	int CONSTANT_Double_SIZE = 9;

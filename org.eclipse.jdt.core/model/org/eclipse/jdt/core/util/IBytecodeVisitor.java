@@ -1,22 +1,24 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core.util;
 
 /**
  * Description of a Java opcodes visitor. This should be used to walk the opcodes
  * of a ICodeAttribute.
- * 
- * This interface is not intended to be implemented by clients. 
- *  
+ *
+ * Clients must subclass {@link ByteCodeVisitorAdapter} to define an implementation
+ * of this interface.
+ *
  * @since 2.0
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IBytecodeVisitor {
 
@@ -164,6 +166,14 @@ public interface IBytecodeVisitor {
 		int pc,
 		int index,
 		IConstantPoolEntry constantClass);
+	/**
+	 * @since 3.6
+	 */
+	void _invokedynamic(
+			int pc,
+			int index,
+			IConstantPoolEntry nameEntry,
+			IConstantPoolEntry descriptorEntry);
 	void _invokeinterface(
 		int pc,
 		int index,
@@ -265,7 +275,7 @@ public interface IBytecodeVisitor {
 	void _sipush(int pc, short value);
 	void _swap(int pc);
 	void _tableswitch(
-		int pc, 
+		int pc,
 		int defaultoffset,
 		int low,
 		int high,
@@ -281,5 +291,5 @@ public interface IBytecodeVisitor {
 		int _const);
 	void _breakpoint(int pc);
 	void _impdep1(int pc);
-	void _impdep2(int pc);	
+	void _impdep2(int pc);
 }

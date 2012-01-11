@@ -1,26 +1,27 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core.jdom;
 
 /**
  * An <code>IDOMMember</code> defines functionality common to nodes, which
  * can be members of types.
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
  *
  * @see IDOMType
  * @see IDOMMethod
  * @see IDOMField
  * @see IDOMInitializer
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the
+ * org.eclipse.jdt.core.dom package.
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IDOMMember extends IDOMNode {
 /**
@@ -45,9 +46,9 @@ public int getFlags();
  * deprecated flag is automatically set to reflect the deprecated tag in the
  * comment.
  *
- * @param comment the comment, including comment delimiters, or 
+ * @param comment the comment, including comment delimiters, or
  *   <code>null</code> indicating this member should have no associated comment
- * @see #setFlags
+ * @see #setFlags(int)
  */
 public void setComment(String comment);
 /**

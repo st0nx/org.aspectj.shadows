@@ -1,25 +1,31 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.impl;
+
 /*
  * Implementors are valid compilation contexts from which we can
  * escape in case of error:
- *	i.e. method | type | compilation unit
+ *	For example: method, type or compilation unit.
  */
 
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 
 public interface ReferenceContext {
-	void abort(int abortLevel);
+
+	void abort(int abortLevel, CategorizedProblem problem);
+
 	CompilationResult compilationResult();
-	void tagAsHavingErrors();
+
 	boolean hasErrors();
+
+	void tagAsHavingErrors();
 }

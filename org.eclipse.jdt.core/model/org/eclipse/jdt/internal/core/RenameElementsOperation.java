@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.IJavaElement;
@@ -15,6 +15,7 @@ import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.ISourceReference;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * This operation renames elements.
@@ -41,7 +42,7 @@ public RenameElementsOperation(IJavaElement[] elements, IJavaElement[] destinati
  * @see MultiOperation
  */
 protected String getMainTaskName() {
-	return Util.bind("operation.renameElementProgress"); //$NON-NLS-1$
+	return Messages.operation_renameElementProgress;
 }
 /**
  * @see CopyElementsOperation#isRename()
@@ -56,7 +57,7 @@ protected IJavaModelStatus verify() {
 	IJavaModelStatus status = super.verify();
 	if (! status.isOK())
 		return status;
-	if (fRenamingsList == null || fRenamingsList.length == 0)
+	if (this.renamingsList == null || this.renamingsList.length == 0)
 		return new JavaModelStatus(IJavaModelStatusConstants.NULL_NAME);
 	return JavaModelStatus.VERIFIED_OK;
 }
@@ -64,20 +65,19 @@ protected IJavaModelStatus verify() {
  * @see MultiOperation
  */
 protected void verify(IJavaElement element) throws JavaModelException {
-	int elementType = element.getElementType();
-	
 	if (element == null || !element.exists())
 		error(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, element);
-		
+
 	if (element.isReadOnly())
 		error(IJavaModelStatusConstants.READ_ONLY, element);
-		
+
 	if (!(element instanceof ISourceReference))
 		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
-		
+
+	int elementType = element.getElementType();
 	if (elementType < IJavaElement.TYPE || elementType == IJavaElement.INITIALIZER)
 		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
-		
+
 	verifyRenaming(element);
 }
 }

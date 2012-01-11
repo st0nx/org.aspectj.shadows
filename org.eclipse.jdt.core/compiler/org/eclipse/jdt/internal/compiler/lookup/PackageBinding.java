@@ -1,27 +1,35 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfPackage;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfType;
 
 public class PackageBinding extends Binding implements TypeConstants {
+	public long tagBits = 0; // See values in the interface TagBits below
+
 	public char[][] compoundName;
 	PackageBinding parent;
-	LookupEnvironment environment;
+	public LookupEnvironment environment;
 	HashtableOfType knownTypes;
 	HashtableOfPackage knownPackages;
 protected PackageBinding() {
+	// for creating problem package
 }
+public PackageBinding(char[] topLevelPackageName, LookupEnvironment environment) {
+	this(new char[][] {topLevelPackageName}, null, environment);
+}
+/* Create the default package.
+*/
 public PackageBinding(char[][] compoundName, PackageBinding parent, LookupEnvironment environment) {
 	this.compoundName = compoundName;
 	this.parent = parent;
@@ -29,57 +37,60 @@ public PackageBinding(char[][] compoundName, PackageBinding parent, LookupEnviro
 	this.knownTypes = null; // initialized if used... class counts can be very large 300-600
 	this.knownPackages = new HashtableOfPackage(3); // sub-package counts are typically 0-3
 }
-public PackageBinding(char[] topLevelPackageName, LookupEnvironment environment) {
-	this(new char[][] {topLevelPackageName}, null, environment);
-}
-/* Create the default package.
-*/
 
 public PackageBinding(LookupEnvironment environment) {
-	this(NoCharChar, null, environment);
+	this(CharOperation.NO_CHAR_CHAR, null, environment);
 }
 private void addNotFoundPackage(char[] simpleName) {
-	knownPackages.put(simpleName, environment.theNotFoundPackage);
+	this.knownPackages.put(simpleName, LookupEnvironment.TheNotFoundPackage);
 }
 private void addNotFoundType(char[] simpleName) {
-	if (knownTypes == null)
-		knownTypes = new HashtableOfType(25);
-	knownTypes.put(simpleName, environment.theNotFoundType);
+	if (this.knownTypes == null)
+		this.knownTypes = new HashtableOfType(25);
+	this.knownTypes.put(simpleName, LookupEnvironment.TheNotFoundType);
 }
 void addPackage(PackageBinding element) {
-	knownPackages.put(element.compoundName[element.compoundName.length - 1], element);
+	if ((element.tagBits & TagBits.HasMissingType) == 0) clearMissingTagBit();
+	this.knownPackages.put(element.compoundName[element.compoundName.length - 1], element);
 }
 void addType(ReferenceBinding element) {
-	if (knownTypes == null)
-		knownTypes = new HashtableOfType(25);
-	knownTypes.put(element.compoundName[element.compoundName.length - 1], element);
+	if ((element.tagBits & TagBits.HasMissingType) == 0) clearMissingTagBit();
+	if (this.knownTypes == null)
+		this.knownTypes = new HashtableOfType(25);
+	this.knownTypes.put(element.compoundName[element.compoundName.length - 1], element);
 }
-/* API
-* Answer the receiver's binding type from Binding.BindingID.
-*/
 
-public final int bindingType() {
-	return PACKAGE;
+void clearMissingTagBit() {
+	PackageBinding current = this;
+	do {
+		current.tagBits &= ~TagBits.HasMissingType;
+	} while ((current = current.parent) != null);
+}
+/*
+ * slash separated name
+ * org.eclipse.jdt.core --> org/eclipse/jdt/core
+ */
+public char[] computeUniqueKey(boolean isLeaf) {
+	return CharOperation.concatWith(this.compoundName, '/');
 }
 private PackageBinding findPackage(char[] name) {
-	if (!environment.isPackage(this.compoundName, name))
+	if (!this.environment.isPackage(this.compoundName, name))
 		return null;
 
-	char[][] compoundName = CharOperation.arrayConcat(this.compoundName, name);
-	PackageBinding newPackageBinding = new PackageBinding(compoundName, this, environment);
-	addPackage(newPackageBinding);
-	return newPackageBinding;
+	char[][] subPkgCompoundName = CharOperation.arrayConcat(this.compoundName, name);
+	PackageBinding subPackageBinding = new PackageBinding(subPkgCompoundName, this, this.environment);
+	addPackage(subPackageBinding);
+	return subPackageBinding;
 }
 /* Answer the subpackage named name; ask the oracle for the package if its not in the cache.
 * Answer null if it could not be resolved.
 *
 * NOTE: This should only be used when we know there is NOT a type with the same name.
 */
-
 PackageBinding getPackage(char[] name) {
 	PackageBinding binding = getPackage0(name);
 	if (binding != null) {
-		if (binding == environment.theNotFoundPackage)
+		if (binding == LookupEnvironment.TheNotFoundPackage)
 			return null;
 		else
 			return binding;
@@ -100,7 +111,7 @@ PackageBinding getPackage(char[] name) {
 */
 
 PackageBinding getPackage0(char[] name) {
-	return knownPackages.get(name);
+	return this.knownPackages.get(name);
 }
 /* Answer the type named name; ask the oracle for the type if its not in the cache.
 * Answer a NotVisible problem type if the type is not visible from the invocationPackage.
@@ -111,22 +122,22 @@ PackageBinding getPackage0(char[] name) {
 */
 
 ReferenceBinding getType(char[] name) {
-	ReferenceBinding binding = getType0(name);
-	if (binding == null) {
-		if ((binding = environment.askForType(this, name)) == null) {
+	ReferenceBinding referenceBinding = getType0(name);
+	if (referenceBinding == null) {
+		if ((referenceBinding = this.environment.askForType(this, name)) == null) {
 			// not found so remember a problem type binding in the cache for future lookups
 			addNotFoundType(name);
 			return null;
 		}
 	}
 
-	if (binding == environment.theNotFoundType)
+	if (referenceBinding == LookupEnvironment.TheNotFoundType)
 		return null;
-	if (binding instanceof UnresolvedReferenceBinding)
-		binding = ((UnresolvedReferenceBinding) binding).resolve(environment);
-	if (binding.isNestedType())
-		return new ProblemReferenceBinding(name, InternalNameProvided);
-	return binding;
+
+	referenceBinding = (ReferenceBinding) BinaryTypeBinding.resolveType(referenceBinding, this.environment, false /* no raw conversion for now */);
+	if (referenceBinding.isNestedType())
+		return new ProblemReferenceBinding(new char[][]{ name }, referenceBinding, ProblemReasons.InternalNameProvided);
+	return referenceBinding;
 }
 /* Answer the type named name if it exists in the cache.
 * Answer theNotFoundType if it could not be resolved the first time
@@ -137,69 +148,101 @@ ReferenceBinding getType(char[] name) {
 */
 
 ReferenceBinding getType0(char[] name) {
-	if (knownTypes == null)
+	if (this.knownTypes == null)
 		return null;
-	return knownTypes.get(name);
+	return this.knownTypes.get(name);
 }
 /* Answer the package or type named name; ask the oracle if it is not in the cache.
 * Answer null if it could not be resolved.
 *
-* When collisions exist between a type name & a package name, answer the package.
-* Treat the type as if it does not exist... a problem was already reported when the type was defined.
+* When collisions exist between a type name & a package name, answer the type.
+* Treat the package as if it does not exist... a problem was already reported when the type was defined.
 *
 * NOTE: no visibility checks are performed.
 * THIS SHOULD ONLY BE USED BY SOURCE TYPES/SCOPES.
 */
 
 public Binding getTypeOrPackage(char[] name) {
-	PackageBinding packageBinding = getPackage0(name);
-	if (packageBinding != null && packageBinding != environment.theNotFoundPackage)
-		return packageBinding;
-
-	ReferenceBinding typeBinding = getType0(name);
-	if (typeBinding != null && typeBinding != environment.theNotFoundType) {
-		if (typeBinding instanceof UnresolvedReferenceBinding)
-			typeBinding = ((UnresolvedReferenceBinding) typeBinding).resolve(environment);
-		if (typeBinding.isNestedType())
-			return new ProblemReferenceBinding(name, InternalNameProvided);
-		return typeBinding;
+	ReferenceBinding referenceBinding = getType0(name);
+	if (referenceBinding != null && referenceBinding != LookupEnvironment.TheNotFoundType) {
+		referenceBinding = (ReferenceBinding) BinaryTypeBinding.resolveType(referenceBinding, this.environment, false /* no raw conversion for now */);
+		if (referenceBinding.isNestedType()) {
+			return new ProblemReferenceBinding(new char[][]{name}, referenceBinding, ProblemReasons.InternalNameProvided);
+		}
+		if ((referenceBinding.tagBits & TagBits.HasMissingType) == 0) {
+			return referenceBinding;
+		}
+		// referenceBinding is a MissingType, will return it if no package is found
 	}
 
-	if (typeBinding == null && packageBinding == null) {
-		// find the package
-		if ((packageBinding = findPackage(name)) != null)
-			return packageBinding;
-
-		// if no package was found, find the type named name relative to the receiver
-		if ((typeBinding = environment.askForType(this, name)) != null) {
-			if (typeBinding.isNestedType())
-				return new ProblemReferenceBinding(name, InternalNameProvided);
-			return typeBinding;
+	PackageBinding packageBinding = getPackage0(name);
+	if (packageBinding != null && packageBinding != LookupEnvironment.TheNotFoundPackage) {
+		return packageBinding;
+	}
+	if (referenceBinding == null) { // have not looked for it before
+		if ((referenceBinding = this.environment.askForType(this, name)) != null) {
+			if (referenceBinding.isNestedType()) {
+				return new ProblemReferenceBinding(new char[][]{name}, referenceBinding, ProblemReasons.InternalNameProvided);
+			}
+			return referenceBinding;
 		}
 
-		// Since name could not be found, add problem bindings
+		// Since name could not be found, add a problem binding
 		// to the collections so it will be reported as an error next time.
-		addNotFoundPackage(name);
 		addNotFoundType(name);
-	} else {
-		if (packageBinding == environment.theNotFoundPackage)
-			packageBinding = null;
-		if (typeBinding == environment.theNotFoundType)
-			typeBinding = null;
 	}
 
-	if (packageBinding != null)
-		return packageBinding;
-	else
-		return typeBinding;
+	if (packageBinding == null) { // have not looked for it before
+		if ((packageBinding = findPackage(name)) != null) {
+			return packageBinding;
+		}
+		if (referenceBinding != null && referenceBinding != LookupEnvironment.TheNotFoundType) {
+			return referenceBinding; // found cached missing type - check if package conflict
+		}
+		addNotFoundPackage(name);
+	}
+
+	return null;
 }
+public final boolean isViewedAsDeprecated() {
+	if ((this.tagBits & TagBits.DeprecatedAnnotationResolved) == 0) {
+		this.tagBits |= TagBits.DeprecatedAnnotationResolved;
+		if (this.compoundName != CharOperation.NO_CHAR_CHAR) {
+			ReferenceBinding packageInfo = this.getType(TypeConstants.PACKAGE_INFO_NAME);
+			if (packageInfo != null) {
+				packageInfo.initializeDeprecatedAnnotationTagBits();
+				this.tagBits |= packageInfo.tagBits & TagBits.AllStandardAnnotationsMask;
+			}
+		}
+	}
+	return (this.tagBits & TagBits.AnnotationDeprecated) != 0;
+}
+/* API
+* Answer the receiver's binding type from Binding.BindingID.
+*/
+public final int kind() {
+	return Binding.PACKAGE;
+}
+
+public int problemId() {
+	if ((this.tagBits & TagBits.HasMissingType) != 0)
+		return ProblemReasons.NotFound;
+	return ProblemReasons.NoError;
+}
+
 public char[] readableName() /*java.lang*/ {
-	return CharOperation.concatWith(compoundName, '.');
+	return CharOperation.concatWith(this.compoundName, '.');
 }
 public String toString() {
-	if (compoundName == NoCharChar)
-		return "The Default Package"; //$NON-NLS-1$
-	else
-		return "package " + ((compoundName != null) ? CharOperation.toString(compoundName) : "UNNAMED"); //$NON-NLS-1$ //$NON-NLS-2$
+	String str;
+	if (this.compoundName == CharOperation.NO_CHAR_CHAR) {
+		str = "The Default Package"; //$NON-NLS-1$
+	} else {
+		str = "package " + ((this.compoundName != null) ? CharOperation.toString(this.compoundName) : "UNNAMED"); //$NON-NLS-1$ //$NON-NLS-2$
+	}
+	if ((this.tagBits & TagBits.HasMissingType) != 0) {
+		str += "[MISSING]"; //$NON-NLS-1$
+	}
+	return str;
 }
 }

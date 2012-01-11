@@ -1,23 +1,30 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.util.Iterator;
+
+import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.IField;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.DOMFactory;
-import org.eclipse.jdt.core.jdom.IDOMField;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.FieldDeclaration;
+import org.eclipse.jdt.core.dom.SimpleName;
+import org.eclipse.jdt.core.dom.VariableDeclarationFragment;
+import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * <p>This operation creates a field declaration in a type.
@@ -40,35 +47,39 @@ public class CreateFieldOperation extends CreateTypeMemberOperation {
 public CreateFieldOperation(IType parentElement, String source, boolean force) {
 	super(parentElement, source, force);
 }
-/**
- * @see CreateTypeMemberOperation#generateElementDOM
- */
-protected IDOMNode generateElementDOM() throws JavaModelException {
-	if (fDOMNode == null) {
-		fDOMNode = (new DOMFactory()).createField(fSource);
-		if (fDOMNode == null) {
-			fDOMNode = generateSyntaxIncorrectDOM();
-		}
-		if (fAlteredName != null && fDOMNode != null) {
-			fDOMNode.setName(fAlteredName);
-		}
-	}
-	if (!(fDOMNode instanceof IDOMField)) {
-		return null;
-	}
-	return fDOMNode;
+protected ASTNode generateElementAST(ASTRewrite rewriter, ICompilationUnit cu) throws JavaModelException {
+	ASTNode node = super.generateElementAST(rewriter, cu);
+	if (node.getNodeType() != ASTNode.FIELD_DECLARATION)
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
+	return node;
 }
 /**
  * @see CreateElementInCUOperation#generateResultHandle
  */
 protected IJavaElement generateResultHandle() {
-	return getType().getField(fDOMNode.getName());
+	return getType().getField(getASTNodeName());
 }
 /**
  * @see CreateElementInCUOperation#getMainTaskName()
  */
 public String getMainTaskName(){
-	return Util.bind("operation.createFieldProgress"); //$NON-NLS-1$
+	return Messages.operation_createFieldProgress;
+}
+private VariableDeclarationFragment getFragment(ASTNode node) {
+	Iterator fragments =  ((FieldDeclaration) node).fragments().iterator();
+	if (this.anchorElement != null) {
+		VariableDeclarationFragment fragment = null;
+		String fragmentName = this.anchorElement.getElementName();
+		while (fragments.hasNext()) {
+			fragment = (VariableDeclarationFragment) fragments.next();
+			if (fragment.getName().getIdentifier().equals(fragmentName)) {
+				return fragment;
+			}
+		}
+		return fragment;
+	} else {
+		return (VariableDeclarationFragment) fragments.next();
+	}
 }
 /**
  * By default the new field is positioned after the last existing field
@@ -78,26 +89,50 @@ public String getMainTaskName(){
 protected void initializeDefaultPosition() {
 	IType parentElement = getType();
 	try {
-		IJavaElement[] elements = parentElement.getFields();
-		if (elements != null && elements.length > 0) {
-			createAfter(elements[elements.length - 1]);
+		IField[] fields = parentElement.getFields();
+		if (fields != null && fields.length > 0) {
+			final IField lastField = fields[fields.length - 1];
+			if (parentElement.isEnum()) {
+				IField field = lastField;
+				if (!field.isEnumConstant()) {
+					createAfter(lastField);
+				}
+			} else {
+				createAfter(lastField);
+			}
 		} else {
-			elements = parentElement.getChildren();
+			IJavaElement[] elements = parentElement.getChildren();
 			if (elements != null && elements.length > 0) {
 				createBefore(elements[0]);
 			}
 		}
 	} catch (JavaModelException e) {
+		// type doesn't exist: ignore
 	}
 }
 /**
  * @see CreateTypeMemberOperation#verifyNameCollision
  */
 protected IJavaModelStatus verifyNameCollision() {
-	IType type= getType();
-	if (type.getField(fDOMNode.getName()).exists()) {
-		return new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION);
+	if (this.createdNode != null) {
+		IType type= getType();
+		String fieldName = getASTNodeName();
+		if (type.getField(fieldName).exists()) {
+			return new JavaModelStatus(
+				IJavaModelStatusConstants.NAME_COLLISION,
+				Messages.bind(Messages.status_nameCollision, fieldName));
+		}
 	}
 	return JavaModelStatus.VERIFIED_OK;
+}
+private String getASTNodeName() {
+	if (this.alteredName != null) return this.alteredName;
+	return getFragment(this.createdNode).getName().getIdentifier();
+}
+protected SimpleName rename(ASTNode node, SimpleName newName) {
+	VariableDeclarationFragment fragment = getFragment(node);
+	SimpleName oldName = fragment.getName();
+	fragment.setName(newName);
+	return oldName;
 }
 }

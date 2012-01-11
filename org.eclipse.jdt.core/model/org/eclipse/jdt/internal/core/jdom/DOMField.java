@@ -1,34 +1,35 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.jdom;
 
 import java.util.Enumeration;
 
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.jdom.DOMException;
-import org.eclipse.jdt.core.jdom.IDOMField;
-import org.eclipse.jdt.core.jdom.IDOMNode;
-import org.eclipse.jdt.internal.compiler.util.Util;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.core.jdom.*;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
-import org.eclipse.jdt.internal.core.util.CharArrayOps;
-
+import org.eclipse.jdt.internal.core.util.Util;
 /**
  * DOMField provides an implementation of IDOMField.
  *
  * @see IDOMField
  * @see DOMNode
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the
+ * org.eclipse.jdt.core.dom package.
  */
 class DOMField extends DOMMember implements IDOMField {
-	
+
 	/**
 	 * Contains the type of the field when the type
 	 * has been altered from the contents in the
@@ -41,7 +42,7 @@ class DOMField extends DOMMember implements IDOMField {
 	 * field's type in the document.
 	 */
 	protected int[] fTypeRange;
-		
+
 	/**
 	 * The contents of the initializer when the
 	 * initializer has been altered from the
@@ -60,6 +61,7 @@ class DOMField extends DOMMember implements IDOMField {
  * Constructs an empty field node.
  */
 DOMField() {
+	// Constructs an empty field node
 }
 /**
  * Creates a new detailed FIELD document fragment on the given range of the document.
@@ -88,9 +90,9 @@ DOMField() {
  *		is the first character of the first modifier for this member, and
  *		the second integer is the last whitespace character preceeding the
  *		next part of this member declaration. If there are no modifiers present
- *		in this node's source code (i.e. default protection), this array
+ *		in this node's source code (that is, package default visibility), this array
  *		contains two -1's.
- * @param typeRange- a two element array describing the location of the
+ * @param typeRange - a two element array describing the location of the
  *		typeName in the document - the positions of the first and last characters
  *		of the typeName.
  * @param type - the type of the field, in normalized form, as defined in
@@ -108,10 +110,10 @@ DOMField() {
 DOMField(char[] document, int[] sourceRange, String name, int[] nameRange, int[] commentRange, int flags, int[] modifierRange, int[] typeRange, String type, boolean hasInitializer, int[] initRange, boolean isVariableDeclarator) {
 	super(document, sourceRange, name, nameRange, commentRange, flags, modifierRange);
 
-	fType= type;
-	fTypeRange= typeRange;
+	this.fType= type;
+	this.fTypeRange= typeRange;
 	setHasInitializer(hasInitializer);
-	fInitializerRange= initRange;
+	this.fInitializerRange= initRange;
 	setIsVariableDeclarator(isVariableDeclarator);
 	setMask(MASK_DETAILED_SOURCE_INDEXES, true);
 
@@ -150,38 +152,40 @@ DOMField(char[] document, int[] sourceRange, String name, int[] nameRange, int f
  *
  * @see DOMMember#appendMemberBodyContents(CharArrayBuffer)
  */
-protected void appendMemberBodyContents(CharArrayBuffer buffer) {}
+protected void appendMemberBodyContents(CharArrayBuffer buffer) {
+	// nothing to do
+}
 /**
  * @see DOMMember#appendMemberDeclarationContents(CharArrayBuffer)
  */
 protected void appendMemberDeclarationContents(CharArrayBuffer buffer) {
 
 	if (isVariableDeclarator()) {
-		buffer.append(fDocument, fSourceRange[0], fNameRange[0] - fSourceRange[0]);
+		buffer.append(this.fDocument, this.fSourceRange[0], this.fNameRange[0] - this.fSourceRange[0]);
 	} else {
 		buffer
 			.append(getTypeContents())
-			.append(fDocument, fTypeRange[1] + 1, fNameRange[0] - fTypeRange[1] - 1);
+			.append(this.fDocument, this.fTypeRange[1] + 1, this.fNameRange[0] - this.fTypeRange[1] - 1);
 	}
-	
+
 	buffer.append(getNameContents());
 	if (hasInitializer()) {
-		if (fInitializerRange[0] < 0) {
+		if (this.fInitializerRange[0] < 0) {
 			buffer
 				.append('=')
-				.append(fInitializer)
-				.append(fDocument, fNameRange[1] + 1, fSourceRange[1] - fNameRange[1]);
+				.append(this.fInitializer)
+				.append(this.fDocument, this.fNameRange[1] + 1, this.fSourceRange[1] - this.fNameRange[1]);
 		} else {
 			buffer
-				.append(fDocument, fNameRange[1] + 1, fInitializerRange[0] - fNameRange[1] - 1)
+				.append(this.fDocument, this.fNameRange[1] + 1, this.fInitializerRange[0] - this.fNameRange[1] - 1)
 				.append(getInitializer())
-				.append(fDocument, fInitializerRange[1] + 1, fSourceRange[1] - fInitializerRange[1]);
+				.append(this.fDocument, this.fInitializerRange[1] + 1, this.fSourceRange[1] - this.fInitializerRange[1]);
 		}
 	} else {
-		if (fInitializerRange[0] < 0) {
-			buffer.append(fDocument, fNameRange[1] + 1, fSourceRange[1] - fNameRange[1]);
+		if (this.fInitializerRange[0] < 0) {
+			buffer.append(this.fDocument, this.fNameRange[1] + 1, this.fSourceRange[1] - this.fNameRange[1]);
 		} else {
-			buffer.append(fDocument, fInitializerRange[1] + 1, fSourceRange[1] - fInitializerRange[1]);
+			buffer.append(this.fDocument, this.fInitializerRange[1] + 1, this.fSourceRange[1] - this.fInitializerRange[1]);
 		}
 	}
 
@@ -208,11 +212,11 @@ protected void appendMemberHeaderFragment(CharArrayBuffer buffer) {
  */
 protected void appendSimpleContents(CharArrayBuffer buffer) {
 	// append eveything before my name
-	buffer.append(fDocument, fSourceRange[0], fNameRange[0] - fSourceRange[0]);
+	buffer.append(this.fDocument, this.fSourceRange[0], this.fNameRange[0] - this.fSourceRange[0]);
 	// append my name
-	buffer.append(fName);
+	buffer.append(this.fName);
 	// append everything after my name
-	buffer.append(fDocument, fNameRange[1] + 1, fSourceRange[1] - fNameRange[1]);
+	buffer.append(this.fDocument, this.fNameRange[1] + 1, this.fSourceRange[1] - this.fNameRange[1]);
 }
 /**
  * Generates detailed source indexes for this node if possible.
@@ -234,7 +238,7 @@ protected void becomeDetailed() throws DOMException {
 			DOMBuilder builder = new DOMBuilder();
 			IDOMField[] details= builder.createFields(source.toCharArray());
 			if (details.length == 0) {
-				throw new DOMException(Util.bind("dom.cannotDetail")); //$NON-NLS-1$
+				throw new DOMException(Messages.dom_cannotDetail);
 			} else {
 				node= this;
 				for (int i= 0; i < details.length; i++) {
@@ -260,7 +264,7 @@ public Object clone() {
 }
 /**
  * Expands all variable declarators in this field declaration into
- * stand-alone field declarations. 
+ * stand-alone field declarations.
  */
 protected void expand() {
 	if (isVariableDeclarator() || hasMultipleVariableDeclarators()) {
@@ -294,7 +298,7 @@ protected DOMNode getDetailedNode() {
  */
 protected DOMField getFirstFieldDeclaration() {
 	if (isVariableDeclarator()) {
-		return ((DOMField)fPreviousNode).getFirstFieldDeclaration();
+		return ((DOMField)this.fPreviousNode).getFirstFieldDeclaration();
 	} else {
 		return this;
 	}
@@ -305,10 +309,10 @@ protected DOMField getFirstFieldDeclaration() {
 public String getInitializer() {
 	becomeDetailed();
 	if (hasInitializer()) {
-		if (fInitializer != null) {
-			return fInitializer;
+		if (this.fInitializer != null) {
+			return this.fInitializer;
 		} else {
-			return CharArrayOps.substring(fDocument, fInitializerRange[0], fInitializerRange[1] + 1 - fInitializerRange[0]);
+			return new String(this.fDocument, this.fInitializerRange[0], this.fInitializerRange[1] + 1 - this.fInitializerRange[0]);
 		}
 	} else {
 		return null;
@@ -321,7 +325,7 @@ public IJavaElement getJavaElement(IJavaElement parent) throws IllegalArgumentEx
 	if (parent.getElementType() == IJavaElement.TYPE) {
 		return ((IType)parent).getField(getName());
 	} else {
-		throw new IllegalArgumentException(Util.bind("element.illegalParent")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.element_illegalParent);
 	}
 }
 /**
@@ -342,7 +346,7 @@ protected DOMField getLastFieldDeclaration() {
  * @see DOMMember#getMemberDeclarationStartPosition()
  */
 protected int getMemberDeclarationStartPosition() {
-	return fTypeRange[0];
+	return this.fTypeRange[0];
 }
 /**
  * @see IDOMNode#getNodeType()
@@ -365,29 +369,29 @@ protected char[] getSingleVariableDeclaratorContents() {
 		if (isVariableDeclarator()) {
 			buffer.append(' ');
 		} else {
-			buffer.append(fDocument, fTypeRange[1] + 1, fNameRange[0] - fTypeRange[1] - 1);
+			buffer.append(this.fDocument, this.fTypeRange[1] + 1, this.fNameRange[0] - this.fTypeRange[1] - 1);
 		}
 	} else {
 		buffer.append(first.fDocument, first.fSourceRange[0], first.fNameRange[0] - first.fSourceRange[0]);
 	}
-	
+
 	buffer.append(getName());
 	if (hasInitializer()) {
-		if (fInitializerRange[0] < 0) {
+		if (this.fInitializerRange[0] < 0) {
 			buffer
 				.append('=')
-				.append(fInitializer)
+				.append(this.fInitializer)
 				.append(';')
-				.append(Util.LINE_SEPARATOR);
+				.append(Util.getLineSeparator(buffer.toString(), null));
 		} else {
 			buffer
-				.append(fDocument, fNameRange[1] + 1, fInitializerRange[0] - fNameRange[1] - 1)
+				.append(this.fDocument, this.fNameRange[1] + 1, this.fInitializerRange[0] - this.fNameRange[1] - 1)
 				.append(getInitializer())
 				.append(';')
-				.append(Util.LINE_SEPARATOR);
+				.append(Util.getLineSeparator(buffer.toString(), null));
 		}
 	} else {
-		buffer.append(';').append(Util.LINE_SEPARATOR);
+		buffer.append(';').append(Util.getLineSeparator(buffer.toString(), null));
 	}
 	return buffer.getContents();
 }
@@ -395,7 +399,7 @@ protected char[] getSingleVariableDeclaratorContents() {
  * @see IDOMField#getType()
  */
 public String getType() {
-	return fType;
+	return this.fType;
 }
 /**
  * Returns the souce code to be used for this
@@ -403,9 +407,9 @@ public String getType() {
  */
 protected char[] getTypeContents() {
 	if (isTypeAltered()) {
-		return fType.toCharArray();
+		return this.fType.toCharArray();
 	} else {
-		return CharArrayOps.subarray(fDocument, fTypeRange[0], fTypeRange[1] + 1 - fTypeRange[0]); 
+		return CharOperation.subarray(this.fDocument, this.fTypeRange[0], this.fTypeRange[1] + 1);
 	}
 }
 /**
@@ -420,8 +424,8 @@ protected boolean hasInitializer() {
  * variable declarator, otherwise false;
  */
 protected boolean hasMultipleVariableDeclarators() {
-	return fNextNode != null && (fNextNode instanceof DOMField) &&
-		((DOMField)fNextNode).isVariableDeclarator();
+	return this.fNextNode != null && (this.fNextNode instanceof DOMField) &&
+		((DOMField)this.fNextNode).isVariableDeclarator();
 }
 /**
  * Inserts the given un-parented node as a sibling of this node, immediately before
@@ -435,7 +439,7 @@ protected boolean hasMultipleVariableDeclarators() {
 public void insertSibling(IDOMNode sibling) throws IllegalArgumentException, DOMException {
 	if (isVariableDeclarator()) {
 		expand();
-	} 
+	}
 	super.insertSibling(sibling);
 }
 /**
@@ -467,23 +471,23 @@ void normalizeEndPosition(ILineStartFinder finder, DOMNode next) {
 		// to the end of the enclosing node
 		DOMNode parent = (DOMNode) getParent();
 		if (parent == null || parent instanceof DOMCompilationUnit) {
-			setSourceRangeEnd(fDocument.length - 1);
+			setSourceRangeEnd(this.fDocument.length - 1);
 		} else {
 			// parent is a type
 			int temp = ((DOMType)parent).getCloseBodyPosition() - 1;
 			setSourceRangeEnd(temp);
-			fInsertionPosition = Math.max(finder.getLineStart(temp + 1), getEndPosition());
+			this.fInsertionPosition = Math.max(finder.getLineStart(temp + 1), getEndPosition());
 		}
 	} else {
 		// this node's end position is just before the start of the next node
 		// unless the next node is a field that is declared along with this one
 		int temp = next.getStartPosition() - 1;
-		fInsertionPosition = Math.max(finder.getLineStart(temp + 1), getEndPosition());
-		
+		this.fInsertionPosition = Math.max(finder.getLineStart(temp + 1), getEndPosition());
+
 		next.normalizeStartPosition(getEndPosition(), finder);
 		if (next instanceof DOMField) {
 			DOMField field = (DOMField) next;
-			if (field.isVariableDeclarator() && fTypeRange[0] == field.fTypeRange[0])
+			if (field.isVariableDeclarator() && this.fTypeRange[0] == field.fTypeRange[0])
 				return;
 		}
 		setSourceRangeEnd(next.getStartPosition() - 1);
@@ -495,7 +499,7 @@ void normalizeEndPosition(ILineStartFinder finder, DOMNode next) {
 void normalizeStartPosition(int endPosition, ILineStartFinder finder) {
 	if (isVariableDeclarator()) {
 		// start position is end of last element
-		setStartPosition(fPreviousNode.getEndPosition() + 1);
+		setStartPosition(this.fPreviousNode.getEndPosition() + 1);
 	} else {
 		super.normalizeStartPosition(endPosition, finder);
 	}
@@ -505,8 +509,8 @@ void normalizeStartPosition(int endPosition, ILineStartFinder finder) {
  */
 protected void offset(int offset) {
 	super.offset(offset);
-	offsetRange(fInitializerRange, offset);
-	offsetRange(fTypeRange, offset);
+	offsetRange(this.fInitializerRange, offset);
+	offsetRange(this.fTypeRange, offset);
 }
 /**
  * Separates this node from its parent and siblings, maintaining any ties that
@@ -543,20 +547,20 @@ protected void setHasInitializer(boolean hasInitializer) {
 	setMask(MASK_FIELD_HAS_INITIALIZER, hasInitializer);
 }
 /**
- * @see IDOMField#setInitializer(char[])
+ * @see IDOMField#setInitializer(String)
  */
 public void setInitializer(String initializer) {
 	becomeDetailed();
 	fragment();
 	setHasInitializer(initializer != null);
-	fInitializer= initializer;
+	this.fInitializer= initializer;
 }
 /**
  * Sets the initializer range.
  */
 void setInitializerRange(int start, int end) {
-	fInitializerRange[0] = start;
-	fInitializerRange[1] = end;
+	this.fInitializerRange[0] = start;
+	this.fInitializerRange[1] = end;
 }
 /**
  * Sets the state of this field declaration as being a
@@ -567,29 +571,29 @@ protected void setIsVariableDeclarator(boolean isVariableDeclarator) {
 	setMask(MASK_FIELD_IS_VARIABLE_DECLARATOR, isVariableDeclarator);
 }
 /**
- * @see IDOMField#setName(char[])
+ * @see IDOMField#setName(String)
  */
 public void setName(String name) throws IllegalArgumentException {
 	if (name == null) {
-		throw new IllegalArgumentException(Util.bind("element.nullName")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.element_nullName);
 	} else {
 		super.setName(name);
 		setTypeAltered(true);
 	}
 }
 /**
- * @see IDOMField#setType(char[])
+ * @see IDOMField#setType(String)
  */
 public void setType(String typeName) throws IllegalArgumentException {
 	if (typeName == null) {
-		throw new IllegalArgumentException(Util.bind("element.nullType")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.element_nullType);
 	}
 	becomeDetailed();
 	expand();
 	fragment();
 	setTypeAltered(true);
 	setNameAltered(true);
-	fType= typeName;
+	this.fType= typeName;
 }
 /**
  * Sets the state of this field declaration as having
@@ -604,10 +608,10 @@ protected void setTypeAltered(boolean typeAltered) {
 protected void shareContents(DOMNode node) {
 	super.shareContents(node);
 	DOMField field= (DOMField)node;
-	fInitializer= field.fInitializer;
-	fInitializerRange= rangeCopy(field.fInitializerRange);
-	fType= field.fType;
-	fTypeRange= rangeCopy(field.fTypeRange);
+	this.fInitializer= field.fInitializer;
+	this.fInitializerRange= rangeCopy(field.fInitializerRange);
+	this.fType= field.fType;
+	this.fTypeRange= rangeCopy(field.fTypeRange);
 }
 /**
  * @see IDOMNode#toString()

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.codeassist.complete;
 
 /*
@@ -31,23 +31,21 @@ package org.eclipse.jdt.internal.codeassist.complete;
  * The arguments of the allocation expression are all the arguments defined
  * before the cursor.
  */
- 
+
 import org.eclipse.jdt.internal.compiler.ast.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 
 public class CompletionOnPackageReference extends ImportReference {
 public CompletionOnPackageReference(char[][] tokens , long[] positions) {
-	super(tokens, positions, true);
+	super(tokens, positions, false, ClassFileConstants.AccDefault);
 }
-public String toString(int tab, boolean withOnDemand) {
-	StringBuffer buffer = new StringBuffer(tabString(tab));
-	buffer.	append("<CompleteOnPackage:"); //$NON-NLS-1$
-	for (int i = 0; i < tokens.length; i++) {
-		buffer.append(tokens[i]);
-		if (i < (tokens.length - 1)) {
-			buffer.append("."); //$NON-NLS-1$
-		}
+public StringBuffer print(int indent, StringBuffer output, boolean withOnDemand) {
+
+	printIndent(indent, output).append("<CompleteOnPackage:"); //$NON-NLS-1$
+	for (int i = 0; i < this.tokens.length; i++) {
+		if (i > 0) output.append('.');
+		output.append(this.tokens[i]);
 	}
-	buffer.append(">"); //$NON-NLS-1$
-	return buffer.toString();
+	return output.append('>');
 }
 }

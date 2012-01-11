@@ -1,24 +1,33 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.io.ByteArrayInputStream;
+import java.io.UnsupportedEncodingException;
+
+import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IResource;
+import org.eclipse.core.resources.IWorkspace;
+import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.jobs.ISchedulingRule;
 import org.eclipse.jdt.core.IBuffer;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
-import org.eclipse.jdt.core.IPackageDeclaration;
-import org.eclipse.jdt.core.IPackageFragment;
+import org.eclipse.jdt.core.IJavaProject;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.Messages;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * Commits the contents of a working copy compilation
@@ -46,133 +55,167 @@ import org.eclipse.jdt.core.JavaModelException;
  * containing the compilation unit).
  */
 public class CommitWorkingCopyOperation extends JavaModelOperation {
-/**
- * Constructs an operation to commit the contents of a working copy
- * to its original compilation unit.
- */
-public CommitWorkingCopyOperation(ICompilationUnit element, boolean force) {
-	super(new IJavaElement[] {element}, force);
-}
-/**
- * Checks that the package declaration in the compilation unit matches the actual
- * package fragment the CU is defined in.
- *
- * @exception JavaModelException with an <code>INVALID_PACKAGE</code> JavaModelStatus if the
- * package declaration is invalid.
- * @see IJavaModelStatusConstants.INVALID_PACKAGE
- */
-private void checkPackageDeclaration(ICompilationUnit cu)
-	throws JavaModelException {
-	IPackageFragment frag = (IPackageFragment) cu.getParent();
-	IPackageDeclaration[] decls = cu.getPackageDeclarations();
-	String pkgName = frag.getElementName();
-	if (pkgName.equals(IPackageFragment.DEFAULT_PACKAGE_NAME)) {
-		if (decls != null && decls.length > 0) {
-			throw new JavaModelException(
-				new JavaModelStatus(
-					IJavaModelStatusConstants.INVALID_PACKAGE, 
-					cu, 
-					decls[0].getElementName())); 
-		}
-	} else {
-		if (decls == null
-			|| decls.length != 1
-			|| !pkgName.equals(decls[0].getElementName())) {
-			throw new JavaModelException(
-				new JavaModelStatus(
-					IJavaModelStatusConstants.INVALID_PACKAGE, 
-					cu, 
-					(decls == null || decls.length == 0) ? IPackageFragment.DEFAULT_PACKAGE_NAME : decls[0].getElementName())); 
-		}
+	/**
+	 * Constructs an operation to commit the contents of a working copy
+	 * to its original compilation unit.
+	 */
+	public CommitWorkingCopyOperation(ICompilationUnit element, boolean force) {
+		super(new IJavaElement[] {element}, force);
 	}
-}
-/**
- * @exception JavaModelException if setting the source
- * 	of the original compilation unit fails
- */
-protected void executeOperation() throws JavaModelException {
-	try {
-		beginTask(Util.bind("workingCopy.commit"), 2); //$NON-NLS-1$
-		WorkingCopy copy = (WorkingCopy)getCompilationUnit();
-		ICompilationUnit original = (ICompilationUnit) copy.getOriginalElement();
-	
-		
-		// creates the delta builder (this remembers the content of the cu)	
-		if (!original.isOpen()) {
-			// force opening so that the delta builder can get the old info
-			original.open(null);
-		}
-		JavaElementDeltaBuilder deltaBuilder = new JavaElementDeltaBuilder(original);
-	
-		// save the cu
-		IBuffer originalBuffer = original.getBuffer();
-		if (originalBuffer == null) return;
-		char[] originalContents = originalBuffer.getCharacters();
-		boolean hasSaved = false;
+	/**
+	 * @exception JavaModelException if setting the source
+	 * 	of the original compilation unit fails
+	 */
+	protected void executeOperation() throws JavaModelException {
 		try {
-			IBuffer copyBuffer = copy.getBuffer();
-			if (copyBuffer == null) return;
-			originalBuffer.setContents(copyBuffer.getCharacters());
-			original.save(fMonitor, fForce);
-			this.hasModifiedResource = true;
-			hasSaved = true;
-		} finally {
-			if (!hasSaved){
-				// restore original buffer contents since something went wrong
-				originalBuffer.setContents(originalContents);
+			beginTask(Messages.workingCopy_commit, 2);
+			CompilationUnit workingCopy = getCompilationUnit();
+
+			if (ExternalJavaProject.EXTERNAL_PROJECT_NAME.equals(workingCopy.getJavaProject().getElementName())) {
+				// case of a working copy without a resource
+				workingCopy.getBuffer().save(this.progressMonitor, this.force);
+				return;
 			}
+
+			ICompilationUnit primary = workingCopy.getPrimary();
+			boolean isPrimary = workingCopy.isPrimary();
+
+			JavaElementDeltaBuilder deltaBuilder = null;
+			PackageFragmentRoot root = (PackageFragmentRoot)workingCopy.getAncestor(IJavaElement.PACKAGE_FRAGMENT_ROOT);
+			boolean isIncluded = !Util.isExcluded(workingCopy);
+			IFile resource = (IFile)workingCopy.getResource();
+			IJavaProject project = root.getJavaProject();
+			if (isPrimary || (root.validateOnClasspath().isOK() && isIncluded && resource.isAccessible() && Util.isValidCompilationUnitName(workingCopy.getElementName(), project.getOption(JavaCore.COMPILER_SOURCE, true), project.getOption(JavaCore.COMPILER_COMPLIANCE, true)))) {
+
+				// force opening so that the delta builder can get the old info
+				if (!isPrimary && !primary.isOpen()) {
+					primary.open(null);
+				}
+
+				// creates the delta builder (this remembers the content of the cu) if:
+				// - it is not excluded
+				// - and it is not a primary or it is a non-consistent primary
+				if (isIncluded && (!isPrimary || !workingCopy.isConsistent())) {
+					deltaBuilder = new JavaElementDeltaBuilder(primary);
+				}
+
+				// save the cu
+				IBuffer primaryBuffer = primary.getBuffer();
+				if (!isPrimary) {
+					if (primaryBuffer == null) return;
+					char[] primaryContents = primaryBuffer.getCharacters();
+					boolean hasSaved = false;
+					try {
+						IBuffer workingCopyBuffer = workingCopy.getBuffer();
+						if (workingCopyBuffer == null) return;
+						primaryBuffer.setContents(workingCopyBuffer.getCharacters());
+						primaryBuffer.save(this.progressMonitor, this.force);
+						primary.makeConsistent(this);
+						hasSaved = true;
+					} finally {
+						if (!hasSaved){
+							// restore original buffer contents since something went wrong
+							primaryBuffer.setContents(primaryContents);
+						}
+					}
+				} else {
+					// for a primary working copy no need to set the content of the buffer again
+					primaryBuffer.save(this.progressMonitor, this.force);
+					primary.makeConsistent(this);
+				}
+			} else {
+				// working copy on cu outside classpath OR resource doesn't exist yet
+				String encoding = null;
+				try {
+					encoding = resource.getCharset();
+				}
+				catch (CoreException ce) {
+					// use no encoding
+				}
+				String contents = workingCopy.getSource();
+				if (contents == null) return;
+				try {
+					byte[] bytes = encoding == null
+						? contents.getBytes()
+						: contents.getBytes(encoding);
+					ByteArrayInputStream stream = new ByteArrayInputStream(bytes);
+					if (resource.exists()) {
+						resource.setContents(
+							stream,
+							this.force ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY,
+							null);
+					} else {
+						resource.create(
+							stream,
+							this.force,
+							this.progressMonitor);
+					}
+				} catch (CoreException e) {
+					throw new JavaModelException(e);
+				} catch (UnsupportedEncodingException e) {
+					throw new JavaModelException(e, IJavaModelStatusConstants.IO_EXCEPTION);
+				}
+
+			}
+
+			setAttribute(HAS_MODIFIED_RESOURCE_ATTR, TRUE);
+
+			// make sure working copy is in sync
+			workingCopy.updateTimeStamp((CompilationUnit)primary);
+			workingCopy.makeConsistent(this);
+			worked(1);
+
+			// build the deltas
+			if (deltaBuilder != null) {
+				deltaBuilder.buildDeltas();
+
+				// add the deltas to the list of deltas created during this operation
+				if (deltaBuilder.delta != null) {
+					addDelta(deltaBuilder.delta);
+				}
+			}
+			worked(1);
+		} finally {
+			done();
 		}
-		// make sure working copy is in sync
-		copy.updateTimeStamp((CompilationUnit)original);
-		copy.makeConsistent(this);
-		worked(1);
-	
-		// build the deltas
-		deltaBuilder.buildDeltas();
-	
-		// add the deltas to the list of deltas created during this operation
-		if (deltaBuilder.delta != null) {
-			addDelta(deltaBuilder.delta);
+	}
+	/**
+	 * Returns the compilation unit this operation is working on.
+	 */
+	protected CompilationUnit getCompilationUnit() {
+		return (CompilationUnit)getElementToProcess();
+	}
+	protected ISchedulingRule getSchedulingRule() {
+		IResource resource = getElementToProcess().getResource();
+		if (resource == null) return null;
+		IWorkspace workspace = resource.getWorkspace();
+		if (resource.exists()) {
+			return workspace.getRuleFactory().modifyRule(resource);
+		} else {
+			return workspace.getRuleFactory().createRule(resource);
 		}
-		worked(1);
-	} finally {	
-		done();
 	}
-}
-/**
- * Returns the compilation unit this operation is working on.
- */
-protected ICompilationUnit getCompilationUnit() {
-	return (ICompilationUnit)getElementToProcess();
-}
-/**
- * Possible failures: <ul>
- *	<li>INVALID_ELEMENT_TYPES - the compilation unit supplied to this
- *		operation is not a working copy
- *  <li>ELEMENT_NOT_PRESENT - the compilation unit the working copy is
- *		based on no longer exists.
- *  <li>UPDATE_CONFLICT - the original compilation unit has changed since
- *		the working copy was created and the operation specifies no force
- *  <li>READ_ONLY - the original compilation unit is in read-only mode
- *  </ul>
- */
-public IJavaModelStatus verify() {
-	ICompilationUnit cu = getCompilationUnit();
-	if (!cu.isWorkingCopy()) {
-		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, cu);
+	/**
+	 * Possible failures: <ul>
+	 *	<li>INVALID_ELEMENT_TYPES - the compilation unit supplied to this
+	 *		operation is not a working copy
+	 *  <li>ELEMENT_NOT_PRESENT - the compilation unit the working copy is
+	 *		based on no longer exists.
+	 *  <li>UPDATE_CONFLICT - the original compilation unit has changed since
+	 *		the working copy was created and the operation specifies no force
+	 *  <li>READ_ONLY - the original compilation unit is in read-only mode
+	 *  </ul>
+	 */
+	public IJavaModelStatus verify() {
+		CompilationUnit cu = getCompilationUnit();
+		if (!cu.isWorkingCopy()) {
+			return new JavaModelStatus(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, cu);
+		}
+		if (cu.hasResourceChanged() && !this.force) {
+			return new JavaModelStatus(IJavaModelStatusConstants.UPDATE_CONFLICT);
+		}
+		// no read-only check, since some repository adapters can change the flag on save
+		// operation.
+		return JavaModelStatus.VERIFIED_OK;
 	}
-	ICompilationUnit original= (ICompilationUnit)cu.getOriginalElement();
-	IResource resource= null;
-	try {
-		resource = original.getUnderlyingResource();
-	} catch (JavaModelException e) {
-		return e.getJavaModelStatus();
-	}
-	if (!cu.isBasedOn(resource) && !fForce) {
-		return new JavaModelStatus(IJavaModelStatusConstants.UPDATE_CONFLICT);
-	}
-	// no read-only check, since some repository adapters can change the flag on save
-	// operation.	
-	return JavaModelStatus.VERIFIED_OK;
-}
 }

@@ -1,22 +1,22 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.runtime.CoreException;
+import org.eclipse.core.runtime.IPath;
 
-import org.eclipse.jdt.core.IPackageFragmentRoot;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * The element info for <code>PackageFragmentRoot</code>s.
@@ -24,59 +24,85 @@ import org.eclipse.jdt.core.JavaModelException;
 class PackageFragmentRootInfo extends OpenableElementInfo {
 
 	/**
+	 * The SourceMapper for this JAR (or <code>null</code> if
+	 * this JAR does not have source attached).
+	 */
+	protected SourceMapper sourceMapper = null;
+
+	/**
 	 * The kind of the root associated with this info.
 	 * Valid kinds are: <ul>
 	 * <li><code>IPackageFragmentRoot.K_SOURCE</code>
 	 * <li><code>IPackageFragmentRoot.K_BINARY</code></ul>
 	 */
-	protected int fRootKind= IPackageFragmentRoot.K_SOURCE;
+	protected int rootKind= IPackageFragmentRoot.K_SOURCE;
 
 	/**
 	 * A array with all the non-java resources contained by this PackageFragment
 	 */
-	protected Object[] fNonJavaResources;
+	protected Object[] nonJavaResources;
 /**
  * Create and initialize a new instance of the receiver
  */
 public PackageFragmentRootInfo() {
-	fNonJavaResources = null;
+	this.nonJavaResources = null;
 }
 /**
- * Starting at this folder, create non-java resources for this package fragment root 
+ * Starting at this folder, create non-java resources for this package fragment root
  * and add them to the non-java resources collection.
- * 
+ *
  * @exception JavaModelException  The resource associated with this package fragment does not exist
  */
-private Object[] computeFolderNonJavaResources(JavaProject project, IContainer folder) throws JavaModelException {
-	Object[] nonJavaResources = new IResource[5];
+static Object[] computeFolderNonJavaResources(IPackageFragmentRoot root, IContainer folder, char[][] inclusionPatterns, char[][] exclusionPatterns) throws JavaModelException {
+	IResource[] nonJavaResources = new IResource[5];
 	int nonJavaResourcesCounter = 0;
+	JavaProject project = (JavaProject) root.getJavaProject();
 	try {
+		IClasspathEntry[] classpath = project.getResolvedClasspath();
 		IResource[] members = folder.members();
-		for (int i = 0, max = members.length; i < max; i++) {
-			IResource member = members[i];
-			if (member.getType() == IResource.FILE) {
-				String fileName = member.getName();
-				if (!Util.isValidCompilationUnitName(fileName) && !Util.isValidClassFileName(fileName)) {
-					// check case of a .zip or .jar file on classpath
-					if (project.findPackageFragmentRoot0(member.getFullPath()) == null) {
-						if (nonJavaResources.length == nonJavaResourcesCounter) {
-							// resize
-							System.arraycopy(nonJavaResources, 0, (nonJavaResources = new IResource[nonJavaResourcesCounter * 2]), 0, nonJavaResourcesCounter);
-						}
-						nonJavaResources[nonJavaResourcesCounter++] = member;
-					}
+		int length = members.length;
+		if (length > 0) {
+			String sourceLevel = project.getOption(JavaCore.COMPILER_SOURCE, true);
+			String complianceLevel = project.getOption(JavaCore.COMPILER_COMPLIANCE, true);
+			nextResource: for (int i = 0; i < length; i++) {
+				IResource member = members[i];
+				switch (member.getType()) {
+					case IResource.FILE :
+						String fileName = member.getName();
+
+						// ignore .java files that are not excluded
+						if (Util.isValidCompilationUnitName(fileName, sourceLevel, complianceLevel) && !Util.isExcluded(member, inclusionPatterns, exclusionPatterns))
+							continue nextResource;
+						// ignore .class files
+						if (Util.isValidClassFileName(fileName, sourceLevel, complianceLevel))
+							continue nextResource;
+						// ignore .zip or .jar file on classpath
+						if (isClasspathEntry(member.getFullPath(), classpath))
+							continue nextResource;
+						break;
+
+					case IResource.FOLDER :
+						// ignore valid packages or excluded folders that correspond to a nested pkg fragment root
+						if (Util.isValidFolderNameForPackage(member.getName(), sourceLevel, complianceLevel)
+								&& (!Util.isExcluded(member, inclusionPatterns, exclusionPatterns)
+										|| isClasspathEntry(member.getFullPath(), classpath)))
+							continue nextResource;
+						break;
 				}
-			} else if (member.getType() == IResource.FOLDER) {
-				if (!Util.isValidFolderNameForPackage(member.getName())) {
-					if (nonJavaResources.length == nonJavaResourcesCounter) {
-						// resize
-						System.arraycopy(nonJavaResources, 0, (nonJavaResources = new IResource[nonJavaResourcesCounter * 2]), 0, nonJavaResourcesCounter);
-					}
-					nonJavaResources[nonJavaResourcesCounter++] = member;
+				if (nonJavaResources.length == nonJavaResourcesCounter) {
+					// resize
+					System.arraycopy(nonJavaResources, 0, (nonJavaResources = new IResource[nonJavaResourcesCounter * 2]), 0, nonJavaResourcesCounter);
 				}
+				nonJavaResources[nonJavaResourcesCounter++] = member;
 			}
 		}
-		if (nonJavaResources.length != nonJavaResourcesCounter) {
+		if (ExternalFoldersManager.isInternalPathForExternalFolder(folder.getFullPath())) {
+			IJarEntryResource[] jarEntryResources = new IJarEntryResource[nonJavaResourcesCounter];
+			for (int i = 0; i < nonJavaResourcesCounter; i++) {
+				jarEntryResources[i] = new NonJavaResource(root, nonJavaResources[i]);
+			}
+			return jarEntryResources;
+		} else if (nonJavaResources.length != nonJavaResourcesCounter) {
 			System.arraycopy(nonJavaResources, 0, (nonJavaResources = new IResource[nonJavaResourcesCounter]), 0, nonJavaResourcesCounter);
 		}
 		return nonJavaResources;
@@ -86,48 +112,74 @@ private Object[] computeFolderNonJavaResources(JavaProject project, IContainer f
 }
 /**
  * Compute the non-package resources of this package fragment root.
- * 
- * @exception JavaModelException  The resource associated with this package fragment root does not exist
  */
-private Object[] computeNonJavaResources(IJavaProject project, IResource underlyingResource) {
-	Object[] nonJavaResources = NO_NON_JAVA_RESOURCES;
+private Object[] computeNonJavaResources(IResource underlyingResource, PackageFragmentRoot handle) {
+	Object[] resources = NO_NON_JAVA_RESOURCES;
 	try {
 		// the underlying resource may be a folder or a project (in the case that the project folder
 		// is actually the package fragment root)
 		if (underlyingResource.getType() == IResource.FOLDER || underlyingResource.getType() == IResource.PROJECT) {
-			nonJavaResources = computeFolderNonJavaResources((JavaProject)project, (IContainer) underlyingResource);
+			resources =
+				computeFolderNonJavaResources(
+					handle,
+					(IContainer) underlyingResource,
+					handle.fullInclusionPatternChars(),
+					handle.fullExclusionPatternChars());
 		}
 	} catch (JavaModelException e) {
+		// ignore
 	}
-	return nonJavaResources;
+	return resources;
 }
 /**
  * Returns an array of non-java resources contained in the receiver.
  */
-synchronized Object[] getNonJavaResources(IJavaProject project, IResource underlyingResource) {
-	Object[] nonJavaResources = fNonJavaResources;
-	if (nonJavaResources == null) {
-		nonJavaResources = this.computeNonJavaResources(project, underlyingResource);
-		fNonJavaResources = nonJavaResources;
+synchronized Object[] getNonJavaResources(IJavaProject project, IResource underlyingResource, PackageFragmentRoot handle) {
+	Object[] resources = this.nonJavaResources;
+	if (resources == null) {
+		resources = computeNonJavaResources(underlyingResource, handle);
+		this.nonJavaResources = resources;
 	}
-	return nonJavaResources;
+	return resources;
 }
 /**
  * Returns the kind of this root.
  */
 public int getRootKind() {
-	return fRootKind;
+	return this.rootKind;
+}
+/**
+ * Retuns the SourceMapper for this root, or <code>null</code>
+ * if this root does not have attached source.
+ */
+protected SourceMapper getSourceMapper() {
+	return this.sourceMapper;
+}
+private static boolean isClasspathEntry(IPath path, IClasspathEntry[] resolvedClasspath) {
+	for (int i = 0, length = resolvedClasspath.length; i < length; i++) {
+		IClasspathEntry entry = resolvedClasspath[i];
+		if (entry.getPath().equals(path)) {
+			return true;
+		}
+	}
+	return false;
 }
 /**
  * Set the fNonJavaResources to res value
  */
-synchronized void setNonJavaResources(Object[] resources) {
-	fNonJavaResources = resources;
+void setNonJavaResources(Object[] resources) {
+	this.nonJavaResources = resources;
 }
 /**
  * Sets the kind of this root.
  */
 protected void setRootKind(int newRootKind) {
-	fRootKind = newRootKind;
+	this.rootKind = newRootKind;
+}
+/**
+ * Sets the SourceMapper for this root.
+ */
+protected void setSourceMapper(SourceMapper mapper) {
+	this.sourceMapper= mapper;
 }
 }

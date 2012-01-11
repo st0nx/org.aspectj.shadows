@@ -1,17 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
 import org.eclipse.jdt.core.util.ClassFormatException;
-import org.eclipse.jdt.core.util.IAttributeNamesConstants;
 import org.eclipse.jdt.core.util.IConstantPool;
 import org.eclipse.jdt.core.util.ILocalVariableAttribute;
 import org.eclipse.jdt.core.util.ILocalVariableTableEntry;
@@ -26,7 +25,7 @@ public class LocalVariableAttribute
 	private static final ILocalVariableTableEntry[] NO_ENTRIES = new ILocalVariableTableEntry[0];
 	private int localVariableTableLength;
 	private ILocalVariableTableEntry[] localVariableTable;
-	
+
 	/**
 	 * Constructor for LocalVariableAttribute.
 	 * @param classFileBytes
@@ -40,26 +39,19 @@ public class LocalVariableAttribute
 		int offset)
 		throws ClassFormatException {
 		super(classFileBytes, constantPool, offset);
-		this.localVariableTableLength = u2At(classFileBytes, 6, offset);
-		int readOffset = 8;
-		int length = this.localVariableTableLength;
-		this.localVariableTable = NO_ENTRIES;
+		final int length = u2At(classFileBytes, 6, offset);
+		this.localVariableTableLength = length;
 		if (length != 0) {
-			this.localVariableTable = new LocalVariableTableEntry[length];
-		}
-		for (int i = 0; i < length; i++) {
-			this.localVariableTable[i] = new LocalVariableTableEntry(classFileBytes, constantPool, offset + readOffset);
-			readOffset += 10;
+			int readOffset = 8;
+			this.localVariableTable = new ILocalVariableTableEntry[length];
+			for (int i = 0; i < length; i++) {
+				this.localVariableTable[i] = new LocalVariableTableEntry(classFileBytes, constantPool, offset + readOffset);
+				readOffset += 10;
+			}
+		} else {
+			this.localVariableTable = NO_ENTRIES;
 		}
 	}
-
-	/**
-	 * @see org.eclipse.jdt.core.util.IClassFileAttribute#getAttributeName()
-	 */
-	public char[] getAttributeName() {
-		return IAttributeNamesConstants.LOCAL_VARIABLE;
-	}
-
 	/**
 	 * @see ILocalVariableAttribute#getLocalVariableTable()
 	 */

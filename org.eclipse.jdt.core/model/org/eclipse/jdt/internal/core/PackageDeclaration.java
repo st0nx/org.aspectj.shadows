@@ -1,33 +1,41 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.IPackageDeclaration;
-import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.*;
 
 /**
  * @see IPackageDeclaration
  */
 
-/* package */ class PackageDeclaration extends SourceRefElement implements IPackageDeclaration {
-protected PackageDeclaration(ICompilationUnit parent, String name) {
-	super(PACKAGE_DECLARATION, parent, name);
+public class PackageDeclaration extends SourceRefElement implements IPackageDeclaration {
+
+	String name;
+
+protected PackageDeclaration(CompilationUnit parent, String name) {
+	super(parent);
+	this.name = name;
+}
+public boolean equals(Object o) {
+	if (!(o instanceof PackageDeclaration)) return false;
+	return super.equals(o);
+}
+public String getElementName() {
+	return this.name;
 }
 /**
- * @see JavaElement#equalsDOMNode
+ * @see IJavaElement
  */
-protected boolean equalsDOMNode(IDOMNode node) throws JavaModelException {
-	return (node.getNodeType() == IDOMNode.PACKAGE) && getElementName().equals(node.getName());
+public int getElementType() {
+	return PACKAGE_DECLARATION;
 }
 /**
  * @see JavaElement#getHandleMemento()
@@ -36,12 +44,27 @@ protected char getHandleMementoDelimiter() {
 	return JavaElement.JEM_PACKAGEDECLARATION;
 }
 /**
+ * @see IPackageDeclaration#getNameRange()
+ */
+public ISourceRange getNameRange() throws JavaModelException {
+	AnnotatableInfo info = (AnnotatableInfo) getElementInfo();
+	return info.getNameRange();
+}
+/*
+ * @see JavaElement#getPrimaryElement(boolean)
+ */
+public IJavaElement getPrimaryElement(boolean checkOwner) {
+	CompilationUnit cu = (CompilationUnit)getAncestor(COMPILATION_UNIT);
+	if (checkOwner && cu.isPrimary()) return this;
+	return cu.getPackageDeclaration(this.name);
+}
+/**
  * @private Debugging purposes
  */
-protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
-	buffer.append(this.tabString(tab));
+protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean showResolvedInfo) {
+	buffer.append(tabString(tab));
 	buffer.append("package "); //$NON-NLS-1$
-	buffer.append(getElementName());
+	toStringName(buffer);
 	if (info == null) {
 		buffer.append(" (not open)"); //$NON-NLS-1$
 	}

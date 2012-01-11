@@ -1,20 +1,20 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
 import org.eclipse.jdt.core.util.IConstantPoolEntry;
 
 /**
  * Default implementation of IConstantPoolEntry
- * 
+ *
  * @since 2.0
  */
 public class ConstantPoolEntry implements IConstantPoolEntry {
@@ -39,7 +39,29 @@ public class ConstantPoolEntry implements IConstantPoolEntry {
 	private char[] utf8Value;
 	private int utf8Length;
 	private char[] classInfoName;
-	
+
+	public ConstantPoolEntry() {
+		this.classInfoNameIndex = -1;
+		this.classIndex = -1;
+		this.nameAndTypeIndex = -1;
+		this.stringIndex = -1;
+		this.stringValue = null;
+		this.integerValue = -1;
+		this.floatValue = -0.0f;
+		this.doubleValue = -0-0;
+		this.longValue = -1;
+		this.nameAndTypeDescriptorIndex = -1;
+		this.nameAndTypeNameIndex = -1;
+		this.className = null;
+		this.fieldName = null;
+		this.methodName = null;
+		this.fieldDescriptor = null;
+		this.methodDescriptor = null;
+		this.utf8Value = null;
+		this.utf8Length = -1;
+		this.classInfoName = null;
+	}
+
 	/**
 	 * @see IConstantPoolEntry#getKind()
 	 */
@@ -258,7 +280,7 @@ public class ConstantPoolEntry implements IConstantPoolEntry {
 	 * @return Returns a int
 	 */
 	public int getNameAndTypeDescriptorIndex() {
-		return nameAndTypeDescriptorIndex;
+		return this.nameAndTypeDescriptorIndex;
 	}
 
 	/**
@@ -274,7 +296,7 @@ public class ConstantPoolEntry implements IConstantPoolEntry {
 	 * @return Returns a int
 	 */
 	public int getNameAndTypeNameIndex() {
-		return nameAndTypeNameIndex;
+		return this.nameAndTypeNameIndex;
 	}
 
 	/**

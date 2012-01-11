@@ -1,116 +1,70 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.0"?>
+<!--
+    Copyright (c) 2004, 2010 IBM Corporation and others.
+    All rights reserved. This program and the accompanying materials
+    are made available under the terms of the Eclipse Public License v1.0
+    which accompanies this distribution, and is available at
+    http://www.eclipse.org/legal/epl-v10.html
+    
+    Contributors:
+        IBM Corporation - initial API and implementation
+ -->
 
 <!-- =================================================================================== -->
 <!-- JDT/CORE Plug-in Manifest                                                           -->
 <!-- =================================================================================== -->
-
-<plugin
-    name = "%pluginName"
-    id = "org.eclipse.jdt.core"
-    version = "2.0.0"
-    provider-name = "%providerName"
-    class="org.eclipse.jdt.core.JavaCore">
+<plugin>
 
 <!-- =================================================================================== -->
 <!-- Prerequisite Plug-ins                                                               -->
 <!-- =================================================================================== -->
 
-<requires>
-    <import plugin="org.eclipse.core.resources"/>
-    <import plugin="org.apache.xerces"/>
-    <import plugin="org.eclipse.ant.core" optional="true"/>
-</requires>
-	
+
 <!-- =================================================================================== -->
 <!-- Runtime Libraries                                                                   -->
 <!-- =================================================================================== -->
 
-<runtime>
-  <library name="jdtcore.jar">  
-     <export name = "*"/>
-  </library> 
-</runtime>
 
 <!-- =================================================================================== -->
 <!-- Extension Point: Initializers of Classpath Variables                                -->
-<!--                                                                                     -->
-<!-- <!ELEMENT classpathVariableInitializer>                                             -->
-<!--   <!ATTLIST classpathVariableInitializer                                            -->
-<!--    variable   CDATA #REQUIRED                                                       -->
-<!--    class      CDATA #REQUIRED                                                       -->
-<!--   >                                                                                 -->
-<!-- where:                                                                              -->
-<!--    - variable - the name of the classpath variable                                  -->                                               
-<!--    - class - the class that implements this classpath variable initializer.         --> 
-<!--              The class must implement a public subclass of                          -->
-<!--              org.eclipse.jdt.core.ClasspathVariableInitializer with a public        -->
-<!--              0-argument constructor.                                                -->
-<!--                                                                                     -->
-<!-- Example of an ClasspathVariableInitializer for a classpath variable named "FOO":    -->
-<!-- <extension                                                                          -->
-<!--      point="org.eclipse.jdt.core.classpathVariableInitializer">                     -->
-<!--    <classpathVariableInitializer                                                    -->
-<!--         variable="FOO"                                                              -->
-<!--         class="com.example.CPVInitializer"/>                                        -->
-<!-- </extension>                                                                        -->
-<!--                                                                                     -->
 <!-- =================================================================================== -->
 
-<extension-point name="%classpathVariableInitializersName" id="classpathVariableInitializer"/>
+<extension-point name="%classpathVariableInitializersName" 
+	id="classpathVariableInitializer"
+	schema="schema/classpathVariableInitializer.exsd"/>
   
 <!-- =================================================================================== -->
 <!-- Extension Point: Initializers of Classpath Containers                               -->
-<!--                                                                                     -->
-<!-- <!ELEMENT classpathContainerInitializer>                                            -->
-<!--   <!ATTLIST containerResolver                                                       -->
-<!--    id     CDATA #REQUIRED                                                           -->
-<!--    class  CDATA #REQUIRED                                                           -->
-<!--   >                                                                                 -->
-<!-- where:                                                                              -->
-<!--    - id - an unique name identifying all containers for which this resolver will    -->
-<!--              be activated.                                                          -->
-<!--    - class - the class that implements this container resolver.                     --> 
-<!--              The class must implement a public subclass of                          -->
-<!--              org.eclipse.jdt.core.ClasspathContainerResolver with a public          -->
-<!--              0-argument constructor.                                                -->
-<!--                                                                                     -->
-<!-- Example of an ClasspathContainerInitializer for a classpath container named         -->
-<!-- "JDK/1.2":                                                                          -->
-<!-- <extension                                                                          -->
-<!--      point="org.eclipse.jdt.core.containerResolver">                                -->
-<!--    <classpathContainerInitializer                                                   -->
-<!--         id="JDK"                                                                    -->
-<!--         class="com.example.MyInitializer"/>                                         -->
-<!-- </extension>                                                                        -->
-<!--                                                                                     -->
 <!-- =================================================================================== -->
 
-<extension-point name="%classpathContainerInitializersName" id="classpathContainerInitializer"/>
+<extension-point name="%classpathContainerInitializersName" 
+	id="classpathContainerInitializer" 
+	schema="schema/classpathContainerInitializer.exsd"/>
 
 <!-- =================================================================================== -->
 <!-- Extension Point: Formatter of Source Code                                           -->
-<!--                                                                                     -->
-<!-- <!ELEMENT codeFormatter>                                                            -->
-<!--   <!ATTLIST codeFormatter                                                           -->
-<!--    class      CDATA #REQUIRED                                                       -->
-<!--   >                                                                                 -->
-<!-- where:                                                                              -->
-<!--    - class - the class that defines the code formatter implementation.              --> 
-<!--              The class must be a public implementatiom of                           -->
-<!--              org.eclipse.jdt.core.ICodeFormatter with a public                      -->
-<!--              0-argument constructor.                                                -->
-<!--                                                                                     -->
-<!-- Example of an ICodeFormatter extension:                                             -->
-<!-- <extension                                                                          -->
-<!--      point="org.eclipse.jdt.core.codeFormatter">                                    -->
-<!--    <codeFormatter                                                                   -->
-<!--         class="com.example.MyCodeFormatter"/>                                       -->
-<!-- </extension>                                                                        -->
-<!--                                                                                     -->
 <!-- =================================================================================== -->
 
-<extension-point name="%codeFormatterName" id="codeFormatter"/>
+<extension-point name="%codeFormattersName" 
+	id="codeFormatter"
+	schema="schema/codeFormatter.exsd"/>
 
+<!-- =================================================================================== -->
+<!-- Extension Point: Compilation Participant                                            -->
+<!-- =================================================================================== -->
+
+<extension-point name="%compilationParticipantsName" 
+	id="compilationParticipant"
+	schema="schema/compilationParticipant.exsd"/>
+
+<!-- =================================================================================== -->
+<!-- Extension Point: Java 6 Annotation Processor Manager                                -->
+<!-- =================================================================================== -->
+
+<extension-point name="%annotationProcessorManagerName" 
+	id="annotationProcessorManager"
+	schema="schema/annotationProcessorManager.exsd"/>
 
 <!-- =================================================================================== -->
 <!-- Extension: Java Nature                                                              -->
@@ -141,13 +95,9 @@
 	</builder>
 </extension>
 
-
 <!-- =================================================================================== -->
-<!-- Extension: Java Markers                                                             -->
+<!-- Extension: Java Problem                                                             -->
 <!-- =================================================================================== -->
-
-<!-- Java problems -->
-
 <extension id="problem" point="org.eclipse.core.resources.markers" name="%javaProblemName">
 	<super type="org.eclipse.core.resources.problemmarker"/>
 	<super type="org.eclipse.core.resources.textmarker"/>
@@ -155,25 +105,38 @@
 	<attribute name="id"/>
 	<attribute name="flags"/>
 	<attribute name="arguments"/>
+	<attribute name="categoryId"/>
 </extension>   
 
-<!-- Java buildpath problems -->
-
+<!-- =================================================================================== -->
+<!-- Extension: Java Buildpath Problem                                                   -->
+<!-- =================================================================================== -->
 <extension id="buildpath_problem" point="org.eclipse.core.resources.markers" name="%buildPathProblemName">
 	<super type="org.eclipse.core.resources.problemmarker"/>
 	<super type="org.eclipse.core.resources.textmarker"/>
 	<persistent value="true"/>
 	<attribute name ="cycleDetected"/>
+	<attribute name="id"/>
+	<attribute name="arguments"/>
 </extension>   
 
-<!-- Java transient problems -->
-
+<!-- =================================================================================== -->
+<!-- Extension: Java Transient Problem                                                   -->
+<!-- =================================================================================== -->
 <extension id="transient_problem" point="org.eclipse.core.resources.markers" name="%transientJavaProblemName">
 	<super type="org.eclipse.core.resources.textmarker"/>
 	<persistent value="false"/>
 	<attribute name="id"/>
 	<attribute name="flags"/>
 	<attribute name="arguments"/>
+</extension>
+
+<!-- =================================================================================== -->
+<!-- Extension: Java Task                                                                -->
+<!-- =================================================================================== -->
+<extension id="task" name="%javaTaskName" point="org.eclipse.core.resources.markers">
+    <super type="org.eclipse.core.resources.taskmarker"/> 
+    <persistent value="true"/>
 </extension>
     
 <!-- =================================================================================== -->
@@ -185,17 +148,99 @@
 		library="jdtCompilerAdapter.jar">
 	</extraClasspathEntry>
 </extension> 
-   
+
 <!-- =================================================================================== -->
-<!-- Extension: Java file types                                                        -->
+<!-- Extension: Javac Ant Task                                                           -->
+<!-- =================================================================================== -->
+<extension point="org.eclipse.ant.core.antTasks">
+	<antTask
+		name="eclipse.checkDebugAttributes"
+		class="org.eclipse.jdt.core.CheckDebugAttributes"
+		library="jdtCompilerAdapter.jar">
+	</antTask>
+</extension>
+      
+<!-- =================================================================================== -->
+<!-- Extension: User Library Container                                                   -->
+<!-- =================================================================================== -->
+<extension
+      point="org.eclipse.jdt.core.classpathContainerInitializer">
+      <classpathContainerInitializer
+            class="org.eclipse.jdt.internal.core.UserLibraryClasspathContainerInitializer"
+            id="org.eclipse.jdt.USER_LIBRARY">
+      </classpathContainerInitializer>
+   </extension>
+
+<!-- =================================================================================== -->
+<!-- Extension: Java File Types                                                          -->
 <!-- =================================================================================== -->
 <extension point="org.eclipse.team.core.fileTypes">
-  <fileTypes extension="java" type="text"/>
-  <fileTypes extension="classpath" type="text"/>
-  <fileTypes extension="properties" type="text"/>
-  <fileTypes extension="class" type="binary"/>
-  <fileTypes extension="jar" type="binary"/>
-  <fileTypes extension="zip" type="binary"/>
+	<fileTypes extension="java" type="text"/>
+	<fileTypes extension="classpath" type="text"/>
+	<fileTypes extension="properties" type="text"/>
+	<fileTypes extension="class" type="binary"/>
+	<fileTypes extension="jar" type="binary"/>
+	<fileTypes extension="jardesc" type="text"/>
+	<fileTypes extension="zip" type="binary"/>
+</extension>
+
+<!-- =================================================================================== -->
+<!-- Extension: Java Code Formatter                                                      -->
+<!-- =================================================================================== -->
+<extension
+      id="JavaCodeFormatter"
+      point="org.eclipse.core.runtime.applications">
+      	<application>
+      		<run class="org.eclipse.jdt.core.formatter.CodeFormatterApplication" />
+		</application>
+</extension>
+
+<!-- =================================================================================== -->
+<!-- Extension: Java Content Types                                                       -->
+<!-- =================================================================================== -->
+<extension point="org.eclipse.core.contenttype.contentTypes">
+	<!-- declares a content type for Java Properties files -->
+	<content-type id="javaProperties" name="%javaPropertiesName" 
+		base-type="org.eclipse.core.runtime.text"
+		priority="high"				
+		file-extensions="properties"
+		default-charset="ISO-8859-1"/>
+	<!-- Associates .classpath to the XML content type -->
+	<file-association 
+		content-type="org.eclipse.core.runtime.xml" 
+		file-names=".classpath"/>  
+	<!-- declares a content type for Java Source files -->
+	<content-type id="javaSource" name="%javaSourceName" 
+		base-type="org.eclipse.core.runtime.text"
+		priority="high"				
+		file-extensions="java"/>
+	<!-- declares a content type for Java class files -->
+    <content-type id="javaClass" name="%javaClassName" 
+        priority="high"				
+        file-extensions="class">        
+        <describer
+            class="org.eclipse.core.runtime.content.BinarySignatureDescriber">
+            <parameter name="signature" value="CA, FE, BA, BE"/>
+        </describer>
+    </content-type>        
+	<!-- declares a content type for JAR manifest files -->
+    <content-type id="JARManifest" name="%jarManifestName" 
+        base-type="org.eclipse.core.runtime.text"
+        priority="high"				
+        file-names="MANIFEST.MF"
+        default-charset="UTF-8"/>
+</extension>
+      
+<!-- =================================================================================== -->
+<!-- Extension: Eclipse preferences initializer                                          -->
+<!-- =================================================================================== -->
+<extension
+      point="org.eclipse.core.runtime.preferences">
+   <initializer class="org.eclipse.jdt.internal.core.JavaCorePreferenceInitializer"/>
+</extension>
+<extension
+      point="org.eclipse.core.runtime.preferences">
+   <modifier class="org.eclipse.jdt.internal.core.JavaCorePreferenceModifyListener"/>
 </extension>
 
 </plugin>

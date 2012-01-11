@@ -1,178 +1,197 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core.util;
 
 /**
  * Description of a constant pool entry as described in the JVM specifications.
  * Its contents is initialized according to its kind.
- * 
+ *
  * This interface may be implemented by clients.
- *  
+ *
  * @since 2.0
  */
 public interface IConstantPoolEntry {
 
 	/**
-	 * Answer back the type of this entry.
-	 * 
+	 * Returns the type of this entry.
+	 *
 	 * @return the type of this entry
 	 */
 	int getKind();
 
 	/**
-	 * Answer back the name index for a CONSTANT_Class type entry.
-	 * 
+	 * Returns the name index for a CONSTANT_Class type entry.
+	 * The value is unspecified otherwise.
+	 *
 	 * @return the name index for a CONSTANT_Class type entry
 	 */
 	int getClassInfoNameIndex();
 
 	/**
-	 * Answer back the class index for a CONSTANT_Fieldref,
+	 * Returns the class index for a CONSTANT_Fieldref,
 	 * CONSTANT_Methodref, CONSTANT_InterfaceMethodref type entry.
-	 * 
+	 * The value is unspecified otherwise.
+	 *
 	 * @return the class index for a CONSTANT_Fieldref,
 	 * CONSTANT_Methodref, CONSTANT_InterfaceMethodref type entry
 	 */
 	int getClassIndex();
 
 	/**
-	 * Answer back the nameAndType index for a CONSTANT_Fieldref,
+	 * Returns the nameAndType index for a CONSTANT_Fieldref,
 	 * CONSTANT_Methodref, CONSTANT_InterfaceMethodref type entry.
-	 * 
+	 * The value is unspecified otherwise.
+	 *
 	 * @return the nameAndType index for a CONSTANT_Fieldref,
 	 * CONSTANT_Methodref, CONSTANT_InterfaceMethodref type entry
 	 */
 	int getNameAndTypeIndex();
-	
+
 	/**
-	 * Answer back the string index for a CONSTANT_String type entry.
-	 * 
+	 * Returns the string index for a CONSTANT_String type entry.
+	 * The value is unspecified otherwise.
+	 *
 	 * @return the string index for a CONSTANT_String type entry
 	 */
 	int getStringIndex();
 
 	/**
-	 * Answer back the string value for a CONSTANT_String type entry.
-	 * 
+	 * Returns the string value for a CONSTANT_String type entry.
+	 * Returns null otherwise.
+	 *
 	 * @return the string value for a CONSTANT_String type entry
 	 */
 	String getStringValue();
-	
+
 	/**
-	 * Answer back the integer value for a CONSTANT_Integer type entry.
-	 * 
+	 * Returns the integer value for a CONSTANT_Integer type entry.
+	 * The value is unspecified otherwise.
+	 *
 	 * @return the integer value for a CONSTANT_Integer type entry
 	 */
 	int getIntegerValue();
 
 	/**
-	 * Answer back the float value for a CONSTANT_Float type entry.
-	 * 
+	 * Returns the float value for a CONSTANT_Float type entry.
+	 * The value is unspecified otherwise.
+	 *
 	 * @return the float value for a CONSTANT_Float type entry
 	 */
 	float getFloatValue();
 
 	/**
-	 * Answer back the double value for a CONSTANT_Double type entry.
-	 * 
+	 * Returns the double value for a CONSTANT_Double type entry.
+	 * The value is unspecified otherwise.
+	 *
 	 * @return the double value for a CONSTANT_Double type entry
 	 */
 	double getDoubleValue();
 
 	/**
-	 * Answer back the long value for a CONSTANT_Long type entry.
-	 * 
+	 * Returns the long value for a CONSTANT_Long type entry.
+	 * The value is unspecified otherwise.
+	 *
 	 * @return the long value for a CONSTANT_Long type entry
 	 */
 	long getLongValue();
-	
+
 	/**
-	 * Answer back the descriptor index for a CONSTANT_NameAndType type entry.
-	 * 
+	 * Returns the descriptor index for a CONSTANT_NameAndType type entry.
+	 * The value is unspecified otherwise.
+	 *
 	 * @return the descriptor index for a CONSTANT_NameAndType type entry
 	 */
 	int getNameAndTypeInfoDescriptorIndex();
 
 	/**
-	 * Answer back the name index for a CONSTANT_NameAndType type entry.
-	 * 
+	 * Returns the name index for a CONSTANT_NameAndType type entry.
+	 * The value is unspecified otherwise.
+	 *
 	 * @return the name index for a CONSTANT_NameAndType type entry
 	 */
 	int getNameAndTypeInfoNameIndex();
 
 	/**
-	 * Answer back the class name for a CONSTANT_Class type entry.
-	 * 
+	 * Returns the class name for a CONSTANT_Class type entry.
+	 * Returns null otherwise.
+	 *
 	 * @return the class name for a CONSTANT_Class type entry
 	 */
 	char[] getClassInfoName();
 
 	/**
-	 * Answer back the class name for a CONSTANT_Fieldref,
+	 * Returns the class name for a CONSTANT_Fieldref,
 	 * CONSTANT_Methodref, CONSTANT_InterfaceMethodref type entry.
-	 * 
+	 * Returns null otherwise.
+	 *
 	 * @return the class name for a CONSTANT_Fieldref,
 	 * CONSTANT_Methodref, CONSTANT_InterfaceMethodref type entry
 	 */
 	char[] getClassName();
 
 	/**
-	 * Answer back the field name for a CONSTANT_Fieldref type entry.
-	 * 
+	 * Returns the field name for a CONSTANT_Fieldref type entry.
+	 * Returns null otherwise.
+	 *
 	 * @return the field name for a CONSTANT_Fieldref type entry
 	 */
 	char[] getFieldName();
-	
+
 	/**
-	 * Answer back the field name for a CONSTANT_Methodref or CONSTANT_InterfaceMethodred
+	 * Returns the field name for a CONSTANT_Methodref or CONSTANT_InterfaceMethodred
 	 * type entry.
-	 * 
+	 * Returns null otherwise.
+	 *
 	 * @return the field name for a CONSTANT_Methodref or CONSTANT_InterfaceMethodred
 	 * type entry
 	 */
 	char[] getMethodName();
 
 	/**
-	 * Answer back the field descriptor value for a CONSTANT_Fieldref type entry. This value
-	 * is set only when decoding the CONSTANT_Fieldref entry. 
-	 * 
+	 * Returns the field descriptor value for a CONSTANT_Fieldref type entry. This value
+	 * is set only when decoding the CONSTANT_Fieldref entry.
+	 * Returns null otherwise.
+	 *
 	 * @return the field descriptor value for a CONSTANT_Fieldref type entry. This value
 	 * is set only when decoding the CONSTANT_Fieldref entry
 	 */
 	char[] getFieldDescriptor();
 
 	/**
-	 * Answer back the method descriptor value for a CONSTANT_Methodref or
-	 * CONSTANT_InterfaceMethodref type entry. This value is set only when decoding the 
-	 * CONSTANT_Methodref or CONSTANT_InterfaceMethodref entry. 
-	 * 
+	 * Returns the method descriptor value for a CONSTANT_Methodref or
+	 * CONSTANT_InterfaceMethodref type entry. This value is set only when decoding the
+	 * CONSTANT_Methodref or CONSTANT_InterfaceMethodref entry.
+	 * Returns null otherwise.
+	 *
 	 * @return the method descriptor value for a CONSTANT_Methodref or
-	 * CONSTANT_InterfaceMethodref type entry. This value is set only when decoding the 
+	 * CONSTANT_InterfaceMethodref type entry. This value is set only when decoding the
 	 * CONSTANT_Methodref or CONSTANT_InterfaceMethodref entry
 	 */
 	char[] getMethodDescriptor();
-	
+
 	/**
-	 * Answer back the utf8 value for a CONSTANT_Utf8 type entry. This value is set only when
+	 * Returns the utf8 value for a CONSTANT_Utf8 type entry. This value is set only when
 	 * decoding a UTF8 entry.
-	 * 
+	 * Returns null otherwise.
+	 *
 	 * @return the utf8 value for a CONSTANT_Utf8 type entry. This value is set only when
 	 * decoding a UTF8 entry
 	 */
 	char[] getUtf8Value();
-	
+
 	/**
-	 * Answer back the utf8 length for a CONSTANT_Utf8 type entry. This value is set only when
+	 * Returns the utf8 length for a CONSTANT_Utf8 type entry. This value is set only when
 	 * decoding a UTF8 entry.
-	 * 
+	 * Returns null otherwise.
+	 *
 	 * @return the utf8 length for a CONSTANT_Utf8 type entry. This value is set only when
 	 * decoding a UTF8 entry
 	 */

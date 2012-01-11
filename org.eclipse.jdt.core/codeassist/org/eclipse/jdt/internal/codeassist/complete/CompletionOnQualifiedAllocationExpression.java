@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
+ * http://www.eclipse.org/legal/epl-v10.html
  * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.codeassist.complete;
 
 /*
@@ -39,31 +39,67 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class CompletionOnQualifiedAllocationExpression extends QualifiedAllocationExpression {
 public TypeBinding resolveType(BlockScope scope) {
-	TypeBinding typeBinding = null;
-	if (enclosingInstance != null) {
-		TypeBinding enclosingType = enclosingInstance.resolveType(scope);
-		if (!(enclosingType instanceof ReferenceBinding)) {
-			scope.problemReporter().illegalPrimitiveOrArrayTypeForEnclosingInstance(enclosingType, enclosingInstance);
+	TypeBinding[] argumentTypes = Binding.NO_PARAMETERS;
+	if (this.arguments != null) {
+		int argsLength = this.arguments.length;
+		int length = this.arguments.length;
+		argumentTypes = new TypeBinding[length];
+		for (int a = argsLength; --a >= 0;) {
+			argumentTypes[a] = this.arguments[a].resolveType(scope);
+		}
+	}
+	final boolean isDiamond = this.type != null && (this.type.bits & ASTNode.IsDiamond) != 0;
+	if (this.enclosingInstance != null) {
+		TypeBinding enclosingType = this.enclosingInstance.resolveType(scope);
+		if (enclosingType == null) {
+			// try to propose something even if enclosing type cannot be resolved.
+			// Eg.: new Test<>().new Test<>(#cursor#
+			if (this.enclosingInstance instanceof AllocationExpression) {
+				TypeReference enclosingInstanceType = ((AllocationExpression) this.enclosingInstance).type;
+				if (enclosingInstanceType != null) {
+					enclosingType = enclosingInstanceType.resolvedType;
+				}
+			}
+		}
+		if (enclosingType == null || !(enclosingType instanceof ReferenceBinding)) {
 			throw new CompletionNodeFound();
 		}
-		typeBinding = ((SingleTypeReference) type).resolveTypeEnclosing(scope, (ReferenceBinding) enclosingType);
-		if (!(typeBinding instanceof ReferenceBinding))
+		this.resolvedType = ((SingleTypeReference) this.type).resolveTypeEnclosing(scope, (ReferenceBinding) enclosingType);
+		if (isDiamond && (this.resolvedType instanceof ParameterizedTypeBinding)) {
+			TypeBinding [] inferredTypes = inferElidedTypes(((ParameterizedTypeBinding) this.resolvedType).genericType(), null, argumentTypes, scope);
+			if (inferredTypes != null) {
+				this.resolvedType = this.type.resolvedType = scope.environment().createParameterizedType(((ParameterizedTypeBinding) this.resolvedType).genericType(), inferredTypes, ((ParameterizedTypeBinding) this.resolvedType).enclosingType());
+			} else {
+				// inference failed. Resolved type will be of the form Test<>
+				this.bits |= ASTNode.IsDiamond;
+			}
+	 	}
+		if (!(this.resolvedType instanceof ReferenceBinding))
 			throw new CompletionNodeFound(); // no need to continue if its an array or base type
-		if (typeBinding.isInterface()) // handle the anonymous class definition case
-			typeBinding = scope.getJavaLangObject();
+		if (this.resolvedType.isInterface()) // handle the anonymous class definition case
+			this.resolvedType = scope.getJavaLangObject();
 	} else {
-		typeBinding = type.resolveType(scope);
-		if (!(typeBinding instanceof ReferenceBinding))
+	 	this.resolvedType = this.type.resolveType(scope, true /* check bounds*/);
+	 	if (isDiamond && (this.resolvedType instanceof ParameterizedTypeBinding)) {
+			TypeBinding [] inferredTypes = inferElidedTypes(((ParameterizedTypeBinding) this.resolvedType).genericType(), null, argumentTypes, scope);
+			if (inferredTypes != null) {
+				this.resolvedType = this.type.resolvedType = scope.environment().createParameterizedType(((ParameterizedTypeBinding) this.resolvedType).genericType(), inferredTypes, ((ParameterizedTypeBinding) this.resolvedType).enclosingType());
+			} else {
+				// inference failed. Resolved type will be of the form Test<>
+				this.bits |= ASTNode.IsDiamond;
+			}
+	 	}
+		if (!(this.resolvedType instanceof ReferenceBinding))
 			throw new CompletionNodeFound(); // no need to continue if its an array or base type
 	}
 
-	throw new CompletionNodeFound(this, typeBinding, scope);
+	throw new CompletionNodeFound(this, this.resolvedType, scope);
 }
-public String toStringExpression(int tab) {
-	return 
-		((this.enclosingInstance == null) ? 
-			"<CompleteOnAllocationExpression:" :  //$NON-NLS-1$
-			"<CompleteOnQualifiedAllocationExpression:") +  //$NON-NLS-1$
-		super.toStringExpression(tab) + ">"; //$NON-NLS-1$
+public StringBuffer printExpression(int indent, StringBuffer output) {
+	if (this.enclosingInstance == null)
+		output.append("<CompleteOnAllocationExpression:" );  //$NON-NLS-1$
+	else
+		output.append("<CompleteOnQualifiedAllocationExpression:");  //$NON-NLS-1$
+	return super.printExpression(indent, output).append('>');
 }
 }

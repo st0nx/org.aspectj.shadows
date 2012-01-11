@@ -1,18 +1,18 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
 import java.util.Map;
 
-import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.compiler.*;
 import org.eclipse.jdt.internal.compiler.ClassFile;
 import org.eclipse.jdt.internal.compiler.Compiler;
 import org.eclipse.jdt.internal.compiler.ICompilerRequestor;
@@ -21,15 +21,12 @@ import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.compiler.env.IBinaryType;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
-import org.eclipse.jdt.internal.compiler.util.Util;
 
 /**
  * A variables evaluator compiles the global variables of an evaluation context and returns
  * the corresponding class files. Or it reports problems against these variables.
  */
 public class VariablesEvaluator extends Evaluator implements EvaluationConstants {
-	int startPosOffset = 0;
 /**
  * Creates a new global variables evaluator.
  */
@@ -39,7 +36,7 @@ VariablesEvaluator(EvaluationContext context, INameEnvironment environment, Map 
 /**
  * @see org.eclipse.jdt.internal.eval.Evaluator
  */
-protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, IProblem problem, char[] cuSource) {
+protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, CategorizedProblem problem, char[] cuSource) {
 	// set evaluation id and type to an internal problem by default
 	char[] evaluationID = cuSource;
 	int evaluationType = EvaluationResult.T_INTERNAL;
@@ -47,7 +44,7 @@ protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, IProbl
 	int pbLine = problem.getSourceLineNumber();
 	int currentLine = 1;
 
-	// check package declaration	
+	// check package declaration
 	char[] packageName = getPackageName();
 	if (packageName.length > 0) {
 		if (pbLine == 1) {
@@ -81,7 +78,7 @@ protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, IProbl
 	int varCount = this.context.variableCount;
 	if ((currentLine <= pbLine) && (pbLine < currentLine + varCount)) {
 		GlobalVariable var = this.context.variables[pbLine - currentLine];
-		
+
 		// set evaluation id and type
 		evaluationID = var.getName();
 		evaluationType = EvaluationResult.T_VARIABLE;
@@ -131,7 +128,7 @@ protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, IProbl
 
 	EvaluationResult result = (EvaluationResult)resultsByIDs.get(evaluationID);
 	if (result == null) {
-		resultsByIDs.put(evaluationID, new EvaluationResult(evaluationID, evaluationType, new IProblem[] {problem}));
+		resultsByIDs.put(evaluationID, new EvaluationResult(evaluationID, evaluationType, new CategorizedProblem[] {problem}));
 	} else {
 		result.addProblem(problem);
 	}
@@ -140,18 +137,18 @@ protected void addEvaluationResultForCompilationProblem(Map resultsByIDs, IProbl
  * @see org.eclipse.jdt.internal.eval.Evaluator
  */
 protected char[] getClassName() {
-	return CharOperation.concat(this.context.GLOBAL_VARS_CLASS_NAME_PREFIX, Integer.toString(this.context.VAR_CLASS_COUNTER + 1).toCharArray());
+	return CharOperation.concat(EvaluationConstants.GLOBAL_VARS_CLASS_NAME_PREFIX, Integer.toString(EvaluationContext.VAR_CLASS_COUNTER + 1).toCharArray());
 }
 /**
  * Creates and returns a compiler for this evaluator.
  */
-Compiler getCompiler(ICompilerRequestor requestor) {
-	Compiler compiler = super.getCompiler(requestor);
-	
+Compiler getCompiler(ICompilerRequestor compilerRequestor) {
+	Compiler compiler = super.getCompiler(compilerRequestor);
+
 	// Initialize the compiler's lookup environment with the already compiled super class
 	IBinaryType binaryType = this.context.getRootCodeSnippetBinary();
 	if (binaryType != null) {
-		compiler.lookupEnvironment.cacheBinaryType(binaryType);
+		compiler.lookupEnvironment.cacheBinaryType(binaryType, null /*no access restriction*/);
 	}
 
 	// and the installed global variable classes
@@ -166,11 +163,11 @@ Compiler getCompiler(ICompilerRequestor requestor) {
 			} catch (ClassFormatException e) {
 				e.printStackTrace(); // Should never happen since we compiled this type
 			}
-			compiler.lookupEnvironment.cacheBinaryType(binary);
+			compiler.lookupEnvironment.cacheBinaryType(binary, null /*no access restriction*/);
 		}
 	}
-	
-	return compiler;	
+
+	return compiler;
 }
 /**
  * Returns the name of package of the current compilation unit.
@@ -184,13 +181,13 @@ protected char[] getPackageName() {
 protected char[] getSource() {
 	StringBuffer buffer = new StringBuffer();
 	int lineNumberOffset = 1;
-	
+
 	// package declaration
 	char[] packageName = getPackageName();
 	if (packageName.length != 0) {
 		buffer.append("package "); //$NON-NLS-1$
 		buffer.append(packageName);
-		buffer.append(';').append(Util.LINE_SEPARATOR);
+		buffer.append(';').append(this.context.lineSeparator);
 		lineNumberOffset++;
 	}
 
@@ -199,7 +196,7 @@ protected char[] getSource() {
 	for (int i = 0; i < imports.length; i++) {
 		buffer.append("import "); //$NON-NLS-1$
 		buffer.append(imports[i]);
-		buffer.append(';').append(Util.LINE_SEPARATOR);
+		buffer.append(';').append(this.context.lineSeparator);
 		lineNumberOffset++;
 	}
 
@@ -210,9 +207,8 @@ protected char[] getSource() {
 	buffer.append(PACKAGE_NAME);
 	buffer.append("."); //$NON-NLS-1$
 	buffer.append(ROOT_CLASS_NAME);
-	buffer.append(" {").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
+	buffer.append(" {").append(this.context.lineSeparator); //$NON-NLS-1$
 	lineNumberOffset++;
-	startPosOffset = buffer.length();
 
 	// field declarations
 	GlobalVariable[] vars = this.context.variables;
@@ -225,12 +221,12 @@ protected char[] getSource() {
 		buffer.append(" "); //$NON-NLS-1$
 		char[] varName = var.name;
 		buffer.append(varName);
-		buffer.append(';').append(Util.LINE_SEPARATOR);
+		buffer.append(';').append(this.context.lineSeparator);
 		lineNumberOffset++;
 	}
 
 	// field initializations
-	buffer.append("\tstatic {").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
+	buffer.append("\tstatic {").append(this.context.lineSeparator); //$NON-NLS-1$
 	lineNumberOffset++;
 	for (int i = 0; i < this.context.variableCount; i++){
 		GlobalVariable var = vars[i];
@@ -240,7 +236,7 @@ protected char[] getSource() {
 			// Initialize with initializer if there was no previous value
 			char[] initializer = var.initializer;
 			if (initializer != null) {
-				buffer.append("\t\ttry {").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
+				buffer.append("\t\ttry {").append(this.context.lineSeparator); //$NON-NLS-1$
 				lineNumberOffset++;
 				var.initializerLineStart = lineNumberOffset;
 				buffer.append("\t\t\t"); //$NON-NLS-1$
@@ -250,10 +246,10 @@ protected char[] getSource() {
 				var.initExpressionStart = buffer.length();
 				buffer.append(initializer);
 				lineNumberOffset += numberOfCRs(initializer);
-				buffer.append(';').append(Util.LINE_SEPARATOR);
-				buffer.append("\t\t} catch (Throwable e) {").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
-				buffer.append("\t\t\te.printStackTrace();").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
-				buffer.append("\t\t}").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
+				buffer.append(';').append(this.context.lineSeparator);
+				buffer.append("\t\t} catch (Throwable e) {").append(this.context.lineSeparator); //$NON-NLS-1$
+				buffer.append("\t\t\te.printStackTrace();").append(this.context.lineSeparator); //$NON-NLS-1$
+				buffer.append("\t\t}").append(this.context.lineSeparator); //$NON-NLS-1$
 				lineNumberOffset += 4; // 4 CRs
 			}
 		} else {
@@ -269,14 +265,14 @@ protected char[] getSource() {
 			buffer.append(installedVars.className);
 			buffer.append("."); //$NON-NLS-1$
 			buffer.append(varName);
-			buffer.append(';').append(Util.LINE_SEPARATOR);
+			buffer.append(';').append(this.context.lineSeparator);
 			lineNumberOffset++;
 		}
 	}
-	buffer.append("\t}").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
-	
+	buffer.append("\t}").append(this.context.lineSeparator); //$NON-NLS-1$
+
 	// end of class declaration
-	buffer.append('}').append(Util.LINE_SEPARATOR);
+	buffer.append('}').append(this.context.lineSeparator);
 
 	// return result
 	int length = buffer.length();

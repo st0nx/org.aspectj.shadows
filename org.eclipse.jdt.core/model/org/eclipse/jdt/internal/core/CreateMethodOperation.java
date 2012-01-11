@@ -1,27 +1,35 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.util.Iterator;
+import java.util.List;
+
+import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.Signature;
-import org.eclipse.jdt.core.jdom.DOMFactory;
-import org.eclipse.jdt.core.jdom.IDOMMethod;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.MethodDeclaration;
+import org.eclipse.jdt.core.dom.SimpleName;
+import org.eclipse.jdt.core.dom.SingleVariableDeclaration;
+import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
+import org.eclipse.jdt.internal.core.util.Messages;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
- * <p>This operation creates an instance method. 
+ * <p>This operation creates an instance method.
  *
  * <p>Required Attributes:<ul>
  *  <li>Containing type
@@ -30,7 +38,9 @@ import org.eclipse.jdt.core.jdom.IDOMNode;
  * </ul>
  */
 public class CreateMethodOperation extends CreateTypeMemberOperation {
-	protected String[] fParameterTypes;
+
+	protected String[] parameterTypes;
+
 /**
  * When executed, this operation will create a method
  * in the given type with the specified source.
@@ -40,74 +50,74 @@ public CreateMethodOperation(IType parentElement, String source, boolean force) 
 }
 /**
  * Returns the type signatures of the parameter types of the
- * current <code>DOMMethod</code>
+ * current <code>MethodDeclaration</code>
  */
-protected String[] convertDOMMethodTypesToSignatures() {
-	if (fParameterTypes == null) {
-		if (fDOMNode != null) {
-			String[] domParameterTypes = ((IDOMMethod)fDOMNode).getParameterTypes();
-			if (domParameterTypes != null) {
-				fParameterTypes = new String[domParameterTypes.length];
-				// convert the DOM types to signatures
-				int i;
-				for (i = 0; i < fParameterTypes.length; i++) {
-					fParameterTypes[i] = Signature.createTypeSignature(domParameterTypes[i].toCharArray(), false);
-				}
+protected String[] convertASTMethodTypesToSignatures() {
+	if (this.parameterTypes == null) {
+		if (this.createdNode != null) {
+			MethodDeclaration methodDeclaration = (MethodDeclaration) this.createdNode;
+			List parameters = methodDeclaration.parameters();
+			int size = parameters.size();
+			this.parameterTypes = new String[size];
+			Iterator iterator = parameters.iterator();
+			// convert the AST types to signatures
+			for (int i = 0; i < size; i++) {
+				SingleVariableDeclaration parameter = (SingleVariableDeclaration) iterator.next();
+				String typeSig = Util.getSignature(parameter.getType());
+				int extraDimensions = parameter.getExtraDimensions();
+				if (methodDeclaration.isVarargs() && i == size-1)
+					extraDimensions++;
+				this.parameterTypes[i] = Signature.createArraySignature(typeSig, extraDimensions);
 			}
 		}
 	}
-	return fParameterTypes;
+	return this.parameterTypes;
 }
-/**
- * @see CreateTypeMemberOperation#generateElementDOM
- */
-protected IDOMNode generateElementDOM() throws JavaModelException {
-	if (fDOMNode == null) {
-		fDOMNode = (new DOMFactory()).createMethod(fSource);
-		if (fDOMNode == null) { //syntactically incorrect source
-			fDOMNode = generateSyntaxIncorrectDOM();
-		}
-		if (fAlteredName != null && fDOMNode != null) {
-			fDOMNode.setName(fAlteredName);
-		}
-	}
-	if (!(fDOMNode instanceof IDOMMethod)) {
-		return null;
-	}
-	return fDOMNode;
+protected ASTNode generateElementAST(ASTRewrite rewriter, ICompilationUnit cu) throws JavaModelException {
+	ASTNode node = super.generateElementAST(rewriter, cu);
+	if (node.getNodeType() != ASTNode.METHOD_DECLARATION)
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
+	return node;
 }
 /**
  * @see CreateElementInCUOperation#generateResultHandle
  */
 protected IJavaElement generateResultHandle() {
-	String[] types = convertDOMMethodTypesToSignatures();
-	String name;
-	if (((IDOMMethod) fDOMNode).isConstructor()) {
-		name = fDOMNode.getParent().getName();
-	} else {
-		name = fDOMNode.getName();
-	}
+	String[] types = convertASTMethodTypesToSignatures();
+	String name = getASTNodeName();
 	return getType().getMethod(name, types);
+}
+private String getASTNodeName() {
+	return ((MethodDeclaration) this.createdNode).getName().getIdentifier();
 }
 /**
  * @see CreateElementInCUOperation#getMainTaskName()
  */
 public String getMainTaskName(){
-	return Util.bind("operation.createMethodProgress"); //$NON-NLS-1$
+	return Messages.operation_createMethodProgress;
+}
+protected SimpleName rename(ASTNode node, SimpleName newName) {
+	MethodDeclaration method = (MethodDeclaration) node;
+	SimpleName oldName = method.getName();
+	method.setName(newName);
+	return oldName;
 }
 /**
  * @see CreateTypeMemberOperation#verifyNameCollision
  */
 protected IJavaModelStatus verifyNameCollision() {
-	if (fDOMNode != null) {
+	if (this.createdNode != null) {
 		IType type = getType();
-		String name = fDOMNode.getName();
-		if (name == null) { //constructor
+		String name;
+		if (((MethodDeclaration) this.createdNode).isConstructor())
 			name = type.getElementName();
-		}
-		String[] types = convertDOMMethodTypesToSignatures();
+		else
+			name = getASTNodeName();
+		String[] types = convertASTMethodTypesToSignatures();
 		if (type.getMethod(name, types).exists()) {
-			return new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION);
+			return new JavaModelStatus(
+				IJavaModelStatusConstants.NAME_COLLISION,
+				Messages.bind(Messages.status_nameCollision, name));
 		}
 	}
 	return JavaModelStatus.VERIFIED_OK;

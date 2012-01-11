@@ -1,24 +1,24 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 /**
  * A callback interface for receiving java problem correction.
- * 
+ *
  * @since 2.0
  */
 public interface ICorrectionRequestor {
 /**
  * Notification of a class correction.
- * 
+ *
  * @param packageName Declaring package name of the class.
  * @param className Name of the class.
  * @param correctionName The correction for the class.
@@ -72,7 +72,7 @@ void acceptField(
  * Notification of an interface correction.
  *
  * @param packageName Declaring package name of the interface.
- * @param className Name of the interface.
+ * @param interfaceName Name of the interface.
  * @param correctionName The correction for the interface.
  *   Can include ';' for imported interfaces.
  * @param modifiers The modifiers of the interface.
@@ -123,7 +123,9 @@ void acceptLocalVariable(
  * @param selector Name of the method.
  * @param parameterPackageNames Names of the packages in which the parameter types are declared.
  *    Should contain as many elements as parameterTypeNames.
- * @param parameterTypeNames Names of the parameters types.
+ * @param parameterTypeNames Names of the parameter types.
+ *    Should contain as many elements as parameterPackageNames.
+ * @param parameterNames Names of the parameters.
  *    Should contain as many elements as parameterPackageNames.
  * @param returnTypePackageName Name of the package in which the return type is declared.
  * @param returnTypeName Name of the return type of this method, should be <code>null</code> for a constructor.

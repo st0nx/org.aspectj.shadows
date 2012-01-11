@@ -1,27 +1,38 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import java.util.Iterator;
+
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
+import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaConventions;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.DOMFactory;
-import org.eclipse.jdt.core.jdom.IDOMImport;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.core.dom.AST;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.ImportDeclaration;
+import org.eclipse.jdt.core.dom.Name;
+import org.eclipse.jdt.core.dom.StructuralPropertyDescriptor;
+import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * <p>This operation adds an import declaration to an existing compilation unit.
@@ -43,45 +54,71 @@ import org.eclipse.jdt.core.jdom.IDOMNode;
  */
 public class CreateImportOperation extends CreateElementInCUOperation {
 
-	/**
+	/*
 	 * The name of the import to be created.
 	 */
-	protected String fImportName;
+	protected String importName;
+
+	/*
+	 * The flags of the import to be created (either Flags#AccDefault or Flags#AccStatic)
+	 */
+	protected int flags;
+
 /**
  * When executed, this operation will add an import to the given compilation unit.
  */
-public CreateImportOperation(String importName, ICompilationUnit parentElement) {
+public CreateImportOperation(String importName, ICompilationUnit parentElement, int flags) {
 	super(parentElement);
-	fImportName = importName;
+	this.importName = importName;
+	this.flags = flags;
 }
-/**
- * @see CreateTypeMemberOperation#generateElementDOM
- */
-protected IDOMNode generateElementDOM() throws JavaModelException {
-	if (fCUDOM.getChild(fImportName) == null) {
-		DOMFactory factory = new DOMFactory();
-		//not a duplicate
-		IDOMImport imp = factory.createImport();
-		imp.setName(fImportName);
-		return imp;
+protected StructuralPropertyDescriptor getChildPropertyDescriptor(ASTNode parent) {
+	return CompilationUnit.IMPORTS_PROPERTY;
+}
+protected ASTNode generateElementAST(ASTRewrite rewriter, ICompilationUnit cu) throws JavaModelException {
+	// ensure no duplicate
+	Iterator imports = this.cuAST.imports().iterator();
+	boolean onDemand = this.importName.endsWith(".*"); //$NON-NLS-1$
+	String importActualName = this.importName;
+	if (onDemand) {
+		importActualName = this.importName.substring(0, this.importName.length() - 2);
 	}
-	
-	//no new import was generated
-	fCreationOccurred = false;
-	//all the work has already been done
-	return null;
+	while (imports.hasNext()) {
+		ImportDeclaration importDeclaration = (ImportDeclaration) imports.next();
+		if (importActualName.equals(importDeclaration.getName().getFullyQualifiedName())
+				&& (onDemand == importDeclaration.isOnDemand())
+				&& (Flags.isStatic(this.flags) == importDeclaration.isStatic())) {
+			this.creationOccurred = false;
+			return null;
+		}
+	}
+
+	AST ast = this.cuAST.getAST();
+	ImportDeclaration importDeclaration = ast.newImportDeclaration();
+	importDeclaration.setStatic(Flags.isStatic(this.flags));
+	// split import name into individual fragments, checking for on demand imports
+	char[][] charFragments = CharOperation.splitOn('.', importActualName.toCharArray(), 0, importActualName.length());
+	int length = charFragments.length;
+	String[] strFragments = new String[length];
+	for (int i = 0; i < length; i++) {
+		strFragments[i] = String.valueOf(charFragments[i]);
+	}
+	Name name = ast.newName(strFragments);
+	importDeclaration.setName(name);
+	if (onDemand) importDeclaration.setOnDemand(true);
+	return importDeclaration;
 }
 /**
  * @see CreateElementInCUOperation#generateResultHandle
  */
 protected IJavaElement generateResultHandle() {
-	return getCompilationUnit().getImport(fImportName);
+	return getCompilationUnit().getImport(this.importName);
 }
 /**
  * @see CreateElementInCUOperation#getMainTaskName()
  */
 public String getMainTaskName(){
-	return Util.bind("operation.createImportsProgress"); //$NON-NLS-1$
+	return Messages.operation_createImportsProgress;
 }
 /**
  * Sets the correct position for the new import:<ul>
@@ -111,7 +148,8 @@ protected void initializeDefaultPosition() {
 				return;
 			}
 		}
-	} catch (JavaModelException npe) {
+	} catch (JavaModelException e) {
+		// cu doesn't exit: ignore
 	}
 }
 /**
@@ -128,8 +166,9 @@ public IJavaModelStatus verify() {
 	if (!status.isOK()) {
 		return status;
 	}
-	if (JavaConventions.validateImportDeclaration(fImportName).getSeverity() == IStatus.ERROR) {
-		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_NAME, fImportName);
+	IJavaProject project = getParentElement().getJavaProject();
+	if (JavaConventions.validateImportDeclaration(this.importName, project.getOption(JavaCore.COMPILER_SOURCE, true), project.getOption(JavaCore.COMPILER_COMPLIANCE, true)).getSeverity() == IStatus.ERROR) {
+		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_NAME, this.importName);
 	}
 	return JavaModelStatus.VERIFIED_OK;
 }

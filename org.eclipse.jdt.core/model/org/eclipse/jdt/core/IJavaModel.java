@@ -1,38 +1,56 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
+import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.IWorkspace;
+import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 
 /**
- * Represent the root Java element corresponding to the workspace. 
+ * Represent the root Java element corresponding to the workspace.
  * Since there is only one such root element, it is commonly referred to as
  * <em>the</em> Java model element.
  * The Java model element needs to be opened before it can be navigated or manipulated.
- * The Java model element has no parent (it is the root of the Java element 
+ * The Java model element has no parent (it is the root of the Java element
  * hierarchy). Its children are <code>IJavaProject</code>s.
  * <p>
  * This interface provides methods for performing copy, move, rename, and
  * delete operations on multiple Java elements.
  * </p>
  * <p>
- * This interface is not intended to be implemented by clients. An instance
- * of one of these handles can be created via
+ * An instance of one of these handles can be created via
  * <code>JavaCore.create(workspace.getRoot())</code>.
  * </p>
  *
  * @see JavaCore#create(org.eclipse.core.resources.IWorkspaceRoot)
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IJavaModel extends IJavaElement, IOpenable, IParent {
+/**
+ * Returns whether this Java model contains an <code>IJavaElement</code> whose
+ * resource is the given resource or a non-Java resource which is the given resource.
+ * <p>
+ * Note: no existency check is performed on the argument resource. If it is not accessible
+ * (see <code>IResource.isAccessible()</code>) yet but would be located in Java model
+ * range, then it will return <code>true</code>.
+ * </p><p>
+ * If the resource is accessible, it can be reached by navigating the Java model down using the
+ * <code>getChildren()</code> and/or <code>getNonJavaResources()</code> methods.
+ * </p>
+ * @param resource the resource to check
+ * @return true if the resource is accessible through the Java model
+ * @since 2.1
+ */
+boolean contains(IResource resource);
 /**
  * Copies the given elements to the specified container(s).
  * If one container is specified, all elements are copied to that
@@ -45,9 +63,9 @@ public interface IJavaModel extends IJavaElement, IOpenable, IParent {
  * is inserted as the last child of its associated container.
  * </p>
  * <p>
- * Optionally, each copy can be renamed. If 
+ * Optionally, each copy can be renamed. If
  * <code>null</code> is specified for the new name, the copy
- * is not renamed. 
+ * is not renamed.
  * </p>
  * <p>
  * Optionally, any existing child in the destination container with
@@ -68,15 +86,17 @@ public interface IJavaModel extends IJavaElement, IOpenable, IParent {
  * @param monitor a progress monitor
  * @exception JavaModelException if an element could not be copied. Reasons include:
  * <ul>
+ * <li> There is no element to process (NO_ELEMENTS_TO_PROCESS). The given elements is null or empty</li>
  * <li> A specified element, container, or sibling does not exist (ELEMENT_DOES_NOT_EXIST)</li>
- * <li> A <code>CoreException</code> occurred while updating an underlying resource
- * <li> A container is of an incompatible type (<code>INVALID_DESTINATION</code>)
- * <li> A sibling is not a child of it associated container (<code>INVALID_SIBLING</code>)
- * <li> A new name is invalid (<code>INVALID_NAME</code>)
+ * <li> A <code>CoreException</code> occurred while updating an underlying resource</li>
+ * <li> A container is of an incompatible type (<code>INVALID_DESTINATION</code>)</li>
+ * <li> A sibling is not a child of it associated container (<code>INVALID_SIBLING</code>)</li>
+ * <li> A new name is invalid (<code>INVALID_NAME</code>)</li>
  * <li> A child in its associated container already exists with the same
- * 		name and <code>replace</code> has been specified as <code>false</code> (<code>NAME_COLLISION</code>)
- * <li> A container or element is read-only (<code>READ_ONLY</code>) 
+ * 		name and <code>replace</code> has been specified as <code>false</code> (<code>NAME_COLLISION</code>)</li>
+ * <li> A container or element is read-only (<code>READ_ONLY</code>) </li>
  * </ul>
+ * @see org.eclipse.jdt.core.IJavaModelStatusConstants#INVALID_DESTINATION
  */
 void copy(IJavaElement[] elements, IJavaElement[] containers, IJavaElement[] siblings, String[] renamings, boolean replace, IProgressMonitor monitor) throws JavaModelException;
 /**
@@ -88,16 +108,20 @@ void copy(IJavaElement[] elements, IJavaElement[] containers, IJavaElement[] sib
  * @param monitor a progress monitor
  * @exception JavaModelException if an element could not be deleted. Reasons include:
  * <ul>
+ * <li> There is no element to process (NO_ELEMENTS_TO_PROCESS). The given elements is null or empty</li>
  * <li> A specified element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
- * <li> A <code>CoreException</code> occurred while updating an underlying resource
- * <li> An element is read-only (<code>READ_ONLY</code>) 
+ * <li> A <code>CoreException</code> occurred while updating an underlying resource</li>
+ * <li> An element is read-only (<code>READ_ONLY</code>) </li>
  * </ul>
  */
 void delete(IJavaElement[] elements, boolean force, IProgressMonitor monitor) throws JavaModelException;
 /**
- * Returns the Java project with the given name. This is a handle-only method. 
+ * Returns the Java project with the given name. The given name must be a valid
+ * path segment as defined by {@link IPath#isValidSegment(String)}.
+ * This is a handle-only method.
  * The project may or may not exist.
- * 
+ *
+ * @param name the name of the Java project
  * @return the Java project with the given name
  */
 IJavaProject getJavaProject(String name);
@@ -111,8 +135,23 @@ IJavaProject getJavaProject(String name);
  */
 IJavaProject[] getJavaProjects() throws JavaModelException;
 /**
+ * Returns an array of non-Java resources (that is, non-Java projects) in
+ * the workspace.
+ * <p>
+ * Non-Java projects include all projects that are closed (even if they have the
+ * Java nature).
+ * </p>
+ *
+ * @return an array of non-Java projects (<code>IProject</code>s) contained
+ *              in the workspace.
+ * @throws JavaModelException if this element does not exist or if an
+ *		exception occurs while accessing its corresponding resource
+ * @since 2.1
+ */
+Object[] getNonJavaResources() throws JavaModelException;
+/**
  * Returns the workspace associated with this Java model.
- * 
+ *
  * @return the workspace associated with this Java model
  */
 IWorkspace getWorkspace();
@@ -128,9 +167,9 @@ IWorkspace getWorkspace();
  * is inserted as the last child of its associated container.
  * </p>
  * <p>
- * Optionally, each element can be renamed. If 
+ * Optionally, each element can be renamed. If
  * <code>null</code> is specified for the new name, the element
- * is not renamed. 
+ * is not renamed.
  * </p>
  * <p>
  * Optionally, any existing child in the destination container with
@@ -151,17 +190,19 @@ IWorkspace getWorkspace();
  * @param monitor a progress monitor
  * @exception JavaModelException if an element could not be moved. Reasons include:
  * <ul>
+ * <li> There is no element to process (NO_ELEMENTS_TO_PROCESS). The given elements is null or empty</li>
  * <li> A specified element, container, or sibling does not exist (ELEMENT_DOES_NOT_EXIST)</li>
- * <li> A <code>CoreException</code> occurred while updating an underlying resource
- * <li> A container is of an incompatible type (<code>INVALID_DESTINATION</code>)
- * <li> A sibling is not a child of it associated container (<code>INVALID_SIBLING</code>)
- * <li> A new name is invalid (<code>INVALID_NAME</code>)
+ * <li> A <code>CoreException</code> occurred while updating an underlying resource</li>
+ * <li> A container is of an incompatible type (<code>INVALID_DESTINATION</code>)</li>
+ * <li> A sibling is not a child of it associated container (<code>INVALID_SIBLING</code>)</li>
+ * <li> A new name is invalid (<code>INVALID_NAME</code>)</li>
  * <li> A child in its associated container already exists with the same
- * 		name and <code>replace</code> has been specified as <code>false</code> (<code>NAME_COLLISION</code>)
- * <li> A container or element is read-only (<code>READ_ONLY</code>) 
+ * 		name and <code>replace</code> has been specified as <code>false</code> (<code>NAME_COLLISION</code>)</li>
+ * <li> A container or element is read-only (<code>READ_ONLY</code>) </li>
  * </ul>
  *
  * @exception IllegalArgumentException any element or container is <code>null</code>
+ * @see org.eclipse.jdt.core.IJavaModelStatusConstants#INVALID_DESTINATION
  */
 void move(IJavaElement[] elements, IJavaElement[] containers, IJavaElement[] siblings, String[] renamings, boolean replace, IProgressMonitor monitor) throws JavaModelException;
 
@@ -170,7 +211,7 @@ void move(IJavaElement[] elements, IJavaElement[] containers, IJavaElement[] sib
  * This operation will issue a JavaModel delta describing the discovered changes, in term
  * of Java element package fragment roots added, removed or changed.
  * Note that a collection of elements can be passed so as to narrow the set of archives
- * to refresh (passing <code>null</code> along is equivalent to refreshing the entire mode). 
+ * to refresh (passing <code>null</code> along is equivalent to refreshing the entire mode).
  * The elements can be:
  * <ul>
  * <li> package fragment roots corresponding to external archives
@@ -181,13 +222,16 @@ void move(IJavaElement[] elements, IJavaElement[] containers, IJavaElement[] sib
  * all of them. This means that even if a project was not part of the elements scope, it
  * may still be notified of changes if it is referencing a library comprised in the scope.
  * <p>
+ * <b>Since 3.7</b>, a project refresh automatically triggers a refresh of external archives.
+ * Hence, this method doesn't need to be explicitly called after a project refresh.
+ * <p>
  * @param elementsScope - a collection of elements defining the scope of the refresh
  * @param monitor - a progress monitor used to report progress
  * @exception JavaModelException in one of the corresponding situation:
  * <ul>
  *    <li> an exception occurs while accessing project resources </li>
  * </ul>
- * 
+ *
  * @see IJavaElementDelta
  * @since 2.0
  */
@@ -209,11 +253,12 @@ void refreshExternalArchives(IJavaElement[] elementsScope, IProgressMonitor moni
  * @param monitor a progress monitor
  * @exception JavaModelException if an element could not be renamed. Reasons include:
  * <ul>
+ * <li> There is no element to process (NO_ELEMENTS_TO_PROCESS). The given elements is null or empty</li>
  * <li> A specified element does not exist (ELEMENT_DOES_NOT_EXIST)</li>
  * <li> A <code>CoreException</code> occurred while updating an underlying resource
  * <li> A new name is invalid (<code>INVALID_NAME</code>)
  * <li> A child already exists with the same name and <code>replace</code> has been specified as <code>false</code> (<code>NAME_COLLISION</code>)
- * <li> An element is read-only (<code>READ_ONLY</code>) 
+ * <li> An element is read-only (<code>READ_ONLY</code>)
  * </ul>
  */
 void rename(IJavaElement[] elements, IJavaElement[] destinations, String[] names, boolean replace, IProgressMonitor monitor) throws JavaModelException;

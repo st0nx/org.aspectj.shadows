@@ -1,16 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.codegen;
 
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.core.compiler.CharOperation;
 
 public class CharArrayCache {
 	// to avoid using Enumerations, walk the individual tables skipping nulls
@@ -23,17 +23,17 @@ public class CharArrayCache {
  * Note that the hashtable will automatically grow when it gets full.
  */
 public CharArrayCache() {
-	this(13);
+	this(9);
 }
 /**
  * Constructs a new, empty hashtable with the specified initial
  * capacity.
  * @param initialCapacity int
- *	the initial number of buckets
+ *	the initial number of buckets; must be less than Integer.MAX_VALUE / 2
  */
 public CharArrayCache(int initialCapacity) {
 	this.elementSize = 0;
-	this.threshold = (int) (initialCapacity * 0.66f);
+	this.threshold = (initialCapacity * 2) / 3; // faster than float operation
 	this.keyTable = new char[initialCapacity][];
 	this.valueTable = new int[initialCapacity];
 }
@@ -41,23 +41,25 @@ public CharArrayCache(int initialCapacity) {
  * Clears the hash table so that it has no more elements in it.
  */
 public void clear() {
-	for (int i = keyTable.length; --i >= 0;) {
-		keyTable[i] = null;
-		valueTable[i] = 0;
+	for (int i = this.keyTable.length; --i >= 0;) {
+		this.keyTable[i] = null;
+		this.valueTable[i] = 0;
 	}
-	elementSize = 0;
+	this.elementSize = 0;
 }
 /** Returns true if the collection contains an element for the key.
  *
- * @param char[] key the key that we are looking for
+ * @param key char[] the key that we are looking for
  * @return boolean
  */
 public boolean containsKey(char[] key) {
-	int index = hashCodeChar(key);
-	while (keyTable[index] != null) {
-		if (CharOperation.equals(keyTable[index], key))
+	int length = this.keyTable.length, index = CharOperation.hashCode(key) % length;
+	while (this.keyTable[index] != null) {
+		if (CharOperation.equals(this.keyTable[index], key))
 			return true;
-		index = (index + 1) % keyTable.length;
+		if (++index == length) { // faster than modulo
+			index = 0;
+		}
 	}
 	return false;
 }
@@ -68,44 +70,66 @@ public boolean containsKey(char[] key) {
  *	defined in the hash table.
  */
 public int get(char[] key) {
-	int index = hashCodeChar(key);
-	while (keyTable[index] != null) {
-		if (CharOperation.equals(keyTable[index], key))
-			return valueTable[index];
-		index = (index + 1) % keyTable.length;
+	int length = this.keyTable.length, index = CharOperation.hashCode(key) % length;
+	while (this.keyTable[index] != null) {
+		if (CharOperation.equals(this.keyTable[index], key))
+			return this.valueTable[index];
+		if (++index == length) { // faster than modulo
+			index = 0;
+		}
 	}
 	return -1;
 }
-private int hashCodeChar(char[] val) {
-	int length = val.length;
-	int hash = 0;
-	int n = 2; // number of characters skipped
-	for (int i = 0; i < length; i += n) {
-		hash += val[i];
+/**
+ * Puts the specified element into the hashtable if it wasn't there already,
+ * using the specified key.  The element may be retrieved by doing a get() with the same key.
+ * The key and the element cannot be null.
+ *
+ * @param key the given key in the hashtable
+ * @param value the given value
+ * @return int the old value of the key, or -value if it did not have one.
+ */
+public int putIfAbsent(char[] key, int value) {
+	int length = this.keyTable.length, index = CharOperation.hashCode(key) % length;
+	while (this.keyTable[index] != null) {
+		if (CharOperation.equals(this.keyTable[index], key))
+			return this.valueTable[index];
+		if (++index == length) { // faster than modulo
+			index = 0;
+		}
 	}
-	return (hash & 0x7FFFFFFF) % keyTable.length;
+	this.keyTable[index] = key;
+	this.valueTable[index] = value;
+
+	// assumes the threshold is never equal to the size of the table
+	if (++this.elementSize > this.threshold)
+		rehash();
+	return -value; // negative when added (value is assumed to be > 0)
 }
+
 /**
  * Puts the specified element into the hashtable, using the specified
  * key.  The element may be retrieved by doing a get() with the same key.
- * The key and the element cannot be null. 
- * 
+ * The key and the element cannot be null.
+ *
  * @param key <CODE>Object</CODE> the specified key in the hashtable
  * @param value <CODE>int</CODE> the specified element
  * @return int the old value of the key, or -1 if it did not have one.
  */
-public int put(char[] key, int value) { 
-	int index = hashCodeChar(key);
-	while (keyTable[index] != null) {
-		if (CharOperation.equals(keyTable[index], key))
-			return valueTable[index] = value;
-		index = (index + 1) % keyTable.length;
+private int put(char[] key, int value) {
+	int length = this.keyTable.length, index = CharOperation.hashCode(key) % length;
+	while (this.keyTable[index] != null) {
+		if (CharOperation.equals(this.keyTable[index], key))
+			return this.valueTable[index] = value;
+		if (++index == length) { // faster than modulo
+			index = 0;
+		}
 	}
-	keyTable[index] = key;
-	valueTable[index] = value;
+	this.keyTable[index] = key;
+	this.valueTable[index] = value;
 
 	// assumes the threshold is never equal to the size of the table
-	if (++elementSize > threshold)
+	if (++this.elementSize > this.threshold)
 		rehash();
 	return value;
 }
@@ -115,10 +139,10 @@ public int put(char[] key, int value) {
  * size exceeds the threshold.
  */
 private void rehash() {
-	CharArrayCache newHashtable = new CharArrayCache(keyTable.length * 2);
-	for (int i = keyTable.length; --i >= 0;)
-		if (keyTable[i] != null)
-			newHashtable.put(keyTable[i], valueTable[i]);
+	CharArrayCache newHashtable = new CharArrayCache(this.keyTable.length * 2);
+	for (int i = this.keyTable.length; --i >= 0;)
+		if (this.keyTable[i] != null)
+			newHashtable.put(this.keyTable[i], this.valueTable[i]);
 
 	this.keyTable = newHashtable.keyTable;
 	this.valueTable = newHashtable.valueTable;
@@ -129,14 +153,16 @@ private void rehash() {
  * @param key <CODE>char[]</CODE> the specified key
  */
 public void remove(char[] key) {
-	int index = hashCodeChar(key);
-	while (keyTable[index] != null) {
-		if (CharOperation.equals(keyTable[index], key)) {
-			valueTable[index] = 0;
-			keyTable[index] = null;
+	int length = this.keyTable.length, index = CharOperation.hashCode(key) % length;
+	while (this.keyTable[index] != null) {
+		if (CharOperation.equals(this.keyTable[index], key)) {
+			this.valueTable[index] = 0;
+			this.keyTable[index] = null;
 			return;
 		}
-		index = (index + 1) % keyTable.length;
+		if (++index == length) { // faster than modulo
+			index = 0;
+		}
 	}
 }
 /**
@@ -146,9 +172,9 @@ public void remove(char[] key) {
  * @return Object
  */
 public char[] returnKeyFor(int value) {
-	for (int i = keyTable.length; i-- > 0;) {
-		if (valueTable[i] == value) {
-			return keyTable[i];
+	for (int i = this.keyTable.length; i-- > 0;) {
+		if (this.valueTable[i] == value) {
+			return this.keyTable[i];
 		}
 	}
 	return null;
@@ -159,7 +185,7 @@ public char[] returnKeyFor(int value) {
  * @return <CODE>int</CODE> The size of the table
  */
 public int size() {
-	return elementSize;
+	return this.elementSize;
 }
 /**
  * Converts to a rather lengthy String.
@@ -171,8 +197,8 @@ public String toString() {
 	StringBuffer buf = new StringBuffer();
 	buf.append("{"); //$NON-NLS-1$
 	for (int i = 0; i < max; ++i) {
-		if (keyTable[i] != null) {
-			buf.append(keyTable[i]).append("->").append(valueTable[i]); //$NON-NLS-1$
+		if (this.keyTable[i] != null) {
+			buf.append(this.keyTable[i]).append("->").append(this.valueTable[i]); //$NON-NLS-1$
 		}
 		if (i < max) {
 			buf.append(", "); //$NON-NLS-1$

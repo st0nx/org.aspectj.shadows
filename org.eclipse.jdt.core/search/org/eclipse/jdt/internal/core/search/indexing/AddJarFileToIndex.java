@@ -1,96 +1,99 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.indexing;
 
+import java.io.File;
 import java.io.IOException;
+import java.net.URI;
 import java.util.Enumeration;
-import java.util.HashSet;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 import org.eclipse.core.resources.IFile;
+import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.jdt.core.compiler.InvalidInputException;
+import org.eclipse.jdt.core.search.IJavaSearchScope;
+import org.eclipse.jdt.core.search.SearchEngine;
+import org.eclipse.jdt.core.search.SearchParticipant;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.parser.Scanner;
+import org.eclipse.jdt.internal.compiler.parser.TerminalTokens;
+import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.compiler.util.Util;
-import org.eclipse.jdt.internal.core.index.IIndex;
-import org.eclipse.jdt.internal.core.index.IQueryResult;
-import org.eclipse.jdt.internal.core.index.impl.JarFileEntryDocument;
+import org.eclipse.jdt.internal.core.JavaModelManager;
+import org.eclipse.jdt.internal.core.index.Index;
+import org.eclipse.jdt.internal.core.search.JavaSearchDocument;
 import org.eclipse.jdt.internal.core.search.processing.JobManager;
 
 class AddJarFileToIndex extends IndexRequest {
 
-	IndexManager manager;
-	String projectName;
+	private static final char JAR_SEPARATOR = IJavaSearchScope.JAR_FILE_ENTRY_SEPARATOR.charAt(0);
 	IFile resource;
-	private String toString;
-	IPath path;
+	Scanner scanner;
 
-	public AddJarFileToIndex(
-		IFile resource,
-		IndexManager manager,
-		String projectName) {
+	public AddJarFileToIndex(IFile resource, IndexManager manager) {
+		super(resource.getFullPath(), manager);
 		this.resource = resource;
-		this.path = resource.getFullPath();
-		this.manager = manager;
-		this.projectName = projectName;
 	}
-	// can be found either by project name or JAR path name
-	public boolean belongsTo(String jobFamily) {
-		return jobFamily.equals(projectName) || this.path.toString().equals(jobFamily);
+	public AddJarFileToIndex(IPath jarPath, IndexManager manager) {
+		// external JAR scenario - no resource
+		super(jarPath, manager);
 	}
-public boolean equals(Object o) {
-	if (!(o instanceof AddJarFileToIndex)) return false;
-	if (this.resource != null) {
-		return this.resource.equals(((AddJarFileToIndex)o).resource);
+	public boolean equals(Object o) {
+		if (o instanceof AddJarFileToIndex) {
+			if (this.resource != null)
+				return this.resource.equals(((AddJarFileToIndex) o).resource);
+			if (this.containerPath != null)
+				return this.containerPath.equals(((AddJarFileToIndex) o).containerPath);
+		}
+		return false;
 	}
-	if (this.path != null) {
-		return this.path.equals(((AddJarFileToIndex)o).path);
+	public int hashCode() {
+		if (this.resource != null)
+			return this.resource.hashCode();
+		if (this.containerPath != null)
+			return this.containerPath.hashCode();
+		return -1;
 	}
-	return false;
-}
-public int hashCode() {
-	if (this.resource != null) {
-		return this.resource.hashCode();
-	}
-	if (this.path != null) {
-		return this.path.hashCode();
-	}
-	return -1;
-}	
 	public boolean execute(IProgressMonitor progressMonitor) {
-		
-		if (progressMonitor != null && progressMonitor.isCanceled()) return COMPLETE;
+
+		if (this.isCancelled || progressMonitor != null && progressMonitor.isCanceled()) return true;
+
 		try {
-			IPath indexedPath = this.path;
-			// if index already cached, then do not perform any check
-			IIndex index = (IIndex) manager.getIndex(indexedPath, false /*do not reuse index file*/, false /*do not create if none*/);
+			// if index is already cached, then do not perform any check
+			// MUST reset the IndexManager if a jar file is changed
+			Index index = this.manager.getIndexForUpdate(this.containerPath, false, /*do not reuse index file*/ false /*do not create if none*/);
 			if (index != null) {
-				if (JobManager.VERBOSE) 
-					JobManager.verbose("-> no indexing required (index already exists) for " + this.path); //$NON-NLS-1$
-				return COMPLETE;
+				if (JobManager.VERBOSE)
+					org.eclipse.jdt.internal.core.util.Util.verbose("-> no indexing required (index already exists) for " + this.containerPath); //$NON-NLS-1$
+				return true;
 			}
 
-			index = manager.getIndex(indexedPath, true /*reuse index file*/, true /*create if none*/);
+			index = this.manager.getIndexForUpdate(this.containerPath, true, /*reuse index file*/ true /*create if none*/);
 			if (index == null) {
-				if (JobManager.VERBOSE) 
-					JobManager.verbose("-> index could not be created for " + this.path); //$NON-NLS-1$
-				return COMPLETE;
+				if (JobManager.VERBOSE)
+					org.eclipse.jdt.internal.core.util.Util.verbose("-> index could not be created for " + this.containerPath); //$NON-NLS-1$
+				return true;
 			}
-			ReadWriteMonitor monitor = manager.getMonitorFor(index);
+			ReadWriteMonitor monitor = index.monitor;
 			if (monitor == null) {
-				if (JobManager.VERBOSE) 
-					JobManager.verbose("-> index for " + this.path + " just got deleted"); //$NON-NLS-1$//$NON-NLS-2$
-				return COMPLETE; // index got deleted since acquired
+				if (JobManager.VERBOSE)
+					org.eclipse.jdt.internal.core.util.Util.verbose("-> index for " + this.containerPath + " just got deleted"); //$NON-NLS-1$//$NON-NLS-2$
+				return true; // index got deleted since acquired
 			}
+			index.separator = JAR_SEPARATOR;
 			ZipFile zip = null;
 			try {
 				// this path will be a relative path to the workspace in case the zipfile in the workspace otherwise it will be a path in the
@@ -98,127 +101,172 @@ public int hashCode() {
 				Path zipFilePath = null;
 
 				monitor.enterWrite(); // ask permission to write
-				if (resource != null) {
-					IPath location = this.resource.getLocation();
-					if (location == null)
-						return FAILED;
-					zip = new ZipFile(location.toFile());
+				if (this.resource != null) {
+					URI location = this.resource.getLocationURI();
+					if (location == null) return false;
+					if (JavaModelManager.ZIP_ACCESS_VERBOSE)
+						System.out.println("(" + Thread.currentThread() + ") [AddJarFileToIndex.execute()] Creating ZipFile on " + location.getPath()); //$NON-NLS-1$	//$NON-NLS-2$
+					File file = null;
+					try {
+						file = org.eclipse.jdt.internal.core.util.Util.toLocalFile(location, progressMonitor);
+					} catch (CoreException e) {
+						if (JobManager.VERBOSE) {
+							org.eclipse.jdt.internal.core.util.Util.verbose("-> failed to index " + location.getPath() + " because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
+							e.printStackTrace();
+						}
+					}
+					if (file == null) {
+						if (JobManager.VERBOSE)
+							org.eclipse.jdt.internal.core.util.Util.verbose("-> failed to index " + location.getPath() + " because the file could not be fetched"); //$NON-NLS-1$ //$NON-NLS-2$
+						return false;
+					}
+					zip = new ZipFile(file);
 					zipFilePath = (Path) this.resource.getFullPath().makeRelative();
 					// absolute path relative to the workspace
 				} else {
-					zip = new ZipFile(this.path.toFile());
-					zipFilePath = (Path) this.path;
+					if (JavaModelManager.ZIP_ACCESS_VERBOSE)
+						System.out.println("(" + Thread.currentThread() + ") [AddJarFileToIndex.execute()] Creating ZipFile on " + this.containerPath); //$NON-NLS-1$	//$NON-NLS-2$
+					// external file -> it is ok to use toFile()
+					zip = new ZipFile(this.containerPath.toFile());
+					zipFilePath = (Path) this.containerPath;
 					// path is already canonical since coming from a library classpath entry
 				}
 
+				if (this.isCancelled) {
+					if (JobManager.VERBOSE)
+						org.eclipse.jdt.internal.core.util.Util.verbose("-> indexing of " + zip.getName() + " has been cancelled"); //$NON-NLS-1$ //$NON-NLS-2$
+					return false;
+				}
+
 				if (JobManager.VERBOSE)
-					JobManager.verbose("-> indexing " + zip.getName()); //$NON-NLS-1$
+					org.eclipse.jdt.internal.core.util.Util.verbose("-> indexing " + zip.getName()); //$NON-NLS-1$
 				long initialTime = System.currentTimeMillis();
 
-				final HashSet indexedFileNames = new HashSet(100);
-				IQueryResult[] results = index.queryInDocumentNames(""); // all file names //$NON-NLS-1$
-				int resultLength = results == null ? 0 : results.length;
-				if (resultLength != 0) {
+				String[] paths = index.queryDocumentNames(""); // all file names //$NON-NLS-1$
+				if (paths != null) {
+					int max = paths.length;
 					/* check integrity of the existing index file
 					 * if the length is equal to 0, we want to index the whole jar again
 					 * If not, then we want to check that there is no missing entry, if
-					 * one entry is missing then we 
+					 * one entry is missing then we recreate the index
 					 */
-					for (int i = 0; i < resultLength; i++) {
-						String fileName = results[i].getPath();
-						indexedFileNames.add(fileName);
-					}
-					boolean needToReindex = false;
+					String EXISTS = "OK"; //$NON-NLS-1$
+					String DELETED = "DELETED"; //$NON-NLS-1$
+					SimpleLookupTable indexedFileNames = new SimpleLookupTable(max == 0 ? 33 : max + 11);
+					for (int i = 0; i < max; i++)
+						indexedFileNames.put(paths[i], DELETED);
 					for (Enumeration e = zip.entries(); e.hasMoreElements();) {
 						// iterate each entry to index it
 						ZipEntry ze = (ZipEntry) e.nextElement();
-						if (Util.isClassFileName(ze.getName())) {
-							JarFileEntryDocument entryDocument =
-								new JarFileEntryDocument(ze, null, zipFilePath);
-							if (!indexedFileNames.remove(entryDocument.getName())) {
-								needToReindex = true;
+						String zipEntryName = ze.getName();
+						if (Util.isClassFileName(zipEntryName) && isValidPackageNameForClass(zipEntryName))
+								// the class file may not be there if the package name is not valid
+							indexedFileNames.put(zipEntryName, EXISTS);
+					}
+					boolean needToReindex = indexedFileNames.elementSize != max; // a new file was added
+					if (!needToReindex) {
+						Object[] valueTable = indexedFileNames.valueTable;
+						for (int i = 0, l = valueTable.length; i < l; i++) {
+							if (valueTable[i] == DELETED) {
+								needToReindex = true; // a file was deleted so re-index
 								break;
 							}
 						}
-					}
-					if (!needToReindex && indexedFileNames.size() == 0) {
-						if (JobManager.VERBOSE)
-							JobManager.verbose(
-								"-> no indexing required (index is consistent with library) for " //$NON-NLS-1$
+						if (!needToReindex) {
+							if (JobManager.VERBOSE)
+								org.eclipse.jdt.internal.core.util.Util.verbose("-> no indexing required (index is consistent with library) for " //$NON-NLS-1$
 								+ zip.getName() + " (" //$NON-NLS-1$
 								+ (System.currentTimeMillis() - initialTime) + "ms)"); //$NON-NLS-1$
-						return COMPLETE;
+							this.manager.saveIndex(index); // to ensure its placed into the saved state
+							return true;
+						}
 					}
 				}
 
-				/*
-				 * Index the jar for the first time or reindex the jar in case the previous index file has been corrupted
-				 */
-				if (index != null) {
-					// index already existed: recreate it so that we forget about previous entries
-					index = manager.recreateIndex(indexedPath);
+				// Index the jar for the first time or reindex the jar in case the previous index file has been corrupted
+				// index already existed: recreate it so that we forget about previous entries
+				SearchParticipant participant = SearchEngine.getDefaultSearchParticipant();
+				if (!this.manager.resetIndex(this.containerPath)) {
+					// failed to recreate index, see 73330
+					this.manager.removeIndex(this.containerPath);
+					return false;
 				}
+				index.separator = JAR_SEPARATOR;
+
 				for (Enumeration e = zip.entries(); e.hasMoreElements();) {
 					if (this.isCancelled) {
-						if (JobManager.VERBOSE) {
-							JobManager.verbose(
-								"-> indexing of " //$NON-NLS-1$
-								+ zip.getName() 
-								+ " has been cancelled"); //$NON-NLS-1$
-						}
-						return FAILED;
+						if (JobManager.VERBOSE)
+							org.eclipse.jdt.internal.core.util.Util.verbose("-> indexing of " + zip.getName() + " has been cancelled"); //$NON-NLS-1$ //$NON-NLS-2$
+						return false;
 					}
-					
+
 					// iterate each entry to index it
 					ZipEntry ze = (ZipEntry) e.nextElement();
-					if (Util.isClassFileName(ze.getName())) {
-						byte[] classFileBytes =
-							org.eclipse.jdt.internal.compiler.util.Util.getZipEntryByteContent(ze, zip);
-						// Add the name of the file to the index
-						index.add(
-							new JarFileEntryDocument(ze, classFileBytes, zipFilePath),
-							new BinaryIndexer(true));
+					String zipEntryName = ze.getName();
+					if (Util.isClassFileName(zipEntryName) && 
+							isValidPackageNameForClass(zipEntryName)) {
+						// index only classes coming from valid packages - https://bugs.eclipse.org/bugs/show_bug.cgi?id=293861
+						final byte[] classFileBytes = org.eclipse.jdt.internal.compiler.util.Util.getZipEntryByteContent(ze, zip);
+						JavaSearchDocument entryDocument = new JavaSearchDocument(ze, zipFilePath, classFileBytes, participant);
+						this.manager.indexDocument(entryDocument, participant, index, this.containerPath);
 					}
 				}
+				this.manager.saveIndex(index);
 				if (JobManager.VERBOSE)
-					JobManager.verbose(
-						"-> done indexing of " //$NON-NLS-1$
+					org.eclipse.jdt.internal.core.util.Util.verbose("-> done indexing of " //$NON-NLS-1$
 						+ zip.getName() + " (" //$NON-NLS-1$
 						+ (System.currentTimeMillis() - initialTime) + "ms)"); //$NON-NLS-1$
 			} finally {
-				if (zip != null)
+				if (zip != null) {
+					if (JavaModelManager.ZIP_ACCESS_VERBOSE)
+						System.out.println("(" + Thread.currentThread() + ") [AddJarFileToIndex.execute()] Closing ZipFile " + zip); //$NON-NLS-1$	//$NON-NLS-2$
 					zip.close();
+				}
 				monitor.exitWrite(); // free write lock
 			}
 		} catch (IOException e) {
 			if (JobManager.VERBOSE) {
-				JobManager.verbose("-> failed to index " + this.path + " because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
+				org.eclipse.jdt.internal.core.util.Util.verbose("-> failed to index " + this.containerPath + " because of the following exception:"); //$NON-NLS-1$ //$NON-NLS-2$
 				e.printStackTrace();
 			}
-			manager.removeIndex(this.path);
-			return FAILED;
+			this.manager.removeIndex(this.containerPath);
+			return false;
 		}
-		return COMPLETE;
+		return true;
 	}
-	/**
-	 * Insert the method's description here.
-	 * Creation date: (10/10/00 1:27:18 PM)
-	 * @return java.lang.String
-	 */
+	public String getJobFamily() {
+		if (this.resource != null)
+			return super.getJobFamily();
+		return this.containerPath.toOSString(); // external jar
+	}	
+	private  boolean isValidPackageNameForClass(String className) {
+		char[] classNameArray = className.toCharArray();
+		if (this.scanner == null)
+			this.scanner = new Scanner(false /* comment */, true /* whitespace */, false /* nls */,
+					ClassFileConstants.JDK1_3/* sourceLevel */, null/* taskTag */, null/* taskPriorities */, true /* taskCaseSensitive */);
+		this.scanner.setSource(classNameArray); 
+		this.scanner.eofPosition = classNameArray.length - SuffixConstants.SUFFIX_CLASS.length;
+		try {
+			if (this.scanner.scanIdentifier() == TerminalTokens.TokenNameIdentifier) {
+				while (this.scanner.eofPosition > this.scanner.currentPosition) {
+					if (this.scanner.getNextChar() != '/' || this.scanner.eofPosition <= this.scanner.currentPosition) {
+						return false;
+					}
+					if (this.scanner.scanIdentifier() != TerminalTokens.TokenNameIdentifier) {
+						return false;
+					}
+				}
+				return true;
+			}
+		} catch (InvalidInputException e) {
+			// invalid class name
+		}
+		return false;
+	}
+	protected Integer updatedIndexState() {
+		return IndexManager.REBUILDING_STATE;
+	}
 	public String toString() {
-		if (toString == null) {
-			toString = "indexing " + this.path.toString(); //$NON-NLS-1$
-		}
-		return toString;
-	}
-
-	public AddJarFileToIndex(
-		IPath path,
-		IndexManager manager,
-		String projectName) {
-		// external JAR scenario - no resource
-		this.path = path;
-		this.manager = manager;
-		this.projectName = projectName;
+		return "indexing " + this.containerPath.toString(); //$NON-NLS-1$
 	}
 }

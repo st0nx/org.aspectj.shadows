@@ -1,17 +1,17 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2006 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ClassFile;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
 
 /**
  * This contains information about the installed variables such as
@@ -20,7 +20,7 @@ import org.eclipse.jdt.internal.compiler.util.CharOperation;
  * compiling the code snippet).
  */
 public class VariablesInfo {
-	GlobalVariable[] variables;;
+	GlobalVariable[] variables;
 	int variableCount;
 	char[] packageName;
 	char[] className;
@@ -43,9 +43,10 @@ public VariablesInfo(char[] packageName, char[] className, ClassFile[] classFile
  */
 int indexOf(GlobalVariable var) {
 	for (int i = 0; i < this.variableCount; i++) {
-		if (var.equals(this.variables[i]))
+		if (var.equals(this.variables[i])) {
 			return i;
-	};
+		}
+	}
 	return -1;
 }
 /**
@@ -56,9 +57,10 @@ GlobalVariable varNamed(char[] name) {
 	GlobalVariable[] vars = this.variables;
 	for (int i = 0; i < this.variableCount; i++) {
 		GlobalVariable var = vars[i];
-		if (CharOperation.equals(name, var.name))
+		if (CharOperation.equals(name, var.name)) {
 			return var;
-	};
+		}
+	}
 	return null;
 }
 }

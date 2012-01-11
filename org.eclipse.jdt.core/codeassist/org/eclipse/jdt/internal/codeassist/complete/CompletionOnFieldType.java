@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.codeassist.complete;
 
 /*
@@ -30,29 +30,26 @@ package org.eclipse.jdt.internal.codeassist.complete;
  * The arguments of the allocation expression are all the arguments defined
  * before the cursor.
  */
- 
+
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ast.*;
-import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class CompletionOnFieldType extends FieldDeclaration {
 	public boolean isLocalVariable;
-	
+
 public CompletionOnFieldType(TypeReference type, boolean isLocalVariable){
 	super();
 	this.sourceStart = type.sourceStart;
 	this.sourceEnd = type.sourceEnd;
 	this.type = type;
-	this.name = NoChar;
+	this.name = CharOperation.NO_CHAR;
 	this.isLocalVariable = isLocalVariable;
+	if (type instanceof CompletionOnSingleTypeReference) {
+	    ((CompletionOnSingleTypeReference) type).fieldTypeCompletionNode = this;
+	}
 }
-public TypeBinding getTypeBinding(Scope scope) {
-	if(type instanceof CompletionOnSingleTypeReference)
-		throw new CompletionNodeFound(this, scope);
-	else // handle the qualified type ref directly
-		return type.getTypeBinding(scope);
-}
-public String toString(int tab) {
 
-	return type.toString(tab);
+public StringBuffer printStatement(int tab, StringBuffer output) {
+	return this.type.print(tab, output).append(';');
 }
 }

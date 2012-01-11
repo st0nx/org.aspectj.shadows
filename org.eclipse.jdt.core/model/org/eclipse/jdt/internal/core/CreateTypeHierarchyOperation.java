@@ -1,15 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
@@ -17,7 +18,6 @@ import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IRegion;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.ITypeHierarchy;
-import org.eclipse.jdt.core.IWorkingCopy;
 import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.search.IJavaSearchScope;
 import org.eclipse.jdt.internal.core.hierarchy.RegionBasedTypeHierarchy;
@@ -26,7 +26,7 @@ import org.eclipse.jdt.internal.core.hierarchy.TypeHierarchy;
 /**
  * This operation creates an <code>ITypeHierarchy</code> for a specific type within
  * a specified region, or for all types within a region. The specified
- * region limits the number of resolved subtypes (i.e. to the subset of
+ * region limits the number of resolved subtypes (to the subset of
  * types in the specified region). The resolved supertypes may go outside
  * of the specified region in order to reach the root(s) of the type
  * hierarchy. A Java Project is required to provide a context (classpath)
@@ -40,26 +40,47 @@ public class CreateTypeHierarchyOperation extends JavaModelOperation {
 	 * The generated type hierarchy
 	 */
 	protected TypeHierarchy typeHierarchy;
-	
-	public IWorkingCopy[] workingCopies;
-	
+
 /**
  * Constructs an operation to create a type hierarchy for the
  * given type within the specified region, in the context of
  * the given project.
  */
-public CreateTypeHierarchyOperation(IType element, IRegion region, IJavaProject project, boolean computeSubtypes) throws JavaModelException {
+public CreateTypeHierarchyOperation(IRegion region, ICompilationUnit[] workingCopies, IType element, boolean computeSubtypes) {
 	super(element);
-	this.typeHierarchy = new RegionBasedTypeHierarchy(region, project, element, computeSubtypes);
+	this.typeHierarchy = new RegionBasedTypeHierarchy(region, workingCopies, element, computeSubtypes);
 }
 /**
  * Constructs an operation to create a type hierarchy for the
  * given type and working copies.
  */
-public CreateTypeHierarchyOperation(IType element, IWorkingCopy[] workingCopies, IJavaSearchScope scope, boolean computeSubtypes) throws JavaModelException {
+public CreateTypeHierarchyOperation(IType element, ICompilationUnit[] workingCopies, IJavaSearchScope scope, boolean computeSubtypes) {
 	super(element);
-	this.typeHierarchy = new TypeHierarchy(element, scope, computeSubtypes);
-	this.workingCopies = workingCopies;
+	ICompilationUnit[] copies;
+	if (workingCopies != null) {
+		int length = workingCopies.length;
+		copies = new ICompilationUnit[length];
+		System.arraycopy(workingCopies, 0, copies, 0, length);
+	} else {
+		copies = null;
+	}
+	this.typeHierarchy = new TypeHierarchy(element, copies, scope, computeSubtypes);
+}
+/**
+ * Constructs an operation to create a type hierarchy for the
+ * given type and working copies.
+ */
+public CreateTypeHierarchyOperation(IType element, ICompilationUnit[] workingCopies, IJavaProject project, boolean computeSubtypes) {
+	super(element);
+	ICompilationUnit[] copies;
+	if (workingCopies != null) {
+		int length = workingCopies.length;
+		copies = new ICompilationUnit[length];
+		System.arraycopy(workingCopies, 0, copies, 0, length);
+	} else {
+		copies = null;
+	}
+	this.typeHierarchy = new TypeHierarchy(element, copies, project, computeSubtypes);
 }
 /**
  * Performs the operation - creates the type hierarchy

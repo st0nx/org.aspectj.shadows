@@ -1,26 +1,28 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *     Stephan Herrmann - Contribution for bug 319201 - [null] no warning when unboxing SingleNameReference causes NPE
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
 
-import org.eclipse.jdt.internal.compiler.IAbstractSyntaxTreeVisitor;
+import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.impl.*;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
 import org.eclipse.jdt.internal.compiler.flow.*;
 import org.eclipse.jdt.internal.compiler.lookup.*;
 
 public class WhileStatement extends Statement {
-	
+
 	public Expression condition;
 	public Statement action;
-	private Label breakLabel, continueLabel;
+	private BranchLabel breakLabel, continueLabel;
 	int preCondInitStateIndex = -1;
 	int condIfTrueInitStateIndex = -1;
 	int mergedInitStateIndex = -1;
@@ -29,92 +31,135 @@ public class WhileStatement extends Statement {
 
 		this.condition = condition;
 		this.action = action;
-		sourceStart = s;
-		sourceEnd = e;
+		// remember useful empty statement
+		if (action instanceof EmptyStatement) action.bits |= IsUsefulEmptyStatement;
+		this.sourceStart = s;
+		this.sourceEnd = e;
 	}
 
-	public FlowInfo analyseCode(
-		BlockScope currentScope,
-		FlowContext flowContext,
-		FlowInfo flowInfo) {
+	public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, FlowInfo flowInfo) {
 
-		breakLabel = new Label();
-		continueLabel = new Label();
+		this.breakLabel = new BranchLabel();
+		this.continueLabel = new BranchLabel();
+		int initialComplaintLevel = (flowInfo.reachMode() & FlowInfo.UNREACHABLE) != 0 ? Statement.COMPLAINED_FAKE_REACHABLE : Statement.NOT_COMPLAINED;
 
-		preCondInitStateIndex =
-			currentScope.methodScope().recordInitializationStates(flowInfo);
+		Constant cst = this.condition.constant;
+		boolean isConditionTrue = cst != Constant.NotAConstant && cst.booleanValue() == true;
+		boolean isConditionFalse = cst != Constant.NotAConstant && cst.booleanValue() == false;
+
+		cst = this.condition.optimizedBooleanConstant();
+		boolean isConditionOptimizedTrue = cst != Constant.NotAConstant && cst.booleanValue() == true;
+		boolean isConditionOptimizedFalse = cst != Constant.NotAConstant && cst.booleanValue() == false;
+
+		this.preCondInitStateIndex = currentScope.methodScope().recordInitializationStates(flowInfo);
 		LoopingFlowContext condLoopContext;
-		FlowInfo postCondInfo =
-			condition.analyseCode(
+		FlowInfo condInfo =	flowInfo.nullInfoLessUnconditionalCopy();
+		
+		// we need to collect the contribution to nulls of the coming paths through the
+		// loop, be they falling through normally or branched to break, continue labels
+		// or catch blocks
+		condInfo = this.condition.analyseCode(
 				currentScope,
 				(condLoopContext =
-					new LoopingFlowContext(flowContext, this, null, null, currentScope)),
-				flowInfo);
+					new LoopingFlowContext(flowContext, flowInfo, this, null,
+						null, currentScope)),
+				condInfo);
+		if ((this.condition.implicitConversion & TypeIds.UNBOXING) != 0) {
+			this.condition.checkNPE(currentScope, flowContext, flowInfo);
+		}
 
 		LoopingFlowContext loopingContext;
-		if ((action == null) || action.isEmptyBlock()) {
-			condLoopContext.complainOnFinalAssignmentsInLoop(currentScope, postCondInfo);
-			if ((condition.constant != NotAConstant)
-				&& (condition.constant.booleanValue() == true)) {
-				return FlowInfo.DeadEnd;
+		FlowInfo actionInfo;
+		FlowInfo exitBranch;
+		if (this.action == null
+			|| (this.action.isEmptyBlock() && currentScope.compilerOptions().complianceLevel <= ClassFileConstants.JDK1_3)) {
+			condLoopContext.complainOnDeferredFinalChecks(currentScope,
+					condInfo);
+			condLoopContext.complainOnDeferredNullChecks(currentScope,
+				condInfo.unconditionalInits());
+			if (isConditionTrue) {
+				return FlowInfo.DEAD_END;
 			} else {
-				FlowInfo mergedInfo = postCondInfo.initsWhenFalse().unconditionalInits();
-				mergedInitStateIndex =
+				FlowInfo mergedInfo = flowInfo.copy().addInitializationsFrom(condInfo.initsWhenFalse());
+				if (isConditionOptimizedTrue){
+					mergedInfo.setReachMode(FlowInfo.UNREACHABLE_OR_DEAD);
+				}
+				this.mergedInitStateIndex =
 					currentScope.methodScope().recordInitializationStates(mergedInfo);
 				return mergedInfo;
 			}
 		} else {
-			// in case the condition was inlined to false, record the fact that there is no way to reach any 
+			// in case the condition was inlined to false, record the fact that there is no way to reach any
 			// statement inside the looping action
 			loopingContext =
 				new LoopingFlowContext(
 					flowContext,
+					flowInfo,
 					this,
-					breakLabel,
-					continueLabel,
+					this.breakLabel,
+					this.continueLabel,
 					currentScope);
-			FlowInfo actionInfo =
-				((condition.constant != Constant.NotAConstant)
-					&& (condition.constant.booleanValue() == false))
-					? FlowInfo.DeadEnd
-					: postCondInfo.initsWhenTrue().copy();
+			if (isConditionFalse) {
+				actionInfo = FlowInfo.DEAD_END;
+			} else {
+				actionInfo = condInfo.initsWhenTrue().copy();
+				if (isConditionOptimizedFalse){
+					actionInfo.setReachMode(FlowInfo.UNREACHABLE_OR_DEAD);
+				}
+			}
 
 			// for computing local var attributes
-			condIfTrueInitStateIndex =
+			this.condIfTrueInitStateIndex =
 				currentScope.methodScope().recordInitializationStates(
-					postCondInfo.initsWhenTrue());
+					condInfo.initsWhenTrue());
 
-			if (!actionInfo.complainIfUnreachable(action, currentScope)) {
-				actionInfo = action.analyseCode(currentScope, loopingContext, actionInfo);
+			if (this.action.complainIfUnreachable(actionInfo, currentScope, initialComplaintLevel) < Statement.COMPLAINED_UNREACHABLE) {
+				actionInfo = this.action.analyseCode(currentScope, loopingContext, actionInfo);
 			}
 
 			// code generation can be optimized when no need to continue in the loop
-			if (((actionInfo == FlowInfo.DeadEnd) || actionInfo.isFakeReachable())
-				&& ((loopingContext.initsOnContinue == FlowInfo.DeadEnd)
-					|| loopingContext.initsOnContinue.isFakeReachable())) {
-				continueLabel = null;
+			exitBranch = flowInfo.copy();
+			// need to start over from flowInfo so as to get null inits
+            int combinedTagBits = actionInfo.tagBits & loopingContext.initsOnContinue.tagBits;
+			if ((combinedTagBits & FlowInfo.UNREACHABLE) != 0) {
+				if ((combinedTagBits & FlowInfo.UNREACHABLE_OR_DEAD) != 0)
+					this.continueLabel = null;
+				exitBranch.addInitializationsFrom(condInfo.initsWhenFalse());
 			} else {
-				condLoopContext.complainOnFinalAssignmentsInLoop(currentScope, postCondInfo);
-				loopingContext.complainOnFinalAssignmentsInLoop(currentScope, actionInfo);
+				condLoopContext.complainOnDeferredFinalChecks(currentScope,
+						condInfo);
+				actionInfo = actionInfo.mergedWith(loopingContext.initsOnContinue.unconditionalInits());
+				condLoopContext.complainOnDeferredNullChecks(currentScope,
+						actionInfo);
+				loopingContext.complainOnDeferredFinalChecks(currentScope,
+						actionInfo);
+				loopingContext.complainOnDeferredNullChecks(currentScope,
+						actionInfo);
+				exitBranch.
+					addPotentialInitializationsFrom(
+						actionInfo.unconditionalInits()).
+					addInitializationsFrom(condInfo.initsWhenFalse());
+			}
+			if (loopingContext.hasEscapingExceptions()) { // https://bugs.eclipse.org/bugs/show_bug.cgi?id=321926
+				FlowInfo loopbackFlowInfo = flowInfo.copy();
+				if (this.continueLabel != null) {  // we do get to the bottom 
+					loopbackFlowInfo.mergedWith(actionInfo.unconditionalCopy());
+				}
+				loopingContext.simulateThrowAfterLoopBack(loopbackFlowInfo);
 			}
 		}
 
-		// infinite loop
-		FlowInfo mergedInfo;
-		if ((condition.constant != Constant.NotAConstant)
-			&& (condition.constant.booleanValue() == true)) {
-			mergedInitStateIndex =
-				currentScope.methodScope().recordInitializationStates(
-					mergedInfo = loopingContext.initsOnBreak);
-			return mergedInfo;
-		}
-
-		// end of loop: either condition false or break
-		mergedInfo =
-			postCondInfo.initsWhenFalse().unconditionalInits().mergedWith(
-				loopingContext.initsOnBreak);
-		mergedInitStateIndex =
-			currentScope.methodScope().recordInitializationStates(mergedInfo);
+		// end of loop
+		FlowInfo mergedInfo = FlowInfo.mergedOptimizedBranches(
+				(loopingContext.initsOnBreak.tagBits &
+					FlowInfo.UNREACHABLE) != 0 ?
+					loopingContext.initsOnBreak :
+					flowInfo.addInitializationsFrom(loopingContext.initsOnBreak), // recover upstream null info
+				isConditionOptimizedTrue,
+				exitBranch,
+				isConditionOptimizedFalse,
+				!isConditionTrue /*while(true); unreachable(); */);
+		this.mergedInitStateIndex = currentScope.methodScope().recordInitializationStates(mergedInfo);
 		return mergedInfo;
 	}
 
@@ -126,110 +171,114 @@ public class WhileStatement extends Statement {
 	 */
 	public void generateCode(BlockScope currentScope, CodeStream codeStream) {
 
-		if ((bits & IsReachableMASK) == 0) {
+		if ((this.bits & IsReachable) == 0) {
 			return;
 		}
 		int pc = codeStream.position;
-		breakLabel.codeStream = codeStream;
+		Constant cst = this.condition.optimizedBooleanConstant();
+		boolean isConditionOptimizedFalse = cst != Constant.NotAConstant && cst.booleanValue() == false;
+		if (isConditionOptimizedFalse) {
+			this.condition.generateCode(currentScope, codeStream, false);
+			// May loose some local variable initializations : affecting the local variable attributes
+			if (this.mergedInitStateIndex != -1) {
+				codeStream.removeNotDefinitelyAssignedVariables(currentScope, this.mergedInitStateIndex);
+				codeStream.addDefinitelyAssignedVariables(currentScope, this.mergedInitStateIndex);
+			}
+			codeStream.recordPositionsFrom(pc, this.sourceStart);
+			return;
+		}
+
+		this.breakLabel.initialize(codeStream);
 
 		// generate condition
-		if (continueLabel == null) {
+		if (this.continueLabel == null) {
 			// no need to reverse condition
-			if (condition.constant == NotAConstant) {
-				condition.generateOptimizedBoolean(
+			if (this.condition.constant == Constant.NotAConstant) {
+				this.condition.generateOptimizedBoolean(
 					currentScope,
 					codeStream,
 					null,
-					breakLabel,
+					this.breakLabel,
 					true);
 			}
 		} else {
-			continueLabel.codeStream = codeStream;
-			if (!(((condition.constant != NotAConstant)
-				&& (condition.constant.booleanValue() == true))
-				|| (action == null)
-				|| action.isEmptyBlock())) {
+			this.continueLabel.initialize(codeStream);
+			if (!(((this.condition.constant != Constant.NotAConstant)
+				&& (this.condition.constant.booleanValue() == true))
+				|| (this.action == null)
+				|| this.action.isEmptyBlock())) {
 				int jumpPC = codeStream.position;
-				codeStream.goto_(continueLabel);
-				codeStream.recordPositionsFrom(jumpPC, condition.sourceStart);
+				codeStream.goto_(this.continueLabel);
+				codeStream.recordPositionsFrom(jumpPC, this.condition.sourceStart);
 			}
 		}
 		// generate the action
-		Label actionLabel;
-		(actionLabel = new Label(codeStream)).place();
-		if (action != null) {
+		BranchLabel actionLabel = new BranchLabel(codeStream);
+		if (this.action != null) {
+			actionLabel.tagBits |= BranchLabel.USED;
 			// Required to fix 1PR0XVS: LFRE:WINNT - Compiler: variable table for method appears incorrect
-			if (condIfTrueInitStateIndex != -1) {
+			if (this.condIfTrueInitStateIndex != -1) {
 				// insert all locals initialized inside the condition into the action generated prior to the condition
 				codeStream.addDefinitelyAssignedVariables(
 					currentScope,
-					condIfTrueInitStateIndex);
+					this.condIfTrueInitStateIndex);
 			}
-			action.generateCode(currentScope, codeStream);
+			actionLabel.place();
+			this.action.generateCode(currentScope, codeStream);
 			// May loose some local variable initializations : affecting the local variable attributes
-			if (preCondInitStateIndex != -1) {
-				codeStream.removeNotDefinitelyAssignedVariables(
-					currentScope,
-					preCondInitStateIndex);
+			if (this.preCondInitStateIndex != -1) {
+				codeStream.removeNotDefinitelyAssignedVariables(currentScope, this.preCondInitStateIndex);
 			}
-
+		} else {
+			actionLabel.place();
 		}
 		// output condition and branch back to the beginning of the repeated action
-		if (continueLabel != null) {
-			continueLabel.place();
-			condition.generateOptimizedBoolean(
+		if (this.continueLabel != null) {
+			this.continueLabel.place();
+			this.condition.generateOptimizedBoolean(
 				currentScope,
 				codeStream,
 				actionLabel,
 				null,
 				true);
 		}
-		breakLabel.place();
 
 		// May loose some local variable initializations : affecting the local variable attributes
-		if (mergedInitStateIndex != -1) {
-			codeStream.removeNotDefinitelyAssignedVariables(
-				currentScope,
-				mergedInitStateIndex);
+		if (this.mergedInitStateIndex != -1) {
+			codeStream.removeNotDefinitelyAssignedVariables(currentScope, this.mergedInitStateIndex);
+			codeStream.addDefinitelyAssignedVariables(currentScope, this.mergedInitStateIndex);
 		}
+		this.breakLabel.place();
 		codeStream.recordPositionsFrom(pc, this.sourceStart);
-	}
-
-	public void resetStateForCodeGeneration() {
-
-		this.breakLabel.resetStateForCodeGeneration();
-		this.continueLabel.resetStateForCodeGeneration();
 	}
 
 	public void resolve(BlockScope scope) {
 
-		TypeBinding type = condition.resolveTypeExpecting(scope, BooleanBinding);
-		condition.implicitWidening(type, type);
-		if (action != null)
-			action.resolve(scope);
+		TypeBinding type = this.condition.resolveTypeExpecting(scope, TypeBinding.BOOLEAN);
+		this.condition.computeConversion(scope, type, type);
+		if (this.action != null)
+			this.action.resolve(scope);
 	}
 
-	public String toString(int tab) {
+	public StringBuffer printStatement(int tab, StringBuffer output) {
 
-		String s = tabString(tab);
-		s = s + "while (" + condition.toStringExpression() + ")"; 	//$NON-NLS-1$ //$NON-NLS-2$
-		if (action == null)
-			s = s + " {} ;"; //$NON-NLS-1$ 
-		else if (action instanceof Block)
-			s = s + "\n" + action.toString(tab + 1); //$NON-NLS-1$
+		printIndent(tab, output).append("while ("); //$NON-NLS-1$
+		this.condition.printExpression(0, output).append(')');
+		if (this.action == null)
+			output.append(';');
 		else
-			s = s + " {\n" + action.toString(tab + 1) + "}"; //$NON-NLS-2$ //$NON-NLS-1$
-		return s;
+			this.action.printStatement(tab + 1, output);
+		return output;
 	}
 
 	public void traverse(
-		IAbstractSyntaxTreeVisitor visitor,
+		ASTVisitor visitor,
 		BlockScope blockScope) {
 
 		if (visitor.visit(this, blockScope)) {
-			condition.traverse(visitor, blockScope);
-			if (action != null)
-				action.traverse(visitor, blockScope);
+			this.condition.traverse(visitor, blockScope);
+			if (this.action != null)
+				this.action.traverse(visitor, blockScope);
 		}
 		visitor.endVisit(this, blockScope);
 	}

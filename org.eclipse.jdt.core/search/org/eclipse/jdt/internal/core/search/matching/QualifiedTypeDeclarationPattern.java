@@ -1,209 +1,135 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
-import org.eclipse.jdt.internal.compiler.env.IBinaryType;
-import org.eclipse.jdt.internal.compiler.lookup.Binding;
-import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
-import org.eclipse.jdt.internal.core.index.IEntryResult;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.core.search.*;
 
 public class QualifiedTypeDeclarationPattern extends TypeDeclarationPattern {
-	
-	private char[] qualification;
-	private char[] decodedQualification;
-	
-public QualifiedTypeDeclarationPattern(
-	char[] qualification,
-	char[] simpleName,
-	char classOrInterface,
-	int matchMode, 
-	boolean isCaseSensitive) {
-		
-	super(matchMode, isCaseSensitive);
 
-	this.qualification = isCaseSensitive ? qualification : CharOperation.toLowerCase(qualification);
-	this.simpleName = isCaseSensitive ? simpleName : CharOperation.toLowerCase(simpleName);
-	this.classOrInterface = classOrInterface;
-	
-	this.needsResolve = qualification != null;
+public char[] qualification;
+PackageDeclarationPattern packagePattern;
+public int packageIndex = -1;
+
+public QualifiedTypeDeclarationPattern(char[] qualification, char[] simpleName, char typeSuffix, int matchRule) {
+	this(matchRule);
+
+	this.qualification = this.isCaseSensitive ? qualification : CharOperation.toLowerCase(qualification);
+	this.simpleName = (this.isCaseSensitive || this.isCamelCase) ? simpleName : CharOperation.toLowerCase(simpleName);
+	this.typeSuffix = typeSuffix;
+
+	this.mustResolve = this.qualification != null || typeSuffix != TYPE_SUFFIX;
 }
+public QualifiedTypeDeclarationPattern(char[] qualification, int qualificationMatchRule, char[] simpleName, char typeSuffix, int matchRule) {
+	this(qualification, simpleName, typeSuffix, matchRule);
+	this.packagePattern = new PackageDeclarationPattern(qualification, qualificationMatchRule);
+}
+QualifiedTypeDeclarationPattern(int matchRule) {
+	super(matchRule);
+}
+public void decodeIndexKey(char[] key) {
+	int slash = CharOperation.indexOf(SEPARATOR, key, 0);
+	this.simpleName = CharOperation.subarray(key, 0, slash);
 
-public void decodeIndexEntry(IEntryResult entryResult){
-	
-	char[] word = entryResult.getWord();
-	int size = word.length;
-
-	this.decodedClassOrInterface = word[TYPE_DECL_LENGTH];
-	int oldSlash = TYPE_DECL_LENGTH+1;
-	int slash = CharOperation.indexOf(SEPARATOR, word, oldSlash+1);
-	char[] pkgName;
-	if (slash == oldSlash+1){ 
-		pkgName = NO_CHAR;
+	int start = ++slash;
+	if (key[start] == SEPARATOR) {
+		this.pkg = CharOperation.NO_CHAR;
 	} else {
-		pkgName = CharOperation.subarray(word, oldSlash+1, slash);
+		slash = CharOperation.indexOf(SEPARATOR, key, start);
+		this.pkg = internedPackageNames.add(CharOperation.subarray(key, start, slash));
 	}
-	this.decodedSimpleName = CharOperation.subarray(word, slash+1, slash = CharOperation.indexOf(SEPARATOR, word, slash+1));
+	this.qualification = this.pkg;
 
-	char[][] enclosingTypeNames;
-	if (slash+1 < size){
-		if (slash+3 == size && word[slash+1] == ONE_ZERO[0]) {
-			enclosingTypeNames = ONE_ZERO_CHAR;
+	// Continue key read by the end to decode modifiers
+	int last = key.length-1;
+	this.secondary = key[last] == 'S';
+	if (this.secondary) {
+		last -= 2;
+	}
+	this.modifiers = key[last-1] + (key[last]<<16);
+	decodeModifiers();
+
+	// Retrieve enclosing type names
+	start = slash + 1;
+	last -= 2; // position of ending slash
+	if (start == last) {
+		this.enclosingTypeNames = CharOperation.NO_CHAR_CHAR;
+	} else {
+		int length = this.qualification.length;
+		int size = last - start;
+		System.arraycopy(this.qualification, 0, this.qualification = new char[length+1+size], 0, length);
+		this.qualification[length] = '.';
+		if (last == (start+1) && key[start] == ZERO_CHAR) {
+			this.enclosingTypeNames = ONE_ZERO_CHAR;
+			this.qualification[length+1] = ZERO_CHAR;
 		} else {
-			enclosingTypeNames = CharOperation.splitOn('/', CharOperation.subarray(word, slash+1, size-1));
+			this.enclosingTypeNames = CharOperation.splitOn('.', key, start, last);
+			System.arraycopy(key, start, this.qualification, length+1, size);
 		}
-	} else {
-		enclosingTypeNames = NO_CHAR_CHAR;
 	}
-	this.decodedQualification = CharOperation.concatWith(pkgName, enclosingTypeNames, '.');
 }
-
-
-/**
- * @see SearchPattern#matchesBinary(Object, Object)
- */
-public boolean matchesBinary(Object binaryInfo, Object enclosingBinaryInfo) {
-	if (!(binaryInfo instanceof IBinaryType)) return false;
-
-	IBinaryType type = (IBinaryType)binaryInfo;
-
-	// fully qualified name
-	char[] typeName = (char[])type.getName().clone();
-	CharOperation.replace(typeName, '/', '.');
-	if (!this.matchesType(this.simpleName, this.qualification, typeName)) {
-		return false;
-	}
-
-	// class or interface
-	switch (this.classOrInterface) {
-		case CLASS_SUFFIX:
-			if (type.isInterface())
-				return false;
-			break;
-		case INTERFACE_SUFFIX:
-			if (!type.isInterface())
-				return false;
-			break;
-	}
-	
-	return true;
+public SearchPattern getBlankPattern() {
+	return new QualifiedTypeDeclarationPattern(R_EXACT_MATCH | R_CASE_SENSITIVE);
 }
-/**
- * see SearchPattern.matchIndexEntry
- */
-protected boolean matchIndexEntry(){
+public boolean matchesDecodedKey(SearchPattern decodedPattern) {
+	QualifiedTypeDeclarationPattern pattern = (QualifiedTypeDeclarationPattern) decodedPattern;
 
-	/* check class/interface nature */
-	switch(classOrInterface){
+	// check type suffix
+	if (this.typeSuffix != pattern.typeSuffix && this.typeSuffix != TYPE_SUFFIX) {
+		if (!matchDifferentTypeSuffixes(this.typeSuffix, pattern.typeSuffix)) {
+			return false;
+		}
+	}
+
+	// check name
+	return matchesName(this.simpleName, pattern.simpleName) &&
+		(this.qualification == null || this.packagePattern == null || this.packagePattern.matchesName(this.qualification, pattern.qualification));
+}
+protected StringBuffer print(StringBuffer output) {
+	switch (this.typeSuffix){
 		case CLASS_SUFFIX :
-		case INTERFACE_SUFFIX :
-			if (classOrInterface != decodedClassOrInterface) return false;
-		default :
-	}
-	/* check qualification */
-	if (qualification != null) {
-		switch(matchMode){
-			case EXACT_MATCH :
-				if (!CharOperation.equals(qualification, decodedQualification, isCaseSensitive)){
-					return false;
-				}
-				break;
-			case PREFIX_MATCH :
-				if (!CharOperation.prefixEquals(qualification, decodedQualification, isCaseSensitive)){
-					return false;
-				}
-				break;
-			case PATTERN_MATCH :
-				if (!CharOperation.match(qualification, decodedQualification, isCaseSensitive)){
-					return false;
-				}
-		}
-	}
-	/* check simple name matches */
-	if (simpleName != null){
-		switch(matchMode){
-			case EXACT_MATCH :
-				if (!CharOperation.equals(simpleName, decodedSimpleName, isCaseSensitive)){
-					return false;
-				}
-				break;
-			case PREFIX_MATCH :
-				if (!CharOperation.prefixEquals(simpleName, decodedSimpleName, isCaseSensitive)){
-					return false;
-				}
-				break;
-			case PATTERN_MATCH :
-				if (!CharOperation.match(simpleName, decodedSimpleName, isCaseSensitive)){
-					return false;
-				}
-		}
-	}
-	return true;
-}
-/**
- * @see SearchPattern#matchLevel(Binding)
- */
-public int matchLevel(Binding binding) {
-	if (binding == null) return INACCURATE_MATCH;
-	if (!(binding instanceof TypeBinding)) return IMPOSSIBLE_MATCH;
-
-	TypeBinding type = (TypeBinding)binding;
-
-	// class or interface
-	switch (this.classOrInterface) {
-		case CLASS_SUFFIX:
-			if (type.isInterface())
-				return IMPOSSIBLE_MATCH;
+			output.append("ClassDeclarationPattern: qualification<"); //$NON-NLS-1$
 			break;
-		case INTERFACE_SUFFIX:
-			if (!type.isInterface())
-				return IMPOSSIBLE_MATCH;
+		case CLASS_AND_INTERFACE_SUFFIX:
+			output.append("ClassAndInterfaceDeclarationPattern: qualification<"); //$NON-NLS-1$
 			break;
-	}
-
-	// fully qualified name
-	return this.matchLevelForType(this.simpleName, this.qualification, type);
-}
-public String toString(){
-	StringBuffer buffer = new StringBuffer(20);
-	switch (classOrInterface){
-		case CLASS_SUFFIX :
-			buffer.append("ClassDeclarationPattern: qualification<"); //$NON-NLS-1$
+		case CLASS_AND_ENUM_SUFFIX :
+			output.append("ClassAndEnumDeclarationPattern: qualification<"); //$NON-NLS-1$
 			break;
 		case INTERFACE_SUFFIX :
-			buffer.append("InterfaceDeclarationPattern: qualification<"); //$NON-NLS-1$
+			output.append("InterfaceDeclarationPattern: qualification<"); //$NON-NLS-1$
+			break;
+		case INTERFACE_AND_ANNOTATION_SUFFIX:
+			output.append("InterfaceAndAnnotationDeclarationPattern: qualification<"); //$NON-NLS-1$
+			break;
+		case ENUM_SUFFIX :
+			output.append("EnumDeclarationPattern: qualification<"); //$NON-NLS-1$
+			break;
+		case ANNOTATION_TYPE_SUFFIX :
+			output.append("AnnotationTypeDeclarationPattern: qualification<"); //$NON-NLS-1$
 			break;
 		default :
-			buffer.append("TypeDeclarationPattern: qualification<"); //$NON-NLS-1$
+			output.append("TypeDeclarationPattern: qualification<"); //$NON-NLS-1$
 			break;
 	}
-	if (this.qualification != null) buffer.append(this.qualification);
-	buffer.append(">, type<"); //$NON-NLS-1$
-	if (simpleName != null) buffer.append(simpleName);
-	buffer.append(">, "); //$NON-NLS-1$
-	switch(matchMode){
-		case EXACT_MATCH : 
-			buffer.append("exact match, "); //$NON-NLS-1$
-			break;
-		case PREFIX_MATCH :
-			buffer.append("prefix match, "); //$NON-NLS-1$
-			break;
-		case PATTERN_MATCH :
-			buffer.append("pattern match, "); //$NON-NLS-1$
-			break;
-	}
-	if (isCaseSensitive)
-		buffer.append("case sensitive"); //$NON-NLS-1$
+	if (this.qualification != null)
+		output.append(this.qualification);
 	else
-		buffer.append("case insensitive"); //$NON-NLS-1$
-	return buffer.toString();
+		output.append("*"); //$NON-NLS-1$
+	output.append(">, type<"); //$NON-NLS-1$
+	if (this.simpleName != null)
+		output.append(this.simpleName);
+	else
+		output.append("*"); //$NON-NLS-1$
+	output.append("> "); //$NON-NLS-1$
+	return super.print(output);
 }
 }

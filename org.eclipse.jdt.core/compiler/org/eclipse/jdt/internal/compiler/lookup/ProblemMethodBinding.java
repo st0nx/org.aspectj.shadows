@@ -1,32 +1,37 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
 public class ProblemMethodBinding extends MethodBinding {
-	private int problemId;
-	public MethodBinding closestMatch;
-public ProblemMethodBinding(char[] selector, TypeBinding[] args, int problemId) {
+
+	private int problemReason;
+	public MethodBinding closestMatch; // TODO (philippe) should rename into #alternateMatch
+
+public ProblemMethodBinding(char[] selector, TypeBinding[] args, int problemReason) {
 	this.selector = selector;
-	this.parameters = (args == null || args.length == 0) ? NoParameters : args;
-	this.problemId = problemId;
+	this.parameters = (args == null || args.length == 0) ? Binding.NO_PARAMETERS : args;
+	this.problemReason = problemReason;
+	this.thrownExceptions = Binding.NO_EXCEPTIONS;
 }
-public ProblemMethodBinding(char[] selector, TypeBinding[] args, ReferenceBinding declaringClass, int problemId) {
+public ProblemMethodBinding(char[] selector, TypeBinding[] args, ReferenceBinding declaringClass, int problemReason) {
 	this.selector = selector;
-	this.parameters = (args == null || args.length == 0) ? NoParameters : args;
+	this.parameters = (args == null || args.length == 0) ? Binding.NO_PARAMETERS : args;
 	this.declaringClass = declaringClass;
-	this.problemId = problemId;
+	this.problemReason = problemReason;
+	this.thrownExceptions = Binding.NO_EXCEPTIONS;
 }
-public ProblemMethodBinding(MethodBinding closestMatch, char[] selector, TypeBinding[] args, int problemId) {
-	this(selector, args, problemId);
+public ProblemMethodBinding(MethodBinding closestMatch, char[] selector, TypeBinding[] args, int problemReason) {
+	this(selector, args, problemReason);
 	this.closestMatch = closestMatch;
+	if (closestMatch != null && problemReason != ProblemReasons.Ambiguous) this.declaringClass = closestMatch.declaringClass;
 }
 /* API
 * Answer the problem id associated with the receiver.
@@ -34,6 +39,6 @@ public ProblemMethodBinding(MethodBinding closestMatch, char[] selector, TypeBin
 */
 
 public final int problemId() {
-	return problemId;
+	return this.problemReason;
 }
 }

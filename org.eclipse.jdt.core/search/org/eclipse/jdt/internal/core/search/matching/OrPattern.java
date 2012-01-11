@@ -1,170 +1,115 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
 import java.io.IOException;
 
-import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.core.runtime.OperationCanceledException;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.search.IJavaSearchScope;
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
-import org.eclipse.jdt.internal.compiler.lookup.Binding;
-import org.eclipse.jdt.internal.core.index.IEntryResult;
-import org.eclipse.jdt.internal.core.index.impl.IndexInput;
-import org.eclipse.jdt.internal.core.search.IIndexSearchRequestor;
-import org.eclipse.jdt.internal.core.search.IInfoConstants;
+import org.eclipse.jdt.core.search.*;
+import org.eclipse.jdt.internal.core.index.Index;
+import org.eclipse.jdt.internal.core.search.IndexQueryRequestor;
+import org.eclipse.jdt.internal.core.search.indexing.IIndexConstants;
 
-public class OrPattern extends SearchPattern {
+public class OrPattern extends SearchPattern implements IIndexConstants {
 
-	public SearchPattern leftPattern;
-	public SearchPattern rightPattern;
-public OrPattern(SearchPattern leftPattern, SearchPattern rightPattern) {
-	super(-1, false); // values ignored for a OrPattern
-		
-	this.leftPattern = leftPattern;
-	this.rightPattern = rightPattern;
+	protected SearchPattern[] patterns;
 
-	this.matchMode = Math.min(leftPattern.matchMode, rightPattern.matchMode);
-	this.isCaseSensitive = leftPattern.isCaseSensitive || rightPattern.isCaseSensitive;
-	this.needsResolve = leftPattern.needsResolve || rightPattern.needsResolve;
-}
-/**
- * see SearchPattern.decodedIndexEntry
- */
-protected void decodeIndexEntry(IEntryResult entry) {
+	/**
+	 * One of {@link #R_ERASURE_MATCH}, {@link #R_EQUIVALENT_MATCH}, {@link #R_FULL_MATCH}.
+	 */
+	int matchCompatibility;
 
-	// will never be directly invoked on a composite pattern
-}
-/**
- * see SearchPattern.feedIndexRequestor
- */
-public void feedIndexRequestor(IIndexSearchRequestor requestor, int detailLevel, int[] references, IndexInput input, IJavaSearchScope scope)  throws IOException {
-	// will never be directly invoked on a composite pattern
-}
-/**
- * see SearchPattern.findMatches
- */
-public void findIndexMatches(IndexInput input, IIndexSearchRequestor requestor, int detailLevel, IProgressMonitor progressMonitor, IJavaSearchScope scope) throws IOException {
+	public OrPattern(SearchPattern leftPattern, SearchPattern rightPattern) {
+		super(Math.max(leftPattern.getMatchRule(), rightPattern.getMatchRule()));
+		this.kind = OR_PATTERN;
+		this.mustResolve = leftPattern.mustResolve || rightPattern.mustResolve;
 
-	if (progressMonitor != null && progressMonitor.isCanceled()) throw new OperationCanceledException();
+		SearchPattern[] leftPatterns = leftPattern instanceof OrPattern ? ((OrPattern) leftPattern).patterns : null;
+		SearchPattern[] rightPatterns = rightPattern instanceof OrPattern ? ((OrPattern) rightPattern).patterns : null;
+		int leftSize = leftPatterns == null ? 1 : leftPatterns.length;
+		int rightSize = rightPatterns == null ? 1 : rightPatterns.length;
+		this.patterns = new SearchPattern[leftSize + rightSize];
 
-	IIndexSearchRequestor orCombiner;
-	if (detailLevel == IInfoConstants.NameInfo) {
-		orCombiner = new OrNameCombiner(requestor);
-	} else {
-		orCombiner = new OrPathCombiner(requestor);
+		if (leftPatterns == null)
+			this.patterns[0] = leftPattern;
+		else
+			System.arraycopy(leftPatterns, 0, this.patterns, 0, leftSize);
+		if (rightPatterns == null)
+			this.patterns[leftSize] = rightPattern;
+		else
+			System.arraycopy(rightPatterns, 0, this.patterns, leftSize, rightSize);
+
+		// Store erasure match
+		this.matchCompatibility = 0;
+		for (int i = 0, length = this.patterns.length; i < length; i++) {
+			this.matchCompatibility |= ((JavaSearchPattern) this.patterns[i]).matchCompatibility;
+		}
 	}
-	leftPattern.findIndexMatches(input, orCombiner, detailLevel, progressMonitor, scope);
-	if (progressMonitor != null && progressMonitor.isCanceled()) throw new OperationCanceledException();
-	rightPattern.findIndexMatches(input, orCombiner, detailLevel, progressMonitor, scope);
-}
-/**
- * see SearchPattern.indexEntryPrefix
- */
-public char[] indexEntryPrefix() {
-
-	// will never be directly invoked on a composite pattern
-	return null;
-}
-/**
- * @see SearchPattern#matchContainer()
- */
-protected int matchContainer() {
-	return leftPattern.matchContainer()
-			| rightPattern.matchContainer();
-}
-/**
- * @see SearchPattern#matchesBinary
- */
-public boolean matchesBinary(Object binaryInfo, Object enclosingBinaryInfo) {
-	return this.leftPattern.matchesBinary(binaryInfo, enclosingBinaryInfo) 
-		|| this.rightPattern.matchesBinary(binaryInfo, enclosingBinaryInfo);
-}
-/**
- * @see SearchPattern#matchIndexEntry
- */
-protected boolean matchIndexEntry() {
-
-	return this.leftPattern.matchIndexEntry()
-			|| this.rightPattern.matchIndexEntry();
-}
-/**
- * @see SearchPattern#matchReportReference
- */
-protected void matchReportReference(AstNode reference, IJavaElement element, int accuracy, MatchLocator locator) throws CoreException {
-	int leftLevel = this.leftPattern.matchLevel(reference, true);
-	if (leftLevel == ACCURATE_MATCH || leftLevel == INACCURATE_MATCH) {
-		this.leftPattern.matchReportReference(reference, element, accuracy, locator);
-	} else {
-		this.rightPattern.matchReportReference(reference, element, accuracy, locator);
+	public void findIndexMatches(Index index, IndexQueryRequestor requestor, SearchParticipant participant, IJavaSearchScope scope, IProgressMonitor progressMonitor) throws IOException {
+		// per construction, OR pattern can only be used with a PathCollector (which already gather results using a set)
+		try {
+			index.startQuery();
+			for (int i = 0, length = this.patterns.length; i < length; i++)
+				this.patterns[i].findIndexMatches(index, requestor, participant, scope, progressMonitor);
+		} finally {
+			index.stopQuery();
+		}
 	}
-}
-public String toString(){
-	return this.leftPattern.toString() + "\n| " + this.rightPattern.toString(); //$NON-NLS-1$
-}
 
-/**
- * see SearchPattern.initializePolymorphicSearch
- */
-public void initializePolymorphicSearch(MatchLocator locator, IProgressMonitor progressMonitor) {
-
-	this.leftPattern.initializePolymorphicSearch(locator, progressMonitor);
-	this.rightPattern.initializePolymorphicSearch(locator, progressMonitor);
-}
-
-/**
- * @see SearchPattern#matchLevel(AstNode, boolean)
- */
-public int matchLevel(AstNode node, boolean resolve) {
-	switch (this.leftPattern.matchLevel(node, resolve)) {
-		case IMPOSSIBLE_MATCH:
-			return this.rightPattern.matchLevel(node, resolve);
-		case POSSIBLE_MATCH:
-			return POSSIBLE_MATCH;
-		case INACCURATE_MATCH:
-			int rightLevel = this.rightPattern.matchLevel(node, resolve);
-			if (rightLevel != IMPOSSIBLE_MATCH) {
-				return rightLevel;
-			} else {
-				return INACCURATE_MATCH;
-			}
-		case ACCURATE_MATCH:
-			return ACCURATE_MATCH;
-		default:
-			return IMPOSSIBLE_MATCH;
+	public SearchPattern getBlankPattern() {
+		return null;
 	}
-}
 
-/**
- * @see SearchPattern#matchLevel(Binding)
- */
-public int matchLevel(Binding binding) {
-	switch (this.leftPattern.matchLevel(binding)) {
-		case IMPOSSIBLE_MATCH:
-			return this.rightPattern.matchLevel(binding);
-		case POSSIBLE_MATCH:
-			return POSSIBLE_MATCH;
-		case INACCURATE_MATCH:
-			int rightLevel = this.rightPattern.matchLevel(binding);
-			if (rightLevel != IMPOSSIBLE_MATCH) {
-				return rightLevel;
-			} else {
-				return INACCURATE_MATCH;
-			}
-		case ACCURATE_MATCH:
-			return ACCURATE_MATCH;
-		default:
-			return IMPOSSIBLE_MATCH;
+	boolean isErasureMatch() {
+		return (this.matchCompatibility & R_ERASURE_MATCH) != 0;
 	}
-}
+
+	public boolean isPolymorphicSearch() {
+		for (int i = 0, length = this.patterns.length; i < length; i++)
+			if (this.patterns[i].isPolymorphicSearch()) return true;
+		return false;
+	}
+
+	/**
+	 * Returns whether the pattern has one or several package declaration or not.
+	 *
+	 * @return <code>true</code> if one at least of the stored pattern is a package declaration
+	 * 	pattern ({@link PackageDeclarationPattern}), <code>false</code> otherwise.
+	 */
+	public final boolean hasPackageDeclaration() {
+		for (int i = 0, length = this.patterns.length; i < length; i++) {
+			if (this.patterns[i] instanceof PackageDeclarationPattern) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Returns whether the pattern has signatures or not.
+	 * @return true if one at least of the stored pattern has signatures.
+	 */
+	public final boolean hasSignatures() {
+		boolean isErasureMatch = isErasureMatch();
+		for (int i = 0, length = this.patterns.length; i < length && !isErasureMatch; i++) {
+			if (((JavaSearchPattern) this.patterns[i]).hasSignatures()) return true;
+		}
+		return false;
+	}
+
+	public String toString() {
+		StringBuffer buffer = new StringBuffer();
+		buffer.append(this.patterns[0].toString());
+		for (int i = 1, length = this.patterns.length; i < length; i++) {
+			buffer.append("\n| "); //$NON-NLS-1$
+			buffer.append(this.patterns[i].toString());
+		}
+		return buffer.toString();
+	}
 }

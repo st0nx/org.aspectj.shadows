@@ -1,54 +1,55 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.core.runtime.IProgressMonitor;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.Flags;
 import org.eclipse.jdt.core.IInitializer;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
+import org.eclipse.jdt.core.ISourceRange;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * @see IInitializer
  */
 
-/* package */ class Initializer extends Member implements IInitializer {
+public class Initializer extends Member implements IInitializer {
 
-protected Initializer(IType parent, int occurrenceCount) {
-	super(INITIALIZER, parent, ""); //$NON-NLS-1$
+protected Initializer(JavaElement parent, int count) {
+	super(parent);
 	// 0 is not valid: this first occurrence is occurrence 1.
-	if (occurrenceCount <= 0)
+	if (count <= 0)
 		throw new IllegalArgumentException();
-	fOccurrenceCount = occurrenceCount;
+	this.occurrenceCount = count;
+}
+public boolean equals(Object o) {
+	if (!(o instanceof Initializer)) return false;
+	return super.equals(o);
 }
 /**
- * @see JavaElement#equalsDOMNode
+ * @see IJavaElement
  */
-protected boolean equalsDOMNode(IDOMNode node) throws JavaModelException {
-	if (node.getNodeType() == IDOMNode.INITIALIZER) {
-		return node.getContents().trim().equals(getSource());
-	} else {
-		return false;
-	}
+public int getElementType() {
+	return INITIALIZER;
 }
 /**
- * @see JavaElement#getHandleMemento()
+ * @see JavaElement#getHandleMemento(StringBuffer)
  */
-public String getHandleMemento(){
-	StringBuffer buff= new StringBuffer(((JavaElement)getParent()).getHandleMemento());
+protected void getHandleMemento(StringBuffer buff) {
+	((JavaElement)getParent()).getHandleMemento(buff);
 	buff.append(getHandleMementoDelimiter());
-	buff.append(fOccurrenceCount);
-	return buff.toString();
+	buff.append(this.occurrenceCount);
 }
 /**
  * @see JavaElement#getHandleMemento()
@@ -57,7 +58,7 @@ protected char getHandleMementoDelimiter() {
 	return JavaElement.JEM_INITIALIZER;
 }
 public int hashCode() {
-	return Util.combineHashCodes(fParent.hashCode(), fOccurrenceCount);
+	return Util.combineHashCodes(this.parent.hashCode(), this.occurrenceCount);
 }
 /**
  */
@@ -68,25 +69,48 @@ public String readableName() {
 /**
  * @see ISourceManipulation
  */
-public void rename(String name, boolean force, IProgressMonitor monitor) throws JavaModelException {
+public void rename(String newName, boolean force, IProgressMonitor monitor) throws JavaModelException {
 	throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, this));
+}
+/**
+ * @see IMember
+ */
+public ISourceRange getNameRange() {
+	return null;
+}
+/*
+ * @see JavaElement#getPrimaryElement(boolean)
+ */
+public IJavaElement getPrimaryElement(boolean checkOwner) {
+	if (checkOwner) {
+		CompilationUnit cu = (CompilationUnit)getAncestor(COMPILATION_UNIT);
+		if (cu == null || cu.isPrimary()) return this;
+	}
+	IJavaElement primaryParent = this.parent.getPrimaryElement(false);
+	return ((IType)primaryParent).getInitializer(this.occurrenceCount);
 }
 /**
  * @private Debugging purposes
  */
-protected void toStringInfo(int tab, StringBuffer buffer, Object info) {
-	buffer.append(this.tabString(tab));
+protected void toStringInfo(int tab, StringBuffer buffer, Object info, boolean showResolvedInfo) {
+	buffer.append(tabString(tab));
 	if (info == null) {
-		buffer.append("<initializer>"); //$NON-NLS-1$
-		buffer.append(" (not open)"); //$NON-NLS-1$
+		buffer.append("<initializer #"); //$NON-NLS-1$
+		buffer.append(this.occurrenceCount);
+		buffer.append("> (not open)"); //$NON-NLS-1$
 	} else if (info == NO_INFO) {
-		buffer.append(getElementName());
+		buffer.append("<initializer #"); //$NON-NLS-1$
+		buffer.append(this.occurrenceCount);
+		buffer.append(">"); //$NON-NLS-1$
 	} else {
 		try {
-			if (Flags.isStatic(this.getFlags())) {
+			buffer.append("<"); //$NON-NLS-1$
+			if (Flags.isStatic(getFlags())) {
 				buffer.append("static "); //$NON-NLS-1$
 			}
-			buffer.append("initializer"); //$NON-NLS-1$
+		buffer.append("initializer #"); //$NON-NLS-1$
+		buffer.append(this.occurrenceCount);
+		buffer.append(">"); //$NON-NLS-1$
 		} catch (JavaModelException e) {
 			buffer.append("<JavaModelException in toString of " + getElementName()); //$NON-NLS-1$
 		}

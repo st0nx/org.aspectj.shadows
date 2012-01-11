@@ -1,17 +1,16 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
 import org.eclipse.jdt.core.util.ClassFormatException;
-import org.eclipse.jdt.core.util.IAttributeNamesConstants;
 import org.eclipse.jdt.core.util.IConstantPool;
 import org.eclipse.jdt.core.util.IConstantPoolEntry;
 import org.eclipse.jdt.core.util.IConstantValueAttribute;
@@ -22,21 +21,21 @@ import org.eclipse.jdt.core.util.IConstantValueAttribute;
 public class ConstantValueAttribute
 	extends ClassFileAttribute
 	implements IConstantValueAttribute {
-	
-	private int constantValueIndex;
-	private IConstantPool constantPool;
 
-	
+	private int constantValueIndex;
+	private IConstantPoolEntry constantPoolEntry;
+
+
 	ConstantValueAttribute(byte[] classFileBytes, IConstantPool constantPool, int offset) throws ClassFormatException {
 		super(classFileBytes, constantPool, offset);
 		this.constantValueIndex = u2At(classFileBytes, 6, offset);
-		this.constantPool = constantPool;	
+		this.constantPoolEntry = constantPool.decodeEntry(this.constantValueIndex);
 	}
 	/**
 	 * @see IConstantValueAttribute#getConstantValue()
 	 */
 	public IConstantPoolEntry getConstantValue() {
-		return this.constantPool.decodeEntry(this.constantValueIndex);
+		return this.constantPoolEntry;
 	}
 
 	/**
@@ -44,12 +43,5 @@ public class ConstantValueAttribute
 	 */
 	public int getConstantValueIndex() {
 		return this.constantValueIndex;
-	}
-
-	/**
-	 * @see org.eclipse.jdt.core.util.IClassFileAttribute#getAttributeName()
-	 */
-	public char[] getAttributeName() {
-		return IAttributeNamesConstants.CONSTANT_VALUE;
 	}
 }

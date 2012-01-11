@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.ICompilationUnit;
@@ -16,9 +16,11 @@ import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.DOMFactory;
-import org.eclipse.jdt.core.jdom.IDOMNode;
-import org.eclipse.jdt.core.jdom.IDOMType;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.AbstractTypeDeclaration;
+import org.eclipse.jdt.core.dom.SimpleName;
+import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * <p>This operation creates a class or interface.
@@ -37,42 +39,32 @@ public class CreateTypeOperation extends CreateTypeMemberOperation {
 public CreateTypeOperation(IJavaElement parentElement, String source, boolean force) {
 	super(parentElement, source, force);
 }
-/**
- * @see CreateElementInCUOperation#generateElementDOM()
- */
-protected IDOMNode generateElementDOM() throws JavaModelException {
-	if (fDOMNode == null) {
-		fDOMNode = (new DOMFactory()).createType(fSource);
-		if (fDOMNode == null) {
-			fDOMNode = generateSyntaxIncorrectDOM();
-		}
-		if (fAlteredName != null && fDOMNode != null) {
-			fDOMNode.setName(fAlteredName);
-		}
-	}
-	if (!(fDOMNode instanceof IDOMType)) {
-		return null;
-	}
-	return fDOMNode;
+protected ASTNode generateElementAST(ASTRewrite rewriter, ICompilationUnit cu) throws JavaModelException {
+	ASTNode node = super.generateElementAST(rewriter, cu);
+	if (!(node instanceof AbstractTypeDeclaration))
+		throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.INVALID_CONTENTS));
+	return node;
 }
+
 /**
  * @see CreateElementInCUOperation#generateResultHandle()
  */
 protected IJavaElement generateResultHandle() {
 	IJavaElement parent= getParentElement();
-	int type= parent.getElementType();
-	if (type == IJavaElement.TYPE) {
-		return ((IType)parent).getType(fDOMNode.getName());
-	} else if (type == IJavaElement.COMPILATION_UNIT) {
-		return ((ICompilationUnit)parent).getType(fDOMNode.getName());
-	} 
+	switch (parent.getElementType()) {
+		case IJavaElement.COMPILATION_UNIT:
+			return ((ICompilationUnit)parent).getType(getASTNodeName());
+		case IJavaElement.TYPE:
+			return ((IType)parent).getType(getASTNodeName());
+		// Note: creating local/anonymous type is not supported
+	}
 	return null;
 }
 /**
  * @see CreateElementInCUOperation#getMainTaskName()
  */
 public String getMainTaskName(){
-	return Util.bind("operation.createTypeProgress"); //$NON-NLS-1$
+	return Messages.operation_createTypeProgress;
 }
 /**
  * Returns the <code>IType</code> the member is to be created in.
@@ -89,17 +81,48 @@ protected IType getType() {
  */
 protected IJavaModelStatus verifyNameCollision() {
 	IJavaElement parent = getParentElement();
-	int type = parent.getElementType();
-	if (type == IJavaElement.TYPE) {
-		if (((IType) parent).getType(fDOMNode.getName()).exists()) {
-			return new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION);
-		}
-	} else
-		if (type == IJavaElement.COMPILATION_UNIT) {
-			if (((ICompilationUnit) parent).getType(fDOMNode.getName()).exists()) {
-				return new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION);
+	switch (parent.getElementType()) {
+		case IJavaElement.COMPILATION_UNIT:
+			String typeName = getASTNodeName();
+			if (((ICompilationUnit) parent).getType(typeName).exists()) {
+				return new JavaModelStatus(
+					IJavaModelStatusConstants.NAME_COLLISION,
+					Messages.bind(Messages.status_nameCollision, typeName));
 			}
-		}
+			break;
+		case IJavaElement.TYPE:
+			typeName = getASTNodeName();
+			if (((IType) parent).getType(typeName).exists()) {
+				return new JavaModelStatus(
+					IJavaModelStatusConstants.NAME_COLLISION,
+					Messages.bind(Messages.status_nameCollision, typeName));
+			}
+			break;
+		// Note: creating local/anonymous type is not supported
+	}
 	return JavaModelStatus.VERIFIED_OK;
+}
+public IJavaModelStatus verify() {
+	IJavaModelStatus status = super.verify();
+	if (!status.isOK())
+		return status;
+	try {
+		IJavaElement parent = getParentElement();
+		if (this.anchorElement != null && this.anchorElement.getElementType() == IJavaElement.FIELD
+				&& parent.getElementType() == IJavaElement.TYPE && ((IType)parent).isEnum())
+			return new JavaModelStatus(IJavaModelStatusConstants.INVALID_SIBLING, this.anchorElement);
+	} catch (JavaModelException e) {
+		return e.getJavaModelStatus();
+	}
+	return JavaModelStatus.VERIFIED_OK;
+}
+private String getASTNodeName() {
+	return ((AbstractTypeDeclaration) this.createdNode).getName().getIdentifier();
+}
+protected SimpleName rename(ASTNode node, SimpleName newName) {
+	AbstractTypeDeclaration type = (AbstractTypeDeclaration) node;
+	SimpleName oldName = type.getName();
+	type.setName(newName);
+	return oldName;
 }
 }

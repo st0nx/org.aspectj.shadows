@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
 import org.eclipse.jdt.core.util.ClassFormatException;
@@ -28,20 +28,20 @@ import org.eclipse.jdt.core.util.IOpcodeMnemonics;
  */
 public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute {
 	private static final IExceptionTableEntry[] NO_EXCEPTION_TABLE = new IExceptionTableEntry[0];
-	private int maxLocals;
-	private int maxStack;
+	private IClassFileAttribute[] attributes;
+	private int attributesCount;
+	private byte[] bytecodes;
+	private byte[] classFileBytes;
+	private long codeLength;
+	private int codeOffset;
+	private IConstantPool constantPool;
+	private IExceptionTableEntry[] exceptionTableEntries;
+	private int exceptionTableLength;
 	private ILineNumberAttribute lineNumberAttribute;
 	private ILocalVariableAttribute localVariableAttribute;
-	private IExceptionTableEntry[] exceptionTableEntries;
-	private long codeLength;
-	private int attributesCount;
-	private int exceptionTableLength;
-	private byte[] bytecodes;
-	private IConstantPool constantPool;
-	private int codeOffset;
-	private byte[] classFileBytes;
-	private IClassFileAttribute[] attributes;
-	
+	private int maxLocals;
+	private int maxStack;
+
 	CodeAttribute(byte[] classFileBytes, IConstantPool constantPool, int offset) throws ClassFormatException {
 		super(classFileBytes, constantPool, offset);
 		this.classFileBytes = classFileBytes;
@@ -80,26 +80,61 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 			} else if (equals(attributeName, IAttributeNamesConstants.LOCAL_VARIABLE)) {
 				this.localVariableAttribute = new LocalVariableAttribute(classFileBytes, constantPool, offset + readOffset);
 				this.attributes[attributesIndex++] = this.localVariableAttribute;
+			} else if (equals(attributeName, IAttributeNamesConstants.LOCAL_VARIABLE_TYPE_TABLE)) {
+				this.attributes[attributesIndex++] = new LocalVariableTypeAttribute(classFileBytes, constantPool, offset + readOffset);
+			} else if (equals(attributeName, IAttributeNamesConstants.STACK_MAP_TABLE)) {
+				this.attributes[attributesIndex++] = new StackMapTableAttribute(classFileBytes, constantPool, offset + readOffset);
+			} else if (equals(attributeName, IAttributeNamesConstants.STACK_MAP)) {
+				this.attributes[attributesIndex++] = new StackMapAttribute(classFileBytes, constantPool, offset + readOffset);
 			} else {
 				this.attributes[attributesIndex++] = new ClassFileAttribute(classFileBytes, constantPool, offset + readOffset);
 			}
 			readOffset += (6 + u4At(classFileBytes, readOffset + 2, offset));
 		}
-		
 	}
-	
 	/**
-	 * @see ICodeAttribute#getMaxLocals()
+	 * @see ICodeAttribute#getAttributes()
 	 */
-	public int getMaxLocals() {
-		return this.maxLocals;
+	public IClassFileAttribute[] getAttributes() {
+		return this.attributes;
 	}
 
 	/**
-	 * @see ICodeAttribute#getMaxStack()
+	 * @see ICodeAttribute#getAttributesCount()
 	 */
-	public int getMaxStack() {
-		return this.maxStack;
+	public int getAttributesCount() {
+		return this.attributesCount;
+	}
+
+	/**
+	 * @see ICodeAttribute#getBytecodes()
+	 */
+	public byte[] getBytecodes() {
+		if (this.bytecodes == null) {
+			System.arraycopy(this.classFileBytes, this.codeOffset, (this.bytecodes = new byte[(int) this.codeLength]), 0, (int) this.codeLength);
+		}
+		return this.bytecodes;
+	}
+
+	/**
+	 * @see ICodeAttribute#getCodeLength()
+	 */
+	public long getCodeLength() {
+		return this.codeLength;
+	}
+
+	/**
+	 * @see ICodeAttribute#getExceptionTable()
+	 */
+	public IExceptionTableEntry[] getExceptionTable() {
+		return this.exceptionTableEntries;
+	}
+
+	/**
+	 * @see ICodeAttribute#getExceptionTableLength()
+	 */
+	public int getExceptionTableLength() {
+		return this.exceptionTableLength;
 	}
 
 	/**
@@ -117,13 +152,17 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 	}
 
 	/**
-	 * @see ICodeAttribute#getBytecodes()
+	 * @see ICodeAttribute#getMaxLocals()
 	 */
-	public byte[] getBytecodes() {
-		if (this.bytecodes == null) {
-			System.arraycopy(this.classFileBytes, this.codeOffset, (this.bytecodes = new byte[(int) this.codeLength]), 0, (int) this.codeLength); 
-		}
-		return this.bytecodes;
+	public int getMaxLocals() {
+		return this.maxLocals;
+	}
+
+	/**
+	 * @see ICodeAttribute#getMaxStack()
+	 */
+	public int getMaxStack() {
+		return this.maxStack;
 	}
 
 	/**
@@ -213,7 +252,8 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 					constantPoolEntry = this.constantPool.decodeEntry(index);
 					if (constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_Float
 						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_Integer
-						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_String) {
+						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_String
+						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_Class) {
 							throw new ClassFormatException(ClassFormatException.INVALID_CONSTANT_POOL_ENTRY);
 					}
 					visitor._ldc(pc - this.codeOffset, index, constantPoolEntry);
@@ -224,7 +264,8 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 					constantPoolEntry = this.constantPool.decodeEntry(index);
 					if (constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_Float
 						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_Integer
-						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_String) {
+						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_String
+						&& constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_Class) {
 							throw new ClassFormatException(ClassFormatException.INVALID_CONSTANT_POOL_ENTRY);
 					}
 					visitor._ldc_w(pc - this.codeOffset, index, constantPoolEntry);
@@ -868,7 +909,7 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 				case IOpcodeMnemonics.TABLESWITCH :
 					int startpc = pc;
 					pc++;
-					while (((pc - this.codeOffset) % 4) != 0) {
+					while (((pc - this.codeOffset) & 0x03) != 0) { // faster than % 4
 						pc++;
 					}
 					int defaultOffset = i4At(this.classFileBytes, 0, pc);
@@ -888,7 +929,7 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 				case IOpcodeMnemonics.LOOKUPSWITCH :
 					startpc = pc;
 					pc++;
-					while (((pc - this.codeOffset) % 4) != 0) {
+					while (((pc - this.codeOffset) & 0x03) != 0) {
 						pc++;
 					}
 					defaultOffset = i4At(this.classFileBytes, 0, pc);
@@ -1005,6 +1046,19 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 					visitor._invokeinterface(pc - this.codeOffset, index, count, constantPoolEntry);
 					pc += 5;
 					break;
+				case IOpcodeMnemonics.INVOKEDYNAMIC :
+					index = u2At(this.classFileBytes, 1, pc);
+					constantPoolEntry = this.constantPool.decodeEntry(index);
+					if (constantPoolEntry.getKind() != IConstantPoolConstant.CONSTANT_NameAndType) {
+						throw new ClassFormatException(ClassFormatException.INVALID_CONSTANT_POOL_ENTRY);
+					}
+					visitor._invokedynamic(
+							pc - this.codeOffset,
+							index,
+							this.constantPool.decodeEntry(constantPoolEntry.getNameAndTypeInfoNameIndex()),
+							this.constantPool.decodeEntry(constantPoolEntry.getNameAndTypeInfoDescriptorIndex()));
+					pc += 5;
+					break;
 				case IOpcodeMnemonics.NEW :
 					index = u2At(this.classFileBytes, 1, pc);
 					constantPoolEntry = this.constantPool.decodeEntry(index);
@@ -1096,12 +1150,12 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 					pc+=3;
 					break;
 				case IOpcodeMnemonics.GOTO_W :
-					branchOffset = (int) i4At(this.classFileBytes, 1, pc);
+					branchOffset = i4At(this.classFileBytes, 1, pc);
 					visitor._goto_w(pc - this.codeOffset, branchOffset);
 					pc+=5;
 					break;
 				case IOpcodeMnemonics.JSR_W :
-					branchOffset = (int) i4At(this.classFileBytes, 1, pc);
+					branchOffset = i4At(this.classFileBytes, 1, pc);
 					visitor._jsr_w(pc - this.codeOffset, branchOffset);
 					pc+=5;
 					break;
@@ -1118,53 +1172,11 @@ public class CodeAttribute extends ClassFileAttribute implements ICodeAttribute 
 					pc++;
 					break;
 				default:
-					throw new ClassFormatException(ClassFormatException.INVALID_BYTECODE);			
+					throw new ClassFormatException(ClassFormatException.INVALID_BYTECODE);
 			}
 			if (pc >= (this.codeLength + this.codeOffset)) {
 				break;
 			}
 		}
 	}
-
-	/**
-	 * @see ICodeAttribute#getExceptionTable()
-	 */
-	public IExceptionTableEntry[] getExceptionTable() {
-		return this.exceptionTableEntries;
-	}
-
-	/**
-	 * @see ICodeAttribute#getAttributesCount()
-	 */
-	public int getAttributesCount() {
-		return this.attributesCount;
-	}
-
-	/**
-	 * @see ICodeAttribute#getCodeLength()
-	 */
-	public long getCodeLength() {
-		return this.codeLength;
-	}
-
-	/**
-	 * @see ICodeAttribute#getExceptionTableLength()
-	 */
-	public int getExceptionTableLength() {
-		return this.exceptionTableLength;
-	}
-
-	/**
-	 * @see IClassFileAttribute#getAttributeName()
-	 */
-	public char[] getAttributeName() {
-		return IAttributeNamesConstants.CODE;
-	}
-	/**
-	 * @see ICodeAttribute#getAttributes()
-	 */
-	public IClassFileAttribute[] getAttributes() {
-		return this.attributes;
-	}
-
 }

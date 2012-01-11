@@ -1,44 +1,28 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.eval;
-import java.util.Locale;
 
-import org.eclipse.core.resources.IMarker;
-import org.eclipse.core.resources.ResourcesPlugin;
-import org.eclipse.core.runtime.CoreException;
+import java.util.Locale;
+import java.util.Map;
+
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.jdt.core.ICodeCompletionRequestor;
-import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.ICompletionRequestor;
-import org.eclipse.jdt.core.IImportDeclaration;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IJavaModelMarker;
-import org.eclipse.jdt.core.IJavaModelStatusConstants;
-import org.eclipse.jdt.core.IJavaProject;
-import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.core.*;
 import org.eclipse.jdt.core.compiler.IProblem;
 import org.eclipse.jdt.core.eval.ICodeSnippetRequestor;
 import org.eclipse.jdt.core.eval.IEvaluationContext;
 import org.eclipse.jdt.core.eval.IGlobalVariable;
 import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
-import org.eclipse.jdt.internal.core.BinaryType;
-import org.eclipse.jdt.internal.core.ClassFile;
-import org.eclipse.jdt.internal.core.CompletionRequestorWrapper;
-import org.eclipse.jdt.internal.core.JavaModelStatus;
-import org.eclipse.jdt.internal.core.JavaProject;
-import org.eclipse.jdt.internal.core.SelectionRequestor;
-import org.eclipse.jdt.internal.core.SourceMapper;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
+import org.eclipse.jdt.internal.core.*;
 import org.eclipse.jdt.internal.core.builder.NameEnvironment;
 import org.eclipse.jdt.internal.core.builder.ProblemFactory;
 import org.eclipse.jdt.internal.eval.EvaluationContext;
@@ -47,7 +31,7 @@ import org.eclipse.jdt.internal.eval.IRequestor;
 import org.eclipse.jdt.internal.eval.InstallException;
 
 /**
- * A wrapper around the infrastructure evaluation context. 
+ * A wrapper around the infrastructure evaluation context.
  */
 public class EvaluationContextWrapper implements IEvaluationContext {
 	protected EvaluationContext context;
@@ -75,34 +59,86 @@ public IGlobalVariable[] allVariables() {
 /**
  * Checks to ensure that there is a previously built state.
  */
-protected void checkBuilderState() throws JavaModelException {
-	
+protected void checkBuilderState() {
+
 	return;
 }
 /**
  * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, ICompletionRequestor)
+ * @deprecated
  */
 public void codeComplete(String codeSnippet, int position, ICompletionRequestor requestor) throws JavaModelException {
+	codeComplete(codeSnippet, position, requestor, DefaultWorkingCopyOwner.PRIMARY);
+}
+/**
+ * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, ICompletionRequestor, WorkingCopyOwner)
+ * @deprecated
+ */
+public void codeComplete(String codeSnippet, int position, ICompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
+	if (requestor == null) {
+		throw new IllegalArgumentException("Completion requestor cannot be null"); //$NON-NLS-1$
+	}
+	codeComplete(codeSnippet, position, new org.eclipse.jdt.internal.codeassist.CompletionRequestorWrapper(requestor), owner);
+}
+/**
+ * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, CompletionRequestor)
+ */
+public void codeComplete(String codeSnippet, int position, CompletionRequestor requestor) throws JavaModelException {
+	codeComplete(codeSnippet, position, requestor, DefaultWorkingCopyOwner.PRIMARY);
+}
+/**
+ * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, CompletionRequestor, IProgressMonitor)
+ */
+public void codeComplete(String codeSnippet, int position, CompletionRequestor requestor, IProgressMonitor monitor) throws JavaModelException {
+	codeComplete(codeSnippet, position, requestor, DefaultWorkingCopyOwner.PRIMARY, null);
+}
+/**
+ * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, CompletionRequestor, WorkingCopyOwner)
+ */
+public void codeComplete(String codeSnippet, int position, CompletionRequestor requestor, WorkingCopyOwner owner) throws JavaModelException {
+	codeComplete(codeSnippet, position, requestor, owner, null);
+}
+/**
+ * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeComplete(String, int, CompletionRequestor, WorkingCopyOwner, IProgressMonitor)
+ */
+public void codeComplete(
+		String codeSnippet,
+		int position,
+		CompletionRequestor requestor,
+		WorkingCopyOwner owner,
+		IProgressMonitor monitor) throws JavaModelException {
+	SearchableEnvironment environment = this.project.newSearchableNameEnvironment(owner);
 	this.context.complete(
 		codeSnippet.toCharArray(),
 		position,
-		this.project.getSearchableNameEnvironment(),
-		new CompletionRequestorWrapper(requestor,this.project.getNameLookup()),
-		JavaCore.getOptions()
+		environment,
+		requestor,
+		this.project.getOptions(true),
+		this.project,
+		owner,
+		monitor
 	);
 }
 /**
  * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeSelect(String, int, int)
  */
 public IJavaElement[] codeSelect(String codeSnippet, int offset, int length) throws JavaModelException {
-	SelectionRequestor requestor= new SelectionRequestor(this.project.getNameLookup(), null); // null because there is no need to look inside the code snippet itself
+	return codeSelect(codeSnippet, offset, length, DefaultWorkingCopyOwner.PRIMARY);
+}
+/**
+ * @see org.eclipse.jdt.core.eval.IEvaluationContext#codeSelect(String, int, int, WorkingCopyOwner)
+ */
+public IJavaElement[] codeSelect(String codeSnippet, int offset, int length, WorkingCopyOwner owner) throws JavaModelException {
+	SearchableEnvironment environment = this.project.newSearchableNameEnvironment(owner);
+	SelectionRequestor requestor= new SelectionRequestor(environment.nameLookup, null); // null because there is no need to look inside the code snippet itself
 	this.context.select(
 		codeSnippet.toCharArray(),
 		offset,
 		offset + length - 1,
-		this.project.getSearchableNameEnvironment(),
+		environment,
 		requestor,
-		JavaCore.getOptions()
+		this.project.getOptions(true),
+		owner
 	);
 	return requestor.getElements();
 }
@@ -121,18 +157,18 @@ public void deleteVariable(IGlobalVariable variable) {
  * @see IEvaluationContext#evaluateCodeSnippet(String, String[], String[], int[], IType, boolean, boolean, ICodeSnippetRequestor, IProgressMonitor)
  */
 public void evaluateCodeSnippet(
-	String codeSnippet, 
-	String[] localVariableTypeNames, 
-	String[] localVariableNames, 
-	int[] localVariableModifiers, 
-	IType declaringType, 
-	boolean isStatic, 
-	boolean isConstructorCall, 
-	ICodeSnippetRequestor requestor, 
+	String codeSnippet,
+	String[] localVariableTypeNames,
+	String[] localVariableNames,
+	int[] localVariableModifiers,
+	IType declaringType,
+	boolean isStatic,
+	boolean isConstructorCall,
+	ICodeSnippetRequestor requestor,
 	IProgressMonitor progressMonitor) throws org.eclipse.jdt.core.JavaModelException {
-		
+
 	checkBuilderState();
-	
+
 	int length = localVariableTypeNames.length;
 	char[][] varTypeNames = new char[length][];
 	for (int i = 0; i < length; i++){
@@ -145,9 +181,10 @@ public void evaluateCodeSnippet(
 		varNames[i] = localVariableNames[i].toCharArray();
 	}
 
+	Map options = this.project.getOptions(true);
 	// transfer the imports of the IType to the evaluation context
 	if (declaringType != null) {
-		// retrieves the package statement 
+		// retrieves the package statement
 		this.context.setPackageName(declaringType.getPackageFragment().getElementName().toCharArray());
 		ICompilationUnit compilationUnit = declaringType.getCompilationUnit();
 		if (compilationUnit != null) {
@@ -160,6 +197,8 @@ public void evaluateCodeSnippet(
 					importsNames[i] = imports[i].getElementName().toCharArray();
 				}
 				this.context.setImports(importsNames);
+				// turn off import complaints for implicitly added ones
+				options.put(CompilerOptions.OPTION_ReportUnusedImport, CompilerOptions.IGNORE);
 			}
 		} else {
 			// try to retrieve imports from the source
@@ -168,6 +207,8 @@ public void evaluateCodeSnippet(
 				char[][] imports = sourceMapper.getImports((BinaryType) declaringType);
 				if (imports != null) {
 					this.context.setImports(imports);
+					// turn off import complaints for implicitly added ones
+					options.put(CompilerOptions.OPTION_ReportUnusedImport, CompilerOptions.IGNORE);
 				}
 			}
 		}
@@ -182,9 +223,9 @@ public void evaluateCodeSnippet(
 			declaringType == null? null : declaringType.getFullyQualifiedName().toCharArray(),
 			isStatic,
 			isConstructorCall,
-			environment = getBuildNameEnvironment(), 
-			JavaCore.getOptions(), 
-			getInfrastructureEvaluationRequestor(requestor), 
+			environment = getBuildNameEnvironment(),
+			options,
+			getInfrastructureEvaluationRequestor(requestor),
 			getProblemFactory());
 	} catch (InstallException e) {
 		handleInstallException(e);
@@ -201,10 +242,10 @@ public void evaluateCodeSnippet(String codeSnippet, ICodeSnippetRequestor reques
 	INameEnvironment environment = null;
 	try {
 		this.context.evaluate(
-			codeSnippet.toCharArray(), 
-			environment = getBuildNameEnvironment(), 
-			JavaCore.getOptions(), 
-			getInfrastructureEvaluationRequestor(requestor), 
+			codeSnippet.toCharArray(),
+			environment = getBuildNameEnvironment(),
+			this.project.getOptions(true),
+			getInfrastructureEvaluationRequestor(requestor),
 			getProblemFactory());
 	} catch (InstallException e) {
 		handleInstallException(e);
@@ -221,10 +262,10 @@ public void evaluateVariable(IGlobalVariable variable, ICodeSnippetRequestor req
 	INameEnvironment environment = null;
 	try {
 		this.context.evaluateVariable(
-			((GlobalVariableWrapper)variable).variable, 
-			environment = getBuildNameEnvironment(), 
-			JavaCore.getOptions(), 
-			getInfrastructureEvaluationRequestor(requestor), 
+			((GlobalVariableWrapper)variable).variable,
+			environment = getBuildNameEnvironment(),
+			this.project.getOptions(true),
+			getInfrastructureEvaluationRequestor(requestor),
 			getProblemFactory());
 	} catch (InstallException e) {
 		handleInstallException(e);
@@ -235,8 +276,11 @@ public void evaluateVariable(IGlobalVariable variable, ICodeSnippetRequestor req
 /**
  * Returns a name environment for the last built state.
  */
-protected INameEnvironment getBuildNameEnvironment() throws JavaModelException {
+protected INameEnvironment getBuildNameEnvironment() {
 	return new NameEnvironment(getProject());
+}
+public char[] getVarClassName() {
+	return this.context.getVarClassName();
 }
 
 /**
@@ -272,7 +316,7 @@ public String getPackageName() {
 /**
  * Returns the problem factory to be used during evaluation.
  */
-protected IProblemFactory getProblemFactory() throws JavaModelException {
+protected IProblemFactory getProblemFactory() {
 	return ProblemFactory.getProblemFactory(Locale.getDefault());
 }
 /**
@@ -291,10 +335,10 @@ protected void handleInstallException(InstallException e) throws JavaModelExcept
  * @see org.eclipse.jdt.core.eval.IEvaluationContext#newVariable(String, String, String)
  */
 public IGlobalVariable newVariable(String typeName, String name, String initializer) {
-	GlobalVariable newVar = 
+	GlobalVariable newVar =
 		this.context.newVariable(
-			typeName.toCharArray(), 
-			name.toCharArray(), 
+			typeName.toCharArray(),
+			name.toCharArray(),
 			(initializer == null) ?
 				null :
 				initializer.toCharArray());
@@ -320,14 +364,14 @@ public void setPackageName(String packageName) {
 /**
  * @see IEvaluationContext#validateImports(ICodeSnippetRequestor)
  */
-public void validateImports(ICodeSnippetRequestor requestor) throws JavaModelException {
-	
+public void validateImports(ICodeSnippetRequestor requestor) {
+
 	checkBuilderState();
 	INameEnvironment environment = null;
 	try {
 		this.context.evaluateImports(
-			environment = getBuildNameEnvironment(), 
-			getInfrastructureEvaluationRequestor(requestor), 
+			environment = getBuildNameEnvironment(),
+			getInfrastructureEvaluationRequestor(requestor),
 			getProblemFactory());
 	} finally {
 		if (environment != null) environment.cleanup();
@@ -337,7 +381,7 @@ public void validateImports(ICodeSnippetRequestor requestor) throws JavaModelExc
  * @see IEvaluationContext#codeComplete(String, int, ICodeCompletionRequestor)
  * @deprecated - use codeComplete(String, int, ICompletionRequestor) instead
  */
-public void codeComplete(String codeSnippet, int position, final ICodeCompletionRequestor requestor) throws JavaModelException {
+public void codeComplete(String codeSnippet, int position, final org.eclipse.jdt.core.ICodeCompletionRequestor requestor) throws JavaModelException {
 
 	if (requestor == null){
 		codeComplete(codeSnippet, position, (ICompletionRequestor)null);
@@ -348,25 +392,15 @@ public void codeComplete(String codeSnippet, int position, final ICodeCompletion
 		position,
 		new ICompletionRequestor(){
 			public void acceptAnonymousType(char[] superTypePackageName,char[] superTypeName,char[][] parameterPackageNames,char[][] parameterTypeNames,char[][] parameterNames,char[] completionName,int modifiers,int completionStart,int completionEnd, int relevance) {
+				// implements interface method
 			}
 			public void acceptClass(char[] packageName, char[] className, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
 				requestor.acceptClass(packageName, className, completionName, modifiers, completionStart, completionEnd);
 			}
 			public void acceptError(IProblem error) {
-				if (true) return; // was disabled in 1.0
-
-				try {
-					IMarker marker = ResourcesPlugin.getWorkspace().getRoot().createMarker(IJavaModelMarker.TRANSIENT_PROBLEM);
-					marker.setAttribute(IJavaModelMarker.ID, error.getID());
-					marker.setAttribute(IMarker.CHAR_START, error.getSourceStart());
-					marker.setAttribute(IMarker.CHAR_END, error.getSourceEnd() + 1);
-					marker.setAttribute(IMarker.LINE_NUMBER, error.getSourceLineNumber());
-					marker.setAttribute(IMarker.MESSAGE, error.getMessage());
-					marker.setAttribute(IMarker.SEVERITY, IMarker.SEVERITY_ERROR);
-					requestor.acceptError(marker);
-				} catch(CoreException e){
-				}
+				// was disabled in 1.0
 			}
+
 			public void acceptField(char[] declaringTypePackageName, char[] declaringTypeName, char[] name, char[] typePackageName, char[] typeName, char[] completionName, int modifiers, int completionStart, int completionEnd, int relevance) {
 				requestor.acceptField(declaringTypePackageName, declaringTypeName, name, typePackageName, typeName, completionName, modifiers, completionStart, completionEnd);
 			}

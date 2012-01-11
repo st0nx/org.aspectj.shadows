@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -19,19 +19,18 @@ import org.eclipse.core.runtime.IProgressMonitor;
  * which have the same name.
  * <p>
  * Package fragments elements need to be opened before they can be navigated or manipulated.
- * The children are of type <code>ICompilationUnit</code> (representing a source file) or 
+ * The children are of type <code>ICompilationUnit</code> (representing a source file) or
  * <code>IClassFile</code> (representing a binary class file).
  * The children are listed in no particular order.
  * </p>
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
+ *
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IPackageFragment extends IParent, IJavaElement, IOpenable, ISourceManipulation {
 
-	/**	
+	/**
 	 * <p>
-	 * The name of package fragment for the default package (value: the empty 
+	 * The name of package fragment for the default package (value: the empty
 	 * string, <code>""</code>).
 	 * </p>
  	*/
@@ -39,16 +38,18 @@ public interface IPackageFragment extends IParent, IJavaElement, IOpenable, ISou
 	/**
 	 * Returns whether this fragment contains at least one Java resource.
 	 * @return true if this fragment contains at least one Java resource, false otherwise
+	 * @exception JavaModelException if this element does not exist or if an
+	 *		exception occurs while accessing its corresponding resource.
 	 */
 	boolean containsJavaResources() throws JavaModelException;
 	/**
-	 * Creates and returns a compilation unit in this package fragment 
+	 * Creates and returns a compilation unit in this package fragment
 	 * with the specified name and contents. No verification is performed
 	 * on the contents.
 	 *
-	 * <p>It is possible that a compilation unit with the same name already exists in this 
+	 * <p>It is possible that a compilation unit with the same name already exists in this
 	 * package fragment.
-	 * The value of the <code>force</code> parameter effects the resolution of
+	 * The value of the <code>force</code> parameter affects the resolution of
 	 * such a conflict:<ul>
 	 * <li> <code>true</code> - in this case the compilation is created with the new contents</li>
 	 * <li> <code>false</code> - in this case a <code>JavaModelException</code> is thrown</li>
@@ -65,7 +66,7 @@ public interface IPackageFragment extends IParent, IJavaElement, IOpenable, ISou
 	 * <li> The name is not a valid compilation unit name (INVALID_NAME)
 	 * <li> The contents are <code>null</code> (INVALID_CONTENTS)
 	 * </ul>
-	 * @return a compilation unit in this package fragment 
+	 * @return a compilation unit in this package fragment
 	 * with the specified name and contents
 	 */
 	ICompilationUnit createCompilationUnit(String name, String contents, boolean force, IProgressMonitor monitor) throws JavaModelException;
@@ -82,7 +83,7 @@ public interface IPackageFragment extends IParent, IJavaElement, IOpenable, ISou
 	 * Returns all of the class files in this package fragment.
 	 *
 	 * <p>Note: it is possible that a package fragment contains only
-	 * compilation units (i.e. its kind is <code>K_SOURCE</code>), in
+	 * compilation units (in other words, its kind is <code>K_SOURCE</code>), in
 	 * which case this method returns an empty collection.
 	 *
 	 * @exception JavaModelException if this element does not exist or if an
@@ -95,17 +96,19 @@ public interface IPackageFragment extends IParent, IJavaElement, IOpenable, ISou
 	 * in this package (for example, <code>"Object.java"</code>).
 	 * The name has to be a valid compilation unit name.
 	 * This is a handle-only method.  The compilation unit may or may not be present.
-	 * @see JavaConventions#validateCompilationUnitName
+	 *
 	 * @param name the given name
 	 * @return the compilation unit with the specified name in this package
+	 * @see JavaConventions#validateCompilationUnitName(String name, String sourceLevel, String complianceLevel)
 	 */
 	ICompilationUnit getCompilationUnit(String name);
 	/**
 	 * Returns all of the compilation units in this package fragment.
 	 *
 	 * <p>Note: it is possible that a package fragment contains only
-	 * class files (i.e. its kind is <code>K_BINARY</code>), in which
+	 * class files (in other words, its kind is <code>K_BINARY</code>), in which
 	 * case this method returns an empty collection.
+	 * </p>
 	 *
 	 * @exception JavaModelException if this element does not exist or if an
 	 *		exception occurs while accessing its corresponding resource.
@@ -113,30 +116,69 @@ public interface IPackageFragment extends IParent, IJavaElement, IOpenable, ISou
 	 */
 	ICompilationUnit[] getCompilationUnits() throws JavaModelException;
 	/**
+	 * Returns all of the compilation units in this package fragment that are
+	 * in working copy mode and that have the given owner.
+	 * <p>
+	 * Only existing working copies are returned. So a compilation unit handle that has no
+	 * corresponding resource on disk will be included if and only if is in working copy mode.
+	 * </p>
+	 * <p>Note: it is possible that a package fragment contains only
+	 * class files (in other words, its kind is <code>K_BINARY</code>), in which
+	 * case this method returns an empty collection.
+	 * </p>
+	 *
+	 * @param owner the owner of the returned compilation units
+	 * @exception JavaModelException if this element does not exist or if an
+	 *		exception occurs while accessing its corresponding resource.
+	 * @return all of the compilation units in this package fragment
+	 * @since 3.0
+	 */
+	ICompilationUnit[] getCompilationUnits(WorkingCopyOwner owner) throws JavaModelException;
+	/**
 	 * Returns the dot-separated package name of this fragment, for example
 	 * <code>"java.lang"</code>, or <code>""</code> (the empty string),
 	 * for the default package.
-	 * 
+	 *
 	 * @return the dot-separated package name of this fragment
 	 */
 	String getElementName();
 	/**
 	 * Returns this package fragment's root kind encoded as an integer.
-	 * A package fragment can contain <code>.java</code> source files,
+	 * A package fragment can contain source files (i.e. files with one of
+	 * the {@link JavaCore#getJavaLikeExtensions() Java-like extensions}),
 	 * or <code>.class</code> files. This is a convenience method.
-	 *
-	 * @see IPackageFragmentRoot#K_SOURCE
-	 * @see IPackageFragmentRoot#K_BINARY
 	 *
 	 * @exception JavaModelException if this element does not exist or if an
 	 *		exception occurs while accessing its corresponding resource.
 	 * @return this package fragment's root kind encoded as an integer
+	 * @see IPackageFragmentRoot#K_SOURCE
+	 * @see IPackageFragmentRoot#K_BINARY
 	 */
 	int getKind() throws JavaModelException;
 	/**
 	 * Returns an array of non-Java resources contained in this package fragment.
-	 * 
-	 * @return an array of non-Java resources contained in this package fragment
+	 * <p>
+	 * Non-Java resources includes other files and folders located in the same
+	 * directory as the compilation units or class files for this package
+	 * fragment. Source files excluded from this package by virtue of
+	 * inclusion/exclusion patterns on the corresponding source classpath entry
+	 * are considered non-Java resources and will appear in the result
+	 * (possibly in a folder).
+	 * </p><p>
+	 * Since 3.3, if this package fragment is inside an archive, the non-Java resources
+	 * are a tree of {@link IJarEntryResource}s. One can navigate this tree using
+	 * the {@link IJarEntryResource#getChildren()} and
+	 * {@link IJarEntryResource#getParent()} methods.
+	 * </p>
+	 *
+	 * @exception JavaModelException if this element does not exist or if an
+	 *		exception occurs while accessing its corresponding resource.
+	 * @return an array of non-Java resources (<code>IFile</code>s,
+	 *              <code>IFolder</code>s, or <code>IStorage</code>s if the
+	 *              package fragment is in an archive) contained in this package
+	 *              fragment
+	 * @see IClasspathEntry#getInclusionPatterns()
+	 * @see IClasspathEntry#getExclusionPatterns()
 	 */
 	Object[] getNonJavaResources() throws JavaModelException;
 	/**
@@ -152,7 +194,7 @@ public interface IPackageFragment extends IParent, IJavaElement, IOpenable, ISou
 	/**
 	 * Returns whether this package fragment is a default package.
 	 * This is a handle-only method.
-	 * 
+	 *
 	 * @return true if this package fragment is a default package
 	 */
 	boolean isDefaultPackage();

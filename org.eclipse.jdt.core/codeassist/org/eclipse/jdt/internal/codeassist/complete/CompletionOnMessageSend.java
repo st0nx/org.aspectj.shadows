@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.codeassist.complete;
 
 /*
@@ -38,33 +38,45 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
 public class CompletionOnMessageSend extends MessageSend {
 
 	public TypeBinding resolveType(BlockScope scope) {
-		if (receiver == ThisReference.ThisImplicit)
+		if (this.arguments != null) {
+			int argsLength = this.arguments.length;
+			for (int a = argsLength; --a >= 0;)
+				this.arguments[a].resolveType(scope);
+		}
+
+		if (this.receiver.isImplicitThis())
 			throw new CompletionNodeFound(this, null, scope);
 
-		TypeBinding receiverType = receiver.resolveType(scope);
-		if (receiverType == null || receiverType.isBaseType())
+		this.actualReceiverType = this.receiver.resolveType(scope);
+		if (this.actualReceiverType == null || this.actualReceiverType.isBaseType())
 			throw new CompletionNodeFound();
 
-		if (receiverType.isArrayType())
-			receiverType = scope.getJavaLangObject();
-		throw new CompletionNodeFound(this, receiverType, scope);
+		if (this.actualReceiverType.isArrayType())
+			this.actualReceiverType = scope.getJavaLangObject();
+		throw new CompletionNodeFound(this, this.actualReceiverType, scope);
 	}
 
-	public String toStringExpression() {
+	public StringBuffer printExpression(int indent, StringBuffer output) {
 
-		String s = "<CompleteOnMessageSend:"; //$NON-NLS-1$
-		if (receiver != ThisReference.ThisImplicit)
-			s = s + receiver.toStringExpression() + "."; //$NON-NLS-1$
-		s = s + new String(selector) + "("; //$NON-NLS-1$
-		if (arguments != null) {
-			for (int i = 0; i < arguments.length; i++) {
-				s += arguments[i].toStringExpression();
-				if (i != arguments.length - 1) {
-					s += ", "; //$NON-NLS-1$
-				}
-			};
+		output.append("<CompleteOnMessageSend:"); //$NON-NLS-1$
+		if (!this.receiver.isImplicitThis()) this.receiver.printExpression(0, output).append('.');
+		if (this.typeArguments != null) {
+			output.append('<');
+			int max = this.typeArguments.length - 1;
+			for (int j = 0; j < max; j++) {
+				this.typeArguments[j].print(0, output);
+				output.append(", ");//$NON-NLS-1$
+			}
+			this.typeArguments[max].print(0, output);
+			output.append('>');
 		}
-		s = s + ")>"; //$NON-NLS-1$
-		return s;
+		output.append(this.selector).append('(');
+		if (this.arguments != null) {
+			for (int i = 0; i < this.arguments.length; i++) {
+				if (i > 0) output.append(", "); //$NON-NLS-1$
+				this.arguments[i].printExpression(0, output);
+			}
+		}
+		return output.append(")>"); //$NON-NLS-1$
 	}
 }

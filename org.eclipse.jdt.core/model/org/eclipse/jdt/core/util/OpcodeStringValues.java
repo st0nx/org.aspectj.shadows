@@ -1,22 +1,21 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core.util;
 
 /**
  * Description of each opcode mnemonic according to the JVM specifications.
- * <p>
- * This class is not intended to be instantiated or subclassed by clients.
- * </p>
- *  
+ *
  * @since 2.0
+ * @noinstantiate This class is not intended to be instantiated by clients.
+ * @noextend This class is not intended to be subclassed by clients.
  */
 public class OpcodeStringValues implements IOpcodeMnemonics {
 
@@ -208,6 +207,7 @@ public class OpcodeStringValues implements IOpcodeMnemonics {
 		BYTECODE_NAMES[INVOKESPECIAL] = "invokespecial"; //$NON-NLS-1$
 		BYTECODE_NAMES[INVOKESTATIC] = "invokestatic"; //$NON-NLS-1$
 		BYTECODE_NAMES[INVOKEINTERFACE] = "invokeinterface"; //$NON-NLS-1$
+		BYTECODE_NAMES[INVOKEDYNAMIC] = "invokedynamic"; //$NON-NLS-1$
 		BYTECODE_NAMES[NEW] = "new"; //$NON-NLS-1$
 		BYTECODE_NAMES[NEWARRAY] = "newarray"; //$NON-NLS-1$
 		BYTECODE_NAMES[ANEWARRAY] = "anewarray"; //$NON-NLS-1$

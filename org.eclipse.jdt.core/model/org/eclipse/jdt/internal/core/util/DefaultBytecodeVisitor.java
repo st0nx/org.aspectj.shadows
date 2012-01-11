@@ -1,29 +1,33 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
 import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.core.util.ClassFileBytesDisassembler;
 import org.eclipse.jdt.core.util.IBytecodeVisitor;
+import org.eclipse.jdt.core.util.ICodeAttribute;
 import org.eclipse.jdt.core.util.IConstantPoolConstant;
 import org.eclipse.jdt.core.util.IConstantPoolEntry;
-import org.eclipse.jdt.core.util.IOpcodeMnemonics;
+import org.eclipse.jdt.core.util.ILocalVariableAttribute;
+import org.eclipse.jdt.core.util.ILocalVariableTableEntry;
 import org.eclipse.jdt.core.util.OpcodeStringValues;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.core.util.IOpcodeMnemonics;
 
 /**
  * Default implementation of ByteCodeVisitor
  */
 public class DefaultBytecodeVisitor implements IBytecodeVisitor {
-	private static final char[] INIT	= "<init>".toCharArray(); //$NON-NLS-1$
-	private static final char[] EMPTY_NAME = new char[0];
+	private static final String EMPTY_CLASS_NAME = "\"\""; //$NON-NLS-1$
+	private static final String EMPTY_LOCAL_NAME = ""; //$NON-NLS-1$
 	private static final int T_BOOLEAN = 4;
 	private static final int T_CHAR = 5;
 	private static final int T_FLOAT = 6;
@@ -36,33 +40,68 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	private StringBuffer buffer;
 	private String lineSeparator;
 	private int tabNumber;
-	
-	public DefaultBytecodeVisitor(StringBuffer buffer, String lineSeparator, int tabNumber) {
+	private int digitNumberForPC;
+	private ILocalVariableTableEntry[] localVariableTableEntries;
+	private int localVariableAttributeLength;
+	private int mode;
+	private char[][] parameterNames;
+	private boolean isStatic;
+	private int[] argumentSizes;
+
+	public DefaultBytecodeVisitor(ICodeAttribute codeAttribute, char[][] parameterNames, char[] methodDescriptor, boolean isStatic, StringBuffer buffer, String lineSeparator, int tabNumber, int mode) {
+		ILocalVariableAttribute localVariableAttribute = codeAttribute.getLocalVariableAttribute();
+		this.localVariableAttributeLength = localVariableAttribute == null ? 0 : localVariableAttribute.getLocalVariableTableLength();
+		if (this.localVariableAttributeLength != 0) {
+			this.localVariableTableEntries = localVariableAttribute.getLocalVariableTable();
+		} else {
+			this.localVariableTableEntries = null;
+		}
 		this.buffer = buffer;
 		this.lineSeparator = lineSeparator;
 		this.tabNumber = tabNumber + 1;
+		long codeLength = codeAttribute.getCodeLength();
+		this.digitNumberForPC = Long.toString(codeLength).length();
+		this.mode = mode;
+		this.parameterNames = parameterNames;
+		this.isStatic = isStatic;
+		// compute argument sizes
+		if (parameterNames != null) {
+			char[][] parameterTypes = Signature.getParameterTypes(methodDescriptor);
+			int length = parameterTypes.length;
+			this.argumentSizes = new int[length];
+			for (int i = 0; i < length; i++) {
+				char[] parameterType = parameterTypes[i];
+				this.argumentSizes[i] = parameterType.length == 1 && (parameterType[0] == 'D' || parameterType[0] == 'J') ? 2 : 1;
+			}
+		}
 	}
 	/**
 	 * @see IBytecodeVisitor#_aaload(int)
 	 */
 	public void _aaload(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.AALOAD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.AALOAD]);
 		writeNewLine();
+	}
+	private void dumpPcNumber(int pc) {
+		writeTabs();
+		int digitForPC = 1;
+		if (pc != 0) {
+			digitForPC = Integer.toString(pc).length();
+		}
+		for (int i = 0, max = this.digitNumberForPC - digitForPC; i < max; i++) {
+			this.buffer.append(' ');
+		}
+		this.buffer.append(pc);
+		this.buffer.append(Messages.disassembler_indentation);
 	}
 
 	/**
 	 * @see IBytecodeVisitor#_aastore(int)
 	 */
 	public void _aastore(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.AASTORE]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.AASTORE]);
 		writeNewLine();
 	}
 
@@ -70,11 +109,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_aconst_null(int)
 	 */
 	public void _aconst_null(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ACONST_NULL]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ACONST_NULL]);
 		writeNewLine();
 	}
 
@@ -82,11 +118,12 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_aload_0(int)
 	 */
 	public void _aload_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load,
+			new String[] {
+				OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD_0],
+				getLocalVariableName(pc, 0)
+			}));
 		writeNewLine();
 	}
 
@@ -94,11 +131,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_aload_1(int)
 	 */
 	public void _aload_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD_1],
+			getLocalVariableName(pc, 1)
+		}));
 		writeNewLine();
 	}
 
@@ -106,11 +143,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_aload_2(int)
 	 */
 	public void _aload_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD_2],
+			getLocalVariableName(pc, 2)
+		}));
 		writeNewLine();
 	}
 
@@ -118,11 +155,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_aload_3(int)
 	 */
 	public void _aload_3(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD_3]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD_3],
+			getLocalVariableName(pc, 3)
+		}));
 		writeNewLine();
 	}
 
@@ -130,13 +167,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_aload(int, int)
 	 */
 	public void _aload(int pc, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(index);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD],
+			getLocalVariableName(pc, index, true)
+		}));
 		writeNewLine();
 	}
 
@@ -144,15 +179,13 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_anewarray(int, int, IConstantPoolEntry)
 	 */
 	public void _anewarray(int pc, int index, IConstantPoolEntry constantClass) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ANEWARRAY])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnConstantClassName(constantClass));
+		dumpPcNumber(pc);
+		this.buffer
+			.append(Messages.bind(Messages.classformat_anewarray, new String[] {
+				OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ANEWARRAY],
+				Integer.toString(index),
+				returnConstantClassName(constantClass)
+			}));
 		writeNewLine();
 	}
 
@@ -160,11 +193,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_areturn(int)
 	 */
 	public void _areturn(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ARETURN]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ARETURN]);
 		writeNewLine();
 	}
 
@@ -172,11 +202,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_arraylength(int)
 	 */
 	public void _arraylength(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ARRAYLENGTH]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ARRAYLENGTH]);
 		writeNewLine();
 	}
 
@@ -184,11 +211,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_astore_0(int)
 	 */
 	public void _astore_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ASTORE_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ASTORE_0],
+			getLocalVariableName(pc, 0)
+		}));
 		writeNewLine();
 	}
 
@@ -196,23 +223,91 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_astore_1(int)
 	 */
 	public void _astore_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ASTORE_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ASTORE_1],
+			getLocalVariableName(pc, 1)
+		}));
 		writeNewLine();
+	}
+	private String getLocalVariableName(int pc, int index) {
+		return getLocalVariableName(pc, index, false);
+	}
+
+	private String getLocalVariableName(int pc, int index, boolean showIndex) {
+		int nextPC = pc + 1;
+		switch(index) {
+			case 0 :
+			case 1 :
+			case 2 :
+			case 3 :
+				break;
+			default :
+				nextPC = index <= 255 ? pc + 2 : pc + 3;
+		}
+
+		for (int i = 0, max = this.localVariableAttributeLength; i < max; i++) {
+			final ILocalVariableTableEntry entry = this.localVariableTableEntries[i];
+			final int startPC = entry.getStartPC();
+			if (entry.getIndex() == index && (startPC <= nextPC) && ((startPC + entry.getLength()) > nextPC)) {
+				final StringBuffer stringBuffer = new StringBuffer();
+				if (showIndex) {
+					stringBuffer.append(' ').append(index);
+				}
+				stringBuffer.append(' ').append('[').append(entry.getName()).append(']');
+				return String.valueOf(stringBuffer);
+			}
+		}
+		if (this.parameterNames != null) {
+			if (index == 0) {
+				if (!this.isStatic) {
+					final StringBuffer stringBuffer = new StringBuffer();
+					stringBuffer.append(' ').append('[').append("this").append(']'); //$NON-NLS-1$
+					return String.valueOf(stringBuffer);
+				}
+			}
+			int indexInParameterNames = index;
+			if (index != 0) {
+				int resolvedPosition = 0;
+				if (!this.isStatic) {
+					resolvedPosition = 1;
+				}
+				int i = 0;
+				loop: for (int max = this.argumentSizes.length; i < max; i++) {
+					if (index == resolvedPosition) {
+						break loop;
+					}
+					resolvedPosition += this.argumentSizes[i];
+				}
+				indexInParameterNames = i;
+			}
+			if (indexInParameterNames < this.parameterNames.length
+					&& this.parameterNames[indexInParameterNames] != null) {
+				final StringBuffer stringBuffer = new StringBuffer();
+				if (showIndex) {
+					stringBuffer.append(' ').append(index);
+				}
+				stringBuffer.append(' ').append('[').append(this.parameterNames[indexInParameterNames]).append(']');
+				return String.valueOf(stringBuffer);
+			}
+		}
+		if (showIndex) {
+			final StringBuffer stringBuffer = new StringBuffer();
+			stringBuffer.append(' ').append(index);
+			return String.valueOf(stringBuffer);
+		}
+		return EMPTY_LOCAL_NAME;
 	}
 
 	/**
 	 * @see IBytecodeVisitor#_astore_2(int)
 	 */
 	public void _astore_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ASTORE_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ASTORE_2],
+			getLocalVariableName(pc, 2)
+		}));
 		writeNewLine();
 	}
 
@@ -220,11 +315,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_astore_3(int)
 	 */
 	public void _astore_3(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ASTORE_3]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ASTORE_3],
+			getLocalVariableName(pc, 3)
+		}));
 		writeNewLine();
 	}
 
@@ -232,13 +327,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_astore(int, int)
 	 */
 	public void _astore(int pc, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ASTORE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(index);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ASTORE],
+			getLocalVariableName(pc, index, true)
+		}));
 		writeNewLine();
 	}
 
@@ -246,11 +339,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_athrow(int)
 	 */
 	public void _athrow(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ATHROW]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ATHROW]);
 		writeNewLine();
 	}
 
@@ -258,11 +348,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_baload(int)
 	 */
 	public void _baload(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.BALOAD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.BALOAD]);
 		writeNewLine();
 	}
 
@@ -270,24 +357,18 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_bastore(int)
 	 */
 	public void _bastore(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.BASTORE]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.BASTORE]);
 		writeNewLine();
 	}
-	
+
 	/**
 	 * @see IBytecodeVisitor#_bipush(int, byte)
 	 */
 	public void _bipush(int pc, byte _byte) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.BIPUSH])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.BIPUSH])
+			.append(Messages.disassembler_space)
 			.append(_byte);
 		writeNewLine();
 	}
@@ -296,11 +377,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_caload(int)
 	 */
 	public void _caload(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.CALOAD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.CALOAD]);
 		writeNewLine();
 	}
 
@@ -308,11 +386,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_castore(int)
 	 */
 	public void _castore(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.CASTORE]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.CASTORE]);
 		writeNewLine();
 	}
 
@@ -320,15 +395,13 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_checkcast(int, int, IConstantPoolEntry)
 	 */
 	public void _checkcast(int pc, int index, IConstantPoolEntry constantClass) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.CHECKCAST])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnConstantClassName(constantClass));
+		dumpPcNumber(pc);
+		this.buffer
+			.append(Messages.bind(Messages.classformat_checkcast, new String[] {
+				OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.CHECKCAST],
+				Integer.toString(index),
+				returnConstantClassName(constantClass)
+			}));
 		writeNewLine();
 	}
 
@@ -336,11 +409,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_d2f(int)
 	 */
 	public void _d2f(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.D2F]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.D2F]);
 		writeNewLine();
 	}
 
@@ -348,11 +418,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_d2i(int)
 	 */
 	public void _d2i(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.D2I]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.D2I]);
 		writeNewLine();
 	}
 
@@ -360,11 +427,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_d2l(int)
 	 */
 	public void _d2l(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.D2L]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.D2L]);
 		writeNewLine();
 	}
 
@@ -372,11 +436,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dadd(int)
 	 */
 	public void _dadd(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DADD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DADD]);
 		writeNewLine();
 	}
 
@@ -384,11 +445,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_daload(int)
 	 */
 	public void _daload(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DALOAD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DALOAD]);
 		writeNewLine();
 	}
 
@@ -396,11 +454,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dastore(int)
 	 */
 	public void _dastore(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DASTORE]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DASTORE]);
 		writeNewLine();
 	}
 
@@ -408,11 +463,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dcmpg(int)
 	 */
 	public void _dcmpg(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DCMPG]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DCMPG]);
 		writeNewLine();
 	}
 
@@ -420,11 +472,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dcmpl(int)
 	 */
 	public void _dcmpl(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DCMPL]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DCMPL]);
 		writeNewLine();
 	}
 
@@ -432,11 +481,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dconst_0(int)
 	 */
 	public void _dconst_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DCONST_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DCONST_0]);
 		writeNewLine();
 	}
 
@@ -444,11 +490,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dconst_1(int)
 	 */
 	public void _dconst_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DCONST_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DCONST_1]);
 		writeNewLine();
 	}
 
@@ -456,11 +499,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ddiv(int)
 	 */
 	public void _ddiv(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DDIV]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DDIV]);
 		writeNewLine();
 	}
 
@@ -468,11 +508,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dload_0(int)
 	 */
 	public void _dload_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DLOAD_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load,new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DLOAD_0],
+			getLocalVariableName(pc, 0)
+		}));
 		writeNewLine();
 	}
 
@@ -480,11 +520,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dload_1(int)
 	 */
 	public void _dload_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DLOAD_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DLOAD_1],
+			getLocalVariableName(pc, 1)
+		}));
 		writeNewLine();
 	}
 
@@ -492,23 +532,23 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dload_2(int)
 	 */
 	public void _dload_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DLOAD_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DLOAD_2],
+			getLocalVariableName(pc, 2)
+		}));
 		writeNewLine();
 	}
-	
+
 	/**
 	 * @see IBytecodeVisitor#_dload_3(int)
 	 */
 	public void _dload_3(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DLOAD_3]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DLOAD_3],
+			getLocalVariableName(pc, 3)
+		}));
 		writeNewLine();
 	}
 
@@ -516,13 +556,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dload(int, int)
 	 */
 	public void _dload(int pc, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DLOAD])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(index);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DLOAD],
+			getLocalVariableName(pc, index, true)
+		}));
 		writeNewLine();
 	}
 
@@ -530,11 +568,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dmul(int)
 	 */
 	public void _dmul(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DMUL]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DMUL]);
 		writeNewLine();
 	}
 
@@ -542,11 +577,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dneg(int)
 	 */
 	public void _dneg(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DNEG]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DNEG]);
 		writeNewLine();
 	}
 
@@ -554,11 +586,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_drem(int)
 	 */
 	public void _drem(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DREM]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DREM]);
 		writeNewLine();
 	}
 
@@ -566,11 +595,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dreturn(int)
 	 */
 	public void _dreturn(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DRETURN]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DRETURN]);
 		writeNewLine();
 	}
 
@@ -578,11 +604,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dstore_0(int)
 	 */
 	public void _dstore_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSTORE_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSTORE_0],
+			getLocalVariableName(pc, 0)
+		}));
 		writeNewLine();
 	}
 
@@ -590,11 +616,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dstore_1(int)
 	 */
 	public void _dstore_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSTORE_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSTORE_1],
+			getLocalVariableName(pc, 1)
+		}));
 		writeNewLine();
 	}
 
@@ -602,11 +628,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dstore_2(int)
 	 */
 	public void _dstore_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSTORE_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSTORE_2],
+			getLocalVariableName(pc, 2)
+		}));
 		writeNewLine();
 	}
 
@@ -614,11 +640,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dstore_3(int)
 	 */
 	public void _dstore_3(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSTORE_3]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSTORE_3],
+			getLocalVariableName(pc, 3)
+		}));
 		writeNewLine();
 	}
 
@@ -626,13 +652,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dstore(int,int)
 	 */
 	public void _dstore(int pc, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSTORE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(index);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSTORE],
+			getLocalVariableName(pc, index, true)
+		}));
 		writeNewLine();
 	}
 
@@ -640,11 +664,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dsub(int)
 	 */
 	public void _dsub(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSUB]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DSUB]);
 		writeNewLine();
 	}
 
@@ -652,11 +673,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dup_x1(int)
 	 */
 	public void _dup_x1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP_X1]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP_X1]);
 		writeNewLine();
 	}
 
@@ -664,11 +682,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dup_x2(int)
 	 */
 	public void _dup_x2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP_X2]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP_X2]);
 		writeNewLine();
 	}
 
@@ -676,11 +691,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dup(int)
 	 */
 	public void _dup(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP]);
 		writeNewLine();
 	}
 
@@ -688,11 +700,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dup2_x1(int)
 	 */
 	public void _dup2_x1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP2_X1]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP2_X1]);
 		writeNewLine();
 	}
 
@@ -700,11 +709,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dup2_x2(int)
 	 */
 	public void _dup2_x2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP2_X2]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP2_X2]);
 		writeNewLine();
 	}
 
@@ -712,11 +718,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_dup2(int)
 	 */
 	public void _dup2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP2]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.DUP2]);
 		writeNewLine();
 	}
 
@@ -724,11 +727,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_f2d(int)
 	 */
 	public void _f2d(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.F2D]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.F2D]);
 		writeNewLine();
 	}
 
@@ -736,23 +736,17 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_f2i(int)
 	 */
 	public void _f2i(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.F2I]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.F2I]);
 		writeNewLine();
 	}
-	
+
 	/**
 	 * @see IBytecodeVisitor#_f2l(int)
 	 */
 	public void _f2l(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.F2L]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.F2L]);
 		writeNewLine();
 	}
 
@@ -760,23 +754,17 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fadd(int)
 	 */
 	public void _fadd(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FADD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FADD]);
 		writeNewLine();
 	}
-	
+
 	/**
 	 * @see IBytecodeVisitor#_faload(int)
 	 */
 	public void _faload(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FALOAD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FALOAD]);
 		writeNewLine();
 	}
 
@@ -784,11 +772,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fastore(int)
 	 */
 	public void _fastore(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FASTORE]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FASTORE]);
 		writeNewLine();
 	}
 
@@ -796,11 +781,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fcmpg(int)
 	 */
 	public void _fcmpg(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FCMPG]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FCMPG]);
 		writeNewLine();
 	}
 
@@ -808,11 +790,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fcmpl(int)
 	 */
 	public void _fcmpl(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FCMPL]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FCMPL]);
 		writeNewLine();
 	}
 
@@ -820,11 +799,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fconst_0(int)
 	 */
 	public void _fconst_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FCONST_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FCONST_0]);
 		writeNewLine();
 	}
 
@@ -832,11 +808,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fconst_1(int)
 	 */
 	public void _fconst_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FCONST_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FCONST_1]);
 		writeNewLine();
 	}
 
@@ -844,11 +817,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fconst_2(int)
 	 */
 	public void _fconst_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FCONST_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FCONST_2]);
 		writeNewLine();
 	}
 
@@ -856,11 +826,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fdiv(int)
 	 */
 	public void _fdiv(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FDIV]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FDIV]);
 		writeNewLine();
 	}
 
@@ -868,11 +835,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fload_0(int)
 	 */
 	public void _fload_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FLOAD_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FLOAD_0],
+			getLocalVariableName(pc, 0)
+		}));
 		writeNewLine();
 	}
 
@@ -880,11 +847,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fload_1(int)
 	 */
 	public void _fload_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FLOAD_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FLOAD_1],
+			getLocalVariableName(pc, 1)
+		}));
 		writeNewLine();
 	}
 
@@ -892,11 +859,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fload_2(int)
 	 */
 	public void _fload_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FLOAD_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FLOAD_2],
+			getLocalVariableName(pc, 2)
+		}));
 		writeNewLine();
 	}
 
@@ -904,11 +871,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fload_3(int)
 	 */
 	public void _fload_3(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FLOAD_3]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FLOAD_3],
+			getLocalVariableName(pc, 3)
+		}));
 		writeNewLine();
 	}
 
@@ -916,13 +883,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fload(int, int)
 	 */
 	public void _fload(int pc, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FLOAD])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(index);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FLOAD],
+			getLocalVariableName(pc, index, true)
+		}));
 		writeNewLine();
 	}
 
@@ -930,11 +895,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fmul(int)
 	 */
 	public void _fmul(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FMUL]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FMUL]);
 		writeNewLine();
 	}
 
@@ -942,23 +904,17 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fneg(int)
 	 */
 	public void _fneg(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FNEG]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FNEG]);
 		writeNewLine();
 	}
-	
+
 	/**
 	 * @see IBytecodeVisitor#_frem(int)
 	 */
 	public void _frem(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FREM]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FREM]);
 		writeNewLine();
 	}
 
@@ -966,11 +922,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_freturn(int)
 	 */
 	public void _freturn(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FRETURN]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FRETURN]);
 		writeNewLine();
 	}
 
@@ -978,11 +931,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fstore_0(int)
 	 */
 	public void _fstore_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSTORE_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store,new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSTORE_0],
+			getLocalVariableName(pc, 0)
+		}));
 		writeNewLine();
 	}
 
@@ -990,11 +943,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fstore_1(int)
 	 */
 	public void _fstore_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSTORE_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSTORE_1],
+			getLocalVariableName(pc, 1)
+		}));
 		writeNewLine();
 	}
 
@@ -1002,11 +955,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fstore_2(int)
 	 */
 	public void _fstore_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSTORE_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSTORE_2],
+			getLocalVariableName(pc, 2)
+		}));
 		writeNewLine();
 	}
 
@@ -1014,11 +967,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fstore_3(int)
 	 */
 	public void _fstore_3(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSTORE_3]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSTORE_3],
+			getLocalVariableName(pc, 3)
+		}));
 		writeNewLine();
 	}
 
@@ -1026,13 +979,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fstore(int, int)
 	 */
 	public void _fstore(int pc, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSTORE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(index);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSTORE],
+			getLocalVariableName(pc, index, true)
+		}));
 		writeNewLine();
 	}
 
@@ -1040,11 +991,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_fsub(int)
 	 */
 	public void _fsub(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSUB]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.FSUB]);
 		writeNewLine();
 	}
 
@@ -1052,20 +1000,14 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_getfield(int, int, IConstantPoolEntry)
 	 */
 	public void _getfield(int pc, int index, IConstantPoolEntry constantFieldref) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.GETFIELD])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("classformat.getfield")) //$NON-NLS-1$
-			.append(returnDeclaringClassName(constantFieldref))
-			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-			.append(constantFieldref.getFieldName())
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnFieldrefDescriptor(constantFieldref))
-			.append(Util.bind("classformat.getfieldclose")); //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_getfield, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.GETFIELD],
+			Integer.toString(index),
+			returnDeclaringClassName(constantFieldref),
+			new String(constantFieldref.getFieldName()),
+			returnClassName(Signature.toCharArray(constantFieldref.getFieldDescriptor()))
+		}));
 		writeNewLine();
 	}
 
@@ -1073,19 +1015,14 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_getstatic(int, int, IConstantPoolEntry)
 	 */
 	public void _getstatic(int pc, int index, IConstantPoolEntry constantFieldref) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.GETSTATIC])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("classformat.getstatic")) //$NON-NLS-1$
-			.append(returnDeclaringClassName(constantFieldref))
-			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-			.append(constantFieldref.getFieldName())
-			.append(returnFieldrefDescriptor(constantFieldref))
-			.append(Util.bind("classformat.getstaticclose")); //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_getstatic, new String[] {
+				OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.GETSTATIC],
+				Integer.toString(index),
+				returnDeclaringClassName(constantFieldref),
+				new String(constantFieldref.getFieldName()),
+				returnClassName(Signature.toCharArray(constantFieldref.getFieldDescriptor()))
+			}));
 		writeNewLine();
 	}
 
@@ -1093,12 +1030,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_goto_w(int, int)
 	 */
 	public void _goto_w(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.GOTO_W])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.GOTO_W])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1107,12 +1041,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_goto(int, int)
 	 */
 	public void _goto(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.GOTO])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.GOTO])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1121,11 +1052,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_i2b(int)
 	 */
 	public void _i2b(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2B]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2B]);
 		writeNewLine();
 	}
 
@@ -1133,11 +1061,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_i2c(int)
 	 */
 	public void _i2c(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2C]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2C]);
 		writeNewLine();
 	}
 
@@ -1145,11 +1070,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_i2d(int)
 	 */
 	public void _i2d(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2D]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2D]);
 		writeNewLine();
 	}
 
@@ -1157,11 +1079,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_i2f(int)
 	 */
 	public void _i2f(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2F]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2F]);
 		writeNewLine();
 	}
 
@@ -1169,11 +1088,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_i2l(int)
 	 */
 	public void _i2l(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2L]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2L]);
 		writeNewLine();
 	}
 
@@ -1181,11 +1097,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_i2s(int)
 	 */
 	public void _i2s(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2S]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.I2S]);
 		writeNewLine();
 	}
 
@@ -1193,11 +1106,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iadd(int)
 	 */
 	public void _iadd(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IADD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IADD]);
 		writeNewLine();
 	}
 
@@ -1205,11 +1115,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iaload(int)
 	 */
 	public void _iaload(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IALOAD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IALOAD]);
 		writeNewLine();
 	}
 
@@ -1217,11 +1124,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iand(int)
 	 */
 	public void _iand(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IAND]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IAND]);
 		writeNewLine();
 	}
 
@@ -1229,11 +1133,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iastore(int)
 	 */
 	public void _iastore(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IASTORE]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IASTORE]);
 		writeNewLine();
 	}
 
@@ -1241,12 +1142,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_if_acmpeq(int, int)
 	 */
 	public void _if_acmpeq(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ACMPEQ])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ACMPEQ])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1255,12 +1153,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_if_acmpne(int, int)
 	 */
 	public void _if_acmpne(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ACMPNE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ACMPNE])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1269,12 +1164,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_if_icmpeq(int, int)
 	 */
 	public void _if_icmpeq(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPEQ])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPEQ])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1283,12 +1175,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_if_icmpge(int, int)
 	 */
 	public void _if_icmpge(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPGE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPGE])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1297,12 +1186,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_if_icmpgt(int, int)
 	 */
 	public void _if_icmpgt(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPGT])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPGT])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1311,12 +1197,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_if_icmple(int, int)
 	 */
 	public void _if_icmple(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPLE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPLE])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1325,12 +1208,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_if_icmplt(int, int)
 	 */
 	public void _if_icmplt(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPLT])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPLT])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1339,12 +1219,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_if_icmpne(int, int)
 	 */
 	public void _if_icmpne(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPNE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IF_ICMPNE])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1353,11 +1230,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iconst_0(int)
 	 */
 	public void _iconst_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_0]);
 		writeNewLine();
 	}
 
@@ -1365,11 +1239,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iconst_1(int)
 	 */
 	public void _iconst_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_1]);
 		writeNewLine();
 	}
 
@@ -1377,11 +1248,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iconst_2(int)
 	 */
 	public void _iconst_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_2]);
 		writeNewLine();
 	}
 
@@ -1389,11 +1257,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iconst_3(int)
 	 */
 	public void _iconst_3(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_3]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_3]);
 		writeNewLine();
 	}
 
@@ -1401,11 +1266,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iconst_4(int)
 	 */
 	public void _iconst_4(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_4]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_4]);
 		writeNewLine();
 	}
 
@@ -1413,11 +1275,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iconst_5(int)
 	 */
 	public void _iconst_5(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_5]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_5]);
 		writeNewLine();
 	}
 
@@ -1425,11 +1284,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iconst_m1(int)
 	 */
 	public void _iconst_m1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_M1]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ICONST_M1]);
 		writeNewLine();
 	}
 
@@ -1437,11 +1293,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_idiv(int)
 	 */
 	public void _idiv(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IDIV]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IDIV]);
 		writeNewLine();
 	}
 
@@ -1449,12 +1302,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ifeq(int, int)
 	 */
 	public void _ifeq(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFEQ])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFEQ])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1463,12 +1313,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ifge(int, int)
 	 */
 	public void _ifge(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFGE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFGE])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1477,12 +1324,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ifgt(int, int)
 	 */
 	public void _ifgt(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFGT])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFGT])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1491,12 +1335,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ifle(int, int)
 	 */
 	public void _ifle(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFLE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFLE])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1505,12 +1346,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iflt(int, int)
 	 */
 	public void _iflt(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFLT])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFLT])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1519,12 +1357,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ifne(int, int)
 	 */
 	public void _ifne(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFNE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFNE])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1533,12 +1368,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ifnonnull(int, int)
 	 */
 	public void _ifnonnull(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFNONNULL])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFNONNULL])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1547,12 +1379,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ifnull(int, int)
 	 */
 	public void _ifnull(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFNULL])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IFNULL])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1561,15 +1390,13 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iinc(int, int, int)
 	 */
 	public void _iinc(int pc, int index, int _const) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IINC])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(_const);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_iinc, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IINC],
+			Integer.toString(index),
+			Integer.toString(_const),
+			getLocalVariableName(pc, index, false)
+		}));
 		writeNewLine();
 	}
 
@@ -1577,11 +1404,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iload_0(int)
 	 */
 	public void _iload_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ILOAD_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ILOAD_0],
+			getLocalVariableName(pc, 0)
+		}));
 		writeNewLine();
 	}
 
@@ -1589,11 +1416,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iload_1(int)
 	 */
 	public void _iload_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ILOAD_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ILOAD_1],
+			getLocalVariableName(pc, 1)
+		}));
 		writeNewLine();
 	}
 
@@ -1601,11 +1428,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iload_2(int)
 	 */
 	public void _iload_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ILOAD_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ILOAD_2],
+			getLocalVariableName(pc, 2)
+		}));
 		writeNewLine();
 	}
 
@@ -1613,11 +1440,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iload_3(int)
 	 */
 	public void _iload_3(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ILOAD_3]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ILOAD_3],
+			getLocalVariableName(pc, 3)
+		}));
 		writeNewLine();
 	}
 
@@ -1625,13 +1452,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iload(int, int)
 	 */
 	public void _iload(int pc, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ILOAD])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(index);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ILOAD],
+			getLocalVariableName(pc, index, true)
+		}));
 		writeNewLine();
 	}
 
@@ -1639,11 +1464,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_imul(int)
 	 */
 	public void _imul(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IMUL]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IMUL]);
 		writeNewLine();
 	}
 
@@ -1651,11 +1473,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ineg(int)
 	 */
 	public void _ineg(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INEG]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INEG]);
 		writeNewLine();
 	}
 
@@ -1663,18 +1482,36 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_instanceof(int, int, IConstantPoolEntry)
 	 */
 	public void _instanceof(int pc, int index, IConstantPoolEntry constantClass) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INSTANCEOF])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnConstantClassName(constantClass));
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_instanceof, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INSTANCEOF],
+			Integer.toString(index),
+			returnConstantClassName(constantClass)
+		}));
 		writeNewLine();
 	}
+	/**
+	 * @see IBytecodeVisitor#_invokedynamic(int, int, IConstantPoolEntry, IConstantPoolEntry)
+	 */
+	public void _invokedynamic(
+		int pc,
+		int index,
+		IConstantPoolEntry nameEntry,
+		IConstantPoolEntry descriptorEntry) {
 
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_invokedynamic, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKEDYNAMIC],
+			Integer.toString(index),
+			Util.toString(
+				null,
+				nameEntry.getUtf8Value(),
+				descriptorEntry.getUtf8Value(),
+				true,
+				isCompact())
+		}));
+		writeNewLine();
+	}
 	/**
 	 * @see IBytecodeVisitor#_invokeinterface(int, int, byte, IConstantPoolEntry)
 	 */
@@ -1684,29 +1521,18 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 		byte nargs,
 		IConstantPoolEntry constantInterfaceMethodref) {
 
-		char[] methodDescriptor = constantInterfaceMethodref.getMethodDescriptor();
-		CharOperation.replace(methodDescriptor, '/', '.');
-
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKEINTERFACE])
-			.append(Util.bind("classformat.nargs")) //$NON-NLS-1$
-			.append(nargs)
-			.append(Util.bind("classformat.interfacemethodrefindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("classformat.invokeinterfacemethod")) //$NON-NLS-1$
-			.append(returnDeclaringClassName(constantInterfaceMethodref))
-			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-			.append(
-				Signature.toCharArray(
-					methodDescriptor,
-					constantInterfaceMethodref.getMethodName(),
-					getParameterNames(methodDescriptor),
-					true,
-					true))
-			.append(Util.bind("classformat.invokeinterfacemethodclose")); //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_invokeinterface, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKEINTERFACE],
+			Integer.toString(index),
+			Integer.toString(nargs),
+			Util.toString(
+				constantInterfaceMethodref.getClassName(),
+				constantInterfaceMethodref.getMethodName(),
+				constantInterfaceMethodref.getMethodDescriptor(),
+				true,
+				isCompact())
+		}));
 		writeNewLine();
 	}
 
@@ -1714,78 +1540,26 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_invokespecial(int, int, IConstantPoolEntry)
 	 */
 	public void _invokespecial(int pc, int index, IConstantPoolEntry constantMethodref) {
-		char[] methodDescriptor = constantMethodref.getMethodDescriptor();
-		CharOperation.replace(methodDescriptor, '/', '.');
-		char[] methodName = constantMethodref.getMethodName();
-
-		if (CharOperation.equals(INIT, methodName)) {
-			methodName = EMPTY_NAME;
-			writeTabs();
-			buffer
-				.append(pc)
-				.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-				.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKESPECIAL])
-				.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-				.append(index)
-				.append(Util.bind("classformat.invokespecialconstructor")) //$NON-NLS-1$
-				.append(returnDeclaringClassName(constantMethodref))
-				.append(
-					Signature.toCharArray(
-						methodDescriptor,
-						methodName,
-						getParameterNames(methodDescriptor),
-						true,
-						false))
-				.append(Util.bind("classformat.invokespecialconstructorclose")); //$NON-NLS-1$
-			writeNewLine();
-		} else {
-			methodName = EMPTY_NAME;
-			writeTabs();
-			buffer
-				.append(pc)
-				.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-				.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ALOAD_0])
-				.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-				.append(index)
-				.append(Util.bind("classformat.invokespecialmethod")) //$NON-NLS-1$
-				.append(returnDeclaringClassName(constantMethodref))
-				.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-				.append(
-					Signature.toCharArray(
-						methodDescriptor,
-						methodName,
-						getParameterNames(methodDescriptor),
-						true,
-						true))
-				.append(Util.bind("classformat.invokespecialmethodclose")); //$NON-NLS-1$
-			writeNewLine();
-		}
+		dumpPcNumber(pc);
+		final String signature = returnMethodSignature(constantMethodref);
+		this.buffer.append(Messages.bind(Messages.classformat_invokespecial, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKESPECIAL],
+			Integer.toString(index),
+			signature
+		}));
+		writeNewLine();
 	}
-
 	/**
 	 * @see IBytecodeVisitor#_invokestatic(int, int, IConstantPoolEntry)
 	 */
 	public void _invokestatic(int pc, int index, IConstantPoolEntry constantMethodref) {
-		char[] methodDescriptor = constantMethodref.getMethodDescriptor();
-		CharOperation.replace(methodDescriptor, '/', '.');
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKESTATIC])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("classformat.invokestaticmethod")) //$NON-NLS-1$
-			.append(returnDeclaringClassName(constantMethodref))
-			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-			.append(
-				Signature.toCharArray(
-					methodDescriptor,
-					constantMethodref.getMethodName(),
-					getParameterNames(methodDescriptor),
-					true,
-					true))
-			.append(Util.bind("classformat.invokestaticmethodclose")); //$NON-NLS-1$
+		dumpPcNumber(pc);
+		final String signature = returnMethodSignature(constantMethodref);
+		this.buffer.append(Messages.bind(Messages.classformat_invokestatic, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKESTATIC],
+			Integer.toString(index),
+			signature
+		}));
 		writeNewLine();
 	}
 
@@ -1793,26 +1567,13 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_invokevirtual(int, int, IConstantPoolEntry)
 	 */
 	public void _invokevirtual(int pc, int index, IConstantPoolEntry constantMethodref) {
-		char[] methodDescriptor = constantMethodref.getMethodDescriptor();
-		CharOperation.replace(methodDescriptor, '/', '.');
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKEVIRTUAL])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("classformat.invokevirtualmethod")) //$NON-NLS-1$
-			.append(returnDeclaringClassName(constantMethodref))
-			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-			.append(
-				Signature.toCharArray(
-					methodDescriptor,
-					constantMethodref.getMethodName(),
-					getParameterNames(methodDescriptor),
-					true,
-					true))
-			.append(Util.bind("classformat.invokevirtualmethodclose")); //$NON-NLS-1$
+		dumpPcNumber(pc);
+		final String signature = returnMethodSignature(constantMethodref);
+		this.buffer.append(Messages.bind(Messages.classformat_invokevirtual,new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.INVOKEVIRTUAL],
+			Integer.toString(index),
+			signature
+		}));
 		writeNewLine();
 	}
 
@@ -1820,11 +1581,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ior(int)
 	 */
 	public void _ior(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IOR]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IOR]);
 		writeNewLine();
 	}
 
@@ -1832,11 +1590,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_irem(int)
 	 */
 	public void _irem(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IREM]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IREM]);
 		writeNewLine();
 	}
 
@@ -1844,11 +1599,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ireturn(int)
 	 */
 	public void _ireturn(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IRETURN]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IRETURN]);
 		writeNewLine();
 	}
 
@@ -1856,11 +1608,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ishl(int)
 	 */
 	public void _ishl(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISHL]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISHL]);
 		writeNewLine();
 	}
 
@@ -1868,11 +1617,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ishr(int)
 	 */
 	public void _ishr(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISHR]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISHR]);
 		writeNewLine();
 	}
 
@@ -1880,11 +1626,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_istore_0(int)
 	 */
 	public void _istore_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISTORE_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISTORE_0],
+			getLocalVariableName(pc, 0)
+		}));
 		writeNewLine();
 	}
 
@@ -1892,11 +1638,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_istore_1(int)
 	 */
 	public void _istore_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISTORE_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISTORE_1],
+			getLocalVariableName(pc, 1)
+		}));
 		writeNewLine();
 	}
 
@@ -1904,11 +1650,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_istore_2(int)
 	 */
 	public void _istore_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISTORE_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISTORE_2],
+			getLocalVariableName(pc, 2)
+		}));
 		writeNewLine();
 	}
 
@@ -1916,11 +1662,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_istore_3(int)
 	 */
 	public void _istore_3(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISTORE_3]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISTORE_3],
+			getLocalVariableName(pc, 3)
+		}));
 		writeNewLine();
 	}
 
@@ -1928,13 +1674,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_istore(int, int)
 	 */
 	public void _istore(int pc, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISTORE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(index);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISTORE],
+			getLocalVariableName(pc, index, true)
+		}));
 		writeNewLine();
 	}
 
@@ -1942,11 +1686,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_isub(int)
 	 */
 	public void _isub(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISUB]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.ISUB]);
 		writeNewLine();
 	}
 
@@ -1954,11 +1695,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_iushr(int)
 	 */
 	public void _iushr(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IUSHR]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IUSHR]);
 		writeNewLine();
 	}
 
@@ -1966,11 +1704,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ixor(int)
 	 */
 	public void _ixor(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IXOR]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IXOR]);
 		writeNewLine();
 	}
 
@@ -1978,12 +1713,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_jsr_w(int, int)
 	 */
 	public void _jsr_w(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.JSR_W])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.JSR_W])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -1992,12 +1724,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_jsr(int, int)
 	 */
 	public void _jsr(int pc, int branchOffset) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.JSR])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.JSR])
+			.append(Messages.disassembler_space)
 			.append(branchOffset + pc);
 		writeNewLine();
 	}
@@ -2006,11 +1735,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_l2d(int)
 	 */
 	public void _l2d(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.L2D]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.L2D]);
 		writeNewLine();
 	}
 
@@ -2018,11 +1744,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_l2f(int)
 	 */
 	public void _l2f(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.L2F]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.L2F]);
 		writeNewLine();
 	}
 
@@ -2030,11 +1753,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_l2i(int)
 	 */
 	public void _l2i(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.L2I]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.L2I]);
 		writeNewLine();
 	}
 
@@ -2042,11 +1762,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ladd(int)
 	 */
 	public void _ladd(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LADD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LADD]);
 		writeNewLine();
 	}
 
@@ -2054,11 +1771,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_laload(int)
 	 */
 	public void _laload(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LALOAD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LALOAD]);
 		writeNewLine();
 	}
 
@@ -2066,11 +1780,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_land(int)
 	 */
 	public void _land(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LAND]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LAND]);
 		writeNewLine();
 	}
 
@@ -2078,11 +1789,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lastore(int)
 	 */
 	public void _lastore(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LASTORE]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LASTORE]);
 		writeNewLine();
 	}
 
@@ -2090,11 +1798,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lcmp(int)
 	 */
 	public void _lcmp(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LCMP]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LCMP]);
 		writeNewLine();
 	}
 
@@ -2102,11 +1807,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lconst_0(int)
 	 */
 	public void _lconst_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LCONST_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LCONST_0]);
 		writeNewLine();
 	}
 
@@ -2114,11 +1816,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lconst_1(int)
 	 */
 	public void _lconst_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LCONST_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LCONST_1]);
 		writeNewLine();
 	}
 
@@ -2126,23 +1825,35 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ldc_w(int, int, IConstantPoolEntry)
 	 */
 	public void _ldc_w(int pc, int index, IConstantPoolEntry constantPoolEntry) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC_W])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("disassembler.space")); //$NON-NLS-1$
+		dumpPcNumber(pc);
 		switch (constantPoolEntry.getKind()) {
 			case IConstantPoolConstant.CONSTANT_Float :
-				appendOutputforConstantFloat(constantPoolEntry);
+				this.buffer.append(Messages.bind(Messages.classformat_ldc_w_float, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC_W],
+					Integer.toString(index),
+					Float.toString(constantPoolEntry.getFloatValue())
+				}));
 				break;
 			case IConstantPoolConstant.CONSTANT_Integer :
-				appendOutputforConstantInteger(constantPoolEntry);
+				this.buffer.append(Messages.bind(Messages.classformat_ldc_w_integer, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC_W],
+					Integer.toString(index),
+					Integer.toString(constantPoolEntry.getIntegerValue())
+				}));
 				break;
 			case IConstantPoolConstant.CONSTANT_String :
-				appendOutputForConstantString(constantPoolEntry);
+				this.buffer.append(Messages.bind(Messages.classformat_ldc_w_string, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC_W],
+					Integer.toString(index),
+					Disassembler.escapeString(constantPoolEntry.getStringValue())
+				}));
+				break;
+			case IConstantPoolConstant.CONSTANT_Class :
+				this.buffer.append(Messages.bind(Messages.classformat_ldc_w_class, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC_W],
+					Integer.toString(index),
+					returnConstantClassName(constantPoolEntry)
+				}));
 		}
 		writeNewLine();
 	}
@@ -2151,23 +1862,35 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ldc(int, int, IConstantPoolEntry)
 	 */
 	public void _ldc(int pc, int index, IConstantPoolEntry constantPoolEntry) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("disassembler.space")); //$NON-NLS-1$
+		dumpPcNumber(pc);
 		switch (constantPoolEntry.getKind()) {
 			case IConstantPoolConstant.CONSTANT_Float :
-				appendOutputforConstantFloat(constantPoolEntry);
+				this.buffer.append(Messages.bind(Messages.classformat_ldc_w_float, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC],
+					Integer.toString(index),
+					Float.toString(constantPoolEntry.getFloatValue())
+				}));
 				break;
 			case IConstantPoolConstant.CONSTANT_Integer :
-				appendOutputforConstantInteger(constantPoolEntry);
+				this.buffer.append(Messages.bind(Messages.classformat_ldc_w_integer, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC],
+					Integer.toString(index),
+					Integer.toString(constantPoolEntry.getIntegerValue())
+				}));
 				break;
 			case IConstantPoolConstant.CONSTANT_String :
-				appendOutputForConstantString(constantPoolEntry);
+				this.buffer.append(Messages.bind(Messages.classformat_ldc_w_string, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC],
+					Integer.toString(index),
+					Disassembler.escapeString(constantPoolEntry.getStringValue())
+				}));
+				break;
+			case IConstantPoolConstant.CONSTANT_Class :
+				this.buffer.append(Messages.bind(Messages.classformat_ldc_w_class, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC],
+					Integer.toString(index),
+					returnConstantClassName(constantPoolEntry)
+				}));
 		}
 		writeNewLine();
 	}
@@ -2176,20 +1899,21 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ldc2_w(int, int, IConstantPoolEntry)
 	 */
 	public void _ldc2_w(int pc, int index, IConstantPoolEntry constantPoolEntry) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC2_W])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("disassembler.space")); //$NON-NLS-1$
+		dumpPcNumber(pc);
 		switch (constantPoolEntry.getKind()) {
 			case IConstantPoolConstant.CONSTANT_Long :
-				appendOutputForConstantLong(constantPoolEntry);
+				this.buffer.append(Messages.bind(Messages.classformat_ldc2_w_long, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC2_W],
+					Integer.toString(index),
+					Long.toString(constantPoolEntry.getLongValue())
+				}));
 				break;
 			case IConstantPoolConstant.CONSTANT_Double :
-				appendOutputForConstantDouble(constantPoolEntry);
+				this.buffer.append(Messages.bind(Messages.classformat_ldc2_w_double, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDC2_W],
+					Integer.toString(index),
+					Double.toString(constantPoolEntry.getDoubleValue())
+				}));
 		}
 		writeNewLine();
 	}
@@ -2198,11 +1922,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_ldiv(int)
 	 */
 	public void _ldiv(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDIV]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LDIV]);
 		writeNewLine();
 	}
 
@@ -2210,11 +1931,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lload_0(int)
 	 */
 	public void _lload_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LLOAD_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LLOAD_0],
+			getLocalVariableName(pc, 0)
+		}));
 		writeNewLine();
 	}
 
@@ -2222,11 +1943,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lload_1(int)
 	 */
 	public void _lload_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LLOAD_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LLOAD_1],
+			getLocalVariableName(pc, 1)
+		}));
 		writeNewLine();
 	}
 
@@ -2234,11 +1955,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lload_2(int)
 	 */
 	public void _lload_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LLOAD_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LLOAD_2],
+			getLocalVariableName(pc, 2)
+		}));
 		writeNewLine();
 	}
 
@@ -2246,11 +1967,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lload_3(int)
 	 */
 	public void _lload_3(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LLOAD_3]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LLOAD_3],
+			getLocalVariableName(pc, 3)
+		}));
 		writeNewLine();
 	}
 
@@ -2258,13 +1979,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lload(int, int)
 	 */
 	public void _lload(int pc, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LLOAD])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(index);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_load, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LLOAD],
+			getLocalVariableName(pc, index, true)
+		}));
 		writeNewLine();
 	}
 
@@ -2272,11 +1991,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lmul(int)
 	 */
 	public void _lmul(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LMUL]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LMUL]);
 		writeNewLine();
 	}
 
@@ -2284,11 +2000,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lneg(int)
 	 */
 	public void _lneg(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LNEG]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LNEG]);
 		writeNewLine();
 	}
 
@@ -2296,20 +2009,17 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lookupswitch(int, int, int, int[][])
 	 */
 	public void _lookupswitch(int pc, int defaultoffset, int npairs, int[][] offset_pairs) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LOOKUPSWITCH])
-			.append(Util.bind("classfileformat.default")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LOOKUPSWITCH])
+			.append(" default: ") //$NON-NLS-1$
 			.append(defaultoffset + pc);
 		writeNewLine();
 		for (int i = 0; i < npairs; i++) {
-			writeExtraTabs(1);
-			buffer
-				.append(Util.bind("classfileformat.case")) //$NON-NLS-1$
+			writeExtraTabs(3);
+			this.buffer
+				.append("case ") //$NON-NLS-1$
 				.append(offset_pairs[i][0])
-				.append(Util.bind("disassembler.colon")) //$NON-NLS-1$
+				.append(": ") //$NON-NLS-1$
 				.append(offset_pairs[i][1] + pc);
 			writeNewLine();
 		}
@@ -2319,11 +2029,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lor(int)
 	 */
 	public void _lor(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LOR]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LOR]);
 		writeNewLine();
 	}
 
@@ -2331,11 +2038,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lrem(int)
 	 */
 	public void _lrem(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LREM]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LREM]);
 		writeNewLine();
 	}
 
@@ -2343,11 +2047,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lreturn(int)
 	 */
 	public void _lreturn(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LRETURN]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LRETURN]);
 		writeNewLine();
 	}
 
@@ -2355,11 +2056,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lshl(int)
 	 */
 	public void _lshl(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSHL]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSHL]);
 		writeNewLine();
 	}
 
@@ -2367,11 +2065,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lshr(int)
 	 */
 	public void _lshr(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSHR]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSHR]);
 		writeNewLine();
 	}
 
@@ -2379,11 +2074,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lstore_0(int)
 	 */
 	public void _lstore_0(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSTORE_0]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSTORE_0],
+			getLocalVariableName(pc, 0)
+		}));
 		writeNewLine();
 	}
 
@@ -2391,11 +2086,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lstore_1(int)
 	 */
 	public void _lstore_1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSTORE_1]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSTORE_1],
+			getLocalVariableName(pc, 1)
+		}));
 		writeNewLine();
 	}
 
@@ -2403,11 +2098,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lstore_2(int)
 	 */
 	public void _lstore_2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSTORE_2]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSTORE_2],
+			getLocalVariableName(pc, 2)
+		}));
 		writeNewLine();
 	}
 
@@ -2415,11 +2110,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lstore_3(int)
 	 */
 	public void _lstore_3(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSTORE_3]);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSTORE_3],
+			getLocalVariableName(pc, 3)
+		}));
 		writeNewLine();
 	}
 
@@ -2427,13 +2122,11 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lstore(int, int)
 	 */
 	public void _lstore(int pc, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSTORE])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(index);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_store, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSTORE],
+			getLocalVariableName(pc, index, true)
+		}));
 		writeNewLine();
 	}
 
@@ -2441,11 +2134,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lsub(int)
 	 */
 	public void _lsub(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSUB]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LSUB]);
 		writeNewLine();
 	}
 
@@ -2453,11 +2143,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lushr(int)
 	 */
 	public void _lushr(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LUSHR]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LUSHR]);
 		writeNewLine();
 	}
 
@@ -2465,11 +2152,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_lxor(int)
 	 */
 	public void _lxor(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LXOR]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.LXOR]);
 		writeNewLine();
 	}
 
@@ -2477,11 +2161,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_monitorenter(int)
 	 */
 	public void _monitorenter(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.MONITORENTER]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.MONITORENTER]);
 		writeNewLine();
 	}
 
@@ -2489,11 +2170,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_monitorexit(int)
 	 */
 	public void _monitorexit(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.MONITOREXIT]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.MONITOREXIT]);
 		writeNewLine();
 	}
 
@@ -2505,16 +2183,12 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 		int index,
 		int dimensions,
 		IConstantPoolEntry constantClass) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.MULTIANEWARRAY])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnConstantClassName(constantClass));
-		appendDimensions(dimensions);
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_multianewarray, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.MULTIANEWARRAY],
+			Integer.toString(index),
+			returnConstantClassName(constantClass)
+		}));
 		writeNewLine();
 	}
 
@@ -2522,15 +2196,12 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_new(int, int, IConstantPoolEntry)
 	 */
 	public void _new(int pc, int index, IConstantPoolEntry constantClass) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NEW])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnConstantClassName(constantClass));
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_new, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NEW],
+			Integer.toString(index),
+			returnConstantClassName(constantClass)
+		}));
 		writeNewLine();
 	}
 
@@ -2538,15 +2209,56 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_newarray(int, int)
 	 */
 	public void _newarray(int pc, int atype) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NEWARRAY])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(atype)
-			.append(Util.bind("disassembler.space")); //$NON-NLS-1$
-		appendGetArrayType(atype);
+		dumpPcNumber(pc);
+		switch(atype) {
+			case T_BOOLEAN :
+				this.buffer.append(Messages.bind(Messages.classformat_newarray_boolean, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NEWARRAY],
+					Integer.toString(atype)
+				}));
+				break;
+			case T_CHAR :
+				this.buffer.append(Messages.bind(Messages.classformat_newarray_char, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NEWARRAY],
+					Integer.toString(atype)
+				}));
+				break;
+			case T_FLOAT :
+				this.buffer.append(Messages.bind(Messages.classformat_newarray_float, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NEWARRAY],
+					Integer.toString(atype)
+				}));
+				break;
+			case T_DOUBLE :
+				this.buffer.append(Messages.bind(Messages.classformat_newarray_double, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NEWARRAY],
+					Integer.toString(atype)
+				}));
+				break;
+			case T_BYTE :
+				this.buffer.append(Messages.bind(Messages.classformat_newarray_byte, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NEWARRAY],
+					Integer.toString(atype)
+				}));
+				break;
+			case T_SHORT :
+				this.buffer.append(Messages.bind(Messages.classformat_newarray_short, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NEWARRAY],
+					Integer.toString(atype)
+				}));
+				break;
+			case T_INT :
+				this.buffer.append(Messages.bind(Messages.classformat_newarray_int, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NEWARRAY],
+					Integer.toString(atype)
+				}));
+				break;
+			case T_LONG :
+				this.buffer.append(Messages.bind(Messages.classformat_newarray_long, new String[] {
+					OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NEWARRAY],
+					Integer.toString(atype)
+				}));
+		}
 		writeNewLine();
 	}
 
@@ -2554,11 +2266,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_nop(int)
 	 */
 	public void _nop(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NOP]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.NOP]);
 		writeNewLine();
 	}
 
@@ -2566,11 +2275,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_pop(int)
 	 */
 	public void _pop(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.POP]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.POP]);
 		writeNewLine();
 	}
 
@@ -2578,11 +2284,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_pop2(int)
 	 */
 	public void _pop2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.POP2]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.POP2]);
 		writeNewLine();
 	}
 
@@ -2590,20 +2293,14 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_putfield(int, int, IConstantPoolEntry)
 	 */
 	public void _putfield(int pc, int index, IConstantPoolEntry constantFieldref) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.PUTFIELD])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("classformat.putfield"))			 //$NON-NLS-1$
-			.append(returnDeclaringClassName(constantFieldref))
-			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-			.append(constantFieldref.getFieldName())
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnFieldrefDescriptor(constantFieldref))
-			.append(Util.bind("classformat.putfieldclose")); //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_putfield, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.PUTFIELD],
+			Integer.toString(index),
+			returnDeclaringClassName(constantFieldref),
+			new String(constantFieldref.getFieldName()),
+			returnClassName(Signature.toCharArray(constantFieldref.getFieldDescriptor()))
+		}));
 		writeNewLine();
 	}
 
@@ -2611,39 +2308,24 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_putstatic(int, int, IConstantPoolEntry)
 	 */
 	public void _putstatic(int pc, int index, IConstantPoolEntry constantFieldref) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.PUTSTATIC])
-			.append(Util.bind("disassembler.constantpoolindex")) //$NON-NLS-1$
-			.append(index)
-			.append(Util.bind("classformat.putstatic")) //$NON-NLS-1$
-			.append(returnDeclaringClassName(constantFieldref))
-			.append(Util.bind("disassembler.classmemberseparator")) //$NON-NLS-1$
-			.append(constantFieldref.getFieldName())
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
-			.append(returnFieldrefDescriptor(constantFieldref))
-			.append(Util.bind("classformat.putstaticclose")); //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(Messages.bind(Messages.classformat_putstatic, new String[] {
+			OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.PUTSTATIC],
+			Integer.toString(index),
+			returnDeclaringClassName(constantFieldref),
+			new String(constantFieldref.getFieldName()),
+			returnClassName(Signature.toCharArray(constantFieldref.getFieldDescriptor()))
+		}));
 		writeNewLine();
-	}
-
-	private char[] returnFieldrefDescriptor(IConstantPoolEntry constantFieldref) throws IllegalArgumentException {
-		char[] fieldDescriptor = constantFieldref.getFieldDescriptor();
-		CharOperation.replace(fieldDescriptor, '/', '.');
-		return Signature.toCharArray(fieldDescriptor);
 	}
 
 	/**
 	 * @see IBytecodeVisitor#_ret(int, int)
 	 */
 	public void _ret(int pc, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.RET])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.RET])
+			.append(Messages.disassembler_space)
 			.append(index);
 		writeNewLine();
 	}
@@ -2652,11 +2334,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_return(int)
 	 */
 	public void _return(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.RETURN]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.RETURN]);
 		writeNewLine();
 	}
 
@@ -2664,11 +2343,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_saload(int)
 	 */
 	public void _saload(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.SALOAD]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.SALOAD]);
 		writeNewLine();
 	}
 
@@ -2676,11 +2352,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_sastore(int)
 	 */
 	public void _sastore(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.SASTORE]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.SASTORE]);
 		writeNewLine();
 	}
 
@@ -2688,12 +2361,9 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_sipush(int, short)
 	 */
 	public void _sipush(int pc, short value) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.SIPUSH])
-			.append(Util.bind("disassembler.space")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.SIPUSH])
+			.append(Messages.disassembler_space)
 			.append(value);
 		writeNewLine();
 	}
@@ -2702,11 +2372,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_swap(int)
 	 */
 	public void _swap(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.SWAP]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.SWAP]);
 		writeNewLine();
 	}
 
@@ -2714,26 +2381,23 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_tableswitch(int, int, int, int, int[])
 	 */
 	public void _tableswitch(
-		int pc, 
+		int pc,
 		int defaultoffset,
 		int low,
 		int high,
 		int[] jump_offsets) {
 
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.TABLESWITCH])
-			.append(Util.bind("classfileformat.default")) //$NON-NLS-1$
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.TABLESWITCH])
+			.append(" default: ") //$NON-NLS-1$
 			.append(defaultoffset + pc);
 		writeNewLine();
 		for (int i = low; i < high + 1; i++) {
-			writeExtraTabs(1);
-			buffer
-				.append(Util.bind("classfileformat.case")) //$NON-NLS-1$
+			writeExtraTabs(3);
+			this.buffer
+				.append("case ") //$NON-NLS-1$
 				.append(i)
-				.append(Util.bind("disassembler.colon")) //$NON-NLS-1$
+				.append(": ") //$NON-NLS-1$
 				.append(jump_offsets[i - low] + pc);
 			writeNewLine();
 		}
@@ -2743,11 +2407,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_wide(int, int, int)
 	 */
 	public void _wide(int pc, int iincopcode, int index, int _const) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.WIDE]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.WIDE]);
 		writeNewLine();
 		_iinc(pc + 1, index, _const);
 	}
@@ -2756,11 +2417,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_wide(int, int, int)
 	 */
 	public void _wide(int pc, int opcode, int index) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.WIDE]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.WIDE]);
 		writeNewLine();
 		switch(opcode) {
 			case IOpcodeMnemonics.ILOAD :
@@ -2802,11 +2460,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_breakpoint(int)
 	 */
 	public void _breakpoint(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.BREAKPOINT]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.BREAKPOINT]);
 		writeNewLine();
 	}
 
@@ -2814,11 +2469,8 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_impdep1(int)
 	 */
 	public void _impdep1(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IMPDEP1]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IMPDEP1]);
 		writeNewLine();
 	}
 
@@ -2826,114 +2478,74 @@ public class DefaultBytecodeVisitor implements IBytecodeVisitor {
 	 * @see IBytecodeVisitor#_impdep2(int)
 	 */
 	public void _impdep2(int pc) {
-		writeTabs();
-		buffer
-			.append(pc)
-			.append(Util.bind("disassembler.tab")) //$NON-NLS-1$
-			.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IMPDEP2]);
+		dumpPcNumber(pc);
+		this.buffer.append(OpcodeStringValues.BYTECODE_NAMES[IOpcodeMnemonics.IMPDEP2]);
 		writeNewLine();
 	}
 
-	private void appendDimensions(int dimensions) {
-		for (int i = 0; i < dimensions; i++) {
-			this.buffer.append(Util.bind("disassembler.arraydimensions")); //$NON-NLS-1$
-		}
-	}
-	
-	private void appendGetArrayType(int atype) {
-		switch(atype) {
-			case T_BOOLEAN :
-				this.buffer.append(Util.bind("classfileformat.newarrayboolean")); //$NON-NLS-1$
-				break;
-			case T_CHAR :
-				this.buffer.append(Util.bind("classfileformat.newarraychar")); //$NON-NLS-1$
-				break;
-			case T_FLOAT :
-				this.buffer.append(Util.bind("classfileformat.newarrayfloat")); //$NON-NLS-1$
-				break;
-			case T_DOUBLE :
-				this.buffer.append(Util.bind("classfileformat.newarraydouble")); //$NON-NLS-1$
-				break;
-			case T_BYTE :
-				this.buffer.append(Util.bind("classfileformat.newarraybyte")); //$NON-NLS-1$
-				break;
-			case T_SHORT :
-				this.buffer.append(Util.bind("classfileformat.newarrayshort")); //$NON-NLS-1$
-				break;
-			case T_INT :
-				this.buffer.append(Util.bind("classfileformat.newarrayint")); //$NON-NLS-1$
-				break;
-			case T_LONG :
-				this.buffer.append(Util.bind("classfileformat.newarraylong")); //$NON-NLS-1$
-		}
+	private boolean isCompact() {
+		return (this.mode & ClassFileBytesDisassembler.COMPACT) != 0;
 	}
 
 	private String returnConstantClassName(IConstantPoolEntry constantClass) {
-		return new String(constantClass.getClassInfoName()).replace('/', '.');
+		char[] className = constantClass.getClassInfoName();
+		if (className.length == 0) {
+			return EMPTY_CLASS_NAME;
+		}
+		switch(className[0]) {
+			case '[' :
+				StringBuffer classNameBuffer = new StringBuffer();
+				Util.appendTypeSignature(className, 0, classNameBuffer, isCompact());
+				return classNameBuffer.toString();
+			default:
+				return returnClassName(className);
+		}
+	}
+	private String returnClassName(char[] classInfoName) {
+		if (classInfoName.length == 0) {
+			return EMPTY_CLASS_NAME;
+		} else if (isCompact()) {
+			int lastIndexOfSlash = CharOperation.lastIndexOf('/', classInfoName);
+			if (lastIndexOfSlash != -1) {
+				return new String(classInfoName, lastIndexOfSlash + 1, classInfoName.length - lastIndexOfSlash - 1);
+			}
+		}
+		CharOperation.replace(classInfoName, '/', '.');
+		return new String(classInfoName);
 	}
 
 	private String returnDeclaringClassName(IConstantPoolEntry constantRef) {
-		return new String(constantRef.getClassName()).replace('/', '.');
+		final char[] className = constantRef.getClassName();
+		return returnClassName(className);
 	}
 
-	private char[][] getParameterNames(char[] methodDescriptor) {
-		int paramCount = Signature.getParameterCount(methodDescriptor);
-		char[][] parameterNames = new char[paramCount][];
-		for (int i = 0; i < paramCount; i++) {
-			parameterNames[i] = Util.bind("disassembler.parametername").toCharArray(); //$NON-NLS-1$
-		}
-		return parameterNames;
-	}
-
-	private void appendOutputForConstantDouble(IConstantPoolEntry constantPoolEntry) {
-		this.buffer
-			.append(Util.bind("disassembler.constantdouble")) //$NON-NLS-1$
-			.append(constantPoolEntry.getDoubleValue())
-			.append(Util.bind("disassembler.closeconstant")); //$NON-NLS-1$
-	}
-
-	private void appendOutputForConstantLong(IConstantPoolEntry constantPoolEntry) {
-		this.buffer
-			.append(Util.bind("disassembler.constantlong")) //$NON-NLS-1$
-			.append(constantPoolEntry.getLongValue())
-			.append(Util.bind("disassembler.closeconstant")); //$NON-NLS-1$
-	}
-
-	private void appendOutputForConstantString(IConstantPoolEntry constantPoolEntry) {
-		this.buffer
-			.append(Util.bind("disassembler.constantstring")) //$NON-NLS-1$
-			.append(constantPoolEntry.getStringValue())
-			.append(Util.bind("disassembler.closeconstant")); //$NON-NLS-1$
-	}
-
-	private void appendOutputforConstantInteger(IConstantPoolEntry constantPoolEntry) {
-		this.buffer
-			.append(Util.bind("disassembler.constantinteger")) //$NON-NLS-1$
-			.append(constantPoolEntry.getIntegerValue())
-			.append(Util.bind("disassembler.closeconstant")); //$NON-NLS-1$
-	}
-
-	private void appendOutputforConstantFloat(IConstantPoolEntry constantPoolEntry) {
-		this.buffer
-			.append(Util.bind("disassembler.constantfloat")) //$NON-NLS-1$
-			.append(constantPoolEntry.getFloatValue())
-			.append(Util.bind("disassembler.closeconstant")); //$NON-NLS-1$
+	private String returnMethodSignature(IConstantPoolEntry constantMethodref) {
+		final char[] methodDescriptor = constantMethodref.getMethodDescriptor();
+		CharOperation.replace(methodDescriptor, '$', '#');
+		final char[] signature = Util.toString(
+				constantMethodref.getClassName(),
+				constantMethodref.getMethodName(),
+				methodDescriptor,
+				true,
+				isCompact()).toCharArray();
+		CharOperation.replace(signature, '#', '$');
+		return String.valueOf(signature);
 	}
 
 	private void writeNewLine() {
-		this.buffer.append(lineSeparator);
-	}	
+		this.buffer.append(this.lineSeparator);
+	}
 
 	private void writeTabs() {
 		for (int i = 0, max = this.tabNumber; i < max; i++) {
-			this.buffer.append(Util.bind("disassembler.tab")); //$NON-NLS-1$
+			this.buffer.append(Messages.disassembler_indentation);
 		}
-	}	
+	}
 
 	private void writeExtraTabs(int extraTabs) {
 		for (int i = 0, max = this.tabNumber + extraTabs; i < max; i++) {
-			this.buffer.append(Util.bind("disassembler.tab")); //$NON-NLS-1$
+			this.buffer.append(Messages.disassembler_indentation);
 		}
-	}	
+	}
 
 }

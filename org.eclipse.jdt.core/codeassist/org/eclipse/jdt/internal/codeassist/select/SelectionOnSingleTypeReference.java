@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.codeassist.select;
 
 /*
@@ -21,11 +21,12 @@ package org.eclipse.jdt.internal.codeassist.select;
  *	---> class X extends <SelectOnType:Object>
  *
  */
- 
 import org.eclipse.jdt.internal.compiler.ast.SingleTypeReference;
 import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
+import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ProblemReasons;
+import org.eclipse.jdt.internal.compiler.lookup.ProblemReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.Scope;
 import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
@@ -37,29 +38,33 @@ public SelectionOnSingleTypeReference(char[] source, long pos) {
 public void aboutToResolve(Scope scope) {
 	getTypeBinding(scope.parent); // step up from the ClassScope
 }
-public TypeBinding getTypeBinding(Scope scope) {
+protected TypeBinding getTypeBinding(Scope scope) {
 	// it can be a package, type or member type
-	Binding binding = scope.getTypeOrPackage(new char[][] {token});
+	Binding binding = scope.getTypeOrPackage(new char[][] {this.token});
 	if (!binding.isValidBinding()) {
-		scope.problemReporter().invalidType(this, (TypeBinding) binding);
+		if (binding instanceof TypeBinding) {
+			scope.problemReporter().invalidType(this, (TypeBinding) binding);
+		} else if (binding instanceof PackageBinding) {
+			ProblemReferenceBinding problemBinding = new ProblemReferenceBinding(((PackageBinding)binding).compoundName, null, binding.problemId());
+			scope.problemReporter().invalidType(this, problemBinding);
+		}
 		throw new SelectionNodeFound();
 	}
-
 	throw new SelectionNodeFound(binding);
+}
+public StringBuffer printExpression(int indent, StringBuffer output) {
+
+	return output.append("<SelectOnType:").append(this.token).append('>');//$NON-NLS-1$
 }
 public TypeBinding resolveTypeEnclosing(BlockScope scope, ReferenceBinding enclosingType) {
 	super.resolveTypeEnclosing(scope, enclosingType);
 
 		// tolerate some error cases
-		if (binding == null || 
-				!(binding.isValidBinding() || 
-					binding.problemId() == ProblemReasons.NotVisible))
+		if (this.resolvedType == null ||
+				!(this.resolvedType.isValidBinding() ||
+					this.resolvedType.problemId() == ProblemReasons.NotVisible))
 		throw new SelectionNodeFound();
 	else
-		throw new SelectionNodeFound(binding);
-}
-public String toStringExpression(int tab){
-
-	return "<SelectOnType:" + new String(token) + ">" ; //$NON-NLS-2$ //$NON-NLS-1$
+		throw new SelectionNodeFound(this.resolvedType);
 }
 }

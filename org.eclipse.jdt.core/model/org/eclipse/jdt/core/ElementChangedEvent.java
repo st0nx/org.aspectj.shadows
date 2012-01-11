@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 import java.util.EventObject;
@@ -23,11 +23,13 @@ import java.util.EventObject;
  *
  * @see IElementChangedListener
  * @see IJavaElementDelta
+ * @noinstantiate This class is not intended to be instantiated by clients.
+ * @noextend This class is not intended to be subclassed by clients.
  */
 public class ElementChangedEvent extends EventObject {
-	
+
 	/**
-	 * Event type constant (bit mask) indicating an after-the-fact 
+	 * Event type constant (bit mask) indicating an after-the-fact
 	 * report of creations, deletions, and modifications
 	 * to one or more Java element(s) expressed as a hierarchical
 	 * java element delta as returned by <code>getDelta()</code>.
@@ -44,28 +46,29 @@ public class ElementChangedEvent extends EventObject {
 	public static final int POST_CHANGE = 1;
 
 	/**
-	 * Event type constant (bit mask) indicating an after-the-fact 
+	 * Event type constant (bit mask) indicating an after-the-fact
 	 * report of creations, deletions, and modifications
 	 * to one or more Java element(s) expressed as a hierarchical
 	 * java element delta as returned by <code>getDelta</code>.
 	 *
 	 * Note: this notification occurs during the corresponding PRE_AUTO_BUILD
 	 * resource change notification. The delta, which is notified here, only contains
-	 * information relative to the previous JavaModel operations (i.e. ignores the
-	 * possible resources which have changed outside Java operations). In
-	 * particular, it is possible that the JavaModel be inconsistent with respect to
+	 * information relative to the previous JavaModel operations (in other words,
+	 * it ignores the possible resources which have changed outside Java operations).
+	 * In particular, it is possible that the JavaModel be inconsistent with respect to
 	 * resources, which got modified outside JavaModel operations (it will only be
 	 * fully consistent once the POST_CHANGE notification has occurred).
-	 * 
+	 *
 	 * @see IJavaElementDelta
 	 * @see org.eclipse.core.resources.IResourceChangeEvent
 	 * @see #getDelta()
 	 * @since 2.0
+	 * @deprecated - no longer used, such deltas are now notified during POST_CHANGE
 	 */
 	public static final int PRE_AUTO_BUILD = 2;
 
 	/**
-	 * Event type constant (bit mask) indicating an after-the-fact 
+	 * Event type constant (bit mask) indicating an after-the-fact
 	 * report of creations, deletions, and modifications
 	 * to one or more Java element(s) expressed as a hierarchical
 	 * java element delta as returned by <code>getDelta</code>.
@@ -78,20 +81,24 @@ public class ElementChangedEvent extends EventObject {
 	 * @see #getDelta()
 	 * @since 2.0
 	 */
-	public static final int 	POST_RECONCILE = 4;	
+	public static final int 	POST_RECONCILE = 4;
+
+	private static final long serialVersionUID = -8947240431612844420L; // backward compatible
+
 	/*
-	 * Event type indicating the nature of this event. 
+	 * Event type indicating the nature of this event.
 	 * It can be a combination either:
 	 *  - POST_CHANGE
 	 *  - PRE_AUTO_BUILD
 	 *  - POST_RECONCILE
 	 */
-	private int type; 
-	
+	private int type;
+
 	/**
 	 * Creates an new element changed event (based on a <code>IJavaElementDelta</code>).
 	 *
 	 * @param delta the Java element delta.
+	 * @param type the type of delta (ADDED, REMOVED, CHANGED) this event contains
 	 */
 	public ElementChangedEvent(IJavaElementDelta delta, int type) {
 		super(delta);
@@ -103,9 +110,9 @@ public class ElementChangedEvent extends EventObject {
 	 * @return the delta describing the change
 	 */
 	public IJavaElementDelta getDelta() {
-		return (IJavaElementDelta) source;
+		return (IJavaElementDelta) this.source;
 	}
-	
+
 	/**
 	 * Returns the type of event being reported.
 	 *

@@ -1,37 +1,39 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 
+import org.eclipse.jdt.core.IAnnotation;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaElementDelta;
-import org.eclipse.jdt.core.IMethod;
 import org.eclipse.jdt.core.IParent;
-import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
- * A java element delta biulder creates a java element delta on
+ * A java element delta builder creates a java element delta on
  * a java element between the version of the java element
- * at the time the comparator was created and the current version 
+ * at the time the comparator was created and the current version
  * of the java element.
  *
- * It performs this operation by locally caching the contents of 
+ * It performs this operation by locally caching the contents of
  * the java element when it is created. When the method
- * createDeltas() is called, it creates a delta over the cached 
+ * createDeltas() is called, it creates a delta over the cached
  * contents and the new contents.
  */
 public class JavaElementDeltaBuilder {
@@ -49,6 +51,7 @@ public class JavaElementDeltaBuilder {
 	 * The old handle to info relationships
 	 */
 	Map infos;
+	Map annotationInfos;
 
 	/**
 	 * The old position info
@@ -63,22 +66,22 @@ public class JavaElementDeltaBuilder {
 	/**
 	 * Change delta
 	 */
-	JavaElementDelta delta;
+	public JavaElementDelta delta = null;
 
 	/**
 	 * List of added elements
 	 */
-	ArrayList added;
+	HashSet added;
 
 	/**
 	 * List of removed elements
 	 */
-	ArrayList removed;
-	
+	HashSet removed;
+
 	/**
 	 * Doubly linked list item
 	 */
-	class ListItem {
+	static class ListItem {
 		public IJavaElement previous;
 		public IJavaElement next;
 
@@ -93,9 +96,9 @@ public class JavaElementDeltaBuilder {
  */
 public JavaElementDeltaBuilder(IJavaElement javaElement) {
 	this.javaElement = javaElement;
-	this.initialize();
-	this.recordElementInfo(
-		javaElement, 
+	initialize();
+	recordElementInfo(
+		javaElement,
 		(JavaModel)this.javaElement.getJavaModel(),
 		0);
 }
@@ -106,9 +109,9 @@ public JavaElementDeltaBuilder(IJavaElement javaElement) {
 public JavaElementDeltaBuilder(IJavaElement javaElement, int maxDepth) {
 	this.javaElement = javaElement;
 	this.maxDepth = maxDepth;
-	this.initialize();
-	this.recordElementInfo(
-		javaElement, 
+	initialize();
+	recordElementInfo(
+		javaElement,
 		(JavaModel)this.javaElement.getJavaModel(),
 		0);
 }
@@ -118,12 +121,12 @@ public JavaElementDeltaBuilder(IJavaElement javaElement, int maxDepth) {
  */
 private void added(IJavaElement element) {
 	this.added.add(element);
-	ListItem current = this.getNewPosition(element);
+	ListItem current = getNewPosition(element);
 	ListItem previous = null, next = null;
 	if (current.previous != null)
-		previous = this.getNewPosition(current.previous);
+		previous = getNewPosition(current.previous);
 	if (current.next != null)
-		next = this.getNewPosition(current.next);
+		next = getNewPosition(current.next);
 	if (previous != null)
 		previous.next = current.next;
 	if (next != null)
@@ -134,24 +137,47 @@ private void added(IJavaElement element) {
  * unit and its new content.
  */
 public void buildDeltas() {
-	this.recordNewPositions(this.javaElement, 0);
-	this.findAdditions(this.javaElement, 0);
-	this.findDeletions();
-	this.findChangesInPositioning(this.javaElement, 0);
-	this.trimDelta(this.delta);
+	this.delta = new JavaElementDelta(this.javaElement);
+	// if building a delta on a compilation unit or below,
+	// it's a fine grained delta
+	if (this.javaElement.getElementType() >= IJavaElement.COMPILATION_UNIT) {
+		this.delta.fineGrained();
+	}
+	recordNewPositions(this.javaElement, 0);
+	findAdditions(this.javaElement, 0);
+	findDeletions();
+	findChangesInPositioning(this.javaElement, 0);
+	trimDelta(this.delta);
+	if (this.delta.getAffectedChildren().length == 0) {
+		// this is a fine grained but not children affected -> mark as content changed
+		this.delta.contentChanged();
+	}
+}
+private boolean equals(char[][][] first, char[][][] second) {
+	if (first == second)
+		return true;
+	if (first == null || second == null)
+		return false;
+	if (first.length != second.length)
+		return false;
+
+	for (int i = first.length; --i >= 0;)
+		if (!CharOperation.equals(first[i], second[i]))
+			return false;
+	return true;
 }
 /**
  * Finds elements which have been added or changed.
  */
 private void findAdditions(IJavaElement newElement, int depth) {
-	JavaElementInfo oldInfo = this.getElementInfo(newElement);
+	JavaElementInfo oldInfo = getElementInfo(newElement);
 	if (oldInfo == null && depth < this.maxDepth) {
 		this.delta.added(newElement);
 		added(newElement);
 	} else {
-		this.removeElementInfo(newElement);
+		removeElementInfo(newElement);
 	}
-	
+
 	if (depth >= this.maxDepth) {
 		// mark element as changed
 		this.delta.changed(newElement, IJavaElementDelta.F_CONTENT);
@@ -159,23 +185,23 @@ private void findAdditions(IJavaElement newElement, int depth) {
 	}
 
 	JavaElementInfo newInfo = null;
-	try { 
-		newInfo = ((JavaElement)newElement).getElementInfo();
+	try {
+		newInfo = (JavaElementInfo)((JavaElement)newElement).getElementInfo();
 	} catch (JavaModelException npe) {
 		return;
 	}
-	
-	this.findContentChange(oldInfo, newInfo, newElement);
-		
+
+	findContentChange(oldInfo, newInfo, newElement);
+
 	if (oldInfo != null && newElement instanceof IParent) {
 
 		IJavaElement[] children = newInfo.getChildren();
 		if (children != null) {
 			int length = children.length;
 			for(int i = 0; i < length; i++) {
-				this.findAdditions(children[i], depth + 1);
+				findAdditions(children[i], depth + 1);
 			}
-		}		
+		}
 	}
 }
 /**
@@ -184,16 +210,15 @@ private void findAdditions(IJavaElement newElement, int depth) {
 private void findChangesInPositioning(IJavaElement element, int depth) {
 	if (depth >= this.maxDepth || this.added.contains(element) || this.removed.contains(element))
 		return;
-		
+
 	if (!isPositionedCorrectly(element)) {
-		this.delta.removed(element);
-		this.delta.added(element);
-	} 
-	
+		this.delta.changed(element, IJavaElementDelta.F_REORDER);
+	}
+
 	if (element instanceof IParent) {
 		JavaElementInfo info = null;
-		try { 
-			info = ((JavaElement)element).getElementInfo();
+		try {
+			info = (JavaElementInfo)((JavaElement)element).getElementInfo();
 		} catch (JavaModelException npe) {
 			return;
 		}
@@ -202,9 +227,51 @@ private void findChangesInPositioning(IJavaElement element, int depth) {
 		if (children != null) {
 			int length = children.length;
 			for(int i = 0; i < length; i++) {
-				this.findChangesInPositioning(children[i], depth + 1);
+				findChangesInPositioning(children[i], depth + 1);
 			}
-		}		
+		}
+	}
+}
+private void findAnnotationChanges(IAnnotation[] oldAnnotations, IAnnotation[] newAnnotations, IJavaElement parent) {
+	ArrayList annotationDeltas = null;
+	for (int i = 0, length = newAnnotations.length; i < length; i++) {
+		IAnnotation newAnnotation = newAnnotations[i];
+		Object oldInfo = this.annotationInfos.remove(newAnnotation);
+		if (oldInfo == null) {
+			JavaElementDelta annotationDelta = new JavaElementDelta(newAnnotation);
+			annotationDelta.added();
+			if (annotationDeltas == null) annotationDeltas = new ArrayList();
+			annotationDeltas.add(annotationDelta);
+			continue;
+		} else {
+			AnnotationInfo newInfo = null;
+			try {
+				newInfo = (AnnotationInfo) ((JavaElement) newAnnotation).getElementInfo();
+			} catch (JavaModelException npe) {
+				return;
+			}
+			if (!Util.equalArraysOrNull(((AnnotationInfo) oldInfo).members, newInfo.members)) {
+				JavaElementDelta annotationDelta = new JavaElementDelta(newAnnotation);
+				annotationDelta.changed(IJavaElementDelta.F_CONTENT);
+				if (annotationDeltas == null) annotationDeltas = new ArrayList();
+				annotationDeltas.add(annotationDelta);
+			}
+		}
+	}
+	for (int i = 0, length = oldAnnotations.length; i < length; i++) {
+		IAnnotation oldAnnotation = oldAnnotations[i];
+		if (this.annotationInfos.remove(oldAnnotation) != null) {
+			JavaElementDelta annotationDelta = new JavaElementDelta(oldAnnotation);
+			annotationDelta.removed();
+			if (annotationDeltas == null) annotationDeltas = new ArrayList();
+			annotationDeltas.add(annotationDelta);		}
+	}
+	if (annotationDeltas == null)
+		return;
+	int size = annotationDeltas.size();
+	if (size > 0) {
+		JavaElementDelta parentDelta = this.delta.changed(parent, IJavaElementDelta.F_ANNOTATIONS);
+		parentDelta.annotationDeltas = (IJavaElementDelta[]) annotationDeltas.toArray(new IJavaElementDelta[size]);
 	}
 }
 /**
@@ -214,26 +281,61 @@ private void findContentChange(JavaElementInfo oldInfo, JavaElementInfo newInfo,
 	if (oldInfo instanceof MemberElementInfo && newInfo instanceof MemberElementInfo) {
 		if (((MemberElementInfo)oldInfo).getModifiers() != ((MemberElementInfo)newInfo).getModifiers()) {
 			this.delta.changed(newElement, IJavaElementDelta.F_MODIFIERS);
-		} else if (oldInfo instanceof SourceMethodElementInfo && newInfo instanceof SourceMethodElementInfo) {
-			if (!CharOperation.equals(
-					((SourceMethodElementInfo)oldInfo).getReturnTypeName(), 
-					((SourceMethodElementInfo)newInfo).getReturnTypeName())) {
+		}
+		if (oldInfo instanceof AnnotatableInfo && newInfo instanceof AnnotatableInfo) {
+			findAnnotationChanges(((AnnotatableInfo) oldInfo).annotations, ((AnnotatableInfo) newInfo).annotations, newElement);
+		}
+		if (oldInfo instanceof SourceMethodElementInfo && newInfo instanceof SourceMethodElementInfo) {
+			SourceMethodElementInfo oldSourceMethodInfo = (SourceMethodElementInfo)oldInfo;
+			SourceMethodElementInfo newSourceMethodInfo = (SourceMethodElementInfo)newInfo;
+			if (!CharOperation.equals(oldSourceMethodInfo.getReturnTypeName(), newSourceMethodInfo.getReturnTypeName())
+					|| !CharOperation.equals(oldSourceMethodInfo.getTypeParameterNames(), newSourceMethodInfo.getTypeParameterNames())
+					|| !equals(oldSourceMethodInfo.getTypeParameterBounds(), newSourceMethodInfo.getTypeParameterBounds())) {
 				this.delta.changed(newElement, IJavaElementDelta.F_CONTENT);
 			}
 		} else if (oldInfo instanceof SourceFieldElementInfo && newInfo instanceof SourceFieldElementInfo) {
 			if (!CharOperation.equals(
-					((SourceFieldElementInfo)oldInfo).getTypeName(), 
+					((SourceFieldElementInfo)oldInfo).getTypeName(),
 					((SourceFieldElementInfo)newInfo).getTypeName())) {
 				this.delta.changed(newElement, IJavaElementDelta.F_CONTENT);
 			}
-		}
-	}
-	if (oldInfo instanceof SourceTypeElementInfo && newInfo instanceof SourceTypeElementInfo) {
-		SourceTypeElementInfo oldSourceTypeInfo = (SourceTypeElementInfo)oldInfo;
-		SourceTypeElementInfo newSourceTypeInfo = (SourceTypeElementInfo)newInfo;
-		if (!CharOperation.equals(oldSourceTypeInfo.getSuperclassName(), newSourceTypeInfo.getSuperclassName()) 
-			|| !CharOperation.equals(oldSourceTypeInfo.getInterfaceNames(), newSourceTypeInfo.getInterfaceNames())) {
-			this.delta.changed(newElement, IJavaElementDelta.F_SUPER_TYPES);
+		} else if (oldInfo instanceof SourceTypeElementInfo && newInfo instanceof SourceTypeElementInfo) {
+			SourceTypeElementInfo oldSourceTypeInfo = (SourceTypeElementInfo)oldInfo;
+			SourceTypeElementInfo newSourceTypeInfo = (SourceTypeElementInfo)newInfo;
+			if (!CharOperation.equals(oldSourceTypeInfo.getSuperclassName(), newSourceTypeInfo.getSuperclassName())
+					|| !CharOperation.equals(oldSourceTypeInfo.getInterfaceNames(), newSourceTypeInfo.getInterfaceNames())) {
+				this.delta.changed(newElement, IJavaElementDelta.F_SUPER_TYPES);
+			}
+			if (!CharOperation.equals(oldSourceTypeInfo.getTypeParameterNames(), newSourceTypeInfo.getTypeParameterNames())
+					|| !equals(oldSourceTypeInfo.getTypeParameterBounds(), newSourceTypeInfo.getTypeParameterBounds())) {
+				this.delta.changed(newElement, IJavaElementDelta.F_CONTENT);
+			}
+			HashMap oldTypeCategories = oldSourceTypeInfo.categories;
+			HashMap newTypeCategories = newSourceTypeInfo.categories;
+			if (oldTypeCategories != null) {
+				// take the union of old and new categories elements (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=125675)
+				Set elements;
+				if (newTypeCategories != null) {
+					elements = new HashSet(oldTypeCategories.keySet());
+					elements.addAll(newTypeCategories.keySet());
+				} else
+					elements = oldTypeCategories.keySet();
+				Iterator iterator = elements.iterator();
+				while (iterator.hasNext()) {
+					IJavaElement element = (IJavaElement) iterator.next();
+					String[] oldCategories = (String[]) oldTypeCategories.get(element);
+					String[] newCategories = newTypeCategories == null ? null : (String[]) newTypeCategories.get(element);
+					if (!Util.equalArraysOrNull(oldCategories, newCategories)) {
+						this.delta.changed(element, IJavaElementDelta.F_CATEGORIES);
+					}
+				}
+			} else if (newTypeCategories != null) {
+				Iterator elements = newTypeCategories.keySet().iterator();
+				while (elements.hasNext()) {
+					IJavaElement element = (IJavaElement) elements.next();
+					this.delta.changed(element, IJavaElementDelta.F_CATEGORIES); // all categories for this element were removed
+				}
+			}
 		}
 	}
 }
@@ -245,7 +347,7 @@ private void findDeletions() {
 	while(iter.hasNext()) {
 		IJavaElement element = (IJavaElement)iter.next();
 		this.delta.removed(element);
-		this.removed(element);
+		removed(element);
 	}
 }
 private JavaElementInfo getElementInfo(IJavaElement element) {
@@ -261,18 +363,10 @@ private void initialize() {
 	this.infos = new HashMap(20);
 	this.oldPositions = new HashMap(20);
 	this.newPositions = new HashMap(20);
-	this.putOldPosition(this.javaElement, new ListItem(null, null));
-	this.putNewPosition(this.javaElement, new ListItem(null, null));
-	this.delta = new JavaElementDelta(javaElement);
-	
-	// if building a delta on a compilation unit or below, 
-	// it's a fine grained delta
-	if (javaElement.getElementType() >= IJavaElement.COMPILATION_UNIT) {
-		this.delta.fineGrained();
-	}
-	
-	this.added = new ArrayList(5);
-	this.removed = new ArrayList(5);
+	this.oldPositions.put(this.javaElement, new ListItem(null, null));
+	this.newPositions.put(this.javaElement, new ListItem(null, null));
+	this.added = new HashSet(5);
+	this.removed = new HashSet(5);
 }
 /**
  * Inserts position information for the elements into the new or old positions table
@@ -285,95 +379,29 @@ private void insertPositions(IJavaElement[] elements, boolean isNew) {
 		current = next;
 		next = (i + 1 < length) ? elements[i + 1] : null;
 		if (isNew) {
-			this.putNewPosition(current, new ListItem(previous, next));
+			this.newPositions.put(current, new ListItem(previous, next));
 		} else {
-			this.putOldPosition(current, new ListItem(previous, next));
+			this.oldPositions.put(current, new ListItem(previous, next));
 		}
 	}
 }
 /**
- * Returns true if the given elements represent the an equivalent declaration.
- *
- * <p>NOTE: Since this comparison can be done with handle info only,
- * none of the internal calls need to use the locally cached contents
- * of the old compilation unit.
- */
-private boolean isIdentical(JavaElement e1, JavaElement e2) {
-	if (e1 == null ^ e2 == null)
-		return false;
-	if (e1 == null)
-		return true;
-		
-	if (e1.fLEType == e2.fLEType) {
-		if (e1.getOccurrenceCount() != e2.getOccurrenceCount())
-			return false;
-		switch (e1.fLEType) {
-			case IJavaElement.FIELD:
-			case IJavaElement.IMPORT_DECLARATION:
-			case IJavaElement.PACKAGE_DECLARATION:
-			case IJavaElement.COMPILATION_UNIT:
-				return e1.getElementName().equals(e2.getElementName());
-			case IJavaElement.TYPE:
-				IType t1= (IType)e1;
-				IType t2= (IType)e2;
-				try {
-					return (!(t1.isClass() ^ t2.isClass()) && t1.getElementName().equals(t2.getElementName()));
-				} catch (JavaModelException e) {
-					return false;
-				}
-			case IJavaElement.METHOD:
-				IMethod m1= (IMethod)e1;
-				IMethod m2= (IMethod)e2;
-				try {
-					return m1.getElementName().equals(m2.getElementName()) && m1.getSignature().equals(m2.getSignature());
-				} catch (JavaModelException e) {
-					return false;
-				}
-			case IJavaElement.INITIALIZER:
-			case IJavaElement.IMPORT_CONTAINER:
-				return true;
-			default:
-				return false;
-		}
-	} else {
-		return false;
-	}
-}
-/**
- * Answers true if the elements position has not changed.
- * Takes into account additions so that elements following
- * new elements will not appear out of place.
+ * Returns whether the elements position has not changed.
  */
 private boolean isPositionedCorrectly(IJavaElement element) {
-	ListItem oldListItem = this.getOldPosition(element);
-	if (oldListItem == null)
-		return false;
+	ListItem oldListItem = getOldPosition(element);
+	if (oldListItem == null) return false;
+
+	ListItem newListItem = getNewPosition(element);
+	if (newListItem == null) return false;
+
 	IJavaElement oldPrevious = oldListItem.previous;
-	ListItem newListItem = this.getNewPosition(element);
-	if (newListItem == null)
-		return false;
-	IJavaElement newPrevious = newListItem.previous; 
-	if (oldPrevious == newPrevious)
-		return true;
-	IJavaElement lastNewPrevious = null;
-	while(lastNewPrevious != newPrevious) {
-		if (isIdentical((JavaElement)oldPrevious, (JavaElement)newPrevious))
-			return true;
-		lastNewPrevious = newPrevious;
-		// if newPrevious is null at this time we should exit the loop.
-		if (newPrevious == null) break;
-		newPrevious = (this.getNewPosition(newPrevious)).previous;
+	IJavaElement newPrevious = newListItem.previous;
+	if (oldPrevious == null) {
+		return newPrevious == null;
+	} else {
+		return oldPrevious.equals(newPrevious);
 	}
-	return false;
-}
-private void putElementInfo(IJavaElement element, JavaElementInfo info) {
-	this.infos.put(element, info);
-}
-private void putNewPosition(IJavaElement element, ListItem position) {
-	this.newPositions.put(element, position);
-}
-private void putOldPosition(IJavaElement element, ListItem position) {
-	this.oldPositions.put(element, position);
 }
 /**
  * Records this elements info, and attempts
@@ -386,14 +414,25 @@ private void recordElementInfo(IJavaElement element, JavaModel model, int depth)
 	JavaElementInfo info = (JavaElementInfo)JavaModelManager.getJavaModelManager().getInfo(element);
 	if (info == null) // no longer in the java model.
 		return;
-	this.putElementInfo(element, info);
-		
+	this.infos.put(element, info);
+
 	if (element instanceof IParent) {
 		IJavaElement[] children = info.getChildren();
 		if (children != null) {
 			insertPositions(children, false);
 			for(int i = 0, length = children.length; i < length; i++)
 				recordElementInfo(children[i], model, depth + 1);
+		}
+	}
+	IAnnotation[] annotations = null;
+	if (info instanceof AnnotatableInfo)
+		annotations = ((AnnotatableInfo) info).annotations;
+	if (annotations != null) {
+		if (this.annotationInfos == null)
+			this.annotationInfos = new HashMap();
+		JavaModelManager manager = JavaModelManager.getJavaModelManager();
+		for (int i = 0, length = annotations.length; i < length; i++) {
+			this.annotationInfos.put(annotations[i], manager.getInfo(annotations[i]));
 		}
 	}
 }
@@ -403,8 +442,8 @@ private void recordElementInfo(IJavaElement element, JavaModel model, int depth)
 private void recordNewPositions(IJavaElement newElement, int depth) {
 	if (depth < this.maxDepth && newElement instanceof IParent) {
 		JavaElementInfo info = null;
-		try { 
-			info = ((JavaElement)newElement).getElementInfo();
+		try {
+			info = (JavaElementInfo)((JavaElement)newElement).getElementInfo();
 		} catch (JavaModelException npe) {
 			return;
 		}
@@ -424,17 +463,17 @@ private void recordNewPositions(IJavaElement newElement, int depth) {
  */
 private void removed(IJavaElement element) {
 	this.removed.add(element);
-	ListItem current = this.getOldPosition(element);
+	ListItem current = getOldPosition(element);
 	ListItem previous = null, next = null;
 	if (current.previous != null)
-		previous = this.getOldPosition(current.previous);
+		previous = getOldPosition(current.previous);
 	if (current.next != null)
-		next = this.getOldPosition(current.next);
+		next = getOldPosition(current.next);
 	if (previous != null)
 		previous.next = current.next;
 	if (next != null)
 		next.previous = current.previous;
-	
+
 }
 private void removeElementInfo(IJavaElement element) {
 	this.infos.remove(element);
@@ -442,20 +481,20 @@ private void removeElementInfo(IJavaElement element) {
 public String toString() {
 	StringBuffer buffer = new StringBuffer();
 	buffer.append("Built delta:\n"); //$NON-NLS-1$
-	buffer.append(this.delta.toString());
+	buffer.append(this.delta == null ? "<null>" : this.delta.toString()); //$NON-NLS-1$
 	return buffer.toString();
 }
 /**
  * Trims deletion deltas to only report the highest level of deletion
  */
-private void trimDelta(JavaElementDelta delta) {
-	if (delta.getKind() == IJavaElementDelta.REMOVED) {
-		IJavaElementDelta[] children = delta.getAffectedChildren();
+private void trimDelta(JavaElementDelta elementDelta) {
+	if (elementDelta.getKind() == IJavaElementDelta.REMOVED) {
+		IJavaElementDelta[] children = elementDelta.getAffectedChildren();
 		for(int i = 0, length = children.length; i < length; i++) {
-			delta.removeAffectedChild((JavaElementDelta)children[i]);
+			elementDelta.removeAffectedChild((JavaElementDelta)children[i]);
 		}
 	} else {
-		IJavaElementDelta[] children = delta.getAffectedChildren();
+		IJavaElementDelta[] children = elementDelta.getAffectedChildren();
 		for(int i = 0, length = children.length; i < length; i++) {
 			trimDelta((JavaElementDelta)children[i]);
 		}

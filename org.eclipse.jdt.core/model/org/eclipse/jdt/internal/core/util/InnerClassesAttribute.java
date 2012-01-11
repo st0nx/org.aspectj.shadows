@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.util;
 
 import org.eclipse.jdt.core.util.ClassFormatException;
@@ -18,7 +18,7 @@ import org.eclipse.jdt.core.util.IInnerClassesAttributeEntry;
 /**
  * Default implementation of IInnerClassesAttribute.
  */
-public class InnerClassesAttribute extends ClassFileAttribute implements IInnerClassesAttribute {		
+public class InnerClassesAttribute extends ClassFileAttribute implements IInnerClassesAttribute {
 	private static final IInnerClassesAttributeEntry[] NO_ENTRIES = new IInnerClassesAttributeEntry[0];
 
 	private int numberOfClasses;
@@ -37,16 +37,17 @@ public class InnerClassesAttribute extends ClassFileAttribute implements IInnerC
 		throws ClassFormatException {
 		super(classFileBytes, constantPool, offset);
 		this.numberOfClasses = u2At(classFileBytes, 6, offset);
-		int readOffset = 8;
-		int length = this.numberOfClasses;
-		this.entries = NO_ENTRIES;
+		final int length = this.numberOfClasses;
 		if (length != 0) {
+			int readOffset = 8;
 			this.entries = new IInnerClassesAttributeEntry[length];
+			for (int i = 0; i < length; i++) {
+				this.entries[i] = new InnerClassesAttributeEntry(classFileBytes, constantPool, offset + readOffset);
+				readOffset += 8;
+			}
+		} else {
+			this.entries = NO_ENTRIES;
 		}
-		for (int i = 0; i < length; i++) {
-			this.entries[i] = new InnerClassesAttributeEntry(classFileBytes, constantPool, offset + readOffset);
-			readOffset += 8;
-		}		
 	}
 
 	/**

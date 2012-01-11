@@ -1,71 +1,77 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
+import java.io.IOException;
+
+import org.eclipse.core.resources.*;
+import org.eclipse.core.runtime.*;
+
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
+import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
 import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
+import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.util.Util;
 
-import java.io.*;
+public class ClasspathDirectory extends ClasspathLocation {
 
-class ClasspathDirectory extends ClasspathLocation {
-
-String binaryPath; // includes .class files for a single directory
+IContainer binaryFolder; // includes .class files for a single directory
+boolean isOutputFolder;
 SimpleLookupTable directoryCache;
 String[] missingPackageHolder = new String[1];
+AccessRuleSet accessRuleSet;
 
-ClasspathDirectory(String binaryPath) {
-	this.binaryPath = binaryPath;
-	if (!binaryPath.endsWith("/")) //$NON-NLS-1$
-		this.binaryPath += "/"; //$NON-NLS-1$
-
+ClasspathDirectory(IContainer binaryFolder, boolean isOutputFolder, AccessRuleSet accessRuleSet) {
+	this.binaryFolder = binaryFolder;
+	this.isOutputFolder = isOutputFolder || binaryFolder.getProjectRelativePath().isEmpty(); // if binaryFolder == project, then treat it as an outputFolder
 	this.directoryCache = new SimpleLookupTable(5);
+	this.accessRuleSet = accessRuleSet;
 }
 
-void cleanup() {
+public void cleanup() {
 	this.directoryCache = null;
 }
 
 String[] directoryList(String qualifiedPackageName) {
-	String[] dirList = (String[]) directoryCache.get(qualifiedPackageName);
-	if (dirList == missingPackageHolder) return null; // package exists in another classpath directory or jar
+	String[] dirList = (String[]) this.directoryCache.get(qualifiedPackageName);
+	if (dirList == this.missingPackageHolder) return null; // package exists in another classpath directory or jar
 	if (dirList != null) return dirList;
 
-	File dir = new File(binaryPath + qualifiedPackageName);
-	notFound : if (dir != null && dir.isDirectory()) {
-		// must protect against a case insensitive File call
-		// walk the qualifiedPackageName backwards looking for an uppercase character before the '/'
-		int index = qualifiedPackageName.length();
-		int last = qualifiedPackageName.lastIndexOf('/');
-		while (--index > last && !Character.isUpperCase(qualifiedPackageName.charAt(index))) {}
-		if (index > last) {
-			if (last == -1) {
-				if (!doesFileExist(qualifiedPackageName, "")) //$NON-NLS-1$ 
-					break notFound;
-			} else {
-				String packageName = qualifiedPackageName.substring(last + 1);
-				String parentPackage = qualifiedPackageName.substring(0, last);
-				if (!doesFileExist(packageName, parentPackage))
-					break notFound;
+	try {
+		IResource container = this.binaryFolder.findMember(qualifiedPackageName); // this is a case-sensitive check
+		if (container instanceof IContainer) {
+			IResource[] members = ((IContainer) container).members();
+			dirList = new String[members.length];
+			int index = 0;
+			for (int i = 0, l = members.length; i < l; i++) {
+				IResource m = members[i];
+				if (m.getType() == IResource.FILE && org.eclipse.jdt.internal.compiler.util.Util.isClassFileName(m.getName()))
+					// add exclusion pattern check here if we want to hide .class files
+					dirList[index++] = m.getName();
 			}
+			if (index < dirList.length)
+				System.arraycopy(dirList, 0, dirList = new String[index], 0, index);
+			this.directoryCache.put(qualifiedPackageName, dirList);
+			return dirList;
 		}
-		if ((dirList = dir.list()) == null)
-			dirList = new String[0];
-		directoryCache.put(qualifiedPackageName, dirList);
-		return dirList;
+	} catch(CoreException ignored) {
+		// ignore
 	}
-	directoryCache.put(qualifiedPackageName, missingPackageHolder);
+	this.directoryCache.put(qualifiedPackageName, this.missingPackageHolder);
 	return null;
 }
 
-boolean doesFileExist(String fileName, String qualifiedPackageName) {
+boolean doesFileExist(String fileName, String qualifiedPackageName, String qualifiedFullName) {
 	String[] dirList = directoryList(qualifiedPackageName);
 	if (dirList == null) return false; // most common case
 
@@ -79,28 +85,69 @@ public boolean equals(Object o) {
 	if (this == o) return true;
 	if (!(o instanceof ClasspathDirectory)) return false;
 
-	return binaryPath.equals(((ClasspathDirectory) o).binaryPath);
-} 
+	ClasspathDirectory dir = (ClasspathDirectory) o;
+	if (this.accessRuleSet != dir.accessRuleSet)
+		if (this.accessRuleSet == null || !this.accessRuleSet.equals(dir.accessRuleSet))
+			return false;
+	return this.binaryFolder.equals(dir.binaryFolder);
+}
 
-NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName) {
-	if (!doesFileExist(binaryFileName, qualifiedPackageName)) return null; // most common case
+public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPackageName, String qualifiedBinaryFileName) {
+	if (!doesFileExist(binaryFileName, qualifiedPackageName, qualifiedBinaryFileName)) return null; // most common case
 
+	ClassFileReader reader = null;
 	try {
-		ClassFileReader reader = ClassFileReader.read(binaryPath + qualifiedBinaryFileName);
-		if (reader != null) return new NameEnvironmentAnswer(reader);
-	} catch (Exception e) {} // treat as if class file is missing
+		reader = Util.newClassFileReader(this.binaryFolder.getFile(new Path(qualifiedBinaryFileName)));
+	} catch (CoreException e) {
+		return null;
+	} catch (ClassFormatException e) {
+		return null;
+	} catch (IOException e) {
+		return null;
+	}
+	if (reader != null) {
+		if (this.accessRuleSet == null)
+			return new NameEnvironmentAnswer(reader, null);
+		String fileNameWithoutExtension = qualifiedBinaryFileName.substring(0, qualifiedBinaryFileName.length() - SuffixConstants.SUFFIX_CLASS.length);
+		return new NameEnvironmentAnswer(reader, this.accessRuleSet.getViolatedRestriction(fileNameWithoutExtension.toCharArray()));
+	}
 	return null;
 }
 
-boolean isPackage(String qualifiedPackageName) {
+public IPath getProjectRelativePath() {
+	return this.binaryFolder.getProjectRelativePath();
+}
+
+public int hashCode() {
+	return this.binaryFolder == null ? super.hashCode() : this.binaryFolder.hashCode();
+}
+
+protected boolean isExcluded(IResource resource) {
+	return false;
+}
+
+public boolean isOutputFolder() {
+	return this.isOutputFolder;
+}
+
+public boolean isPackage(String qualifiedPackageName) {
 	return directoryList(qualifiedPackageName) != null;
 }
 
-void reset() {
+public void reset() {
 	this.directoryCache = new SimpleLookupTable(5);
 }
 
 public String toString() {
-	return "Binary classpath directory " + binaryPath; //$NON-NLS-1$
+	String start = "Binary classpath directory " + this.binaryFolder.getFullPath().toString(); //$NON-NLS-1$
+	if (this.accessRuleSet == null)
+		return start;
+	return start + " with " + this.accessRuleSet; //$NON-NLS-1$
 }
+
+public String debugPathString() {
+	return this.binaryFolder.getFullPath().toString();
+}
+
+
 }

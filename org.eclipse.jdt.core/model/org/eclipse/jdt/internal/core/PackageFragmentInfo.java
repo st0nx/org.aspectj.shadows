@@ -1,18 +1,18 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IResource;
-import org.eclipse.core.runtime.CoreException;
+import org.eclipse.jdt.core.JavaModelException;
 
 /**
  * Element info for PackageFragments.
@@ -22,86 +22,42 @@ class PackageFragmentInfo extends OpenableElementInfo {
 	/**
 	 * A array with all the non-java resources contained by this PackageFragment
 	 */
-	protected Object[] fNonJavaResources;
+	protected Object[] nonJavaResources;
 
 /**
  * Create and initialize a new instance of the receiver
  */
 public PackageFragmentInfo() {
-	fNonJavaResources = null;
-}
-/**
- * Compute the non-java resources of this package fragment.
- *
- * <p>Package fragments which are folders recognize files based on the
- * type of the fragment
- * <p>Package fragments which are in a jar only recognize .class files (
- * @see JarPackageFragment).
- */
-private Object[] computeNonJavaResources(IResource resource) {
-	Object[] nonJavaResources = new IResource[5];
-	int nonJavaResourcesCounter = 0;
-	try{
-		IResource[] members = ((IContainer) resource).members();
-		for (int i = 0, max = members.length; i < max; i++) {
-			IResource child = members[i];
-			if (child.getType() == IResource.FILE) {
-				String fileName = child.getName();
-				if (!Util.isValidCompilationUnitName(fileName) && !Util.isValidClassFileName(fileName)) {
-					if (nonJavaResources.length == nonJavaResourcesCounter) {
-						// resize
-						System.arraycopy(
-							nonJavaResources,
-							0,
-							(nonJavaResources = new IResource[nonJavaResourcesCounter * 2]),
-							0,
-							nonJavaResourcesCounter);
-					}
-					nonJavaResources[nonJavaResourcesCounter++] = child;
-				}
-			} else if (child.getType() == IResource.FOLDER) {
-				if (!Util.isValidFolderNameForPackage(child.getName())) {
-					if (nonJavaResources.length == nonJavaResourcesCounter) {
-						// resize
-						System.arraycopy(nonJavaResources, 0, (nonJavaResources = new IResource[nonJavaResourcesCounter * 2]), 0, nonJavaResourcesCounter);
-					}
-					nonJavaResources[nonJavaResourcesCounter++] = child;
-				}
-			}
-		}
-		if (nonJavaResourcesCounter == 0) {
-			nonJavaResources = NO_NON_JAVA_RESOURCES;
-		} else {
-			if (nonJavaResources.length != nonJavaResourcesCounter) {
-				System.arraycopy(nonJavaResources, 0, (nonJavaResources = new IResource[nonJavaResourcesCounter]), 0, nonJavaResourcesCounter);
-			}
-		}	
-	} catch(CoreException e) {
-		nonJavaResources = NO_NON_JAVA_RESOURCES;
-		nonJavaResourcesCounter = 0;
-	}
-	return nonJavaResources;
+	this.nonJavaResources = null;
 }
 /**
  */
 boolean containsJavaResources() {
-	return fChildren.length != 0;
+	return this.children.length != 0;
 }
 /**
  * Returns an array of non-java resources contained in the receiver.
  */
-Object[] getNonJavaResources(IResource underlyingResource) {
-	Object[] nonJavaResources = fNonJavaResources;
-	if (nonJavaResources == null) {
-		nonJavaResources = computeNonJavaResources(underlyingResource);
-		fNonJavaResources = nonJavaResources;
+Object[] getNonJavaResources(IResource underlyingResource, PackageFragmentRoot rootHandle) {
+	if (this.nonJavaResources == null) {
+		try {
+			this.nonJavaResources =
+				PackageFragmentRootInfo.computeFolderNonJavaResources(
+					rootHandle,
+					(IContainer)underlyingResource,
+					rootHandle.fullInclusionPatternChars(),
+					rootHandle.fullExclusionPatternChars());
+		} catch (JavaModelException e) {
+			// root doesn't exist: consider package has no nonJavaResources
+			this.nonJavaResources = NO_NON_JAVA_RESOURCES;
+		}
 	}
-	return nonJavaResources;
+	return this.nonJavaResources;
 }
 /**
- * Set the fNonJavaResources to res value
+ * Set the nonJavaResources to res value
  */
-synchronized void setNonJavaResources(Object[] resources) {
-	fNonJavaResources = resources;
+void setNonJavaResources(Object[] resources) {
+	this.nonJavaResources = resources;
 }
 }

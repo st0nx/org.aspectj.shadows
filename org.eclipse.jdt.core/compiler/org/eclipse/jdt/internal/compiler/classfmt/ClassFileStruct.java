@@ -1,154 +1,76 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.classfmt;
 
-abstract public class ClassFileStruct implements ClassFileConstants {
+abstract public class ClassFileStruct {
 	byte[] reference;
+	int[] constantPoolOffsets;
 	int structOffset;
-public ClassFileStruct(byte classFileBytes[], int off) {
-	reference = classFileBytes;
-	structOffset = off;
-}
-public ClassFileStruct (byte classFileBytes[], int off, boolean verifyStructure) {
-	reference = classFileBytes;
-	structOffset = off;
+public ClassFileStruct(byte[] classFileBytes, int[] offsets, int offset) {
+	this.reference = classFileBytes;
+	this.constantPoolOffsets = offsets;
+	this.structOffset = offset;
 }
 public double doubleAt(int relativeOffset) {
-	return (Double.longBitsToDouble(this.i8At(relativeOffset)));
+	return (Double.longBitsToDouble(i8At(relativeOffset)));
 }
 public float floatAt(int relativeOffset) {
-	return (Float.intBitsToFloat(this.i4At(relativeOffset)));
-}
-public int i1At(int relativeOffset) {
-	return reference[relativeOffset + structOffset];
-}
-public int i2At(int relativeOffset) {
-	int position = relativeOffset + structOffset;
-	return (reference[position++] << 8) + (reference[position] & 0xFF);
+	return (Float.intBitsToFloat(i4At(relativeOffset)));
 }
 public int i4At(int relativeOffset) {
-	int position = relativeOffset + structOffset;
-	return ((reference[position++] & 0xFF) << 24) + ((reference[position++] & 0xFF) << 16) + ((reference[position++] & 0xFF) << 8) + (reference[position] & 0xFF);
+	int position = relativeOffset + this.structOffset;
+	return ((this.reference[position++] & 0xFF) << 24) | ((this.reference[position++] & 0xFF) << 16) | ((this.reference[position++] & 0xFF) << 8) + (this.reference[position] & 0xFF);
 }
 public long i8At(int relativeOffset) {
-	int position = relativeOffset + structOffset;
-	return (((long) (reference[position++] & 0xFF)) << 56) + (((long) (reference[position++] & 0xFF)) << 48) + (((long) (reference[position++] & 0xFF)) << 40) + (((long) (reference[position++] & 0xFF)) << 32) + (((long) (reference[position++] & 0xFF)) << 24) + (((long) (reference[position++] & 0xFF)) << 16) + (((long) (reference[position++] & 0xFF)) << 8) + ((long) (reference[position++] & 0xFF));
+	int position = relativeOffset + this.structOffset;
+	return (((long) (this.reference[position++] & 0xFF)) << 56)
+					| (((long) (this.reference[position++] & 0xFF)) << 48)
+					| (((long) (this.reference[position++] & 0xFF)) << 40)
+					| (((long) (this.reference[position++] & 0xFF)) << 32)
+					| (((long) (this.reference[position++] & 0xFF)) << 24)
+					| (((long) (this.reference[position++] & 0xFF)) << 16)
+					| (((long) (this.reference[position++] & 0xFF)) << 8)
+					| (this.reference[position++] & 0xFF);
 }
-public static String printTypeModifiers(int modifiers) {
-
-	java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
-	java.io.PrintWriter print = new java.io.PrintWriter(out);
-
-	if ((modifiers & AccPublic) != 0) print.print("public "); //$NON-NLS-1$
-	if ((modifiers & AccPrivate) != 0) print.print("private "); //$NON-NLS-1$
-	if ((modifiers & AccFinal) != 0) print.print("final "); //$NON-NLS-1$
-	if ((modifiers & AccSuper) != 0) print.print("super "); //$NON-NLS-1$
-	if ((modifiers & AccInterface) != 0) print.print("interface "); //$NON-NLS-1$
-	if ((modifiers & AccAbstract) != 0) print.print("abstract "); //$NON-NLS-1$
-	print.flush();
-	return out.toString();
-}
-public int u1At(int relativeOffset) {
-	return (reference[relativeOffset + structOffset] & 0xFF);
-}
-public int u2At(int relativeOffset) {
-	int position = relativeOffset + structOffset;
-	return ((reference[position++] & 0xFF) << 8) + (reference[position] & 0xFF);
-}
-public long u4At(int relativeOffset) {
-	int position = relativeOffset + structOffset;
-	return (((reference[position++] & 0xFFL) << 24) + ((reference[position++] & 0xFF) << 16) + ((reference[position++] & 0xFF) << 8) + (reference[position] & 0xFF));
-}
-public char[] utf8At(int relativeOffset, int bytesAvailable) {
-	int x, y, z;
-	int length = bytesAvailable;
-	char outputBuf[] = new char[bytesAvailable];
-	int outputPos = 0;
-	int readOffset = structOffset + relativeOffset;
-	
-	while (length != 0) {
-		x = reference[readOffset++] & 0xFF;
-		length--;
-		if ((0x80 & x) != 0) {
-			y = this.reference[readOffset++] & 0xFF;
-			length--;
-			if ((x & 0x20) != 0) {
-				z = this.reference[readOffset++] & 0xFF;
-				length--;
-				x = ((x & 0x1F) << 12) + ((y & 0x3F) << 6) + (z & 0x3F);
-			} else {
-				x = ((x & 0x1F) << 6) + (y & 0x3F);
-			}
-		}
-		outputBuf[outputPos++] = (char) x;
-	}
-
-	if (outputPos != bytesAvailable) {
-		System.arraycopy(outputBuf, 0, (outputBuf = new char[outputPos]), 0, outputPos);
-	}
-	return outputBuf;
-}
-
 protected void reset() {
 	this.reference = null;
+	this.constantPoolOffsets = null;
 }
-
-public char[] utf8At(int relativeOffset, int bytesAvailable, boolean testValidity) throws ClassFormatException {
-	int x, y, z;
+public int u1At(int relativeOffset) {
+	return (this.reference[relativeOffset + this.structOffset] & 0xFF);
+}
+public int u2At(int relativeOffset) {
+	int position = relativeOffset + this.structOffset;
+	return ((this.reference[position++] & 0xFF) << 8) | (this.reference[position] & 0xFF);
+}
+public long u4At(int relativeOffset) {
+	int position = relativeOffset + this.structOffset;
+	return (((this.reference[position++] & 0xFFL) << 24) | ((this.reference[position++] & 0xFF) << 16) | ((this.reference[position++] & 0xFF) << 8) | (this.reference[position] & 0xFF));
+}
+public char[] utf8At(int relativeOffset, int bytesAvailable) {
 	int length = bytesAvailable;
 	char outputBuf[] = new char[bytesAvailable];
 	int outputPos = 0;
-	int readOffset = structOffset + relativeOffset;
-	
+	int readOffset = this.structOffset + relativeOffset;
+
 	while (length != 0) {
-		x = reference[readOffset++] & 0xFF;
+		int x = this.reference[readOffset++] & 0xFF;
 		length--;
 		if ((0x80 & x) != 0) {
-			if (testValidity) {
-				if ((0x40 & x) == 0) {
-					throw new ClassFormatException(ClassFormatException.ErrMalformedUtf8);
-				}
-				if (length < 1) {
-					throw new ClassFormatException(ClassFormatException.ErrMalformedUtf8);
-				}
-			}
-			y = this.reference[readOffset++] & 0xFF;
-			length--;
-			if (testValidity) {
-				if ((y & 0xC0) != 0x80) {
-					throw new ClassFormatException(ClassFormatException.ErrMalformedUtf8);
-				}
-			}
 			if ((x & 0x20) != 0) {
-				if (testValidity && (length < 1)) {
-					throw new ClassFormatException(ClassFormatException.ErrMalformedUtf8);
-				}
-				z = this.reference[readOffset++] & 0xFF;
-				length--;
-				if (testValidity && ((z & 0xC0) != 0x80)) {
-					throw new ClassFormatException(ClassFormatException.ErrMalformedUtf8);
-				}
-				x = ((x & 0x1F) << 12) + ((y & 0x3F) << 6) + (z & 0x3F);
-				if (testValidity && (x < 0x0800)) {
-					throw new ClassFormatException(ClassFormatException.ErrMalformedUtf8);
-				}
+				length-=2;
+				x = ((x & 0xF) << 12) | ((this.reference[readOffset++] & 0x3F) << 6) | (this.reference[readOffset++] & 0x3F);
 			} else {
-				x = ((x & 0x1F) << 6) + (y & 0x3F);
-				if (testValidity && !((x == 0) || (x >= 0x80))) {
-					throw new ClassFormatException(ClassFormatException.ErrMalformedUtf8);
-				}
-			}
-		} else {
-			if (testValidity && x == 0) {
-					throw new ClassFormatException(ClassFormatException.ErrMalformedUtf8);
+				length--;
+				x = ((x & 0x1F) << 6) | (this.reference[readOffset++] & 0x3F);
 			}
 		}
 		outputBuf[outputPos++] = (char) x;
@@ -158,27 +80,5 @@ public char[] utf8At(int relativeOffset, int bytesAvailable, boolean testValidit
 		System.arraycopy(outputBuf, 0, (outputBuf = new char[outputPos]), 0, outputPos);
 	}
 	return outputBuf;
-}
-public static void verifyMethodNameAndSignature(char[] name, char[] signature) throws ClassFormatException {
-
-	// ensure name is not empty 
-	if (name.length == 0) {
-		throw new ClassFormatException(ClassFormatException.ErrInvalidMethodName);
-	}
-
-	// if name begins with the < character it must be clinit or init
-	if (name[0] == '<') {
-		if (new String(name).equals("<clinit>") || new String(name).equals("<init>")) { //$NON-NLS-2$ //$NON-NLS-1$
-			int signatureLength = signature.length;
-			if (!((signatureLength > 2)
-				&& (signature[0] == '(')
-				&& (signature[signatureLength - 2] == ')')
-				&& (signature[signatureLength - 1] == 'V'))) {
-				throw new ClassFormatException(ClassFormatException.ErrInvalidMethodSignature);
-			}
-		} else {
-			throw new ClassFormatException(ClassFormatException.ErrInvalidMethodName);
-		}
-	}
 }
 }

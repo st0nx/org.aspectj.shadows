@@ -1,27 +1,32 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
-import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.internal.compiler.ClassFile;
 import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
-import org.eclipse.jdt.internal.compiler.ast.FieldReference;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
-import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
+import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
+import org.eclipse.jdt.internal.compiler.codegen.ConstantPool;
+import org.eclipse.jdt.internal.compiler.codegen.StackMapFrameCodeStream;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
-import org.eclipse.jdt.internal.compiler.lookup.LocalTypeBinding;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
 import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
 import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
+import org.eclipse.jdt.internal.compiler.lookup.TagBits;
+import org.eclipse.jdt.internal.compiler.lookup.TypeVariableBinding;
+import org.eclipse.jdt.internal.compiler.util.Util;
 
 public class CodeSnippetClassFile extends ClassFile {
 /**
@@ -42,105 +47,86 @@ public CodeSnippetClassFile(
 	 * @param enclosingClassFile org.eclipse.jdt.internal.compiler.codegen.ClassFile
 	 * @param creatingProblemType <CODE>boolean</CODE>
 	 */
-	referenceBinding = aType;
-	header = new byte[INITIAL_HEADER_SIZE];
+	this.referenceBinding = aType;
+	initByteArrays();
 	// generate the magic numbers inside the header
-	header[headerOffset++] = (byte) (0xCAFEBABEL >> 24);
-	header[headerOffset++] = (byte) (0xCAFEBABEL >> 16);
-	header[headerOffset++] = (byte) (0xCAFEBABEL >> 8);
-	header[headerOffset++] = (byte) (0xCAFEBABEL >> 0);
-	if (((SourceTypeBinding) referenceBinding).scope.environment().options.targetJDK >= CompilerOptions.JDK1_2) {
-		// Compatible with JDK 1.2
-		header[headerOffset++] = 0;
-		// minorVersion = 0 means we just need to offset the current offset by 2
-		header[headerOffset++] = 0;
-		header[headerOffset++] = 0;
-		header[headerOffset++] = 46;
-	} else {
-		// Compatible with JDK 1.1
-		header[headerOffset++] = 0;
-		header[headerOffset++] = 3;
-		header[headerOffset++] = 0;
-		header[headerOffset++] = 45;
+	this.header[this.headerOffset++] = (byte) (0xCAFEBABEL >> 24);
+	this.header[this.headerOffset++] = (byte) (0xCAFEBABEL >> 16);
+	this.header[this.headerOffset++] = (byte) (0xCAFEBABEL >> 8);
+	this.header[this.headerOffset++] = (byte) (0xCAFEBABEL >> 0);
+
+	long targetVersion = this.targetJDK = this.referenceBinding.scope.compilerOptions().targetJDK;
+	this.header[this.headerOffset++] = (byte) (targetVersion >> 8); // minor high
+	this.header[this.headerOffset++] = (byte) (targetVersion >> 0); // minor low
+	this.header[this.headerOffset++] = (byte) (targetVersion >> 24); // major high
+	this.header[this.headerOffset++] = (byte) (targetVersion >> 16); // major low
+
+	this.constantPoolOffset = this.headerOffset;
+	this.headerOffset += 2;
+	this.constantPool = new ConstantPool(this);
+	int accessFlags = aType.getAccessFlags();
+
+	if (!aType.isInterface()) { // class or enum
+		accessFlags |= ClassFileConstants.AccSuper;
 	}
-	constantPoolOffset = headerOffset;
-	headerOffset += 2;
-	constantPool = new CodeSnippetConstantPool(this);
-	int accessFlags = aType.getAccessFlags() | AccSuper;
 	if (aType.isNestedType()) {
 		if (aType.isStatic()) {
 			// clear Acc_Static
-			accessFlags &= ~AccStatic;
+			accessFlags &= ~ClassFileConstants.AccStatic;
 		}
 		if (aType.isPrivate()) {
 			// clear Acc_Private and Acc_Public
-			accessFlags &= ~(AccPrivate | AccPublic);
+			accessFlags &= ~(ClassFileConstants.AccPrivate | ClassFileConstants.AccPublic);
 		}
 		if (aType.isProtected()) {
 			// clear Acc_Protected and set Acc_Public
-			accessFlags &= ~AccProtected;
-			accessFlags |= AccPublic;
+			accessFlags &= ~ClassFileConstants.AccProtected;
+			accessFlags |= ClassFileConstants.AccPublic;
 		}
 	}
 	// clear Acc_Strictfp
-	accessFlags &= ~AccStrictfp;
+	accessFlags &= ~ClassFileConstants.AccStrictfp;
 
 	this.enclosingClassFile = enclosingClassFile;
-	// innerclasses get their names computed at code gen time
-	if (aType.isLocalType()) {
-		((LocalTypeBinding) aType).constantPoolName(
-			computeConstantPoolName((LocalTypeBinding) aType));
-		ReferenceBinding[] memberTypes = aType.memberTypes();
-		for (int i = 0, max = memberTypes.length; i < max; i++) {
-			((LocalTypeBinding) memberTypes[i]).constantPoolName(
-				computeConstantPoolName((LocalTypeBinding) memberTypes[i]));
-		}
-	}
-	contents = new byte[INITIAL_CONTENTS_SIZE];
 	// now we continue to generate the bytes inside the contents array
-	contents[contentsOffset++] = (byte) (accessFlags >> 8);
-	contents[contentsOffset++] = (byte) accessFlags;
-	int classNameIndex = constantPool.literalIndex(aType);
-	contents[contentsOffset++] = (byte) (classNameIndex >> 8);
-	contents[contentsOffset++] = (byte) classNameIndex;
+	this.contents[this.contentsOffset++] = (byte) (accessFlags >> 8);
+	this.contents[this.contentsOffset++] = (byte) accessFlags;
+	int classNameIndex = this.constantPool.literalIndexForType(aType);
+	this.contents[this.contentsOffset++] = (byte) (classNameIndex >> 8);
+	this.contents[this.contentsOffset++] = (byte) classNameIndex;
 	int superclassNameIndex;
 	if (aType.isInterface()) {
-		superclassNameIndex = constantPool.literalIndexForJavaLangObject();
+		superclassNameIndex = this.constantPool.literalIndexForType(ConstantPool.JavaLangObjectConstantPoolName);
 	} else {
 		superclassNameIndex =
-			(aType.superclass == null ? 0 : constantPool.literalIndex(aType.superclass));
+			(aType.superclass == null ? 0 : this.constantPool.literalIndexForType(aType.superclass));
 	}
-	contents[contentsOffset++] = (byte) (superclassNameIndex >> 8);
-	contents[contentsOffset++] = (byte) superclassNameIndex;
+	this.contents[this.contentsOffset++] = (byte) (superclassNameIndex >> 8);
+	this.contents[this.contentsOffset++] = (byte) superclassNameIndex;
 	ReferenceBinding[] superInterfacesBinding = aType.superInterfaces();
 	int interfacesCount = superInterfacesBinding.length;
-	contents[contentsOffset++] = (byte) (interfacesCount >> 8);
-	contents[contentsOffset++] = (byte) interfacesCount;
-	if (superInterfacesBinding != null) {
-		for (int i = 0; i < interfacesCount; i++) {
-			int interfaceIndex = constantPool.literalIndex(superInterfacesBinding[i]);
-			contents[contentsOffset++] = (byte) (interfaceIndex >> 8);
-			contents[contentsOffset++] = (byte) interfaceIndex;
-		}
+	this.contents[this.contentsOffset++] = (byte) (interfacesCount >> 8);
+	this.contents[this.contentsOffset++] = (byte) interfacesCount;
+	for (int i = 0; i < interfacesCount; i++) {
+		int interfaceIndex = this.constantPool.literalIndexForType(superInterfacesBinding[i]);
+		this.contents[this.contentsOffset++] = (byte) (interfaceIndex >> 8);
+		this.contents[this.contentsOffset++] = (byte) interfaceIndex;
 	}
-	produceDebugAttributes =
-		((SourceTypeBinding) referenceBinding)
-			.scope
-			.environment()
-			.options
-			.produceDebugAttributes;
-	innerClassesBindings = new ReferenceBinding[INNER_CLASSES_SIZE];
+	this.produceAttributes = this.referenceBinding.scope.compilerOptions().produceDebugAttributes;
 	this.creatingProblemType = creatingProblemType;
-	codeStream = new CodeSnippetCodeStream(this);
-
+	if (this.targetJDK >= ClassFileConstants.JDK1_6) {
+		this.codeStream = new StackMapFrameCodeStream(this);
+		this.produceAttributes |= ClassFileConstants.ATTR_STACK_MAP_TABLE;
+	} else if (this.targetJDK == ClassFileConstants.CLDC_1_1) {
+		this.targetJDK = ClassFileConstants.JDK1_1; // put back 45.3
+		this.produceAttributes |= ClassFileConstants.ATTR_STACK_MAP;
+		this.codeStream = new StackMapFrameCodeStream(this);
+	} else {
+		this.codeStream = new CodeStream(this);
+	}
 	// retrieve the enclosing one guaranteed to be the one matching the propagated flow info
 	// 1FF9ZBU: LFCOM:ALL - Local variable attributes busted (Sanity check)
-	ClassFile outermostClassFile = this.outerMostEnclosingClassFile();
-	if (this == outermostClassFile) {
-		codeStream.maxFieldCount = aType.scope.referenceType().maxFieldCount;
-	} else {
-		codeStream.maxFieldCount = outermostClassFile.codeStream.maxFieldCount;
-	}
+	this.codeStream.maxFieldCount = aType.scope.outerMostClassScope().referenceType().maxFieldCount;
 }
 /**
  * INTERNAL USE-ONLY
@@ -154,17 +140,29 @@ public static void createProblemType(TypeDeclaration typeDeclaration, Compilatio
 	ClassFile classFile = new CodeSnippetClassFile(typeBinding, null, true);
 
 	// inner attributes
-	if (typeBinding.isMemberType())
-		classFile.recordEnclosingTypeAttributes(typeBinding);
+	if (typeBinding.hasMemberTypes()) {
+		// see bug 180109
+		ReferenceBinding[] members = typeBinding.memberTypes;
+		for (int i = 0, l = members.length; i < l; i++)
+			classFile.recordInnerClasses(members[i]);
+	}
+	// TODO (olivier) handle cases where a field cannot be generated (name too long)
+	// TODO (olivier) handle too many methods
+	// inner attributes
+	if (typeBinding.isNestedType()) {
+		classFile.recordInnerClasses(typeBinding);
+	}
+	TypeVariableBinding[] typeVariables = typeBinding.typeVariables();
+	for (int i = 0, max = typeVariables.length; i < max; i++) {
+		TypeVariableBinding typeVariableBinding = typeVariables[i];
+		if ((typeVariableBinding.tagBits & TagBits.ContainsNestedTypeReferences) != 0) {
+			Util.recordNestedType(classFile, typeVariableBinding);
+		}
+	}
 
 	// add its fields
-	FieldBinding[] fields = typeBinding.fields;
-	if ((fields != null) && (fields != NoFields)) {
-		for (int i = 0, max = fields.length; i < max; i++) {
-			if (fields[i].constant == null) {
-				FieldReference.getConstantFor(fields[i], false, null, null, 0);
-			}
-		}
+	FieldBinding[] fields = typeBinding.fields();
+	if ((fields != null) && (fields != Binding.NO_FIELDS)) {
 		classFile.addFieldInfos();
 	} else {
 		// we have to set the number of fields to be equals to 0
@@ -174,51 +172,37 @@ public static void createProblemType(TypeDeclaration typeDeclaration, Compilatio
 	// leave some space for the methodCount
 	classFile.setForMethodInfos();
 	// add its user defined methods
-	MethodBinding[] methods = typeBinding.methods;
-	AbstractMethodDeclaration[] methodDeclarations = typeDeclaration.methods;
-	int maxMethodDecl = methodDeclarations == null ? 0 : methodDeclarations.length;
 	int problemsLength;
-	IProblem[] problems = unitResult.getProblems();
+	CategorizedProblem[] problems = unitResult.getErrors();
 	if (problems == null) {
-		problems = new IProblem[0];
+		problems = new CategorizedProblem[0];
 	}
-	IProblem[] problemsCopy = new IProblem[problemsLength = problems.length];
+	CategorizedProblem[] problemsCopy = new CategorizedProblem[problemsLength = problems.length];
 	System.arraycopy(problems, 0, problemsCopy, 0, problemsLength);
-	if (methods != null) {
+	AbstractMethodDeclaration[] methodDecls = typeDeclaration.methods;
+	if (methodDecls != null) {
 		if (typeBinding.isInterface()) {
 			// we cannot create problem methods for an interface. So we have to generate a clinit
 			// which should contain all the problem
 			classFile.addProblemClinit(problemsCopy);
-			for (int i = 0, max = methods.length; i < max; i++) {
-				MethodBinding methodBinding;
-				if ((methodBinding = methods[i]) != null) {
-					// find the corresponding method declaration
-					for (int j = 0; j < maxMethodDecl; j++) {
-						if ((methodDeclarations[j] != null) && (methodDeclarations[j].binding == methods[i])) {
-							if (!methodBinding.isConstructor()) {
-								classFile.addAbstractMethod(methodDeclarations[j], methodBinding);
-							}
-							break;
-						}
-					}
-				}
-			}			
+			for (int i = 0, length = methodDecls.length; i < length; i++) {
+				AbstractMethodDeclaration methodDecl = methodDecls[i];
+				MethodBinding method = methodDecl.binding;
+				if (method == null || method.isConstructor()) continue;
+				method.modifiers = ClassFileConstants.AccPublic | ClassFileConstants.AccAbstract;
+				classFile.addAbstractMethod(methodDecl, method);
+			}
 		} else {
-			for (int i = 0, max = methods.length; i < max; i++) {
-				MethodBinding methodBinding;
-				if ((methodBinding = methods[i]) != null) {
-					// find the corresponding method declaration
-					for (int j = 0; j < maxMethodDecl; j++) {
-						if ((methodDeclarations[j] != null) && (methodDeclarations[j].binding == methods[i])) {
-							AbstractMethodDeclaration methodDecl;
-							if ((methodDecl = methodDeclarations[j]).isConstructor()) {
-								classFile.addProblemConstructor(methodDecl, methodBinding, problemsCopy);
-							} else {
-								classFile.addProblemMethod(methodDecl, methodBinding, problemsCopy);
-							}
-							break;
-						}
-					}
+			for (int i = 0, length = methodDecls.length; i < length; i++) {
+				AbstractMethodDeclaration methodDecl = methodDecls[i];
+				MethodBinding method = methodDecl.binding;
+				if (method == null) continue;
+				if (method.isConstructor()) {
+					classFile.addProblemConstructor(methodDecl, method, problemsCopy);
+				} else if (method.isAbstract()) {
+					classFile.addAbstractMethod(methodDecl, method);
+				} else {
+					classFile.addProblemMethod(methodDecl, method, problemsCopy);
 				}
 			}
 		}
@@ -230,7 +214,6 @@ public static void createProblemType(TypeDeclaration typeDeclaration, Compilatio
 		for (int i = 0, max = typeDeclaration.memberTypes.length; i < max; i++) {
 			TypeDeclaration memberType = typeDeclaration.memberTypes[i];
 			if (memberType.binding != null) {
-				classFile.recordNestedMemberAttribute(memberType.binding);
 				ClassFile.createProblemType(memberType, unitResult);
 			}
 		}

@@ -1,105 +1,114 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
-import org.eclipse.jdt.core.JavaCore;
+import org.eclipse.core.resources.IFile;
+import org.eclipse.core.runtime.IPath;
+import org.eclipse.core.runtime.CoreException;
+
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.ICompilationUnit;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
-
-import java.io.*;
+import org.eclipse.jdt.internal.core.util.Util;
 
 public class SourceFile implements ICompilationUnit {
 
-public char[] fileName;
-public char[] mainTypeName;
-public char[][] packageName;
-String encoding;
+public IFile resource;
+ClasspathMultiDirectory sourceLocation;
+String initialTypeName;
+boolean updateClassFile;
 
-public SourceFile(String fileName, String initialTypeName) {
-	this.fileName = fileName.toCharArray();
-	CharOperation.replace(this.fileName, '\\', '/');
-
-	char[] typeName = initialTypeName.toCharArray();
-	int lastIndex = CharOperation.lastIndexOf('/', typeName);
-	this.mainTypeName = CharOperation.subarray(typeName, lastIndex + 1, -1);
-	this.packageName = CharOperation.splitOn('/', typeName, 0, lastIndex - 1);
-
-	this.encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
+public SourceFile(IFile resource, ClasspathMultiDirectory sourceLocation) {
+	this.resource = resource;
+	this.sourceLocation = sourceLocation;
+	this.initialTypeName = extractTypeName();
+	this.updateClassFile = false;
 }
 
-public SourceFile(String fileName, char[] mainTypeName, char[][] packageName) {
-	this.fileName = fileName.toCharArray();
-	CharOperation.replace(this.fileName, '\\', '/');
+public SourceFile(IFile resource, ClasspathMultiDirectory sourceLocation, boolean updateClassFile) {
+	this(resource, sourceLocation);
 
-	this.mainTypeName = mainTypeName;
-	this.packageName = packageName;
+	this.updateClassFile = updateClassFile;
+}
 
-	this.encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
+public boolean equals(Object o) {
+	if (this == o) return true;
+	if (!(o instanceof SourceFile)) return false;
+
+	SourceFile f = (SourceFile) o;
+	return this.sourceLocation == f.sourceLocation && this.resource.getFullPath().equals(f.resource.getFullPath());
+}
+
+String extractTypeName() {
+	// answer a String with the qualified type name for the source file in the form: 'p1/p2/A'
+	IPath fullPath = this.resource.getFullPath();
+	int resourceSegmentCount = fullPath.segmentCount();
+	int sourceFolderSegmentCount = this.sourceLocation.sourceFolder.getFullPath().segmentCount();
+	int charCount = (resourceSegmentCount - sourceFolderSegmentCount - 1);
+	resourceSegmentCount--; // deal with the last segment separately
+	for (int i = sourceFolderSegmentCount; i < resourceSegmentCount; i++)
+		charCount += fullPath.segment(i).length();
+	String lastSegment = fullPath.segment(resourceSegmentCount);
+	int extensionIndex = Util.indexOfJavaLikeExtension(lastSegment);
+	charCount += extensionIndex;
+
+	char[] result = new char[charCount];
+	int offset = 0;
+	for (int i = sourceFolderSegmentCount; i < resourceSegmentCount; i++) {
+		String segment = fullPath.segment(i);
+		int size = segment.length();
+		segment.getChars(0, size, result, offset);
+		offset += size;
+		result[offset++] = '/';
+	}
+	lastSegment.getChars(0, extensionIndex, result, offset);
+	return new String(result);
 }
 
 public char[] getContents() {
-	// otherwise retrieve it
-	BufferedReader reader = null;
+
 	try {
-		File file = new File(new String(fileName));
-		InputStreamReader streamReader =
-			this.encoding == null
-				? new InputStreamReader(new FileInputStream(file))
-				: new InputStreamReader(new FileInputStream(file), this.encoding);
-		reader = new BufferedReader(streamReader);
-		int length = (int) file.length();
-		char[] contents = new char[length];
-		int len = 0;
-		int readSize = 0;
-		while ((readSize != -1) && (len != length)) {
-			// See PR 1FMS89U
-			// We record first the read size. In this case len is the actual read size.
-			len += readSize;
-			readSize = reader.read(contents, len, length - len);
-		}
-		reader.close();
-		// See PR 1FMS89U
-		// Now we need to resize in case the default encoding used more than one byte for each
-		// character
-		if (len != length)
-			System.arraycopy(contents, 0, (contents = new char[len]), 0, len);		
-		return contents;
-	} catch (FileNotFoundException e) {
-		throw new AbortCompilation(true, new MissingSourceFileException(new String(fileName)));
-	} catch (IOException e) {
-		if (reader != null) {
-			try {
-				reader.close();
-			} catch(IOException ioe) {
-			}
-		}
-		throw new AbortCompilation(true, new MissingSourceFileException(new String(fileName)));
+		return Util.getResourceContentsAsCharArray(this.resource);
+	} catch (CoreException e) {
+		throw new AbortCompilation(true, new MissingSourceFileException(this.resource.getFullPath().toString()));
 	}
 }
 
+/**
+ * @see org.eclipse.jdt.internal.compiler.env.IDependent#getFileName()
+ */
 public char[] getFileName() {
-	return fileName;
+	return this.resource.getFullPath().toString().toCharArray(); // do not know what you want to return here
 }
 
 public char[] getMainTypeName() {
-	return mainTypeName;
+	char[] typeName = this.initialTypeName.toCharArray();
+	int lastIndex = CharOperation.lastIndexOf('/', typeName);
+	return CharOperation.subarray(typeName, lastIndex + 1, -1);
 }
 
 public char[][] getPackageName() {
-	return packageName;
+	char[] typeName = this.initialTypeName.toCharArray();
+	int lastIndex = CharOperation.lastIndexOf('/', typeName);
+	return CharOperation.splitOn('/', typeName, 0, lastIndex);
+}
+public int hashCode() {
+	return this.initialTypeName.hashCode();
+}
+String typeLocator() {
+	return this.resource.getProjectRelativePath().toString();
 }
 
 public String toString() {
 	return "SourceFile[" //$NON-NLS-1$
-		+ new String(fileName) + "]";  //$NON-NLS-1$
+		+ this.resource.getFullPath() + "]";  //$NON-NLS-1$
 }
 }

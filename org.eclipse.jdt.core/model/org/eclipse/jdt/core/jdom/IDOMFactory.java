@@ -1,19 +1,21 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core.jdom;
 
 /**
- * A factory used to create document fragment (DF) nodes. An 
+ * A factory used to create document fragment (DF) nodes. An
  * <code>IDOMCompilationUnit</code> represents the root of a complete JDOM (that
- * is, a ".java" file). Other node types represent fragments of a compilation
+ * is, a source file with one of the
+ * {@link org.eclipse.jdt.core.JavaCore#getJavaLikeExtensions()
+ * Java-like extensions}). Other node types represent fragments of a compilation
  * unit.
  * <p>
  * The factory can be used to create empty DFs or it can create DFs from source
@@ -27,26 +29,27 @@ package org.eclipse.jdt.core.jdom;
  * <p>
  * Even if a DF is created successfully from source code, it does not guarantee
  * that the source code will compile error free. Similarly, the contents of a DF
- * are not guaranteed to compile error free. However, syntactically correct 
+ * are not guaranteed to compile error free. However, syntactically correct
  * source code is guaranteed to be recognized and successfully generate a DF.
  * Similarly, if all of the fragments of a JDOM are syntactically correct, the
  * contents of the entire document will be correct too.
  * </p>
  * <p>
- * The factory does not perform or provide any code formatting. Document 
+ * The factory does not perform or provide any code formatting. Document
  * fragments created on source strings must be pre-formatted. The JDOM attempts
  * to maintain the formatting of documents as best as possible. For this reason,
- * document fragments created for nodes that are to be strung together should 
+ * document fragments created for nodes that are to be strung together should
  * end with a new-line character. Failing to do so will result in a document
  * that has elements strung together on the same line. This is especially
  * important if a source string ends with a // comment. In this case, it would
  * be syntactically incorrect to omit the new line character.
  * </p>
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
  *
  * @see IDOMNode
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the
+ * org.eclipse.jdt.core.dom package.
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IDOMFactory {
 /**
@@ -85,7 +88,7 @@ public IDOMCompilationUnit createCompilationUnit(String sourceCode, String name)
 public IDOMField createField();
 /**
  * Creates a field document fragment on the given source code. The given source
- * string corresponds to FieldDeclaration (JLS2 8.3) and ConstantDeclaration 
+ * string corresponds to FieldDeclaration (JLS2 8.3) and ConstantDeclaration
  * (JLS2 9.3) restricted to a single VariableDeclarator clause.
  *
  * @param sourceCode the source code
@@ -96,7 +99,7 @@ public IDOMField createField();
 public IDOMField createField(String sourceCode);
 /**
  * Creates an empty import document fragment. Initially the import will have
- * name <code>"java.lang.*"</code>.
+ * name <code>"java.lang.*"</code> and be non-static.
  *
  * @return the new import
  */
@@ -119,7 +122,7 @@ public IDOMImport createImport(String sourceCode);
 public IDOMInitializer createInitializer();
 /**
  * Creates an initializer document fragment from the given source code. The
- * syntax for the given source string corresponds to InstanceInitializer 
+ * syntax for the given source string corresponds to InstanceInitializer
  * (JLS2 8.6) and StaticDeclaration (JLS2 8.7).
  *
  * @param sourceCode the source code
@@ -129,7 +132,7 @@ public IDOMInitializer createInitializer();
 public IDOMInitializer createInitializer(String sourceCode);
 /**
  * Creates a default method document fragment. Initially the method
- * will have public visibility, return type <code>"void"</code>, be named 
+ * will have public visibility, return type <code>"void"</code>, be named
  * <code>"newMethod"</code>, have no parameters, no comment, and an empty body.
  *
  * @return the new method
@@ -137,7 +140,7 @@ public IDOMInitializer createInitializer(String sourceCode);
 public IDOMMethod createMethod();
 /**
  * Creates a method document fragment on the given source code. The syntax for
- * the given source string corresponds to MethodDeclaration (JLS2 8.4),  
+ * the given source string corresponds to MethodDeclaration (JLS2 8.4),
  * ConstructorDeclaration (JLS2 8.8), and AbstractMethodDeclaration (JLS2 9.4).
  *
  * @param sourceCode the source code
@@ -146,7 +149,7 @@ public IDOMMethod createMethod();
  */
 public IDOMMethod createMethod(String sourceCode);
 /**
- * Creates an empty package document fragment. Initially the package 
+ * Creates an empty package document fragment. Initially the package
  * declaration will have no name.
  *
  * @return the new package
@@ -186,7 +189,7 @@ public IDOMType createClass();
 public IDOMType createInterface();
 /**
  * Creates a type document fragment on the given source code. The syntax for the
- * given source string corresponds to ClassDeclaration (JLS2 8.1) and 
+ * given source string corresponds to ClassDeclaration (JLS2 8.1) and
  * InterfaceDeclaration (JLS2 9.1).
  *
  * @param sourceCode the source code

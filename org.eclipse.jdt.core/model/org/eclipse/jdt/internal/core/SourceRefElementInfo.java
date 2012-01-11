@@ -1,32 +1,30 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.jdt.core.ISourceRange;
+import org.eclipse.jdt.core.SourceRange;
 
-/** 
- * Element info for ISourceReference elements. 
+/**
+ * Element info for ISourceReference elements.
  */
 /* package */ class SourceRefElementInfo extends JavaElementInfo {
-	protected int fSourceRangeStart, fSourceRangeEnd;
-protected SourceRefElementInfo() {
-	setIsStructureKnown(true);
-}
+	protected int sourceRangeStart, sourceRangeEnd;
 /**
  * @see org.eclipse.jdt.internal.compiler.env.ISourceType#getDeclarationSourceEnd()
  * @see org.eclipse.jdt.internal.compiler.env.ISourceMethod#getDeclarationSourceEnd()
  * @see org.eclipse.jdt.internal.compiler.env.ISourceField#getDeclarationSourceEnd()
  */
 public int getDeclarationSourceEnd() {
-	return fSourceRangeEnd;
+	return this.sourceRangeEnd;
 }
 /**
  * @see org.eclipse.jdt.internal.compiler.env.ISourceType#getDeclarationSourceStart()
@@ -34,15 +32,15 @@ public int getDeclarationSourceEnd() {
  * @see org.eclipse.jdt.internal.compiler.env.ISourceField#getDeclarationSourceStart()
  */
 public int getDeclarationSourceStart() {
-	return fSourceRangeStart;
+	return this.sourceRangeStart;
 }
 protected ISourceRange getSourceRange() {
-	return new SourceRange(fSourceRangeStart, fSourceRangeEnd - fSourceRangeStart + 1);
+	return new SourceRange(this.sourceRangeStart, this.sourceRangeEnd - this.sourceRangeStart + 1);
 }
 protected void setSourceRangeEnd(int end) {
-	fSourceRangeEnd = end;
+	this.sourceRangeEnd = end;
 }
 protected void setSourceRangeStart(int start) {
-	fSourceRangeStart = start;
+	this.sourceRangeStart = start;
 }
 }

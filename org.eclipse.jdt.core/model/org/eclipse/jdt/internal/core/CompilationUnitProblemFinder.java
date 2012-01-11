@@ -1,40 +1,34 @@
 /*******************************************************************************
- * Copyright (c) 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import java.util.Locale;
+import java.util.HashMap;
 import java.util.Map;
 
 import org.eclipse.core.runtime.IProgressMonitor;
-import org.eclipse.jdt.core.ICompilationUnit;
-import org.eclipse.jdt.core.IJavaElement;
-import org.eclipse.jdt.core.IPackageFragment;
-import org.eclipse.jdt.core.IProblemRequestor;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.compiler.IProblem;
-import org.eclipse.jdt.internal.compiler.CompilationResult;
+import org.eclipse.core.runtime.OperationCanceledException;
+import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
+import org.eclipse.jdt.internal.compiler.*;
 import org.eclipse.jdt.internal.compiler.Compiler;
-import org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies;
-import org.eclipse.jdt.internal.compiler.ICompilerRequestor;
-import org.eclipse.jdt.internal.compiler.IErrorHandlingPolicy;
-import org.eclipse.jdt.internal.compiler.IProblemFactory;
 import org.eclipse.jdt.internal.compiler.ast.CompilationUnitDeclaration;
+import org.eclipse.jdt.internal.compiler.env.AccessRestriction;
 import org.eclipse.jdt.internal.compiler.env.INameEnvironment;
 import org.eclipse.jdt.internal.compiler.env.ISourceType;
+import org.eclipse.jdt.internal.compiler.impl.CompilerOptions;
 import org.eclipse.jdt.internal.compiler.lookup.PackageBinding;
 import org.eclipse.jdt.internal.compiler.parser.SourceTypeConverter;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
-import org.eclipse.jdt.internal.compiler.problem.DefaultProblemFactory;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.internal.core.util.CommentRecorderParser;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * Responsible for resolving types inside a compilation unit being reconciled,
@@ -60,15 +54,15 @@ public class CompilationUnitProblemFinder extends Compiler {
 	 *      specify the rules for handling problems (stop on first error or accumulate
 	 *      them all) and at the same time perform some actions such as opening a dialog
 	 *      in UI when compiling interactively.
-	 *      @see org.eclipse.jdt.internal.compiler.api.problem.DefaultErrorHandlingPolicies
-	 * 
-	 *	@param settings The settings to use for the resolution.
-	 *      
+	 *      @see org.eclipse.jdt.internal.compiler.DefaultErrorHandlingPolicies
+	 *
+	 *	@param compilerOptions The compiler options to use for the resolution.
+	 *
 	 *  @param requestor org.eclipse.jdt.internal.compiler.api.ICompilerRequestor
 	 *      Component which will receive and persist all compilation results and is intended
-	 *      to consume them as they are produced. Typically, in a batch compiler, it is 
+	 *      to consume them as they are produced. Typically, in a batch compiler, it is
 	 *      responsible for writing out the actual .class files to the file system.
-	 *      @see org.eclipse.jdt.internal.compiler.api.CompilationResult
+	 *      @see org.eclipse.jdt.internal.compiler.CompilationResult
 	 *
 	 *  @param problemFactory org.eclipse.jdt.internal.compiler.api.problem.IProblemFactory
 	 *      Factory used inside the compiler to create problem descriptors. It allows the
@@ -80,32 +74,66 @@ public class CompilationUnitProblemFinder extends Compiler {
 	protected CompilationUnitProblemFinder(
 		INameEnvironment environment,
 		IErrorHandlingPolicy policy,
-		Map settings,
+		CompilerOptions compilerOptions,
 		ICompilerRequestor requestor,
 		IProblemFactory problemFactory) {
 
-		super(environment, policy, settings, requestor, problemFactory, true);
+		super(environment,
+			policy,
+			compilerOptions,
+			requestor,
+			problemFactory
+		);
 	}
 
 	/**
 	 * Add additional source types
 	 */
-	public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding) {
+	public void accept(ISourceType[] sourceTypes, PackageBinding packageBinding, AccessRestriction accessRestriction) {
+		// ensure to jump back to toplevel type for first one (could be a member)
+		while (sourceTypes[0].getEnclosingType() != null) {
+			sourceTypes[0] = sourceTypes[0].getEnclosingType();
+		}
+
 		CompilationResult result =
 			new CompilationResult(sourceTypes[0].getFileName(), 1, 1, this.options.maxProblemsPerUnit);
-		// need to hold onto this
-		CompilationUnitDeclaration unit =
-			SourceTypeConverter.buildCompilationUnit(
-				sourceTypes,
-				true,
-				true,
-				lookupEnvironment.problemReporter,
-				result);
+		
+		// https://bugs.eclipse.org/bugs/show_bug.cgi?id=305259, build the compilation unit in its own sand box.
+		final long savedComplianceLevel = this.options.complianceLevel;
+		final long savedSourceLevel = this.options.sourceLevel;
+		
+		try {
+			IJavaProject project = ((SourceTypeElementInfo) sourceTypes[0]).getHandle().getJavaProject();
+			this.options.complianceLevel = CompilerOptions.versionToJdkLevel(project.getOption(JavaCore.COMPILER_COMPLIANCE, true));
+			this.options.sourceLevel = CompilerOptions.versionToJdkLevel(project.getOption(JavaCore.COMPILER_SOURCE, true));
 
-		if (unit != null) {
-			this.lookupEnvironment.buildTypeBindings(unit);
-			this.lookupEnvironment.completeTypeBindings(unit, true);
+			// need to hold onto this
+			CompilationUnitDeclaration unit =
+				SourceTypeConverter.buildCompilationUnit(
+						sourceTypes,//sourceTypes[0] is always toplevel here
+						SourceTypeConverter.FIELD_AND_METHOD // need field and methods
+						| SourceTypeConverter.MEMBER_TYPE // need member types
+						| SourceTypeConverter.FIELD_INITIALIZATION, // need field initialization
+						this.lookupEnvironment.problemReporter,
+						result);
+
+			if (unit != null) {
+				this.lookupEnvironment.buildTypeBindings(unit, accessRestriction);
+				this.lookupEnvironment.completeTypeBindings(unit);
+			}
+		} finally {
+			this.options.complianceLevel = savedComplianceLevel;
+			this.options.sourceLevel = savedSourceLevel;
 		}
+	}
+
+	protected static CompilerOptions getCompilerOptions(Map settings, boolean creatingAST, boolean statementsRecovery) {
+		CompilerOptions compilerOptions = new CompilerOptions(settings);
+		compilerOptions.performMethodsFullRecovery = statementsRecovery;
+		compilerOptions.performStatementsRecovery = statementsRecovery;
+		compilerOptions.parseLiteralExpressionsAsConstants = !creatingAST; /*parse literal expressions as constants only if not creating a DOM AST*/
+		compilerOptions.storeAnnotations = creatingAST; /*store annotations in the bindings if creating a DOM AST*/
+		return compilerOptions;
 	}
 
 	/*
@@ -115,105 +143,138 @@ public class CompilationUnitProblemFinder extends Compiler {
 		return DefaultErrorHandlingPolicies.proceedWithAllProblems();
 	}
 
-	protected static INameEnvironment getNameEnvironment(ICompilationUnit sourceUnit)
-		throws JavaModelException {
-		return (SearchableEnvironment) ((JavaProject) sourceUnit.getJavaProject())
-			.getSearchableNameEnvironment();
-	}
-
 	/*
 	 * Answer the component to which will be handed back compilation results from the compiler
 	 */
 	protected static ICompilerRequestor getRequestor() {
 		return new ICompilerRequestor() {
 			public void acceptResult(CompilationResult compilationResult) {
+				// default requestor doesn't handle compilation results back
 			}
 		};
 	}
 
-	public static CompilationUnitDeclaration resolve(
-		ICompilationUnit unitElement, 
-		IProblemRequestor problemRequestor,
-		IProgressMonitor monitor)
+	/*
+	 * Can return null if the process was aborted or canceled 
+	 */
+	public static CompilationUnitDeclaration process(
+			CompilationUnit unitElement,
+			SourceElementParser parser,
+			WorkingCopyOwner workingCopyOwner,
+			HashMap problems,
+			boolean creatingAST,
+			int reconcileFlags,
+			IProgressMonitor monitor)
 		throws JavaModelException {
 
-		char[] fileName = unitElement.getElementName().toCharArray();
-		
-		CompilationUnitProblemFinder problemFinder =
-			new CompilationUnitProblemFinder(
-				getNameEnvironment(unitElement),
-				getHandlingPolicy(),
-				JavaCore.getOptions(),
-				getRequestor(),
-				getProblemFactory(fileName, problemRequestor, monitor));
-
+		JavaProject project = (JavaProject) unitElement.getJavaProject();
+		CancelableNameEnvironment environment = null;
+		CancelableProblemFactory problemFactory = null;
+		CompilationUnitProblemFinder problemFinder = null;
 		CompilationUnitDeclaration unit = null;
 		try {
-			String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
-			
-			IPackageFragment packageFragment = (IPackageFragment)unitElement.getAncestor(IJavaElement.PACKAGE_FRAGMENT);
-			char[][] expectedPackageName = null;
-			if (packageFragment != null){
-				expectedPackageName = CharOperation.splitOn('.', packageFragment.getElementName().toCharArray());
+			environment = new CancelableNameEnvironment(project, workingCopyOwner, monitor);
+			problemFactory = new CancelableProblemFactory(monitor);
+			CompilerOptions compilerOptions = getCompilerOptions(project.getOptions(true), creatingAST, ((reconcileFlags & ICompilationUnit.ENABLE_STATEMENTS_RECOVERY) != 0));
+			boolean ignoreMethodBodies = (reconcileFlags & ICompilationUnit.IGNORE_METHOD_BODIES) != 0;
+			compilerOptions.ignoreMethodBodies = ignoreMethodBodies;
+			problemFinder = new CompilationUnitProblemFinder(
+				environment,
+				getHandlingPolicy(),
+				compilerOptions,
+				getRequestor(),
+				problemFactory);
+			boolean analyzeAndGenerateCode = true;
+			if (ignoreMethodBodies) {
+				analyzeAndGenerateCode = false;
 			}
-			unit = problemFinder.resolve(
-					new BasicCompilationUnit(
-						unitElement.getSource().toCharArray(),
-						expectedPackageName,
-						new String(fileName),
-						encoding));
-			return unit;
-		} finally {
+			try {
+				if (parser != null) {
+					problemFinder.parser = parser;
+					unit = parser.parseCompilationUnit(unitElement, true/*full parse*/, monitor);
+					problemFinder.resolve(
+						unit,
+						unitElement,
+						true, // verify methods
+						analyzeAndGenerateCode, // analyze code
+						analyzeAndGenerateCode); // generate code
+				} else {
+					unit =
+						problemFinder.resolve(
+							unitElement,
+							true, // verify methods
+							analyzeAndGenerateCode, // analyze code
+							analyzeAndGenerateCode); // generate code
+				}
+			} catch (AbortCompilation e) {
+				problemFinder.handleInternalException(e, unit);
+			}
 			if (unit != null) {
-				unit.cleanUp();
+				CompilationResult unitResult = unit.compilationResult;
+				CategorizedProblem[] unitProblems = unitResult.getProblems();
+				int length = unitProblems == null ? 0 : unitProblems.length;
+				if (length > 0) {
+					CategorizedProblem[] categorizedProblems = new CategorizedProblem[length];
+					System.arraycopy(unitProblems, 0, categorizedProblems, 0, length);
+					problems.put(IJavaModelMarker.JAVA_MODEL_PROBLEM_MARKER, categorizedProblems);
+				}
+				unitProblems = unitResult.getTasks();
+				length = unitProblems == null ? 0 : unitProblems.length;
+				if (length > 0) {
+					CategorizedProblem[] categorizedProblems = new CategorizedProblem[length];
+					System.arraycopy(unitProblems, 0, categorizedProblems, 0, length);
+					problems.put(IJavaModelMarker.TASK_MARKER, categorizedProblems);
+				}
+				if (NameLookup.VERBOSE) {
+					System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInSourcePackage: " + environment.nameLookup.timeSpentInSeekTypesInSourcePackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+					System.out.println(Thread.currentThread() + " TIME SPENT in NameLoopkup#seekTypesInBinaryPackage: " + environment.nameLookup.timeSpentInSeekTypesInBinaryPackage + "ms");  //$NON-NLS-1$ //$NON-NLS-2$
+				}
 			}
-			problemFinder.lookupEnvironment.reset();			
+		} catch (OperationCanceledException e) {
+			// catch this exception so as to not enter the catch(RuntimeException e) below
+			throw e;
+		} catch(RuntimeException e) {
+			// avoid breaking other tools due to internal compiler failure (40334)
+			String lineDelimiter = unitElement.findRecommendedLineSeparator();
+			StringBuffer message = new StringBuffer("Exception occurred during problem detection:");  //$NON-NLS-1$
+			message.append(lineDelimiter);
+			message.append("----------------------------------- SOURCE BEGIN -------------------------------------"); //$NON-NLS-1$
+			message.append(lineDelimiter);
+			message.append(unitElement.getSource());
+			message.append(lineDelimiter);
+			message.append("----------------------------------- SOURCE END -------------------------------------"); //$NON-NLS-1$
+			Util.log(e, message.toString());
+			throw new JavaModelException(e, IJavaModelStatusConstants.COMPILER_FAILURE);
+		} finally {
+			if (environment != null)
+				environment.setMonitor(null); // don't hold a reference to this external object
+			if (problemFactory != null)
+				problemFactory.monitor = null; // don't hold a reference to this external object
+			// NB: unit.cleanUp() is done by caller
+			if (problemFinder != null && !creatingAST)
+				problemFinder.lookupEnvironment.reset();
 		}
-	}
-	
-	protected static IProblemFactory getProblemFactory(
-		final char[] fileName, 
-		final IProblemRequestor problemRequestor,
-		final IProgressMonitor monitor) {
-
-		return new DefaultProblemFactory(Locale.getDefault()) {
-			public IProblem createProblem(
-				char[] originatingFileName,
-				int problemId,
-				String[] arguments,
-				int severity,
-				int startPosition,
-				int endPosition,
-				int lineNumber) {
-
-				if (monitor != null && monitor.isCanceled()){
-					throw new AbortCompilation(true, null); // silent abort
-				}
-				
-				IProblem problem =
-					super.createProblem(
-						originatingFileName,
-						problemId,
-						arguments,
-						severity,
-						startPosition,
-						endPosition,
-						lineNumber);
-				// only report local problems
-				if (CharOperation.equals(originatingFileName, fileName)){
-					if (JavaModelManager.VERBOSE){
-						System.out.println("PROBLEM FOUND while reconciling : "+problem.getMessage());//$NON-NLS-1$
-					}
-					problemRequestor.acceptProblem(problem);
-				}
-				if (monitor != null && monitor.isCanceled()){
-					throw new AbortCompilation(true, null); // silent abort
-				}
-
-				return problem;
-			}
-		};
+		return unit;
 	}
 
-}	
+	public static CompilationUnitDeclaration process(
+			CompilationUnit unitElement,
+			WorkingCopyOwner workingCopyOwner,
+			HashMap problems,
+			boolean creatingAST,
+			int reconcileFlags,
+			IProgressMonitor monitor)
+			throws JavaModelException {
+
+		return process(unitElement, null/*use default Parser*/, workingCopyOwner, problems, creatingAST, reconcileFlags, monitor);
+	}
+
+	/* (non-Javadoc)
+	 * Fix for bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=60689.
+	 * @see org.eclipse.jdt.internal.compiler.Compiler#initializeParser()
+	 */
+	public void initializeParser() {
+		this.parser = new CommentRecorderParser(this.problemReporter, this.options.parseLiteralExpressionsAsConstants);
+	}
+}
 

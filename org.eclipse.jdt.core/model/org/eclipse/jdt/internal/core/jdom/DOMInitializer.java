@@ -1,28 +1,29 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.jdom;
 
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IType;
-import org.eclipse.jdt.core.jdom.IDOMInitializer;
-import org.eclipse.jdt.core.jdom.IDOMNode;
-import org.eclipse.jdt.internal.compiler.util.Util;
+import org.eclipse.jdt.core.jdom.*;
+import org.eclipse.jdt.internal.core.util.Messages;
 import org.eclipse.jdt.internal.core.util.CharArrayBuffer;
-import org.eclipse.jdt.internal.core.util.CharArrayOps;
-
+import org.eclipse.jdt.internal.core.util.Util;
 /**
  * DOMInitializer provides an implementation of IDOMInitializer.
  *
  * @see IDOMInitializer
  * @see DOMNode
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the
+ * org.eclipse.jdt.core.dom package.
  */
 class DOMInitializer extends DOMMember implements IDOMInitializer {
 
@@ -43,7 +44,7 @@ class DOMInitializer extends DOMMember implements IDOMInitializer {
  * Constructs an empty initializer node.
  */
 DOMInitializer() {
-
+	// Constructs an empty initializer node
 }
 /**
  * Creates a new detailed INITIALIZER document fragment on the given range of the document.
@@ -67,16 +68,16 @@ DOMInitializer() {
  *		is the first character of the first modifier for this member, and
  *		the second integer is the last whitespace character preceeding the
  *		next part of this member declaration. If there are no modifiers present
- *		in this node's source code (i.e. default protection), this array
+ *		in this node's source code (that is, package default visibility), this array
  *		contains two -1's.
  * @param bodyStartPosition - the position of the open brace of the body
  * 		of this initialzer.
  */
 DOMInitializer(char[] document, int[] sourceRange, int[] commentRange, int flags, int[] modifierRange, int bodyStartPosition) {
 	super(document, sourceRange, null, new int[]{-1, -1}, commentRange, flags, modifierRange);
-	fBodyRange= new int[2];
-	fBodyRange[0]= bodyStartPosition;
-	fBodyRange[1]= sourceRange[1];
+	this.fBodyRange= new int[2];
+	this.fBodyRange[0]= bodyStartPosition;
+	this.fBodyRange[1]= sourceRange[1];
 	setHasBody(true);
 	setMask(MASK_DETAILED_SOURCE_INDEXES, true);
 }
@@ -96,7 +97,7 @@ DOMInitializer(char[] document, int[] sourceRange, int[] commentRange, int flags
 DOMInitializer(char[] document, int[] sourceRange, int flags) {
 	this(document, sourceRange, new int[] {-1, -1}, flags, new int[] {-1, -1}, -1);
 	setMask(MASK_DETAILED_SOURCE_INDEXES, false);
-	
+
 }
 /**
  * @see DOMMember#appendMemberBodyContents(CharArrayBuffer)
@@ -105,25 +106,27 @@ protected void appendMemberBodyContents(CharArrayBuffer buffer) {
 	if (hasBody()) {
 		buffer
 			.append(getBody())
-			.append(fDocument, fBodyRange[1] + 1, fSourceRange[1] - fBodyRange[1]);
+			.append(this.fDocument, this.fBodyRange[1] + 1, this.fSourceRange[1] - this.fBodyRange[1]);
 	} else {
-		buffer.append("{}").append(Util.LINE_SEPARATOR); //$NON-NLS-1$
+		buffer.append("{}").append(Util.getLineSeparator(buffer.toString(), null)); //$NON-NLS-1$
 	}
 }
 /**
  * @see DOMMember#appendMemberDeclarationContents(CharArrayBuffer)
  */
-protected void appendMemberDeclarationContents(CharArrayBuffer buffer) {}
+protected void appendMemberDeclarationContents(CharArrayBuffer buffer) {
+	// nothing to do
+}
 /**
- * @see DOMNode#appendSimpleContents(CharArrayBuffer)
+ * @see DOMMember#appendSimpleContents(CharArrayBuffer)
  */
 protected void appendSimpleContents(CharArrayBuffer buffer) {
 	// append eveything before my name
-	buffer.append(fDocument, fSourceRange[0], fNameRange[0] - fSourceRange[0]);
+	buffer.append(this.fDocument, this.fSourceRange[0], this.fNameRange[0] - this.fSourceRange[0]);
 	// append my name
-	buffer.append(fName);
+	buffer.append(this.fName);
 	// append everything after my name
-	buffer.append(fDocument, fNameRange[1] + 1, fSourceRange[1] - fNameRange[1]);
+	buffer.append(this.fDocument, this.fNameRange[1] + 1, this.fSourceRange[1] - this.fNameRange[1]);
 }
 /**
  * @see IDOMInitializer#getBody()
@@ -131,10 +134,10 @@ protected void appendSimpleContents(CharArrayBuffer buffer) {
 public String getBody() {
 	becomeDetailed();
 	if (hasBody()) {
-		if (fBody != null) {
-			return fBody;
+		if (this.fBody != null) {
+			return this.fBody;
 		} else {
-			return CharArrayOps.substring(fDocument, fBodyRange[0], fBodyRange[1] + 1 - fBodyRange[0]);
+			return new String(this.fDocument, this.fBodyRange[0], this.fBodyRange[1] + 1 - this.fBodyRange[0]);
 		}
 	} else {
 		return null;
@@ -161,14 +164,14 @@ public IJavaElement getJavaElement(IJavaElement parent) throws IllegalArgumentEx
 		}
 		return ((IType) parent).getInitializer(count);
 	} else {
-		throw new IllegalArgumentException(Util.bind("element.illegalParent")); //$NON-NLS-1$
+		throw new IllegalArgumentException(Messages.element_illegalParent);
 	}
 }
 /**
  * @see DOMMember#getMemberDeclarationStartPosition()
  */
 protected int getMemberDeclarationStartPosition() {
-	return fBodyRange[0];
+	return this.fBodyRange[0];
 }
 /**
  * @see IDOMNode#getNodeType()
@@ -177,7 +180,7 @@ public int getNodeType() {
 	return IDOMNode.INITIALIZER;
 }
 /**
- * @see IDOMNode#isSigantureEqual(IDOMNode).
+ * @see IDOMNode#isSignatureEqual(IDOMNode)
  *
  * <p>This method always answers false since an initializer
  * does not have a signature.
@@ -196,29 +199,31 @@ protected DOMNode newDOMNode() {
  */
 protected void offset(int offset) {
 	super.offset(offset);
-	offsetRange(fBodyRange, offset);
+	offsetRange(this.fBodyRange, offset);
 }
 /**
- * @see IDOMInitializer#setBody(char[])
+ * @see IDOMInitializer#setBody(String)
  */
 public void setBody(String body) {
 	becomeDetailed();
-	fBody= body;
+	this.fBody= body;
 	setHasBody(body != null);
 	fragment();
 }
 /**
  * @see IDOMInitializer#setName(String)
  */
-public void setName(String name) {}
+public void setName(String name) {
+	// initializers have no name
+}
 /**
  * @see DOMNode#shareContents(DOMNode)
  */
 protected void shareContents(DOMNode node) {
 	super.shareContents(node);
 	DOMInitializer init= (DOMInitializer)node;
-	fBody= init.fBody;
-	fBodyRange= rangeCopy(init.fBodyRange);
+	this.fBody= init.fBody;
+	this.fBodyRange= rangeCopy(init.fBodyRange);
 }
 /**
  * @see IDOMNode#toString()

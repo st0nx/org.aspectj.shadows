@@ -1,18 +1,19 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.codegen;
 
-public class CaseLabel extends Label {
+public class CaseLabel extends BranchLabel {
+
 	public int instructionPosition = POS_NOT_SET;
-	public int backwardsBranch = POS_NOT_SET;
+
 /**
  * CaseLabel constructor comment.
  * @param codeStream org.eclipse.jdt.internal.compiler.codegen.CodeStream
@@ -20,30 +21,34 @@ public class CaseLabel extends Label {
 public CaseLabel(CodeStream codeStream) {
 	super(codeStream);
 }
+
 /*
-* Put down  a refernece to the array at the location in the codestream.
+* Put down  a reference to the array at the location in the codestream.
+* #placeInstruction() must be performed prior to any #branch()
 */
 void branch() {
-	if (position == POS_NOT_SET) {
-		addForwardReference(codeStream.position);
+	if (this.position == POS_NOT_SET) {
+		addForwardReference(this.codeStream.position);
 		// Leave 4 bytes free to generate the jump offset afterwards
-		codeStream.position += 4;
-		codeStream.classFileOffset += 4;
+		this.codeStream.position += 4;
+		this.codeStream.classFileOffset += 4;
 	} else { //Position is set. Write it!
-		codeStream.writeSignedWord(position - codeStream.position + 1);
+		/*
+		 * Position is set. Write it if it is not a wide branch.
+		 */
+		this.codeStream.writeSignedWord(this.position - this.instructionPosition);
 	}
 }
+
 /*
-* Put down  a refernece to the array at the location in the codestream.
+* No support for wide branches yet
 */
 void branchWide() {
-	if (position == POS_NOT_SET) {
-		addForwardReference(codeStream.position);
-		// Leave 4 bytes free to generate the jump offset afterwards
-		codeStream.position += 4;
-	} else { //Position is set. Write it!
-		codeStream.writeSignedWord(position - codeStream.position + 1);
-	}
+	branch(); // case label branch is already wide
+}
+
+public boolean isCaseLabel() {
+	return true;
 }
 public boolean isStandardLabel(){
 	return false;
@@ -52,30 +57,28 @@ public boolean isStandardLabel(){
 * Put down  a reference to the array at the location in the codestream.
 */
 public void place() {
-	position = codeStream.position;
-	if (instructionPosition == POS_NOT_SET)
-		backwardsBranch = position;
-	else {
-		int offset = position - instructionPosition;
-		for (int i = 0; i < forwardReferenceCount; i++) {
-			codeStream.writeSignedWord(forwardReferences[i], offset);
+	if ((this.tagBits & USED) != 0) {
+		this.position = this.codeStream.getPosition();
+	} else {
+		this.position = this.codeStream.position;
+	}
+	if (this.instructionPosition != POS_NOT_SET) {
+		int offset = this.position - this.instructionPosition;
+		int[] forwardRefs = forwardReferences();
+		for (int i = 0, length = forwardReferenceCount(); i < length; i++) {
+			this.codeStream.writeSignedWord(forwardRefs[i], offset);
 		}
-		// add the label int the codeStream labels collection
-		codeStream.addLabel(this);
+		// add the label in the codeStream labels collection
+		this.codeStream.addLabel(this);
 	}
 }
+
 /*
-* Put down  a refernece to the array at the location in the codestream.
+* Put down  a reference to the array at the location in the codestream.
 */
 void placeInstruction() {
-	if (instructionPosition == POS_NOT_SET) {
-		instructionPosition = codeStream.position;
-		if (backwardsBranch != POS_NOT_SET) {
-			int offset = backwardsBranch - instructionPosition;
-			for (int i = 0; i < forwardReferenceCount; i++)
-				codeStream.writeSignedWord(forwardReferences[i], offset);
-			backwardsBranch = POS_NOT_SET;
-		}
+	if (this.instructionPosition == POS_NOT_SET) {
+		this.instructionPosition = this.codeStream.position;
 	}
 }
 }

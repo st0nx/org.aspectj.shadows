@@ -1,26 +1,28 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.jdom;
 
 import java.util.Enumeration;
 
-import org.eclipse.jdt.core.jdom.IDOMNode;
+import org.eclipse.jdt.core.jdom.*;
 
 /**
  * SiblingEnumeration provides an enumeration on a linked list
  * of sibling DOM nodes.
  *
  * @see java.util.Enumeration
+ * @deprecated The JDOM was made obsolete by the addition in 2.0 of the more
+ * powerful, fine-grained DOM/AST API found in the
+ * org.eclipse.jdt.core.dom package.
  */
-
 /* package */ class SiblingEnumeration implements Enumeration {
 
 	/**
@@ -33,21 +35,21 @@ import org.eclipse.jdt.core.jdom.IDOMNode;
  * If the given node is <code>null</code> the enumeration is empty.
  */
 SiblingEnumeration(IDOMNode child) {
-	fCurrentElement= child;
+	this.fCurrentElement= child;
 }
 /**
  * @see java.util.Enumeration#hasMoreElements()
  */
 public boolean hasMoreElements() {
-	return fCurrentElement != null;
+	return this.fCurrentElement != null;
 }
 /**
  * @see java.util.Enumeration#nextElement()
  */
 public Object nextElement() {
-	IDOMNode curr=  fCurrentElement;
+	IDOMNode curr=  this.fCurrentElement;
 	if (curr != null) {
-		fCurrentElement= fCurrentElement.getNextNode();
+		this.fCurrentElement= this.fCurrentElement.getNextNode();
 	}
 	return curr;
 }

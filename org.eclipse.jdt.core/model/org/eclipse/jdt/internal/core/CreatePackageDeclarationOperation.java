@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import org.eclipse.core.runtime.IStatus;
@@ -16,14 +16,19 @@ import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
-import org.eclipse.jdt.core.IPackageDeclaration;
+import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaConventions;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.DOMFactory;
-import org.eclipse.jdt.core.jdom.IDOMNode;
-import org.eclipse.jdt.core.jdom.IDOMPackage;
-import org.eclipse.jdt.internal.core.jdom.DOMNode;
+import org.eclipse.jdt.core.dom.AST;
+import org.eclipse.jdt.core.dom.ASTNode;
+import org.eclipse.jdt.core.dom.CompilationUnit;
+import org.eclipse.jdt.core.dom.Name;
+import org.eclipse.jdt.core.dom.PackageDeclaration;
+import org.eclipse.jdt.core.dom.StructuralPropertyDescriptor;
+import org.eclipse.jdt.core.dom.rewrite.ASTRewrite;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * <p>This operation adds/replaces a package declaration in an existing compilation unit.
@@ -39,62 +44,51 @@ public class CreatePackageDeclarationOperation extends CreateElementInCUOperatio
 	/**
 	 * The name of the package declaration being created
 	 */
-	protected String fName = null;
+	protected String name = null;
 /**
  * When executed, this operation will add a package declaration to the given compilation unit.
  */
 public CreatePackageDeclarationOperation(String name, ICompilationUnit parentElement) {
 	super(parentElement);
-	fName= name;
+	this.name= name;
 }
-/**
- * @see CreateTypeMemberOperation#generateElementDOM
- */
-protected IDOMNode generateElementDOM() throws JavaModelException {
-	IJavaElement[] children = getCompilationUnit().getChildren();
+protected StructuralPropertyDescriptor getChildPropertyDescriptor(ASTNode parent) {
+	return CompilationUnit.PACKAGE_PROPERTY;
+}
+protected ASTNode generateElementAST(ASTRewrite rewriter, ICompilationUnit cu) throws JavaModelException {
 	//look for an existing package declaration
+	IJavaElement[] children = getCompilationUnit().getChildren();
 	for (int i = 0; i < children.length; i++) {
-		if (children[i].getElementType() ==  IJavaElement.PACKAGE_DECLARATION) {
-			IPackageDeclaration pck = (IPackageDeclaration) children[i];
-			IDOMPackage pack = (IDOMPackage) ((JavaElement)pck).findNode(fCUDOM);
-			if (!pack.getName().equals(fName)) {
-				 // get the insertion position before setting the name, as this makes it a detailed node
-				 // thus the start position is always 0
-				DOMNode node = (DOMNode)pack;
-				fInsertionPosition = node.getStartPosition();
-				fReplacementLength = node.getEndPosition() - fInsertionPosition + 1;
-				pack.setName(fName);
-				fCreatedElement = (org.eclipse.jdt.internal.core.jdom.DOMNode)pack;
-			} else {
-				//equivalent package declaration already exists
-				fCreationOccurred= false;
-			}
-			
+		if (children[i].getElementType() ==  IJavaElement.PACKAGE_DECLARATION && this.name.equals(children[i].getElementName())) {
+			//equivalent package declaration already exists
+			this.creationOccurred = false;
 			return null;
 		}
 	}
-	IDOMPackage pack = (new DOMFactory()).createPackage();
-	pack.setName(fName);
-	return pack;
+	AST ast = this.cuAST.getAST();
+	PackageDeclaration pkgDeclaration = ast.newPackageDeclaration();
+	Name astName = ast.newName(this.name);
+	pkgDeclaration.setName(astName);
+	return pkgDeclaration;
 }
 /**
  * Creates and returns the handle for the element this operation created.
  */
 protected IJavaElement generateResultHandle() {
-	return getCompilationUnit().getPackageDeclaration(fName);
+	return getCompilationUnit().getPackageDeclaration(this.name);
 }
 /**
  * @see CreateElementInCUOperation#getMainTaskName()
  */
 public String getMainTaskName(){
-	return Util.bind("operation.createPackageProgress"); //$NON-NLS-1$
+	return Messages.operation_createPackageProgress;
 }
 /**
  * Sets the correct position for new package declaration:<ul>
  * <li> before the first import
  * <li> if no imports, before the first type
  * <li> if no type - first thing in the CU
- * <li> 
+ * <li>
  */
 protected void initializeDefaultPosition() {
 	try {
@@ -109,12 +103,13 @@ protected void initializeDefaultPosition() {
 			createBefore(types[0]);
 			return;
 		}
-	} catch (JavaModelException npe) {
+	} catch (JavaModelException e) {
+		// cu doesn't exist: ignore
 	}
 }
 /**
  * Possible failures: <ul>
- *  <li>NO_ELEMENTS_TO_PROCESS - no compilation unit was supplied to the operation 
+ *  <li>NO_ELEMENTS_TO_PROCESS - no compilation unit was supplied to the operation
  *  <li>INVALID_NAME - a name supplied to the operation was not a valid
  * 		package declaration name.
  * </ul>
@@ -126,8 +121,9 @@ public IJavaModelStatus verify() {
 	if (!status.isOK()) {
 		return status;
 	}
-	if (JavaConventions.validatePackageName(fName).getSeverity() == IStatus.ERROR) {
-		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_NAME, fName);
+	IJavaProject project = getParentElement().getJavaProject();
+	if (JavaConventions.validatePackageName(this.name, project.getOption(JavaCore.COMPILER_SOURCE, true), project.getOption(JavaCore.COMPILER_COMPLIANCE, true)).getSeverity() == IStatus.ERROR) {
+		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_NAME, this.name);
 	}
 	return JavaModelStatus.VERIFIED_OK;
 }

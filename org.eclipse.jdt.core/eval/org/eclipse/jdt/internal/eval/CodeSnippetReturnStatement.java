@@ -1,21 +1,23 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
 import org.eclipse.jdt.internal.compiler.ast.Expression;
 import org.eclipse.jdt.internal.compiler.ast.ReturnStatement;
 import org.eclipse.jdt.internal.compiler.ast.TryStatement;
 import org.eclipse.jdt.internal.compiler.codegen.CodeStream;
+import org.eclipse.jdt.internal.compiler.codegen.Opcodes;
 import org.eclipse.jdt.internal.compiler.flow.FlowContext;
 import org.eclipse.jdt.internal.compiler.flow.FlowInfo;
+import org.eclipse.jdt.internal.compiler.impl.Constant;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.InvocationSite;
 import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
@@ -29,7 +31,7 @@ import org.eclipse.jdt.internal.compiler.lookup.TypeBinding;
  */
 public class CodeSnippetReturnStatement extends ReturnStatement implements InvocationSite, EvaluationConstants {
 	MethodBinding setResultMethod;
-public CodeSnippetReturnStatement(Expression expr, int s, int e, EvaluationContext evaluationContext) {
+public CodeSnippetReturnStatement(Expression expr, int s, int e) {
 	super(expr, s, e);
 }
 
@@ -37,7 +39,7 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 	FlowInfo info = super.analyseCode(currentScope, flowContext, flowInfo);
 	// we need to remove this optimization in order to prevent the inlining of the return bytecode
 	// 1GH0AU7: ITPJCORE:ALL - Eval - VerifyError in scrapbook page
-	this.expression.bits &= ~ValueForReturnMASK;
+	this.expression.bits &= ~IsReturnedValue;
 	return info;
 }
 
@@ -45,26 +47,26 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
  * Dump the suitable return bytecode for a return statement
  *
  */
-public void generateReturnBytecode(BlockScope currentScope, CodeStream codeStream) {
-	
+public void generateReturnBytecode(CodeStream codeStream) {
+
 	// output the return bytecode
 	codeStream.return_();
 }
-public void generateStoreSaveValueIfNecessary(BlockScope currentScope, CodeStream codeStream){
+public void generateStoreSaveValueIfNecessary(CodeStream codeStream){
 
 	// push receiver
 	codeStream.aload_0();
 
 	// push the 2 parameters of "setResult(Object, Class)"
-	if (this.expression == null || this.expressionType == VoidBinding) { // expressionType == VoidBinding if code snippet is the expression "System.out.println()"
+	if (this.expression == null || this.expression.resolvedType == TypeBinding.VOID) { // expressionType == VoidBinding if code snippet is the expression "System.out.println()"
 		// push null
 		codeStream.aconst_null();
 
 		// void.class
-		codeStream.generateClassLiteralAccessForType(VoidBinding, null);
+		codeStream.generateClassLiteralAccessForType(TypeBinding.VOID, null);
 	} else {
 		// swap with expression
-		int valueTypeID = this.expressionType.id;
+		int valueTypeID = this.expression.resolvedType.id;
 		if (valueTypeID == T_long || valueTypeID == T_double) {
 			codeStream.dup_x2();
 			codeStream.pop();
@@ -73,16 +75,22 @@ public void generateStoreSaveValueIfNecessary(BlockScope currentScope, CodeStrea
 		}
 
 		// generate wrapper if needed
-		if (this.expressionType.isBaseType() && this.expressionType != NullBinding) { 
-			((CodeSnippetCodeStream)codeStream).generateObjectWrapperForType(this.expressionType);
+		if (this.expression.resolvedType.isBaseType() && this.expression.resolvedType != TypeBinding.NULL) {
+			codeStream.generateBoxingConversion(this.expression.resolvedType.id);
 		}
 
 		// generate the expression type
-		codeStream.generateClassLiteralAccessForType(this.expressionType, null);
+		codeStream.generateClassLiteralAccessForType(this.expression.resolvedType, null);
 	}
 
 	// generate the invoke virtual to "setResult(Object,Class)"
-	codeStream.invokevirtual(this.setResultMethod);
+	codeStream.invoke(Opcodes.OPC_invokevirtual, this.setResultMethod, null /* default declaringClass */);
+}
+/**
+ * @see org.eclipse.jdt.internal.compiler.lookup.InvocationSite#genericTypeArguments()
+ */
+public TypeBinding[] genericTypeArguments() {
+	return null;
 }
 public boolean isSuperAccess() {
 	return false;
@@ -94,12 +102,12 @@ public boolean needValue(){
 	return true;
 }
 public void prepareSaveValueLocation(TryStatement targetTryStatement){
-		
+
 	// do nothing: no storage is necessary for snippets
 }
 public void resolve(BlockScope scope) {
 	if (this.expression != null) {
-		if ((this.expressionType = this.expression.resolveType(scope)) != null) {
+		if (this.expression.resolveType(scope) != null) {
 			TypeBinding javaLangClass = scope.getJavaLangClass();
 			if (!javaLangClass.isValidBinding()) {
 				scope.problemReporter().codeSnippetMissingClass("java.lang.Class", this.sourceStart, this.sourceEnd); //$NON-NLS-1$
@@ -117,7 +125,7 @@ public void resolve(BlockScope scope) {
 				return;
 			}
 			// in constant case, the implicit conversion cannot be left uninitialized
-			if (this.expression.constant != NotAConstant) {
+			if (this.expression.constant != Constant.NotAConstant) {
 				// fake 'no implicit conversion' (the return type is always void)
 				this.expression.implicitConversion = this.expression.constant.typeID() << 4;
 			}
@@ -133,5 +141,4 @@ public void setDepth(int depth) {
 public void setFieldIndex(int depth) {
 	// ignored
 }
-
 }

@@ -1,25 +1,25 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
-import org.eclipse.jdt.core.ICompilationUnit;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
 import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * This operation renames resources (Package fragments and compilation units).
  *
  * <p>Notes:<ul>
- * <li>When a compilation unit is renamed, its main type and the constructors of the 
+ * <li>When a compilation unit is renamed, its main type and the constructors of the
  * 		main type are renamed.
  * </ul>
  */
@@ -38,7 +38,7 @@ public RenameResourceElementsOperation(IJavaElement[] elements, IJavaElement[] d
  * @see MultiOperation
  */
 protected String getMainTaskName() {
-	return Util.bind("operation.renameResourceProgress"); //$NON-NLS-1$
+	return Messages.operation_renameResourceProgress;
 }
 /**
  * @see CopyResourceElementsOperation#isRename()
@@ -53,12 +53,13 @@ protected void verify(IJavaElement element) throws JavaModelException {
 	super.verify(element);
 
 	int elementType = element.getElementType();
-	
+
 	if (!(elementType == IJavaElement.COMPILATION_UNIT || elementType == IJavaElement.PACKAGE_FRAGMENT)) {
 		error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
 	}
 	if (elementType == IJavaElement.COMPILATION_UNIT) {
-		if (((ICompilationUnit) element).isWorkingCopy()) {
+		CompilationUnit cu = (CompilationUnit)element;
+		if (cu.isWorkingCopy() && !cu.isPrimary()) {
 			error(IJavaModelStatusConstants.INVALID_ELEMENT_TYPES, element);
 		}
 	}

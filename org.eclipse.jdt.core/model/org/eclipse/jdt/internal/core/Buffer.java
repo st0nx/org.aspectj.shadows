@@ -1,13 +1,14 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *     Tim Hanson (thanson@bea.com) - patch for https://bugs.eclipse.org/bugs/show_bug.cgi?id=126673
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.io.ByteArrayInputStream;
@@ -16,17 +17,14 @@ import java.util.ArrayList;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IResource;
+import org.eclipse.core.resources.IResourceStatus;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.ISafeRunnable;
-import org.eclipse.core.runtime.Platform;
-import org.eclipse.jdt.core.BufferChangedEvent;
-import org.eclipse.jdt.core.IBuffer;
-import org.eclipse.jdt.core.IBufferChangedListener;
-import org.eclipse.jdt.core.IJavaModelStatusConstants;
-import org.eclipse.jdt.core.IOpenable;
-import org.eclipse.jdt.core.JavaCore;
-import org.eclipse.jdt.core.JavaModelException;
+import org.eclipse.core.runtime.SafeRunner;
+import org.eclipse.core.runtime.content.IContentDescription;
+import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
  * @see IBuffer
@@ -37,14 +35,14 @@ public class Buffer implements IBuffer {
 	protected char[] contents;
 	protected ArrayList changeListeners;
 	protected IOpenable owner;
-	protected int gapStart= -1;
-	protected int gapEnd= -1;
+	protected int gapStart = -1;
+	protected int gapEnd = -1;
 
-	protected Object lock= new Object();
+	protected Object lock = new Object();
 
-	protected static final int F_HAS_UNSAVED_CHANGES= 1;
-	protected static final int F_IS_READ_ONLY= 2;
-	protected static final int F_IS_CLOSED= 4;
+	protected static final int F_HAS_UNSAVED_CHANGES = 1;
+	protected static final int F_IS_READ_ONLY = 2;
+	protected static final int F_IS_CLOSED = 4;
 
 /**
  * Creates a new buffer on an underlying resource.
@@ -59,7 +57,7 @@ protected Buffer(IFile file, IOpenable owner, boolean readOnly) {
 /**
  * @see IBuffer
  */
-public void addBufferChangedListener(IBufferChangedListener listener) {
+public synchronized void addBufferChangedListener(IBufferChangedListener listener) {
 	if (this.changeListeners == null) {
 		this.changeListeners = new ArrayList(5);
 	}
@@ -77,10 +75,13 @@ public void append(char[] text) {
 			return;
 		}
 		int length = getLength();
-		moveAndResizeGap(length, text.length);
-		System.arraycopy(text, 0, this.contents, length, text.length);
-		this.gapStart += text.length;
-		this.flags |= F_HAS_UNSAVED_CHANGES;
+		synchronized(this.lock) {
+			if (this.contents == null) return;
+			moveAndResizeGap(length, text.length);
+			System.arraycopy(text, 0, this.contents, length, text.length);
+			this.gapStart += text.length;
+			this.flags |= F_HAS_UNSAVED_CHANGES;
+		}
 		notifyChanged(new BufferChangedEvent(this, length, 0, new String(text)));
 	}
 }
@@ -97,7 +98,7 @@ public void append(String text) {
 /**
  * @see IBuffer
  */
-public void close() throws IllegalArgumentException {
+public void close() {
 	BufferChangedEvent event = null;
 	synchronized (this.lock) {
 		if (isClosed())
@@ -107,13 +108,16 @@ public void close() throws IllegalArgumentException {
 		this.flags |= F_IS_CLOSED;
 	}
 	notifyChanged(event); // notify outside of synchronized block
-	this.changeListeners = null;
+	synchronized(this) { // ensure that no other thread is adding/removing a listener at the same time (https://bugs.eclipse.org/bugs/show_bug.cgi?id=126673)
+		this.changeListeners = null;
+	}
 }
 /**
  * @see IBuffer
  */
 public char getChar(int position) {
 	synchronized (this.lock) {
+	    if (this.contents == null) return Character.MIN_VALUE;
 		if (position < this.gapStart) {
 			return this.contents[position];
 		}
@@ -125,8 +129,8 @@ public char getChar(int position) {
  * @see IBuffer
  */
 public char[] getCharacters() {
-	if (this.contents == null) return null;
 	synchronized (this.lock) {
+		if (this.contents == null) return null;
 		if (this.gapStart < 0) {
 			return this.contents;
 		}
@@ -141,14 +145,16 @@ public char[] getCharacters() {
  * @see IBuffer
  */
 public String getContents() {
-	if (this.contents == null) return null;
-	return new String(this.getCharacters());
+	char[] chars = getCharacters();
+	if (chars == null) return null;
+	return new String(chars);
 }
 /**
  * @see IBuffer
  */
 public int getLength() {
 	synchronized (this.lock) {
+		if (this.contents == null) return -1;
 		int length = this.gapEnd - this.gapStart;
 		return (this.contents.length - length);
 	}
@@ -163,9 +169,8 @@ public IOpenable getOwner() {
  * @see IBuffer
  */
 public String getText(int offset, int length) {
-	if (this.contents == null)
-		return ""; //$NON-NLS-1$
 	synchronized (this.lock) {
+		if (this.contents == null) return ""; //$NON-NLS-1$
 		if (offset + length < this.gapStart)
 			return new String(this.contents, offset, length);
 		if (this.gapStart < offset) {
@@ -200,15 +205,11 @@ public boolean isClosed() {
  * @see IBuffer
  */
 public boolean isReadOnly() {
-	if (this.file == null) {
-		return (this.flags & F_IS_READ_ONLY) != 0;
-	} else {
-		return this.file.isReadOnly();
-	}
+	return (this.flags & F_IS_READ_ONLY) != 0;
 }
 /**
  * Moves the gap to location and adjust its size to the
- * anticipated change size. The size represents the expected 
+ * anticipated change size. The size represents the expected
  * range of the gap that will be filled after the gap has been moved.
  * Thus the gap is resized to actual size + the specified size and
  * moved to the given position.
@@ -253,10 +254,11 @@ protected void moveAndResizeGap(int position, int size) {
  * To avoid deadlock, this should not be called in a synchronized block.
  */
 protected void notifyChanged(final BufferChangedEvent event) {
-	if (this.changeListeners != null) {
-		for (int i = 0, size = this.changeListeners.size(); i < size; ++i) {
-			final IBufferChangedListener listener = (IBufferChangedListener) this.changeListeners.get(i);
-			Platform.run(new ISafeRunnable() {
+	ArrayList listeners = this.changeListeners;
+	if (listeners != null) {
+		for (int i = 0, size = listeners.size(); i < size; ++i) {
+			final IBufferChangedListener listener = (IBufferChangedListener) listeners.get(i);
+			SafeRunner.run(new ISafeRunnable() {
 				public void handleException(Throwable exception) {
 					Util.log(exception, "Exception occurred in listener of buffer change notification"); //$NON-NLS-1$
 				}
@@ -264,14 +266,14 @@ protected void notifyChanged(final BufferChangedEvent event) {
 					listener.bufferChanged(event);
 				}
 			});
-			
+
 		}
 	}
 }
 /**
  * @see IBuffer
  */
-public void removeBufferChangedListener(IBufferChangedListener listener) {
+public synchronized void removeBufferChangedListener(IBufferChangedListener listener) {
 	if (this.changeListeners != null) {
 		this.changeListeners.remove(listener);
 		if (this.changeListeners.size() == 0) {
@@ -281,13 +283,15 @@ public void removeBufferChangedListener(IBufferChangedListener listener) {
 }
 /**
  * Replaces <code>length</code> characters starting from <code>position</code> with <code>text<code>.
- * After that operation, the gap is placed at the end of the 
+ * After that operation, the gap is placed at the end of the
  * inserted <code>text</code>.
  */
 public void replace(int position, int length, char[] text) {
 	if (!isReadOnly()) {
 		int textLength = text == null ? 0 : text.length;
 		synchronized (this.lock) {
+			if (this.contents == null) return;
+
 			// move gap
 			moveAndResizeGap(position + length, textLength - length);
 
@@ -304,8 +308,8 @@ public void replace(int position, int length, char[] text) {
 				this.gapStart += textLength - length;
 				System.arraycopy(text, 0, this.contents, position, textLength);
 			}
+			this.flags |= F_HAS_UNSAVED_CHANGES;
 		}
-		this.flags |= F_HAS_UNSAVED_CHANGES;
 		String string = null;
 		if (textLength > 0) {
 			string = new String(text);
@@ -315,7 +319,7 @@ public void replace(int position, int length, char[] text) {
 }
 /**
  * Replaces <code>length</code> characters starting from <code>position</code> with <code>text<code>.
- * After that operation, the gap is placed at the end of the 
+ * After that operation, the gap is placed at the end of the
  * inserted <code>text</code>.
  */
 public void replace(int position, int length, String text) {
@@ -326,62 +330,99 @@ public void replace(int position, int length, String text) {
  */
 public void save(IProgressMonitor progress, boolean force) throws JavaModelException {
 
-	// determine if saving is required 
+	// determine if saving is required
 	if (isReadOnly() || this.file == null) {
 		return;
 	}
-	synchronized (this.lock) {
-		if (!hasUnsavedChanges())
-			return;
-			
-		// use a platform operation to update the resource contents
-		try {
-			String encoding = JavaCore.getOption(JavaCore.CORE_ENCODING);
-			String contents = this.getContents();
-			if (contents == null) return;
-			byte[] bytes = encoding == null 
-				? contents.getBytes() 
-				: contents.getBytes(encoding);
-			ByteArrayInputStream stream = new ByteArrayInputStream(bytes);
+	if (!hasUnsavedChanges())
+		return;
 
-			this.file.setContents(
-				stream, 
-				force ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY, 
-				null);
-		} catch (IOException e) {
-			throw new JavaModelException(e, IJavaModelStatusConstants.IO_EXCEPTION);
-		} catch (CoreException e) {
-			throw new JavaModelException(e);
+	// use a platform operation to update the resource contents
+	try {
+		String stringContents = getContents();
+		if (stringContents == null) return;
+
+		// Get encoding
+		String encoding = null;
+		try {
+			encoding = this.file.getCharset();
+		}
+		catch (CoreException ce) {
+			// use no encoding
 		}
 
-		// the resource no longer has unsaved changes
-		this.flags &= ~ (F_HAS_UNSAVED_CHANGES);
+		// Create bytes array
+		byte[] bytes = encoding == null
+			? stringContents.getBytes()
+			: stringContents.getBytes(encoding);
+
+		// Special case for UTF-8 BOM files
+		// see bug https://bugs.eclipse.org/bugs/show_bug.cgi?id=110576
+		if (encoding != null && encoding.equals(org.eclipse.jdt.internal.compiler.util.Util.UTF_8)) {
+			IContentDescription description;
+			try {
+				description = this.file.getContentDescription();
+			} catch (CoreException e) {
+				if (e.getStatus().getCode() != IResourceStatus.RESOURCE_NOT_FOUND)
+					throw e;
+				// file no longer exist (see https://bugs.eclipse.org/bugs/show_bug.cgi?id=234307 )
+				description = null;
+			}
+			if (description != null && description.getProperty(IContentDescription.BYTE_ORDER_MARK) != null) {
+				int bomLength= IContentDescription.BOM_UTF_8.length;
+				byte[] bytesWithBOM= new byte[bytes.length + bomLength];
+				System.arraycopy(IContentDescription.BOM_UTF_8, 0, bytesWithBOM, 0, bomLength);
+				System.arraycopy(bytes, 0, bytesWithBOM, bomLength, bytes.length);
+				bytes= bytesWithBOM;
+			}
+		}
+
+		// Set file contents
+		ByteArrayInputStream stream = new ByteArrayInputStream(bytes);
+		if (this.file.exists()) {
+			this.file.setContents(
+				stream,
+				force ? IResource.FORCE | IResource.KEEP_HISTORY : IResource.KEEP_HISTORY,
+				null);
+		} else {
+			this.file.create(stream, force, null);
+		}
+	} catch (IOException e) {
+		throw new JavaModelException(e, IJavaModelStatusConstants.IO_EXCEPTION);
+	} catch (CoreException e) {
+		throw new JavaModelException(e);
 	}
+
+	// the resource no longer has unsaved changes
+	this.flags &= ~ (F_HAS_UNSAVED_CHANGES);
 }
 /**
  * @see IBuffer
  */
 public void setContents(char[] newContents) {
-	// allow special case for first initialization 
+	// allow special case for first initialization
 	// after creation by buffer factory
 	if (this.contents == null) {
-		this.contents = newContents;
-		this.flags &= ~ (F_HAS_UNSAVED_CHANGES);
+		synchronized (this.lock) {
+			this.contents = newContents;
+			this.flags &= ~ (F_HAS_UNSAVED_CHANGES);
+		}
 		return;
 	}
-	
+
 	if (!isReadOnly()) {
 		String string = null;
 		if (newContents != null) {
 			string = new String(newContents);
 		}
-		BufferChangedEvent event = new BufferChangedEvent(this, 0, this.getLength(), string);
 		synchronized (this.lock) {
+			if (this.contents == null) return; // ignore if buffer is closed (as per spec)
 			this.contents = newContents;
 			this.flags |= F_HAS_UNSAVED_CHANGES;
 			this.gapStart = -1;
 			this.gapEnd = -1;
 		}
+		BufferChangedEvent event = new BufferChangedEvent(this, 0, getLength(), string);
 		notifyChanged(event);
 	}
 }
@@ -404,19 +445,19 @@ protected void setReadOnly(boolean readOnly) {
 public String toString() {
 	StringBuffer buffer = new StringBuffer();
 	buffer.append("Owner: " + ((JavaElement)this.owner).toStringWithAncestors()); //$NON-NLS-1$
-	buffer.append("\nHas unsaved changes: " + this.hasUnsavedChanges()); //$NON-NLS-1$
-	buffer.append("\nIs readonly: " + this.isReadOnly()); //$NON-NLS-1$
-	buffer.append("\nIs closed: " + this.isClosed()); //$NON-NLS-1$
+	buffer.append("\nHas unsaved changes: " + hasUnsavedChanges()); //$NON-NLS-1$
+	buffer.append("\nIs readonly: " + isReadOnly()); //$NON-NLS-1$
+	buffer.append("\nIs closed: " + isClosed()); //$NON-NLS-1$
 	buffer.append("\nContents:\n"); //$NON-NLS-1$
-	char[] contents = this.getCharacters();
-	if (contents == null) {
+	char[] charContents = getCharacters();
+	if (charContents == null) {
 		buffer.append("<null>"); //$NON-NLS-1$
 	} else {
-		int length = contents.length;
+		int length = charContents.length;
 		for (int i = 0; i < length; i++) {
-			char car = contents[i];
-			switch (car) {
-				case '\n': 
+			char c = charContents[i];
+			switch (c) {
+				case '\n':
 					buffer.append("\\n\n"); //$NON-NLS-1$
 					break;
 				case '\r':
@@ -428,7 +469,7 @@ public String toString() {
 					}
 					break;
 				default:
-					buffer.append(car);
+					buffer.append(c);
 					break;
 			}
 		}

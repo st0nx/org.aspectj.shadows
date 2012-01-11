@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.env;
 
 /**
@@ -62,7 +62,7 @@ boolean isPackage(char[][] parentPackageName, char[] packageName);
 /**
  * This method cleans the environment uo. It is responsible for releasing the memory
  * and freeing resources. Passed that point, the name environment is no longer usable.
- * 
+ *
  * A name environment can have a long life cycle, therefore it is the responsibility of
  * the code which created it to decide when it is a good time to clean it up.
  */

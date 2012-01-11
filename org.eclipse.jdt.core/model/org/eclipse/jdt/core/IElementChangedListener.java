@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 /**
@@ -16,9 +16,11 @@ package org.eclipse.jdt.core;
  * <p>
  * This interface may be implemented by clients.
  * </p>
+ * 
+ * @see JavaCore#addElementChangedListener(IElementChangedListener)
  */
 public interface IElementChangedListener {
-	
+
 /**
  * Notifies that one or more attributes of one or more Java elements have changed.
  * The specific details of the change are described by the given event.

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 /**
@@ -18,15 +18,15 @@ package org.eclipse.jdt.core;
  * projects.
  * <p>
  * When an element is included in a region, all of its children
- * are considered to be included. Children of an included element 
+ * are considered to be included. Children of an included element
  * <b>cannot</b> be selectively excluded.
  * </p>
  * <p>
- * This interface is not intended to be implemented by clients.
  * Instances can be created via the <code>JavaCore.newRegion</code>.
  * </p>
  *
- * @see JavaCore#newRegion
+ * @see JavaCore#newRegion()
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface IRegion {
 	/**
@@ -35,13 +35,13 @@ public interface IRegion {
 	 * ancestors is already included, this has no effect. If the element
 	 * being added is an ancestor of an element already contained in this
 	 * region, the ancestor subsumes the descendent.
-	 * 
+	 *
 	 * @param element the given element
 	 */
 	void add(IJavaElement element);
 	/**
 	 * Returns whether the given element is contained in this region.
-	 * 
+	 *
 	 * @param element the given element
 	 * @return true if the given element is contained in this region, false otherwise
 	 */
@@ -49,7 +49,7 @@ public interface IRegion {
 	/**
 	 * Returns the top level elements in this region.
 	 * All descendents of these elements are also included in this region.
-	 * 
+	 *
 	 * @return the top level elements in this region
 	 */
 	IJavaElement[] getElements();
@@ -57,9 +57,9 @@ public interface IRegion {
 	 * Removes the specified element from the region and returns
 	 * <code>true</code> if successful, <code>false</code> if the remove
 	 * fails. If an ancestor of the given element is included, the
-	 * remove fails (i.e. not possible to selectively
+	 * remove fails (in other words, it is not possible to selectively
 	 * exclude descendants of included ancestors).
-	 * 
+	 *
 	 * @param element the given element
 	 * @return <code>true</code> if successful, <code>false</code> if the remove fails
 	 */

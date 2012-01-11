@@ -1,59 +1,56 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.builder;
 
 import org.eclipse.core.resources.*;
 import org.eclipse.core.runtime.*;
 
 import org.eclipse.jdt.core.*;
+import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.*;
 import org.eclipse.jdt.internal.compiler.problem.AbortCompilation;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
+import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
+import org.eclipse.jdt.internal.compiler.util.SimpleSet;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
 import org.eclipse.jdt.internal.core.*;
 
 import java.io.*;
 import java.util.*;
 
-public class NameEnvironment implements INameEnvironment {
-
-ClasspathLocation[] classpathLocations;
-String[] initialTypeNames; // assumed that each name is of the form "a/b/ClassName"
-String[] additionalSourceFilenames; // assumed that each name is of the form "d:/eclipse/Test/a/b/ClassName.java"
+public class NameEnvironment implements INameEnvironment, SuffixConstants {
 
 boolean isIncrementalBuild;
-
-ClasspathLocation[] binaryLocations;
 ClasspathMultiDirectory[] sourceLocations;
+ClasspathLocation[] binaryLocations;
+BuildNotifier notifier;
 
-public NameEnvironment(ClasspathLocation[] classpathLocations) {
-	this.classpathLocations = classpathLocations;
+SimpleSet initialTypeNames; // assumed that each name is of the form "a/b/ClassName"
+SimpleLookupTable additionalUnits;
+
+NameEnvironment(IWorkspaceRoot root, JavaProject javaProject, SimpleLookupTable binaryLocationsPerProject, BuildNotifier notifier) throws CoreException {
 	this.isIncrementalBuild = false;
-	splitLocations();
-	setNames(new String[0], new String[0]);
+	this.notifier = notifier;
+	computeClasspathLocations(root, javaProject, binaryLocationsPerProject);
+	setNames(null, null);
 }
 
 public NameEnvironment(IJavaProject javaProject) {
+	this.isIncrementalBuild = false;
 	try {
-		IWorkspaceRoot workspaceRoot = javaProject.getProject().getWorkspace().getRoot();
-		IResource outputFolder = workspaceRoot.findMember(javaProject.getOutputLocation());
-		String outputFolderLocation = null;
-		if (outputFolder != null && outputFolder.exists())
-			outputFolderLocation = outputFolder.getLocation().toString();
-		this.classpathLocations = computeLocations(workspaceRoot, javaProject, outputFolderLocation, null, null);
-		this.isIncrementalBuild = false;
-	} catch(JavaModelException e) {
-		this.classpathLocations = new ClasspathLocation[0];
+		computeClasspathLocations(javaProject.getProject().getWorkspace().getRoot(), (JavaProject) javaProject, null);
+	} catch(CoreException e) {
+		this.sourceLocations = new ClasspathMultiDirectory[0];
+		this.binaryLocations = new ClasspathLocation[0];
 	}
-	splitLocations();
-	setNames(new String[0], new String[0]);
+	setNames(null, null);
 }
 
 /* Some examples of resolved class path entries.
@@ -78,120 +75,208 @@ public NameEnvironment(IJavaProject javaProject) {
 *   /Test[CPE_PROJECT][K_SOURCE] -> D:/eclipse.test/Test
 *  ALWAYS want to append the output folder & ONLY search for .class files
 */
-public static ClasspathLocation[] computeLocations(
-	IWorkspaceRoot workspaceRoot,
-	IJavaProject javaProject,
-	String outputFolderLocation,
-	ArrayList sourceFolders,
-	SimpleLookupTable binaryResources) throws JavaModelException {
+private void computeClasspathLocations(
+	IWorkspaceRoot root,
+	JavaProject javaProject,
+	SimpleLookupTable binaryLocationsPerProject) throws CoreException {
 
-	IClasspathEntry[] classpathEntries = ((JavaProject) javaProject).getExpandedClasspath(true, true);
-	int cpCount = 0;
-	int max = classpathEntries.length;
-	ClasspathLocation[] classpathLocations = new ClasspathLocation[max];
+	/* Update cycle marker */
+	IMarker cycleMarker = javaProject.getCycleMarker();
+	if (cycleMarker != null) {
+		int severity = JavaCore.ERROR.equals(javaProject.getOption(JavaCore.CORE_CIRCULAR_CLASSPATH, true))
+			? IMarker.SEVERITY_ERROR
+			: IMarker.SEVERITY_WARNING;
+		if (severity != cycleMarker.getAttribute(IMarker.SEVERITY, severity))
+			cycleMarker.setAttribute(IMarker.SEVERITY, severity);
+	}
 
-	boolean firstSourceFolder = true;
-	nextEntry : for (int i = 0; i < max; i++) {
-		IClasspathEntry entry = classpathEntries[i];
+	IClasspathEntry[] classpathEntries = javaProject.getExpandedClasspath();
+	ArrayList sLocations = new ArrayList(classpathEntries.length);
+	ArrayList bLocations = new ArrayList(classpathEntries.length);
+	nextEntry : for (int i = 0, l = classpathEntries.length; i < l; i++) {
+		ClasspathEntry entry = (ClasspathEntry) classpathEntries[i];
 		IPath path = entry.getPath();
-		Object target = JavaModel.getTarget(workspaceRoot, path, true);
+		Object target = JavaModel.getTarget(path, true);
 		if (target == null) continue nextEntry;
 
-		if (target instanceof IResource) {
-			IResource resource = (IResource) target;
-			switch(entry.getEntryKind()) {
-				case IClasspathEntry.CPE_SOURCE :
-					if (outputFolderLocation == null || !(resource instanceof IContainer)) continue nextEntry;
-					if (sourceFolders != null) { // normal builder mode
-						sourceFolders.add(resource);
-						classpathLocations[cpCount++] =
-							ClasspathLocation.forSourceFolder(resource.getLocation().toString(), outputFolderLocation);
-					} else if (firstSourceFolder) { // add the output folder only once
-						firstSourceFolder = false;
-						classpathLocations[cpCount++] = ClasspathLocation.forBinaryFolder(outputFolderLocation);
-					}
-					continue nextEntry;
-
-				case IClasspathEntry.CPE_PROJECT :
-					if (!(resource instanceof IProject)) continue nextEntry;
-					IProject prereqProject = (IProject) resource;
-					if (!prereqProject.isAccessible()) continue nextEntry;
-					IPath outputLocation = JavaCore.create(prereqProject).getOutputLocation();
-					IResource prereqOutputFolder;
-					if (prereqProject.getFullPath().equals(outputLocation)) {
-						prereqOutputFolder = prereqProject;
-					} else {
-						prereqOutputFolder = workspaceRoot.findMember(outputLocation);
-						if (prereqOutputFolder == null || !prereqOutputFolder.exists() || !(prereqOutputFolder instanceof IFolder))
-							continue nextEntry;
-					}
-					if (prereqOutputFolder.getLocation() == null) // sanity check
-						continue nextEntry;
-					if (binaryResources != null) { // normal builder mode
-						IResource[] existingResources = (IResource[]) binaryResources.get(prereqProject);
-						if (existingResources == null)
-							binaryResources.put(prereqProject, new IResource[] {prereqOutputFolder});
-						else
-							existingResources[0] = prereqOutputFolder; // project's output folder is always first
-					}
-					classpathLocations[cpCount++] = ClasspathLocation.forBinaryFolder(prereqOutputFolder.getLocation().toString());
-					continue nextEntry;
-
-				case IClasspathEntry.CPE_LIBRARY :
-					if (resource.getLocation() == null) // sanity check
-						continue nextEntry;
-					if (resource instanceof IFile) {
-						String extension = path.getFileExtension();
-						if (!(JavaBuilder.JAR_EXTENSION.equalsIgnoreCase(extension) || JavaBuilder.ZIP_EXTENSION.equalsIgnoreCase(extension)))
-							continue nextEntry;
-						classpathLocations[cpCount++] = ClasspathLocation.forLibrary(resource.getLocation().toString());
-					} else if (resource instanceof IFolder) {
-						classpathLocations[cpCount++] = ClasspathLocation.forBinaryFolder(resource.getLocation().toString());
-					}
-					if (binaryResources != null) { // normal builder mode
-						IProject p = resource.getProject(); // can be the project being built
-						IResource[] existingResources = (IResource[]) binaryResources.get(p);
-						if (existingResources == null) {
-							existingResources = new IResource[] {null, resource}; // project's output folder is always first, null if not included
-						} else {
-							int size = existingResources.length;
-							System.arraycopy(existingResources, 0, existingResources = new IResource[size + 1], 0, size);
-							existingResources[size] = resource;
-						}
-						binaryResources.put(p, existingResources);
-					}
-					continue nextEntry;
-			}
-		} else if (target instanceof File) {
-			String extension = path.getFileExtension();
-			if (!(JavaBuilder.JAR_EXTENSION.equalsIgnoreCase(extension) || JavaBuilder.ZIP_EXTENSION.equalsIgnoreCase(extension)))
+		switch(entry.getEntryKind()) {
+			case IClasspathEntry.CPE_SOURCE :
+				if (!(target instanceof IContainer)) continue nextEntry;
+				IPath outputPath = entry.getOutputLocation() != null
+					? entry.getOutputLocation()
+					: javaProject.getOutputLocation();
+				IContainer outputFolder;
+				if (outputPath.segmentCount() == 1) {
+					outputFolder = javaProject.getProject();
+				} else {
+					outputFolder = root.getFolder(outputPath);
+					if (!outputFolder.exists())
+						createOutputFolder(outputFolder);
+				}
+				sLocations.add(
+					ClasspathLocation.forSourceFolder((IContainer) target, outputFolder, entry.fullInclusionPatternChars(), entry.fullExclusionPatternChars()));
 				continue nextEntry;
-			classpathLocations[cpCount++] = ClasspathLocation.forLibrary(path.toString());
+
+			case IClasspathEntry.CPE_PROJECT :
+				if (!(target instanceof IProject)) continue nextEntry;
+				IProject prereqProject = (IProject) target;
+				if (!JavaProject.hasJavaNature(prereqProject)) continue nextEntry; // if project doesn't have java nature or is not accessible
+
+				JavaProject prereqJavaProject = (JavaProject) JavaCore.create(prereqProject);
+				IClasspathEntry[] prereqClasspathEntries = prereqJavaProject.getRawClasspath();
+				ArrayList seen = new ArrayList();
+				nextPrereqEntry: for (int j = 0, m = prereqClasspathEntries.length; j < m; j++) {
+					IClasspathEntry prereqEntry = prereqClasspathEntries[j];
+					if (prereqEntry.getEntryKind() == IClasspathEntry.CPE_SOURCE) {
+						Object prereqTarget = JavaModel.getTarget(prereqEntry.getPath(), true);
+						if (!(prereqTarget instanceof IContainer)) continue nextPrereqEntry;
+						IPath prereqOutputPath = prereqEntry.getOutputLocation() != null
+							? prereqEntry.getOutputLocation()
+							: prereqJavaProject.getOutputLocation();
+						IContainer binaryFolder = prereqOutputPath.segmentCount() == 1
+							? (IContainer) prereqProject
+							: (IContainer) root.getFolder(prereqOutputPath);
+						if (binaryFolder.exists() && !seen.contains(binaryFolder)) {
+							seen.add(binaryFolder);
+							ClasspathLocation bLocation = ClasspathLocation.forBinaryFolder(binaryFolder, true, entry.getAccessRuleSet());
+							bLocations.add(bLocation);
+							if (binaryLocationsPerProject != null) { // normal builder mode
+								ClasspathLocation[] existingLocations = (ClasspathLocation[]) binaryLocationsPerProject.get(prereqProject);
+								if (existingLocations == null) {
+									existingLocations = new ClasspathLocation[] {bLocation};
+								} else {
+									int size = existingLocations.length;
+									System.arraycopy(existingLocations, 0, existingLocations = new ClasspathLocation[size + 1], 0, size);
+									existingLocations[size] = bLocation;
+								}
+								binaryLocationsPerProject.put(prereqProject, existingLocations);
+							}
+						}
+					}
+				}
+				continue nextEntry;
+
+			case IClasspathEntry.CPE_LIBRARY :
+				if (target instanceof IResource) {
+					IResource resource = (IResource) target;
+					ClasspathLocation bLocation = null;
+					if (resource instanceof IFile) {
+						AccessRuleSet accessRuleSet =
+							(JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
+							&& JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_DISCOURAGED_REFERENCE, true)))
+								? null
+								: entry.getAccessRuleSet();
+						bLocation = ClasspathLocation.forLibrary((IFile) resource, accessRuleSet);
+					} else if (resource instanceof IContainer) {
+						AccessRuleSet accessRuleSet =
+							(JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
+							&& JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_DISCOURAGED_REFERENCE, true)))
+								? null
+								: entry.getAccessRuleSet();
+						bLocation = ClasspathLocation.forBinaryFolder((IContainer) target, false, accessRuleSet);	 // is library folder not output folder
+					}
+					bLocations.add(bLocation);
+					if (binaryLocationsPerProject != null) { // normal builder mode
+						IProject p = resource.getProject(); // can be the project being built
+						ClasspathLocation[] existingLocations = (ClasspathLocation[]) binaryLocationsPerProject.get(p);
+						if (existingLocations == null) {
+							existingLocations = new ClasspathLocation[] {bLocation};
+						} else {
+							int size = existingLocations.length;
+							System.arraycopy(existingLocations, 0, existingLocations = new ClasspathLocation[size + 1], 0, size);
+							existingLocations[size] = bLocation;
+						}
+						binaryLocationsPerProject.put(p, existingLocations);
+					}
+				} else if (target instanceof File) {
+					AccessRuleSet accessRuleSet =
+						(JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_FORBIDDEN_REFERENCE, true))
+							&& JavaCore.IGNORE.equals(javaProject.getOption(JavaCore.COMPILER_PB_DISCOURAGED_REFERENCE, true)))
+								? null
+								: entry.getAccessRuleSet();
+					bLocations.add(ClasspathLocation.forLibrary(path.toString(), accessRuleSet));
+				}
+				continue nextEntry;
 		}
 	}
-	if (cpCount < max)
-		System.arraycopy(classpathLocations, 0, (classpathLocations = new ClasspathLocation[cpCount]), 0, cpCount);
-	return classpathLocations;
+
+	// now split the classpath locations... place the output folders ahead of the other .class file folders & jars
+	ArrayList outputFolders = new ArrayList(1);
+	this.sourceLocations = new ClasspathMultiDirectory[sLocations.size()];
+	if (!sLocations.isEmpty()) {
+		sLocations.toArray(this.sourceLocations);
+
+		// collect the output folders, skipping duplicates
+		next : for (int i = 0, l = this.sourceLocations.length; i < l; i++) {
+			ClasspathMultiDirectory md = this.sourceLocations[i];
+			IPath outputPath = md.binaryFolder.getFullPath();
+			for (int j = 0; j < i; j++) { // compare against previously walked source folders
+				if (outputPath.equals(this.sourceLocations[j].binaryFolder.getFullPath())) {
+					md.hasIndependentOutputFolder = this.sourceLocations[j].hasIndependentOutputFolder;
+					continue next;
+				}
+			}
+			outputFolders.add(md);
+
+			// also tag each source folder whose output folder is an independent folder & is not also a source folder
+			for (int j = 0, m = this.sourceLocations.length; j < m; j++)
+				if (outputPath.equals(this.sourceLocations[j].sourceFolder.getFullPath()))
+					continue next;
+			md.hasIndependentOutputFolder = true;
+		}
+	}
+
+	// combine the output folders with the binary folders & jars... place the output folders before other .class file folders & jars
+	this.binaryLocations = new ClasspathLocation[outputFolders.size() + bLocations.size()];
+	int index = 0;
+	for (int i = 0, l = outputFolders.size(); i < l; i++)
+		this.binaryLocations[index++] = (ClasspathLocation) outputFolders.get(i);
+	for (int i = 0, l = bLocations.size(); i < l; i++)
+		this.binaryLocations[index++] = (ClasspathLocation) bLocations.get(i);
 }
 
 public void cleanup() {
-	for (int i = 0, length = classpathLocations.length; i < length; i++)
-		classpathLocations[i].cleanup();
+	this.initialTypeNames = null;
+	this.additionalUnits = null;
+	for (int i = 0, l = this.sourceLocations.length; i < l; i++)
+		this.sourceLocations[i].cleanup();
+	for (int i = 0, l = this.binaryLocations.length; i < l; i++)
+		this.binaryLocations[i].cleanup();
+}
+
+private void createOutputFolder(IContainer outputFolder) throws CoreException {
+	createParentFolder(outputFolder.getParent());
+	((IFolder) outputFolder).create(IResource.FORCE | IResource.DERIVED, true, null);
+}
+
+private void createParentFolder(IContainer parent) throws CoreException {
+	if (!parent.exists()) {
+		createParentFolder(parent.getParent());
+		((IFolder) parent).create(true, true, null);
+	}
 }
 
 private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeName) {
-	if (initialTypeNames != null) {
-		for (int i = 0, length = initialTypeNames.length; i < length; i++) {
-			if (qualifiedTypeName.equals(initialTypeNames[i])) {
-				if (isIncrementalBuild)
-					// catch the case that a type inside a source file has been renamed but other class files are looking for it
-					throw new AbortCompilation(true, new AbortIncrementalBuildException(qualifiedTypeName));
-				return null; // looking for a file which we know was provided at the beginning of the compilation
-			}
-		}
+	if (this.notifier != null)
+		this.notifier.checkCancelWithinCompiler();
+
+	if (this.initialTypeNames != null && this.initialTypeNames.includes(qualifiedTypeName)) {
+		if (this.isIncrementalBuild)
+			// catch the case that a type inside a source file has been renamed but other class files are looking for it
+			throw new AbortCompilation(true, new AbortIncrementalBuildException(qualifiedTypeName));
+		return null; // looking for a file which we know was provided at the beginning of the compilation
 	}
 
-	String qBinaryFileName = qualifiedTypeName + ".class"; //$NON-NLS-1$
+	if (this.additionalUnits != null && this.sourceLocations.length > 0) {
+		// if an additional source file is waiting to be compiled, answer it BUT not if this is a secondary type search
+		// if we answer X.java & it no longer defines Y then the binary type looking for Y will think the class path is wrong
+		// let the recompile loop fix up dependents when the secondary type Y has been deleted from X.java
+		SourceFile unit = (SourceFile) this.additionalUnits.get(qualifiedTypeName); // doesn't have file extension
+		if (unit != null)
+			return new NameEnvironmentAnswer(unit, null /*no access restriction*/);
+	}
+
+	String qBinaryFileName = qualifiedTypeName + SUFFIX_STRING_class;
 	String binaryFileName = qBinaryFileName;
 	String qPackageName =  ""; //$NON-NLS-1$
 	if (qualifiedTypeName.length() > typeName.length) {
@@ -200,22 +285,22 @@ private NameEnvironmentAnswer findClass(String qualifiedTypeName, char[] typeNam
 		binaryFileName = qBinaryFileName.substring(typeNameStart);
 	}
 
-	if (sourceLocations != null && sourceLocations[0].isPackage(qPackageName)) { // looks in common output folder
-		if (additionalSourceFilenames != null) {
-			String qSourceFileName = qualifiedTypeName + ".java"; //$NON-NLS-1$
-			for (int i = 0, length = sourceLocations.length; i < length; i++) {
-				NameEnvironmentAnswer answer =
-					sourceLocations[i].findSourceFile(qSourceFileName, qPackageName, typeName, additionalSourceFilenames);
-				if (answer != null) return answer;
-			}
+	// NOTE: the output folders are added at the beginning of the binaryLocations
+	NameEnvironmentAnswer suggestedAnswer = null;
+	for (int i = 0, l = this.binaryLocations.length; i < l; i++) {
+		NameEnvironmentAnswer answer = this.binaryLocations[i].findClass(binaryFileName, qPackageName, qBinaryFileName);
+		if (answer != null) {
+			if (!answer.ignoreIfBetter()) {
+				if (answer.isBetter(suggestedAnswer))
+					return answer;
+			} else if (answer.isBetter(suggestedAnswer))
+				// remember suggestion and keep looking
+				suggestedAnswer = answer;
 		}
-		NameEnvironmentAnswer answer = sourceLocations[0].findClass(binaryFileName, qPackageName, qBinaryFileName);
-		if (answer != null) return answer;
 	}
-	for (int i = 0, length = binaryLocations.length; i < length; i++) {
-		NameEnvironmentAnswer answer = binaryLocations[i].findClass(binaryFileName, qPackageName, qBinaryFileName);
-		if (answer != null) return answer;
-	}
+	if (suggestedAnswer != null)
+		// no better answer was found
+		return suggestedAnswer;
 	return null;
 }
 
@@ -240,44 +325,37 @@ public boolean isPackage(char[][] compoundName, char[] packageName) {
 }
 
 public boolean isPackage(String qualifiedPackageName) {
-	if (sourceLocations != null && sourceLocations[0].isPackage(qualifiedPackageName)) // looks in common output folder
-		return true;
-	for (int i = 0, length = binaryLocations.length; i < length; i++)
-		if (binaryLocations[i].isPackage(qualifiedPackageName))
+	// NOTE: the output folders are added at the beginning of the binaryLocations
+	for (int i = 0, l = this.binaryLocations.length; i < l; i++)
+		if (this.binaryLocations[i].isPackage(qualifiedPackageName))
 			return true;
 	return false;
 }
 
-public void setNames(String[] initialTypeNames, String[] additionalSourceFilenames) {
-	this.initialTypeNames = initialTypeNames;
-	this.additionalSourceFilenames = additionalSourceFilenames;
-	for (int i = 0, length = classpathLocations.length; i < length; i++)
-		classpathLocations[i].reset();
-}
-
-private void splitLocations() {
-	int length = classpathLocations.length;
-	ArrayList sLocations = new ArrayList(length);
-	ArrayList bLocations = new ArrayList(length);
-	for (int i = 0; i < length; i++) {
-		ClasspathLocation classpath = classpathLocations[i];
-		if (classpath instanceof ClasspathMultiDirectory)
-			sLocations.add(classpath);
-		else
-			bLocations.add(classpath);
-	}
-
-	if (sLocations.isEmpty()) {
-		this.sourceLocations = null;
+void setNames(String[] typeNames, SourceFile[] additionalFiles) {
+	// convert the initial typeNames to a set
+	if (typeNames == null) {
+		this.initialTypeNames = null;
 	} else {
-		this.sourceLocations = new ClasspathMultiDirectory[sLocations.size()];
-		sLocations.toArray(this.sourceLocations);
+		this.initialTypeNames = new SimpleSet(typeNames.length);
+		for (int i = 0, l = typeNames.length; i < l; i++)
+			this.initialTypeNames.add(typeNames[i]);
 	}
-	this.binaryLocations = new ClasspathLocation[bLocations.size()];
-	bLocations.toArray(this.binaryLocations);
-}
+	// map the additional source files by qualified type name
+	if (additionalFiles == null) {
+		this.additionalUnits = null;
+	} else {
+		this.additionalUnits = new SimpleLookupTable(additionalFiles.length);
+		for (int i = 0, l = additionalFiles.length; i < l; i++) {
+			SourceFile additionalUnit = additionalFiles[i];
+			if (additionalUnit != null)
+				this.additionalUnits.put(additionalUnit.initialTypeName, additionalFiles[i]);
+		}
+	}
 
-void tagAsIncrementalBuild() {
-	this.isIncrementalBuild = true;
+	for (int i = 0, l = this.sourceLocations.length; i < l; i++)
+		this.sourceLocations[i].reset();
+	for (int i = 0, l = this.binaryLocations.length; i < l; i++)
+		this.binaryLocations[i].reset();
 }
 }

@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2008 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.ArrayList;
@@ -16,17 +16,22 @@ import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.core.runtime.jobs.ISchedulingRule;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
+import org.eclipse.jdt.core.IJavaProject;
 import org.eclipse.jdt.core.IPackageFragment;
 import org.eclipse.jdt.core.IPackageFragmentRoot;
 import org.eclipse.jdt.core.JavaConventions;
+import org.eclipse.jdt.core.JavaCore;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.Signature;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.internal.core.util.Messages;
+import org.eclipse.jdt.internal.core.util.Util;
 
 /**
- * This operation creates a new package fragment under a given package fragment root. 
+ * This operation creates a new package fragment under a given package fragment root.
  * The following must be specified: <ul>
  * <li>the package fragment root
  * <li>the package name
@@ -47,7 +52,7 @@ public class CreatePackageFragmentOperation extends JavaModelOperation {
 	/**
 	 * The fully qualified, dot-delimited, package name.
 	 */
-	protected String fName;
+	protected String[] pkgName;
 /**
  * When executed, this operation will create a package fragment with the given name
  * under the given package fragment root. The dot-separated name is broken into
@@ -56,7 +61,7 @@ public class CreatePackageFragmentOperation extends JavaModelOperation {
  */
 public CreatePackageFragmentOperation(IPackageFragmentRoot parentElement, String packageName, boolean force) {
 	super(null, new IJavaElement[]{parentElement}, force);
-	fName = packageName;
+	this.pkgName = packageName == null ? null : Util.getTrimmedSimpleNames(packageName);
 }
 /**
  * Execute the operation - creates the new package fragment and any
@@ -65,42 +70,59 @@ public CreatePackageFragmentOperation(IPackageFragmentRoot parentElement, String
  * @exception JavaModelException if the operation is unable to complete
  */
 protected void executeOperation() throws JavaModelException {
-	JavaElementDelta delta = newJavaElementDelta();
-	IPackageFragmentRoot root = (IPackageFragmentRoot) getParentElement();
-	String[] names = Signature.getSimpleNames(fName);
-	beginTask(Util.bind("operation.createPackageFragmentProgress"), names.length); //$NON-NLS-1$
-	IContainer parentFolder = (IContainer) root.getUnderlyingResource();
-	String sideEffectPackageName = ""; //$NON-NLS-1$
-	ArrayList resultElements = new ArrayList(names.length);
-	int i;
-	for (i = 0; i < names.length; i++) {
-		String subFolderName = names[i];
-		sideEffectPackageName += subFolderName;
-		IResource subFolder = parentFolder.findMember(subFolderName);
-		if (subFolder == null) {
-			createFolder(parentFolder, subFolderName, fForce);
-			parentFolder = parentFolder.getFolder(new Path(subFolderName));
-			IPackageFragment addedFrag = root.getPackageFragment(sideEffectPackageName);
-			delta.added(addedFrag);
-			resultElements.add(addedFrag);
-		} else {
-			parentFolder = (IContainer) subFolder;
+	try {
+		JavaElementDelta delta = null;
+		PackageFragmentRoot root = (PackageFragmentRoot) getParentElement();
+		beginTask(Messages.operation_createPackageFragmentProgress, this.pkgName.length);
+		IContainer parentFolder = (IContainer) root.resource();
+		String[] sideEffectPackageName = CharOperation.NO_STRINGS;
+		ArrayList results = new ArrayList(this.pkgName.length);
+		char[][] inclusionPatterns = root.fullInclusionPatternChars();
+		char[][] exclusionPatterns = root.fullExclusionPatternChars();
+		int i;
+		for (i = 0; i < this.pkgName.length; i++) {
+			String subFolderName = this.pkgName[i];
+			sideEffectPackageName = Util.arrayConcat(sideEffectPackageName, subFolderName);
+			IResource subFolder = parentFolder.findMember(subFolderName);
+			if (subFolder == null) {
+				createFolder(parentFolder, subFolderName, this.force);
+				parentFolder = parentFolder.getFolder(new Path(subFolderName));
+				IPackageFragment addedFrag = root.getPackageFragment(sideEffectPackageName);
+				if (!Util.isExcluded(parentFolder, inclusionPatterns, exclusionPatterns)) {
+					if (delta == null) {
+						delta = newJavaElementDelta();
+					}
+					delta.added(addedFrag);
+				}
+				results.add(addedFrag);
+			} else {
+				parentFolder = (IContainer) subFolder;
+			}
+			worked(1);
 		}
-		sideEffectPackageName += '.';
-		worked(1);
+		if (results.size() > 0) {
+			this.resultElements = new IJavaElement[results.size()];
+			results.toArray(this.resultElements);
+			if (delta != null) {
+				addDelta(delta);
+			}
+		}
+	} finally {
+		done();
 	}
-	if (resultElements.size() > 0) {
-		fResultElements = new IJavaElement[resultElements.size()];
-		resultElements.toArray(fResultElements);
-		addDelta(delta);
-	}
-	done();
+}
+protected ISchedulingRule getSchedulingRule() {
+	if (this.pkgName.length == 0)
+		return null; // no resource is going to be created
+	IResource parentResource = ((JavaElement) getParentElement()).resource();
+	IResource resource = ((IContainer) parentResource).getFolder(new Path(this.pkgName[0]));
+	return resource.getWorkspace().getRuleFactory().createRule(resource);
 }
 /**
  * Possible failures: <ul>
  *  <li>NO_ELEMENTS_TO_PROCESS - the root supplied to the operation is
  * 		<code>null</code>.
- *	<li>INVALID_NAME - the name provided to the operation 
+ *	<li>INVALID_NAME - the name provided to the operation
  * 		is <code>null</code> or is not a valid package fragment name.
  *	<li>READ_ONLY - the root provided to this operation is read only.
  *	<li>NAME_COLLISION - there is a pre-existing resource (file)
@@ -111,32 +133,32 @@ protected void executeOperation() throws JavaModelException {
  * @see JavaConventions
  */
 public IJavaModelStatus verify() {
-	if (getParentElement() == null) {
+	IJavaElement parentElement = getParentElement();
+	if (parentElement == null) {
 		return new JavaModelStatus(IJavaModelStatusConstants.NO_ELEMENTS_TO_PROCESS);
 	}
-	
-	if (fName == null || (fName.length() > 0 && JavaConventions.validatePackageName(fName).getSeverity() == IStatus.ERROR)) {
-		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_NAME, fName);
+
+	String packageName = this.pkgName == null ? null : Util.concatWith(this.pkgName, '.');
+	IJavaProject project = parentElement.getJavaProject();
+	if (this.pkgName == null || (this.pkgName.length > 0 && JavaConventions.validatePackageName(packageName, project.getOption(JavaCore.COMPILER_SOURCE, true), project.getOption(JavaCore.COMPILER_COMPLIANCE, true)).getSeverity() == IStatus.ERROR)) {
+		return new JavaModelStatus(IJavaModelStatusConstants.INVALID_NAME, packageName);
 	}
-	IPackageFragmentRoot root = (IPackageFragmentRoot) getParentElement();
+	IJavaElement root = getParentElement();
 	if (root.isReadOnly()) {
 		return new JavaModelStatus(IJavaModelStatusConstants.READ_ONLY, root);
 	}
-	String[] names = Signature.getSimpleNames(fName);
-	try {
-		IContainer parentFolder = (IContainer) root.getUnderlyingResource();
-		int i;
-		for (i = 0; i < names.length; i++) {
-			IResource subFolder = parentFolder.findMember(names[i]);
-			if (subFolder != null) {
-				if (subFolder.getType() != IResource.FOLDER) {
-					return new JavaModelStatus(IJavaModelStatusConstants.NAME_COLLISION);
-				}
-				parentFolder = (IContainer) subFolder;
+	IContainer parentFolder = (IContainer) ((JavaElement) root).resource();
+	int i;
+	for (i = 0; i < this.pkgName.length; i++) {
+		IResource subFolder = parentFolder.findMember(this.pkgName[i]);
+		if (subFolder != null) {
+			if (subFolder.getType() != IResource.FOLDER) {
+				return new JavaModelStatus(
+					IJavaModelStatusConstants.NAME_COLLISION,
+					Messages.bind(Messages.status_nameCollision, subFolder.getFullPath().toString()));
 			}
+			parentFolder = (IContainer) subFolder;
 		}
-	} catch (JavaModelException npe) {
-		return npe.getJavaModelStatus();
 	}
 	return JavaModelStatus.VERIFIED_OK;
 }

@@ -1,40 +1,44 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2011 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
-import org.eclipse.jdt.core.compiler.*;
-import org.eclipse.jdt.internal.compiler.*;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.internal.compiler.CompilationResult;
 import org.eclipse.jdt.internal.compiler.ast.*;
-import org.eclipse.jdt.internal.compiler.parser.*;
-import org.eclipse.jdt.internal.compiler.problem.*;
-import org.eclipse.jdt.internal.compiler.util.*;
+import org.eclipse.jdt.internal.compiler.lookup.Binding;
+import org.eclipse.jdt.internal.compiler.parser.Parser;
+import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 
 /**
  * A parser for code snippets.
  */
 public class CodeSnippetParser extends Parser implements EvaluationConstants {
 	int codeSnippetStart, codeSnippetEnd;
-	boolean hasRecoveredOnExpression;
-	int problemCountBeforeRecovery = 0;
-	int lastStatement = -1; // end of last top level statement
-
 	EvaluationContext evaluationContext;
+	boolean hasRecoveredOnExpression;
+	int lastStatement = -1; // end of last top level statement
+	int lineSeparatorLength;
+
+	int problemCountBeforeRecovery = 0;
 /**
  * Creates a new code snippet parser.
  */
-public CodeSnippetParser(ProblemReporter problemReporter, EvaluationContext evaluationContext, boolean optimizeStringLiterals, boolean assertMode, int codeSnippetStart, int codeSnippetEnd) {
-	super(problemReporter, optimizeStringLiterals, assertMode);
+public CodeSnippetParser(ProblemReporter problemReporter, EvaluationContext evaluationContext, boolean optimizeStringLiterals, int codeSnippetStart, int codeSnippetEnd) {
+	super(problemReporter, optimizeStringLiterals);
 	this.codeSnippetStart = codeSnippetStart;
 	this.codeSnippetEnd = codeSnippetEnd;
 	this.evaluationContext = evaluationContext;
+	this.reportOnlyOneSyntaxError = true;
+	this.javadocParser.checkDocComment = false;
 }
 protected void classInstanceCreation(boolean alwaysQualified) {
 	// ClassInstanceCreationExpression ::= 'new' ClassType '(' ArgumentListopt ')' ClassBodyopt
@@ -44,43 +48,95 @@ protected void classInstanceCreation(boolean alwaysQualified) {
 
 	AllocationExpression alloc;
 	int length;
-	if (((length = astLengthStack[astLengthPtr--]) == 1)
-		&& (astStack[astPtr] == null)) {
+	if (((length = this.astLengthStack[this.astLengthPtr--]) == 1)
+		&& (this.astStack[this.astPtr] == null)) {
 		//NO ClassBody
-		astPtr--;
+		this.astPtr--;
 		if (alwaysQualified) {
 			alloc = new QualifiedAllocationExpression();
 		} else {
-			alloc = new CodeSnippetAllocationExpression(evaluationContext);
+			alloc = new CodeSnippetAllocationExpression(this.evaluationContext);
 		}
-		alloc.sourceEnd = endPosition; //the position has been stored explicitly
+		alloc.sourceEnd = this.endPosition; //the position has been stored explicitly
 
-		if ((length = expressionLengthStack[expressionLengthPtr--]) != 0) {
-			expressionPtr -= length;
+		if ((length = this.expressionLengthStack[this.expressionLengthPtr--]) != 0) {
+			this.expressionPtr -= length;
 			System.arraycopy(
-				expressionStack, 
-				expressionPtr + 1, 
-				alloc.arguments = new Expression[length], 
-				0, 
-				length); 
+				this.expressionStack,
+				this.expressionPtr + 1,
+				alloc.arguments = new Expression[length],
+				0,
+				length);
 		}
 		alloc.type = getTypeReference(0);
+		checkForDiamond(alloc.type);
+		
 		//the default constructor with the correct number of argument
 		//will be created and added by the TC (see createsInternalConstructorWithBinding)
-		alloc.sourceStart = intStack[intPtr--];
+		alloc.sourceStart = this.intStack[this.intPtr--];
 		pushOnExpressionStack(alloc);
 	} else {
 		dispatchDeclarationInto(length);
-		AnonymousLocalTypeDeclaration anonymousTypeDeclaration = (AnonymousLocalTypeDeclaration) astStack[astPtr];
-		anonymousTypeDeclaration.declarationSourceEnd = endStatementPosition;
+		TypeDeclaration anonymousTypeDeclaration = (TypeDeclaration) this.astStack[this.astPtr];
+		anonymousTypeDeclaration.declarationSourceEnd = this.endStatementPosition;
 		if (anonymousTypeDeclaration.allocation != null) {
-			anonymousTypeDeclaration.allocation.sourceEnd = endStatementPosition;
-		}		
-		astPtr--;
-		astLengthPtr--;
+			anonymousTypeDeclaration.allocation.sourceEnd = this.endStatementPosition;
+		}
+		this.astPtr--;
+		this.astLengthPtr--;
+	}
+}
+protected void consumeClassInstanceCreationExpressionWithTypeArguments() {
+	// ClassInstanceCreationExpression ::= 'new' TypeArguments ClassType '(' ArgumentListopt ')' ClassBodyopt
+	AllocationExpression alloc;
+	int length;
+	if (((length = this.astLengthStack[this.astLengthPtr--]) == 1)
+		&& (this.astStack[this.astPtr] == null)) {
+		//NO ClassBody
+		this.astPtr--;
+		alloc = new CodeSnippetAllocationExpression(this.evaluationContext);
+		alloc.sourceEnd = this.endPosition; //the position has been stored explicitly
 
-		// mark fields and initializer with local type mark if needed
-		markFieldsWithLocalType(anonymousTypeDeclaration);
+		if ((length = this.expressionLengthStack[this.expressionLengthPtr--]) != 0) {
+			this.expressionPtr -= length;
+			System.arraycopy(
+				this.expressionStack,
+				this.expressionPtr + 1,
+				alloc.arguments = new Expression[length],
+				0,
+				length);
+		}
+		alloc.type = getTypeReference(0);
+
+		length = this.genericsLengthStack[this.genericsLengthPtr--];
+		this.genericsPtr -= length;
+		System.arraycopy(this.genericsStack, this.genericsPtr + 1, alloc.typeArguments = new TypeReference[length], 0, length);
+		this.intPtr--;
+
+		//the default constructor with the correct number of argument
+		//will be created and added by the TC (see createsInternalConstructorWithBinding)
+		alloc.sourceStart = this.intStack[this.intPtr--];
+		pushOnExpressionStack(alloc);
+	} else {
+		dispatchDeclarationInto(length);
+		TypeDeclaration anonymousTypeDeclaration = (TypeDeclaration)this.astStack[this.astPtr];
+		anonymousTypeDeclaration.declarationSourceEnd = this.endStatementPosition;
+		anonymousTypeDeclaration.bodyEnd = this.endStatementPosition;
+		if (length == 0 && !containsComment(anonymousTypeDeclaration.bodyStart, anonymousTypeDeclaration.bodyEnd)) {
+			anonymousTypeDeclaration.bits |= ASTNode.UndocumentedEmptyBlock;
+		}
+		this.astPtr--;
+		this.astLengthPtr--;
+
+		QualifiedAllocationExpression allocationExpression = anonymousTypeDeclaration.allocation;
+		if (allocationExpression != null) {
+			allocationExpression.sourceEnd = this.endStatementPosition;
+			// handle type arguments
+			length = this.genericsLengthStack[this.genericsLengthPtr--];
+			this.genericsPtr -= length;
+			System.arraycopy(this.genericsStack, this.genericsPtr + 1, allocationExpression.typeArguments = new TypeReference[length], 0, length);
+			allocationExpression.sourceStart = this.intStack[this.intPtr--];
+		}
 	}
 }
 protected void consumeClassDeclaration() {
@@ -88,51 +144,61 @@ protected void consumeClassDeclaration() {
 	/* recovery */
 	recordLastStatementIfNeeded();
 }
-protected void consumeClassHeaderName() {
+protected void consumeClassHeaderName1() {
 	// ClassHeaderName ::= Modifiersopt 'class' 'Identifier'
 	TypeDeclaration typeDecl;
-	if (nestedMethod[nestedType] == 0) {
-		if (nestedType != 0) {
-			typeDecl = new MemberTypeDeclaration(this.compilationUnit.compilationResult);
+	if (this.nestedMethod[this.nestedType] == 0) {
+		if (this.nestedType != 0) {
+			typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
+			typeDecl.bits |= ASTNode.IsMemberType;
 		} else {
 			typeDecl = new CodeSnippetTypeDeclaration(this.compilationUnit.compilationResult);
 		}
 	} else {
 		// Record that the block has a declaration for local types
-		typeDecl = new LocalTypeDeclaration(this.compilationUnit.compilationResult);
-		markCurrentMethodWithLocalType();
+		typeDecl = new TypeDeclaration(this.compilationUnit.compilationResult);
+		typeDecl.bits |= ASTNode.IsLocalType;
+		markEnclosingMemberWithLocalType();
 		blockReal();
 	}
 
 	//highlight the name of the type
-	long pos = identifierPositionStack[identifierPtr];
+	long pos = this.identifierPositionStack[this.identifierPtr];
 	typeDecl.sourceEnd = (int) pos;
 	typeDecl.sourceStart = (int) (pos >>> 32);
-	typeDecl.name = identifierStack[identifierPtr--];
-	identifierLengthPtr--;
+	typeDecl.name = this.identifierStack[this.identifierPtr--];
+	this.identifierLengthPtr--;
 
 	//compute the declaration source too
-	typeDecl.declarationSourceStart = intStack[intPtr--]; 
-	intPtr--;
+	typeDecl.declarationSourceStart = this.intStack[this.intPtr--];
+	this.intPtr--;
 	// 'class' and 'interface' push an int position
-	typeDecl.modifiersSourceStart = intStack[intPtr--];
-	typeDecl.modifiers = intStack[intPtr--];
+	typeDecl.modifiersSourceStart = this.intStack[this.intPtr--];
+	typeDecl.modifiers = this.intStack[this.intPtr--];
 	if (typeDecl.modifiersSourceStart >= 0) {
 		typeDecl.declarationSourceStart = typeDecl.modifiersSourceStart;
 	}
 	typeDecl.bodyStart = typeDecl.sourceEnd + 1;
 	pushOnAstStack(typeDecl);
 
-	listLength = 0; // will be updated when reading super-interfaces
+	this.listLength = 0; // will be updated when reading super-interfaces
 	// recovery
-	if (currentElement != null){ 
-		lastCheckPoint = typeDecl.bodyStart;
-		currentElement = currentElement.add(typeDecl, 0);
-		lastIgnoredToken = -1;
+	if (this.currentElement != null){
+		this.lastCheckPoint = typeDecl.bodyStart;
+		this.currentElement = this.currentElement.add(typeDecl, 0);
+		this.lastIgnoredToken = -1;
 	}
+	// javadoc
+	typeDecl.javadoc = this.javadoc;
+	this.javadoc = null;
 }
 protected void consumeEmptyStatement() {
 	super.consumeEmptyStatement();
+	/* recovery */
+	recordLastStatementIfNeeded();
+}
+protected void consumeEnhancedForStatement() {
+	super.consumeEnhancedForStatement();
 	/* recovery */
 	recordLastStatementIfNeeded();
 }
@@ -147,65 +213,41 @@ protected void consumeFieldAccess(boolean isSuperAccess) {
 
 	FieldReference fr =
 		new CodeSnippetFieldReference(
-			identifierStack[identifierPtr],
-			identifierPositionStack[identifierPtr--],
-			evaluationContext);
-	identifierLengthPtr--;
+			this.identifierStack[this.identifierPtr],
+			this.identifierPositionStack[this.identifierPtr--],
+			this.evaluationContext);
+	this.identifierLengthPtr--;
 	if (isSuperAccess) {
-		//considerates the fieldReference beginning at the 'super' ....	
-		fr.sourceStart = intStack[intPtr--];
+		//considerates the fieldReference beginning at the 'super' ....
+		fr.sourceStart = this.intStack[this.intPtr--];
 		problemReporter().codeSnippetMissingClass(null,0, 0);
-		fr.receiver = new CodeSnippetSuperReference(fr.sourceStart, endPosition, evaluationContext);
+		fr.receiver = new CodeSnippetSuperReference(fr.sourceStart, this.endPosition);
 		pushOnExpressionStack(fr);
 	} else {
 		//optimize push/pop
-		if ((fr.receiver = expressionStack[expressionPtr]).isThis()) {
+		if ((fr.receiver = this.expressionStack[this.expressionPtr]).isThis()) {
 			//fieldreference begins at the this
 			fr.sourceStart = fr.receiver.sourceStart;
 		}
-		expressionStack[expressionPtr] = fr;
+		this.expressionStack[this.expressionPtr] = fr;
 	}
 }
-protected void consumeInterfaceHeaderName() {
-	// InterfaceHeaderName ::= Modifiersopt 'interface' 'Identifier'
-	TypeDeclaration typeDecl;
-	if (nestedMethod[nestedType] == 0) {
-		if (nestedType != 0) {
-			typeDecl = new MemberTypeDeclaration(this.compilationUnit.compilationResult);
-		} else {
-			typeDecl = new CodeSnippetTypeDeclaration(this.compilationUnit.compilationResult);
-		}
-	} else {
-		// Record that the block has a declaration for local types
-		typeDecl = new LocalTypeDeclaration(this.compilationUnit.compilationResult);
-		markCurrentMethodWithLocalType(); 
-		blockReal();
-	}
-
-	//highlight the name of the type
-	long pos = identifierPositionStack[identifierPtr];
-	typeDecl.sourceEnd = (int) pos;
-	typeDecl.sourceStart = (int) (pos >>> 32);
-	typeDecl.name = identifierStack[identifierPtr--];
-	identifierLengthPtr--;
-
-	//compute the declaration source too
-	typeDecl.declarationSourceStart = intStack[intPtr--];
-	intPtr--;
-	// 'class' and 'interface' push an int position
-	typeDecl.modifiersSourceStart = intStack[intPtr--];
-	typeDecl.modifiers = intStack[intPtr--];
-	if (typeDecl.modifiersSourceStart >= 0) {
-		typeDecl.declarationSourceStart = typeDecl.modifiersSourceStart;
-	}
-	typeDecl.bodyStart = typeDecl.sourceEnd + 1;
-	pushOnAstStack(typeDecl);
-	listLength = 0; // will be updated when reading super-interfaces
-	// recovery
-	if (currentElement != null){ // is recovering
-		lastCheckPoint = typeDecl.bodyStart;
-		currentElement = currentElement.add(typeDecl, 0);
-		lastIgnoredToken = -1;		
+protected void consumeInternalCompilationUnit() {
+	// InternalCompilationUnit ::= PackageDeclaration
+	// InternalCompilationUnit ::= PackageDeclaration ImportDeclarations ReduceImports
+	// InternalCompilationUnit ::= ImportDeclarations ReduceImports
+}
+protected void consumeInternalCompilationUnitWithTypes() {
+	// InternalCompilationUnit ::= PackageDeclaration ImportDeclarations ReduceImports TypeDeclarations
+	// InternalCompilationUnit ::= PackageDeclaration TypeDeclarations
+	// InternalCompilationUnit ::= TypeDeclarations
+	// InternalCompilationUnit ::= ImportDeclarations ReduceImports TypeDeclarations
+	// consume type declarations
+	int length;
+	if ((length = this.astLengthStack[this.astLengthPtr--]) != 0) {
+		this.compilationUnit.types = new TypeDeclaration[length];
+		this.astPtr -= length;
+		System.arraycopy(this.astStack, this.astPtr + 1, this.compilationUnit.types, 0, length);
 	}
 }
 protected void consumeLocalVariableDeclarationStatement() {
@@ -213,8 +255,9 @@ protected void consumeLocalVariableDeclarationStatement() {
 	/* recovery */
 	recordLastStatementIfNeeded();
 }
+
 /**
- * In case emulating local variables, wrap the (recovered) statements inside a 
+ * In case emulating local variables, wrap the (recovered) statements inside a
  * try statement so as to achieve local state commiting (copy local vars back to fields).
  * The CSToCuMapper could not be used, since it could have interfered with
  * the syntax recovery specific to code snippets.
@@ -224,26 +267,25 @@ protected void consumeMethodDeclaration(boolean isNotAbstract) {
 	// AbstractMethodDeclaration ::= MethodHeader ';'
 
 	super.consumeMethodDeclaration(isNotAbstract);
-	
+
 	// now we know that we have a method declaration at the top of the ast stack
-	MethodDeclaration methodDecl = (MethodDeclaration) astStack[astPtr];
+	MethodDeclaration methodDecl = (MethodDeclaration) this.astStack[this.astPtr];
 
 	// automatically wrap the last statement inside a return statement, if it is an expression
 	// support have to be defined at toplevel only
-	if (this.isTopLevelType()) {
+	if (isTopLevelType()) {
 		int last = methodDecl.statements == null ? -1 : methodDecl.statements.length - 1;
 		if (last >= 0 && methodDecl.statements[last] instanceof Expression){
 			Expression lastExpression = (Expression) methodDecl.statements[last];
 			methodDecl.statements[last] = new CodeSnippetReturnStatement(
-											lastExpression, 
-											lastExpression.sourceStart, 
-											lastExpression.sourceEnd,
-											evaluationContext);
+											lastExpression,
+											lastExpression.sourceStart,
+											lastExpression.sourceEnd);
 		}
 	}
-	
+
 	int start = methodDecl.bodyStart-1, end = start;
-	long position = (start << 32) + end;
+	long position = ((long)start << 32) + end;
 	long[] positions = new long[]{position};
 	if (this.evaluationContext.localVariableNames != null) {
 
@@ -254,20 +296,29 @@ protected void consumeMethodDeclaration(boolean isNotAbstract) {
 		for (int i = 0; i < varCount; i++){
 			char[] trimmedTypeName = this.evaluationContext.localVariableTypeNames[i];
 			int nameEnd = CharOperation.indexOf('[', trimmedTypeName);
-			if (nameEnd >= 0) trimmedTypeName = CharOperation.subarray(trimmedTypeName, 0, nameEnd);
+			if (nameEnd >= 0) {
+				trimmedTypeName = CharOperation.subarray(trimmedTypeName, 0, nameEnd);
+			}
 			nameEnd = CharOperation.indexOf(' ', trimmedTypeName);
-			if (nameEnd >= 0) trimmedTypeName = CharOperation.subarray(trimmedTypeName, 0, nameEnd);
-			
-			TypeReference typeReference = new QualifiedTypeReference(
-				CharOperation.splitOn('.', trimmedTypeName),
-				positions);
+			if (nameEnd >= 0) {
+				trimmedTypeName = CharOperation.subarray(trimmedTypeName, 0, nameEnd);
+			}
+			TypeReference typeReference;
+			if (CharOperation.indexOf('.', trimmedTypeName) == -1) {
+				typeReference = new SingleTypeReference(trimmedTypeName, position);
+			} else {
+				typeReference = new QualifiedTypeReference(
+						CharOperation.splitOn('.', trimmedTypeName),
+						positions);
+			}
 			int dimCount = CharOperation.occurencesOf('[', this.evaluationContext.localVariableTypeNames[i]);
 			if (dimCount > 0) {
-				typeReference = this.copyDims(typeReference, dimCount);
+				typeReference = copyDims(typeReference, dimCount);
 			}
 			NameReference init = new SingleNameReference(
 									CharOperation.concat(LOCAL_VAR_PREFIX, this.evaluationContext.localVariableNames[i]), position);
-			LocalDeclaration declaration = new LocalDeclaration(init, this.evaluationContext.localVariableNames[i], start, end);
+			LocalDeclaration declaration = new LocalDeclaration(this.evaluationContext.localVariableNames[i], start, end);
+			declaration.initialization = init;
 			declaration.type = typeReference;
 			declaration.modifiers = this.evaluationContext.localVariableModifiers[i];
 			newStatements[i] = declaration;
@@ -287,10 +338,11 @@ protected void consumeMethodDeclaration(boolean isNotAbstract) {
 		finallyBlock.sourceEnd = end;
 		finallyBlock.statements = new Statement[varCount];
 		for (int i = 0; i < varCount; i++){
+			SingleNameReference nameRef = new SingleNameReference(this.evaluationContext.localVariableNames[i], position);
 			finallyBlock.statements[i] = new Assignment(
 				new SingleNameReference(CharOperation.concat(LOCAL_VAR_PREFIX, this.evaluationContext.localVariableNames[i]), position),
-				new SingleNameReference(this.evaluationContext.localVariableNames[i], position),
-				(int) position);
+				nameRef,
+				nameRef.sourceEnd);
 		}
 		tryStatement.finallyBlock = finallyBlock;
 
@@ -302,52 +354,98 @@ protected void consumeMethodDeclaration(boolean isNotAbstract) {
 protected void consumeMethodInvocationName() {
 	// MethodInvocation ::= Name '(' ArgumentListopt ')'
 
-	if (scanner.startPosition >= this.codeSnippetStart
-		&& scanner.startPosition <= this.codeSnippetEnd + 1 + Util.LINE_SEPARATOR_CHARS.length // 14838
+	if (this.scanner.startPosition >= this.codeSnippetStart
+		&& this.scanner.startPosition <= this.codeSnippetEnd + 1 + this.lineSeparatorLength // 14838
 		&& isTopLevelType()) {
-			
+
 		// when the name is only an identifier...we have a message send to "this" (implicit)
 
 		MessageSend m = newMessageSend();
-		m.sourceEnd = rParenPos;
-		m.sourceStart = 
-			(int) ((m.nameSourcePosition = identifierPositionStack[identifierPtr]) >>> 32); 
-		m.selector = identifierStack[identifierPtr--];
-		if (identifierLengthStack[identifierLengthPtr] == 1) {
-			m.receiver = new CodeSnippetThisReference(0,0,evaluationContext, true);
-			identifierLengthPtr--;
+		m.sourceEnd = this.rParenPos;
+		m.sourceStart =
+			(int) ((m.nameSourcePosition = this.identifierPositionStack[this.identifierPtr]) >>> 32);
+		m.selector = this.identifierStack[this.identifierPtr--];
+		if (this.identifierLengthStack[this.identifierLengthPtr] == 1) {
+			m.receiver = new CodeSnippetThisReference(0,0,this.evaluationContext, true);
+			this.identifierLengthPtr--;
 		} else {
-			identifierLengthStack[identifierLengthPtr]--;
+			this.identifierLengthStack[this.identifierLengthPtr]--;
 			m.receiver = getUnspecifiedReference();
-			m.sourceStart = m.receiver.sourceStart;		
+			m.sourceStart = m.receiver.sourceStart;
 		}
 		pushOnExpressionStack(m);
 	} else {
 		super.consumeMethodInvocationName();
 	}
 }
+protected void consumeMethodInvocationNameWithTypeArguments() {
+	// MethodInvocation ::= Name '.' TypeArguments 'Identifier' '(' ArgumentListopt ')'
 
+	// when the name is only an identifier...we have a message send to "this" (implicit)
+	if (this.scanner.startPosition >= this.codeSnippetStart
+			&& this.scanner.startPosition <= this.codeSnippetEnd + 1 + this.lineSeparatorLength // 14838
+			&& isTopLevelType()) {
+
+	
+		MessageSend m = newMessageSendWithTypeArguments();
+		m.sourceEnd = this.rParenPos;
+		m.sourceStart =
+			(int) ((m.nameSourcePosition = this.identifierPositionStack[this.identifierPtr]) >>> 32);
+		m.selector = this.identifierStack[this.identifierPtr--];
+		this.identifierLengthPtr--;
+	
+		// handle type arguments
+		int length = this.genericsLengthStack[this.genericsLengthPtr--];
+		this.genericsPtr -= length;
+		System.arraycopy(this.genericsStack, this.genericsPtr + 1, m.typeArguments = new TypeReference[length], 0, length);
+		this.intPtr--;
+	
+		m.receiver = getUnspecifiedReference();
+		m.sourceStart = m.receiver.sourceStart;
+		pushOnExpressionStack(m);
+	} else {
+		super.consumeMethodInvocationNameWithTypeArguments();
+	}
+}
 protected void consumeMethodInvocationSuper() {
 	// MethodInvocation ::= 'super' '.' 'Identifier' '(' ArgumentListopt ')'
 
 	MessageSend m = newMessageSend();
-	m.sourceStart = intStack[intPtr--];
-	m.sourceEnd = rParenPos;
-	m.nameSourcePosition = identifierPositionStack[identifierPtr];
-	m.selector = identifierStack[identifierPtr--];
-	identifierLengthPtr--;
-	m.receiver = new CodeSnippetSuperReference(m.sourceStart, endPosition, this.evaluationContext);
+	m.sourceStart = this.intStack[this.intPtr--];
+	m.sourceEnd = this.rParenPos;
+	m.nameSourcePosition = this.identifierPositionStack[this.identifierPtr];
+	m.selector = this.identifierStack[this.identifierPtr--];
+	this.identifierLengthPtr--;
+	m.receiver = new CodeSnippetSuperReference(m.sourceStart, this.endPosition);
 	pushOnExpressionStack(m);
 }
+protected void consumeMethodInvocationSuperWithTypeArguments() {
+	// MethodInvocation ::= 'super' '.' TypeArguments 'Identifier' '(' ArgumentListopt ')'
 
+	MessageSend m = newMessageSendWithTypeArguments();
+	this.intPtr--; // start position of the typeArguments
+	m.sourceEnd = this.rParenPos;
+	m.nameSourcePosition = this.identifierPositionStack[this.identifierPtr];
+	m.selector = this.identifierStack[this.identifierPtr--];
+	this.identifierLengthPtr--;
+
+	// handle type arguments
+	int length = this.genericsLengthStack[this.genericsLengthPtr--];
+	this.genericsPtr -= length;
+	System.arraycopy(this.genericsStack, this.genericsPtr + 1, m.typeArguments = new TypeReference[length], 0, length);
+	m.sourceStart = this.intStack[this.intPtr--]; // start position of the super keyword
+
+	m.receiver = new CodeSnippetSuperReference(m.sourceStart, this.endPosition);
+	pushOnExpressionStack(m);
+}
 protected void consumePrimaryNoNewArrayThis() {
 	// PrimaryNoNewArray ::= 'this'
 
-	if (scanner.startPosition >= this.codeSnippetStart
-		&& scanner.startPosition <= this.codeSnippetEnd + 1 + Util.LINE_SEPARATOR_CHARS.length // 14838
+	if (this.scanner.startPosition >= this.codeSnippetStart
+		&& this.scanner.startPosition <= this.codeSnippetEnd + 1 + this.lineSeparatorLength // 14838
 		&& isTopLevelType()) {
 		pushOnExpressionStack(
-			new CodeSnippetThisReference(intStack[intPtr--], endPosition, this.evaluationContext, false));
+			new CodeSnippetThisReference(this.intStack[this.intPtr--], this.endPosition, this.evaluationContext, false));
 	} else {
 		super.consumePrimaryNoNewArrayThis();
 	}
@@ -405,20 +503,19 @@ protected void consumeStatementLabel() {
 protected void consumeStatementReturn() {
 	// ReturnStatement ::= 'return' Expressionopt ';'
 
-	// returned value intercepted by code snippet 
+	// returned value intercepted by code snippet
 	// support have to be defined at toplevel only
 	if ((this.hasRecoveredOnExpression
-			|| (scanner.startPosition >= codeSnippetStart && scanner.startPosition <= codeSnippetEnd+1+Util.LINE_SEPARATOR_CHARS.length /* 14838*/))
+			|| (this.scanner.startPosition >= this.codeSnippetStart && this.scanner.startPosition <= this.codeSnippetEnd+1+this.lineSeparatorLength /* 14838*/))
 		&& this.expressionLengthStack[this.expressionLengthPtr] != 0
 		&& isTopLevelType()) {
 		this.expressionLengthPtr--;
 		Expression expression = this.expressionStack[this.expressionPtr--];
 		pushOnAstStack(
 			new CodeSnippetReturnStatement(
-				expression, 
-				expression.sourceStart, 
-				expression.sourceEnd,
-				evaluationContext));
+				expression,
+				expression.sourceStart,
+				expression.sourceEnd));
 	} else {
 		super.consumeStatementReturn();
 	}
@@ -440,8 +537,8 @@ protected void consumeStatementThrow() {
 	/* recovery */
 	recordLastStatementIfNeeded();
 }
-protected void consumeStatementTry(boolean arg_0) {
-	super.consumeStatementTry(arg_0);
+protected void consumeStatementTry(boolean arg_0, boolean arg_1) {
+	super.consumeStatementTry(arg_0, arg_1);
 	/* recovery */
 	recordLastStatementIfNeeded();
 }
@@ -468,12 +565,12 @@ protected CompilationUnitDeclaration endParse(int act) {
 
 			// consume expresion as a return statement
 			consumeStatementReturn();
-			int fieldsCount = 
+			int fieldsCount =
 				(this.evaluationContext.localVariableNames == null ? 0 : this.evaluationContext.localVariableNames.length)
 				+ (this.evaluationContext.declaringTypeName == null ? 0 : 1);
-			if (this.astPtr > (this.diet ? 0 : 2 + fieldsCount)) { 
+			if (this.astPtr > (this.diet ? 0 : 2 + fieldsCount)) {
 					// in diet mode, the ast stack was empty when we went for method body
-					// otherwise it contained the type, the generated fields for local variables, 
+					// otherwise it contained the type, the generated fields for local variables,
 					// the generated field for 'this' and the method
 				consumeBlockStatements();
 			}
@@ -485,7 +582,7 @@ protected CompilationUnitDeclaration endParse(int act) {
 				}
 				consumeClassBodyDeclarationsopt();
 				consumeClassDeclaration();
-				consumeTypeDeclarationsopt();
+				consumeInternalCompilationUnitWithTypes();
 				consumeCompilationUnit();
 			}
 			this.lastAct = ACCEPT_ACTION;
@@ -498,7 +595,7 @@ protected CompilationUnitDeclaration endParse(int act) {
 			for (int i = 0; i < this.problemCountBeforeRecovery; i++) {
 				// skip unmatched bracket problems
 				if (unitResult.problems[i].getID() == IProblem.UnmatchedBracket) continue;
-				
+
 				int start = unitResult.problems[i].getSourceStart();
 				if (start > maxRegularPos && start <= this.codeSnippetEnd) {
 					maxRegularPos = start;
@@ -508,7 +605,7 @@ protected CompilationUnitDeclaration endParse(int act) {
 			for (int i = this.problemCountBeforeRecovery; i < problemCount; i++) {
 				// skip unmatched bracket problems
 				if (unitResult.problems[i].getID() == IProblem.UnmatchedBracket) continue;
-				
+
 				int start = unitResult.problems[i].getSourceStart();
 				if (start > maxRecoveryPos && start <= this.codeSnippetEnd) {
 					maxRecoveryPos = start;
@@ -516,7 +613,7 @@ protected CompilationUnitDeclaration endParse(int act) {
 			}
 			if (maxRecoveryPos > maxRegularPos) {
 				System.arraycopy(unitResult.problems, this.problemCountBeforeRecovery, unitResult.problems, 0, problemCount - this.problemCountBeforeRecovery);
-				unitResult.problemCount -= this.problemCountBeforeRecovery;				
+				unitResult.problemCount -= this.problemCountBeforeRecovery;
 			} else {
 				unitResult.problemCount -= (problemCount - this.problemCountBeforeRecovery);
 			}
@@ -531,29 +628,31 @@ protected CompilationUnitDeclaration endParse(int act) {
 protected NameReference getUnspecifiedReference() {
 	/* build a (unspecified) NameReference which may be qualified*/
 
-	if (scanner.startPosition >= codeSnippetStart 
-		&& scanner.startPosition <= codeSnippetEnd+1+Util.LINE_SEPARATOR_CHARS.length /*14838*/){
+	if (this.scanner.startPosition >= this.codeSnippetStart
+		&& this.scanner.startPosition <= this.codeSnippetEnd+1+this.lineSeparatorLength /*14838*/){
 		int length;
 		NameReference ref;
-		if ((length = identifierLengthStack[identifierLengthPtr--]) == 1)
+		if ((length = this.identifierLengthStack[this.identifierLengthPtr--]) == 1) {
 			// single variable reference
-			ref = 
+			ref =
 				new CodeSnippetSingleNameReference(
-					identifierStack[identifierPtr], 
-					identifierPositionStack[identifierPtr--],
-					this.evaluationContext); 
-		else
+					this.identifierStack[this.identifierPtr],
+					this.identifierPositionStack[this.identifierPtr--],
+					this.evaluationContext);
+		} else {
 			//Qualified variable reference
-			{
 			char[][] tokens = new char[length][];
-			identifierPtr -= length;
-			System.arraycopy(identifierStack, identifierPtr + 1, tokens, 0, length);
-			ref = 
-				new CodeSnippetQualifiedNameReference(tokens, 
-					(int) (identifierPositionStack[identifierPtr + 1] >> 32), // sourceStart
-					(int) identifierPositionStack[identifierPtr + length],
-					evaluationContext); // sourceEnd
-		};
+			this.identifierPtr -= length;
+			System.arraycopy(this.identifierStack, this.identifierPtr + 1, tokens, 0, length);
+			long[] positions = new long[length];
+			System.arraycopy(this.identifierPositionStack, this.identifierPtr + 1, positions, 0, length);
+			ref =
+				new CodeSnippetQualifiedNameReference(tokens,
+					positions,
+					(int) (this.identifierPositionStack[this.identifierPtr + 1] >> 32), // sourceStart
+					(int) this.identifierPositionStack[this.identifierPtr + length],
+					this.evaluationContext); // sourceEnd
+		}
 		return ref;
 	} else {
 		return super.getUnspecifiedReference();
@@ -567,19 +666,19 @@ protected NameReference getUnspecifiedReferenceOptimized() {
 	that when a NameReference is build, the type checker should always
 	look for that it is not a type reference */
 
-	if (scanner.startPosition >= codeSnippetStart 
-		&& scanner.startPosition <= codeSnippetEnd+1+Util.LINE_SEPARATOR_CHARS.length /*14838*/){
+	if (this.scanner.startPosition >= this.codeSnippetStart
+		&& this.scanner.startPosition <= this.codeSnippetEnd+1+this.lineSeparatorLength /*14838*/){
 		int length;
 		NameReference ref;
-		if ((length = identifierLengthStack[identifierLengthPtr--]) == 1) {
+		if ((length = this.identifierLengthStack[this.identifierLengthPtr--]) == 1) {
 			// single variable reference
-			ref = 
+			ref =
 				new CodeSnippetSingleNameReference(
-					identifierStack[identifierPtr], 
-					identifierPositionStack[identifierPtr--],
-					this.evaluationContext); 
-			ref.bits &= ~AstNode.RestrictiveFlagMASK;
-			ref.bits |= LOCAL | FIELD;
+					this.identifierStack[this.identifierPtr],
+					this.identifierPositionStack[this.identifierPtr--],
+					this.evaluationContext);
+			ref.bits &= ~ASTNode.RestrictiveFlagMASK;
+			ref.bits |= Binding.LOCAL | Binding.FIELD;
 			return ref;
 		}
 
@@ -590,15 +689,18 @@ protected NameReference getUnspecifiedReferenceOptimized() {
 		//or else..........This optimisation is not really relevant so just leave as it is
 
 		char[][] tokens = new char[length][];
-		identifierPtr -= length;
-		System.arraycopy(identifierStack, identifierPtr + 1, tokens, 0, length);
+		this.identifierPtr -= length;
+		System.arraycopy(this.identifierStack, this.identifierPtr + 1, tokens, 0, length);
+		long[] positions = new long[length];
+		System.arraycopy(this.identifierPositionStack, this.identifierPtr + 1, positions, 0, length);
 		ref = new CodeSnippetQualifiedNameReference(
-				tokens, 
-				(int) (identifierPositionStack[identifierPtr + 1] >> 32), // sourceStart
-				(int) identifierPositionStack[identifierPtr + length],
-				evaluationContext); // sourceEnd
-		ref.bits &= ~AstNode.RestrictiveFlagMASK;
-		ref.bits |= LOCAL | FIELD;
+				tokens,
+				positions,
+				(int) (this.identifierPositionStack[this.identifierPtr + 1] >> 32), // sourceStart
+				(int) this.identifierPositionStack[this.identifierPtr + length],
+				this.evaluationContext); // sourceEnd
+		ref.bits &= ~ASTNode.RestrictiveFlagMASK;
+		ref.bits |= Binding.LOCAL | Binding.FIELD;
 		return ref;
 	} else {
 		return super.getUnspecifiedReferenceOptimized();
@@ -619,33 +721,51 @@ protected MessageSend newMessageSend() {
 	// '(' ArgumentListopt ')'
 	// the arguments are on the expression stack
 
-	CodeSnippetMessageSend m = new CodeSnippetMessageSend(evaluationContext);
+	CodeSnippetMessageSend m = new CodeSnippetMessageSend(this.evaluationContext);
 	int length;
-	if ((length = expressionLengthStack[expressionLengthPtr--]) != 0) {
-		expressionPtr -= length;
+	if ((length = this.expressionLengthStack[this.expressionLengthPtr--]) != 0) {
+		this.expressionPtr -= length;
 		System.arraycopy(
-			expressionStack, 
-			expressionPtr + 1, 
-			m.arguments = new Expression[length], 
-			0, 
-			length); 
-	};
+			this.expressionStack,
+			this.expressionPtr + 1,
+			m.arguments = new Expression[length],
+			0,
+			length);
+	}
+	return m;
+}
+protected MessageSend newMessageSendWithTypeArguments() {
+	// '(' ArgumentListopt ')'
+	// the arguments are on the expression stack
+	CodeSnippetMessageSend m = new CodeSnippetMessageSend(this.evaluationContext);
+	int length;
+	if ((length = this.expressionLengthStack[this.expressionLengthPtr--]) != 0) {
+		this.expressionPtr -= length;
+		System.arraycopy(
+			this.expressionStack,
+			this.expressionPtr + 1,
+			m.arguments = new Expression[length],
+			0,
+			length);
+	}
 	return m;
 }
 /**
  * Records the scanner position if we're parsing a top level type.
  */
 private void recordLastStatementIfNeeded() {
-	if ((isTopLevelType()) && (this.scanner.startPosition <= this.codeSnippetEnd+Util.LINE_SEPARATOR_CHARS.length /*14838*/)) {
+	if ((isTopLevelType()) && (this.scanner.startPosition <= this.codeSnippetEnd+this.lineSeparatorLength /*14838*/)) {
 		this.lastStatement = this.scanner.startPosition;
 	}
 }
-protected void reportSyntaxError(int act, int currentKind, int stateStackTop) {
-	if (!this.diet) {
-		this.scanner.initialPosition = this.codeSnippetStart; // for correct bracket match diagnosis
-		this.scanner.eofPosition = this.codeSnippetEnd + 1; // stop after expression 
+
+protected void reportSyntaxErrors(boolean isDietParse, int oldFirstToken) {
+	if (!isDietParse) {
+		this.scanner.initialPosition = this.lastStatement;
+		this.scanner.eofPosition = this.codeSnippetEnd + 1; // stop after expression
+		oldFirstToken = TokenNameTWIDDLE;//TokenNameREMAINDER; // first token of th expression parse
 	}
-	super.reportSyntaxError(act, currentKind, stateStackTop);
+	super.reportSyntaxErrors(isDietParse, oldFirstToken);
 }
 /*
  * A syntax error was detected. If a method is being parsed, records the number of errors and
@@ -653,9 +773,9 @@ protected void reportSyntaxError(int act, int currentKind, int stateStackTop) {
  */
 protected boolean resumeOnSyntaxError() {
 	if (this.diet || this.hasRecoveredOnExpression) { // no reentering inside expression recovery
-		return super.resumeOnSyntaxError();
+		return false;
 	}
-	
+
 	// record previous error, in case more accurate than potential one in expression recovery
 	// e.g. "return foo(a a); 1+3"
 	this.problemCountBeforeRecovery = this.compilationUnit.compilationResult.problemCount;
@@ -667,7 +787,7 @@ protected boolean resumeOnSyntaxError() {
 	this.scanner.initialPosition = this.lastStatement;
 	this.scanner.startPosition = this.lastStatement;
 	this.scanner.currentPosition = this.lastStatement;
-	this.scanner.eofPosition = this.codeSnippetEnd < Integer.MAX_VALUE ? this.codeSnippetEnd + 1 : this.codeSnippetEnd; // stop after expression 
+	this.scanner.eofPosition = this.codeSnippetEnd < Integer.MAX_VALUE ? this.codeSnippetEnd + 1 : this.codeSnippetEnd; // stop after expression
 	this.scanner.commentPtr = -1;
 
 	// reset stacks in consistent state
@@ -675,10 +795,11 @@ protected boolean resumeOnSyntaxError() {
 	this.identifierPtr = -1;
 	this.identifierLengthPtr = -1;
 
-	// go for the exprssion
+	// go for the expression
 	goForExpression();
 	this.hasRecoveredOnExpression = true;
 	this.hasReportedError = false;
+	this.hasError = false;
 	return true;
 }
 }

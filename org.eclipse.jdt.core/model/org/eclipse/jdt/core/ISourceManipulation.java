@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core;
 
 import org.eclipse.core.runtime.IProgressMonitor;
@@ -15,9 +15,8 @@ import org.eclipse.core.runtime.IProgressMonitor;
 /**
  * Common protocol for Java elements that support source code manipulations such
  * as copy, move, rename, and delete.
- * <p>
- * This interface is not intended to be implemented by clients.
- * </p>
+ *
+ * @noimplement This interface is not intended to be implemented by clients.
  */
 public interface ISourceManipulation {
 /**
@@ -42,10 +41,11 @@ public interface ISourceManipulation {
  * <li> The new name is invalid (INVALID_NAME)
  * <li> A child in the container already exists with the same name (NAME_COLLISION)
  *		and <code>replace</code> has been specified as <code>false</code>
- * <li> The container or this element is read-only (READ_ONLY) 
+ * <li> The container or this element is read-only (READ_ONLY)
  * </ul>
  *
  * @exception IllegalArgumentException if container is <code>null</code>
+ * @see org.eclipse.jdt.core.IJavaModelStatusConstants#INVALID_DESTINATION
  */
 void copy(IJavaElement container, IJavaElement sibling, String rename, boolean replace, IProgressMonitor monitor) throws JavaModelException;
 /**
@@ -85,10 +85,11 @@ void delete(boolean force, IProgressMonitor monitor) throws JavaModelException;
  * <li> The new name is invalid (INVALID_NAME)
  * <li> A child in the container already exists with the same name (NAME_COLLISION)
  *		and <code>replace</code> has been specified as <code>false</code>
- * <li> The container or this element is read-only (READ_ONLY) 
+ * <li> The container or this element is read-only (READ_ONLY)
  * </ul>
  *
  * @exception IllegalArgumentException if container is <code>null</code>
+ * @see org.eclipse.jdt.core.IJavaModelStatusConstants#INVALID_DESTINATION
  */
 void move(IJavaElement container, IJavaElement sibling, String rename, boolean replace, IProgressMonitor monitor) throws JavaModelException;
 /**
@@ -106,7 +107,7 @@ void move(IJavaElement container, IJavaElement sibling, String rename, boolean r
  * <li> The new name is invalid (INVALID_NAME)
  * <li> A child in the container already exists with the same name (NAME_COLLISION)
  *		and <code>replace</code> has been specified as <code>false</code>
- * <li> This element is read-only (READ_ONLY) 
+ * <li> This element is read-only (READ_ONLY)
  * </ul>
  */
 void rename(String name, boolean replace, IProgressMonitor monitor) throws JavaModelException;

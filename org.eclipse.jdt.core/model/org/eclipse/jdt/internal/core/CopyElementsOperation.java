@@ -1,19 +1,21 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core;
 
 import java.util.HashMap;
 import java.util.Map;
 
+import org.eclipse.core.runtime.IPath;
 import org.eclipse.jdt.core.ICompilationUnit;
+import org.eclipse.jdt.core.IImportDeclaration;
 import org.eclipse.jdt.core.IJavaElement;
 import org.eclipse.jdt.core.IJavaModelStatus;
 import org.eclipse.jdt.core.IJavaModelStatusConstants;
@@ -21,10 +23,8 @@ import org.eclipse.jdt.core.IMember;
 import org.eclipse.jdt.core.IParent;
 import org.eclipse.jdt.core.IType;
 import org.eclipse.jdt.core.JavaModelException;
-import org.eclipse.jdt.core.jdom.DOMFactory;
-import org.eclipse.jdt.core.jdom.IDOMCompilationUnit;
-import org.eclipse.jdt.core.jdom.IDOMNode;
-import org.eclipse.jdt.internal.compiler.util.Util;
+import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.util.Messages;
 
 /**
  * This operation copies/moves a collection of elements from their current
@@ -53,16 +53,16 @@ import org.eclipse.jdt.internal.compiler.util.Util;
  * 	the creation operation for that element type.
  *
  *    <li>This operation can be used to copy and rename elements within
- *    the same container. 
+ *    the same container.
  *
- *    <li>This operation only copies elements contained within compilation units. 
+ *    <li>This operation only copies elements contained within compilation units.
  * </ul>
  *
  */
-public class CopyElementsOperation extends MultiOperation {
+public class CopyElementsOperation extends MultiOperation implements SuffixConstants {
 
-	
-	private Map fSources = new HashMap();
+
+	private Map sources = new HashMap();
 /**
  * When executed, this operation will copy the given elements to the
  * given containers.  The elements and destination containers must be in
@@ -84,7 +84,7 @@ public CopyElementsOperation(IJavaElement[] elementsToCopy, IJavaElement destCon
  * for progress monitoring.
  */
 protected String getMainTaskName() {
-	return Util.bind("operation.copyElementProgress"); //$NON-NLS-1$
+	return Messages.operation_copyElementProgress;
 }
 /**
  * Returns the nested operation to use for processing this element
@@ -96,19 +96,30 @@ protected JavaModelOperation getNestedOperation(IJavaElement element) {
 			case IJavaElement.PACKAGE_DECLARATION :
 				return new CreatePackageDeclarationOperation(element.getElementName(), (ICompilationUnit) dest);
 			case IJavaElement.IMPORT_DECLARATION :
-				return new CreateImportOperation(element.getElementName(), (ICompilationUnit) dest);
+				IImportDeclaration importDeclaration = (IImportDeclaration) element;
+				return new CreateImportOperation(element.getElementName(), (ICompilationUnit) dest, importDeclaration.getFlags());
 			case IJavaElement.TYPE :
 				if (isRenamingMainType(element, dest)) {
-					return new RenameResourceElementsOperation(new IJavaElement[] {dest}, new IJavaElement[] {dest.getParent()}, new String[]{getNewNameFor(element) + ".java"}, fForce); //$NON-NLS-1$
+					IPath path = element.getPath();
+					String extension = path.getFileExtension();
+					return new RenameResourceElementsOperation(new IJavaElement[] {dest}, new IJavaElement[] {dest.getParent()}, new String[]{getNewNameFor(element) + '.' + extension}, this.force);
 				} else {
-					return new CreateTypeOperation(dest, getSourceFor(element) + Util.LINE_SEPARATOR, fForce);
+					String source = getSourceFor(element);
+					String lineSeparator = org.eclipse.jdt.internal.core.util.Util.getLineSeparator(source, element.getJavaProject());
+					return new CreateTypeOperation(dest, source + lineSeparator, this.force);
 				}
 			case IJavaElement.METHOD :
-				return new CreateMethodOperation((IType) dest, getSourceFor(element) + Util.LINE_SEPARATOR, fForce);
+				String source = getSourceFor(element);
+				String lineSeparator = org.eclipse.jdt.internal.core.util.Util.getLineSeparator(source, element.getJavaProject());
+				return new CreateMethodOperation((IType) dest, source + lineSeparator, this.force);
 			case IJavaElement.FIELD :
-				return new CreateFieldOperation((IType) dest, getSourceFor(element) + Util.LINE_SEPARATOR, fForce);
+				source = getSourceFor(element);
+				lineSeparator = org.eclipse.jdt.internal.core.util.Util.getLineSeparator(source, element.getJavaProject());
+				return new CreateFieldOperation((IType) dest, source + lineSeparator, this.force);
 			case IJavaElement.INITIALIZER :
-				return new CreateInitializerOperation((IType) dest, getSourceFor(element) + Util.LINE_SEPARATOR);
+				source = getSourceFor(element);
+				lineSeparator = org.eclipse.jdt.internal.core.util.Util.getLineSeparator(source, element.getJavaProject());
+				return new CreateInitializerOperation((IType) dest, source + lineSeparator);
 			default :
 				return null;
 		}
@@ -120,26 +131,21 @@ protected JavaModelOperation getNestedOperation(IJavaElement element) {
  * Returns the cached source for this element or compute it if not already cached.
  */
 private String getSourceFor(IJavaElement element) throws JavaModelException {
-	String source = (String) fSources.get(element);
+	String source = (String) this.sources.get(element);
 	if (source == null && element instanceof IMember) {
-		IMember member = (IMember)element;
-		ICompilationUnit cu = member.getCompilationUnit();
-		String cuSource = cu.getSource();
-		IDOMCompilationUnit domCU = new DOMFactory().createCompilationUnit(cuSource, cu.getElementName());
-		IDOMNode node = ((JavaElement)element).findNode(domCU);
-		source = new String(node.getCharacters());
-		fSources.put(element, source);
+		source = ((IMember)element).getSource();
+		this.sources.put(element, source);
 	}
 	return source;
 }
 /**
  * Returns <code>true</code> if this element is the main type of its compilation unit.
  */
-protected boolean isRenamingMainType(IJavaElement element, IJavaElement dest) {
+protected boolean isRenamingMainType(IJavaElement element, IJavaElement dest) throws JavaModelException {
 	if ((isRename() || getNewNameFor(element) != null)
 		&& dest.getElementType() == IJavaElement.COMPILATION_UNIT) {
 		String typeName = dest.getElementName();
-		typeName = typeName.substring(0, typeName.length() - 5);
+		typeName = org.eclipse.jdt.internal.core.util.Util.getNameWithoutJavaLikeExtension(typeName);
 		return element.getElementName().equals(typeName) && element.getParent().equals(dest);
 	}
 	return false;
@@ -158,7 +164,7 @@ protected void processElement(IJavaElement element) throws JavaModelException {
 		return;
 	}
 	if (createElementInCUOperation) {
-		IJavaElement sibling = (IJavaElement) fInsertBeforeElements.get(element);
+		IJavaElement sibling = (IJavaElement) this.insertBeforeElements.get(element);
 		if (sibling != null) {
 			((CreateElementInCUOperation) op).setRelativePosition(sibling, CreateElementInCUOperation.INSERT_BEFORE);
 		} else
@@ -182,12 +188,12 @@ protected void processElement(IJavaElement element) throws JavaModelException {
 	}
 
 	if (createElementInCUOperation && isMove() && !isRenamingMainType(element, destination)) {
-		DeleteElementsOperation deleteOp = new DeleteElementsOperation(new IJavaElement[] { element }, fForce);
+		JavaModelOperation deleteOp = new DeleteElementsOperation(new IJavaElement[] { element }, this.force);
 		executeNestedOperation(deleteOp, 1);
 	}
 }
 /**
- * Returns the anchor used for positioning in the destination for 
+ * Returns the anchor used for positioning in the destination for
  * the element being renamed. For renaming, if no anchor has
  * explicitly been provided, the element is anchored in the same position.
  */
@@ -215,7 +221,7 @@ protected IJavaModelStatus verify() {
 	if (!status.isOK()) {
 		return status;
 	}
-	if (fRenamingsList != null && fRenamingsList.length != fElementsToProcess.length) {
+	if (this.renamingsList != null && this.renamingsList.length != this.elementsToProcess.length) {
 		return new JavaModelStatus(IJavaModelStatusConstants.INDEX_OUT_OF_BOUNDS);
 	}
 	return JavaModelStatus.VERIFIED_OK;
@@ -236,7 +242,7 @@ protected IJavaModelStatus verify() {
  *	<li>INVALID_DESTINATION - The destination parent specified for <code>element</code>
  *		is of an incompatible type. The destination for a package declaration or import declaration must
  *		be a compilation unit; the destination for a type must be a type or compilation
- *		unit; the destinaion for any type member (other than a type) must be a type. When
+ *		unit; the destination for any type member (other than a type) must be a type. When
  *		this error occurs, the element provided in the operation status is the <code>element</code>.
  *	<li>INVALID_NAME - the new name for <code>element</code> does not have valid syntax.
  *      In this case the element and name are provided in the status.
@@ -256,7 +262,7 @@ protected void verify(IJavaElement element) throws JavaModelException {
 	IJavaElement dest = getDestinationParent(element);
 	verifyDestination(element, dest);
 	verifySibling(element, dest);
-	if (fRenamingsList != null) {
+	if (this.renamingsList != null) {
 		verifyRenaming(element);
 	}
 }

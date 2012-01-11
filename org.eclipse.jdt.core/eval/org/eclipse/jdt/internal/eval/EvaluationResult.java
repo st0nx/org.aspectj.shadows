@@ -1,33 +1,33 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.eval;
 
-import org.eclipse.jdt.core.compiler.IProblem;
+import org.eclipse.jdt.core.compiler.CategorizedProblem;
 
 /**
- * An EvaluationResult is the result of a code snippet evaluation, a global 
+ * An EvaluationResult is the result of a code snippet evaluation, a global
  * variable evaluation or it is used to report problems against imports and
  * package declaration.
- * It primarily contains the representation of the resulting value (eg. its 
- * toString() representation). However if the code snippet, a global variable 
- * definition, an import or the package declaration could not be compiled, it 
+ * It primarily contains the representation of the resulting value (e.g. its
+ * toString() representation). However if the code snippet, a global variable
+ * definition, an import or the package declaration could not be compiled, it
  * contains the corresponding compilation problems.
  */
 public class EvaluationResult {
 
-	static final IProblem[] NO_PROBLEMS = new IProblem[0];
-	
+	static final CategorizedProblem[] NO_PROBLEMS = new CategorizedProblem[0];
+
 	char[] evaluationID;
 	int evaluationType;
-	IProblem[] problems;
+	CategorizedProblem[] problems;
 	char[] displayString;
 	char[] typeName;
 
@@ -60,7 +60,7 @@ public class EvaluationResult {
 	 * The evaluation result reports an internal problem.
 	 */
 	public static final int T_INTERNAL = 5;
-	
+
 public EvaluationResult(char[] evaluationID, int evaluationType, char[] displayString, char[] typeName) {
 	this.evaluationID = evaluationID;
 	this.evaluationType = evaluationType;
@@ -68,7 +68,7 @@ public EvaluationResult(char[] evaluationID, int evaluationType, char[] displayS
 	this.typeName = typeName;
 	this.problems = NO_PROBLEMS;
 }
-public EvaluationResult(char[] evaluationID, int evaluationType, IProblem[] problems) {
+public EvaluationResult(char[] evaluationID, int evaluationType, CategorizedProblem[] problems) {
 	this.evaluationID = evaluationID;
 	this.evaluationType = evaluationType;
 	this.problems = problems;
@@ -76,10 +76,10 @@ public EvaluationResult(char[] evaluationID, int evaluationType, IProblem[] prob
 /**
  * Adds the given problem to the list of problems of this evaluation result.
  */
-void addProblem(IProblem problem) {
-	IProblem[] existingProblems = this.problems;
+void addProblem(CategorizedProblem problem) {
+	CategorizedProblem[] existingProblems = this.problems;
 	int existingLength = existingProblems.length;
-	this.problems = new IProblem[existingLength + 1];
+	this.problems = new CategorizedProblem[existingLength + 1];
 	System.arraycopy(existingProblems, 0, this.problems, 0, existingLength);
 	this.problems[existingLength] = problem;
 }
@@ -108,7 +108,7 @@ public int getEvaluationType() {
  * or during the analysis of a package name or an import.
  * Returns an empty array if there are no problems.
  */
-public IProblem[] getProblems() {
+public CategorizedProblem[] getProblems() {
 	return this.problems;
 }
 /**
@@ -129,7 +129,7 @@ public Object getValue() {
  * Returns the displayable representation of this result's value.
  * This is obtained by sending toString() to the result object on the target side
  * if it is not a primitive value. If it is a primitive value, the corresponding
- * static toString(...) is used, eg. Integer.toString(int n) if it is an int.
+ * static toString(...) is used, e.g. Integer.toString(int n) if it is an int.
  * Returns null if there is no value.
  */
 public char[] getValueDisplayString() {
@@ -138,7 +138,7 @@ public char[] getValueDisplayString() {
 /**
  * Returns the dot-separated fully qualified name of this result's value type.
  * If the value is a primitive value, returns the toString() representation of its type
- * (eg. "int", "boolean", etc.)
+ * (e.g. "int", "boolean", etc.)
  * Returns null if there is no value.
  */
 public char[] getValueTypeName() {
@@ -210,7 +210,7 @@ public String toString() {
 			break;
 	}
 	buffer.append(": "); //$NON-NLS-1$
-	buffer.append(this.evaluationID);
+	buffer.append(this.evaluationID == null ? "<unknown>".toCharArray() : this.evaluationID);  //$NON-NLS-1$
 	buffer.append("\n"); //$NON-NLS-1$
 	if (hasProblems()) {
 		buffer.append("Problems:\n"); //$NON-NLS-1$

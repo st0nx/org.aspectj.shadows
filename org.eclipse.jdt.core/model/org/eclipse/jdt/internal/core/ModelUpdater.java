@@ -1,13 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2010 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 
 package org.eclipse.jdt.internal.core;
 
@@ -25,14 +25,14 @@ public class ModelUpdater {
 	HashSet projectsToUpdate = new HashSet();
 
 	/**
-	 * Adds the given child handle to its parent's cache of children. 
+	 * Adds the given child handle to its parent's cache of children.
 	 */
 	protected void addToParentInfo(Openable child) {
 
 		Openable parent = (Openable) child.getParent();
 		if (parent != null && parent.isOpen()) {
 			try {
-				JavaElementInfo info = parent.getElementInfo();
+				OpenableElementInfo info = (OpenableElementInfo) parent.getElementInfo();
 				info.addChild(child);
 			} catch (JavaModelException e) {
 				// do nothing - we already checked if open
@@ -72,13 +72,13 @@ public class ModelUpdater {
 		} else {
 			addToParentInfo(element);
 
-			// Force the element to be closed as it might have been opened 
+			// Force the element to be closed as it might have been opened
 			// before the resource modification came in and it might have a new child
 			// For example, in an IWorkspaceRunnable:
 			// 1. create a package fragment p using a java model operation
 			// 2. open package p
 			// 3. add file X.java in folder p
-			// When the resource delta comes in, only the addition of p is notified, 
+			// When the resource delta comes in, only the addition of p is notified,
 			// but the package p is already opened, thus its children are not recomputed
 			// and it appears empty.
 			close(element);
@@ -90,12 +90,9 @@ public class ModelUpdater {
 				this.projectsToUpdate.add(element.getJavaProject());
 				break;
 			case IJavaElement.PACKAGE_FRAGMENT :
-				// get rid of namelookup since it holds onto obsolete cached info 
+				// get rid of package fragment cache
 				JavaProject project = (JavaProject) element.getJavaProject();
-				try {
-					project.getJavaProjectElementInfo().setNameLookup(null);
-				} catch (JavaModelException e) {
-				}
+				project.resetCaches();
 				break;
 		}
 	}
@@ -128,22 +125,21 @@ public class ModelUpdater {
 
 		switch (elementType) {
 			case IJavaElement.JAVA_MODEL :
-				element.getJavaModelManager().getIndexManager().reset();
+				JavaModelManager.getIndexManager().reset();
 				break;
 			case IJavaElement.JAVA_PROJECT :
-				JavaModelManager.getJavaModelManager().removePerProjectInfo(
-					(JavaProject) element);
+				JavaModelManager manager = JavaModelManager.getJavaModelManager();
+				JavaProject javaProject = (JavaProject) element;
+				manager.removePerProjectInfo(javaProject, true /* remove external jar files indexes and timestamps*/);
+				manager.containerRemove(javaProject);
 				break;
 			case IJavaElement.PACKAGE_FRAGMENT_ROOT :
 				this.projectsToUpdate.add(element.getJavaProject());
 				break;
 			case IJavaElement.PACKAGE_FRAGMENT :
-				//1G1TW2T - get rid of namelookup since it holds onto obsolete cached info 
+				// get rid of package fragment cache
 				JavaProject project = (JavaProject) element.getJavaProject();
-				try {
-					project.getJavaProjectElementInfo().setNameLookup(null);
-				} catch (JavaModelException e) {
-				}
+				project.resetCaches();
 				break;
 		}
 	}
@@ -154,19 +150,14 @@ public class ModelUpdater {
 	 * relevant <code>JavaModel</code>s.
 	 */
 	public void processJavaDelta(IJavaElementDelta delta) {
-
-		if (DeltaProcessor.VERBOSE){
-			System.out.println("UPDATING Model with Delta: ["+Thread.currentThread()+":" + delta + "]:");//$NON-NLS-1$//$NON-NLS-2$ //$NON-NLS-3$
-		}
-
 		try {
-			this.traverseDelta(delta, null, null); // traverse delta
+			traverseDelta(delta, null, null); // traverse delta
 
-			// update package fragment roots of projects that were affected
+			// reset project caches of projects that were affected
 			Iterator iterator = this.projectsToUpdate.iterator();
 			while (iterator.hasNext()) {
 				JavaProject project = (JavaProject) iterator.next();
-				project.updatePackageFragmentRoots();
+				project.resetCaches();
 			}
 		} finally {
 			this.projectsToUpdate = new HashSet();
@@ -176,14 +167,14 @@ public class ModelUpdater {
 	/**
 	 * Removes the given element from its parents cache of children. If the
 	 * element does not have a parent, or the parent is not currently open,
-	 * this has no effect. 
+	 * this has no effect.
 	 */
 	protected void removeFromParentInfo(Openable child) {
 
 		Openable parent = (Openable) child.getParent();
 		if (parent != null && parent.isOpen()) {
 			try {
-				JavaElementInfo info = parent.getElementInfo();
+				OpenableElementInfo info = (OpenableElementInfo) parent.getElementInfo();
 				info.removeChild(child);
 			} catch (JavaModelException e) {
 				// do nothing - we already checked if open
@@ -214,6 +205,12 @@ public class ModelUpdater {
 				root = (IPackageFragmentRoot) element;
 				break;
 			case IJavaElement.COMPILATION_UNIT :
+				// filter out working copies that are not primary (we don't want to add/remove them to/from the package fragment
+				CompilationUnit cu = (CompilationUnit)element;
+				if (cu.isWorkingCopy() && !cu.isPrimary()) {
+					return;
+				}
+				// $FALL-THROUGH$
 			case IJavaElement.CLASS_FILE :
 				processChildren = false;
 				break;
@@ -236,7 +233,7 @@ public class ModelUpdater {
 			IJavaElementDelta[] children = delta.getAffectedChildren();
 			for (int i = 0; i < children.length; i++) {
 				IJavaElementDelta childDelta = children[i];
-				this.traverseDelta(childDelta, root, project);
+				traverseDelta(childDelta, root, project);
 			}
 		}
 	}

@@ -1,255 +1,154 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.internal.core.search.matching;
 
-import java.io.IOException;
+import org.eclipse.jdt.core.compiler.CharOperation;
+import org.eclipse.jdt.core.search.SearchPattern;
+import org.eclipse.jdt.internal.compiler.ExtraFlags;
+import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 
-import org.eclipse.jdt.core.Signature;
-import org.eclipse.jdt.core.search.IJavaSearchScope;
-import org.eclipse.jdt.internal.compiler.ast.AstNode;
-import org.eclipse.jdt.internal.compiler.ast.ConstructorDeclaration;
-import org.eclipse.jdt.internal.compiler.env.IBinaryMethod;
-import org.eclipse.jdt.internal.compiler.env.IBinaryType;
-import org.eclipse.jdt.internal.compiler.lookup.Binding;
-import org.eclipse.jdt.internal.compiler.lookup.MethodBinding;
-import org.eclipse.jdt.internal.compiler.lookup.ReferenceBinding;
-import org.eclipse.jdt.internal.compiler.util.CharOperation;
-import org.eclipse.jdt.internal.core.index.IEntryResult;
-import org.eclipse.jdt.internal.core.index.impl.IndexInput;
-import org.eclipse.jdt.internal.core.index.impl.IndexedFile;
-import org.eclipse.jdt.internal.core.search.IIndexSearchRequestor;
-import org.eclipse.jdt.internal.core.search.indexing.AbstractIndexer;
-
-/**
- * The selector is unused, the constructor name is specified by the type simple name.
- */ 
-public class ConstructorDeclarationPattern extends MethodDeclarationPattern {
-
-	private char[] decodedTypeName;	
-public ConstructorDeclarationPattern(char[] declaringSimpleName, int matchMode, boolean isCaseSensitive, char[] declaringQualification, char[][] parameterQualifications, char[][] parameterSimpleNames) {
-	super(null, matchMode, isCaseSensitive, declaringQualification, declaringSimpleName, null, null, parameterQualifications, parameterSimpleNames);
-}
-public void decodeIndexEntry(IEntryResult entryResult){
-
-	char[] word = entryResult.getWord();
-	int size = word.length;
-	int lastSeparatorIndex = CharOperation.lastIndexOf(SEPARATOR, word);	
-
-	decodedParameterCount = Integer.parseInt(new String(word, lastSeparatorIndex + 1, size - lastSeparatorIndex - 1));
-	decodedTypeName = CharOperation.subarray(word, CONSTRUCTOR_DECL.length, lastSeparatorIndex);
-}
-/**
- * see SearchPattern.feedIndexRequestor
- */
-public void feedIndexRequestor(IIndexSearchRequestor requestor, int detailLevel, int[] references, IndexInput input, IJavaSearchScope scope) throws IOException {
-	for (int i = 0, max = references.length; i < max; i++) {
-		IndexedFile file = input.getIndexedFile(references[i]);
-		String path;
-		if (file != null && scope.encloses(path = IndexedFile.convertPath(file.getPath()))) {
-			requestor.acceptConstructorDeclaration(path, decodedTypeName, decodedParameterCount);
-		}
-	}
-}
-/**
- * @see SearchPattern#indexEntryPrefix
- */
-public char[] indexEntryPrefix() {
-
-	return AbstractIndexer.bestConstructorDeclarationPrefix(
-			declaringSimpleName, 
-			parameterSimpleNames == null ? -1 : parameterSimpleNames.length, 
-			matchMode, 
-			isCaseSensitive);
-}
-/**
- * @see SearchPattern#matchesBinary(Object, Object)
- */
-public boolean matchesBinary(Object binaryInfo, Object enclosingBinaryInfo) {
-	if (!(binaryInfo instanceof IBinaryMethod)) return false;
-
-	IBinaryMethod method = (IBinaryMethod)binaryInfo;
+public class ConstructorDeclarationPattern extends ConstructorPattern {
+	public int extraFlags;
 	
-	// must be a constructor
-	if (!method.isConstructor()) return false;
-
-	// declaring type
-	IBinaryType declaringType = (IBinaryType)enclosingBinaryInfo;
-	if (declaringType != null) {
-		char[] declaringTypeName = (char[])declaringType.getName().clone();
-		CharOperation.replace(declaringTypeName, '/', '.');
-		if (!this.matchesType(this.declaringSimpleName, this.declaringQualification, declaringTypeName)) {
-			return false;
-		}
-	}
-
-	// parameter types
-	int parameterCount = this.parameterSimpleNames == null ? -1 : this.parameterSimpleNames.length;
-	if (parameterCount > -1) {
-		String methodDescriptor = new String(method.getMethodDescriptor()).replace('/', '.');
-		String[] arguments = Signature.getParameterTypes(methodDescriptor);
-		int argumentCount = arguments.length;
-		if (parameterCount != argumentCount)
-			return false;
-		for (int i = 0; i < parameterCount; i++) {
-			char[] qualification = this.parameterQualifications[i];
-			char[] type = this.parameterSimpleNames[i];
-			if (!this.matchesType(type, qualification,  Signature.toString(arguments[i]).toCharArray()))
-				return false;
-		}
-	}
-
-	return true;
-}
-/**
- * @see SearchPattern#matchIndexEntry
- */
-protected boolean matchIndexEntry() {
-
-	/* check selector matches */
-	if (declaringSimpleName != null){
-		switch(matchMode){
-			case EXACT_MATCH :
-				if (!CharOperation.equals(declaringSimpleName, decodedTypeName, isCaseSensitive)){
-					return false;
-				}
-				break;
-			case PREFIX_MATCH :
-				if (!CharOperation.prefixEquals(declaringSimpleName, decodedTypeName, isCaseSensitive)){
-					return false;
-				}
-				break;
-			case PATTERN_MATCH :
-				if (!CharOperation.match(declaringSimpleName, decodedTypeName, isCaseSensitive)){
-					return false;
-				}
-		}
-	}
-	if (parameterSimpleNames != null){
-		if (parameterSimpleNames.length != decodedParameterCount) return false;
-	}
-	return true;
-}
-public String toString(){
-
-	StringBuffer buffer = new StringBuffer(20);
-	buffer.append("ConstructorDeclarationPattern: "); //$NON-NLS-1$
-	if (declaringQualification != null) buffer.append(declaringQualification).append('.');
-	if (declaringSimpleName != null) 
-		buffer.append(declaringSimpleName);
-	else if (declaringQualification != null) buffer.append("*"); //$NON-NLS-1$
-
-	buffer.append('(');
-	if (parameterSimpleNames == null) {
-		buffer.append("..."); //$NON-NLS-1$
-	} else {
-		for (int i = 0, max = parameterSimpleNames.length; i < max; i++){
-			if (i > 0) buffer.append(", "); //$NON-NLS-1$
-			if (parameterQualifications[i] != null) buffer.append(parameterQualifications[i]).append('.');
-			if (parameterSimpleNames[i] == null) buffer.append('*'); else buffer.append(parameterSimpleNames[i]);
-		}
-	}
-	buffer.append(')');
-	buffer.append(", "); //$NON-NLS-1$
-	switch(matchMode){
-		case EXACT_MATCH : 
-			buffer.append("exact match, "); //$NON-NLS-1$
-			break;
-		case PREFIX_MATCH :
-			buffer.append("prefix match, "); //$NON-NLS-1$
-			break;
-		case PATTERN_MATCH :
-			buffer.append("pattern match, "); //$NON-NLS-1$
-			break;
-	}
-	if (isCaseSensitive)
-		buffer.append("case sensitive"); //$NON-NLS-1$
-	else
-		buffer.append("case insensitive"); //$NON-NLS-1$
-	return buffer.toString();
-}
-
-/**
- * @see SearchPattern#matchLevel(AstNode, boolean)
- */
-public int matchLevel(AstNode node, boolean resolve) {
-	if (!(node instanceof ConstructorDeclaration)) return IMPOSSIBLE_MATCH;
-
-	ConstructorDeclaration constructor = (ConstructorDeclaration)node;
-
-	if (resolve) {
-		return this.matchLevel(constructor.binding);
-	} else {
-		// constructor name is stored in selector field
-		if (this.declaringSimpleName != null 
-				&& !this.matchesName(this.declaringSimpleName, constructor.selector))
-			return IMPOSSIBLE_MATCH;
-			
-		// parameter types
-		int parameterCount = this.parameterSimpleNames == null ? -1 : this.parameterSimpleNames.length;
-		if (parameterCount > -1) {
-			int argumentCount = constructor.arguments == null ? 0 : constructor.arguments.length;
-			if (parameterCount != argumentCount)
-				return IMPOSSIBLE_MATCH;
-		}
-
-		return this.needsResolve ? POSSIBLE_MATCH : ACCURATE_MATCH;
-	}
-}
-
-/**
- * @see SearchPattern#matchLevel(Binding)
- */
-public int matchLevel(Binding binding) {
-	if (binding == null) return INACCURATE_MATCH;
-	if (!(binding instanceof MethodBinding)) return IMPOSSIBLE_MATCH;
-	int level;
-
-	MethodBinding constructor = (MethodBinding)binding;
+	public int declaringTypeModifiers;
+	public char[] declaringPackageName;
 	
-	// must be a constructor
-	if (!constructor.isConstructor()) return IMPOSSIBLE_MATCH;
+	public int modifiers;
+	public char[] signature;
+	public char[][] parameterTypes;
+	public char[][] parameterNames;
 
-	// declaring type
-	ReferenceBinding declaringType = constructor.declaringClass;
-	if (!constructor.isStatic() && !constructor.isPrivate()) {
-		level = this.matchLevelAsSubtype(declaringType, this.declaringSimpleName, this.declaringQualification);
+public ConstructorDeclarationPattern(char[] declaringPackageName, char[] declaringSimpleName, int matchRule) {
+	this(matchRule);
+	this.declaringSimpleName = (this.isCaseSensitive || this.isCamelCase) ? declaringSimpleName : CharOperation.toLowerCase(declaringSimpleName);
+	this.declaringPackageName = declaringPackageName;
+	this.findDeclarations = true;
+	this.findReferences = false;
+	this.parameterCount = -1;
+	this.mustResolve = false;
+}
+
+ConstructorDeclarationPattern(int matchRule) {
+	super(matchRule);
+}
+public void decodeIndexKey(char[] key) {
+	int last = key.length - 1;
+	int slash = CharOperation.indexOf(SEPARATOR, key, 0);
+	this.declaringSimpleName = CharOperation.subarray(key, 0, slash);
+	
+	int start = slash + 1;
+	slash = CharOperation.indexOf(SEPARATOR, key, start);
+	last = slash - 1;
+	
+	boolean isDefaultConstructor = key[last] == '#';
+	if (isDefaultConstructor) {
+		this.parameterCount = -1;
 	} else {
-		level = this.matchLevelForType(this.declaringSimpleName, this.declaringQualification, declaringType);
-	}
-	if (level == IMPOSSIBLE_MATCH) {
-		return IMPOSSIBLE_MATCH;
-	}
-		
-	// parameter types
-	int parameterCount = this.parameterSimpleNames == null ? -1 : this.parameterSimpleNames.length;
-	if (parameterCount > -1) {
-		int argumentCount = constructor.parameters == null ? 0 : constructor.parameters.length;
-		if (parameterCount != argumentCount)
-			return IMPOSSIBLE_MATCH;
-		for (int i = 0; i < parameterCount; i++) {
-			char[] qualification = this.parameterQualifications[i];
-			char[] type = this.parameterSimpleNames[i];
-			int newLevel = this.matchLevelForType(type, qualification, constructor.parameters[i]);
-			switch (newLevel) {
-				case IMPOSSIBLE_MATCH:
-					return IMPOSSIBLE_MATCH;
-				case ACCURATE_MATCH: // keep previous level
-					break;
-				default: // ie. INACCURATE_MATCH
-					level = newLevel;
-					break;
+		this.parameterCount = 0;
+		int power = 1;
+		for (int i = last; i >= start; i--) {
+			if (i == last) {
+				this.parameterCount = key[i] - '0';
+			} else {
+				power *= 10;
+				this.parameterCount += power * (key[i] - '0');
 			}
 		}
 	}
+	
+	slash = slash + 3;
+	last = slash - 1;
+	
+	int typeModifiersWithExtraFlags = key[last-1] + (key[last]<<16);
+	this.declaringTypeModifiers = decodeModifers(typeModifiersWithExtraFlags);
+	this.extraFlags = decodeExtraFlags(typeModifiersWithExtraFlags);
+	
+	// initialize optional fields
+	this.declaringPackageName = null;
+	this.modifiers = 0;
+	this.signature = null;
+	this.parameterTypes = null;
+	this.parameterNames = null;
+	
+	boolean isMemberType = (this.extraFlags & ExtraFlags.IsMemberType) != 0;
+	
+	if (!isMemberType) {
+		start = slash + 1;
+		if (this.parameterCount == -1) {
+			slash = key.length;
+			last = slash - 1;
+		} else {
+			slash = CharOperation.indexOf(SEPARATOR, key, start);
+		}
+		last = slash - 1;
+		
+		this.declaringPackageName = CharOperation.subarray(key, start, slash);
+		
+		start = slash + 1;
+		if (this.parameterCount == 0) {
+			slash = slash + 3;
+			last = slash - 1;
+			
+			this.modifiers = key[last-1] + (key[last]<<16);
+		} else if (this.parameterCount > 0){
+			slash = CharOperation.indexOf(SEPARATOR, key, start);
+			last = slash - 1;
+			
+			boolean hasParameterStoredAsSignature = (this.extraFlags & ExtraFlags.ParameterTypesStoredAsSignature) != 0;
+			if (hasParameterStoredAsSignature) {
+				this.signature  = CharOperation.subarray(key, start, slash);
+				CharOperation.replace(this.signature , '\\', SEPARATOR);
+			} else {
+				this.parameterTypes = CharOperation.splitOn(PARAMETER_SEPARATOR, key, start, slash);
+			}
+			start = slash + 1;
+			slash = CharOperation.indexOf(SEPARATOR, key, start);
+			last = slash - 1;
+			
+			if (slash != start) {
+				this.parameterNames = CharOperation.splitOn(PARAMETER_SEPARATOR, key, start, slash);
+			}
+			
+			slash = slash + 3;
+			last = slash - 1;
+			
+			this.modifiers = key[last-1] + (key[last]<<16);
+		} else {
+			this.modifiers = ClassFileConstants.AccPublic;
+		}
+	}
+	
+	removeInternalFlags(); // remove internal flags
+}
 
-	return level;
+public SearchPattern getBlankPattern() {
+	return new ConstructorDeclarationPattern(R_EXACT_MATCH | R_CASE_SENSITIVE);
+}
+public char[][] getIndexCategories() {
+	return DECL_CATEGORIES;
+}
+public boolean matchesDecodedKey(SearchPattern decodedPattern) {
+	ConstructorDeclarationPattern pattern = (ConstructorDeclarationPattern) decodedPattern;
+	
+	// only top level types
+	if ((pattern.extraFlags & ExtraFlags.IsMemberType) != 0) return false;
+	
+	// check package - exact match only
+	if (this.declaringPackageName != null && !CharOperation.equals(this.declaringPackageName, pattern.declaringPackageName, true))
+		return false;
+
+	return (this.parameterCount == pattern.parameterCount || this.parameterCount == -1 || this.varargs)
+		&& matchesName(this.declaringSimpleName, pattern.declaringSimpleName);
+}
+private void removeInternalFlags() {
+	this.extraFlags = this.extraFlags & ~ExtraFlags.ParameterTypesStoredAsSignature; // ParameterTypesStoredAsSignature is an internal flags only used to decode key
 }
 }

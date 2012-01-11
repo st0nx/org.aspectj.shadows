@@ -1,29 +1,29 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2001, 2002 International Business Machines Corp. and others.
- * All rights reserved. This program and the accompanying materials 
- * are made available under the terms of the Common Public License v0.5 
+ * Copyright (c) 2000, 2009 IBM Corporation and others.
+ * All rights reserved. This program and the accompanying materials
+ * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
- * http://www.eclipse.org/legal/cpl-v05.html
- * 
+ * http://www.eclipse.org/legal/epl-v10.html
+ *
  * Contributors:
  *     IBM Corporation - initial API and implementation
- ******************************************************************************/
+ *******************************************************************************/
 package org.eclipse.jdt.core.util;
 
 /**
- * Description of a inner class info as described in the JVM 
+ * Description of a inner class info as described in the JVM
  * specifications.
- *  
- * This interface may be implemented by clients. 
- * 
+ *
+ * This interface may be implemented by clients.
+ *
  * @since 2.0
  */
 public interface IInnerClassesAttributeEntry {
-	
+
 	/**
 	 * Answer back the access flag of this inner classes attribute as specified in
 	 * the JVM specifications.
-	 * 
+	 *
 	 * @return the access flag of this inner classes attribute as specified in
 	 * the JVM specifications
 	 */
@@ -32,7 +32,7 @@ public interface IInnerClassesAttributeEntry {
 	/**
 	 * Answer back the inner name index of this inner classes attribute as specified in
 	 * the JVM specifications.
-	 * 
+	 *
 	 * @return the inner name index of this inner classes attribute as specified in
 	 * the JVM specifications
 	 */
@@ -41,7 +41,7 @@ public interface IInnerClassesAttributeEntry {
 	/**
 	 * Answer back the outer class name index of this inner classes attribute as specified in
 	 * the JVM specifications.
-	 * 
+	 *
 	 * @return the outer class name index of this inner classes attribute as specified in
 	 * the JVM specifications
 	 */
@@ -50,7 +50,7 @@ public interface IInnerClassesAttributeEntry {
 	/**
 	 * Answer back the inner class name index of this inner classes attribute as specified in
 	 * the JVM specifications.
-	 * 
+	 *
 	 * @return the inner class name index of this inner classes attribute as specified in
 	 * the JVM specifications
 	 */
@@ -59,7 +59,7 @@ public interface IInnerClassesAttributeEntry {
 	/**
 	 * Answer back the inner name of this inner classes attribute as specified in
 	 * the JVM specifications, null if inner name index is equals to zero.
-	 * 
+	 *
 	 * @return the inner name of this inner classes attribute as specified in
 	 * the JVM specifications, null if inner name index is equals to zero
 	 */
@@ -68,7 +68,7 @@ public interface IInnerClassesAttributeEntry {
 	/**
 	 * Answer back the outer class name of this inner classes attribute as specified in
 	 * the JVM specifications, null if outer class name index is equals to zero.
-	 * 
+	 *
 	 * @return the outer class name of this inner classes attribute as specified in
 	 * the JVM specifications, null if outer class name index is equals to zero
 	 */
@@ -77,7 +77,7 @@ public interface IInnerClassesAttributeEntry {
 	/**
 	 * Answer back the inner class name of this inner classes attribute as specified in
 	 * the JVM specifications, null if inner class name index is equals to zero.
-	 * 
+	 *
 	 * @return the inner class name of this inner classes attribute as specified in
 	 * the JVM specifications, null if inner class name index is equals to zero
 	 */
