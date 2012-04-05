@@ -13,6 +13,8 @@ package org.eclipse.jdt.internal.compiler.ast;
 
 import java.util.Arrays;
 
+import org.eclipse.jdt.internal.compiler.lookup.ClassScope;
+import org.eclipse.jdt.internal.compiler.lookup.SourceTypeBinding;
 import org.eclipse.jdt.internal.compiler.ASTVisitor;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileConstants;
 import org.eclipse.jdt.internal.compiler.codegen.*;
@@ -115,7 +117,8 @@ public class SwitchStatement extends Statement {
 				// was (in 37):
 				// final SourceTypeBinding sourceTypeBinding = currentScope.classScope().referenceContext.binding;
 				// now:
-				final SourceTypeBinding sourceTypeBinding = this.scope.invocationType(); 
+				ClassScope classScope = currentScope.classScope();
+				final SourceTypeBinding sourceTypeBinding = classScope.invocationType(); 
 				// AspectJ extension end
 				this.synthetic = sourceTypeBinding.addSyntheticMethodForSwitchEnum(resolvedTypeBinding);
 			}
