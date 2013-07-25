@@ -96,7 +96,8 @@ import org.eclipse.text.edits.TextEdit;
  * @since 2.0
  * @noinstantiate This class is not intended to be instantiated by clients.
  */
-public final class AST {
+// AspectJ Extension - made non-final
+public class AST {
 	/**
 	 * new Class[] {AST.class}
 	 * @since 3.0
@@ -254,7 +255,12 @@ public final class AST {
 		int reconcileFlags,
 		IProgressMonitor monitor) {
 
-		ASTConverter converter = new ASTConverter(options, isResolved, monitor);
+		// AspectJ extension - use the factory
+		// old code:
+		// ASTConverter converter = new ASTConverter(options, isResolved, monitor);
+		// new code:
+		ASTConverter converter = ASTConverter.getASTConverter(options,isResolved,monitor); 
+		// End AspectJ Extension
 		AST ast = AST.newAST(level);
 		int savedDefaultNodeFlag = ast.getDefaultNodeFlag();
 		ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
@@ -675,7 +681,7 @@ public final class AST {
  	 * @param level the API level; one of the <code>JLS*</code> level constants
      * @since 3.0
 	 */
-	private AST(int level) {
+	protected AST(int level) {  // AspectJ - raised to protected
 		switch(level) {
 			case JLS2_INTERNAL :
 			case JLS3_INTERNAL :
@@ -2393,7 +2399,12 @@ public final class AST {
 	 * @return a new unparented type declaration node
 	 */
 	public TypeDeclaration newTypeDeclaration() {
-		TypeDeclaration result = new TypeDeclaration(this);
+		// AspectJ Extension - use factory rather than ctor
+		// old code:
+		// TypeDeclaration result = new TypeDeclaration(this);
+		// new code:
+		TypeDeclaration result = TypeDeclaration.getTypeDeclaration(this); 
+		// End AspectJ Extension
 		result.setInterface(false);
 		return result;
 	}

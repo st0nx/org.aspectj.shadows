@@ -338,7 +338,7 @@ public class ForeachStatement extends Statement {
 		// continuation point
 		if (this.continueLabel != null) {
 			this.continueLabel.place();
-			int continuationPC = codeStream.position;
+			// int continuationPC = codeStream.position; // AspectJ Extension - 155763 - don't do this here
 			// generate the increments for next iteration
 			switch(this.kind) {
 				case ARRAY :
@@ -360,6 +360,7 @@ public class ForeachStatement extends Statement {
 					codeStream.ifne(actionLabel);
 					break;
 			}
+			int continuationPC = codeStream.position; // AspectJ Extension - 155763 - do it here
 			codeStream.recordPositionsFrom(continuationPC, this.elementVariable.sourceStart);
 		}
 		switch(this.kind) {

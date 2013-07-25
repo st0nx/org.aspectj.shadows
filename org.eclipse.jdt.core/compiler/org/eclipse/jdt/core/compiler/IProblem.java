@@ -301,6 +301,13 @@ void setSourceLineNumber(int lineNumber);
 void setSourceStart(int sourceStart);
 
 
+	// AspectJ Extension
+	void setSeeAlsoProblems(IProblem[] problems);
+	IProblem[] seeAlso();
+	void setSupplementaryMessageInfo(String msg);
+	String getSupplementaryMessageInfo();
+	// End AspectJ Extension
+	
 	/**
 	 * Problem Categories
 	 * The high bits of a problem ID contains information about the category of a problem.
@@ -957,7 +964,11 @@ void setSourceStart(int sourceStart);
 	// block
 	/** @since 3.0 */
 	int UndocumentedEmptyBlock = Internal + 460;
-
+	
+	/* AspectJ Extension */
+	int SwallowedExceptionInCatchBlock = Internal + 699; 
+	/* End AspectJ Extension */
+	
 	/*
 	 * Javadoc comments
 	 */

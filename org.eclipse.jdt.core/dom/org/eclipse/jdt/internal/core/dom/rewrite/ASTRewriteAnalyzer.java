@@ -63,7 +63,42 @@ import org.eclipse.text.edits.TextEditGroup;
  * (text manipulation API) that describe the required code changes.
  */
 public final class ASTRewriteAnalyzer extends ASTVisitor {
+	// AspectJ Extension start - might not be needed anymore - AJDT may override it with its variant...
+	// We use a factory to build the AST rewrite analyzer, so we can plugin in alternatives...
+	private static final String AJ_ASTREWRITEANALYZER_FACTORY = "org.aspectj.ajdt.core.dom.rewrite.AjASTRewriteAnalyzerFactory"; //$NON-NLS-1$
+	private static IASTRewriteAnalyzerFactory astRewriteAnalyzerFactory;
+	
+	static {
+		try{
+			astRewriteAnalyzerFactory = (IASTRewriteAnalyzerFactory) Class.forName(AJ_ASTREWRITEANALYZER_FACTORY).newInstance();
+		} catch (InstantiationException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (IllegalAccessException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (ClassNotFoundException ex) {
+			System.err.println("Warning: AspectJ type declaration factory class not found on classpath"); //$NON-NLS-1$
+			//throw new ExceptionInInitializerError(ex.getMessage());
+		}
+	}
 
+	public interface IASTRewriteAnalyzerFactory {
+		public ASTVisitor getASTRewriteAnalyzer(char[] content2,
+				LineInformation lineInfo2, String lineDelim, TextEdit result,
+				RewriteEventStore eventStore2, NodeInfoStore nodeStore,
+				List comments, Map options, TargetSourceRangeComputer xsrComputer,RecoveryScannerData recoveryScannerData);
+	}
+	
+	public static ASTVisitor getAnalyzerVisitor(char[] content2,
+			LineInformation lineInfo2, String lineDelim, TextEdit result,
+			RewriteEventStore eventStore2, NodeInfoStore nodeStore,
+			List comments, Map options, TargetSourceRangeComputer xsrComputer,RecoveryScannerData recoveryScannerData) {
+		if (astRewriteAnalyzerFactory == null) {
+		  return new ASTRewriteAnalyzer(content2,lineInfo2,lineDelim,result,eventStore2,nodeStore,comments,options,xsrComputer,recoveryScannerData);
+		}
+		return astRewriteAnalyzerFactory.getASTRewriteAnalyzer(content2,lineInfo2,lineDelim,result,eventStore2,nodeStore,comments,options,xsrComputer,recoveryScannerData);
+	}
+
+	// AspectJ Extension end
 	/** @deprecated using deprecated code */
 	private static final SimplePropertyDescriptor INTERNAL_FIELD_MODIFIERS_PROPERTY = FieldDeclaration.MODIFIERS_PROPERTY;
 

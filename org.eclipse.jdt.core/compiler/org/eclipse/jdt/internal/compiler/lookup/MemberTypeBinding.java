@@ -11,8 +11,8 @@
 package org.eclipse.jdt.internal.compiler.lookup;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
-
-public final class MemberTypeBinding extends NestedTypeBinding {
+// AspectJ Extension: made non-final 
+public class MemberTypeBinding extends NestedTypeBinding {
 public MemberTypeBinding(char[][] compoundName, ClassScope scope, SourceTypeBinding enclosingType) {
 	super(compoundName, scope, enclosingType);
 	this.tagBits |= TagBits.MemberTypeMask;

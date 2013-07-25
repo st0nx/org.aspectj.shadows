@@ -79,7 +79,7 @@ public MethodBinding(MethodBinding initialMethodBinding, ReferenceBinding declar
 	this.parameters = initialMethodBinding.parameters;
 	this.thrownExceptions = initialMethodBinding.thrownExceptions;
 	this.declaringClass = declaringClass;
-	declaringClass.storeAnnotationHolder(this, initialMethodBinding.declaringClass.retrieveAnnotationHolder(initialMethodBinding, true));
+	if (declaringClass!=null) declaringClass.storeAnnotationHolder(this, initialMethodBinding.declaringClass.retrieveAnnotationHolder(initialMethodBinding, true)); // New AspectJ Extension - check for null
 }
 /* Answer true if the argument types & the receiver's parameters have the same erasure
 */
@@ -206,15 +206,24 @@ MethodBinding asRawMethod(LookupEnvironment env) {
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
 
-public final boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
+//AspectJ Extension - made non-final
+public boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 	if (isPublic()) return true;
 
+	// AspectJ Extension: was
+	/*{
 	SourceTypeBinding invocationType = scope.enclosingSourceType();
 	if (invocationType == this.declaringClass) return true;
+	}*/// new:
+    ReferenceBinding declaringType = original().declaringClass;  // AspectJ Extension - new local variable to hold the declaringType
+
+	SourceTypeBinding invocationType = scope.invocationType();// AspectJ Extension - was enclosingSourceType();
+	if (invocationType == declaringType) return true; // AspectJ Extension - was declaringClass
+	// Aspectj Extension end
 
 	if (isProtected()) {
 		// answer true if the receiver is in the same package as the invocationType
-		if (invocationType.fPackage == this.declaringClass.fPackage) return true;
+		if (invocationType.fPackage == declaringType.fPackage) return true; // AspectJ Extension - was == declaringClass.fPackage
 		return invocationSite.isSuperAccess();
 	}
 
@@ -228,7 +237,7 @@ public final boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 			temp = temp.enclosingType();
 		}
 
-		ReferenceBinding outerDeclaringClass = (ReferenceBinding)this.declaringClass.erasure();
+		ReferenceBinding outerDeclaringClass = (ReferenceBinding)declaringType.erasure(); // AspectJ Extension - changed declaringClass to declaringType
 		temp = outerDeclaringClass.enclosingType();
 		while (temp != null) {
 			outerDeclaringClass = temp;
@@ -238,8 +247,34 @@ public final boolean canBeSeenBy(InvocationSite invocationSite, Scope scope) {
 	}
 
 	// isDefault()
-	return invocationType.fPackage == this.declaringClass.fPackage;
+	return invocationType.fPackage == declaringType.fPackage; // AspectJ Extension - changed declaringClass to declaringType
 }
+
+//AspectJ Extension
+public MethodBinding getVisibleBinding(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+	if (canBeSeenBy(receiverType, invocationSite, scope)) return this;
+	return findPrivilegedBinding(scope.invocationType(), invocationSite);
+}
+
+public MethodBinding getVisibleBinding(InvocationSite invocationSite, Scope scope) {
+	if (canBeSeenBy(invocationSite, scope)) return this;
+	return findPrivilegedBinding(scope.invocationType(),invocationSite);
+}
+
+
+public MethodBinding findPrivilegedBinding(SourceTypeBinding invocationType, InvocationSite location) {
+	if (Scope.findPrivilegedHandler(invocationType) != null) {
+		ASTNode forLocation = null;
+		if (location instanceof ASTNode) {
+			forLocation = (ASTNode)location;
+		}
+		return Scope.findPrivilegedHandler(invocationType).getPrivilegedAccessMethod(this, forLocation); //notePrivilegedTypeAccess(this, null);
+	} else {
+		return null;
+	}
+}
+//End AspectJ Extension
+
 public final boolean canBeSeenBy(PackageBinding invocationPackage) {
 	if (isPublic()) return true;
 	if (isPrivate()) return false;
@@ -254,9 +289,11 @@ public final boolean canBeSeenBy(PackageBinding invocationPackage) {
 *
 * NOTE: Cannot invoke this method with a compilation unit scope.
 */
-public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+//AspectJ Extension - made non-final
+public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
 
-	SourceTypeBinding invocationType = scope.enclosingSourceType();
+	SourceTypeBinding invocationType = scope.invocationType(); // AspectJ Extension - was scope.enclosingSourceType()
+
 	if (this.declaringClass.isInterface() && isStatic()) {
 		// Static interface methods can be explicitly invoked only through the type reference of the declaring interface or implicitly in the interface itself.
 		if (scope.compilerOptions().sourceLevel < ClassFileConstants.JDK1_8)
@@ -285,7 +322,18 @@ public final boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invoca
 		if (invocationType == this.declaringClass) return true;
 		if (invocationType.fPackage == this.declaringClass.fPackage) return true;
 
-		ReferenceBinding currentType = invocationType;
+		//	AspectJ Extension
+		// replaced this one line:
+        // ReferenceBinding currentType = invocationType;
+        // with:
+		// for protected we need to check based on the type of this
+		ReferenceBinding currentType = scope.enclosingSourceType(); //invocationType();// NewNew AspectJ Extension - was enclosingSourceType();
+		// MUST be in the same package as the invocationType though... (pr 71723)
+		if (invocationType != currentType) {
+		    // this MUST be an ITD
+		    if (invocationType.fPackage != currentType.fPackage) return false;
+		}
+		//	End AspectJ Extension
 		TypeBinding receiverErasure = receiverType.erasure();
 		ReferenceBinding declaringErasure = (ReferenceBinding) this.declaringClass.erasure();
 		int depth = 0;
@@ -728,7 +776,7 @@ public final boolean isDeprecated() {
 
 /* Answer true if the receiver is final and cannot be overridden
 */
-public final boolean isFinal() {
+public boolean isFinal() { // AspectJ Extension, made non-final
 	return (this.modifiers & ClassFileConstants.AccFinal) != 0;
 }
 
@@ -1119,16 +1167,28 @@ public final int sourceEnd() {
 	return method.sourceEnd;
 }
 public AbstractMethodDeclaration sourceMethod() {
-	if (isSynthetic()) {
-		return null;
-	}
+	// AspectJ Extension
+	// AspectJ has synthetic methods that do have a source rep (e.g. pointcuts)
+	// TODO could do this through overriding? maybe if we did use a subtype, but not sure we do
+	// TODO can't recognize via ajc$ because they might be annotation style 
+	// old code:
+//	if (isSynthetic()) {
+//		return null;
+//	}
 	SourceTypeBinding sourceType;
+	//	AspectJ Extension
+	if (declaringClass instanceof BinaryTypeBinding) return null;
+	//	End AspectJ Extension
 	try {
 		sourceType = (SourceTypeBinding) this.declaringClass;
 	} catch (ClassCastException e) {
 		return null;
 	}
 
+	// AspectJ Extension
+	// guard due to pr154923 - an npe occurs that is probably disguising an underlying problem that will be reported properly
+	if (sourceType.scope==null || sourceType.scope.referenceContext==null || sourceType.scope.referenceContext.methods==null) return null;
+	// End AspectJ Extension
 	AbstractMethodDeclaration[] methods = sourceType.scope != null ? sourceType.scope.referenceContext.methods : null;
 	if (methods != null) {
 		for (int i = methods.length; --i >= 0;)
@@ -1149,6 +1209,23 @@ public final int sourceStart() {
 	}
 	return method.sourceStart;
 }
+    //AspectJ Extension	
+	/**
+	 * Subtypes can override this to return true if an access method should be
+	 * used when referring to this method binding.  Currently used
+	 * for AspectJ's inter-type method declarations.
+	 */
+	public boolean alwaysNeedsAccessMethod() { return false; }
+
+
+	/**
+	 * This will only be called if alwaysNeedsAccessMethod() returns true.
+	 * In that case it should return the access method to be used.
+	 */
+	public MethodBinding getAccessMethod(boolean staticReference) {
+		throw new RuntimeException("unimplemented");
+	}
+	//	End AspectJ Extension
 
 /**
  * Returns the method to use during tiebreak (usually the method itself).

@@ -67,8 +67,11 @@ public class ExtendedStringLiteral extends StringLiteral {
 	}
 
 	public StringBuffer printExpression(int indent, StringBuffer output) {
-
-		return output.append("ExtendedStringLiteral{").append(this.source).append('}'); //$NON-NLS-1$
+		// AspectJ extension - replaced this line (pr255421)
+		// return output.append("ExtendedStringLiteral{").append(this.source).append('}'); //$NON-NLS-1$
+		// with this line:
+		return super.printExpression(indent, output);
+		// End AspectJ extension
 	}
 
 	public void traverse(ASTVisitor visitor, BlockScope scope) {

@@ -134,10 +134,20 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 				break generateInit;
 			// forget initializing unused or final locals set to constant value (final ones are inlined)
 			if (this.binding.resolvedPosition < 0) {
-				if (this.initialization.constant != Constant.NotAConstant)
-					break generateInit;
+				// New AspectJ Extension
+				// old code:
+				//if (initialization.constant != Constant.NotAConstant)
+				//	break generateInit;
+				// same code:
 				// if binding unused generate then discard the value
 				this.initialization.generateCode(currentScope, codeStream, false);
+				// new code:
+					if ((binding.type == TypeBinding.LONG) || (binding.type == TypeBinding.DOUBLE)) {
+						codeStream.pop2();
+					} else {
+						codeStream.pop();
+					}
+				// End AspectJ Extension	
 				break generateInit;
 			}
 			this.initialization.generateCode(currentScope, codeStream, true);

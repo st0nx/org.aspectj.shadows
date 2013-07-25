@@ -40,6 +40,12 @@ import org.eclipse.jdt.internal.compiler.problem.ProblemReporter;
 import org.eclipse.jdt.internal.compiler.util.HashtableOfPackage;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 
+/**
+ * AspectJ Extension - made many methods and fields more visible for extension
+ * 
+ * Also modified error checking on getType(char[][] compoundName) to allow
+ * refering to inner types directly.
+ */
 public class LookupEnvironment implements ProblemReasons, TypeConstants {
 
 	/**
@@ -49,8 +55,10 @@ public class LookupEnvironment implements ProblemReasons, TypeConstants {
 	ImportBinding[] defaultImports;
 	public PackageBinding defaultPackage;
 	HashtableOfPackage knownPackages;
-	private int lastCompletedUnitIndex = -1;
-	private int lastUnitIndex = -1;
+	// AspectJ Extension - raised visibility
+	protected int lastCompletedUnitIndex = -1;
+	protected int lastUnitIndex = -1;
+	// End AspectJ Extension
 
 	public INameEnvironment nameEnvironment;
 	public CompilerOptions globalOptions;
@@ -61,7 +69,7 @@ public class LookupEnvironment implements ProblemReasons, TypeConstants {
 	// step 1 : build the reference binding
 	// step 2 : conect the hierarchy (connect bindings)
 	// step 3 : build fields and method bindings.
-	private int stepCompleted;
+	protected int stepCompleted; // AspectJ Extension - raised visibility
 	public ITypeRequestor typeRequestor;
 
 	private ArrayBinding[][] uniqueArrayBindings;
@@ -77,7 +85,8 @@ public class LookupEnvironment implements ProblemReasons, TypeConstants {
 
 	public CompilationUnitDeclaration unitBeingCompleted = null; // only set while completing units
 	public Object missingClassFileLocation = null; // only set when resolving certain references, to help locating problems
-	private CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
+    // AspectJ Extension - raised visibility
+	protected CompilationUnitDeclaration[] units = new CompilationUnitDeclaration[4];
 	private MethodVerifier verifier;
 
 	public MethodBinding arrayClone;
@@ -91,10 +100,11 @@ public class LookupEnvironment implements ProblemReasons, TypeConstants {
 	PackageBinding nonnullAnnotationPackage;			// the package supposed to contain the NonNull annotation type
 	PackageBinding nonnullByDefaultAnnotationPackage;	// the package supposed to contain the NonNullByDefault annotation type
 
-	final static int BUILD_FIELDS_AND_METHODS = 4;
-	final static int BUILD_TYPE_HIERARCHY = 1;
-	final static int CHECK_AND_SET_IMPORTS = 2;
-	final static int CONNECT_TYPE_HIERARCHY = 3;
+	// AspectJ extension - raised visibility to protected on these four fields
+	protected final static int BUILD_FIELDS_AND_METHODS = 4;
+	protected final static int BUILD_TYPE_HIERARCHY = 1;
+	protected final static int CHECK_AND_SET_IMPORTS = 2;
+	protected final static int CONNECT_TYPE_HIERARCHY = 3;
 
 	static final ProblemPackageBinding TheNotFoundPackage = new ProblemPackageBinding(CharOperation.NO_CHAR, NotFound);
 	static final ProblemReferenceBinding TheNotFoundType = new ProblemReferenceBinding(CharOperation.NO_CHAR_CHAR, null, NotFound);
@@ -1244,8 +1254,11 @@ public ReferenceBinding getType(char[][] compoundName) {
 	referenceBinding = (ReferenceBinding) BinaryTypeBinding.resolveType(referenceBinding, this, false /* no raw conversion for now */);
 
 	// compoundName refers to a nested type incorrectly (for example, package1.A$B)
-	if (referenceBinding.isNestedType())
-		return new ProblemReferenceBinding(compoundName, referenceBinding, InternalNameProvided);
+	//	AspectJ Extension - commented out "if" case
+	//XXX how else are we supposed to refer to nested types???
+	//if (referenceBinding.isNestedType())
+	//	return new ProblemReferenceBinding(compoundName, referenceBinding, InternalNameProvided);
+	//	End AspectJ Extension
 	return referenceBinding;
 }
 

@@ -39,6 +39,7 @@ public class TypeDeclaration extends Statement implements ProblemSeverities, Ref
 	public int modifiers = ClassFileConstants.AccDefault;
 	public int modifiersSourceStart;
 	public Annotation[] annotations;
+	public Annotation[] originalAnnotations; // AspectJ Extension
 	public char[] name;
 	public TypeReference superclass;
 	public TypeReference[] superInterfaces;
@@ -574,7 +575,7 @@ public void generateCode(ClassFile enclosingClassFile) {
 		}
 
 		// finalize the compiled type result
-		classFile.addAttributes();
+		generateAttributes(classFile); // AspectJ Extension - moved to helper method, was 'classFile.addAttributes();'
 		this.scope.referenceCompilationUnit().compilationResult.record(
 			this.binding.constantPoolName(),
 			classFile);
@@ -586,6 +587,34 @@ public void generateCode(ClassFile enclosingClassFile) {
 			this.scope.referenceCompilationUnit().compilationResult);
 	}
 }
+
+	// AspectJ Extension
+	protected void generateAttributes(ClassFile classFile) {
+		// Have to ensure ITD inners are in the right place for the attribute to get generated
+		if (binding != null && binding.typeFinder != null) {
+			ITypeFinder typeFinder = binding.typeFinder;
+			ReferenceBinding[] itdInners = typeFinder.getMemberTypes();
+			if (itdInners != null) {
+				for (int i=0;i<itdInners.length;i++) {
+					classFile.recordInnerClasses(itdInners[i]);
+				}
+			}
+		}
+		// finalize the compiled type result
+		classFile.addAttributes();
+	}
+	
+	// remember the current set of annotations on the type for use when writing the class file out (see pr91859)
+	public void rememberAnnotations() {
+		if (originalAnnotations!=null) return; // remember already called...
+		if (annotations==null) {
+			originalAnnotations = new Annotation[0]; // just so we don't do this again
+		} else {
+			originalAnnotations = new Annotation[annotations.length];
+			System.arraycopy(annotations,0,originalAnnotations,0,annotations.length);
+		}
+	}
+	//	End AspectJ Extension
 
 /**
  * Bytecode generation for a local inner type (API as a normal statement code gen)
@@ -827,7 +856,7 @@ public void manageEnclosingInstanceAccessIfNecessary(ClassScope currentScope, Fl
  * A <clinit> will be requested as soon as static fields or assertions are present. It will be eliminated during
  * classfile creation if no bytecode was actually produced based on some optimizations/compiler settings.
  */
-public final boolean needClassInitMethod() {
+public boolean needClassInitMethod() { // AspectJ Extension - made non-final
 	// always need a <clinit> when assertions are present
 	if ((this.bits & ASTNode.ContainsAssertion) != 0)
 		return true;
@@ -1512,5 +1541,12 @@ void updateMaxFieldCount() {
 public boolean isSecondary() {
 	return (this.bits & ASTNode.IsSecondaryType) != 0;
 }
-
+// AspectJ start - allows us to fill in a name for ITD innertypes so we can use the target name rather than the containing type
+public char[] alternativeName() {
+	return null;
+}
+public char[] getLocalTypeNameSuffix() {
+	return null;
+}
+// AspectJ end
 }

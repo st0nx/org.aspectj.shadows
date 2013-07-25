@@ -11,6 +11,7 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  *     Benjamin Muskalla - Contribution for bug 239066
  *     Stephan Herrmann  - Contributions for
  *	     						bug 236385 - [compiler] Warn for potential programming problem if an object is created but not used
@@ -50,6 +51,7 @@ import java.io.StringWriter;
 import java.util.Iterator;
 import java.util.List;
 
+import org.eclipse.jdt.internal.compiler.util.Util;
 import org.eclipse.jdt.core.compiler.CategorizedProblem;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.core.compiler.IProblem;
@@ -266,7 +268,12 @@ public static int getIrritant(int problemID) {
 
 		case IProblem.UndocumentedEmptyBlock:
 			return CompilerOptions.UndocumentedEmptyBlock;
-
+			
+		/* AspectJ Extension */
+		case IProblem.SwallowedExceptionInCatchBlock:
+			return CompilerOptions.SwallowedExceptionInCatchBlock;
+		/* End AspectJ Extension */
+		
 		case IProblem.UnnecessaryCast:
 		case IProblem.UnnecessaryInstanceof:
 			return CompilerOptions.UnnecessaryTypeCheck;
@@ -8689,6 +8696,16 @@ public void diamondNotWithAnoymousClasses(TypeReference type) {
 			type.sourceStart, 
 			type.sourceEnd);
 }
+// AspectJ Extension 
+public void swallowedException(int blockStart, int blockEnd) {
+	this.handle(
+			IProblem.SwallowedExceptionInCatchBlock,
+			NoArgument,
+			NoArgument,
+			blockStart,
+			blockEnd);
+}
+// End AspectJ Extension
 public void redundantSpecificationOfTypeArguments(ASTNode location, TypeBinding[] argumentTypes) {
 	int severity = computeSeverity(IProblem.RedundantSpecificationOfTypeArguments);
 	if (severity != ProblemSeverities.Ignore) {
@@ -9465,7 +9482,27 @@ public void invalidArrayConstructorReference(ReferenceExpression expression, Typ
 		expression.sourceStart,
 		expression.sourceEnd);
 }
-
+//AspectJ Extension
+/**
+* Signals an error with a string message for those errors that we don't know about
+* 
+* This backdoor weakens NLS guarantees, but it makes life much easier for extensions.
+*/
+public void signalError(int start, int end, String msg) {
+	CompilationResult unitResult = referenceContext.compilationResult();
+	int lineNumber = start >= 0?Util.getLineNumber(start,unitResult.lineSeparatorPositions, 0, unitResult.lineSeparatorPositions.length-1):0;
+	int columnNumber = start >= 0?Util.searchColumnNumber(unitResult.getLineSeparatorPositions(), lineNumber, start): 0;
+	CategorizedProblem problem = 
+		new DefaultProblem(unitResult.getFileName(), msg,
+						IProblem.ParsingError,  //??? would like IProblem.Unknown
+		                new String[0], ProblemSeverities.Error,
+		                start, end,
+		                lineNumber,columnNumber);
+	record(problem, unitResult, referenceContext,true);
+	
+	
+}
+//	End AspectJ Extension
 public void constructedArrayIncompatible(ReferenceExpression expression, TypeBinding receiverType, TypeBinding returnType) {
 	this.handle(
 			IProblem.ConstructedArrayIncompatible,

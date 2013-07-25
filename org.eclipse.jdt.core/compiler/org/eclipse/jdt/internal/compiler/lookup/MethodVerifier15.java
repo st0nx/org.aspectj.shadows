@@ -535,7 +535,9 @@ void checkMethods() {
 				for (int j = 0; j < inheritedLength; j++) {
 					MethodBinding inheritedMethod = computeSubstituteMethod(inherited[j], currentMethod);
 					if (inheritedMethod != null) {
-						if (foundMatch[j] == null && isSubstituteParameterSubsignature(currentMethod, inheritedMethod)) {
+						// AspectJ Extension - removing first condition here as it causes us to have problems when an ITD
+						// provides the implementation.  Not the right solution
+						if (/*foundMatch[j] == null && */isSubstituteParameterSubsignature(currentMethod, inheritedMethod)) {
 							// already checked compatibility, do visibility etc. also indicate overriding? If so ignore inheritedMethod further downstream
 							isOverridden[j] = skip[j] = couldMethodOverride(currentMethod, inheritedMethod);
 							matchingInherited[++index] = inheritedMethod;

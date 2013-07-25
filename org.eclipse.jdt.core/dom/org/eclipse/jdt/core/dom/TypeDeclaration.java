@@ -50,6 +50,34 @@ import java.util.List;
  */
 public class TypeDeclaration extends AbstractTypeDeclaration {
 
+	// AspectJ Extension start
+	// We use a factory to build the type declaration, so we can return the subtype AjTypeDeclaration found in the
+	// org.aspectj.ajdt.core module.
+	private static final String AJ_TYPE_DECLARATION_FACTORY = "org.aspectj.ajdt.core.dom.AjTypeDeclFactory"; //$NON-NLS-1$
+	private static ITypeDeclFactory declarationFactory;
+	
+	static {
+		try{
+			declarationFactory = (ITypeDeclFactory) Class.forName(AJ_TYPE_DECLARATION_FACTORY).newInstance();
+		} catch (InstantiationException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (IllegalAccessException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (ClassNotFoundException ex) {
+			System.err.println("Warning: AspectJ type declaration factory class not found on classpath"); //$NON-NLS-1$
+			//throw new ExceptionInInitializerError(ex.getMessage());
+		}
+	}
+
+	public interface ITypeDeclFactory {
+		public TypeDeclaration createTypeFor(AST ast);
+	}
+	
+	public static TypeDeclaration getTypeDeclaration(AST ast) {
+		return declarationFactory.createTypeFor(ast);
+	}
+	// AspectJ Extension end
+		
 	/**
 	 * The "javadoc" structural property of this node type (child type: {@link Javadoc}).
 	 * @since 3.0
@@ -136,7 +164,8 @@ public class TypeDeclaration extends AbstractTypeDeclaration {
 	 * or null if uninitialized.
 	 * @since 3.0
 	 */
-	private static final List PROPERTY_DESCRIPTORS_2_0;
+	// AspectJ extension, modified not to be private or final
+	protected /*private*/ static /*final*/ List PROPERTY_DESCRIPTORS_2_0;
 
 	/**
 	 * A list of property descriptors (element type:
@@ -144,7 +173,8 @@ public class TypeDeclaration extends AbstractTypeDeclaration {
 	 * or null if uninitialized.
 	 * @since 3.1
 	 */
-	private static final List PROPERTY_DESCRIPTORS_3_0;
+	// AspectJ extension, modified not to be private or final
+	protected /*private*/ static /*final*/ List PROPERTY_DESCRIPTORS_3_0;
 
 	static {
 		List propertyList = new ArrayList(8);
@@ -202,7 +232,8 @@ public class TypeDeclaration extends AbstractTypeDeclaration {
 	 * (see constructor).
 	 * @since 3.1
 	 */
-	private ASTNode.NodeList typeParameters = null;
+    // AspectJ Extension, was private, now protected
+	protected ASTNode.NodeList typeParameters = null;
 
 	/**
 	 * The optional superclass name; <code>null</code> if none.
@@ -217,7 +248,8 @@ public class TypeDeclaration extends AbstractTypeDeclaration {
 	 * (see constructor).
 	 *
 	 */
-	private ASTNode.NodeList superInterfaceNames = null;
+    // AspectJ Extension, was private, now protected
+	protected ASTNode.NodeList superInterfaceNames = null;
 
 	/**
 	 * The optional superclass type; <code>null</code> if none.
@@ -233,7 +265,8 @@ public class TypeDeclaration extends AbstractTypeDeclaration {
 	 * (see constructor).
 	 * @since 3.1
 	 */
-	private ASTNode.NodeList superInterfaceTypes = null;
+    // AspectJ Extension, was private, now protected
+	protected ASTNode.NodeList superInterfaceTypes = null;
 
 	/**
 	 * Creates a new AST node for a type declaration owned by the given
@@ -287,7 +320,8 @@ public class TypeDeclaration extends AbstractTypeDeclaration {
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
-	final boolean internalGetSetBooleanProperty(SimplePropertyDescriptor property, boolean get, boolean value) {
+	// AspectJ extension, made non final so it can be overridden
+	/*final*/ boolean internalGetSetBooleanProperty(SimplePropertyDescriptor property, boolean get, boolean value) {
 		if (property == INTERFACE_PROPERTY) {
 			if (get) {
 				return isInterface();
@@ -303,7 +337,8 @@ public class TypeDeclaration extends AbstractTypeDeclaration {
 	/* (omit javadoc for this method)
 	 * Method declared on ASTNode.
 	 */
-	final ASTNode internalGetSetChildProperty(ChildPropertyDescriptor property, boolean get, ASTNode child) {
+	// AspectJ extension, made non final so it can be overridden
+	/*final*/ ASTNode internalGetSetChildProperty(ChildPropertyDescriptor property, boolean get, ASTNode child) {
 		if (property == JAVADOC_PROPERTY) {
 			if (get) {
 				return getJavadoc();

@@ -21,7 +21,7 @@ public abstract class VariableBinding extends Binding {
 	public int modifiers;
 	public TypeBinding type;
 	public char[] name;
-	protected Constant constant;
+	public Constant constant; // AspectJ Extension, raise visibility
 	public int id; // for flow-analysis (position in flowInfo bit vector)
 	public long tagBits;
 

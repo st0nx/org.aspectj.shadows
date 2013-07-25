@@ -73,7 +73,35 @@ import org.eclipse.jdt.internal.core.util.Util;
 /**
  * Internal class for converting internal compiler ASTs into public ASTs.
  */
-class ASTConverter {
+//AspectJ extension - raised to public visibility
+public class ASTConverter {
+	
+	// AspectJ Extension start
+	// We use a factory to build the AST converter, so we can provide the right one from the ajdt.core module
+	private static final String AJ_ASTCONVERTER_FACTORY = "org.aspectj.ajdt.core.dom.AjASTConverterFactory"; //$NON-NLS-1$
+	private static IASTConverterFactory astConverterFactory;
+	
+	static {
+		try{
+			astConverterFactory = (IASTConverterFactory) Class.forName(AJ_ASTCONVERTER_FACTORY).newInstance();
+		} catch (InstantiationException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (IllegalAccessException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (ClassNotFoundException ex) {
+			System.err.println("Warning: AspectJ ASTConverter factory class not found on classpath"); //$NON-NLS-1$
+			//throw new ExceptionInInitializerError(ex.getMessage());
+		}
+	}
+
+	public interface IASTConverterFactory {
+		public ASTConverter getASTConverter(Map options, boolean resolveBindings, IProgressMonitor monitor);
+	}
+	
+	public static ASTConverter getASTConverter(Map options, boolean resolveBindings, IProgressMonitor monitor) {
+		return astConverterFactory.getASTConverter(options,resolveBindings,monitor);
+	}
+	// AspectJ Extension end
 
 	protected AST ast;
 	private ASTNode referenceContext;
@@ -88,7 +116,8 @@ class ASTConverter {
 	protected Set pendingThisExpressionScopeResolution;
 	protected boolean resolveBindings;
 	Scanner scanner;
-	private DefaultCommentMapper commentMapper;
+	// AspectJ Extension - raised to protected
+	protected DefaultCommentMapper commentMapper;
 
 	public ASTConverter(Map options, boolean resolveBindings, IProgressMonitor monitor) {
 		this.resolveBindings = resolveBindings;
@@ -797,7 +826,8 @@ class ASTConverter {
 		return infixExpression;
 	}
 
-	private AnnotationTypeDeclaration convertToAnnotationDeclaration(org.eclipse.jdt.internal.compiler.ast.TypeDeclaration typeDeclaration) {
+	// AspectJ Extension - promoted to public from private
+	public AnnotationTypeDeclaration convertToAnnotationDeclaration(org.eclipse.jdt.internal.compiler.ast.TypeDeclaration typeDeclaration) {
 		checkCanceled();
 		if (this.scanner.sourceLevel < ClassFileConstants.JDK1_5) return null;
 		AnnotationTypeDeclaration typeDecl = this.ast.newAnnotationTypeDeclaration();
@@ -1083,7 +1113,12 @@ class ASTConverter {
 	 * Used to convert class body declarations
 	 */
 	public TypeDeclaration convert(org.eclipse.jdt.internal.compiler.ast.ASTNode[] nodes) {
-		final TypeDeclaration typeDecl = new TypeDeclaration(this.ast);
+		// AspectJ Extension - use factory method and not ctor
+		// old code:
+		// final TypeDeclaration typeDecl = new TypeDeclaration(this.ast);
+		// new code:
+		final TypeDeclaration typeDecl = TypeDeclaration.getTypeDeclaration(this.ast);
+		// End AspectJ ExtensiontypeDecl.setInterface(false);
 		ASTNode oldReferenceContext = this.referenceContext;
 		this.referenceContext = typeDecl;
 		typeDecl.setInterface(false);
@@ -2880,7 +2915,12 @@ class ASTConverter {
 		}
 
 		checkCanceled();
-		TypeDeclaration typeDecl = new TypeDeclaration(this.ast);
+		// AspectJ Extension - use factory method and not ctor
+		// old code:
+		//TypeDeclaration typeDecl = new TypeDeclaration(this.ast);
+		// new code:
+		TypeDeclaration typeDecl = TypeDeclaration.getTypeDeclaration(this.ast);
+		// End AspectJ Extension
 		ASTNode oldReferenceContext = this.referenceContext;
 		this.referenceContext = typeDecl;
 		if (typeDeclaration.modifiersSourceStart != -1) {
@@ -3121,7 +3161,8 @@ class ASTConverter {
 		return packageDeclaration;
 	}
 
-	private EnumDeclaration convertToEnumDeclaration(org.eclipse.jdt.internal.compiler.ast.TypeDeclaration typeDeclaration) {
+	// AspectJ Extension - raised to protected
+	protected EnumDeclaration convertToEnumDeclaration(org.eclipse.jdt.internal.compiler.ast.TypeDeclaration typeDeclaration) {
 		checkCanceled();
 		// enum declaration cannot be built if the source is not >= 1.5, since enum is then seen as an identifier
 		final EnumDeclaration enumDeclaration2 = new EnumDeclaration(this.ast);

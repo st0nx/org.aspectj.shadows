@@ -14,13 +14,17 @@ package org.eclipse.jdt.internal.core.builder;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.lookup.TypeConstants;
 
+//import java.util.*;
+
+// AspectJ Extension increased member visibilities for AspectJ
 public class ReferenceCollection {
 
 char[][][] qualifiedNameReferences; // contains no simple names as in just 'a' which is kept in simpleNameReferences instead
 char[][] simpleNameReferences;
 char[][] rootReferences;
 
-protected ReferenceCollection(char[][][] qualifiedNameReferences, char[][] simpleNameReferences, char[][] rootReferences) {
+//AspectJ Extension - raised visibility
+public  ReferenceCollection(char[][][] qualifiedNameReferences, char[][] simpleNameReferences, char[][] rootReferences) {
 	this.qualifiedNameReferences = internQualifiedNames(qualifiedNameReferences, false);
 	this.simpleNameReferences = internSimpleNames(simpleNameReferences, true);
 	this.rootReferences = internSimpleNames(rootReferences, false);

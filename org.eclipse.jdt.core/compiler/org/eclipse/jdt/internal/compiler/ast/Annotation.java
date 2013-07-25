@@ -34,7 +34,7 @@ import org.eclipse.jdt.internal.compiler.lookup.*;
  * Annotation
  */
 public abstract class Annotation extends Expression {
-	
+
 	/**
 	 * Return the location for the corresponding annotation inside the type reference, <code>null</code> if none.
 	 */
@@ -549,10 +549,12 @@ public abstract class Annotation extends Expression {
 				if (valueAttribute != null) {
 					Expression expr = valueAttribute.value;
 					if ((expr.bits & Binding.VARIABLE) == Binding.FIELD) {
+						if (expr instanceof Reference) { // New AspectJ Extension (pr148537)
 						FieldBinding field = ((Reference)expr).fieldBinding();
 						if (field != null && field.declaringClass.id == T_JavaLangAnnotationRetentionPolicy) {
 							tagBits |= getRetentionPolicy(field.name);
 						}
+						} // New AspectJ Extension - end of if()
 					}
 				}
 				break;

@@ -280,6 +280,14 @@ void checkForRedundantSuperinterfaces(ReferenceBinding superclass, ReferenceBind
 				}
 				redundantInterfaces.add(implementedInterface);
 				TypeReference[] refs = this.type.scope.referenceContext.superInterfaces;
+				// AspectJ Extension
+				// The checking has found an interface against which it wants to report a problem.  However if the
+				// interface was introduced via declare parents, it will not be able to find it and so cannot
+				// report on it.  In these cases, just skip reporting the problem
+				if (refs==null) {
+					continue;
+				}
+				// AspectJ Extension end
 				for (int r = 0, rl = refs.length; r < rl; r++) {
 					if (refs[r].resolvedType == toCheck) {
 						problemReporter().redundantSuperInterface(this.type, refs[j], implementedInterface, toCheck);
@@ -307,6 +315,14 @@ void checkForRedundantSuperinterfaces(ReferenceBinding superclass, ReferenceBind
 						}
 						redundantInterfaces.add(inheritedInterface);
 						TypeReference[] refs = this.type.scope.referenceContext.superInterfaces;
+						// AspectJ Extension
+						// The checking has found an interface against which it wants to report a problem.  However if the
+						// interface was introduced via declare parents, it will not be able to find it and so cannot
+						// report on it.  In these cases, just skip reporting the problem
+						if (refs==null) {
+							continue;
+						}
+						// AspectJ Extension end
 						for (int r = 0, rl = refs.length; r < rl; r++) {
 							if (refs[r].resolvedType == inheritedInterface) {
 								problemReporter().redundantSuperInterface(this.type, refs[r], inheritedInterface, superType);
@@ -343,6 +359,14 @@ void checkForRedundantSuperinterfaces(ReferenceBinding superclass, ReferenceBind
 						}
 						redundantInterfaces.add(inheritedInterface);
 						TypeReference[] refs = this.type.scope.referenceContext.superInterfaces;
+						// AspectJ Extension
+						// The checking has found an interface against which it wants to report a problem.  However if the
+						// interface was introduced via declare parents, it will not be able to find it and so cannot
+						// report on it.  In these cases, just skip reporting the problem
+						if (refs==null) {
+							continue;
+						}
+						// AspectJ Extension end
 						for (int r = 0, rl = refs.length; r < rl; r++) {
 							if (refs[r].resolvedType == inheritedInterface) {
 								problemReporter().redundantSuperInterface(this.type, refs[r], inheritedInterface, superType);
@@ -607,8 +631,20 @@ void computeInheritedMethods(ReferenceBinding superclass, ReferenceBinding[] sup
 			nextMethod : for (int m = methods.length; --m >= 0;) { // Interface methods are all abstract public
 				MethodBinding inheritedMethod = methods[m];
 				if (inheritedMethod.isStatic()) continue nextMethod;
+				if (!inheritedMethod.isAbstract()) continue nextMethod; // AspectJ Extension - allow for ITDs on the interface
 				MethodBinding[] existingMethods = (MethodBinding[]) this.inheritedMethods.get(inheritedMethod.selector);
 				if (existingMethods == null) {
+					// AspectJ Extension
+					// check for intertype declarations hitting the same type that implement the method in question (242797)
+					for (int ii=0;ii<methods.length;ii++) {
+						MethodBinding mb = methods[ii];
+						if (!mb.isAbstract() && new String(mb.selector).equals(new String(inheritedMethod.selector))) {
+							if (areMethodsCompatible(mb,inheritedMethod)) {
+								continue nextMethod;
+							}
+						}
+					}
+					// End AspectJ Extension
 					existingMethods = new MethodBinding[] {inheritedMethod};
 				} else {
 					int length = existingMethods.length;
@@ -645,7 +681,15 @@ protected boolean canOverridingMethodDifferInErasure(MethodBinding overridingMet
 	return false;   // the case for <= 1.4  (cannot differ)
 }
 void computeMethods() {
-	MethodBinding[] methods = this.type.methods();
+	// AspectJ Extension - use member finder if there is one.
+	// was MethodBinding[] methods = type.methods();
+	MethodBinding[] methods = null;
+	if (type.memberFinder != null) {
+		methods = type.memberFinder.methods(type);
+	} else {
+		methods = this.type.methods();
+	}
+	// End AspectJ Extension
 	int size = methods.length;
 	this.currentMethods = new HashtableOfObject(size == 0 ? 1 : size); // maps method selectors to an array of methods... must search to match paramaters & return type
 	for (int m = size; --m >= 0;) {

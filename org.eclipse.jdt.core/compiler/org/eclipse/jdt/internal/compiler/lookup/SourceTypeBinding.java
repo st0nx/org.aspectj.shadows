@@ -29,6 +29,8 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Iterator;
 
@@ -54,11 +56,26 @@ import org.eclipse.jdt.internal.compiler.util.Util;
 public class SourceTypeBinding extends ReferenceBinding {
 	public ReferenceBinding superclass;
 	public ReferenceBinding[] superInterfaces;
-	private FieldBinding[] fields;
-	private MethodBinding[] methods;
+	// AspectJ Extension - raised visibility to public of these fields
+	public FieldBinding[] fields;
+	public MethodBinding[] methods;
+	// End AspectJ Extension - raised visibility to public of these fields
 	public ReferenceBinding[] memberTypes;
 	public TypeVariableBinding[] typeVariables;
 
+    //  AspectJ Extension
+
+    // These store the original superclass and superinterfaces.  This means if decp processing changes them,
+    // we can still write out the original correct ones at code gen time.
+    public ReferenceBinding   originalSuperclass      = null;
+    public ReferenceBinding[] originalSuperInterfaces = null;
+ 
+    public IPrivilegedHandler privilegedHandler = null;
+    public IMemberFinder memberFinder = null;
+    public ITypeFinder typeFinder = null;
+    //  End AspectJ Extension
+
+ 
 	public ClassScope scope;
 
 	// Synthetics are separated into 4 categories: methods, super methods, fields, class literals and bridge methods
@@ -74,10 +91,16 @@ public class SourceTypeBinding extends ReferenceBinding {
 
 	private SimpleLookupTable storedAnnotations = null; // keys are this ReferenceBinding & its fields and methods, value is an AnnotationHolder
 
-	private int defaultNullness;
-	private int nullnessDefaultInitialized = 0; // 0: nothing; 1: type; 2: package
-	private int lambdaOrdinal = 0;
-	
+    private int defaultNullness;
+    private int nullnessDefaultInitialized = 0; // 0: nothing; 1: type; 2: package
+    private int lambdaOrdinal = 0;
+
+  // AspectJ Extension
+  // for AspectJ... (because we extend this type with BinaryTypeBinding)
+  // (and yes, binary source is a bit odd...)
+  public SourceTypeBinding() {}
+  // End AspectJ Extension
+
 public SourceTypeBinding(char[][] compoundName, PackageBinding fPackage, ClassScope scope) {
 	this.compoundName = compoundName;
 	this.fPackage = fPackage;
@@ -113,6 +136,12 @@ private void addDefaultAbstractMethods() {
 					MethodBinding[] superMethods = superType.methods();
 					nextAbstractMethod: for (int m = superMethods.length; --m >= 0;) {
 						MethodBinding method = superMethods[m];
+						// AspectJ Extension - some methods on interfaces provide default implementations - these are
+						// not considered abstract (pr271704)
+						if (!method.isAbstract()) {
+							continue nextAbstractMethod;
+						}
+						// End AspectJ Extension
 						// explicitly implemented ?
 						if (implementsMethod(method))
 							continue nextAbstractMethod;
@@ -387,6 +416,22 @@ public FieldBinding addSyntheticFieldForEnumValues() {
 	} while (needRecheck);
 	return synthField;
 }
+
+// AspectJ Extension
+public FieldBinding addSyntheticField(SyntheticFieldBinding sfb) {
+	if (this.synthetics == null)
+		this.synthetics = new HashMap[4];
+	if (this.synthetics[SourceTypeBinding.FIELD_EMUL] == null)
+		this.synthetics[SourceTypeBinding.FIELD_EMUL] = new HashMap(5);
+	String key = new String(sfb.name);
+	if (this.synthetics[SourceTypeBinding.FIELD_EMUL].get(key)!=null) throw new RuntimeException("You are trying to add this twice?? "+key);//$NON-NLS-1$
+	sfb.index=this.synthetics[SourceTypeBinding.FIELD_EMUL].size();
+	this.synthetics[SourceTypeBinding.FIELD_EMUL].put(key,sfb);
+	// Skip the check for a clash... naughty!
+	return sfb;
+}
+// End AspectJ Extension
+
 /* Add a new synthetic access method for read/write access to <targetField>.
 	Answer the new method or the existing method if one already existed.
 */
@@ -812,6 +857,19 @@ public char[] genericTypeSignature() {
  * <T:LY<TT;>;U:Ljava/lang/Object;V::Ljava/lang/Runnable;:Ljava/lang/Cloneable;:Ljava/util/Map;>Ljava/lang/Exception;Ljava/lang/Runnable;
  */
 public char[] genericSignature() {
+	
+	// AspectJ Extension
+	// messy messy.  We need to use the 'originalSuperclass/SuperInterfaces' if there are any
+	// rather than what they might have become due to declare parents being applied.
+	// Unfortunately here this means changing 'this.superclass' and 'this.superInterfaces'
+	// through the rest of the method...
+	
+	// next 4 lines are new code, rest is changed from the original method body, marked 'AJ was'
+	ReferenceBinding supclass      = this.superclass;
+	ReferenceBinding[] supinterfaces = this.superInterfaces;
+	if (this.originalSuperclass!=null) supclass = this.originalSuperclass;
+	if (this.originalSuperInterfaces!=null) supinterfaces = this.originalSuperInterfaces;
+	
     StringBuffer sig = null;
 	if (this.typeVariables != Binding.NO_TYPE_VARIABLES) {
 	    sig = new StringBuffer(10);
@@ -821,21 +879,23 @@ public char[] genericSignature() {
 	    sig.append('>');
 	} else {
 	    // could still need a signature if any of supertypes is parameterized
-	    noSignature: if (this.superclass == null || !this.superclass.isParameterizedType()) {
-		    for (int i = 0, length = this.superInterfaces.length; i < length; i++)
-		        if (this.superInterfaces[i].isParameterizedType())
+	    noSignature: if (supclass/*AJ was this.superclass*/ == null || !supclass/*AJ was this.superclass*/.isParameterizedType()) {
+		    for (int i = 0, length = supinterfaces/*AJ was this.superInterfaces*/.length; i < length; i++)
+		        if (supinterfaces/*AJ was this.superInterfaces*/[i].isParameterizedType())
 					break noSignature;
 	        return null;
 	    }
 	    sig = new StringBuffer(10);
 	}
-	if (this.superclass != null)
-		sig.append(this.superclass.genericTypeSignature());
+	if (supclass/*AJ was this.superclass*/ != null)
+		sig.append(supclass/*AJ was this.superclass*/.genericTypeSignature());
 	else // interface scenario only (as Object cannot be generic) - 65953
 		sig.append(this.scope.getJavaLangObject().genericTypeSignature());
-    for (int i = 0, length = this.superInterfaces.length; i < length; i++)
-        sig.append(this.superInterfaces[i].genericTypeSignature());
+    for (int i = 0, length = supinterfaces/*AJ was this.superInterfaces*/.length; i < length; i++)
+        sig.append(supinterfaces/*AJ was this.superInterfaces*/[i].genericTypeSignature());
 	return sig.toString().toCharArray();
+	
+	// End AspectJ Extension
 }
 
 /**
@@ -919,9 +979,18 @@ public MethodBinding getExactConstructor(TypeBinding[] argumentTypes) {
 	return null;
 }
 
+// AspectJ Extension - renamed original method getExactMethodBase and added this one
 //NOTE: the return type, arg & exception types of each method of a source type are resolved when needed
 //searches up the hierarchy as long as no potential (but not exact) match was found.
 public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes, CompilationUnitScope refScope) {
+  if (memberFinder != null) return memberFinder.getExactMethod(this, selector, argumentTypes, refScope);
+  else return getExactMethodBase(selector, argumentTypes, refScope);
+}
+
+//NOTE: the return type, arg & exception types of each method of a source type are resolved when needed
+//searches up the hierarchy as long as no potential (but not exact) match was found.
+public MethodBinding getExactMethodBase(char[] selector, TypeBinding[] argumentTypes, CompilationUnitScope refScope) {
+    // End AspectJ Extension
 	// sender from refScope calls recordTypeReference(this)
 	int argCount = argumentTypes.length;
 	boolean foundNothing = true;
@@ -1006,8 +1075,19 @@ public MethodBinding getExactMethod(char[] selector, TypeBinding[] argumentTypes
 }
 
 //NOTE: the type of a field of a source type is resolved when needed
+// AspectJ Extension - replaced original impl with this
 public FieldBinding getField(char[] fieldName, boolean needResolve) {
+  if (memberFinder != null) return memberFinder.getField(this, fieldName, null, null);
+  else return this.getFieldBase(fieldName, needResolve);
+}
 
+public FieldBinding getField(char[] fieldName, boolean needResolve, InvocationSite site, Scope scope) {
+  if (memberFinder != null) return memberFinder.getField(this, fieldName, site, scope);
+  else return this.getFieldBase(fieldName, needResolve);
+}
+
+public FieldBinding getFieldBase(char[] fieldName, boolean needResolve) {
+	// End ApsectJ Extension
 	if ((this.tagBits & TagBits.AreFieldsComplete) != 0)
 		return ReferenceBinding.binarySearch(fieldName, this.fields);
 
@@ -1046,9 +1126,21 @@ public FieldBinding getField(char[] fieldName, boolean needResolve) {
 	}
 	return null;
 }
+// AspectJ Extension - replaced original impl with this 
+public MethodBinding[] getMethods(char[] selector) {
+  if (memberFinder != null) return memberFinder.getMethods(this, selector);
+  else return getMethodsBase(selector);
+}
+
+// overrides superclass method to consult ITD finder
+public MethodBinding[] getMethods(char[] selector, int suggestedParameterLength) {
+	if (memberFinder != null) return memberFinder.getMethods(this, selector);
+	  else return getMethodsBase(selector);
+}
 
 // NOTE: the return type, arg & exception types of each method of a source type are resolved when needed
-public MethodBinding[] getMethods(char[] selector) {
+public MethodBinding[] getMethodsBase(char[] selector) {
+    // End AspectJ Extension
 	if ((this.tagBits & TagBits.AreMethodsComplete) != 0) {
 		long range;
 		if ((range = ReferenceBinding.binarySearch(selector, this.methods)) >= 0) {
@@ -1250,7 +1342,7 @@ public boolean hasMemberTypes() {
 }
 
 // NOTE: the return type, arg & exception types of each method of a source type are resolved when needed
-public MethodBinding[] methods() {
+public MethodBinding[] methodsBase() {  // AspectJ Extension - added Base suffix, see methods()
 	if ((this.tagBits & TagBits.AreMethodsComplete) != 0)
 		return this.methods;
 
@@ -1557,6 +1649,8 @@ public MethodBinding resolveTypesFor(MethodBinding method) {
 	AbstractMethodDeclaration methodDecl = method.sourceMethod();
 	if (methodDecl == null) return null; // method could not be resolved in previous iteration
 
+
+    methodDecl.ensureScopeSetup(); // AspectJ extension
 
 	TypeParameter[] typeParameters = methodDecl.typeParameters();
 	if (typeParameters != null) {
@@ -2061,4 +2155,57 @@ public void tagIndirectlyAccessibleMembers() {
 		if (this.superclass instanceof SourceTypeBinding)  // should always be true because private super type can only be accessed in same CU
 			((SourceTypeBinding) this.superclass).tagIndirectlyAccessibleMembers();
 }
+//AspectJ Extension
+public void addField(FieldBinding binding) {
+   if (fields == null) {
+       fields = new FieldBinding[] {binding};
+   } else {
+       //??? inefficient
+       ArrayList l = new ArrayList(Arrays.asList(fields));
+       l.add(binding);
+       fields = (FieldBinding[])l.toArray(new FieldBinding[l.size()]);
+}
+}
+public void addMethod(MethodBinding binding) {
+   int len = 1;
+   if (methods != null) len = methods.length + 1;
+   MethodBinding[] newMethods = new MethodBinding[len];
+   if (len > 1) {
+       System.arraycopy(methods, 0, newMethods, 0, len-1);
+   }
+   newMethods[len-1] = binding;
+   methods = newMethods;
+   tagBits &= ~(TagBits.AreMethodsSorted | TagBits.AreMethodsComplete); // New AspectJ Extension
+   //System.out.println("bindings: " + Arrays.asList(methods));
+}
+
+public void removeMethod(int index) {
+   int len = methods.length;
+   MethodBinding[] newMethods = new MethodBinding[len-1];
+   System.arraycopy(methods, 0, newMethods, 0, index);
+   System.arraycopy(methods, index+1, newMethods, index, len-index-1);
+   methods = newMethods;
+}
+
+public void rememberTypeHierarchy() {
+  if (originalSuperclass==null) originalSuperclass = superclass;
+  if (originalSuperInterfaces==null) {
+    originalSuperInterfaces = new ReferenceBinding[superInterfaces.length];
+    System.arraycopy(superInterfaces,0,originalSuperInterfaces,0,superInterfaces.length);
+  }
+}
+
+public MethodBinding[] methods() {
+	   if (memberFinder!=null) return memberFinder.methods(this);
+	   else return methodsBase();
+}
+
+public ReferenceBinding getMemberType(char[] typeName) {
+	   ReferenceBinding rb = super.getMemberType(typeName);
+	   if (rb==null && typeFinder!=null) {
+		   rb = typeFinder.getMemberType(typeName);
+	   }
+	   return rb;
+	}
+//End AspectJ Extension
 }

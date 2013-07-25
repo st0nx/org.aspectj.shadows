@@ -758,6 +758,14 @@ public abstract class ASTNode implements TypeConstants, TypeIds {
 				return;
 			} else {
 				annotation.recipient = recipient;
+				// MERGECONFLICT:
+//				// AspectJ Extension - don't re-resolve (pr211052)
+//			    // old code:
+//			    // annotationTypes[i] = annotation.resolveType(scope);
+//			    // new code:
+//			    annotationTypes[i] =(annotation.resolvedType==null?annotation.resolveType(scope):annotation.resolvedType);
+//			    // End AspectJ Extension
+				if (annotation.resolvedType==null) 
 				annotation.resolveType(scope);
 				// null if receiver is a package binding
 				if (annotations != null) {

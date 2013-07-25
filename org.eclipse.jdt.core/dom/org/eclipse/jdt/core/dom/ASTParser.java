@@ -93,6 +93,37 @@ import org.eclipse.jdt.internal.core.util.Util;
  */
 public class ASTParser {
 
+    // AspectJ Extension start 
+	// We use a factory to build the AST, so we can plugin in alternatives...
+	private static final String AJ_AST_FACTORY = "org.aspectj.ajdt.core.dom.AjASTFactory"; //$NON-NLS-1$
+	private static IASTFactory astFactory;
+	
+	
+	static {
+		try{
+			astFactory = (IASTFactory) Class.forName(AJ_AST_FACTORY).newInstance();
+		} catch (InstantiationException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (IllegalAccessException ex) {
+			throw new ExceptionInInitializerError(ex.getMessage());
+		} catch (ClassNotFoundException ex) {
+			System.err.println("Warning: AspectJ AST factory class not found on classpath"); //$NON-NLS-1$
+			//throw new ExceptionInInitializerError(ex.getMessage());
+		}
+	}
+
+	public interface IASTFactory {
+		public AST getAST(int level);
+	}
+
+	public static AST getAST(int level) {
+		if (astFactory == null) {
+		  return AST.newAST(level);
+		}
+		return astFactory.getAST(level);
+	}
+	// AspectJ Extension end
+	
 	/**
 	 * Kind constant used to request that the source be parsed
      * as a single expression.
@@ -281,9 +312,13 @@ public class ASTParser {
 		this.classpaths = null;
 		this.sourcepaths = null;
 		this.sourcepathsEncodings = null;
-		Map options = JavaCore.getOptions();
-		options.remove(JavaCore.COMPILER_TASK_TAGS); // no need to parse task tags
-		this.compilerOptions = options;
+		// Aspectj extension - don't set them here (requires JavaCore to be active) - they can be set via the setter
+	    // it doesn't do much harm as they are initialized if null anyway...
+	    // this.compilerOptions = JavaCore.getOptions();
+	    // Map options = JavaCore.getOptions();
+	    // options.remove(JavaCore.COMPILER_TASK_TAGS); // no need to parse task tags
+	    // this.compilerOptions = options;
+	    // End AspectJ Extension
 	}
 
 	/**
@@ -1303,12 +1338,22 @@ public class ASTParser {
 	 * @see ASTNode#getLength()
 	 */
 	private ASTNode internalCreateASTForKind() {
-		final ASTConverter converter = new ASTConverter(this.compilerOptions, false, null);
+	    // AspectJ Extension - use the factory
+	    // old code:
+		// final ASTConverter converter = new ASTConverter(this.compilerOptions, false, null);
+	    // new code:
+	    final ASTConverter converter = ASTConverter.getASTConverter(this.compilerOptions,false,null);
+	    // End AspectJ Extension
 		converter.compilationUnitSource = this.rawSource;
 		converter.compilationUnitSourceLength = this.rawSource.length;
 		converter.scanner.setSource(this.rawSource);
 
-		AST ast = AST.newAST(this.apiLevel);
+		// AspectJ extension start - use the factory
+		// old code:
+		// AST ast = AST.newAST(this.apiLevel);
+		// new code:
+		AST ast = ASTParser.getAST(this.apiLevel);
+		// End AspectJ Extension 
 		ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
 		ast.setBindingResolver(new BindingResolver());
 		if ((this.bits & CompilationUnitResolver.STATEMENT_RECOVERY) != 0) {
