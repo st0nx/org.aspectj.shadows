@@ -840,9 +840,10 @@ ExtraParamopt ::= $empty
 
 -- intertype declarations
 
-OnType -> JavaIdentifier
+OnType ::= JavaIdentifier 
+/.$putCase consumeZeroTypeAnnotations(); $break ./
 OnType ::= OnType '.' JavaIdentifier
-/.$putCase consumeQualifiedName(); $break ./
+/.$putCase consumeZeroTypeAnnotations(); consumeQualifiedName(); $break ./
 /:$readableName QualifiedName:/
 
 AspectBodyDeclaration -> InterTypeMethodDeclaration
