@@ -140,7 +140,7 @@ public FlowInfo analyseCode(BlockScope currentScope, FlowContext flowContext, Fl
 				//	break generateInit;
 				// same code:
 				// if binding unused generate then discard the value
-				this.initialization.generateCode(currentScope, codeStream, false);
+				this.initialization.generateCode(currentScope, codeStream, true); // AspectJ: final param needs to be true (was false) 
 				// new code:
 					if ((binding.type == TypeBinding.LONG) || (binding.type == TypeBinding.DOUBLE)) {
 						codeStream.pop2();
