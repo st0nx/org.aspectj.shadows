@@ -44,16 +44,17 @@
 
 
     <target name="make.jdtcore.jar">
-    	<delete file="../org.eclipse.jdt.core/jdtcore-for-aspectj.jar"/>
-        <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj.jar">
+    	<property name="aj" value="/Users/aclement/gits/org.aspectj/org.eclipse.jdt.core"/>
+    	<delete file="${aj}/jdtcore-for-aspectj.jar"/>
+        <jar destfile="${aj}/jdtcore-for-aspectj.jar">
             <fileset dir="bin"/>
         </jar> 
-        <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj.jar" update="true">
+        <jar destfile="${aj}/jdtcore-for-aspectj.jar" update="true">
         	<!-- with the AST code now activated, we need text and jface... -->
             <zipfileset src="lib/jdtDepends.jar" excludes="org/apache/**,org/w3c/**,org/xml/**,org/xml/**,org/eclipse/jface/**,org/eclipse/osgi/**,META-INF/**"/>
         </jar> 
-        <delete file="../org.eclipse.jdt.core/jdtcore-for-aspectj-src.zip"/>
-        <jar destfile="../org.eclipse.jdt.core/jdtcore-for-aspectj-src.zip">
+        <delete file="${aj}/jdtcore-for-aspectj-src.zip"/>
+        <jar destfile="${aj}/jdtcore-for-aspectj-src.zip">
             <fileset dir="batch"/>
             <fileset dir="compiler"/>
             <fileset dir="antadapter"/>

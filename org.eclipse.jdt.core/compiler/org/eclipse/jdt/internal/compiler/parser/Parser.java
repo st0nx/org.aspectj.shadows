@@ -998,8 +998,6 @@ public class Parser extends TheOriginalJDTParserClass {
 	protected void consumePseudoTokens() {
 		optimizedConcatNodeLists();
 	}
-	
-
 	// This method is part of an automatic generation : do NOT edit-modify
 	protected void consumeRule(int act) {
 	  switch ( act ) {
@@ -1045,6 +1043,14 @@ public class Parser extends TheOriginalJDTParserClass {
 	 
 	    case 64 : if (DEBUG) { System.out.println("ArrayType ::= GenericType Dims"); }  //$NON-NLS-1$
 			    consumeGenericTypeArrayType();  
+				break;
+	 
+	    case 70 : if (DEBUG) { System.out.println("AjName ::= AjSimpleName"); }  //$NON-NLS-1$
+			    consumeZeroTypeAnnotations();  
+				break;
+	 
+	    case 71 : if (DEBUG) { System.out.println("AjName ::= AjQualifiedName"); }  //$NON-NLS-1$
+			    consumeZeroTypeAnnotations();  
 				break;
 	 
 	    case 80 : if (DEBUG) { System.out.println("AjQualifiedName ::= AjName DOT SimpleNameOrAj"); }  //$NON-NLS-1$

@@ -360,8 +360,11 @@ SimpleNameOrAj -> AjSimpleName
 SimpleNameOrAj -> SimpleName
 /:$readableName name:/
 
-AjName -> AjSimpleName
-AjName -> AjQualifiedName
+-- the addition of the consumeZero calls here is what has caused the jikespg parser to crash at the end?!?
+AjName ::= AjSimpleName
+/.$putCase consumeZeroTypeAnnotations(); $break ./
+AjName ::= AjQualifiedName
+/.$putCase consumeZeroTypeAnnotations(); $break ./
 /:$readableName name:/
 
 AjSimpleName -> AjSimpleNameNoAround
