@@ -14,12 +14,16 @@
   <parent>
     <artifactId>eclipse.jdt.core</artifactId>
     <groupId>eclipse.jdt.core</groupId>
-    <version>4.3.0-SNAPSHOT</version>
+    <version>4.4.0-SNAPSHOT</version>
   </parent>
   <groupId>org.eclipse.jdt</groupId>
   <artifactId>org.eclipse.jdt.core</artifactId>
-  <version>3.9.0-SNAPSHOT</version>
+  <version>3.10.0-SNAPSHOT</version>
   <packaging>eclipse-plugin</packaging>
+
+  <properties>
+    <defaultSigning-excludeInnerJars>true</defaultSigning-excludeInnerJars>
+  </properties>
 
   <build>
     <plugins>
@@ -31,6 +35,9 @@
 				<configuration>
 					<tasks>
 						<replace token="bundle_qualifier," value="${buildQualifier}," dir="${project.build.directory}/classes">
+							<include name="org/eclipse/jdt/internal/compiler/batch/messages.properties"/>
+						</replace>
+						<replace token="bundle_version" value="${unqualifiedVersion}" dir="${project.build.directory}/classes">
 							<include name="org/eclipse/jdt/internal/compiler/batch/messages.properties" />
 						</replace>
 					</tasks>
@@ -42,8 +49,31 @@
 		</executions>
 	  </plugin>
       <plugin>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>2.6</version>
+        <executions>
+          <execution>
+            <id>copy-batch-compiler-source</id>
+            <phase>package</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}/scripts/source</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.basedir}/scripts/source</directory>
+                  <filtering>true</filtering>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
         <groupId>org.eclipse.tycho.extras</groupId>
         <artifactId>tycho-custom-bundle-plugin</artifactId>
+        <version>${tycho-extras.version}</version>
         <executions>
           <execution>
             <id>antadapter</id>
@@ -78,7 +108,7 @@
 				<archive>
 					<addMavenDescriptor>false</addMavenDescriptor>
 				</archive>
-              <bundleLocation>${project.basedir}/scripts/source</bundleLocation>
+              <bundleLocation>${project.build.directory}/scripts/source</bundleLocation>
               <classifier>batch-compiler-src</classifier>
               <fileSets>
                 <fileSet>
@@ -166,6 +196,10 @@
         <groupId>org.eclipse.tycho</groupId>
         <artifactId>tycho-p2-plugin</artifactId>
         <version>${tycho.version}</version>
+        <configuration>
+          <baselineMode>warn</baselineMode>
+          <baselineReplace>common</baselineReplace>
+        </configuration>
         <executions>
           <execution>
             <id>attached-p2-metadata</id>

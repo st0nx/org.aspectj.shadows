@@ -5,10 +5,6 @@
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-v10.html
  *
- * This is an implementation of an early-draft specification developed under the Java
- * Community Process (JCP) and is made available for testing and evaluation purposes
- * only. The code is not compatible with any specification of the JCP.
- * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     Stephan Herrmann - Contributions for
@@ -56,6 +52,7 @@ import org.eclipse.jdt.internal.compiler.lookup.VariableBinding;
  * Reflects the context of code analysis, keeping track of enclosing
  *	try statements, exception handlers, etc...
  */
+@SuppressWarnings({"rawtypes", "unchecked"})
 public class FlowContext implements TypeConstants {
 
 	// preempt marks looping contexts
@@ -477,7 +474,7 @@ public void checkExceptionHandlers(TypeBinding[] raisedExceptions, ASTNode locat
 		if ((exception = raisedExceptions[i]) != null) {
 			// only one complaint if same exception declared to be thrown more than once
 			for (int j = 0; j < i; j++) {
-				if (raisedExceptions[j] == exception) continue nextReport; // already reported
+				if (TypeBinding.equalsEquals(raisedExceptions[j], exception)) continue nextReport; // already reported
 			}
 			scope.problemReporter().unhandledException(exception, location);
 		}
@@ -494,7 +491,7 @@ public FlowInfo getInitsForFinalBlankInitializationCheck(TypeBinding declaringTy
 	do {
 		if (current instanceof InitializationFlowContext) {
 			InitializationFlowContext initializationContext = (InitializationFlowContext) current;
-			if (((TypeDeclaration)initializationContext.associatedNode).binding == declaringType) {
+			if (TypeBinding.equalsEquals(((TypeDeclaration)initializationContext.associatedNode).binding, declaringType)) {
 				return inits;
 			}
 			inits = initializationContext.initsBeforeContext;

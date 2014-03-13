@@ -5,15 +5,14 @@
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-v10.html
  *
- * This is an implementation of an early-draft specification developed under the Java
- * Community Process (JCP) and is made available for testing and evaluation purposes
- * only. The code is not compatible with any specification of the JCP.
- * 
  * Contributors:
  *     IBM Corporation - initial API and implementation
  *     Stephan Herrmann - Contributions for
  *								Bug 360328 - [compiler][null] detect null problems in nested code (local class inside a loop)
  *								Bug 388630 - @NonNull diagnostics at line 0
+ *								Bug 392099 - [1.8][compiler][null] Apply null annotation on types for null analysis
+ *								Bug 416176 - [1.8][compiler][null] null type annotations cause grief on type variables
+ *								Bug 424727 - [compiler][null] NullPointerException in nullAnnotationUnsupportedLocation(ProblemReporter.java:5708)
  *     Keigo Imai - Contribution for  bug 388903 - Cannot extend inner class as an anonymous class when it extends the outer class
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.ast;
@@ -423,6 +422,7 @@ public MethodBinding createDefaultConstructorWithBinding(MethodBinding inherited
 		System.arraycopy(inheritedConstructorBinding.parameterNonNullness, 0, 
 				constructor.binding.parameterNonNullness = new Boolean[len], 0, len);
 	}
+	// TODO(stephan): do argument types already carry sufficient info about type annotations?
 
 	constructor.scope = new MethodScope(this.scope, constructor, true);
 	constructor.bindArguments();
@@ -461,7 +461,7 @@ public TypeDeclaration declarationOf(MemberTypeBinding memberTypeBinding) {
 	if (memberTypeBinding != null && this.memberTypes != null) {
 		for (int i = 0, max = this.memberTypes.length; i < max; i++) {
 			TypeDeclaration memberTypeDecl;
-			if ((memberTypeDecl = this.memberTypes[i]).binding == memberTypeBinding)
+			if (TypeBinding.equalsEquals((memberTypeDecl = this.memberTypes[i]).binding, memberTypeBinding))
 				return memberTypeDecl;
 		}
 	}
@@ -1016,6 +1016,19 @@ public void resolve() {
 				this.scope.problemReporter().notAFunctionalInterface(this);
 			}
 		}
+		if (this.scope.compilerOptions().sourceLevel >= ClassFileConstants.JDK1_8) {
+			if ((annotationTagBits & TagBits.AnnotationNullMASK) != 0) {
+				for (int i = 0; i < this.annotations.length; i++) {
+					ReferenceBinding annotationType = this.annotations[i].getCompilerAnnotation().getAnnotationType();
+					if (annotationType != null) {
+						if (annotationType.id == TypeIds.T_ConfiguredAnnotationNonNull
+								|| annotationType.id == TypeIds.T_ConfiguredAnnotationNullable)
+						this.scope.problemReporter().nullAnnotationUnsupportedLocation(this.annotations[i]);
+						sourceType.tagBits &= ~TagBits.AnnotationNullMASK;
+					}
+				}
+			}
+		}
 
 		if ((this.bits & ASTNode.UndocumentedEmptyBlock) != 0) {
 			this.scope.problemReporter().undocumentedEmptyBlock(this.bodyStart-1, this.bodyEnd);
@@ -1088,11 +1101,6 @@ public void resolve() {
 		boolean hasEnumConstants = false;
 		FieldDeclaration[] enumConstantsWithoutBody = null;
 
-		if (this.typeParameters != null) {
-			for (int i = 0, count = this.typeParameters.length; i < count; i++) {
-				this.typeParameters[i].resolve(this.scope);
-			}
-		}
 		if (this.memberTypes != null) {
 			for (int i = 0, count = this.memberTypes.length; i < count; i++) {
 				this.memberTypes[i].resolve(this.scope);
@@ -1121,7 +1129,7 @@ public void resolve() {
 						if (needSerialVersion
 								&& ((fieldBinding.modifiers & (ClassFileConstants.AccStatic | ClassFileConstants.AccFinal)) == (ClassFileConstants.AccStatic | ClassFileConstants.AccFinal))
 								&& CharOperation.equals(TypeConstants.SERIALVERSIONUID, fieldBinding.name)
-								&& TypeBinding.LONG == fieldBinding.type) {
+								&& TypeBinding.equalsEquals(TypeBinding.LONG, fieldBinding.type)) {
 							needSerialVersion = false;
 						}
 						localMaxFieldCount++;
@@ -1144,7 +1152,7 @@ public void resolve() {
 			if (javaxRmiCorbaStub.isValidBinding()) {
 				ReferenceBinding superclassBinding = this.binding.superclass;
 				loop: while (superclassBinding != null) {
-					if (superclassBinding == javaxRmiCorbaStub) {
+					if (TypeBinding.equalsEquals(superclassBinding, javaxRmiCorbaStub)) {
 						needSerialVersion = false;
 						break loop;
 					}
@@ -1506,6 +1514,9 @@ void updateMaxFieldCount() {
 	}
 }
 
+public boolean isPackageInfo() {
+	return CharOperation.equals(this.name,  TypeConstants.PACKAGE_INFO_NAME);
+}
 /**
  * Returns whether the type is a secondary one or not.
  */

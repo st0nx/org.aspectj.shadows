@@ -1,5 +1,5 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2012 IBM Corporation and others.
+ * Copyright (c) 2000, 2013 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
@@ -25,6 +25,7 @@ import org.eclipse.jdt.internal.compiler.util.*;
 import java.io.*;
 import java.util.*;
 
+@SuppressWarnings("rawtypes")
 public class Compiler implements ITypeRequestor, ProblemSeverities {
 	public Parser parser;
 	public ICompilerRequestor requestor;
@@ -427,7 +428,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			if (this.annotationProcessorManager == null) {
 				beginToCompile(sourceUnits);
 			} else {
-				ICompilationUnit[] originalUnits = (ICompilationUnit[]) sourceUnits.clone(); // remember source units in case a source type collision occurs
+				ICompilationUnit[] originalUnits = sourceUnits.clone(); // remember source units in case a source type collision occurs
 				try {
 					beginToCompile(sourceUnits);
 
@@ -824,7 +825,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 			binaryTypeBindingsTemp = newClassFiles;
 			newClassFilesSize = newClassFiles.length;
 			if (newUnitSize != 0) {
-				ICompilationUnit[] newProcessedUnits = (ICompilationUnit[]) newUnits.clone(); // remember new units in case a source type collision occurs
+				ICompilationUnit[] newProcessedUnits = newUnits.clone(); // remember new units in case a source type collision occurs
 				try {
 					this.lookupEnvironment.isProcessingAnnotations = true;
 					internalBeginToCompile(newUnits, newUnitSize);
@@ -848,7 +849,7 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		ICompilationUnit[] newUnits = this.annotationProcessorManager.getNewUnits();
 		newUnitSize = newUnits.length;
 		if (newUnitSize != 0) {
-			ICompilationUnit[] newProcessedUnits = (ICompilationUnit[]) newUnits.clone(); // remember new units in case a source type collision occurs
+			ICompilationUnit[] newProcessedUnits = newUnits.clone(); // remember new units in case a source type collision occurs
 			try {
 				this.lookupEnvironment.isProcessingAnnotations = true;
 				internalBeginToCompile(newUnits, newUnitSize);
