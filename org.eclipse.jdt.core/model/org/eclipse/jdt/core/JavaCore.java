@@ -174,7 +174,7 @@ import org.osgi.framework.BundleContext;
  * @noinstantiate This class is not intended to be instantiated by clients.
  */
 @SuppressWarnings({ "unchecked", "rawtypes" })
-public final class JavaCore extends Plugin {
+public /*final*/ class JavaCore extends Plugin {  // AspectJ Extension - made non-final
 
 	private static final IResource[] NO_GENERATED_RESOURCES = new IResource[0];
 

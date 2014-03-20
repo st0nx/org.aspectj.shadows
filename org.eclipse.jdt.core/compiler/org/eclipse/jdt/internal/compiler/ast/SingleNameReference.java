@@ -274,6 +274,7 @@ public void computeConversion(Scope scope, TypeBinding runtimeTimeType, TypeBind
 		return;
 	if ((this.bits & Binding.FIELD) != 0 && this.binding != null && this.binding.isValidBinding()) {
 		// set the generic cast after the fact, once the type expectation is fully known (no need for strict cast)
+			if (this.binding instanceof FieldBinding) { // AspectJ Extension - new guard (ajc_aroundClosure does this) ??
 		FieldBinding field = (FieldBinding) this.binding;
 		FieldBinding originalBinding = field.original();
 		TypeBinding originalType = originalBinding.type;
@@ -293,6 +294,7 @@ public void computeConversion(Scope scope, TypeBinding runtimeTimeType, TypeBind
 								ProblemReasons.NotVisible));
 				}
 	        }
+		        }// AspectJ Extension - close the new if()		        
 		}
 	}
 	super.computeConversion(scope, runtimeTimeType, compileTimeType);
@@ -896,15 +898,38 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo f
 
 	if ((this.bits & Binding.FIELD) != 0) {
 		FieldBinding fieldBinding = (FieldBinding) this.binding;
+			
+			// AspectJ Extension
+			if (isReadAccess && fieldBinding.alwaysNeedsAccessMethod(true)) {
+				if (syntheticAccessors == null) {
+					syntheticAccessors = new MethodBinding[2];
+				}
+				syntheticAccessors[READ] = fieldBinding.getAccessMethod(true);
+			    FieldBinding codegenField = fieldBinding.original();
+//			    this.codegenBinding = codegenField;
+				return;
+			} else if (fieldBinding.alwaysNeedsAccessMethod(false)) {
+				if (syntheticAccessors == null) {
+					syntheticAccessors = new MethodBinding[2];
+				}
+				syntheticAccessors[WRITE] = fieldBinding.getAccessMethod(false);
+				FieldBinding codegenField = fieldBinding.original();
+//				this.codegenBinding = codegenField;
+				return;
+			}	
+			// End	AspectJ Extension
+			
 		FieldBinding codegenField = fieldBinding.original();
 		if (((this.bits & ASTNode.DepthMASK) != 0)
 			&& (codegenField.isPrivate() // private access
 				|| (codegenField.isProtected() // implicit protected access
-						&& codegenField.declaringClass.getPackage() != currentScope.enclosingSourceType().getPackage()))) {
+						&& codegenField.declaringClass.getPackage() != currentScope.invocationType().getPackage()))) { // AspectJ Extension
+
+//						&& codegenField.declaringClass.getPackage() != currentScope.enclosingSourceType().getPackage()))) {
 			if (this.syntheticAccessors == null)
 				this.syntheticAccessors = new MethodBinding[2];
 			this.syntheticAccessors[isReadAccess ? SingleNameReference.READ : SingleNameReference.WRITE] =
-			    ((SourceTypeBinding)currentScope.enclosingSourceType().
+			    ((SourceTypeBinding)currentScope.invocationType(). // AspectJ Extension
 					enclosingTypeAt((this.bits & ASTNode.DepthMASK) >> ASTNode.DepthSHIFT)).addSyntheticMethod(codegenField, isReadAccess, false /*not super access*/);
 			currentScope.problemReporter().needToEmulateFieldAccess(codegenField, this, isReadAccess);
 			return;

@@ -996,6 +996,9 @@ public class Main implements ProblemSeverities, SuffixConstants {
 		 * Print the version of the compiler in the log and/or the out field
 		 */
 		public void logVersion(final boolean printToOut) {
+			// New AspectJ Extension
+			// old code:
+			/*
 			if (this.log != null && (this.tagBits & Logger.XML) == 0) {
 				final String version = this.main.bind("misc.version", //$NON-NLS-1$
 					new String[] {
@@ -1020,6 +1023,10 @@ public class Main implements ProblemSeverities, SuffixConstants {
 				this.out.println(version);
 				this.out.flush();
 			}
+			*/
+			// new code:
+			if (printToOut) 	this.main.printVersion();
+			// End AspectJ Extension
 		}
 
 		/**
@@ -1355,7 +1362,8 @@ public class Main implements ProblemSeverities, SuffixConstants {
 	private PrintWriter err;
 
 	protected ArrayList extraProblems;
-	public final static String bundleName = "org.eclipse.jdt.internal.compiler.batch.messages"; //$NON-NLS-1$
+	// AspectJ Extension - made non final
+	public static String bundleName = "org.eclipse.jdt.internal.compiler.batch.messages"; //$NON-NLS-1$
 	// two uses: recognize 'none' in options; code the singleton none
 	// for the '-d none' option (wherever it may be found)
 	public static final int DEFAULT_SIZE_CLASSPATH = 4;
@@ -1479,6 +1487,10 @@ public Main(PrintWriter outWriter, PrintWriter errWriter, boolean systemExitWhen
 	this.initialize(outWriter, errWriter, systemExitWhenFinished, customDefaultOptions, compilationProgress);
 	this.relocalize();
 }
+// New AspectJ Extension
+public void printVersion() {
+}
+// End AspectJ Extension
 
 public void addExtraProblems(CategorizedProblem problem) {
 	if (this.extraProblems == null) {
@@ -1581,6 +1593,20 @@ public String bind(String id) {
 public String bind(String id, String binding) {
 	return bind(id, new String[] { binding });
 }
+//AspectJ Extension - static form of bind that just uses the default locale
+public static String _bind(String id,String []arguments) {
+	if (id==null) return "No message available"; //$NON-NLS-1$
+	String message = null;
+	try {
+	  message = ResourceBundleFactory.getBundle(Locale.getDefault()).getString(id);
+	} catch (MissingResourceException mre) {
+		// If we got an exception looking for the message, fail gracefully by just returning
+		// the id we were looking for.  In most cases this is semi-informative so is not too bad.
+		return "Missing message: " + id + " in: " + Main.bundleName; //$NON-NLS-2$ //$NON-NLS-1$
+	}
+	return MessageFormat.format(message, arguments);
+}
+//End AspectJ Extension
 
 /*
  * Lookup the message with the given ID in this catalog and bind its
@@ -2644,7 +2670,13 @@ public void configure(String[] argv) {
 				mode = DEFAULT;
 				continue;
 		}
-
+		
+		// default is input directory, if no custom destination path exists
+		// AspectJ Extension 
+		// see pr 60863.  All directories should have been dealt with at the AspectJ layer - if we have left
+		// anything to be processed here it is an error.
+		throw new IllegalArgumentException("unrecognized single argument: \""+currentArg+"\"");
+/*
 		// default is input directory, if no custom destination path exists
 		if (customDestinationPath == null) {
 			if (File.separatorChar != '/') {
@@ -2710,8 +2742,13 @@ public void configure(String[] argv) {
 			customDestinationPath = null;
 			currentSourceDirectory = null;
 		}
-		mode = DEFAULT;
-		continue;
+		// MERGECONFLICT!!
+		throw new IllegalStateException(
+			    "unrecognized single argument: \""+currentArg+"\"");
+//		mode = DEFAULT;
+//		continue;
+ * */
+ 
 	}
 
 	// set DocCommentSupport, with appropriate side effects on defaults if
@@ -2748,8 +2785,29 @@ public void configure(String[] argv) {
 			CompilerOptions.OPTION_ReportMissingJavadocTagsVisibility,
 			CompilerOptions.PRIVATE);
 	}
-
-	if (printUsageRequired || (filesCount == 0 && classCount == 0)) {
+//	// AspectJ Extension
+//    // old code:
+//    // if (printUsageRequired || (filesCount == 0 && classCount == 0)) {
+//    // new code:
+//	if (printUsageRequired || hasNoFiles(filesCount)) { // AspectJ Extension
+//    // End AspectJ Extension
+//			printUsage();
+//		if (usageSection ==  null) {
+//			printUsage(); // default
+//		} else {
+//			printUsage(usageSection);
+//		}
+//		this.proceed = false;
+//		return;
+//	}
+//	// AspectJ Extension
+//    // old code:
+//    // if (printUsageRequired || (filesCount == 0 && classCount == 0)) {
+//    // new code:
+//	if (printUsageRequired || hasNoFiles(filesCount)) { // AspectJ Extension
+//    // End AspectJ Extension
+		
+	if (printUsageRequired) { // AspectJ Extension remove trailing condition || (filesCount == 0 && classCount == 0)) {
 		if (usageSection ==  null) {
 			printUsage(); // default
 		} else {
@@ -4434,6 +4492,13 @@ private int processPaths(String[] args, int index, String currentArg, ArrayList 
 	}
 	return localIndex - index;
 }
+
+// AspectJ Extension
+// For AspectJ we handle files in a separate arg parser, in the future make this a protected method for extension
+private boolean hasNoFiles(int filesCount) {
+	return false;
+}
+// End AspectJ Extension
 private int processPaths(String[] args, int index, String currentArg, String[] paths) {
 	int localIndex = index;
 	int count = 0;

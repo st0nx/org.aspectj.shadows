@@ -291,8 +291,10 @@ public class MethodDeclaration extends BodyDeclaration {
 	 * The parameter declarations
 	 * (element type: {@link SingleVariableDeclaration}).
 	 * Defaults to an empty list.
+	 * @since 3.10 // Added because of @since check due to raising visibility
 	 */
-	private ASTNode.NodeList parameters =
+	// AspectJ extension - made protected instead of private
+	protected ASTNode.NodeList parameters =
 		new ASTNode.NodeList(PARAMETERS_PROPERTY);
 
 	/**

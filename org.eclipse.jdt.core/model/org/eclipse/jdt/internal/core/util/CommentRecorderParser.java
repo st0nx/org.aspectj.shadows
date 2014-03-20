@@ -265,4 +265,19 @@ public class CommentRecorderParser extends Parser {
 		pushOnCommentsStack(0, this.scanner.commentPtr);
 		super.resetModifiers();
 	}
+	
+	// AspectJ Extension
+	/* (non-Javadoc)
+	 * bug 150467 - save all source comments currently stored for declare 
+	 * statements since they haven't been saved yet and they are lost after 
+	 * calling super.consumeToken(type) 
+	 * @see org.aspectj.org.eclipse.jdt.internal.compiler.parser.Parser#consumeToken(int)
+	 */
+	protected void consumeToken(int type) {
+		if (type == TokenNamedeclare) {
+			pushOnCommentsStack(0, this.scanner.commentPtr);
+		}
+		super.consumeToken(type);
+	}
+	// End AspectJ Extension
 }

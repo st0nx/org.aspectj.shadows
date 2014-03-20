@@ -17,6 +17,7 @@
  *******************************************************************************/
 package org.eclipse.jdt.internal.compiler.lookup;
 
+import org.eclipse.jdt.internal.compiler.ast.AbstractMethodDeclaration;
 import org.eclipse.jdt.internal.compiler.ast.NullAnnotationMatching;
 import org.eclipse.jdt.internal.compiler.ast.Wildcard;
 
@@ -334,8 +335,28 @@ public class ParameterizedMethodBinding extends MethodBinding {
 		return this.originalMethod.original();
 	}
 	
-	
 	public MethodBinding shallowOriginal() {
 		return this.originalMethod;
 	}
+	
+	// AspectJ Extension - delegate to the original method
+	
+	public boolean alwaysNeedsAccessMethod() {
+		return originalMethod.alwaysNeedsAccessMethod();
+	}
+
+	public boolean canBeSeenBy(TypeBinding receiverType, InvocationSite invocationSite, Scope scope) {
+		if (alwaysNeedsAccessMethod()) return originalMethod.canBeSeenBy(receiverType,invocationSite,scope);
+		else                           return super.canBeSeenBy(receiverType,invocationSite,scope);
+	}
+
+	public MethodBinding getAccessMethod(boolean staticReference) {
+		return originalMethod.getAccessMethod(staticReference);
+	}
+	
+	public AbstractMethodDeclaration sourceMethod() {
+		return originalMethod.sourceMethod();
+	}
+	
+	// End AspectJ Extension
 }

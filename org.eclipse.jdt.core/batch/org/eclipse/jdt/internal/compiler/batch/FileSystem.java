@@ -17,6 +17,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
+import java.util.zip.ZipFile;
 
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
@@ -108,12 +109,13 @@ public class FileSystem implements INameEnvironment, SuffixConstants {
 	classPathNames is a collection is Strings representing the full path of each class path
 	initialFileNames is a collection is Strings, the trailing '.java' will be removed if its not already.
 */
-public FileSystem(String[] classpathNames, String[] initialFileNames, String encoding) {
+public FileSystem(String[] classpathNames, String[] initialFileNames, String encoding, int mode) { // New AspectJ Extension - extra int flag for mode, was 'public FileSystem(String[] classpathNames, String[] initialFileNames, String encoding) {'
 	final int classpathSize = classpathNames.length;
 	this.classpaths = new Classpath[classpathSize];
 	int counter = 0;
 	for (int i = 0; i < classpathSize; i++) {
-		Classpath classpath = getClasspath(classpathNames[i], encoding, null);
+		Classpath classpath = getClasspath(classpathNames[i], encoding, null,mode); // New AspectJ Extension - pass extra mode
+		if (classpath==null) continue; // AspectJ Extension
 		try {
 			classpath.initialize();
 			this.classpaths[counter++] = classpath;
@@ -148,24 +150,69 @@ protected FileSystem(Classpath[] paths, String[] initialFileNames) {
 public static Classpath getClasspath(String classpathName, String encoding, AccessRuleSet accessRuleSet) {
 	return getClasspath(classpathName, encoding, false, accessRuleSet, null);
 }
+//New AspectJ Extension
+
+// Uses the mode rather than a boolean, so we can specify JUST binary (ClasspathLocation.BINARY)
+public static Classpath getClasspath(String classpathName, String encoding, AccessRuleSet accessRuleSet,int mode) {
+	return getClasspath(classpathName, encoding, mode, accessRuleSet, null);
+}
+// Reworking of constructor, the original one that takes a boolean now delegates to the new one.
+// Original ctor declaration was:
+// public static Classpath getClasspath(String classpathName, String encoding,
+// 		boolean isSourceOnly, AccessRuleSet accessRuleSet,
+// 		String destinationPath) {
 public static Classpath getClasspath(String classpathName, String encoding,
 		boolean isSourceOnly, AccessRuleSet accessRuleSet,
 		String destinationPath) {
+	return getClasspath(classpathName,encoding,isSourceOnly ? ClasspathLocation.SOURCE :ClasspathLocation.SOURCE|ClasspathLocation.BINARY,accessRuleSet,destinationPath);
+}
+
+public static Classpath getClasspath(String classpathName, String encoding,
+		int mode, AccessRuleSet accessRuleSet,
+		String destinationPath) {
+	// End AspectJ Extension
 	Classpath result = null;
 	File file = new File(convertPathSeparators(classpathName));
 	if (file.isDirectory()) {
 		if (file.exists()) {
 			result = new ClasspathDirectory(file, encoding,
-					isSourceOnly ? ClasspathLocation.SOURCE :
-						ClasspathLocation.SOURCE | ClasspathLocation.BINARY,
+// New AspectJ Extension
+// old code:
+//					isSourceOnly ? ClasspathLocation.SOURCE :
+//						ClasspathLocation.SOURCE | 
+//						ClasspathLocation.BINARY,
+// new code:
+					mode,
+// End AspectJ Extension
 					accessRuleSet,
 					destinationPath == null || destinationPath == Main.NONE ?
 						destinationPath : // keep == comparison valid
 						convertPathSeparators(destinationPath));
 		}
 	} else {
-		if (Util.isPotentialZipArchive(classpathName)) {
-			if (isSourceOnly) {
+		// MERGECONFLICT: didn't have this call in our older version:
+//		if (Util.isPotentialZipArchive(classpathName)) {
+			String lowercaseClasspathName = classpathName.toLowerCase();
+			/// AspectJ Extension - check if the file is a zip rather than just using suffix (pr186673)
+			// old code:
+			// if (lowercaseClasspathName.endsWith(SUFFIX_STRING_jar)
+			//  || lowercaseClasspathName.endsWith(SUFFIX_STRING_zip)) {
+			// new code:
+			boolean isZip = false;
+			try {
+				ZipFile zf = new ZipFile(file);
+				zf.close();
+				isZip = true;
+			} catch (Exception e) {
+				// this means it is not a valid Zip 
+			}
+			if (isZip) {
+			// New AspectJ Extension - use mode instead of flag
+			// old code:
+			//if (isSourceOnly) {
+			// new code:
+			if ((mode & ClasspathLocation.BINARY)==0) {
+			// End AspectJ Extension
 				// source only mode
 				result = new ClasspathSourceJar(file, true, accessRuleSet,
 					encoding,

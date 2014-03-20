@@ -7,6 +7,7 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  *     Nick Teryaev - fix for bug (https://bugs.eclipse.org/bugs/show_bug.cgi?id=40752)
  *     Stephan Herrmann - Contributions for
  *								bug 319201 - [null] no warning when unboxing SingleNameReference causes NPE
@@ -72,6 +73,7 @@ import org.eclipse.jdt.internal.compiler.lookup.Binding;
 import org.eclipse.jdt.internal.compiler.lookup.BlockScope;
 import org.eclipse.jdt.internal.compiler.lookup.ExtraCompilerModifiers;
 import org.eclipse.jdt.internal.compiler.lookup.FieldBinding;
+import org.eclipse.jdt.internal.compiler.lookup.IPrivilegedHandler;
 import org.eclipse.jdt.internal.compiler.lookup.ImplicitNullAnnotationVerifier;
 import org.eclipse.jdt.internal.compiler.lookup.InferenceContext18;
 import org.eclipse.jdt.internal.compiler.lookup.LocalVariableBinding;
@@ -95,6 +97,10 @@ import org.eclipse.jdt.internal.compiler.lookup.TypeVariableBinding;
 import org.eclipse.jdt.internal.compiler.problem.ProblemSeverities;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 
+/**
+ * AspectJ Extension - support for MethodBinding.alwaysNeedsAccessMethod
+ * Possible mergeconflict? Was InvocationSite but now Invocation in implements clause
+ */
 public class MessageSend extends Expression implements Invocation {
 
 	public Expression receiver;
@@ -437,7 +443,22 @@ public void generateCode(BlockScope currentScope, CodeStream codeStream, boolean
 			codeStream.invoke(Opcodes.OPC_invokevirtual, codegenBinding, constantPoolDeclaringClass, this.typeArguments);
 		}
 	} else {
-		codeStream.invoke(Opcodes.OPC_invokestatic, this.syntheticAccessor, null /* default declaringClass */, this.typeArguments);
+		// AspectJ Extension
+	    // replaced this one line:
+		// 33was:
+		// codeStream.invokestatic(this.syntheticAccessor);
+		// 37is:
+		// codeStream.invoke(Opcodes.OPC_invokestatic, this.syntheticAccessor, null /* default declaringClass */);
+	    // with
+		// Although all JDT based accessors are static, that is not true of
+		// AspectJ accessors.  For example: ajc$privMethod for accessing private
+		// methods on types from a privileged aspect.
+		if (syntheticAccessor.isStatic()) {
+			codeStream.invoke(Opcodes.OPC_invokestatic, this.syntheticAccessor, null /* default declaringClass */, this.typeArguments);
+		} else {
+			codeStream.invoke(Opcodes.OPC_invokevirtual, this.syntheticAccessor, null /* default declaringClass */, this.typeArguments);
+		    }
+		// End AspectJ extension
 	}
 	// required cast must occur even if no value is required
 	if (this.valueCast != null) codeStream.checkcast(this.valueCast);
@@ -475,13 +496,35 @@ public boolean isTypeAccess() {
 	return this.receiver != null && this.receiver.isTypeReference();
 }
 public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo flowInfo){
-
+	//	AspectJ Extension
+	if (binding.alwaysNeedsAccessMethod()) {
+		syntheticAccessor = binding.getAccessMethod(isSuperAccess());
+		// MERGECONFLICT
+//		this.codegenBinding = this.binding;//.original();
+		return;
+	}
+	//	End AspectJ Extension
+	
 	if ((flowInfo.tagBits & FlowInfo.UNREACHABLE_OR_DEAD) != 0)	return;
 
 	// if method from parameterized type got found, use the original method at codegen time
 	MethodBinding codegenBinding = this.binding.original();
 	if (this.binding.isPrivate()){
 
+		// AspectJ extension
+		// Ok, it is a private method call - check if this has been allowed through
+		// the compiler because of privilege?
+		IPrivilegedHandler iph = Scope.findPrivilegedHandler(currentScope.invocationType());
+		if (iph != null) { 
+			// ??? Should getPriviligedAccessMethod() provide a flag to indicate
+			// if you *want* to build a new accessor or if you just want to see if
+			// one already exists?
+			MethodBinding privAccessor = iph.getPrivilegedAccessMethod(binding,null);
+			syntheticAccessor = privAccessor;
+			return;
+		}
+		// End AspectJ extension
+		
 		// depth is set for both implicit and explicit access (see MethodBinding#canBeSeenBy)
 		if (TypeBinding.notEquals(currentScope.enclosingSourceType(), codegenBinding.declaringClass)){
 			this.syntheticAccessor = ((SourceTypeBinding)codegenBinding.declaringClass).addSyntheticMethod(codegenBinding, false /* not super access there */);
@@ -503,7 +546,7 @@ public void manageSyntheticAccessIfNecessary(BlockScope currentScope, FlowInfo f
 		SourceTypeBinding enclosingSourceType;
 		if (((this.bits & ASTNode.DepthMASK) != 0)
 				&& codegenBinding.declaringClass.getPackage()
-					!= (enclosingSourceType = currentScope.enclosingSourceType()).getPackage()){
+					!= (enclosingSourceType = currentScope.invocationType()).getPackage()){// AspectJ extension - ask for the invocationType(), not the enclosingSourceType()
 
 			SourceTypeBinding currentCompatibleType = (SourceTypeBinding)enclosingSourceType.enclosingTypeAt((this.bits & ASTNode.DepthMASK) >> ASTNode.DepthSHIFT);
 			this.syntheticAccessor = currentCompatibleType.addSyntheticMethod(codegenBinding, isSuperAccess());
@@ -597,8 +640,11 @@ public TypeBinding resolveType(BlockScope scope) {
 		this.receiver.bits |= ASTNode.DisableUnnecessaryCastCheck; // will check later on
 		receiverCast = true;
 	}
-	if (this.receiver.resolvedType != null)
-		scope.problemReporter().genericInferenceError("Receiver was unexpectedly found resolved", this); //$NON-NLS-1$
+	// AspectJ Extension: commenting this out for now. An InterTypeScope has been observed
+	// to have an already resolved receiver
+//	if (this.receiver.resolvedType != null)
+//		scope.problemReporter().genericInferenceError("Receiver was unexpectedly found resolved", this); //$NON-NLS-1$
+	// AspectJ Extension: End
 	this.actualReceiverType = this.receiver.resolveType(scope);
 	boolean receiverIsType = this.receiver instanceof NameReference && (((NameReference) this.receiver).bits & Binding.TYPE) != 0;
 	if (receiverCast && this.actualReceiverType != null) {
@@ -694,7 +740,14 @@ public TypeBinding resolveType(BlockScope scope) {
 		scope.problemReporter().errorNoMethodFor(this, this.actualReceiverType, argumentTypes);
 		return null;
 	}
-
+	// AspectJ Extension
+	// MERGECONFLICT - very different to how it used to be, what is that findMethodBinding() call?
+	// this.binding = this.receiver.isImplicitThis()
+	//		? scope.getImplicitMethod(this.selector, argumentTypes, this)
+	//		: scope.getMethod(this.actualReceiverType, this.selector, argumentTypes, this);
+	// resolveMethodBinding(scope, argumentTypes); // AspectJ Extension - moved to helper method
+	// End AspectJ Extension
+	
 	findMethodBinding(scope, argumentTypes);
 
 	if (!this.binding.isValidBinding()) {
@@ -862,9 +915,10 @@ public TypeBinding resolveType(BlockScope scope) {
  * invocation type inference (18.5.2).
  */
 protected void findMethodBinding(BlockScope scope, TypeBinding[] argumentTypes) {
-	this.binding = this.receiver.isImplicitThis()
-			? scope.getImplicitMethod(this.selector, argumentTypes, this)
-			: scope.getMethod(this.actualReceiverType, this.selector, argumentTypes, this);
+	resolveMethodBinding(scope, argumentTypes);
+//	this.binding = this.receiver.isImplicitThis()
+//			? scope.getImplicitMethod(this.selector, argumentTypes, this)
+//			: scope.getMethod(this.actualReceiverType, this.selector, argumentTypes, this);
 	resolvePolyExpressionArguments(this, this.binding, argumentTypes, scope);
 	
 	/* There are embedded assumptions in the JLS8 type inference scheme that a successful solution of the type equations results in an
@@ -1080,4 +1134,15 @@ public InnerInferenceHelper innerInferenceHelper() {
 public InferenceContext18 freshInferenceContext(Scope scope) {
 	return new InferenceContext18(scope, this.arguments, this);
 }
+
+// AspectJ Extension
+protected void resolveMethodBinding(
+	BlockScope scope,
+	TypeBinding[] argumentTypes) {	
+	this.binding = //this.codegenBinding =
+		receiver.isImplicitThis()
+			? scope.getImplicitMethod(selector, argumentTypes, this)
+			: scope.getMethod(this.actualReceiverType, selector, argumentTypes, this); 
+}
+// End AspectJ Extension
 }

@@ -276,10 +276,20 @@ class CompilationUnitResolver extends Compiler {
 			IProgressMonitor monitor,
 			boolean fromJavaProject) {
 		BindingResolver resolver = null;
-		AST ast = AST.newAST(apiLevel);
+		// AspectJ Extension start - use the factory
+		// old code:
+		// AST ast = AST.newAST(apiLevel);
+		// new code:
+		AST ast = ASTParser.getAST(apiLevel);
+		// End AspectJ Extension
 		ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
 		CompilationUnit compilationUnit = null;
-		ASTConverter converter = new ASTConverter(options, needToResolveBindings, monitor);
+		// AspectJ Extension - use the factory
+		// old code:
+		// ASTConverter converter = new ASTConverter(options, needToResolveBindings, monitor);
+		// new code:
+		ASTConverter converter = ASTConverter.getASTConverter(options,needToResolveBindings,monitor);
+		// End AspectJ Extension
 		if (needToResolveBindings) {
 			resolver = new DefaultBindingResolver(compilationUnitDeclaration.scope, owner, bindingTables, (flags & ICompilationUnit.ENABLE_BINDINGS_RECOVERY) != 0, fromJavaProject);
 			ast.setFlag(flags | AST.RESOLVED_BINDINGS);
@@ -879,10 +889,20 @@ class CompilationUnitResolver extends Compiler {
 						CompilationResult compilationResult = unit.compilationResult;
 						org.eclipse.jdt.internal.compiler.env.ICompilationUnit sourceUnit = compilationResult.compilationUnit;
 						char[] contents = sourceUnit.getContents();
-						AST ast = AST.newAST(apiLevel);
+						// AspectJ Extension start - use the factory
+						// old code:
+						// AST ast = AST.newAST(apiLevel);
+						// new code:
+						AST ast = ASTParser.getAST(apiLevel);
+						// End AspectJ Extension
 						ast.setFlag(flags | AST.RESOLVED_BINDINGS);
 						ast.setDefaultNodeFlag(ASTNode.ORIGINAL);
-						ASTConverter converter = new ASTConverter(compilerOptions, true/*need to resolve bindings*/, this.monitor);
+						// AspectJ Extension - use the factory
+						// old code:
+						// ASTConverter converter = new ASTConverter(compilerOptions, true/*need to resolve bindings*/, this.monitor);
+						// new code:
+						ASTConverter converter = ASTConverter.getASTConverter(compilerOptions,true,this.monitor);
+						// End AspectJ Extension
 						BindingResolver resolver = new DefaultBindingResolver(unit.scope, owner, this.bindingTables, (flags & ICompilationUnit.ENABLE_BINDINGS_RECOVERY) != 0, this.fromJavaProject);
 						ast.setBindingResolver(resolver);
 						converter.setAST(ast);

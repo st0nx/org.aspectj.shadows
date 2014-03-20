@@ -140,14 +140,16 @@ public final class NodeInfoStore {
 		// base class
 	}
 
-	protected static final class CopyPlaceholderData extends PlaceholderData {
+	// AspectJ extension - raised visibility to public 
+	public /*protected*/ static final class CopyPlaceholderData extends PlaceholderData {
 		public CopySourceInfo copySource;
 		public String toString() {
 			return "[placeholder " + this.copySource +"]";  //$NON-NLS-1$//$NON-NLS-2$
 		}
 	}
 
-	protected static final class StringPlaceholderData extends PlaceholderData {
+    // AspectJ extension - raised visibility to public 
+	public /*protected*/ static final class StringPlaceholderData extends PlaceholderData {
 		public String code;
 		public String toString() {
 			return "[placeholder string: " + this.code +"]"; //$NON-NLS-1$ //$NON-NLS-2$

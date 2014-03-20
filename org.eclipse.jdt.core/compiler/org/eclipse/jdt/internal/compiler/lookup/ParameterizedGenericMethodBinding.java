@@ -755,4 +755,14 @@ public class ParameterizedGenericMethodBinding extends ParameterizedMethodBindin
 			return this; // -> prefer traditional comparison using the substituted method
 		return this.originalMethod;
 	}
+	
+	// AspectJ Extension
+	// delegate to the original method since it might be an intertypemethodbinding ...
+	public boolean alwaysNeedsAccessMethod() { return originalMethod.alwaysNeedsAccessMethod(); }
+	
+	public MethodBinding getAccessMethod(boolean staticReference) {
+		return originalMethod.getAccessMethod(staticReference);
+    }
+	// End AspectJ Extension
+	
 }

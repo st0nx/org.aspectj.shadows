@@ -295,17 +295,24 @@ public class CompilerOptions {
 	public static final int UnusedTypeParameter = IrritantSet.GROUP2 | ASTNode.Bit17;
 	public static final int NonnullParameterAnnotationDropped = IrritantSet.GROUP2 | ASTNode.Bit18;
 
+	// AspectJ Extension
+	public static final String OPTION_ReportSwallowedExceptionInCatchBlock = "org.eclipse.jdt.core.compiler.problem.swallowedExceptionInCatchBlock"; //$NON-NLS-1$
+	public static final int SwallowedExceptionInCatchBlock = IrritantSet.GROUP2 | ASTNode.Bit19;
+	// when picking up a later version of this class, if new constants have been added to 
+	// the above list, then AjCompilerOptions will need updating also.
+	// End AspectJ Extension
+		
 	// Severity level for handlers
 	/** 
 	 * Defaults defined at {@link IrritantSet#COMPILER_DEFAULT_ERRORS} 
 	 * @see #resetDefaults()
 	 */
-	protected IrritantSet errorThreshold;
+	public IrritantSet errorThreshold; // AspectJ Extension - raised to public from protected
 	/** 
 	 * Defaults defined at {@link IrritantSet#COMPILER_DEFAULT_WARNINGS}
 	 * @see #resetDefaults()
 	 */
-	protected IrritantSet warningThreshold;
+	public IrritantSet warningThreshold; // AspectJ Extension - raised to public from protected
 	
 	/**
 	 * Default settings are to be defined in {@lnk CompilerOptions#resetDefaults()}
@@ -342,7 +349,8 @@ public class CompilerOptions {
 	/** Indicates whether literal expressions are inlined at parse-time or not */
 	public boolean parseLiteralExpressionsAsConstants;
 	/** Max problems per compilation unit */
-	public int maxProblemsPerUnit;
+	// AspectJ Extension - increased this number (pr58679 etc)
+	public int maxProblemsPerUnit = 5000;
 	/** Tags used to recognize tasks in comments */
 	public char[][] taskTags;
 	/** Respective priorities of recognized task tags */
@@ -1235,7 +1243,8 @@ public class CompilerOptions {
 		this.parseLiteralExpressionsAsConstants = true;
 
 		// max problems per compilation unit
-		this.maxProblemsPerUnit = 100; // no more than 100 problems per default
+		// AspectJ Extension - increased this number from 100 to 5000 (pr58679 etc)
+		int maxProblemsPerUnit = 5000; // no more than 5000 problems per default
 
 		// tags used to recognize tasks in comments
 		this.taskTags = null;
@@ -1684,6 +1693,9 @@ public class CompilerOptions {
 			}
 			if ((optionValue = optionsMap.get(OPTION_ReportNonnullParameterAnnotationDropped)) != null) updateSeverity(NonnullParameterAnnotationDropped, optionValue);
 		}
+		/* AspectJ Extension */
+		if ((optionValue = optionsMap.get(OPTION_ReportSwallowedExceptionInCatchBlock)) != null) updateSeverity(SwallowedExceptionInCatchBlock, optionValue);
+		/* End AspectJ Extension */
 
 		// Javadoc options
 		if ((optionValue = optionsMap.get(OPTION_DocCommentSupport)) != null) {

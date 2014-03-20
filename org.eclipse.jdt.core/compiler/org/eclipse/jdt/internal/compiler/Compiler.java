@@ -471,14 +471,17 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 						process(unit, i);
 					} finally {
 						// cleanup compilation unit result
-						unit.cleanUp();
+						// unit.cleanUp(); // AspectJ Extension - moved to afterProcessing
 					}
-					this.unitsToProcess[i] = null; // release reference to processed unit declaration
-
+					// AspectJ Extension
+					// this.unitsToProcess[i] = null; // release reference to processed unit declaration
+					// AspectJ Extension end
 					reportWorked(1, i);
 					this.stats.lineCount += unit.compilationResult.lineSeparatorPositions.length;
 					long acceptStart = System.currentTimeMillis();
-					this.requestor.acceptResult(unit.compilationResult.tagAsAccepted());
+					// AspectJ Extension
+					// this.requestor.acceptResult(unit.compilationResult.tagAsAccepted());
+					// AspectJ Extension end
 					this.stats.generateTime += System.currentTimeMillis() - acceptStart; // record accept time as part of generation
 					if (this.options.verbose)
 						this.out.println(
@@ -532,7 +535,9 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 				processingTask.shutdown();
 				processingTask = null;
 			}
-			reset();
+			// AspectJ Extension - handled by CompilerAdapter
+			// reset();
+			// AspectJ Extension end
 			this.annotationProcessorStartIndex  = 0;
 			this.stats.endTime = System.currentTimeMillis();
 		}
@@ -576,8 +581,19 @@ public class Compiler implements ITypeRequestor, ProblemSeverities {
 		}
 		if (result == null) {
 			synchronized (this) {
-				if (this.unitsToProcess != null && this.totalUnits > 0)
-					result = this.unitsToProcess[this.totalUnits - 1].compilationResult;
+				if (this.unitsToProcess != null && this.totalUnits > 0) {
+					// AspectJ Extension - pr242328 - replacing:
+					//  result = this.unitsToProcess[this.totalUnits - 1].compilationResult;
+					// with:
+					int i = totalUnits - 1;
+					while (result == null && i>=0) {
+						if (unitsToProcess[i]!=null) {
+							result = unitsToProcess[i].compilationResult;
+						}
+						i--;
+					}
+				}
+				// End AspectJ Extension
 			}
 		}
 		// last unit in beginToCompile ?

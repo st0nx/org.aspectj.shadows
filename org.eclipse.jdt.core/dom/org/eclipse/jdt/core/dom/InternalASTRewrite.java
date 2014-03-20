@@ -96,8 +96,20 @@ class InternalASTRewrite extends NodeEventHandler {
 			String lineDelim= TextUtilities.getDefaultLineDelimiter(document);
 			List comments= rootNode.getCommentList();
 
+			// MERGECONFLICT
+			// AspectJ Extension - use the factory instead of building one directly
+			// old code:
+			// ASTRewriteAnalyzer visitor = new ASTRewriteAnalyzer(content, lineInfo, lineDelim, result, this.eventStore, this.nodeStore, comments, options, xsrComputer);
+			// new code:
+//			ASTVisitor visitor = ASTRewriteAnalyzer.getAnalyzerVisitor(content, lineInfo, lineInfoneDelim, result, this.eventStore, this.nodeStore, comments, options, xsrComputer);
+			// End AspectJ Extension
+			
 			Map currentOptions = options == null ? JavaCore.getOptions() : options;
-			ASTRewriteAnalyzer visitor = new ASTRewriteAnalyzer(content, lineInfo, lineDelim, result, this.eventStore, this.nodeStore, comments, currentOptions, xsrComputer, (RecoveryScannerData)rootNode.getStatementsRecoveryData());
+			// OLD
+//			ASTRewriteAnalyzer visitor = new ASTRewriteAnalyzer(content, lineInfo, lineDelim, result, this.eventStore, this.nodeStore, comments, currentOptions, xsrComputer, (RecoveryScannerData)rootNode.getStatementsRecoveryData());
+			
+			// NEW  CAST NEEDED???
+			ASTRewriteAnalyzer visitor = (ASTRewriteAnalyzer) ASTRewriteAnalyzer.getAnalyzerVisitor(content, lineInfo, lineDelim, result, this.eventStore, this.nodeStore, comments, currentOptions, xsrComputer, (RecoveryScannerData)rootNode.getStatementsRecoveryData());
 			rootNode.accept(visitor);
 		}
 		return result;

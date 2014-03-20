@@ -1,19 +1,23 @@
+-- AspectJ Extension
+-- Andy Clement, Nov 2007, Nov 2011, Jul 2013
+-- previous versions, Adrian Colyer, Jim Hugunin
 --main options
 %options ACTION, AN=JavaAction.java, GP=java, 
 %options FILE-PREFIX=java, ESCAPE=$, PREFIX=TokenName, OUTPUT-SIZE=125 ,
 %options NOGOTO-DEFAULT, SINGLE-PRODUCTIONS, LALR=1 , TABLE, 
 
 --error recovering options.....
-%options ERROR_MAPS 
+-- ASPECTJ: INCLUDE THE COMMAS OR JIKESPG CAN GIVE AN ARRAYINDEXOUTOFBOUNDS EXCEPTION
+%options ERROR_MAPS,
 
 --grammar understanding options
 %options first follow
-%options TRACE=FULL ,
-%options VERBOSE
+%options TRACE=FULL,
+%options VERBOSE,
 
-%options DEFERRED
-%options NAMES=MAX
-%options SCOPES
+%options DEFERRED,
+%options NAMES=MAXIMUM,
+%options SCOPES,
 
 --Usefull macros helping reading/writing semantic actions
 $Define 
@@ -49,6 +53,10 @@ $Terminals
 	protected public return short static strictfp super switch
 	synchronized this throw throws transient true try void
 	volatile while
+
+-- AspectJ Extension
+	aspect pointcut around before after declare privileged
+-- End AspectJ Extension
 
 	IntegerLiteral
 	LongLiteral
@@ -230,6 +238,23 @@ BooleanLiteral -> true
 BooleanLiteral -> false
 /:$readableName BooleanLiteral:/
 
+-- AspectJ Extension
+-- we do this because AspectJ keywords are 'pseudo' keywords
+-- although they are recognised by the scanner as tokens, there
+-- are many places where they are still allowed as identifiers 
+-- for maximum compatibility with existing Java programs.
+-- JavaIdentifer replaces Identifier at many points in the productions
+-- that follow, and allows any Java identifier or an AspectJ 'pseudo'
+-- keyword to appear at those points in the grammar.
+JavaIdentifier -> 'Identifier'
+JavaIdentifier -> AjSimpleName
+/:$readableName identifier:/
+
+JavaIdentifierNoAround -> 'Identifier'
+JavaIdentifierNoAround -> AjSimpleNameNoAround
+/:$readableName identifier:/
+-- End AspectJ Extension
+
 Type ::= PrimitiveType
 /.$putCase consumePrimitiveType(); $break ./
 Type -> ReferenceType
@@ -309,13 +334,70 @@ ClassType -> ClassOrInterfaceType
 --------------------------------------------------------------
 --------------------------------------------------------------
 
+-- Was this in the old version (37 compiler):
+-- START
+-- Name -> SimpleName
+-- Name -> QualifiedName
+-- /:$readableName Name:/
+-- /:$recovery_template Identifier:/
+--
+-- SimpleName -> 'Identifier'
+-- /:$readableName SimpleName:/
+--
+-- QualifiedName ::= Name '.' SimpleName
+-- /.$putCase consumeQualifiedName(); $break ./
+-- /:$readableName QualifiedName:/ 
+-- END
+
+-- AspectJ Extension
+-- see earlier comments for why we do this... its all about
+-- treating aspectj keywords as pseudo keywords for maximum
+-- compatibility with existing Java applications.
+NameOrAj -> AjName
+NameOrAj -> Name
+/:$readableName name:/
+
+SimpleNameOrAj -> AjSimpleName
+SimpleNameOrAj -> SimpleName
+/:$readableName name:/
+
+-- the addition of the consumeZero calls here is what has caused the jikespg parser to crash at the end?!?
+AjName ::= AjSimpleName
+/.$putCase consumeZeroTypeAnnotations(); $break ./
+AjName ::= AjQualifiedName
+/.$putCase consumeZeroTypeAnnotations(); $break ./
+/:$readableName name:/
+
+AjSimpleName -> AjSimpleNameNoAround
+/:$readableName identifer:/
+
+AjSimpleNameNoAround -> 'aspect'
+AjSimpleNameNoAround -> 'privileged'
+AjSimpleNameNoAround -> 'pointcut'
+AjSimpleName -> 'around'
+AjSimpleNameNoAround -> 'before'
+AjSimpleNameNoAround -> 'after'
+AjSimpleNameNoAround -> 'declare'
+/:$readableName identifier (aspect keywords permitted):/
+
+AjQualifiedName ::= AjName '.' SimpleNameOrAj
+/.$putCase consumeQualifiedName(); $break ./
+/:$readableName qualified name:/
+
+UnannotatableNameOrAj -> AjName
+UnannotatableNameOrAj -> UnannotatableName
+/:$readableName name:/
+
+-- End AspectJ Extension
+
+
 Name ::= SimpleName
 /.$putCase consumeZeroTypeAnnotations(); $break ./
 Name -> TypeAnnotations SimpleName
 /:$compliance 1.8:/
 Name -> QualifiedName
 /:$readableName Name:/
-/:$recovery_template Identifier:/
+/:$recovery_template JavaIdentifier:/ -- AspectJ Extension (JavaIdentifier was Identifier)
 
 SimpleName -> 'Identifier'
 /:$readableName SimpleName:/
@@ -325,9 +407,9 @@ UnannotatableName ::= UnannotatableName '.' SimpleName
 /.$putCase consumeUnannotatableQualifiedName(); $break ./
 /:$readableName UnannotatableQualifiedName:/
 
-QualifiedName ::= Name '.' SimpleName 
+QualifiedName ::= Name '.' JavaIdentifier -- AspectJ Extension (JavaIdentifier was SimpleName) 
 /.$putCase consumeQualifiedName(false); $break ./
-QualifiedName ::= Name '.' TypeAnnotations SimpleName 
+QualifiedName ::= Name '.' TypeAnnotations JavaIdentifier -- AspectJ Extension (JavaIdentifier was SimpleName)
 /.$putCase consumeQualifiedName(true); $break ./
 /:$compliance 1.8:/
 /:$readableName QualifiedName:/
@@ -524,20 +606,577 @@ Modifiers ::= Modifiers Modifier
 /.$putCase consumeModifiers2(); $break ./
 /:$readableName Modifiers:/
 
-Modifier -> 'public' 
-Modifier -> 'protected'
-Modifier -> 'private'
-Modifier -> 'static'
-Modifier -> 'abstract'
-Modifier -> 'final'
-Modifier -> 'native'
-Modifier -> 'synchronized'
-Modifier -> 'transient'
-Modifier -> 'volatile'
-Modifier -> 'strictfp'
+-- AspectJ Extension, introduced SimpleModifier to avoid shift/reduce conflict with PseudoTokens
+SimpleModifier -> 'public' 
+SimpleModifier -> 'protected'
+SimpleModifier -> 'private'
+SimpleModifier -> 'static'
+SimpleModifier -> 'abstract'
+SimpleModifier -> 'final'
+SimpleModifier -> 'native'
+SimpleModifier -> 'synchronized'
+SimpleModifier -> 'transient'
+SimpleModifier -> 'volatile'
+SimpleModifier -> 'strictfp'
+/:$readableName Modifiers:/
+-- End AspectJ Extension, for LALR(1)
+Modifier -> SimpleModifier
 Modifier ::= Annotation
 /.$putCase consumeAnnotationAsModifier(); $break ./
 /:$readableName Modifier:/
+
+-- AspectJ Extensions - main block
+Header -> DeclareDeclaration 
+Header -> InterTypeMethodDeclaration
+Header -> InterTypeFieldDeclaration
+Header -> PointcutDeclaration
+Header -> BasicAdviceDeclaration
+Header -> AroundDeclaration
+
+TypeDeclaration -> AspectDeclaration
+Header -> AspectDeclaration
+
+ClassMemberDeclaration -> AspectDeclaration
+InterfaceMemberDeclaration -> AspectDeclaration
+
+
+ClassMemberDeclaration -> PointcutDeclaration
+InterfaceMemberDeclaration -> PointcutDeclaration
+
+-- everthing else is only visible inside an aspect
+AspectDeclaration ::= AspectHeader AspectBody
+/.$putCase consumeAspectDeclaration(); $break ./
+/:$readableName declaration:/
+-- shortened readable name above works better in error recovery situations
+
+AspectHeader ::= AspectHeaderName ClassHeaderExtendsopt ClassHeaderImplementsopt AspectHeaderRest
+/.$putCase consumeAspectHeader(); $break ./
+/:$readableName aspect header:/
+
+AspectHeaderName -> AspectHeaderName1
+/:$readableName aspect header:/
+
+AspectHeaderName -> AspectHeaderName2
+/:$readableName aspect header:/
+
+AspectHeaderName ::= AspectHeaderName1 TypeParameters
+/.$putCase consumeAspectHeaderNameWithTypeParameters(false); $break ./
+
+-- (pr235505)
+AspectHeaderName ::= AspectHeaderName2 TypeParameters
+/.$putCase consumeAspectHeaderNameWithTypeParameters(true); $break ./
+
+AspectHeaderName1 ::= Modifiersopt 'aspect' 'Identifier'
+/.$putCase consumeAspectHeaderName(false); $break ./
+/:$readableName aspect declaration:/
+
+AspectHeaderName2 ::= Modifiersopt 'privileged' Modifiersopt  'aspect' 'Identifier'
+/.$putCase consumeAspectHeaderName(true); $break ./
+/:$readableName privileged aspect declaration:/
+
+AspectHeaderRest ::= $empty
+
+--[dominates TypePattern] [persingleton() | percflow(PCD) | perthis(PCD) | pertarget(PCD)]
+AspectHeaderRest ::= AspectHeaderRestStart PseudoTokens
+/.$putCase consumeAspectHeaderRest(); $break ./
+/:$readableName per-clause:/
+
+AspectHeaderRestStart ::= 'Identifier'
+/.$putCase consumePseudoTokenIdentifier(); $break ./
+/:$readableName per-clause:/
+
+AspectBody ::= '{' AspectBodyDeclarationsopt '}'
+/:$readableName body:/
+
+AspectBodyDeclarations ::= AspectBodyDeclaration
+AspectBodyDeclarations ::= AspectBodyDeclarations AspectBodyDeclaration
+/.$putCase consumeClassBodyDeclarations(); $break ./
+/:$readableName member declaration:/
+
+AspectBodyDeclarationsopt ::= $empty
+/.$putCase consumeEmptyClassBodyDeclarationsopt(); $break ./
+/:$readableName empty aspect body:/
+
+-- ??? why is NestedType here
+AspectBodyDeclarationsopt ::= NestedType AspectBodyDeclarations
+/.$putCase consumeClassBodyDeclarationsopt(); $break ./
+
+
+AspectBodyDeclaration ::= ClassBodyDeclarationNoAroundMethod
+/.$putCase consumeClassBodyDeclarationInAspect(); $break ./
+/:$readableName aspect member declaration:/
+
+--*****************************************
+-- these rules are a copy of ClassBodyDeclaration rules, going down the member route until
+-- we hit method declarations, at which point we disallow a method called around.
+--*****************************************
+
+ClassBodyDeclarationNoAroundMethod -> ClassMemberDeclarationNoAroundMethod
+ClassBodyDeclarationNoAroundMethod -> StaticInitializer
+ClassBodyDeclarationNoAroundMethod -> ConstructorDeclaration
+--1.1 feature
+ClassBodyDeclarationNoAroundMethod ::= Diet NestedMethod CreateInitializer Block
+/.$putCase consumeClassBodyDeclaration(); $break ./
+/:$readableName ClassBodyDeclarationNoAroundMethod:/
+
+ClassMemberDeclarationNoAroundMethod -> PointcutDeclaration
+ClassMemberDeclarationNoAroundMethod -> AspectDeclaration
+ClassMemberDeclarationNoAroundMethod -> FieldDeclaration
+ClassMemberDeclarationNoAroundMethod -> MethodDeclarationNoAround
+--1.1 feature
+ClassMemberDeclarationNoAroundMethod -> ClassDeclaration
+--1.1 feature
+ClassMemberDeclarationNoAroundMethod -> InterfaceDeclaration
+ClassMemberDeclarationNoAroundMethod -> IntertypeClassDeclaration
+-- 1.5 feature
+ClassMemberDeclarationNoAroundMethod -> EnumDeclaration
+ClassMemberDeclarationNoAroundMethod -> AnnotationTypeDeclaration
+/:$readableName ClassMemberDeclaration:/
+
+-- Empty declarations are not valid Java ClassMemberDeclarations.
+-- However, since the current (2/14/97) Java compiler accepts them 
+-- (in fact, some of the official tests contain this erroneous
+-- syntax)
+ClassMemberDeclarationNoAroundMethod ::= ';'
+/.$putCase consumeEmptyTypeDeclaration(); $break./
+
+MethodDeclarationNoAround -> AbstractMethodDeclarationNoAround
+MethodDeclarationNoAround ::= MethodHeaderNoAround MethodBody 
+/.$putCase // set to true to consume a method with a body
+  consumeMethodDeclaration(true);  $break ./
+/:$readableName MethodDeclarationNoAround:/
+
+AbstractMethodDeclarationNoAround ::= MethodHeaderNoAround ';'
+/.$putCase // set to false to consume a method without body
+  consumeMethodDeclaration(false); $break ./
+/:$readableName MethodDeclaration:/
+
+MethodHeaderNoAround ::= MethodHeaderNameNoAround FormalParameterListopt MethodHeaderRightParen MethodHeaderExtendedDims MethodHeaderThrowsClauseopt
+/.$putCase consumeMethodHeader(); $break ./
+/:$readableName MethodDeclaration:/
+
+MethodHeaderNameNoAround ::= Modifiersopt TypeParameters Type JavaIdentifierNoAround '('
+/.$putCase consumeMethodHeaderNameWithTypeParameters(false); $break ./
+MethodHeaderNameNoAround ::= Modifiersopt Type JavaIdentifierNoAround '('
+/.$putCase consumeMethodHeaderName(false); $break ./
+/:$readableName MethodHeaderName:/
+
+--*****************************************
+-- end copy of ClassBodyDeclaration rules *
+--*****************************************
+
+-- pointcuts and advice
+
+PointcutDeclaration ::= PointcutHeader FormalParameterListopt MethodHeaderRightParen ';'
+/.$putCase consumeEmptyPointcutDeclaration(); $break ./
+/:$readableName pointcut declaration:/
+
+PointcutDeclaration ::= PointcutHeader FormalParameterListopt MethodHeaderRightParen ':' PseudoTokens  ';'
+/.$putCase consumePointcutDeclaration(); $break ./
+/:$readableName pointcut declaration:/
+
+PointcutHeader ::= Modifiersopt 'pointcut'  JavaIdentifier '('
+/.$putCase consumePointcutHeader(); $break ./
+/:$readableName pointcut declaration:/
+
+AspectBodyDeclaration -> AroundDeclaration
+AspectBodyDeclaration -> BasicAdviceDeclaration
+
+AroundDeclaration ::= AroundHeader MethodBody
+/.$putCase consumeAroundDeclaration(); $break ./
+/:$readableName around advice:/
+
+AroundHeader ::= AroundHeaderName FormalParameterListopt MethodHeaderRightParen MethodHeaderThrowsClauseopt ':' PseudoTokens
+/.$putCase consumeAroundHeader(); $break ./
+/:$readableName around advice header:/
+
+
+-- no modifiers are actually allowed on around, but the grammar is happier this way
+AroundHeaderName ::= Modifiersopt Type  'around' '(' 
+/.$putCase consumeAroundHeaderName(); $break ./
+/:$readableName [modifiers] <return-type> around ( :/
+
+-- Recovery rule for around with no return (pr64222)
+AroundHeaderName ::= Modifiersopt 'around' '('
+/.$putCase consumeAroundHeaderNameMissingReturnType(); $break ./
+/:$readableName [modifiers] around (:/
+
+BasicAdviceDeclaration ::= BasicAdviceHeader MethodBody
+/.$putCase consumeBasicAdviceDeclaration(); $break ./
+/:$readableName AdviceDeclaration:/
+
+
+BasicAdviceHeader -> BeforeAdviceHeader
+BasicAdviceHeader -> AfterAdviceHeader
+/:$readableName advice header:/
+
+BeforeAdviceHeader ::= BeforeAdviceHeaderName FormalParameterListopt MethodHeaderRightParen MethodHeaderThrowsClauseopt ':' PseudoTokens
+/.$putCase consumeBasicAdviceHeader(); $break ./
+/:$readableName AdviceHeader:/
+
+AfterAdviceHeader ::= AfterAdviceHeaderName FormalParameterListopt MethodHeaderRightParen ExtraParamopt MethodHeaderThrowsClauseopt ':' PseudoTokens
+/.$putCase consumeBasicAdviceHeader(); $break ./
+/:$readableName AdviceHeader:/
+
+BeforeAdviceHeaderName ::= Modifiersopt 'before' '(' 
+/.$putCase consumeBasicAdviceHeaderName(false); $break ./
+/:$readableName AdviceHeaderName:/
+
+AfterAdviceHeaderName ::= Modifiersopt 'after' '(' 
+/.$putCase consumeBasicAdviceHeaderName(true); $break ./
+/:$readableName AdviceHeaderName:/
+
+ExtraParamopt ::= 'Identifier' '(' FormalParameter ')'
+/.$putCase consumeExtraParameterWithFormal(); $break ./
+/:$readableName ExtraParam:/
+
+ExtraParamopt ::= 'Identifier' '(' ')'
+/.$putCase consumeExtraParameterNoFormal(); $break ./
+/:$readableName ExtraParam:/
+
+-- deprecated, but were probably stuck with it now
+ExtraParamopt ::= 'Identifier'
+/.$putCase consumeExtraParameterNoFormal(); $break ./
+/:$readableName ExtraParam:/
+
+ExtraParamopt ::= $empty
+
+
+-- intertype declarations
+
+OnType ::= JavaIdentifier 
+/.$putCase consumeZeroTypeAnnotations(); $break ./
+OnType ::= OnType '.' JavaIdentifier
+/.$putCase consumeZeroTypeAnnotations(); consumeQualifiedName(); $break ./
+/:$readableName QualifiedName:/
+
+AspectBodyDeclaration -> InterTypeMethodDeclaration
+AspectBodyDeclaration -> InterTypeConstructorDeclaration
+AspectBodyDeclaration -> InterTypeFieldDeclaration
+
+InterTypeMethodDeclaration -> AbstractInterTypeMethodDeclaration
+InterTypeMethodDeclaration ::= InterTypeMethodHeader MethodBody 
+/.$putCase // set to true to consume a method with a body
+  consumeInterTypeMethodDeclaration(true);  $break ./
+/:$readableName inter-type method declaration:/
+
+InterTypeMethodHeader ::= InterTypeMethodHeaderName FormalParameterListopt MethodHeaderRightParen MethodHeaderExtendedDims MethodHeaderThrowsClauseopt
+/.$putCase consumeInterTypeMethodHeader(); $break ./
+/:$readableName inter-type method declaration header:/
+
+InterTypeMethodHeaderName ::= Modifiersopt Type OnType '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderName(false,false); $break ./
+
+-- Recovery Rule
+InterTypeMethodHeaderName ::= Modifiersopt Type OnType '.' '*' '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderNameIllegallyUsingTypePattern("*"); $break ./
+
+-- Recovery Rule
+InterTypeMethodHeaderName ::= Modifiersopt Type OnType '+' '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderNameIllegallyUsingTypePattern("+"); $break ./
+
+InterTypeMethodHeaderName ::= Modifiersopt Type OnType TypeParametersAsReference '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderName(false,true); $break ./
+/:$readableName inter-type method declaration header:/
+
+InterTypeMethodHeaderName ::= Modifiersopt TypeParameters Type OnType '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderName(true,false); $break ./
+
+InterTypeMethodHeaderName ::= Modifiersopt TypeParameters Type OnType TypeParametersAsReference '.' JavaIdentifier '('
+/.$putCase consumeInterTypeMethodHeaderName(true,true); $break ./
+
+AbstractInterTypeMethodDeclaration ::= InterTypeMethodHeader ';'
+/.$putCase // set to false to consume a method without body
+  consumeInterTypeMethodDeclaration(false); $break ./
+/:$readableName abstract inter-type method declaration:/
+
+TypeParametersAsReference ::= TypeParameters
+/.$putCase convertTypeParametersToSingleTypeReferences(); $break ./
+/:$readableName type parameter list:/
+
+InterTypeConstructorDeclaration ::= InterTypeConstructorHeader MethodBody 
+/.$putCase // set to true to consume a method with a body
+  consumeInterTypeConstructorDeclaration();  $break ./
+/:$readableName inter-type constructor declaration:/
+
+InterTypeConstructorHeader ::= InterTypeConstructorHeaderName FormalParameterListopt MethodHeaderRightParen MethodHeaderThrowsClauseopt
+/.$putCase consumeInterTypeConstructorHeader(); $break ./
+/:$readableName inter-type constructor declaration header:/
+
+-- using Name instead of OnType to make jikespg happier
+InterTypeConstructorHeaderName ::= Modifiersopt Name '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderName(false,false); $break ./
+/:$readableName inter-type constructor declaration header:/
+
+-- Recovery Rule
+InterTypeConstructorHeaderName ::= Modifiersopt Name '.' '*' '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderNameIllegallyUsingTypePattern("*"); $break ./
+/:$readableName inter-type constructor declaration header:/
+
+-- Recovery Rule
+InterTypeConstructorHeaderName ::= Modifiersopt Name '+' '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderNameIllegallyUsingTypePattern("+"); $break ./
+/:$readableName inter-type constructor declaration header:/
+
+InterTypeConstructorHeaderName ::= Modifiersopt TypeParameters Name '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderName(true,false); $break ./
+
+InterTypeConstructorHeaderName ::= Modifiersopt GenericType '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderName(false,true); $break ./
+
+InterTypeConstructorHeaderName ::= Modifiersopt TypeParameters GenericType '.' 'new' '('
+/.$putCase consumeInterTypeConstructorHeaderName(true,true); $break ./
+
+InterTypeFieldDeclaration ::= InterTypeFieldHeader InterTypeFieldBody ';'
+/.$putCase consumeInterTypeFieldDeclaration(); $break ./
+/:$readableName inter-type field declaration:/
+
+InterTypeFieldHeader ::= Modifiersopt Type OnType '.' JavaIdentifier
+/.$putCase consumeInterTypeFieldHeader(false); $break ./
+/:$readableName inter-type field declaration header:/
+
+-- Recovery Rule
+InterTypeFieldHeader ::= Modifiersopt Type OnType '.' '*' '.' JavaIdentifier
+/.$putCase consumeInterTypeFieldHeaderIllegallyAttemptingToUseATypePattern("*"); $break ./
+/:$readableName inter-type field declaration header:/
+
+-- Recovery Rule
+InterTypeFieldHeader ::= Modifiersopt Type OnType '+' '.' JavaIdentifier
+/.$putCase consumeInterTypeFieldHeaderIllegallyAttemptingToUseATypePattern("+"); $break ./
+/:$readableName inter-type field declaration header:/
+
+InterTypeFieldHeader ::= Modifiersopt Type OnType TypeParametersAsReference '.' JavaIdentifier
+/.$putCase consumeInterTypeFieldHeader(true); $break ./
+
+--InterTypeFieldDeclaration ::= Modifiersopt Type OnType '.' ITDFieldVariableDeclarator ';'
+--/.$putCase consumeInterTypeFieldDeclaration(); $break ./
+--
+--InterTypeFieldDeclaration ::= Modifiersopt Type OnType TypeParameters '.' ITDFieldVariableDeclarator ';'
+--/.$putCase consumeInterTypeFieldDeclarationWithTypeParameters(); $break ./
+--
+--ITDFieldVariableDeclarator ::= JavaIdentifier EnterITDVariable InterTypeFieldBody
+--/:$readableName ITDFieldVariableDeclarator:/
+--
+--EnterITDVariable ::= $empty
+--/.$putCase consumeEnterITDVariable(); $break ./
+--/:$readableName EnterITDVariable:/
+
+InterTypeFieldBody ::=  $empty
+/.$putCase consumeExitITDVariableWithoutInitializer(); $break ./
+
+InterTypeFieldBody ::= '=' ForceNoDiet VariableInitializer RestoreDiet
+/.$putCase consumeExitITDVariableWithInitializer(); $break ./
+/:$readableName field initialization expression:/
+
+-- declares (more fun than a pcd)
+AspectBodyDeclaration -> DeclareDeclaration
+
+DeclareDeclaration ::= DeclareHeader PseudoTokens ';'
+/.$putCase consumeDeclareDeclaration(); $break ./
+/:$readableName declare statement:/
+
+DeclareHeader ::= 'declare' 'Identifier' ':' 
+/.$putCase consumeDeclareHeader(); $break ./
+/:$readableName declare [error | warning | parents | soft | precedence]:/
+
+
+-- for declare annotation support
+DeclareDeclaration ::= DeclareAnnotationHeader PseudoTokensNoColon ':' Annotations ';'
+/.$putCase consumeDeclareAnnotation(' '); $break ./
+
+DeclareDeclaration ::= DeclareAnnotationHeader PseudoTokensNoColon ':' '+' Annotations ';'
+/.$putCase consumeDeclareAnnotation('+'); $break ./
+
+DeclareDeclaration ::= DeclareAnnotationHeader PseudoTokensNoColon ':' '-' Annotations ';'
+/.$putCase consumeDeclareAnnotation('-'); $break ./
+
+Annotations -> Annotation
+Annotations ::= Annotations Annotation
+/:$readableName Annotations:/
+
+DeclareAnnotationHeader ::= 'declare' '@' 'Identifier' ':'
+/.$putCase consumeDeclareAnnotationHeader(); $break ./
+/:$readableName declare @AnnotationName:/
+
+-- the joy of pcds
+PseudoTokens ::= PseudoToken
+PseudoTokens ::= ColonPseudoToken
+/:$readableName type pattern or pointcut expression:/
+
+PseudoTokens ::= PseudoTokens ColonPseudoToken
+/.$putCase consumePseudoTokens(); $break ./
+
+PseudoTokens ::= PseudoTokens PseudoToken
+/.$putCase consumePseudoTokens(); $break ./
+
+
+PseudoTokensNoColon ::= PseudoToken
+PseudoTokensNoColon ::= PseudoTokensNoColon PseudoToken
+/.$putCase consumePseudoTokens(); $break ./
+/:$readableName allowable token in pointcut or type pattern:/
+
+
+ColonPseudoToken ::= ':'
+/.$putCase consumePseudoToken(":"); $break ./
+/:$readableName any allowable token in pointcut or type pattern, except ':':/
+
+PseudoToken ::= JavaIdentifier
+/.$putCase consumePseudoTokenIdentifier(); $break ./
+/:$readableName allowable token in pointcut or type pattern:/
+
+
+PseudoToken ::= '('
+/.$putCase consumePseudoToken("("); $break ./
+
+PseudoToken ::= ')'
+/.$putCase consumePseudoToken(")"); $break ./
+
+PseudoToken ::= '.'
+/.$putCase consumePseudoToken("."); $break ./
+PseudoToken ::= '*'
+/.$putCase consumePseudoToken("*"); $break ./
+
+PseudoToken ::= '+'
+/.$putCase consumePseudoToken("+"); $break ./
+
+PseudoToken ::= '='
+/.$putCase consumePseudoToken("="); $break ./
+
+PseudoToken ::= '&&'
+/.$putCase consumePseudoToken("&&"); $break ./
+
+PseudoToken ::= '||'
+/.$putCase consumePseudoToken("||"); $break ./
+
+PseudoToken ::= '!'
+/.$putCase consumePseudoToken("!"); $break ./
+
+PseudoToken ::= ','
+/.$putCase consumePseudoToken(","); $break ./
+
+PseudoToken ::= '['
+/.$putCase consumePseudoToken("["); $break ./
+
+PseudoToken ::= ']'
+/.$putCase consumePseudoToken("]"); $break ./
+
+PseudoToken ::= '@'
+/.$putCase consumePseudoToken("@"); $break ./
+
+PseudoToken ::= '...'
+/.$putCase consumePseudoToken("..."); $break ./
+
+PseudoToken ::= '?'
+/.$putCase consumePseudoToken("?"); $break ./
+
+PseudoToken ::= '<'
+/.$putCase consumePseudoToken("<"); $break ./
+
+PseudoToken ::= '>'
+/.$putCase consumePseudoToken(">"); $break ./
+
+PseudoToken ::= '>>'
+/.$putCase consumePseudoToken(">>"); $break ./
+
+PseudoToken ::= '>>>'
+/.$putCase consumePseudoToken(">>>"); $break ./
+
+PseudoToken ::= '&'
+/.$putCase consumePseudoToken("&"); $break ./
+
+PseudoToken ::= '!='
+/.$putCase consumePseudoToken("!="); $break ./
+
+PseudoToken ::= PrimitiveType
+/.$putCase consumePseudoTokenPrimitiveType(); $break ./
+
+PseudoToken ::= SimpleModifier
+/.$putCase consumePseudoTokenModifier(); $break ./
+
+PseudoToken ::= Literal
+/.$putCase consumePseudoTokenLiteral(); $break ./
+
+
+PseudoToken ::= 'this'
+/.$putCase consumePseudoToken("this", 1, true); $break ./
+
+PseudoToken ::= 'class'
+/.$putCase consumePseudoToken("class", 1, true); $break ./
+
+PseudoToken ::= 'super'
+/.$putCase consumePseudoToken("super", 1, true); $break ./
+
+
+-- special handling for if
+PseudoToken ::= 'if' '(' Expression ')'
+/.$putCase consumePseudoTokenIf(); $break ./
+
+PseudoToken ::= 'assert'
+/.$putCase consumePseudoToken("assert", 1, true); $break ./
+
+PseudoToken ::= 'import'
+/.$putCase consumePseudoToken("import", 1, true); $break ./
+
+PseudoToken ::= 'package'
+/.$putCase consumePseudoToken("package", 1, true); $break ./
+
+PseudoToken ::= 'throw'
+/.$putCase consumePseudoToken("throw", 1, true); $break ./
+
+PseudoToken ::= 'new'
+/.$putCase consumePseudoToken("new", 1, true); $break ./
+
+PseudoToken ::= 'do'
+/.$putCase consumePseudoToken("do", 1, true); $break ./
+
+PseudoToken ::= 'for'
+/.$putCase consumePseudoToken("for", 1, true); $break ./
+
+PseudoToken ::= 'switch'
+/.$putCase consumePseudoToken("switch", 1, true); $break ./
+
+PseudoToken ::= 'try'
+/.$putCase consumePseudoToken("try", 1, true); $break ./
+
+PseudoToken ::= 'while'
+/.$putCase consumePseudoToken("while", 1, true); $break ./
+
+PseudoToken ::= 'break'
+/.$putCase consumePseudoToken("break", 1, true); $break ./
+
+PseudoToken ::= 'continue'
+/.$putCase consumePseudoToken("continue", 1, true); $break ./
+
+PseudoToken ::= 'return'
+/.$putCase consumePseudoToken("return", 1, true); $break ./
+
+PseudoToken ::= 'case'
+/.$putCase consumePseudoToken("case", 1, true); $break ./
+
+PseudoToken ::= 'catch'
+/.$putCase consumePseudoToken("catch", 0, true); $break ./
+
+PseudoToken ::= 'instanceof'
+/.$putCase consumePseudoToken("instanceof", 0, true); $break ./
+
+PseudoToken ::= 'else'
+/.$putCase consumePseudoToken("else", 0, true); $break ./
+
+PseudoToken ::= 'extends'
+/.$putCase consumePseudoToken("extends", 0, true); $break ./
+
+PseudoToken ::= 'finally'
+/.$putCase consumePseudoToken("finally", 0, true); $break ./
+
+PseudoToken ::= 'implements'
+/.$putCase consumePseudoToken("implements", 0, true); $break ./
+
+PseudoToken ::= 'throws'
+/.$putCase consumePseudoToken("throws", 0, true); $break ./
+
+-- add all other keywords as identifiers
+-- End AspectJ Extensions main block
+
 
 --18.8 Productions from 8: Class Declarations
 --ClassModifier ::=
@@ -549,6 +1188,27 @@ Modifier ::= Annotation
 ClassDeclaration ::= ClassHeader ClassBody
 /.$putCase consumeClassDeclaration(); $break ./
 /:$readableName ClassDeclaration:/
+
+IntertypeClassDeclaration ::= IntertypeClassHeader ClassBody
+/.$putCase consumeIntertypeClassDeclaration(); $break ./
+/:$readableName IntertypeClassDeclaration:/
+
+IntertypeClassHeader ::= IntertypeClassHeaderName ClassHeaderExtendsopt ClassHeaderImplementsopt
+/.$putCase consumeIntertypeClassHeader(); $break ./
+/:$readableName IntertypeClassHeader:/
+
+IntertypeClassHeaderName ::= IntertypeClassHeaderName1 TypeParameters
+/.$putCase consumeIntertypeTypeHeaderNameWithTypeParameters(); $break ./
+
+IntertypeClassHeaderName -> IntertypeClassHeaderName1
+/:$readableName IntertypeClassHeaderName:/
+
+IntertypeClassHeaderName1 ::= Modifiersopt 'class' OnType '.' JavaIdentifier
+/.$putCase consumeIntertypeClassHeaderName(false); $break ./
+
+InterTypeClassHeaderName1 ::= Modifiersopt 'class' OnType TypeParametersAsReference '.' JavaIdentifier
+/.$putCase consumeIntertypeClassHeaderName(true); $break ./
+/:$readableName IntertypeClassHeader:/
 
 ClassHeader ::= ClassHeaderName ClassHeaderExtendsopt ClassHeaderImplementsopt
 /.$putCase consumeClassHeader(); $break ./
@@ -563,7 +1223,7 @@ ClassHeaderName ::= ClassHeaderName1 TypeParameters
 ClassHeaderName -> ClassHeaderName1
 /:$readableName ClassHeaderName:/
 
-ClassHeaderName1 ::= Modifiersopt 'class' 'Identifier'
+ClassHeaderName1 ::= Modifiersopt 'class' JavaIdentifier -- AspectJ Extension, was 'Identifier'
 /.$putCase consumeClassHeaderName1(); $break ./
 /:$readableName ClassHeaderName:/
 
@@ -653,12 +1313,12 @@ VariableDeclarators -> VariableDeclarator
 VariableDeclarators ::= VariableDeclarators ',' VariableDeclarator
 /.$putCase consumeVariableDeclarators(); $break ./
 /:$readableName VariableDeclarators:/
-/:$recovery_template Identifier:/
+/:$recovery_template JavaIdentifier:/ -- AspectJ Extension, was Identifier
 
 VariableDeclarator ::= VariableDeclaratorId EnterVariable ExitVariableWithoutInitialization
 VariableDeclarator ::= VariableDeclaratorId EnterVariable '=' ForceNoDiet VariableInitializer RestoreDiet ExitVariableWithInitialization
 /:$readableName VariableDeclarator:/
-/:$recovery_template Identifier:/
+/:$recovery_template JavaIdentifier:/ -- AspectJ Extension, was Identifier
 
 EnterVariable ::= $empty
 /.$putCase consumeEnterVariable(); $break ./
@@ -679,14 +1339,14 @@ RestoreDiet ::= $empty
 /.$putCase consumeRestoreDiet(); $break ./
 /:$readableName RestoreDiet:/
 
-VariableDeclaratorId ::= 'Identifier' Dimsopt
+VariableDeclaratorId ::= JavaIdentifier Dimsopt -- AspectJ extension : was 'Identifier'
 /:$readableName VariableDeclaratorId:/
-/:$recovery_template Identifier:/
+/:$recovery_template JavaIdentifier:/ -- AspectJ Extension, was Identifier
 
 VariableInitializer -> Expression
 VariableInitializer -> ArrayInitializer
 /:$readableName VariableInitializer:/
-/:$recovery_template Identifier:/
+/:$recovery_template JavaIdentifier:/ -- AspectJ Extension, was Identifier
 
 --18.8.3 Productions from 8.4: Method Declarations
 --MethodModifier ::=
@@ -724,9 +1384,9 @@ DefaultMethodHeader ::= DefaultMethodHeaderName FormalParameterListopt MethodHea
 /.$putCase consumeMethodHeader(); $break ./
 /:$readableName MethodDeclaration:/
 
-MethodHeaderName ::= Modifiersopt TypeParameters Type 'Identifier' '('
+MethodHeaderName ::= Modifiersopt TypeParameters Type JavaIdentifier '(' -- AspectJ Extension, was 'Identifier'
 /.$putCase consumeMethodHeaderNameWithTypeParameters(false); $break ./
-MethodHeaderName ::= Modifiersopt Type 'Identifier' '('
+MethodHeaderName ::= Modifiersopt Type JavaIdentifier '('  -- AspectJ Extension, was 'Identifier'
 /.$putCase consumeMethodHeaderName(false); $break ./
 /:$readableName MethodHeaderName:/
 
@@ -764,6 +1424,11 @@ ConstructorHeaderName ::= Modifiersopt 'Identifier' '('
 /.$putCase consumeConstructorHeaderName(); $break ./
 /:$readableName ConstructorHeaderName:/
 
+-- AspectJ Extension
+ConstructorHeaderName ::=  Modifiersopt 'aspect' '('  -- makes aspect harder
+/.$putCase consumeConstructorHeaderName(); $break ./
+-- End AspectJ Extension
+
 FormalParameterList -> FormalParameter
 FormalParameterList ::= FormalParameterList ',' FormalParameter
 /.$putCase consumeFormalParameterList(); $break ./
@@ -779,12 +1444,12 @@ FormalParameter ::= Modifiersopt Type @308... TypeAnnotations '...' VariableDecl
 /.$putCase consumeFormalParameter(true); $break ./
 /:$readableName FormalParameter:/
 /:$compliance 1.8:/
-/:$recovery_template Identifier Identifier:/
+/:$recovery_template JavaIdentifier JavaIdentifier:/ -- AspectJ Extension, was Identifier Identifier
 
 CatchFormalParameter ::= Modifiersopt CatchType VariableDeclaratorId
 /.$putCase consumeCatchFormalParameter(); $break ./
 /:$readableName FormalParameter:/
-/:$recovery_template Identifier Identifier:/
+/:$recovery_template JavaIdentifier JavaIdentifier:/ -- AspectJ Extension, was Identifier Identifier
 
 CatchType ::= UnionType
 /.$putCase consumeCatchType(); $break ./
@@ -907,7 +1572,7 @@ InterfaceHeaderName ::= InterfaceHeaderName1 TypeParameters
 InterfaceHeaderName -> InterfaceHeaderName1
 /:$readableName InterfaceHeaderName:/
 
-InterfaceHeaderName1 ::= Modifiersopt interface Identifier
+InterfaceHeaderName1 ::= Modifiersopt interface JavaIdentifier -- AspectJ Extension, was Identifier
 /.$putCase consumeInterfaceHeaderName1(); $break ./
 /:$readableName InterfaceHeaderName:/
 
@@ -979,7 +1644,7 @@ ArrayInitializer ::= '{' PushLeftBrace VariableInitializers '}'
 ArrayInitializer ::= '{' PushLeftBrace VariableInitializers , '}'
 /.$putCase consumeArrayInitializer(); $break ./
 /:$readableName ArrayInitializer:/
-/:$recovery_template Identifier:/
+/:$recovery_template JavaIdentifier:/ -- AspectJ extension, was Identifier
 
 VariableInitializers ::= VariableInitializer
 VariableInitializers ::= VariableInitializers ',' VariableInitializer
@@ -1099,7 +1764,7 @@ LabeledStatementNoShortIf ::= Label ':' StatementNoShortIf
 /.$putCase consumeStatementLabel() ; $break ./
 /:$readableName LabeledStatement:/
 
-Label ::= 'Identifier'
+Label ::= 'JavaIdentifier' -- AspectJ Extension, was 'Identifier'
 /.$putCase consumeLabel() ; $break ./
 /:$readableName Label:/
 
@@ -1581,33 +2246,36 @@ OneDimLoop ::= TypeAnnotations '[' ']'
 /. $putCase consumeOneDimLoop(true); $break ./
 /:$readableName Dimension:/
 
-FieldAccess ::= Primary '.' 'Identifier'
+FieldAccess ::= Primary '.' JavaIdentifier -- AJ JavaIdentifier was 'Identifier'
 /.$putCase consumeFieldAccess(false); $break ./
 
-FieldAccess ::= 'super' '.' 'Identifier'
+FieldAccess ::= 'super' '.' JavaIdentifier -- AJ JavaIdentifier was 'Identifier'
 /.$putCase consumeFieldAccess(true); $break ./
 /:$readableName FieldAccess:/
 
-MethodInvocation ::= Name '(' ArgumentListopt ')'
+MethodInvocation ::= NameOrAj '(' ArgumentListopt ')' -- AspectJ Extension, was Name
 /.$putCase consumeMethodInvocationName(); $break ./
 
-MethodInvocation ::= Name '.' OnlyTypeArguments 'Identifier' '(' ArgumentListopt ')'
+MethodInvocation ::= Name '.' OnlyTypeArguments JavaIdentifier '(' ArgumentListopt ')'  -- AspectJ Extension, 'Identifier'
 /.$putCase consumeMethodInvocationNameWithTypeArguments(); $break ./
 
-MethodInvocation ::= Primary '.' OnlyTypeArguments 'Identifier' '(' ArgumentListopt ')'
+MethodInvocation ::= Primary '.' OnlyTypeArguments JavaIdentifier '(' ArgumentListopt ')' -- AspectJ Extension, 'Identifier'
 /.$putCase consumeMethodInvocationPrimaryWithTypeArguments(); $break ./
 
-MethodInvocation ::= Primary '.' 'Identifier' '(' ArgumentListopt ')'
+MethodInvocation ::= Primary '.' JavaIdentifier '(' ArgumentListopt ')' -- AspectJ Extension, 'Identifier'
 /.$putCase consumeMethodInvocationPrimary(); $break ./
 
-MethodInvocation ::= 'super' '.' OnlyTypeArguments 'Identifier' '(' ArgumentListopt ')'
+MethodInvocation ::= 'super' '.' OnlyTypeArguments JavaIdentifier '(' ArgumentListopt ')' -- AspectJ Extension, 'Identifier'
 /.$putCase consumeMethodInvocationSuperWithTypeArguments(); $break ./
 
-MethodInvocation ::= 'super' '.' 'Identifier' '(' ArgumentListopt ')'
+MethodInvocation ::= 'super' '.' JavaIdentifier '(' ArgumentListopt ')' -- AspectJ Extension, 'Identifier'
 /.$putCase consumeMethodInvocationSuper(); $break ./
 /:$readableName MethodInvocation:/
 
+-- (pr159268)
 ArrayAccess ::= Name '[' Expression ']'
+/.$putCase consumeArrayAccess(true); $break ./
+ArrayAccess ::= AjName '[' Expression ']'
 /.$putCase consumeArrayAccess(true); $break ./
 ArrayAccess ::= PrimaryNoNewArray '[' Expression ']'
 /.$putCase consumeArrayAccess(false); $break ./
@@ -1616,7 +2284,7 @@ ArrayAccess ::= ArrayCreationWithArrayInitializer '[' Expression ']'
 /:$readableName ArrayAccess:/
 
 PostfixExpression -> Primary
-PostfixExpression ::= Name
+PostfixExpression ::= NameOrAj -- AspectJ Extension, was Name
 /.$putCase consumePostfixExpression(); $break ./
 PostfixExpression -> PostIncrementExpression
 PostfixExpression -> PostDecrementExpression
@@ -1787,7 +2455,7 @@ ConditionalExpression ::= ConditionalOrExpression '?' Expression ':' Conditional
 AssignmentExpression -> ConditionalExpression
 AssignmentExpression -> Assignment
 /:$readableName Expression:/
-/:$recovery_template Identifier:/
+/:$recovery_template JavaIdentifier:/ -- AspectJ extension, was Identifier
 
 Assignment ::= PostfixExpression AssignmentOperator AssignmentExpression
 /.$putCase consumeAssignment(); $break ./
@@ -1833,7 +2501,7 @@ AssignmentOperator ::= '|='
 Expression ::= AssignmentExpression
 /.$putCase consumeExpression(); $break ./
 /:$readableName Expression:/
-/:$recovery_template Identifier:/
+/:$recovery_template JavaIdentifier:/ -- AspectJ extension, was Identifier
 
 -- The following rules are for optional nonterminals.
 --
@@ -1945,10 +2613,10 @@ EnumHeader ::= EnumHeaderName ClassHeaderImplementsopt
 /. $putCase consumeEnumHeader(); $break ./
 /:$readableName EnumHeader:/
 
-EnumHeaderName ::= Modifiersopt 'enum' Identifier
+EnumHeaderName ::= Modifiersopt 'enum' JavaIdentifier -- AspectJ Extension, was Identifier
 /. $putCase consumeEnumHeaderName(); $break ./
 /:$compliance 1.5:/
-EnumHeaderName ::= Modifiersopt 'enum' Identifier TypeParameters
+EnumHeaderName ::= Modifiersopt 'enum' JavaIdentifier TypeParameters -- AspectJ Extension, was Identifier
 /. $putCase consumeEnumHeaderNameWithTypeParameters(); $break ./
 /:$readableName EnumHeaderName:/
 /:$compliance 1.5:/
@@ -2011,11 +2679,11 @@ EnhancedForStatementNoShortIf ::= EnhancedForStatementHeader StatementNoShortIf
 /.$putCase consumeEnhancedForStatement(); $break ./
 /:$readableName EnhancedForStatementNoShortIf:/
 
-EnhancedForStatementHeaderInit ::= 'for' '(' Type PushModifiers Identifier Dimsopt
+EnhancedForStatementHeaderInit ::= 'for' '(' Type PushModifiers JavaIdentifier Dimsopt -- AspectJ extension, was Identifier
 /.$putCase consumeEnhancedForStatementHeaderInit(false); $break ./
 /:$readableName EnhancedForStatementHeaderInit:/
 
-EnhancedForStatementHeaderInit ::= 'for' '(' Modifiers Type PushRealModifiers Identifier Dimsopt
+EnhancedForStatementHeaderInit ::= 'for' '(' Modifiers Type PushRealModifiers JavaIdentifier Dimsopt -- AspectJ extension, was Identifier
 /.$putCase consumeEnhancedForStatementHeaderInit(true); $break ./
 /:$readableName EnhancedForStatementHeaderInit:/
 
@@ -2194,7 +2862,7 @@ WildcardBounds3 ::= 'super' ReferenceType3
 /:$readableName WildcardBound3:/
 /:$compliance 1.5:/
 
-TypeParameterHeader ::= TypeAnnotationsopt Identifier
+TypeParameterHeader ::= TypeAnnotationsopt JavaIdentifier -- AJ JavaIdentifier was Identifier
 /.$putCase consumeTypeParameterHeader(); $break ./
 /:$readableName TypeParameter:/
 /:$compliance 1.5:/
@@ -2290,41 +2958,41 @@ UnaryExpressionNotPlusMinus_NotName -> CastExpression
 MultiplicativeExpression_NotName -> UnaryExpression_NotName
 MultiplicativeExpression_NotName ::= MultiplicativeExpression_NotName '*' UnaryExpression
 /.$putCase consumeBinaryExpression(OperatorIds.MULTIPLY); $break ./
-MultiplicativeExpression_NotName ::= Name '*' UnaryExpression
+MultiplicativeExpression_NotName ::= NameOrAj '*' UnaryExpression  -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.MULTIPLY); $break ./
 MultiplicativeExpression_NotName ::= MultiplicativeExpression_NotName '/' UnaryExpression
 /.$putCase consumeBinaryExpression(OperatorIds.DIVIDE); $break ./
-MultiplicativeExpression_NotName ::= Name '/' UnaryExpression
+MultiplicativeExpression_NotName ::= NameOrAj '/' UnaryExpression  -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.DIVIDE); $break ./
 MultiplicativeExpression_NotName ::= MultiplicativeExpression_NotName '%' UnaryExpression
 /.$putCase consumeBinaryExpression(OperatorIds.REMAINDER); $break ./
-MultiplicativeExpression_NotName ::= Name '%' UnaryExpression
+MultiplicativeExpression_NotName ::= NameOrAj '%' UnaryExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.REMAINDER); $break ./
 /:$readableName Expression:/
 
 AdditiveExpression_NotName -> MultiplicativeExpression_NotName
 AdditiveExpression_NotName ::= AdditiveExpression_NotName '+' MultiplicativeExpression
 /.$putCase consumeBinaryExpression(OperatorIds.PLUS); $break ./
-AdditiveExpression_NotName ::= Name '+' MultiplicativeExpression
+AdditiveExpression_NotName ::= NameOrAj '+' MultiplicativeExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.PLUS); $break ./
 AdditiveExpression_NotName ::= AdditiveExpression_NotName '-' MultiplicativeExpression
 /.$putCase consumeBinaryExpression(OperatorIds.MINUS); $break ./
-AdditiveExpression_NotName ::= Name '-' MultiplicativeExpression
+AdditiveExpression_NotName ::= NameOrAj '-' MultiplicativeExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.MINUS); $break ./
 /:$readableName Expression:/
 
 ShiftExpression_NotName -> AdditiveExpression_NotName
 ShiftExpression_NotName ::= ShiftExpression_NotName '<<' AdditiveExpression
 /.$putCase consumeBinaryExpression(OperatorIds.LEFT_SHIFT); $break ./
-ShiftExpression_NotName ::= Name '<<' AdditiveExpression
+ShiftExpression_NotName ::= NameOrAj '<<' AdditiveExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.LEFT_SHIFT); $break ./
 ShiftExpression_NotName ::= ShiftExpression_NotName '>>' AdditiveExpression
 /.$putCase consumeBinaryExpression(OperatorIds.RIGHT_SHIFT); $break ./
-ShiftExpression_NotName ::= Name '>>' AdditiveExpression
+ShiftExpression_NotName ::= NameOrAj '>>' AdditiveExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.RIGHT_SHIFT); $break ./
 ShiftExpression_NotName ::= ShiftExpression_NotName '>>>' AdditiveExpression
 /.$putCase consumeBinaryExpression(OperatorIds.UNSIGNED_RIGHT_SHIFT); $break ./
-ShiftExpression_NotName ::= Name '>>>' AdditiveExpression
+ShiftExpression_NotName ::= NameOrAj '>>>' AdditiveExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.UNSIGNED_RIGHT_SHIFT); $break ./
 /:$readableName Expression:/
 
@@ -2335,20 +3003,20 @@ RelationalExpression_NotName ::= Name '<' ShiftExpression
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.LESS); $break ./
 RelationalExpression_NotName ::= ShiftExpression_NotName '>' ShiftExpression
 /.$putCase consumeBinaryExpression(OperatorIds.GREATER); $break ./
-RelationalExpression_NotName ::= Name '>' ShiftExpression
+RelationalExpression_NotName ::= NameOrAj '>' ShiftExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.GREATER); $break ./
 RelationalExpression_NotName ::= RelationalExpression_NotName '<=' ShiftExpression
 /.$putCase consumeBinaryExpression(OperatorIds.LESS_EQUAL); $break ./
-RelationalExpression_NotName ::= Name '<=' ShiftExpression
+RelationalExpression_NotName ::= NameOrAj '<=' ShiftExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.LESS_EQUAL); $break ./
 RelationalExpression_NotName ::= RelationalExpression_NotName '>=' ShiftExpression
 /.$putCase consumeBinaryExpression(OperatorIds.GREATER_EQUAL); $break ./
-RelationalExpression_NotName ::= Name '>=' ShiftExpression
+RelationalExpression_NotName ::= NameOrAj '>=' ShiftExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.GREATER_EQUAL); $break ./
 /:$readableName Expression:/
 
 InstanceofExpression_NotName -> RelationalExpression_NotName
-InstanceofExpression_NotName ::= Name 'instanceof' ReferenceType
+InstanceofExpression_NotName ::= NameOrAj 'instanceof' ReferenceType -- AspectJ Extension was Name
 /.$putCase consumeInstanceOfExpressionWithName(); $break ./
 InstanceofExpression_NotName ::= InstanceofExpression_NotName 'instanceof' ReferenceType
 /.$putCase consumeInstanceOfExpression(); $break ./
@@ -2357,53 +3025,53 @@ InstanceofExpression_NotName ::= InstanceofExpression_NotName 'instanceof' Refer
 EqualityExpression_NotName -> InstanceofExpression_NotName
 EqualityExpression_NotName ::= EqualityExpression_NotName '==' InstanceofExpression
 /.$putCase consumeEqualityExpression(OperatorIds.EQUAL_EQUAL); $break ./
-EqualityExpression_NotName ::= Name '==' InstanceofExpression
+EqualityExpression_NotName ::= NameOrAj '==' InstanceofExpression -- AspectJ Extension was Name
 /.$putCase consumeEqualityExpressionWithName(OperatorIds.EQUAL_EQUAL); $break ./
 EqualityExpression_NotName ::= EqualityExpression_NotName '!=' InstanceofExpression
 /.$putCase consumeEqualityExpression(OperatorIds.NOT_EQUAL); $break ./
-EqualityExpression_NotName ::= Name '!=' InstanceofExpression
+EqualityExpression_NotName ::= NameOrAj '!=' InstanceofExpression -- AspectJ Extension was Name
 /.$putCase consumeEqualityExpressionWithName(OperatorIds.NOT_EQUAL); $break ./
 /:$readableName Expression:/
 
 AndExpression_NotName -> EqualityExpression_NotName
 AndExpression_NotName ::= AndExpression_NotName '&' EqualityExpression
 /.$putCase consumeBinaryExpression(OperatorIds.AND); $break ./
-AndExpression_NotName ::= Name '&' EqualityExpression
+AndExpression_NotName ::= NameOrAj '&' EqualityExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.AND); $break ./
 /:$readableName Expression:/
 
 ExclusiveOrExpression_NotName -> AndExpression_NotName
 ExclusiveOrExpression_NotName ::= ExclusiveOrExpression_NotName '^' AndExpression
 /.$putCase consumeBinaryExpression(OperatorIds.XOR); $break ./
-ExclusiveOrExpression_NotName ::= Name '^' AndExpression
+ExclusiveOrExpression_NotName ::= NameOrAj '^' AndExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.XOR); $break ./
 /:$readableName Expression:/
 
 InclusiveOrExpression_NotName -> ExclusiveOrExpression_NotName
 InclusiveOrExpression_NotName ::= InclusiveOrExpression_NotName '|' ExclusiveOrExpression
 /.$putCase consumeBinaryExpression(OperatorIds.OR); $break ./
-InclusiveOrExpression_NotName ::= Name '|' ExclusiveOrExpression
+InclusiveOrExpression_NotName ::= NameOrAj '|' ExclusiveOrExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.OR); $break ./
 /:$readableName Expression:/
 
 ConditionalAndExpression_NotName -> InclusiveOrExpression_NotName
 ConditionalAndExpression_NotName ::= ConditionalAndExpression_NotName '&&' InclusiveOrExpression
 /.$putCase consumeBinaryExpression(OperatorIds.AND_AND); $break ./
-ConditionalAndExpression_NotName ::= Name '&&' InclusiveOrExpression
+ConditionalAndExpression_NotName ::= NameOrAj '&&' InclusiveOrExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.AND_AND); $break ./
 /:$readableName Expression:/
 
 ConditionalOrExpression_NotName -> ConditionalAndExpression_NotName
 ConditionalOrExpression_NotName ::= ConditionalOrExpression_NotName '||' ConditionalAndExpression
 /.$putCase consumeBinaryExpression(OperatorIds.OR_OR); $break ./
-ConditionalOrExpression_NotName ::= Name '||' ConditionalAndExpression
+ConditionalOrExpression_NotName ::= NameOrAj '||' ConditionalAndExpression -- AspectJ Extension was Name
 /.$putCase consumeBinaryExpressionWithName(OperatorIds.OR_OR); $break ./
 /:$readableName Expression:/
 
 ConditionalExpression_NotName -> ConditionalOrExpression_NotName
 ConditionalExpression_NotName ::= ConditionalOrExpression_NotName '?' Expression ':' ConditionalExpression
 /.$putCase consumeConditionalExpression(OperatorIds.QUESTIONCOLON) ; $break ./
-ConditionalExpression_NotName ::= Name '?' Expression ':' ConditionalExpression
+ConditionalExpression_NotName ::= NameOrAj '?' Expression ':' ConditionalExpression -- AspectJ Extension was Name
 /.$putCase consumeConditionalExpressionWithName(OperatorIds.QUESTIONCOLON) ; $break ./
 /:$readableName Expression:/
 
@@ -2419,16 +3087,16 @@ Expression_NotName -> AssignmentExpression_NotName
 -----------------------------------------------
 -- 1.5 features : annotation - Metadata feature jsr175
 -----------------------------------------------
-AnnotationTypeDeclarationHeaderName ::= Modifiers '@' PushRealModifiers interface Identifier
+AnnotationTypeDeclarationHeaderName ::= Modifiers '@' PushRealModifiers interface JavaIdentifier -- AspectJ extension, was Identifier
 /.$putCase consumeAnnotationTypeDeclarationHeaderName() ; $break ./
 /:$compliance 1.5:/
-AnnotationTypeDeclarationHeaderName ::= Modifiers '@' PushRealModifiers interface Identifier TypeParameters
+AnnotationTypeDeclarationHeaderName ::= Modifiers '@' PushRealModifiers interface JavaIdentifier TypeParameters -- AspectJ JavaIdentifier was Identifier
 /.$putCase consumeAnnotationTypeDeclarationHeaderNameWithTypeParameters() ; $break ./
 /:$compliance 1.5:/
-AnnotationTypeDeclarationHeaderName ::= '@' PushModifiersForHeader interface Identifier TypeParameters
+AnnotationTypeDeclarationHeaderName ::= '@' PushModifiersForHeader interface JavaIdentifier TypeParameters -- AspectJ JavaIdentifier was Identifier
 /.$putCase consumeAnnotationTypeDeclarationHeaderNameWithTypeParameters() ; $break ./
 /:$compliance 1.5:/
-AnnotationTypeDeclarationHeaderName ::= '@' PushModifiersForHeader interface Identifier
+AnnotationTypeDeclarationHeaderName ::= '@' PushModifiersForHeader interface JavaIdentifier -- AspectJ JavaIdentifier was Identifier
 /.$putCase consumeAnnotationTypeDeclarationHeaderName() ; $break ./
 /:$readableName AnnotationTypeDeclarationHeaderName:/
 /:$compliance 1.5:/
@@ -2462,9 +3130,9 @@ AnnotationTypeMemberDeclarations ::= AnnotationTypeMemberDeclarations Annotation
 /:$readableName AnnotationTypeMemberDeclarations:/
 /:$compliance 1.5:/
 
-AnnotationMethodHeaderName ::= Modifiersopt TypeParameters Type 'Identifier' '('
+AnnotationMethodHeaderName ::= Modifiersopt TypeParameters Type 'JavaIdentifier' '(' -- AspectJ JavaIdentifier was Identifier
 /.$putCase consumeMethodHeaderNameWithTypeParameters(true); $break ./
-AnnotationMethodHeaderName ::= Modifiersopt Type 'Identifier' '('
+AnnotationMethodHeaderName ::= Modifiersopt Type 'JavaIdentifier' '(' -- AspectJ JavaIdentifier was Identifier
 /.$putCase consumeMethodHeaderName(true); $break ./
 /:$readableName MethodHeaderName:/
 /:$compliance 1.5:/
@@ -2506,7 +3174,7 @@ Annotation -> SingleMemberAnnotation
 /:$readableName Annotation:/
 /:$compliance 1.5:/
 
-AnnotationName ::= '@' UnannotatableName
+AnnotationName ::= '@' UnannotatableNameOrAj -- AspectJ: was UnannotatableName
 /.$putCase consumeAnnotationName() ; $break ./
 /:$readableName AnnotationName:/
 /:$compliance 1.5:/
@@ -2531,7 +3199,7 @@ MemberValuePairs ::= MemberValuePairs ',' MemberValuePair
 /:$readableName MemberValuePairs:/
 /:$compliance 1.5:/
 
-MemberValuePair ::= SimpleName '=' EnterMemberValue MemberValue ExitMemberValue
+MemberValuePair ::= SimpleNameOrAj '=' EnterMemberValue MemberValue ExitMemberValue  -- AspectJ Extension was SimpleName
 /.$putCase consumeMemberValuePair() ; $break ./
 /:$readableName MemberValuePair:/
 /:$compliance 1.5:/
@@ -2548,14 +3216,14 @@ ExitMemberValue ::= $empty
 
 MemberValue -> ConditionalExpression_NotName
 /:$compliance 1.5:/
-MemberValue ::= Name
+MemberValue ::= NameOrAj -- AspectJ Extension, was Name
 /.$putCase consumeMemberValueAsName() ; $break ./
 /:$compliance 1.5:/
 MemberValue -> Annotation
 /:$compliance 1.5:/
 MemberValue -> MemberValueArrayInitializer
 /:$readableName MemberValue:/
-/:$recovery_template Identifier:/
+/:$recovery_template JavaIdentifier:/ -- AspectJ extension, was Identifier
 /:$compliance 1.5:/
 
 MemberValueArrayInitializer ::= EnterMemberValueArrayInitializer '{' PushLeftBrace MemberValues ',' '}'
@@ -2605,16 +3273,16 @@ SingleMemberAnnotation ::= AnnotationName '(' SingleMemberAnnotationMemberValue 
 -----------------------------------
 -- 1.5 features : recovery rules --
 -----------------------------------
-RecoveryMethodHeaderName ::= Modifiersopt TypeParameters Type 'Identifier' '('
+RecoveryMethodHeaderName ::= Modifiersopt TypeParameters Type 'JavaIdentifierNoAround' '(' -- AspectJ (JavaIdentifierNoAround was Identifier)
 /.$putCase consumeRecoveryMethodHeaderNameWithTypeParameters(); $break ./
 /:$compliance 1.5:/
-RecoveryMethodHeaderName ::= Modifiersopt Type 'Identifier' '('
+RecoveryMethodHeaderName ::= Modifiersopt Type 'JavaIdentifierNoAround' '(' -- AspectJ (JavaIdentifierNoAround was Identifier)
 /.$putCase consumeRecoveryMethodHeaderName(); $break ./
 /:$readableName MethodHeaderName:/
-RecoveryMethodHeaderName ::= ModifiersWithDefault TypeParameters Type 'Identifier' '('
+RecoveryMethodHeaderName ::= ModifiersWithDefault TypeParameters Type 'JavaIdentifierNoAround' '(' -- AspectJ (JavaIdentifierNoAround was Identifier)
 /.$putCase consumeRecoveryMethodHeaderNameWithTypeParameters(); $break ./
 /:$compliance 1.5:/
-RecoveryMethodHeaderName ::= ModifiersWithDefault Type 'Identifier' '('
+RecoveryMethodHeaderName ::= ModifiersWithDefault Type 'JavaIdentifierNoAround' '(' -- AspectJ (JavaIdentifierNoAround was Identifier)
 /.$putCase consumeRecoveryMethodHeaderName(); $break ./
 /:$readableName MethodHeaderName:/
 

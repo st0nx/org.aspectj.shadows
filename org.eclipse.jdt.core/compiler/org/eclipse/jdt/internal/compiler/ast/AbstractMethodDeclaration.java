@@ -7,6 +7,7 @@
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
+ *     Palo Alto Research Center, Incorporated - AspectJ adaptation
  *     Stephan Herrmann - Contributions for
  *								bug 186342 - [compiler][null] Using annotations for null checking
  *								bug 367203 - [compiler][null] detect assigning null to nonnull argument
@@ -37,7 +38,9 @@ import org.eclipse.jdt.internal.compiler.problem.*;
 import org.eclipse.jdt.internal.compiler.parser.*;
 import org.eclipse.jdt.internal.compiler.util.Util;
 
-@SuppressWarnings({"rawtypes"})
+/**
+ * AspectJ Extension - added several extension points for subclasses
+ */
 public abstract class AbstractMethodDeclaration
 	extends ASTNode
 	implements ProblemSeverities, ReferenceContext {
@@ -303,7 +306,7 @@ public abstract class AbstractMethodDeclaration
 
 		classFile.generateMethodInfoHeader(this.binding);
 		int methodAttributeOffset = classFile.contentsOffset;
-		int attributeNumber = classFile.generateMethodInfoAttributes(this.binding);
+		int attributeNumber = generateInfoAttributes(classFile);  // AspectJ Extension - moved to helper method (code was: classFile.generateMethodInfoAttribute(this.binding);)
 		if ((!this.binding.isNative()) && (!this.binding.isAbstract())) {
 			int codeAttributeOffset = classFile.contentsOffset;
 			classFile.generateCodeAttributeHeader();
@@ -667,4 +670,34 @@ public abstract class AbstractMethodDeclaration
 			}			
 		}
 	}
+	//*********************************************************************
+	// AspectJ Extension
+	/**
+	 * Called at the end of resolving types
+	 * @returns false if some error occurred
+	 */
+	public boolean finishResolveTypes(SourceTypeBinding sourceTypeBinding) {
+		return true;
+	}
+	/**
+	 * Just before building bindings, hook for subclasses
+	 */
+	public void postParse(TypeDeclaration typeDec) {
+		// do nothing.  subclasses may override
+	}
+	
+	/**
+	 * Generates my info attributes, hook for subclasses
+	 */
+	protected int generateInfoAttributes(ClassFile classFile) {
+		return classFile.generateMethodInfoAttributes(binding);
+	}
+	
+	/**
+	 * Hook for subclasses to influence scope hierarchy. (why-o-why cant fields be accessed through getters...)
+	 */
+	public void ensureScopeSetup() { 
+		// do nothing.  subclasses may override
+	}
+	// End AspectJ Extension
 }
