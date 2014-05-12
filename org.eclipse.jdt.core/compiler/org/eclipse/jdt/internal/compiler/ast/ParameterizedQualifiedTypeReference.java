@@ -227,7 +227,7 @@ public class ParameterizedQualifiedTypeReference extends ArrayQualifiedTypeRefer
 			}
 			ReferenceBinding currentType = (ReferenceBinding) this.resolvedType;
 			if (qualifyingType == null
-					|| (currentType.isMemberType() && qualifyingType!=currentType.enclosingType())) { // AspectJ Extension - pr235829
+					|| (currentType.isMemberType() && TypeBinding.notEquals(qualifyingType,currentType.enclosingType()))) { // AspectJ Extension - pr235829
 				qualifyingType = currentType.enclosingType(); // if member type
 				if (qualifyingType != null) {
 					qualifyingType = currentType.isStatic()
