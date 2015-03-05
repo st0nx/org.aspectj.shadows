@@ -1,9 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2013 IBM Corporation and others.
+ * Copyright (c) 2000, 2015 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-v10.html
+ *
+ * This is an implementation of an early-draft specification developed under the Java
+ * Community Process (JCP) and is made available for testing and evaluation purposes
+ * only. The code is not compatible with any specification of the JCP.
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
@@ -312,15 +316,11 @@ public byte[] getBytes() throws JavaModelException {
 	JavaElement pkg = (JavaElement) getParent();
 	if (pkg instanceof JarPackageFragment) {
 		JarPackageFragmentRoot root = (JarPackageFragmentRoot) pkg.getParent();
-		ZipFile zip = null;
 		try {
-			zip = root.getJar();
 			String entryName = Util.concatWith(((PackageFragment) pkg).names, getElementName(), '/');
-			ZipEntry ze = zip.getEntry(entryName);
-			if (ze != null) {
-				return org.eclipse.jdt.internal.compiler.util.Util.getZipEntryByteContent(ze, zip);
-			}
-			throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
+			return getClassFileContent(root, entryName);
+			// BETA_JAVA9 - The below exception is not thrown in new scheme of things. Could cause issues?
+//			throw new JavaModelException(new JavaModelStatus(IJavaModelStatusConstants.ELEMENT_DOES_NOT_EXIST, this));
 		} catch (IOException ioe) {
 			throw new JavaModelException(ioe, IJavaModelStatusConstants.IO_EXCEPTION);
 		} catch (CoreException e) {
@@ -329,28 +329,40 @@ public byte[] getBytes() throws JavaModelException {
 			} else {
 				throw new JavaModelException(e);
 			}
-		} finally {
-			JavaModelManager.getJavaModelManager().closeZipFile(zip);
 		}
 	} else {
 		IFile file = (IFile) resource();
 		return Util.getResourceContentsAsByteArray(file);
 	}
 }
+private byte[] getClassFileContent(JarPackageFragmentRoot root, String className) throws CoreException, IOException {
+	byte[] contents = null;
+	if (root.isJimage) {
+		contents = org.eclipse.jdt.internal.compiler.util.Util.getClassfileContent(className);
+	} else {
+		ZipFile zip = root.getJar();
+		try {
+			ZipEntry ze = zip.getEntry(className);
+			if (ze != null) {
+				contents = org.eclipse.jdt.internal.compiler.util.Util.getZipEntryByteContent(ze, zip);
+			}
+		} finally {
+			JavaModelManager.getJavaModelManager().closeZipFile(zip);
+		}
+	}
+	return contents;
+}
 private IBinaryType getJarBinaryTypeInfo(PackageFragment pkg, boolean fullyInitialize) throws CoreException, IOException, ClassFormatException {
 	JarPackageFragmentRoot root = (JarPackageFragmentRoot) pkg.getParent();
-	ZipFile zip = null;
 	try {
-		zip = root.getJar();
 		String entryName = Util.concatWith(pkg.names, getElementName(), '/');
-		ZipEntry ze = zip.getEntry(entryName);
-		if (ze != null) {
-			byte contents[] = org.eclipse.jdt.internal.compiler.util.Util.getZipEntryByteContent(ze, zip);
+		byte[] contents = getClassFileContent(root, entryName);
+		if (contents != null) {
 			String fileName = root.getHandleIdentifier() + IDependent.JAR_FILE_ENTRY_SEPARATOR + entryName;
 			return new ClassFileReader(contents, fileName.toCharArray(), fullyInitialize);
 		}
 	} finally {
-		JavaModelManager.getJavaModelManager().closeZipFile(zip);
+//		JavaModelManager.getJavaModelManager().closeZipFile(zip);
 	}
 	return null;
 }

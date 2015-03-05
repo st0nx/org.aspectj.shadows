@@ -1,9 +1,13 @@
 /*******************************************************************************
- * Copyright (c) 2000, 2013 IBM Corporation and others.
+ * Copyright (c) 2000, 2015 IBM Corporation and others.
  * All rights reserved. This program and the accompanying materials
  * are made available under the terms of the Eclipse Public License v1.0
  * which accompanies this distribution, and is available at
  * http://www.eclipse.org/legal/epl-v10.html
+ *
+ * This is an implementation of an early-draft specification developed under the Java
+ * Community Process (JCP) and is made available for testing and evaluation purposes
+ * only. The code is not compatible with any specification of the JCP.
  *
  * Contributors:
  *     IBM Corporation - initial API and implementation
@@ -13,7 +17,7 @@ package org.eclipse.jdt.internal.core.builder;
 
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.runtime.*;
-
+import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFileReader;
 import org.eclipse.jdt.internal.compiler.classfmt.ClassFormatException;
 import org.eclipse.jdt.internal.compiler.env.AccessRuleSet;
@@ -21,9 +25,13 @@ import org.eclipse.jdt.internal.compiler.env.NameEnvironmentAnswer;
 import org.eclipse.jdt.internal.compiler.util.SimpleLookupTable;
 import org.eclipse.jdt.internal.compiler.util.SimpleSet;
 import org.eclipse.jdt.internal.compiler.util.SuffixConstants;
+import org.eclipse.jdt.internal.core.JavaModelManager;
 import org.eclipse.jdt.internal.core.util.Util;
 
 import java.io.*;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.zip.*;
 
@@ -44,6 +52,18 @@ static class PackageCacheEntry {
 
 static SimpleLookupTable PackageCache = new SimpleLookupTable();
 
+
+protected static void addToPackageSet(SimpleSet packageSet, String fileName, boolean endsWithSep) {
+	int last = endsWithSep ? fileName.length() : fileName.lastIndexOf('/');
+	while (last > 0) {
+		// extract the package name
+		String packageName = fileName.substring(0, last);
+		if (packageSet.addIfNotIncluded(packageName) == null)
+			return; // already existed
+		last = packageName.lastIndexOf('/');
+	}
+}
+
 /**
  * Calculate and cache the package list available in the zipFile.
  * @param jar The ClasspathJar to use
@@ -51,29 +71,41 @@ static SimpleLookupTable PackageCache = new SimpleLookupTable();
  */
 static SimpleSet findPackageSet(ClasspathJar jar) {
 	String zipFileName = jar.zipFilename;
+	final SimpleSet packageSet = new SimpleSet(41);
+	if (jar.isJimage) {
+		try {
+			org.eclipse.jdt.internal.compiler.util.Util.walkModuleImage(new File(jar.zipFilename), 
+					new org.eclipse.jdt.internal.compiler.util.Util.JimageVisitor<Path>() {
+
+				@Override
+				public FileVisitResult visitPackage(Path dir, BasicFileAttributes attrs) throws IOException {
+					ClasspathJar.addToPackageSet(packageSet, dir.toString(), true);
+					return FileVisitResult.CONTINUE;
+				}
+
+				@Override
+				public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+					return FileVisitResult.CONTINUE;
+				}
+			});
+		} catch (JavaModelException e) {
+			e.printStackTrace();
+		}
+		// TODO: What about caching?
+	} else {
 	long lastModified = jar.lastModified();
 	long fileSize = new File(zipFileName).length();
 	PackageCacheEntry cacheEntry = (PackageCacheEntry) PackageCache.get(zipFileName);
 	if (cacheEntry != null && cacheEntry.lastModified == lastModified && cacheEntry.fileSize == fileSize)
 		return cacheEntry.packageSet;
-
-	SimpleSet packageSet = new SimpleSet(41);
 	packageSet.add(""); //$NON-NLS-1$
-	nextEntry : for (Enumeration e = jar.zipFile.entries(); e.hasMoreElements(); ) {
+		for (Enumeration e = jar.zipFile.entries(); e.hasMoreElements(); ) {
 		String fileName = ((ZipEntry) e.nextElement()).getName();
-
-		// add the package name & all of its parent packages
-		int last = fileName.lastIndexOf('/');
-		while (last > 0) {
-			// extract the package name
-			String packageName = fileName.substring(0, last);
-			if (packageSet.addIfNotIncluded(packageName) == null)
-				continue nextEntry; // already existed
-			last = packageName.lastIndexOf('/');
+			addToPackageSet(packageSet, fileName, false);
 		}
+		PackageCache.put(zipFileName, new PackageCacheEntry(lastModified, fileSize, packageSet));
 	}
 
-	PackageCache.put(zipFileName, new PackageCacheEntry(lastModified, fileSize, packageSet));
 	return packageSet;
 }
 
@@ -85,6 +117,7 @@ long lastModified;
 boolean closeZipFileAtEnd;
 SimpleSet knownPackageNames;
 AccessRuleSet accessRuleSet;
+boolean isJimage;
 
 ClasspathJar(IFile resource, AccessRuleSet accessRuleSet) {
 	this.resource = resource;
@@ -110,6 +143,7 @@ ClasspathJar(String zipFilename, long lastModified, AccessRuleSet accessRuleSet)
 	this.zipFile = null;
 	this.knownPackageNames = null;
 	this.accessRuleSet = accessRuleSet;
+	this.isJimage = JavaModelManager.isJimage(zipFilename);
 }
 
 public ClasspathJar(ZipFile zipFile, AccessRuleSet accessRuleSet) {
@@ -146,7 +180,12 @@ public NameEnvironmentAnswer findClass(String binaryFileName, String qualifiedPa
 	if (!isPackage(qualifiedPackageName)) return null; // most common case
 
 	try {
-		ClassFileReader reader = ClassFileReader.read(this.zipFile, qualifiedBinaryFileName);
+		ClassFileReader reader = null;
+		if (this.isJimage) {
+			reader = ClassFileReader.readFromJimage(this.zipFilename, qualifiedBinaryFileName);
+		} else {
+			reader = ClassFileReader.read(this.zipFile, qualifiedBinaryFileName);
+		}
 		if (reader != null) {
 			if (this.accessRuleSet == null)
 				return new NameEnvironmentAnswer(reader, null);
@@ -173,7 +212,9 @@ public boolean isPackage(String qualifiedPackageName) {
 		return this.knownPackageNames.includes(qualifiedPackageName);
 
 	try {
-		if (this.zipFile == null) {
+		if (this.isJimage) {
+			this.knownPackageNames = findPackageSet(this);
+		} else if (this.zipFile == null) {
 			if (org.eclipse.jdt.internal.core.JavaModelManager.ZIP_ACCESS_VERBOSE) {
 				System.out.println("(" + Thread.currentThread() + ") [ClasspathJar.isPackage(String)] Creating ZipFile on " + this.zipFilename); //$NON-NLS-1$	//$NON-NLS-2$
 			}

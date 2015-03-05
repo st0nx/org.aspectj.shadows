@@ -24,12 +24,21 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
+import java.nio.file.DirectoryStream;
+import java.nio.file.FileSystems;
+import java.nio.file.FileVisitResult;
+import java.nio.file.FileVisitor;
+import java.nio.file.Files;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.HashSet;
 import java.util.List;
 import java.util.StringTokenizer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
+import org.eclipse.jdt.core.IJavaModelStatusConstants;
+import org.eclipse.jdt.core.JavaModelException;
 import org.eclipse.jdt.core.compiler.CharOperation;
 import org.eclipse.jdt.internal.compiler.ClassFile;
 import org.eclipse.jdt.internal.compiler.ast.TypeDeclaration;
@@ -232,6 +241,10 @@ public class Util implements SuffixConstants {
 
 	public static final String EMPTY_STRING = new String(CharOperation.NO_CHAR);
 	public static final int[] EMPTY_INT_ARRAY= new int[0];
+
+	private static URI JRT_URI = URI.create("jrt:/"); //$NON-NLS-1$
+
+	private static String JAVA_BASE_PATH = "java.base"; //$NON-NLS-1$
 
 	/**
 	 * Build all the directories and subdirectories corresponding to the packages names
@@ -698,6 +711,115 @@ public class Util implements SuffixConstants {
 			}
 		}
 	}
+	/**
+	 * Given the path of a modular image file, this method walks the archive content and
+	 * notifies the supplied visitor about packages and files visited.
+	 * Note: At the moment, there's no way to open any arbitrary image. Currently,
+	 * this method uses the JRT file system provider to look inside the JRE.
+	 *   
+	 * @param image a java.io.File handle to the JRT image.
+	 * @param visitor an instance of JimageVisitor to be notified of the entries in the JRT image.
+	 * @throws JavaModelException
+	 */
+	public static void walkModuleImage(File image, final JimageVisitor<java.nio.file.Path> visitor) throws JavaModelException {
+		java.nio.file.FileSystem fs = FileSystems.getFileSystem(JRT_URI);
+		Iterable<java.nio.file.Path> roots = fs.getRootDirectories();
+		java.nio.file.Path basePath = null;
+		roots: for (java.nio.file.Path path : roots) {
+			try (DirectoryStream<java.nio.file.Path> stream = Files.newDirectoryStream(path)) {
+				for (java.nio.file.Path subdir: stream) {
+					walkModuleImage2(visitor, subdir);
+//					if (subdir.toString().indexOf(JAVA_BASE_PATH) != -1) {
+//						basePath = subdir;
+//						break roots;
+//					}
+			    }
+			} catch (Exception e) {
+				throw new JavaModelException(e, IJavaModelStatusConstants.IO_EXCEPTION);
+			}
+		}
+		walkModuleImage2(visitor, basePath);
+	}
+
+	private static void walkModuleImage2(final JimageVisitor<java.nio.file.Path> visitor, java.nio.file.Path basePath)
+			throws JavaModelException {
+		try {
+			if (basePath != null) {
+				final java.nio.file.Path base = basePath;
+				Files.walkFileTree(basePath, new FileVisitor<java.nio.file.Path>() {
+
+					@Override
+					public FileVisitResult preVisitDirectory(java.nio.file.Path dir, BasicFileAttributes attrs) throws IOException {
+						return visitor.visitPackage(base.relativize(dir), attrs);
+					}
+
+					@Override
+					public FileVisitResult visitFile(java.nio.file.Path file, BasicFileAttributes attrs) throws IOException {
+						return visitor.visitFile(base.relativize(file), attrs);
+					}
+
+					@Override
+					public FileVisitResult visitFileFailed(java.nio.file.Path file, IOException exc) throws IOException {
+						return FileVisitResult.CONTINUE;
+					}
+
+					@Override
+					public FileVisitResult postVisitDirectory(java.nio.file.Path dir, IOException exc) throws IOException {
+						return FileVisitResult.CONTINUE;
+					}
+				});
+			}
+		} catch (IOException e) {
+			throw new JavaModelException(e, IJavaModelStatusConstants.IO_EXCEPTION);
+		}
+	}
+
+	public static InputStream getContentFromJimage(String fileName) throws IOException {
+		java.nio.file.FileSystem fs = FileSystems.getFileSystem(JRT_URI);
+		try {
+			
+		return Files.newInputStream(fs.getPath(JAVA_BASE_PATH, fileName));
+		} catch (IOException ioe) {
+			// check other modules!
+			Iterable<java.nio.file.Path> roots = fs.getRootDirectories();
+			java.nio.file.Path basePath = null;
+			for (java.nio.file.Path path : roots) {
+				try (DirectoryStream<java.nio.file.Path> stream = Files.newDirectoryStream(path)) {
+					for (java.nio.file.Path subdir: stream) {
+						try {
+							return Files.newInputStream(fs.getPath(subdir.toString(), fileName));
+						} catch (IOException ioe2) {
+							
+						}
+					}
+				}
+			}
+			throw ioe; 
+		}
+	}
+
+	public static byte[] getClassfileContent(String fileName) throws IOException {
+		java.nio.file.FileSystem fs = FileSystems.getFileSystem(JRT_URI);
+		try {
+		return Files.readAllBytes(fs.getPath(JAVA_BASE_PATH, fileName));
+		} catch (IOException ioe) {
+			// check other modules!
+			Iterable<java.nio.file.Path> roots = fs.getRootDirectories();
+			java.nio.file.Path basePath = null;
+			for (java.nio.file.Path path : roots) {
+				try (DirectoryStream<java.nio.file.Path> stream = Files.newDirectoryStream(path)) {
+					for (java.nio.file.Path subdir: stream) {
+						try {
+							return Files.readAllBytes(fs.getPath(subdir.toString(), fileName));
+						} catch (IOException ioe2) {
+							
+						}
+					}
+				}
+			}
+			throw ioe;
+		}
+	}
 	public static int hashCode(Object[] array) {
 		int prime = 31;
 		if (array == null) {
@@ -740,6 +862,54 @@ public class Util implements SuffixConstants {
 			return false; // it is a ".class" file, it cannot be a zip archive name
 		}
 		return true; // it is neither a ".java" file nor a ".class" file, so this is a potential archive name
+	}
+
+	public static final int ZIP_FILE = 0;
+	
+	public static final int JIMAGE_FILE = 1;
+	
+	/**
+	 * Returns whether the given name is potentially a zip archive file name
+	 * (it has a file extension and it is not ".java" nor ".class")
+	 */
+	public final static int archiveFormat(String name) {
+		int lastDot = name.lastIndexOf('.');
+		if (lastDot == -1)
+			return -1; // no file extension, it cannot be a zip archive name
+		if (name.lastIndexOf(File.separatorChar) > lastDot)
+			return -1; // dot was before the last file separator, it cannot be a zip archive name
+		int length = name.length();
+		int extensionLength = length - lastDot - 1;
+		
+		if (extensionLength == EXTENSION_jimage.length()) {
+			for (int i = extensionLength-1; i >=0; i--) {
+				if (Character.toLowerCase(name.charAt(length - extensionLength + i)) != EXTENSION_jimage.charAt(i)) {
+					break;
+				}
+				if (i == 0) {
+					return JIMAGE_FILE;
+				}
+			}
+		}
+		if (extensionLength == EXTENSION_java.length()) {
+			for (int i = extensionLength-1; i >=0; i--) {
+				if (Character.toLowerCase(name.charAt(length - extensionLength + i)) != EXTENSION_java.charAt(i)) {
+					break; // not a ".java" file, check ".class" file case below
+				}
+				if (i == 0) {
+					return -1; // it is a ".java" file, it cannot be a zip archive name
+				}
+			}
+		}
+		if (extensionLength == EXTENSION_class.length()) {
+			for (int i = extensionLength-1; i >=0; i--) {
+				if (Character.toLowerCase(name.charAt(length - extensionLength + i)) != EXTENSION_class.charAt(i)) {
+					return ZIP_FILE; // not a ".class" file, so this is a potential archive name
+				}
+			}
+			return -1; // it is a ".class" file, it cannot be a zip archive name
+		}
+		return ZIP_FILE; // it is neither a ".java" file nor a ".class" file, so this is a potential archive name
 	}
 
 	/**
@@ -1587,5 +1757,60 @@ public class Util implements SuffixConstants {
 				return false;
 		}
 		return true;
+	}
+	
+	public static void appendEscapedChar(StringBuffer buffer, char c, boolean stringLiteral) {
+		switch (c) {
+			case '\b' :
+				buffer.append("\\b"); //$NON-NLS-1$
+				break;
+			case '\t' :
+				buffer.append("\\t"); //$NON-NLS-1$
+				break;
+			case '\n' :
+				buffer.append("\\n"); //$NON-NLS-1$
+				break;
+			case '\f' :
+				buffer.append("\\f"); //$NON-NLS-1$
+				break;
+			case '\r' :
+				buffer.append("\\r"); //$NON-NLS-1$
+				break;
+			case '\"':
+				if (stringLiteral) {
+					buffer.append("\\\""); //$NON-NLS-1$
+				} else {
+					buffer.append(c);
+				}
+				break;
+			case '\'':
+				if (stringLiteral) {
+					buffer.append(c);
+				} else {
+					buffer.append("\\\'"); //$NON-NLS-1$
+				}
+				break;
+			case '\\':
+				buffer.append("\\\\"); //$NON-NLS-1$
+				break;
+			default:
+				if (c >= 0x20) {
+					buffer.append(c);
+				} else if (c >= 0x10) {
+					buffer.append("\\u00").append(Integer.toHexString(c)); //$NON-NLS-1$
+				} else if (c >= 0) {
+					buffer.append("\\u000").append(Integer.toHexString(c)); //$NON-NLS-1$
+				} else {
+					buffer.append(c);
+				}
+		}
+	}
+
+	public interface JimageVisitor<T> {
+
+		public FileVisitResult visitPackage(T dir, BasicFileAttributes attrs) throws IOException;
+
+		public FileVisitResult visitFile(T file, BasicFileAttributes attrs) throws IOException;
+
 	}
 }
