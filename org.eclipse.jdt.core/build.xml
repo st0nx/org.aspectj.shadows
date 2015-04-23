@@ -191,13 +191,13 @@
 
 	    <copy toDir="src-temp">
 	      <fileset dir="${srcfolder}"/>
-	      <mapper type="regexp" from="^(.*)org\\aspectj\\org\\eclipse\\jdt(.*)$" to="\1org\\eclipse\\jdt\2"/>
+	      <mapper type="regexp" from="^(.*)org/aspectj/org/eclipse/jdt(.*)$" to="\1org/eclipse/jdt\2"/>
 	    </copy>
 
 	  	<!-- Copy across other stuff as is.. -->
 	  	<copy toDir="src-temp">
 	  		   <fileset dir="${srcfolder}"/>
-	  		   <mapper type="regexp" from="^(.*)org\\aspectj\\ajdt(.*)$" to="\1org\\aspectj\\ajdt\2"/>
+	  		   <mapper type="regexp" from="^(.*)org/aspectj/ajdt(.*)$" to="\1org/aspectj/ajdt\2"/>
 	  	</copy>
 
 
