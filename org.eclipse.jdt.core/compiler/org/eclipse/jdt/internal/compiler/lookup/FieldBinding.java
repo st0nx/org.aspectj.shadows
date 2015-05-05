@@ -389,6 +389,9 @@ public void setAnnotations(AnnotationBinding[] annotations) {
 	this.declaringClass.storeAnnotations(this, annotations);
 }
 public FieldDeclaration sourceField() {
+	//	AspectJ Extension
+	if(this.declaringClass instanceof BinaryTypeBinding) return null;
+	//	End AspectJ Extension
 	SourceTypeBinding sourceType;
 	try {
 		sourceType = (SourceTypeBinding) this.declaringClass;

@@ -1223,6 +1223,9 @@ public final char[] signature(ClassFile classFile) {
 public final int sourceEnd() {
 	AbstractMethodDeclaration method = sourceMethod();
 	if (method == null) {
+		//	AspectJ Extension
+		if (this.declaringClass instanceof BinaryTypeBinding) return 0;
+		//	End AspectJ Extension
 		if (this.declaringClass instanceof SourceTypeBinding)
 			return ((SourceTypeBinding) this.declaringClass).sourceEnd();
 		return 0;
@@ -1266,6 +1269,9 @@ public LambdaExpression sourceLambda() {
 public final int sourceStart() {
 	AbstractMethodDeclaration method = sourceMethod();
 	if (method == null) {
+        //	AspectJ Extension
+		if (declaringClass instanceof BinaryTypeBinding) return 0;
+        //	End AspectJ Extension
 		if (this.declaringClass instanceof SourceTypeBinding)
 			return ((SourceTypeBinding) this.declaringClass).sourceStart();
 		return 0;
